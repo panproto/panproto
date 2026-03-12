@@ -1,0 +1,121 @@
+# API Reference {.appendix}
+
+An annotated summary of the public API surface. For full documentation, see the generated API docs shipped with each package.
+
+## TypeScript SDK (`@panproto/core`)
+
+### Initialization
+
+| Signature | Description |
+|-----------|-------------|
+| `Panproto.init()` → `Panproto` | Initialize the panproto runtime (loads the WASM engine). |
+| `panproto.protocol(name)` → `Protocol` | Retrieve a built-in or registered protocol by name. |
+
+### Schema Construction
+
+| Signature | Description |
+|-----------|-------------|
+| `protocol.schema()` → `SchemaBuilder` | Begin building a schema within a protocol. |
+| `builder.addVertex(name, props?)` → `SchemaBuilder` | Add a vertex (sort instance) to the schema. |
+| `builder.addEdge(name, src, tgt, props?)` → `SchemaBuilder` | Add an edge (operation instance) between vertices. |
+| `builder.build()` → `BuiltSchema` | Finalize and validate the schema. |
+
+### Migration
+
+| Signature | Description |
+|-----------|-------------|
+| `panproto.migration(old, new)` → `MigrationBuilder` | Begin constructing a migration between two schemas. |
+| `builder.renameVertex(from, to)` → `MigrationBuilder` | Map a vertex in the old schema to a renamed vertex in the new. |
+| `builder.mapEdge(from, to)` → `MigrationBuilder` | Map an edge in the old schema to an edge in the new. |
+| `builder.compile()` → `CompiledMigration` | Compile the migration into an executable form. |
+| `migration.lift(record)` → `Record` | Migrate a data record forward through the schema change. |
+| `migration.get(record)` → `View` | Extract the forward view (lens get). |
+| `migration.put(view, complement)` → `Record` | Reconstruct a source record from a view and complement (lens put). |
+
+### Diff and Existence
+
+| Signature | Description |
+|-----------|-------------|
+| `panproto.diff(old, new)` → `DiffReport` | Compute structural differences between two schemas. |
+| `panproto.checkExistence(old, new, builder)` → `ExistenceReport` | Check whether a valid migration exists for the given schema change. |
+
+### Lens Combinators
+
+| Combinator | Description |
+|------------|-------------|
+| `renameField(from, to)` | Rename a field. |
+| `addField(name, defaultValue)` | Add a field with a default value. |
+| `removeField(name)` | Remove a field (captured in complement). |
+| `wrapInObject(field, wrapper)` | Nest a field inside a new wrapper object. |
+| `hoistField(path)` | Pull a nested field up to the current level. |
+| `coerceType(field, fromType, toType)` | Convert a field's type. |
+| `compose(l1, l2)` | Compose two lenses sequentially. |
+| `pipeline(...lenses)` | Compose a chain of lenses left to right. |
+
+### Built-in Protocol Specs
+
+| Constant | Protocol |
+|----------|----------|
+| `ATPROTO_SPEC` | AT Protocol (Bluesky Lexicon) |
+| `SQL_SPEC` | SQL DDL (relational schemas) |
+| `PROTOBUF_SPEC` | Protocol Buffers |
+| `GRAPHQL_SPEC` | GraphQL SDL |
+| `JSON_SCHEMA_SPEC` | JSON Schema |
+
+## Rust (`panproto-core`)
+
+### `panproto_gat` — Theory Engine
+
+| Item | Description |
+|------|-------------|
+| `Theory` | A generalized algebraic theory: sorts, operations, equations. |
+| `Sort` | A sort declaration within a theory. |
+| `Operation` | An operation declaration with input sorts and output sort. |
+| `Equation` | An equational axiom between terms. |
+| `TheoryMorphism` | A structure-preserving map between theories. |
+| `colimit(t1, t2, shared)` → `Result<Theory, GatError>` | Compute the pushout of two theories over a shared base. |
+
+### `panproto_schema` — Schema Layer
+
+| Item | Description |
+|------|-------------|
+| `Schema` | A model of a protocol theory: vertices, edges, and their relationships. |
+| `SchemaBuilder` | Builder for constructing schemas incrementally. |
+| `Protocol` | A named theory that defines a schema language. |
+| `Vertex` | A vertex in a schema (instance of a sort). |
+| `Edge` | An edge in a schema (instance of an operation). |
+
+### `panproto_inst` — Instance Layer
+
+| Item | Description |
+|------|-------------|
+| `WInstance` | An instance encoded as a W-type (tree-structured data). |
+| `FInstance` | An instance encoded as a functor (relational data). |
+| `wtype_restrict(inst, morph)` → `WInstance` | Migrate a W-type instance along a schema morphism. |
+| `functor_restrict(inst, morph)` → `FInstance` | Migrate a functor instance along a schema morphism. |
+| `parse_json(json, schema)` → `Result<WInstance, ParseError>` | Parse JSON into a typed instance. |
+| `to_json(inst)` → `Value` | Serialize an instance back to JSON. |
+
+### `panproto_mig` — Migration Engine
+
+| Item | Description |
+|------|-------------|
+| `Migration` | A compiled migration between two schemas. |
+| `compile(builder)` → `Result<Migration, MigError>` | Compile a migration specification. |
+| `lift_wtype(migration, inst)` → `WInstance` | Lift a W-type instance through a migration. |
+| `lift_functor(migration, inst)` → `FInstance` | Lift a functor instance through a migration. |
+| `check_existence(old, new)` → `ExistenceReport` | Check whether a migration between two schemas exists. |
+| `compose(m1, m2)` → `Result<Migration, MigError>` | Compose two migrations sequentially. |
+| `invert(m)` → `Result<Migration, MigError>` | Invert a migration (when the underlying lens is an isomorphism). |
+
+### `panproto_lens` — Lens Layer
+
+| Item | Description |
+|------|-------------|
+| `Lens` | A bidirectional transformation between two schemas. |
+| `Complement` | The data discarded by the forward direction (needed for `put`). |
+| `Combinator` | A single lens-building step (rename, add, remove, etc.). |
+| `get(lens, source)` → `View` | Apply the forward direction of a lens. |
+| `put(lens, view, complement)` → `Source` | Apply the backward direction, restoring the source. |
+| `from_combinators(steps)` → `Result<Lens, LensError>` | Build a lens from a sequence of combinators. |
+| `check_laws(lens)` → `LawReport` | Verify that a lens satisfies the get-put and put-get laws. |

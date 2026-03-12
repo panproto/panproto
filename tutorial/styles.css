@@ -1,0 +1,30 @@
+/* panproto tutorial custom styles */
+
+/* Tighten code block spacing */
+div.sourceCode {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+/* Citation DOI links */
+.csl-entry a[href^="https://doi.org"] {
+  word-break: break-all;
+}
+
+/* Mermaid diagram sizing */
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Protocol comparison tables */
+table.protocol-comparison th,
+table.protocol-comparison td {
+  font-size: 0.9em;
+  padding: 0.4em 0.6em;
+}
+
+/* Callout blocks for key insights */
+.callout-note.callout-style-default .callout-title {
+  font-weight: 600;
+}

@@ -1,0 +1,46 @@
+# Preface {.unnumbered}
+
+You maintain three services. One speaks Protobuf. One uses JSON Schema for validation. The third talks to Bluesky's AT Protocol. Each time you change a schema, the same question arises: *what happens to existing data?*
+
+Each ecosystem answers with its own bespoke tooling---Buf for Protobuf, Atlas for SQL, ad-hoc scripts for everything else. But the underlying problem is the same every time. You have a source schema, a target schema, and data that needs to move from one to the other. The only thing that varies across these systems is what "schema" and "data" mean.
+
+**panproto** is a universal schema migration engine that takes this observation seriously. Instead of hardcoding a particular schema language, it parameterizes over the *theory* that defines what schemas look like and the *theory* that defines what data looks like. Everything else---migration validation, data transformation, bidirectional lenses, breaking change detection---is derived from those two theories by the engine.
+
+## What this tutorial covers
+
+This tutorial builds from concrete to abstract and back to concrete:
+
+- **Part I (Motivation)** starts with what you already know: schemas in five formats you use daily. We identify the common structure and name the differences.
+- **Part II (Theory)** introduces generalized algebraic theories (GATs)---the mathematical framework that makes the common structure precise. If you've defined a TypeScript interface, you already have the intuition; we formalize it.
+- **Part III (Migration)** walks through writing, validating, and executing migrations across protocols. You'll see the data transformation pipeline in detail.
+- **Part IV (Bidirectionality & Safety)** covers lenses (every migration runs both ways) and automated breaking change detection.
+- **Part V (Advanced)** shows you how to define entirely new schema languages and how panproto can describe---and version---itself.
+
+## Who this is for
+
+You write software that handles structured data. You know what JSON Schema, Protobuf, or SQL DDL look like. You may or may not know category theory---the tutorial introduces the concepts it needs, with references to the literature for deeper exploration.
+
+The appendices include a [category theory cheatsheet](appendices/A-category-theory-cheatsheet.qmd) and a [guide to the academic literature](appendices/C-guide-to-the-literature.qmd) for those who want to follow the citations to their source.
+
+## How to use this tutorial
+
+Each chapter builds on the previous ones. Code examples use the panproto TypeScript SDK (`@panproto/core`) and Rust API (`panproto-core`). All code in this tutorial is pulled directly from source files using the [`include-code-files`](https://github.com/quarto-ext/include-code-files) Quarto extension, so what you see here matches the actual implementation.
+
+## Installation
+
+::: {.panel-tabset}
+
+### TypeScript
+
+```bash
+npm install @panproto/core
+```
+
+### Rust
+
+```toml
+[dependencies]
+panproto-core = "0.1"
+```
+
+:::

@@ -9,6 +9,7 @@ pkg/
 # Node
 node_modules/
 dist/
+package-lock.json
 
 # Coverage
 coverage/
@@ -26,3 +27,9 @@ Thumbs.db
 # Environment
 .env
 .env.*
+
+# Claude
+.claude/
+
+# Notes
+notes/

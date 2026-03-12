@@ -1,0 +1,327 @@
+---
+title: "Schemas Everywhere"
+id: sec-schemas
+---
+
+# Schemas Everywhere
+
+You already know what a schema is. You write them constantly—every time you
+define a database table, declare a protobuf message, or sketch out a GraphQL
+type. Schemas are the skeletons of structured data: they say what fields exist,
+what types those fields carry, and (sometimes) what constraints hold.
+
+What you might not have noticed is how *many* schema languages there are, and
+how eerily similar they look once you squint past the syntax. This chapter makes
+that observation concrete. We'll take a single, deliberately boring entity—a
+blog post—and write its schema in five different formats. Then we'll show how
+panproto can construct the same schema using its TypeScript SDK, regardless of
+which protocol you're targeting.
+
+## The Running Example: A Blog Post
+
+Our blog post has three fields:
+
+| Field       | Type              | Required? |
+|-------------|-------------------|-----------|
+| `text`      | string            | yes       |
+| `createdAt` | datetime (string) | yes       |
+| `tags`      | array of strings  | no        |
+
+That's it. No nested objects, no foreign keys, no clever tricks. The point
+isn't the complexity of the entity—it's the variety of ways we can describe it.
+
+
+## Five Representations
+
+### 1. JSON Schema
+
+JSON Schema is the lingua franca of HTTP APIs. You've seen it in OpenAPI specs,
+in configuration file validators, and in editor autocompletion engines.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/post.json",
+  "type": "object",
+  "required": ["text", "createdAt"],
+  "properties": {
+    "text": {
+      "type": "string",
+      "maxLength": 3000
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8
+    }
+  }
+}
+```
+
+A few things to note: the top-level construct is an **object** with named
+**properties**. Each property has a **type**. Some properties appear in the
+**required** array. Additional constraints like `maxLength` and `maxItems` sit
+alongside the type declarations.
+
+### 2. Protocol Buffers
+
+Protobuf takes a different approach. Where JSON Schema is declarative and
+JSON-native, Protobuf is a compiled IDL designed for efficient binary
+serialization.
+
+```protobuf
+syntax = "proto3";
+
+package example.blog;
+
+import "google/protobuf/timestamp.proto";
+
+message Post {
+  string text = 1;
+  google.protobuf.Timestamp created_at = 2;
+  repeated string tags = 3;
+}
+```
+
+The top-level construct is a **message** with numbered **fields**. Each field
+has a **type** and a **field number** (used for wire encoding). The `repeated`
+keyword marks `tags` as a list. There's no direct equivalent of `required` in
+proto3—all fields have default values.
+
+Notice what's missing compared to JSON Schema: no `maxLength`, no `maxItems`.
+Protobuf doesn't have a built-in constraint language. If you want validation,
+you reach for something like `protoc-gen-validate` or Buf's `protovalidate`.
+
+### 3. SQL DDL
+
+SQL's Data Definition Language is the oldest schema language most developers
+encounter. It predates JSON, Protobuf, and GraphQL by decades.
+
+```sql
+CREATE TABLE posts (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    text        VARCHAR(3000)   NOT NULL,
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT now(),
+    tags        TEXT[]
+);
+```
+
+Here the top-level construct is a **table** with named **columns**. Each column
+has a **data type** and optional **constraints** (`NOT NULL`, `PRIMARY KEY`,
+`DEFAULT`). The `TEXT[]` type for tags is PostgreSQL's array syntax—other
+databases handle this differently (a separate `post_tags` join table, for
+instance).
+
+SQL brings something the previous two formats lack: a notion of **identity**
+(`PRIMARY KEY`) and **defaults** (`DEFAULT now()`). These aren't just
+descriptions of shape—they're operational semantics baked into the schema.
+
+### 4. GraphQL SDL
+
+GraphQL's Schema Definition Language is designed for API surfaces. It describes
+what a client can query, not how data is stored.
+
+```graphql
+"""A blog post."""
+type Post {
+  text: String!
+  createdAt: DateTime!
+  tags: [String!]
+}
+```
+
+The top-level construct is a **type** with named **fields**. Each field has a
+**return type**. The `!` suffix means non-nullable (GraphQL's version of
+`required`). `[String!]` means "a nullable list of non-nullable strings"—note
+how nullability is part of the type system, not a separate constraint.
+
+GraphQL doesn't have `maxLength` either. Validation happens in resolvers or
+directives, not in the SDL itself.
+
+### 5. ATProto Lexicon
+
+ATProto (the protocol behind Bluesky) uses Lexicon, a JSON-based schema
+language that borrows from JSON Schema but adds protocol-specific concepts like
+NSIDs and record types.
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.example.blog.post",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A blog post.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["text", "createdAt"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 3000,
+            "maxGraphemes": 300
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxLength": 8
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Lexicon looks a lot like JSON Schema, and that's intentional—it was designed to
+be familiar. But notice the differences: there's a **record** wrapper with a
+`key` strategy (`tid` means "timestamp-based ID"). The NSID
+(`com.example.blog.post`) serves as both an identifier and a namespace.
+`maxGraphemes` is an ATProto-specific constraint that counts Unicode grapheme
+clusters rather than code points.
+
+
+## The Structural Rhyme
+
+Step back and look at these five representations side by side. Despite the
+syntactic differences, they share a common anatomy:
+
+| Concept           | JSON Schema   | Protobuf       | SQL DDL         | GraphQL SDL   | ATProto Lexicon  |
+|-------------------|---------------|----------------|-----------------|---------------|------------------|
+| Container         | object        | message        | table           | type          | record > object  |
+| Named member      | property      | field          | column          | field         | property         |
+| Member type       | type          | type           | data type       | return type   | type             |
+| Required marker   | required[]    | (always set)   | NOT NULL        | `!` suffix    | required[]       |
+| Length constraint  | maxLength     | (external)     | VARCHAR(n)      | (external)    | maxLength        |
+| List marker       | type: array   | repeated       | ARRAY / table   | `[T]` syntax  | type: array      |
+
+Every row in that table describes the same structural idea wearing different
+clothes. A **container** holds **named members**. Each member has a **type**.
+Some members are **required**. Some have **constraints**.
+
+This isn't a coincidence. These formats all describe the same kind of thing:
+structured data with named, typed components. The differences are real—SQL has
+foreign keys, Protobuf has field numbers, GraphQL has nullability as a type
+feature—but the similarities dominate.
+
+
+## Building Schemas with panproto
+
+panproto takes this observation seriously. Instead of treating each schema
+language as a special case, it provides a single API that can target multiple
+protocols. You describe your intent once; panproto maps it to the target
+format's native constructs.
+
+Here's what that looks like in practice using the panproto TypeScript SDK.
+
+### ATProto
+
+The ATProto schema builder produces a Lexicon-compatible record definition.
+The same blog post entity, expressed through panproto's API:
+
+```{.typescript include="../code/ts/01-atproto-schema.ts" snippet="build-schema"}
+```
+
+The builder API mirrors the structure we saw in the Lexicon JSON above, but you
+get type checking, autocompletion, and—crucially—the ability to compose schemas
+programmatically. You're not concatenating JSON strings; you're building a typed
+data structure.
+
+### SQL
+
+The SQL schema builder targets DDL. Same entity, different protocol:
+
+```{.typescript include="../code/ts/01-sql-schema.ts" snippet="build-schema"}
+```
+
+The API surface is deliberately similar. You're still declaring a container with
+named, typed members. The builder knows about SQL-specific concepts (column
+types, constraints, defaults) just as the ATProto builder knows about Lexicon
+concepts (NSIDs, key strategies, grapheme limits).
+
+### What Changed, What Didn't
+
+Compare the two code snippets. The **structure** is the same: create a builder,
+declare a container, add typed fields with constraints. The **vocabulary**
+differs: `record` vs. `table`, `property` vs. `column`, `maxGraphemes` vs.
+`VARCHAR`. And the **output** differs: one produces Lexicon JSON, the other
+produces SQL DDL.
+
+This is the core value proposition of panproto: you learn the pattern once, then
+apply it across protocols. When a new schema language appears (and new ones
+appear regularly), you don't start from scratch—you map its concepts to the
+pattern you already know.
+
+
+## What We're Looking At
+
+Let's name what we've been seeing, without getting formal yet.
+
+All five schema formats describe **vertices** connected by **edges**:
+
+- In JSON Schema, the vertices are types (`object`, `string`, `array`) and the
+  edges are properties linking an object to its field types.
+- In Protobuf, the vertices are messages and scalar types, and the edges are
+  fields.
+- In SQL, the vertices are tables and data types, and the edges are columns
+  (linking a table to the type of each column). Foreign keys add edges between
+  tables.
+- In GraphQL, the vertices are types and the edges are fields.
+- In ATProto Lexicon, the vertices are records, objects, and primitive types,
+  and the edges are properties.
+
+Sometimes the edges carry extra information: a field number in Protobuf, a
+`NOT NULL` constraint in SQL, a `maxLength` in JSON Schema and Lexicon. But the
+fundamental picture is the same: **a graph of types connected by typed
+relationships**.
+
+The differences between schema languages come down to:
+
+1. **What kinds of vertices are allowed.** SQL has tables and views. Protobuf
+   has messages and enums. GraphQL has types, interfaces, unions, and enums.
+2. **What kinds of edges are allowed.** SQL columns are different from Protobuf
+   fields, which are different from GraphQL fields.
+3. **What constraints can be attached.** JSON Schema has a rich constraint
+   vocabulary (`maxLength`, `pattern`, `minimum`). Protobuf has almost none
+   built in. SQL constraints are operational (they're enforced at write time).
+
+These are not superficial syntactic differences. They reflect genuine design
+choices about what each format is optimized for. But they are **parametric**
+differences—variations on a common structural theme, not fundamentally different
+kinds of things.
+
+That structural theme is what panproto is built on. The next chapter gives it a
+name.
+
+
+## Looking Ahead
+
+We've established that schema languages share a common graph-like structure,
+and that panproto exploits this commonality. But we've been hand-waving about
+what "graph-like" means. The word "graph" is doing a lot of work, and it turns
+out that different schema languages need different *kinds* of graphs.
+
+In @sec-shape-of-schemas, we'll make this precise. We'll see that some schemas
+are plain directed graphs, others are multigraphs, and still others need
+hypergraphs. These aren't just academic distinctions—they determine what
+operations are well-defined on a schema, and they explain why single-protocol
+tools can't easily generalize.
+
+But first, take a moment to appreciate the view from here: five different schema
+languages, five different communities, five different ecosystems—all describing
+the same blog post, all using the same structural pattern. The fact that this
+works is not an accident. It's a consequence of what schemas *are*, and
+understanding that is the goal of this tutorial.

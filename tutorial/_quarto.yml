@@ -1,0 +1,77 @@
+project:
+  type: book
+  output-dir: _site
+
+book:
+  title: "panproto: Universal Schema Migration"
+  subtitle: "A Practitioner's Guide to Protocol-Parametric Data Evolution"
+  author:
+    - name: "Aaron Steven White"
+      url: "https://github.com/aaronstevenwhite"
+  date: today
+  date-format: "MMMM YYYY"
+  repo-url: "https://github.com/panproto/panproto"
+  repo-subdir: tutorial
+  repo-actions: [edit, issue]
+  # Source lives in panproto/panproto repo at tutorial/.
+  # Built HTML is pushed to panproto/tutorial repo for GitHub Pages.
+  site-url: "https://panproto.github.io/tutorial/"
+  sidebar:
+    style: floating
+    collapse-level: 2
+  search: true
+  chapters:
+    - index.qmd
+    - part: "Motivation"
+      chapters:
+        - chapters/01-schemas-everywhere.qmd
+        - chapters/02-the-shape-of-schemas.qmd
+    - part: "Theory"
+      chapters:
+        - chapters/03-what-is-a-theory.qmd
+        - chapters/04-protocols-as-parameters.qmd
+    - part: "Migration"
+      chapters:
+        - chapters/05-migration-by-hand.qmd
+        - chapters/06-when-migrations-exist.qmd
+        - chapters/07-lifting-data.qmd
+    - part: "Bidirectionality & Safety"
+      chapters:
+        - chapters/08-lenses.qmd
+        - chapters/09-breaking-changes.qmd
+    - part: "Advanced"
+      chapters:
+        - chapters/10-building-your-own-protocol.qmd
+        - chapters/11-self-description.qmd
+    - part: "Appendices"
+      chapters:
+        - appendices/A-category-theory-cheatsheet.qmd
+        - appendices/B-api-reference.qmd
+        - appendices/C-guide-to-the-literature.qmd
+
+bibliography: references.bib
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/chicago-author-date.csl
+link-citations: true
+citations-hover: true
+
+filters:
+  - include-code-files
+
+format:
+  html:
+    theme:
+      light: cosmo
+      dark: darkly
+    css: styles.css
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: false
+    code-tools: true
+    code-copy: true
+    highlight-style: github
+    mermaid:
+      theme: neutral
+
+execute:
+  freeze: auto

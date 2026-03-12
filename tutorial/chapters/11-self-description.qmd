@@ -1,0 +1,96 @@
+# Self-Description: The GAT of GATs
+
+panproto's architecture has a recursive quality that is easy to overlook on first encounter but turns out to be one of its most consequential features. The system that describes schemas is itself described by a schema. The theory language is itself a theory.
+
+This chapter makes that precise and explains why it matters.
+
+## Four Levels
+
+panproto organizes its abstractions into four levels. Each level is defined by the one below it.
+
+```{mermaid}
+%%| label: fig-levels
+%%| fig-cap: "The four levels of panproto's self-description hierarchy."
+graph TB
+    L0["Level 0: GAT Engine<br/>(hardcoded Rust, ~2000 lines)"]
+    L1["Level 1: Theory Specifications<br/>(GAT data: ThGraph, ThConstraint, …)"]
+    L2["Level 2: Concrete Schemas<br/>(models of Level 1 theories)"]
+    L3["Level 3: Concrete Instances<br/>(models of Level 2 schemas)"]
+    L0 -->|interprets| L1
+    L1 -->|parameterizes| L2
+    L2 -->|governs| L3
+```
+
+### Level 0: The GAT Engine
+
+The bottom of the stack is approximately 2000 lines of Rust that implement the core GAT machinery: sorts, operations, equations, theory morphisms, colimits, and model checking. This is the only part of panproto that is not data-driven. It is the interpreter for everything above.
+
+### Level 1: Theory Specifications
+
+The theories we have been working with throughout this tutorial—ThGraph, ThConstraint, ThConstrainedMultiGraph, and the protocol-specific theories for ATProto, SQL, and so on—are all *data* at this level. They are values of type `Theory`, constructed by the Level 0 engine. Adding a new schema language means adding new Level 1 data; no Rust code changes.
+
+### Level 2: Concrete Schemas
+
+A schema is a *model* of a Level 1 theory. When you write an ATProto lexicon, you are constructing a model of ThConstrainedMultiGraph. When you write a SQL DDL, you are constructing a model of the SQL protocol theory. The schema is governed by the theory it instantiates, in the same way that a value is governed by its type.
+
+### Level 3: Concrete Instances
+
+The actual data—a Bluesky post, a row in a database, a Protobuf message—lives at Level 3. An instance is a model of a Level 2 schema. It is the concrete content that conforms to a specific schema within a specific protocol.
+
+:::{.callout-note}
+Migrations happen at every level, using the same engine:
+
+- **Level 1 to Level 1**: A theory morphism transforms one schema language into another.
+- **Level 2 to Level 2**: A schema morphism (a model homomorphism) transforms one schema into another within the same protocol.
+- **Level 3 to Level 3**: Data migration via `restrict` transforms instances to conform to a new schema.
+
+The machinery is uniform. The same `lift`, `get`, `put`, and `checkExistence` operations work at each level.
+:::
+
+## ThGAT: The Theory of GATs
+
+The self-description becomes fully explicit when we observe that the theory of GATs is itself a GAT. panproto defines **ThGAT**—a theory whose models are themselves theories.
+
+ThGAT has:
+
+- **Sorts**: `Sort`, `Op`, `Eq`, `Theory`, `Param(s: Sort)`, `Name`
+- **Operations**: `sort_name`, `op_name`, `op_output`, `op_param`, `eq_lhs`, `eq_rhs`, and others that specify how sorts, operations, and equations relate within a theory.
+
+A *model* of ThGAT is a concrete theory—ThGraph, ThConstraint, or any protocol theory. This is not a metaphor; it is a literal statement about the GAT formalism.
+
+The following test from panproto's codebase constructs ThGAT and verifies that known theories are valid models of it:
+
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=438 end-line=519}
+```
+
+This test is both a validation of the implementation and a demonstration of the self-description property: the same `Theory` type that represents ThGraph also represents ThGAT, and the same model-checking machinery that validates a schema against ThGraph validates a theory against ThGAT.
+
+## Why Self-Description Matters
+
+Self-description is not a curiosity. It has three practical consequences.
+
+### Versioning the Theory Language
+
+If you need to extend what a "sort" or "operation" can express—say, adding support for dependent sorts with multiple parameters, or adding a new kind of equation—you can define a new version of ThGAT and construct a theory morphism from the old version to the new one. The migration engine then handles the upgrade of all Level 1 data (your theory specifications) automatically.
+
+Without self-description, extending the theory language would require rewriting the Level 0 engine and manually migrating all existing theory definitions. With it, the extension is a *data migration* like any other.
+
+### Uniform Tooling
+
+Because theories are models of ThGAT, all the tooling that operates on models—diff, existence checking, lifting, lenses—can be applied to theories themselves. You can diff two versions of a protocol's theory, check whether a migration between them exists, and lift schemas through the change. The tooling is not specialized per level; it is generic and uniform.
+
+### Formal Guarantees at Every Level
+
+The correctness properties that panproto provides—round-tripping for lenses, completeness of existence checking, functoriality of migrations—hold at every level of the hierarchy. A theory morphism between Level 1 theories satisfies the same laws as a schema morphism between Level 2 schemas. This uniformity is a direct consequence of the self-description architecture: every level is an instance of the same mathematical framework.
+
+## The System is Closed
+
+There is an appealing sense in which panproto is *closed*. The only code that cannot be replaced by data is Level 0—the GAT engine itself, which interprets everything above it. Everything at Level 1 and above is defined by the level below, and can be extended, versioned, and migrated using the same engine.
+
+This is the sense in which panproto is universal. It is not universal because it supports every protocol (it does not, yet). It is universal because the mechanism for adding a new protocol is the same mechanism that the existing protocols use, and that mechanism is itself described within the system.
+
+The GAT engine is small, fixed, and mathematically well-founded. Everything built on top of it inherits those properties. This is the architectural bet at the heart of panproto: a small, principled foundation can support an open-ended space of schema languages, because the foundation is expressive enough to describe itself.
+
+### Further Reading
+
+The idea that a type theory can describe its own types goes back to @cartmell1986's contextual categories, where the category of contexts is itself a contextual category. @lynch2024 describes the self-description architecture of GATlab, which panproto's design follows closely. @schultz2017 explores a partial version of this idea in the CQL system, where the "typeside" plays a role analogous to panproto's Level 0 but without full self-description.

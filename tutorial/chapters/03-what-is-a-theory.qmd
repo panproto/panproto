@@ -1,0 +1,591 @@
+---
+title: "What Is a Theory?"
+id: sec-theories
+---
+
+# What Is a Theory?
+
+The previous chapter ended with a promissory note: we'd find a precise way to
+describe graph structures so that panproto can parameterize over them. This
+chapter delivers on that promise by introducing **Generalized Algebraic
+Theories** (GATs)—the mathematical framework at the heart of panproto's design.
+
+GATs might sound intimidating, but the core idea is one you already use every
+day. If you've ever written a TypeScript interface and then implemented it with
+a class, you've already grasped the essential pattern. A GAT theory is an
+interface; a model is an implementation. The rest is details—important details,
+but details that build on intuition you already have.
+
+
+## The Pattern You Already Know
+
+Consider a TypeScript interface:
+
+```typescript
+interface Comparable<T> {
+  compareTo(other: T): number;
+}
+```
+
+This interface describes a **shape**: anything that implements `Comparable<T>`
+must provide a `compareTo` method with a specific signature. The interface
+doesn't say *how* to compare—it just says that comparison must be possible.
+
+Now consider a class that implements it:
+
+```typescript
+class Temperature implements Comparable<Temperature> {
+  constructor(private celsius: number) {}
+
+  compareTo(other: Temperature): number {
+    return this.celsius - other.celsius;
+  }
+}
+```
+
+The class provides a concrete implementation of the shape. It fills in the
+*how*: comparison is done by subtracting Celsius values.
+
+A GAT **theory** plays the role of the interface: it describes a shape
+(what sorts of things exist, what operations connect them, what equations hold).
+A **model** plays the role of the class: it provides concrete sets and
+functions that satisfy the theory's requirements.
+
+This analogy is more than pedagogical. The relationship between interfaces and
+implementations is a special case of the relationship between theories and
+models—one where the "sorts" are types, the "operations" are methods, and the
+"equations" are whatever contracts the documentation promises but the type
+system can't enforce. GATs make that last part—the equations—first-class.
+
+
+## Theory of a Monoid: The Simplest Nontrivial Example
+
+Let's start with the simplest theory that has interesting equations: the
+**theory of a monoid**.
+
+A monoid is a set with a binary operation that is associative and has an
+identity element. If you've used string concatenation (`"hello" + " " + "world"`),
+you've used a monoid. If you've used `Array.prototype.reduce` with an initial
+value, you've used a monoid.
+
+The theory of a monoid specifies:
+
+**Sorts:**
+
+- `Carrier` — the set of elements
+
+**Operations:**
+
+- `mul(a: Carrier, b: Carrier) -> Carrier` — the binary operation
+- `unit() -> Carrier` — the identity element
+
+**Equations:**
+
+- **Associativity:** `mul(mul(a, b), c) = mul(a, mul(b, c))` for all `a`, `b`, `c`
+- **Left identity:** `mul(unit(), a) = a` for all `a`
+- **Right identity:** `mul(a, unit()) = a` for all `a`
+
+That's the entire theory. It doesn't say what the elements are, or what `mul`
+does to them. It just says: "there's a set, a binary operation on it, and these
+three laws hold."
+
+A **model** of this theory assigns concrete meaning:
+
+- **Integers under addition:** `Carrier` = integers, `mul` = addition,
+  `unit` = 0. Associativity holds: `(a + b) + c = a + (b + c)`. Identity holds:
+  `0 + a = a` and `a + 0 = a`.
+
+- **Strings under concatenation:** `Carrier` = strings, `mul` = concatenation,
+  `unit` = empty string. Associativity holds: `("a" + "b") + "c" = "a" + ("b" + "c")`.
+  Identity holds: `"" + s = s` and `s + "" = s`.
+
+- **Booleans under AND:** `Carrier` = booleans, `mul` = `&&`, `unit` = `true`.
+  Associativity holds. Identity holds: `true && b = b` and `b && true = b`.
+
+Three completely different models, all satisfying the same theory. The theory
+captures what they have in common—the *shape* of monoid-ness—without committing
+to any particular implementation.
+
+### Monoid Theory in panproto's Rust Implementation
+
+panproto represents theories as data structures—they're values you can construct,
+inspect, and pass around. Here's how the monoid theory looks as an actual Rust
+test from the panproto-gat crate:
+
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=191 end-line=243}
+```
+
+This isn't pseudocode—it's a real test that constructs the monoid theory and
+verifies that it has the expected components. The theory is built up from
+sort declarations, operation declarations, and equation declarations, just as we
+described above.
+
+Notice how the code mirrors the mathematical specification: sorts are declared
+first, then operations (with their input and output sorts), then equations
+(expressed as pairs of terms that must be equal). The theory is a concrete data
+structure that panproto's algorithms can traverse, transform, and reason about.
+
+
+## Theory of a Graph: Where Schemas Enter
+
+Now let's look at a more relevant theory: the **theory of a directed graph**.
+
+**Sorts:**
+
+- `Vertex` — the vertices (nodes)
+- `Edge` — the edges (arrows)
+
+**Operations:**
+
+- `src(e: Edge) -> Vertex` — the source of an edge
+- `tgt(e: Edge) -> Vertex` — the target of an edge
+
+**Equations:**
+
+- (none)
+
+That's it. A directed graph is a pair of sets (vertices and edges) with two
+functions (source and target) and no equations. The absence of equations is
+significant: it means there are no laws governing how `src` and `tgt` relate to
+each other. Any assignment of source and target vertices to edges is valid.
+
+A **model** of this theory is a specific graph. An ATProto schema, viewed as a
+multigraph (from the previous chapter), is a model:
+
+- `Vertex` = the set of type nodes (`object`, `string`, `datetime`, ...)
+- `Edge` = the set of property edges (`text`, `createdAt`, `tags`, ...)
+- `src(text)` = `object`, `tgt(text)` = `string`
+- `src(createdAt)` = `object`, `tgt(createdAt)` = `datetime`
+- `src(tags)` = `object`, `tgt(tags)` = `array`
+
+The schema *is* the model. The theory of a graph describes the structural shape
+that ATProto schemas, JSON Schemas, GraphQL type systems, and Protobuf message
+definitions all share (at their simplest).
+
+### Sorts in Rust
+
+In panproto-gat, a sort is a named entity with optional parameters (we'll get
+to parameters shortly):
+
+```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=30 end-line=36}
+```
+
+A `Sort` has a name and a list of parameters. For the graph theory, we'd have
+two sorts—`Vertex` and `Edge`—each with an empty parameter list. The parameter
+list becomes important when we introduce dependent sorts later in this chapter.
+
+### Operations in Rust
+
+An operation connects input sorts to an output sort:
+
+```{.rust include="../../crates/panproto-gat/src/op.rs" start-line=13 end-line=21}
+```
+
+An `Operation` has a name, a list of input sorts (its parameters), and an
+output sort (its return type). The `src` operation of the graph theory has
+one input (of sort `Edge`) and returns sort `Vertex`. Similarly for `tgt`.
+
+This is directly analogous to a function signature in any typed language.
+The operation `src: Edge -> Vertex` is the theory's version of a method
+`src(e: Edge): Vertex`.
+
+### Theories in Rust
+
+A theory collects sorts, operations, and equations into a single structure:
+
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=18 end-line=30}
+```
+
+The `Theory` struct holds vectors of sorts, operations, and equations. It also
+has a name and optional metadata. This is the central data structure that
+panproto's algorithms operate on: when you ask panproto to diff two schemas, or
+generate code from a schema, or plan a migration, it first consults the theory
+to understand what structural shape it's working with.
+
+
+## From Algebraic Theories to GATs
+
+So far, we've seen theories where sorts are simple named entities: `Carrier`,
+`Vertex`, `Edge`. These are **ordinary algebraic theories**, the kind studied by
+@lawvere1963 in his foundational work on functorial semantics. Lawvere showed
+that algebraic theories (like the theory of a monoid, or the theory of a group)
+can be understood as categories with specific structure, and that models are
+product-preserving functors from the theory category to the category of sets.
+
+This functorial perspective is powerful—it gives you a precise notion of
+"structure-preserving map" between models (natural transformations between
+functors) and lets you use categorical machinery to construct new models from
+old ones. But ordinary algebraic theories have a limitation: **all sorts are
+independent**.
+
+In the theory of a graph, `Vertex` and `Edge` don't depend on each other.
+You declare them separately and then connect them via operations. This is fine
+for graphs, but it's not enough for the richer structures that schema languages
+actually need.
+
+Consider constraints. In the previous chapter, we noted that constraints like
+`maxLength` and `NOT NULL` are annotations on edges or vertices. But which
+constraints are *valid* depends on *which* vertex or edge you're annotating:
+
+- A `maxLength` constraint makes sense on a string-typed property edge, but not
+  on a foreign key.
+- A `CHECK` constraint makes sense on a SQL column, but not on a Protobuf field
+  number.
+- A `maxGraphemes` constraint makes sense on an ATProto string property, but not
+  on an integer property.
+
+The sort of "valid constraints" **depends on** which vertex (or edge) you're
+looking at. This is a **dependent sort**—a sort parameterized by a term of
+another sort. Ordinary algebraic theories can't express this. GATs can.
+
+
+## Dependent Sorts: The Key Generalization
+
+A **Generalized Algebraic Theory** (GAT) extends ordinary algebraic theories
+by allowing sorts to depend on terms of other sorts. The foundational treatment
+is due to @cartmell1986, who introduced GATs as a framework for dependent type
+theories—type systems where the *type* of a thing can depend on the *value* of
+another thing.
+
+In concrete terms, a dependent sort looks like this:
+
+- `Vertex` — an ordinary sort (no dependencies)
+- `Edge` — an ordinary sort
+- `Constraint(v: Vertex)` — a **dependent sort**, parameterized by a vertex
+
+The sort `Constraint(v: Vertex)` is a *family* of sorts, one for each vertex.
+`Constraint(stringVertex)` is the sort of constraints that apply to string
+types. `Constraint(intVertex)` is the sort of constraints that apply to integer
+types. These might be completely different sets: string constraints include
+`maxLength` and `pattern`, while integer constraints include `minimum` and
+`maximum`.
+
+This is exactly the expressiveness we need for schema languages. The
+"constraint vocabulary" of a schema language isn't a flat set—it's a
+vertex-indexed family. GATs let us express this directly.
+
+### SortParam in Rust
+
+panproto-gat represents sort parameters—the mechanism for dependent sorts—with
+a dedicated type:
+
+```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=10 end-line=16}
+```
+
+A `SortParam` captures the name and sort of each parameter in a dependent sort.
+For `Constraint(v: Vertex)`, there would be one `SortParam` with name `"v"` and
+sort reference pointing to the `Vertex` sort. The `Sort` struct we saw earlier
+holds a `Vec<SortParam>`, which is empty for ordinary sorts and non-empty for
+dependent sorts.
+
+### Building the Schema Theory
+
+With dependent sorts, we can describe the full structure of a schema language
+as a GAT. Here's a sketch of what the "theory of an ATProto schema" looks like:
+
+**Sorts:**
+
+- `TypeNode` — the types in a schema (object, string, array, ref, ...)
+- `PropEdge` — the property edges connecting types
+- `Constraint(t: TypeNode)` — constraints that apply to a specific type node
+
+**Operations:**
+
+- `src(p: PropEdge) -> TypeNode` — source of a property edge
+- `tgt(p: PropEdge) -> TypeNode` — target of a property edge
+- `required(p: PropEdge) -> Bool` — whether a property is required
+- `maxLength(c: Constraint(stringNode)) -> Nat` — the max length constraint
+  (only defined for string-typed nodes)
+
+**Equations:**
+
+- (domain-specific laws about constraint well-formedness)
+
+The dependent sort `Constraint(t: TypeNode)` is doing the heavy lifting here.
+It lets us express that `maxLength` is only a valid constraint on string
+nodes—not as a runtime check, but as a *structural* property of the theory
+itself. A model that tried to attach a `maxLength` to an integer node wouldn't
+be a valid model, because the types wouldn't match.
+
+### Why Not Just Use Ordinary Sorts?
+
+You could represent constraints without dependent sorts. One approach: have a
+flat `Constraint` sort and an operation `appliesTo(c: Constraint) -> TypeNode`,
+then check at runtime that constraints are only applied to appropriate nodes.
+
+This works, but it pushes a structural invariant into runtime validation. The
+theory itself doesn't prevent ill-formed models—you need additional code to
+reject them. With dependent sorts, the invariant is part of the theory. The type
+system enforces it.
+
+This is the same tradeoff you face when choosing between `any` and a precise
+type in TypeScript. Both "work" in the sense that correct programs can be
+written with either. But precise types catch more errors at compile time, make
+the code more self-documenting, and enable better tooling. Dependent sorts do
+the same for theories.
+
+
+## The GAT-EAT Equivalence
+
+There's a subtlety worth addressing. GATs with dependent sorts are expressive,
+but they're also complex—implementing a full dependent type checker is a
+significant engineering effort. panproto avoids this by leveraging a classical
+result from categorical logic: under suitable conditions, GATs are equivalent to
+**Essentially Algebraic Theories** (EATs).
+
+The key reference here is [@adamek1994], which establishes the theory of locally
+presentable categories. In this framework, the categories of models of GATs and
+EATs coincide for a broad class of theories—precisely the class that arises in
+practice for schema descriptions. The practical consequence: panproto can
+implement dependent sorts using *partial operations* (operations that are only
+defined when a condition holds) rather than a full dependent type system.
+
+For the `Constraint(t: TypeNode)` example, the EAT version would have:
+
+- An ordinary sort `Constraint` (not dependent)
+- A total operation `appliesTo(c: Constraint) -> TypeNode`
+- A **partial** operation `maxLength(c: Constraint) -> Nat`, defined only when
+  `appliesTo(c) = stringNode`
+
+The partiality encodes the dependency. Mathematically, this gives the same
+category of models. Computationally, it's much simpler to implement—you need
+partial functions, not dependent types.
+
+This is an architectural choice inherited from GATlab [@lynch2024], a Julia
+framework for computational category theory that panproto adapts to Rust.
+GATlab demonstrated that the GAT-EAT equivalence is practical, not just
+theoretical: real software can exploit it to get the expressiveness of dependent
+sorts without the complexity of dependent type checking.
+
+
+## Theories for Schema Languages
+
+Let's put this all together by sketching the theories for the schema languages
+from the previous chapters.
+
+### Theory of JSON Schema
+
+**Sorts:**
+
+- `SchemaNode` — schema objects (the things that have a `type` keyword)
+- `Property` — named properties of object schemas
+- `Constraint(s: SchemaNode)` — constraints applicable to a schema node
+
+**Operations:**
+
+- `owner(p: Property) -> SchemaNode` — the object that owns this property
+- `target(p: Property) -> SchemaNode` — the type of this property
+- `name(p: Property) -> String` — the property name
+- `required(p: Property) -> Bool` — whether the property is required
+- `schemaType(s: SchemaNode) -> TypeTag` — the type keyword (object, string, array, ...)
+- `maxLength(c: Constraint(stringNode)) -> Nat`
+- `pattern(c: Constraint(stringNode)) -> Regex`
+- `minimum(c: Constraint(numericNode)) -> Number`
+
+**Equations:**
+
+- `owner(p)` is always of type `object` (properties belong to objects)
+
+### Theory of SQL DDL
+
+**Sorts:**
+
+- `Table` — database tables
+- `Column` — columns in tables
+- `ForeignKey` — foreign key constraints (a hyperedge sort)
+- `Constraint(c: Column)` — column-level constraints
+
+**Operations:**
+
+- `table(c: Column) -> Table` — the table that owns this column
+- `colType(c: Column) -> DataType` — the data type of a column
+- `srcTable(fk: ForeignKey) -> Table`
+- `srcColumn(fk: ForeignKey) -> Column`
+- `refTable(fk: ForeignKey) -> Table`
+- `refColumn(fk: ForeignKey) -> Column`
+- `notNull(c: Column) -> Bool`
+- `defaultVal(c: Column) -> Option<Expr>`
+
+**Equations:**
+
+- `table(srcColumn(fk)) = srcTable(fk)` — the source column belongs to the
+  source table
+- `table(refColumn(fk)) = refTable(fk)` — the referenced column belongs to the
+  referenced table
+
+Notice how the equations for SQL DDL express structural invariants about foreign
+keys: the source column must actually be in the source table. These equations
+are not arbitrary—they're the well-formedness conditions that every SQL
+database enforces. By making them part of the theory, panproto can verify
+schema well-formedness before generating any SQL.
+
+### Theory of Protobuf
+
+**Sorts:**
+
+- `Message` — protobuf messages
+- `Field` — fields within messages
+- `EnumType` — enum declarations
+- `EnumValue` — values within enums
+
+**Operations:**
+
+- `message(f: Field) -> Message` — the message that owns this field
+- `fieldType(f: Field) -> TypeRef` — the type of a field
+- `fieldNumber(f: Field) -> Nat` — the wire format number
+- `enumType(v: EnumValue) -> EnumType` — the enum that owns this value
+- `enumNumber(v: EnumValue) -> Int` — the numeric value
+
+**Equations:**
+
+- For distinct fields `f1`, `f2` in the same message:
+  `fieldNumber(f1) != fieldNumber(f2)` — field numbers are unique within a
+  message
+
+The uniqueness equation is what makes Protobuf's wire format work: field numbers
+must be unique so that the binary encoder can unambiguously identify fields.
+This is a Protobuf-specific structural law, not shared by JSON Schema or SQL.
+
+
+## The Functorial View
+
+We've been building up a picture: theories describe shapes, models are things
+with those shapes, and different schema languages correspond to models of
+different theories. There's one more piece to the picture: **morphisms between
+models**.
+
+Given two models of the same theory—say, two ATProto schemas—a **morphism**
+between them is a structure-preserving map. It sends vertices to vertices, edges
+to edges, and respects the `src` and `tgt` operations. In schema terms, a
+morphism is a **schema mapping**: a systematic translation from one schema to
+another that preserves structural relationships.
+
+This is the functorial perspective that @spivak2012 developed for database
+schemas and that panproto generalizes. In Spivak's framework:
+
+- A **schema** is a category (a model of the theory of categories)
+- A **schema mapping** is a functor between schemas
+- An **instance** (data conforming to a schema) is a functor from the schema
+  to the category of sets
+- **Data migration** along a schema mapping is a composition of functors
+
+panproto works at one level of abstraction higher: instead of fixing the theory
+to be "the theory of categories" (which suffices for relational databases), it
+parameterizes over the theory. This lets it handle schema languages that aren't
+naturally categorical—like Protobuf, where field numbers are an essential part
+of the structure that categories don't capture.
+
+The general picture, combining the categorical perspective with GATs, is:
+
+1. You choose a **theory** (e.g., the theory of SQL schemas, the theory of
+   Protobuf schemas)
+2. A specific schema is a **model** of that theory
+3. A schema mapping is a **morphism** of models
+4. panproto's algorithms work at the level of theories and models, so they
+   apply uniformly across schema languages
+
+This is what it means for panproto to "parameterize over schema structure."
+The theory is the parameter. Change the theory, and you get a different schema
+language—but the same algorithms.
+
+
+## The Category Theory Landscape
+
+For readers who want to go deeper, here's how the references connect.
+
+The general framework of category theory, as presented in [@maclane1998],
+provides the ambient mathematical universe. Categories, functors, natural
+transformations, limits, and colimits are the basic vocabulary. For a gentler
+introduction oriented toward computer science, [@barr1990] covers the same
+material with more attention to computational applications.
+
+Within this universe, @lawvere1963 identified that algebraic theories (like
+the theory of monoids or groups) are themselves categories with specific
+structure, and that models are product-preserving functors from the theory
+category to the category of sets. This was a revolutionary insight: it turned
+"satisfying axioms" into "preserving structure," which is something categories
+are designed to talk about.
+
+@cartmell1986 generalized Lawvere's framework to handle dependent sorts,
+arriving at GATs. This is the level of generality panproto needs: schema
+languages have dependent structure (constraints depend on types), and ordinary
+algebraic theories can't capture that.
+
+[@adamek1994] provided the theoretical bridge between GATs and EATs through
+the theory of locally presentable categories. This result is what lets panproto
+implement dependent sorts without a full dependent type checker—a crucial
+engineering simplification.
+
+@lynch2024 demonstrated that this entire framework can be implemented
+practically in a computational system (GATlab, in Julia). panproto adapts
+GATlab's architecture to Rust, gaining static typing, zero-cost abstractions,
+and Wasm compilation while retaining the mathematical foundations.
+
+:::{.callout-note}
+## The Key Insight
+
+A theory is a description of a shape. A model is a thing that has that shape.
+
+JSON Schema, Protobuf, SQL DDL, GraphQL SDL, ATProto Lexicon—these are all
+models of different theories. The theories differ (multigraphs vs. hypergraphs,
+different constraint sorts), but they're all expressed in the same
+meta-framework: GATs.
+
+panproto is parameterized by the theory. That's how it handles multiple schema
+languages with uniform algorithms. You don't write a schema differ for Protobuf
+and a separate one for SQL. You write a schema differ that works for any theory,
+and then you instantiate it with the specific theory you need.
+:::
+
+
+## What We've Built So Far
+
+Let's take stock. Over three chapters, we've established:
+
+1. **Schemas are everywhere** (Chapter 1). Different schema languages describe
+   the same structural idea—types connected by typed relationships—in different
+   syntaxes.
+
+2. **Schemas have graph-theoretic structure** (Chapter 2). The specific kind of
+   graph varies: multigraphs for most languages, hypergraphs for SQL. Constraints
+   decorate the graph structure.
+
+3. **Graph structures are described by theories** (this chapter). A theory
+   specifies sorts, operations, and equations. A model is a concrete thing
+   satisfying the theory. Dependent sorts (GATs) let theories express
+   type-indexed constraints.
+
+Together, these three ideas form the conceptual foundation of panproto. The
+next chapters will build on this foundation, moving from the "what" to the
+"how": how theories are implemented in Rust, how models are constructed and
+manipulated, and how the TypeScript SDK exposes all of this to application
+developers.
+
+
+## Summary
+
+- A **theory** consists of sorts, operations, and equations. It describes a
+  shape without committing to a specific instance.
+
+- A **model** assigns concrete sets and functions to a theory's sorts and
+  operations, satisfying its equations. A model is a thing that has the shape
+  the theory describes.
+
+- **Ordinary algebraic theories** [@lawvere1963] handle independent sorts:
+  Carrier, Vertex, Edge.
+
+- **Generalized Algebraic Theories** [@cartmell1986] handle dependent sorts:
+  `Constraint(v: Vertex)`, where the sort of constraints depends on which
+  vertex you're looking at. This is the expressiveness panproto needs for
+  schema constraints.
+
+- The **GAT-EAT equivalence** [@adamek1994] lets panproto implement
+  dependent sorts using partial operations rather than a full dependent type
+  system.
+
+- **GATlab** [@lynch2024] demonstrated this architecture computationally
+  in Julia. panproto adapts it to Rust.
+
+- **Schema languages are models of different theories.** panproto
+  parameterizes over the theory, enabling uniform algorithms across schema
+  languages.

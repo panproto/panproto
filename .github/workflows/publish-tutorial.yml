@@ -1,0 +1,31 @@
+name: Deploy Tutorial
+
+on:
+  workflow_dispatch:
+  push:
+    branches: main
+    paths:
+      - 'tutorial/**'
+      - 'crates/*/src/**'
+      - 'sdk/typescript/src/**'
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Render tutorial
+        run: cd tutorial && quarto render
+
+      - name: Deploy to panproto/tutorial repo
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.TUTORIAL_DEPLOY_KEY }}
+          external_repository: panproto/tutorial
+          publish_branch: main
+          publish_dir: tutorial/_site

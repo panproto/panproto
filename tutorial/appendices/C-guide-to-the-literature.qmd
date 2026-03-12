@@ -1,0 +1,155 @@
+# Guide to the Literature {.appendix}
+
+This appendix provides context for the papers and books cited throughout the tutorial. For each work, we describe what it contributes, how it connects to panproto, what background it assumes, and how accessible it is. The full bibliographic details are in the bibliography.
+
+## Foundations: GATs, Algebraic Theories, and Categories
+
+### @lawvere1963 — Functorial Semantics of Algebraic Theories
+
+Lawvere's doctoral dissertation introduced the idea of treating algebraic theories as categories and models as functors. This is the origin of the "theories as mathematical objects" perspective that panproto inherits. The dissertation is short but assumes comfort with basic category theory. It is worth reading for the conceptual clarity of its central idea: that a theory is not a syntactic object but a structured category, and that a model is a structure-preserving functor out of it.
+
+**Connection to panproto**: panproto's theories are generalized algebraic theories (a dependent-type extension of Lawvere theories), but the core insight—theories are objects, models are functors—is directly from this work.
+
+### @cartmell1986 — Generalised Algebraic Theories and Contextual Categories
+
+Cartmell extended Lawvere's framework to handle dependent sorts: sorts that depend on operations into other sorts. The resulting formalism, *generalized algebraic theories* (GATs), is the mathematical foundation of panproto's theory engine. The paper also introduces contextual categories, the semantic counterpart of GATs, and establishes that the theory of contextual categories is itself a contextual category—the self-description property we explored in Chapter 11.
+
+This is a technically demanding paper. It assumes familiarity with basic category theory and some exposure to type theory. The payoff is a precise understanding of what panproto's Level 0 engine implements.
+
+**Connection to panproto**: GATs are panproto's core formalism. The colimit construction for composing theories and the self-description architecture both originate here.
+
+### @adamek1994 — Locally Presentable and Accessible Categories
+
+A comprehensive treatment of the categorical foundations underlying algebraic theories, including initial algebras, colimits, and presentability. The book is a reference rather than an introduction; it assumes graduate-level category theory. The chapters on initial algebras (Ch. 10) and locally finitely presentable categories (Ch. 1-3) are most relevant.
+
+**Connection to panproto**: The theoretical guarantees that panproto's colimits and initial algebras are well-defined rest on the results in this book.
+
+### @maclane1998 — Categories for the Working Mathematician
+
+The standard reference for category theory. If you need to look up the precise definition of an adjunction, Kan extension, or natural transformation, this is the book. It is well-written and self-contained, assuming only basic algebra.
+
+**Connection to panproto**: Nearly every categorical concept in panproto's design—functors, adjunctions, Kan extensions, colimits—is defined here.
+
+### @barr1990 — Category Theory for Computing Science
+
+A more applied introduction to category theory, oriented toward computer scientists. It covers the same core concepts as @maclane1998 but with more attention to computational examples. The treatment of fibrations and limits/colimits is particularly clear.
+
+**Connection to panproto**: A good entry point if @maclane1998 feels too abstract. The fibration material is relevant to understanding how panproto's schema hierarchy works.
+
+## Functorial Data Migration
+
+### @spivak2012 — Functorial Data Migration
+
+The paper that launched the functorial approach to data migration. Spivak shows that a functor $F: C \to D$ between database schemas (viewed as categories) induces three data migration functors: $\Delta_F$ (pullback), $\Sigma_F$ (left push), and $\Pi_F$ (right push), forming an adjoint triple $\Sigma_F \dashv \Delta_F \dashv \Pi_F$. The paper is accessible and includes many examples.
+
+**Connection to panproto**: panproto's `restrict` is $\Delta_F$. The `lift` operation computes $\Sigma_F$ or $\Pi_F$ depending on context. The adjoint triple is the mathematical backbone of panproto's migration engine.
+
+### @schultz2017 — Algebraic Databases
+
+Schultz, Spivak, and Wisnesky extend functorial data migration to algebraic databases, where schemas carry equations (not just graph structure). The CQL system described in this paper is a direct ancestor of panproto's design. The paper introduces the "typeside" concept—a fixed base theory analogous to panproto's Level 0—but does not achieve full self-description.
+
+**Connection to panproto**: CQL demonstrated that functorial migration works in practice. panproto generalizes CQL's approach by replacing single-sorted algebraic theories with GATs, enabling dependent sorts and the self-description property.
+
+### @spivak2015 — Relational Foundations for Functorial Data Migration
+
+A refinement of @spivak2012 that grounds the migration functors in relational algebra, making the connection to SQL more explicit. Assumes familiarity with both category theory and database theory.
+
+**Connection to panproto**: Relevant to understanding how panproto's SQL protocol bridges the categorical and relational perspectives.
+
+### @uotila2022 — A Formal Category Theoretical Framework for Multi-Model Data Transformations
+
+Extends functorial data migration to multi-model databases (relational, document, graph, key-value). The paper shows how different data models can be unified under a single categorical framework.
+
+**Connection to panproto**: panproto's protocol-parametric design solves a similar problem. The multi-model perspective validates the idea that schema languages should be parameters, not hardcoded assumptions.
+
+## Lenses and Bidirectional Transformations
+
+### @foster2007 — Combinators for Bidirectional Tree Transformations
+
+The foundational paper on lenses. Foster, Greenwald, Moore, Pierce, and Schmitt define lenses as pairs of get/put functions satisfying round-trip laws, and provide a combinator language for building them. The paper is well-written and assumes only basic functional programming knowledge.
+
+**Connection to panproto**: panproto's lens combinators (`renameField`, `addField`, `wrapInObject`, etc.) follow the combinator design pattern introduced here.
+
+### @hofmann2011 — Symmetric Lenses
+
+Hofmann, Pierce, and Wagner generalize asymmetric lenses (which have a distinguished "source" and "view") to symmetric lenses, where both sides are treated equally. The complement plays a central role.
+
+**Connection to panproto**: panproto's complement-based `get`/`put` API follows the symmetric lens framework. The complement stores the information that the forward migration discards, enabling exact round-trips.
+
+### @johnson2013 — Lenses, Fibrations and Universal Translations
+
+Johnson and Rosebrugh connect lenses to fibrations, showing that well-behaved lenses correspond to certain cleavages of fibrations. This paper requires solid category theory background but provides deep insight into *why* lenses work.
+
+**Connection to panproto**: The fibration perspective explains why panproto's lens decomposition is canonical (not a heuristic). The migration functors factor through a fibration, and the lens structure is induced by the cleavage.
+
+### @clarke2020 — Internal Lenses as Functors and Cofunctors
+
+Clarke introduces delta lenses and their relationship to functors and cofunctors, providing a more general framework than the original get/put formulation.
+
+**Connection to panproto**: Delta lenses appear in panproto's treatment of migrations that are not fully invertible—cases where the complement carries essential information.
+
+### @litt2022 — Sequoia: A New Foundation for Bidirectional Transformations
+
+Litt proposes a new foundation for bidirectional transformations based on comonadic structures, addressing some limitations of the classical lens framework.
+
+**Connection to panproto**: panproto's internal lens representation draws on ideas from this work, particularly for handling recursive data structures where the classical get/put laws need careful reformulation.
+
+## Graph and Hypergraph Transformation
+
+### @ehrig1973 — Graph Grammars: An Algebraic Approach
+
+The origin of the algebraic approach to graph transformation. Ehrig, Pfender, and Schneider define graph rewriting via pushouts in the category of graphs—the same categorical construction that panproto uses for composing theories.
+
+**Connection to panproto**: The double-pushout (DPO) approach to graph rewriting is the mathematical basis for panproto's schema diff and patch operations.
+
+### @ehrig2006 — Fundamentals of Algebraic Graph Transformation
+
+A comprehensive textbook covering the algebraic approach to graph transformation, including single-pushout (SPO) and double-pushout (DPO) rewriting, adhesive categories, and applications. Assumes basic category theory.
+
+**Connection to panproto**: The primary reference for understanding how panproto computes schema diffs as graph transformation steps.
+
+### @lowe1993 — Algebraic Approach to Single-Pushout Graph Transformation
+
+Introduces the single-pushout approach to graph rewriting, which is simpler than DPO but handles partial morphisms. The paper is technical but clearly written.
+
+**Connection to panproto**: panproto uses SPO rewriting in certain migration scenarios where deletions are involved (e.g., removing a field from a schema).
+
+### @lowe2010 — Graph Rewriting in Some Categories of Partial Morphisms
+
+Extends graph rewriting to categories of partial morphisms, broadening the applicability of algebraic graph transformation.
+
+**Connection to panproto**: Relevant to panproto's handling of partial migrations—cases where not every record in the source can be migrated to the target.
+
+### @lack2005 — Adhesive and Quasiadhesive Categories
+
+Lack and Sobocinski identify adhesive categories as the abstract setting where pushout-based rewriting works well. This provides the categorical guarantee that panproto's pushout constructions behave as expected.
+
+**Connection to panproto**: The category of schemas-as-graphs is adhesive, which is why panproto's DPO-based diff/patch is well-behaved.
+
+### @drewes1997 — Hypergraph Rewriting
+
+Extends algebraic graph rewriting to hypergraphs, where edges can connect arbitrary numbers of vertices. The paper covers both the theory and algorithmic aspects.
+
+**Connection to panproto**: panproto's ThHypergraph theory models schemas with multi-way relationships. Hypergraph rewriting governs migrations within such schemas.
+
+## W-Types and Polynomial Functors
+
+### @gambino2004 — Wellfounded Trees and Dependent Polynomial Functors
+
+Gambino and Hyland develop the theory of W-types (wellfounded trees) in the setting of dependent type theory, showing that they are initial algebras of dependent polynomial functors. The paper is technically demanding, assuming familiarity with both type theory and category theory.
+
+**Connection to panproto**: panproto represents recursive/inductive data as W-types. The migration of recursive data—trees, nested records, lists—is derived from the functoriality of the polynomial functor construction, following the framework developed here.
+
+### @abbott2005 — Containers: Constructing Strictly Positive Types
+
+Abbott, Altenkirch, and Ghani introduce containers as a way to uniformly describe strictly positive type constructors. Containers are essentially polynomial functors presented in a form amenable to computation.
+
+**Connection to panproto**: panproto's internal representation of schema-as-polynomial-functor draws on the container perspective, which makes it possible to compute migrations of recursive data algorithmically.
+
+## Software Systems
+
+### @lynch2024 — GATlab: A Julia Package for Generalized Algebraic Theories
+
+Lynch and Patterson describe GATlab, a Julia implementation of GATs with support for computational colimits, theory morphisms, and model checking. GATlab is the most direct intellectual predecessor of panproto's design.
+
+**Connection to panproto**: panproto's Rust engine reimplements GATlab's core algorithms (colimits of GAT presentations, theory morphism composition, model validation) and extends them with the migration, lens, and instance layers. If you want to understand the computational GAT machinery that panproto builds on, GATlab's codebase and this paper are the place to start.
