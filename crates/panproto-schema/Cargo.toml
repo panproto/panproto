@@ -1,0 +1,21 @@
+[package]
+name = "panproto-schema"
+description = "Schema representation for panproto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+panproto-gat = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+rustc-hash = { workspace = true }
+smallvec = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

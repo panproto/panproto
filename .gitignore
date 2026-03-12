@@ -1,0 +1,28 @@
+# Rust
+target/
+Cargo.lock
+
+# WASM
+pkg/
+*.wasm
+
+# Node
+node_modules/
+dist/
+
+# Coverage
+coverage/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*

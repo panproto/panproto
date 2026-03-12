@@ -1,0 +1,81 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/panproto-gat",
+    "crates/panproto-schema",
+    "crates/panproto-inst",
+    "crates/panproto-mig",
+    "crates/panproto-lens",
+    "crates/panproto-check",
+    "crates/panproto-protocols",
+    "crates/panproto-core",
+    "crates/panproto-wasm",
+    "crates/panproto-cli",
+    "tests/integration",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/panproto/panproto"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1.0.228", features = ["derive"] }
+rmp-serde = "1.3.1"
+serde_json = "1.0.149"
+serde-wasm-bindgen = "0.6.5"
+
+# Error handling
+thiserror = "2.0.18"
+miette = { version = "7.6.0", features = ["fancy"] }
+
+# Collections & allocation
+smallvec = { version = "2.0.0-alpha.12", features = ["serde"] }
+rustc-hash = "2.1.1"
+bumpalo = "3.20.2"
+
+# WASM
+wasm-bindgen = "0.2.114"
+
+# CLI
+clap = { version = "4.5.60", features = ["derive"] }
+
+# Testing
+proptest = "1.10.0"
+
+# Benchmarking
+divan = "0.1.21"
+
+# Workspace crates
+panproto-gat = { path = "crates/panproto-gat" }
+panproto-schema = { path = "crates/panproto-schema" }
+panproto-inst = { path = "crates/panproto-inst" }
+panproto-mig = { path = "crates/panproto-mig" }
+panproto-lens = { path = "crates/panproto-lens" }
+panproto-check = { path = "crates/panproto-check" }
+panproto-protocols = { path = "crates/panproto-protocols" }
+panproto-core = { path = "crates/panproto-core" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
+
+[profile.release-wasm]
+inherits = "release"
+opt-level = "z"

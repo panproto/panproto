@@ -1,0 +1,12 @@
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    email TEXT UNIQUE
+);
+
+CREATE TABLE posts (
+    id INTEGER PRIMARY KEY NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT,
+    author_id INTEGER NOT NULL
+);

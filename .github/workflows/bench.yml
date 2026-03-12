@@ -1,0 +1,47 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-branch
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Run baseline benchmarks on main
+      - name: Baseline benchmarks (main)
+        run: |
+          cd main-branch
+          cargo bench --workspace 2>&1 | tee ../baseline-bench.txt
+
+      # Run PR benchmarks
+      - name: PR benchmarks
+        run: cargo bench --workspace 2>&1 | tee pr-bench.txt
+
+      # Compare and comment
+      - name: Compare benchmarks
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: cargo
+          output-file-path: pr-bench.txt
+          external-data-json-path: ./benchmark-data.json
+          comment-on-alert: true
+          alert-threshold: "120%"
+          fail-on-alert: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          comment-always: true

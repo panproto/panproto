@@ -1,0 +1,24 @@
+[package]
+name = "panproto-lens"
+description = "Bidirectional lens combinators for panproto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+panproto-mig = { workspace = true }
+panproto-inst = { workspace = true }
+panproto-schema = { workspace = true }
+panproto-gat = { workspace = true }
+serde = { workspace = true }
+smallvec = { workspace = true }
+thiserror = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

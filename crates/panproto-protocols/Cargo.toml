@@ -1,0 +1,23 @@
+[package]
+name = "panproto-protocols"
+description = "Built-in protocol definitions for panproto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+panproto-gat = { workspace = true }
+panproto-schema = { workspace = true }
+panproto-inst = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

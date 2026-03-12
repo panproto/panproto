@@ -1,0 +1,28 @@
+[package]
+name = "panproto-integration-tests"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[lib]
+name = "panproto_integration"
+path = "src/lib.rs"
+
+[dev-dependencies]
+panproto-gat = { path = "../../crates/panproto-gat" }
+panproto-schema = { path = "../../crates/panproto-schema" }
+panproto-inst = { path = "../../crates/panproto-inst" }
+panproto-mig = { path = "../../crates/panproto-mig" }
+panproto-lens = { path = "../../crates/panproto-lens" }
+panproto-check = { path = "../../crates/panproto-check" }
+panproto-protocols = { path = "../../crates/panproto-protocols" }
+panproto-core = { path = "../../crates/panproto-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+smallvec = { workspace = true }
+rustc-hash = { workspace = true }
+
+[lints]
+workspace = true

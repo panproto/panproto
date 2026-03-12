@@ -1,0 +1,58 @@
+{
+  "name": "@panproto/core",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for panproto — protocol-aware schema migration via generalized algebraic theories",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint ."
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^3.0.0"
+  },
+  "devDependencies": {
+    "oxlint": "^0.16.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/panproto/panproto",
+    "directory": "sdk/typescript"
+  },
+  "keywords": [
+    "panproto",
+    "schema",
+    "migration",
+    "wasm",
+    "atproto",
+    "lens"
+  ]
+}

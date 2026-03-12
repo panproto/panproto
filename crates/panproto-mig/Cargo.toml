@@ -1,0 +1,29 @@
+[package]
+name = "panproto-mig"
+description = "Migration engine for panproto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+panproto-inst = { workspace = true }
+panproto-schema = { workspace = true }
+panproto-gat = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+smallvec = { workspace = true }
+divan = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "mig_bench"
+harness = false
+
+[lints]
+workspace = true

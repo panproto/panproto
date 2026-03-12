@@ -1,0 +1,22 @@
+[package]
+name = "panproto-wasm"
+description = "WASM bindings for panproto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+panproto-core = { workspace = true }
+wasm-bindgen = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+smallvec = { workspace = true }
+
+[lints]
+workspace = true

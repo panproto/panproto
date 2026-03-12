@@ -1,0 +1,20 @@
+[package]
+name = "panproto-core"
+description = "Core re-export facade for panproto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+panproto-gat = { workspace = true }
+panproto-schema = { workspace = true }
+panproto-inst = { workspace = true }
+panproto-mig = { workspace = true }
+panproto-lens = { workspace = true }
+panproto-check = { workspace = true }
+panproto-protocols = { workspace = true }
+
+[lints]
+workspace = true
