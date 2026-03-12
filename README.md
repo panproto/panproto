@@ -2,7 +2,7 @@
 
 A universal schema migration engine built on [Generalized Algebraic Theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory) (GATs).
 
-panproto treats every schema language — ATProto Lexicons, SQL DDL, Protobuf, GraphQL, JSON Schema — as a model of a common mathematical structure. Migrations become theory morphisms, and correctness guarantees (existence conditions, lens laws, breaking-change detection) are derived from the algebra rather than hardcoded per format.
+panproto treats every schema language — [ATProto Lexicons](https://atproto.com/specs/lexicon), SQL DDL, [Protocol Buffers](https://protobuf.dev/), [GraphQL](https://graphql.org/), [JSON Schema](https://json-schema.org/) — as a model of a common mathematical structure. Migrations become [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format.
 
 ## Key idea
 
@@ -21,13 +21,13 @@ Level 3  Concrete instances as models of schemas
 |-------|-------------|
 | `panproto-gat` | GAT engine: sorts, operations, equations, theory morphisms, colimits |
 | `panproto-schema` | Schema representation with protocol-aware builder and adjacency indices |
-| `panproto-inst` | W-type and set-valued functor instances with restrict/extend pipelines |
+| `panproto-inst` | [W-type](https://ncatlab.org/nlab/show/W-type) and set-valued functor instances with restrict/extend pipelines |
 | `panproto-mig` | Migration engine: theory-derived existence checks, compilation, lift, compose, invert |
-| `panproto-lens` | Bidirectional lenses with Cambria-style combinators and law verification |
+| `panproto-lens` | Bidirectional lenses with [Cambria](https://www.inkandswitch.com/cambria/)-style combinators and law verification |
 | `panproto-check` | Breaking change detection via structural diffing and protocol-aware classification |
 | `panproto-protocols` | Built-in protocol definitions for ATProto, SQL, Protobuf, GraphQL, JSON Schema |
 | `panproto-core` | Re-export facade |
-| `panproto-wasm` | WASM bindings with handle-based slab allocator and MessagePack boundary |
+| `panproto-wasm` | [WASM](https://webassembly.org/) bindings with handle-based slab allocator and [MessagePack](https://msgpack.org/) boundary |
 | `panproto-cli` | CLI: `validate`, `check`, `diff`, `lift` |
 
 ### TypeScript SDK
@@ -96,10 +96,10 @@ panproto lift --protocol atproto --migration mig.json \
 ```sh
 # Rust
 cargo build --workspace
-cargo nextest run --workspace
+[cargo-nextest](https://nexte.st/) run --workspace
 
 # WASM
-wasm-pack build crates/panproto-wasm --target web
+[wasm-pack](https://rustwasm.github.io/wasm-pack/) build crates/panproto-wasm --target web
 
 # TypeScript SDK
 cd sdk/typescript && pnpm install && pnpm build && pnpm test
@@ -109,13 +109,13 @@ cd sdk/typescript && pnpm install && pnpm build && pnpm test
 
 panproto implements a three-level architecture rooted in category theory:
 
-**W-type instances** (tree-structured data like JSON/ATProto records) use a 5-step restrict pipeline: anchor surviving nodes, compute reachability from root, contract ancestors, resolve edges, and reconstruct fans.
+[**W-type**](https://ncatlab.org/nlab/show/W-type) **instances** (tree-structured data like JSON/ATProto records) use a 5-step restrict pipeline: anchor surviving nodes, compute reachability from root, contract ancestors, resolve edges, and reconstruct fans.
 
-**Set-valued functor instances** (relational data like SQL tables) use precomposition (&#916;<sub>F</sub>) for restrict and left Kan extension (&#931;<sub>F</sub>) for extend.
+**[Set-valued functor](https://ncatlab.org/nlab/show/functor) instances** (relational data like SQL tables) use [precomposition](https://ncatlab.org/nlab/show/precomposition) (&#916;<sub>F</sub>) for restrict and [left Kan extension](https://ncatlab.org/nlab/show/Kan+extension) (&#931;<sub>F</sub>) for extend.
 
-**Bidirectional lenses** provide `get` (restrict + complement capture) and `put` (restore from complement) directions, with six Cambria-style combinators: `RenameField`, `AddField`, `RemoveField`, `WrapInObject`, `HoistField`, `CoerceType`. The `GetPut` and `PutGet` laws are verified at test time.
+**[Bidirectional lenses](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29)** provide `get` (restrict + complement capture) and `put` (restore from complement) directions, with six [Cambria](https://www.inkandswitch.com/cambria/)-style combinators: `RenameField`, `AddField`, `RemoveField`, `WrapInObject`, `HoistField`, `CoerceType`. The `GetPut` and `PutGet` laws are verified at test time.
 
-**Theory-derived existence conditions** determine migration validity by inspecting the schema and instance theory sorts at runtime, rather than hardcoding checks per protocol.
+**Theory-derived existence conditions** determine migration validity by inspecting the schema and instance [theory](https://ncatlab.org/nlab/show/generalized+algebraic+theory) sorts at runtime, rather than hardcoding checks per protocol.
 
 ## License
 
