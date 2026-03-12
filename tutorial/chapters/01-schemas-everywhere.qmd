@@ -33,7 +33,7 @@ isn't the complexity of the entity—it's the variety of ways we can describe it
 
 ## Five Representations
 
-### 1. JSON Schema
+### JSON Schema
 
 JSON Schema is the lingua franca of HTTP APIs. You've seen it in OpenAPI specs,
 in configuration file validators, and in editor autocompletion engines.
@@ -69,7 +69,7 @@ A few things to note: the top-level construct is an **object** with named
 **required** array. Additional constraints like `maxLength` and `maxItems` sit
 alongside the type declarations.
 
-### 2. Protocol Buffers
+### Protocol Buffers
 
 Protobuf takes a different approach. Where JSON Schema is declarative and
 JSON-native, Protobuf is a compiled IDL designed for efficient binary
@@ -98,7 +98,7 @@ Notice what's missing compared to JSON Schema: no `maxLength`, no `maxItems`.
 Protobuf doesn't have a built-in constraint language. If you want validation,
 you reach for something like `protoc-gen-validate` or Buf's `protovalidate`.
 
-### 3. SQL DDL
+### SQL DDL
 
 SQL's Data Definition Language is the oldest schema language most developers
 encounter. It predates JSON, Protobuf, and GraphQL by decades.
@@ -122,7 +122,7 @@ SQL brings something the previous two formats lack: a notion of **identity**
 (`PRIMARY KEY`) and **defaults** (`DEFAULT now()`). These aren't just
 descriptions of shape—they're operational semantics baked into the schema.
 
-### 4. GraphQL SDL
+### GraphQL SDL
 
 GraphQL's Schema Definition Language is designed for API surfaces. It describes
 what a client can query, not how data is stored.
@@ -144,7 +144,7 @@ how nullability is part of the type system, not a separate constraint.
 GraphQL doesn't have `maxLength` either. Validation happens in resolvers or
 directives, not in the SDL itself.
 
-### 5. ATProto Lexicon
+### ATProto Lexicon
 
 ATProto (the protocol behind Bluesky) uses Lexicon, a JSON-based schema
 language that borrows from JSON Schema but adds protocol-specific concepts like
