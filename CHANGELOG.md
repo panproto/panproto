@@ -48,9 +48,14 @@ All notable changes to panproto will be documented in this file.
 - Add version specs to workspace crate dependencies for crates.io publishing
 - Add MPL-2.0 to `deny.toml` license allow list
 
+### Testing
+
+- 76 round-trip integration tests for `panproto-io`, one per registered protocol
+- Fixture data from public sources: UD English EWT (CC BY-SA), Wikipedia HTML (CC BY-SA), Rust README (MIT), Natural Earth GeoJSON (public domain), HL7 FHIR R4 (CC0), NASA RSS (rssboard.org), AWS CloudFormation (MIT), K8s Gateway API CRD (Apache-2.0), JSON Schema Test Suite (MIT)
+
 ### Stats
 
-- 622 tests across the workspace (up from 212 in v0.1.0; 20 in panproto-io)
+- 694 tests across the workspace (up from 212 in v0.1.0; 98 in panproto-io)
 
 ## [0.1.0] - 2026-03-12
 
