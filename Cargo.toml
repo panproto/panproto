@@ -50,14 +50,14 @@ proptest = "1.10.0"
 divan = "0.1.21"
 
 # Workspace crates
-panproto-gat = { path = "crates/panproto-gat" }
-panproto-schema = { path = "crates/panproto-schema" }
-panproto-inst = { path = "crates/panproto-inst" }
-panproto-mig = { path = "crates/panproto-mig" }
-panproto-lens = { path = "crates/panproto-lens" }
-panproto-check = { path = "crates/panproto-check" }
-panproto-protocols = { path = "crates/panproto-protocols" }
-panproto-core = { path = "crates/panproto-core" }
+panproto-gat = { version = "0.1.0", path = "crates/panproto-gat" }
+panproto-schema = { version = "0.1.0", path = "crates/panproto-schema" }
+panproto-inst = { version = "0.1.0", path = "crates/panproto-inst" }
+panproto-mig = { version = "0.1.0", path = "crates/panproto-mig" }
+panproto-lens = { version = "0.1.0", path = "crates/panproto-lens" }
+panproto-check = { version = "0.1.0", path = "crates/panproto-check" }
+panproto-protocols = { version = "0.1.0", path = "crates/panproto-protocols" }
+panproto-core = { version = "0.1.0", path = "crates/panproto-core" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
