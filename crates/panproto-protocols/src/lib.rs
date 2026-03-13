@@ -33,6 +33,8 @@
 //! - **Domain**: `GeoJSON`, FHIR, RSS/Atom, vCard/iCal, EDI X12, SWIFT MT
 //! - **Config**: HCL, K8s CRD, Docker Compose, `CloudFormation`, Ansible
 
+/// Linguistic annotation format protocol definitions.
+pub mod annotation;
 /// API specification protocol definitions.
 pub mod api;
 /// Configuration format protocol definitions.

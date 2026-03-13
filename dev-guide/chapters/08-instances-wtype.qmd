@@ -72,11 +72,11 @@ The `wtype_restrict` function is the core data migration algorithm. It takes an 
 %%| fig-cap: "The 5-step wtype_restrict pipeline. Each step filters or transforms the instance, producing a progressively restricted version."
 flowchart TD
     I["Source WInstance"] --> S1
-    S1["Step 1: anchor_surviving\n(keep nodes whose anchor survives)"] --> S2
-    S2["Step 2: reachable_from_root\n(BFS from root in surviving subgraph)"] --> S3
-    S3["Step 3: ancestor_contraction\n(find nearest surviving ancestor)"] --> S4
-    S4["Step 4: resolve_edge\n(remap edges for contracted arcs)"] --> S5
-    S5["Step 5: reconstruct_fans\n(rebuild hyper-edge fans)"] --> O
+    S1["Step 1: anchor_surviving<br>(keep nodes whose anchor survives)"] --> S2
+    S2["Step 2: reachable_from_root<br>(BFS from root in surviving subgraph)"] --> S3
+    S3["Step 3: ancestor_contraction<br>(find nearest surviving ancestor)"] --> S4
+    S4["Step 4: resolve_edge<br>(remap edges for contracted arcs)"] --> S5
+    S5["Step 5: reconstruct_fans<br>(rebuild hyper-edge fans)"] --> O
     O["Target WInstance"]
 
     style S1 fill:#e8f0fe,stroke:#1a73e8

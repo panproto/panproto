@@ -181,18 +181,18 @@ The TypeScript test suite covers the SDK's public API, WASM integration, and Mes
 %%| label: fig-build-pipeline
 %%| fig-cap: "Full build and test pipeline"
 flowchart TD
-    A["cargo build --workspace"] --> B["wasm-pack build\ncrates/panproto-wasm\n--target web"]
-    B --> C["cd sdk/typescript\npnpm install && pnpm build"]
+    A["cargo build --workspace"] --> B["wasm-pack build<br>crates/panproto-wasm<br>--target web"]
+    B --> C["cd sdk/typescript<br>pnpm install && pnpm build"]
 
-    A --> D["cargo nextest run\n--workspace"]
-    B --> E["wasm-pack test\n--headless --chrome"]
+    A --> D["cargo nextest run<br>--workspace"]
+    B --> E["wasm-pack test<br>--headless --chrome"]
     C --> F["pnpm test"]
 
     D --> G{"All pass?"}
     E --> G
     F --> G
     G -->|yes| H["Ready to commit"]
-    G -->|no| I["Debug\n(see chapter 4)"]
+    G -->|no| I["Debug<br>(see chapter 4)"]
 ```
 
 ## Lint checks

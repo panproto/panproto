@@ -195,11 +195,11 @@ CI must pass before a maintainer reviews your PR. If a CI job fails, check the l
 %%| fig-cap: "End-to-end contribution workflow"
 flowchart LR
     A["Fork"] --> B["Clone"]
-    B --> C["Build\ncargo build --workspace"]
-    C --> D["Test\ncargo nextest run --workspace"]
+    B --> C["Build<br>cargo build --workspace"]
+    C --> D["Test<br>cargo nextest run --workspace"]
     D --> E["Make change"]
     E --> F["Test again"]
-    F --> G["Commit\n(conventional format)"]
+    F --> G["Commit<br>(conventional format)"]
     G --> H["Push"]
     H --> I["Open PR"]
     I --> J["CI runs"]
