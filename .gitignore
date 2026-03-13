@@ -6,6 +6,13 @@ Cargo.lock
 pkg/
 *.wasm
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
 # Node
 node_modules/
 dist/

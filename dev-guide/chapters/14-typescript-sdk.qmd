@@ -8,7 +8,7 @@ For a quick-reference listing of all public APIs with parameter types, see [tuto
 
 ## Architecture Overview
 
-The SDK is organized into seven modules, each with a focused responsibility:
+The SDK is organized into six core classes, each with a focused responsibility:
 
 ```{mermaid}
 classDiagram

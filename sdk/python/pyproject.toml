@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "panproto"
+version = "0.1.0"
+description = "Universal schema migration engine (Python SDK)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+authors = [
+    { name = "Aaron Steven White", email = "aaron.steven.white@gmail.com" },
+]
+keywords = ["schema", "migration", "gat", "lens", "wasm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "wasmtime>=29.0.0",
+    "msgpack>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "pyright>=1.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/panproto/panproto"
+Repository = "https://github.com/panproto/panproto"
+Documentation = "https://panproto.github.io"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/panproto"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/panproto"]
+
+[tool.pyright]
+pythonVersion = "3.13"
+pythonPlatform = "All"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+
+[tool.ruff]
+target-version = "py313"
+line-length = 99
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",     # pyflakes + pycodestyle
+    "I",                # isort
+    "N",                # pep8-naming
+    "UP",               # pyupgrade
+    "B",                # bugbear
+    "A",                # builtins
+    "C4",               # comprehensions
+    "SIM",              # simplify
+    "TCH",              # type-checking imports
+    "RUF",              # ruff-specific
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["panproto"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
