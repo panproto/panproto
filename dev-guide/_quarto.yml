@@ -40,6 +40,7 @@ book:
         - chapters/12-protocols.qmd
         - chapters/13-wasm-boundary.qmd
         - chapters/14-typescript-sdk.qmd
+        - chapters/20-python-sdk.qmd
         - chapters/15-cli.qmd
     - part: "Contributing Process"
       chapters:
