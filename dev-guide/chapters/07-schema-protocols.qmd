@@ -148,23 +148,23 @@ The builder validates elements incrementally as they are added, then performs a 
 %%| label: fig-builder-pipeline
 %%| fig-cap: "SchemaBuilder validation pipeline. Each step checks one class of invariant."
 flowchart LR
-    A["vertex()"] --> B{"Vertex kind\nin protocol?"}
-    B -->|yes| C{"Duplicate\nID?"}
-    B -->|no| X1["SchemaError::\nUnknownVertexKind"]
+    A["vertex()"] --> B{"Vertex kind<br>in protocol?"}
+    B -->|yes| C{"Duplicate<br>ID?"}
+    B -->|no| X1["SchemaError::<br>UnknownVertexKind"]
     C -->|no| D["Accept vertex"]
-    C -->|yes| X2["SchemaError::\nDuplicateVertex"]
+    C -->|yes| X2["SchemaError::<br>DuplicateVertex"]
 
-    E["edge()"] --> F{"src & tgt\nexist?"}
-    F -->|yes| G{"Edge kind\nhas rule?"}
-    F -->|no| X3["SchemaError::\nVertexNotFound"]
-    G -->|yes| H{"src/tgt kinds\nmatch rule?"}
-    G -->|no| X4["SchemaError::\nUnknownEdgeKind"]
+    E["edge()"] --> F{"src & tgt<br>exist?"}
+    F -->|yes| G{"Edge kind<br>has rule?"}
+    F -->|no| X3["SchemaError::<br>VertexNotFound"]
+    G -->|yes| H{"src/tgt kinds<br>match rule?"}
+    G -->|no| X4["SchemaError::<br>UnknownEdgeKind"]
     H -->|yes| I["Accept edge"]
-    H -->|no| X5["SchemaError::\nInvalidEdge*"]
+    H -->|no| X5["SchemaError::<br>InvalidEdge*"]
 
-    J["build()"] --> K{"Any\nvertices?"}
-    K -->|yes| L["Compute\nadjacency indices"]
-    K -->|no| X6["SchemaError::\nEmptySchema"]
+    J["build()"] --> K{"Any<br>vertices?"}
+    K -->|yes| L["Compute<br>adjacency indices"]
+    K -->|no| X6["SchemaError::<br>EmptySchema"]
     L --> M["Return Schema"]
 
     style X1 fill:#fdd,stroke:#c33

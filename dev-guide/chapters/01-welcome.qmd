@@ -34,11 +34,11 @@ The tutorial explains *what* a theory morphism does; this guide explains *how* `
 %%| label: fig-docs-landscape
 %%| fig-cap: "Documentation landscape for panproto"
 flowchart LR
-    A["panproto Tutorial\n(panproto.github.io/tutorial/)"] -->|"teaches users"| U["Users"]
-    B["Developer Guide\n(this book)"] -->|"teaches contributors"| C["Contributors"]
-    D["Rustdoc\n(cargo doc)"] -->|"API reference"| C
+    A["panproto Tutorial<br>(panproto.github.io/tutorial/)"] -->|"teaches users"| U["Users"]
+    B["Developer Guide<br>(this book)"] -->|"teaches contributors"| C["Contributors"]
+    D["Rustdoc<br>(cargo doc)"] -->|"API reference"| C
     D -->|"API reference"| U
-    E["Source code\n(github.com/panproto)"] -->|"implementation"| C
+    E["Source code<br>(github.com/panproto)"] -->|"implementation"| C
     B -->|"cross-references"| D
     A -->|"prerequisites for"| B
 ```
