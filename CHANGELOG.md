@@ -2,6 +2,40 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Features
+
+- **panproto-protocols**: Expand protocol coverage to 73 formats (54 base + 19 annotation) with bidirectional parse/emit for every protocol
+  - **Serialization** (7): Avro, Thrift, Cap'n Proto, FlatBuffers, ASN.1, Bond, MsgPack
+  - **Data Schema** (7): XML/XSD, CSV/Table Schema, YAML Schema, TOML Schema, CDDL, INI, BSON
+  - **API** (4): OpenAPI, AsyncAPI, RAML, JSON:API
+  - **Database** (5): MongoDB, Cassandra, DynamoDB, Neo4j, Redis
+  - **Type System** (8): TypeScript, Python, Rust, Java, Go, Swift, Kotlin, C#
+  - **Web/Document** (8): HTML, CSS, DOCX, ODF, Markdown, JSX, Vue, Svelte
+  - **Data Science** (3): Parquet, Arrow, DataFrame
+  - **Domain** (5): GeoJSON, FHIR, RSS/Atom, vCard/iCal, EDI X12
+  - **Config** (3): HCL, K8s CRD, Docker Compose
+  - **Annotation** (19): AMR, bead (FACTS.lab), brat, Concrete (JHU HLTCOE), CoNLL-U, Decomp/UDS, ELAN/Praat, FoLiA, FOVEA, ISO-Space, LAF/GrAF, NAF, NIF, PAULA/Salt, TEI XML, TimeML, UCCA, UIMA/CAS, W3C Web Annotation
+- **panproto-protocols**: Shared emit helpers (`find_roots`, `children_by_edge`, `vertex_constraints`, `IndentWriter`) and 5 theory group registration functions
+- **panproto-python**: Python 3.13+ SDK with strict typing, Pydantic v2 models, and 170 tests
+
+### Documentation
+
+- Tutorial book (Quarto) covering schemas, GATs, protocols, migration, and lenses
+- Developer guide (Quarto) covering contribution workflow, architecture, and crate internals
+- Per-crate README files with linked technical concepts
+- Project README and MIT license
+
+### Fixes
+
+- Fix Mermaid diagram newlines in dev-guide (literal `\n` → `<br>`)
+- Add version specs to workspace crate dependencies for crates.io publishing
+
+### Stats
+
+- 602 tests across the workspace (up from 212 in v0.1.0)
+
 ## [0.1.0] - 2026-03-12
 
 ### Features
