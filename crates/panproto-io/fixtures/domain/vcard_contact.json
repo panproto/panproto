@@ -1,0 +1,17 @@
+[
+  "vcard",
+  [
+    ["version", {}, "text", "4.0"],
+    ["fn", {}, "text", "Yuki Tanaka"],
+    ["n", {}, "text", ["Tanaka", "Yuki", "", "", ""]],
+    ["org", {}, "text", "University of Rochester;Department of Linguistics"],
+    ["title", {}, "text", "Research Scientist"],
+    ["email", { "type": "work" }, "text", "y.tanaka@example.org"],
+    ["tel", { "type": ["work", "voice"] }, "uri", "tel:+1-585-555-0142"],
+    ["adr", { "type": "work" }, "text", ["", "", "Lattimore Hall", "Rochester", "NY", "14627", "US"]],
+    ["url", {}, "uri", "https://ylinguist.example.org"],
+    ["photo", {}, "uri", "https://cdn.example.org/avatars/ytanaka.webp"],
+    ["note", {}, "text", "Computational linguist specializing in semantic representations"],
+    ["rev", {}, "timestamp", "2026-03-12T14:22:00Z"]
+  ]
+]

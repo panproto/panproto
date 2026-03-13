@@ -1,0 +1,14 @@
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+      <w:r><w:t>Universal Schema Migration</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:t>panproto implements functorial data migration using generalized algebraic theories.</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:rPr><w:b/></w:rPr><w:t>Key features:</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>

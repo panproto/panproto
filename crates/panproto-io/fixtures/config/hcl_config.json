@@ -1,0 +1,40 @@
+{
+  "terraform": {
+    "required_providers": {
+      "aws": {
+        "source": "hashicorp/aws",
+        "version": "~> 5.40"
+      }
+    },
+    "backend": {
+      "s3": {
+        "bucket": "panproto-terraform-state",
+        "key": "prod/terraform.tfstate",
+        "region": "us-east-1"
+      }
+    }
+  },
+  "provider": {
+    "aws": {
+      "region": "us-east-1",
+      "default_tags": {
+        "tags": {
+          "Project": "panproto",
+          "Environment": "production",
+          "ManagedBy": "terraform"
+        }
+      }
+    }
+  },
+  "resource": {
+    "aws_ecs_service": {
+      "panproto_api": {
+        "name": "panproto-api",
+        "cluster": "${aws_ecs_cluster.main.id}",
+        "task_definition": "${aws_ecs_task_definition.api.arn}",
+        "desired_count": 3,
+        "launch_type": "FARGATE"
+      }
+    }
+  }
+}

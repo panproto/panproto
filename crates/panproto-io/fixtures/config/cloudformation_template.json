@@ -1,0 +1,44 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Panproto API Lambda deployment",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "production",
+      "AllowedValues": ["staging", "production"]
+    }
+  },
+  "Resources": {
+    "PanprotoFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "panproto-api",
+        "Runtime": "provided.al2023",
+        "Handler": "bootstrap",
+        "MemorySize": 256,
+        "Timeout": 30,
+        "Environment": {
+          "Variables": {
+            "RUST_LOG": "info"
+          }
+        },
+        "Code": {
+          "S3Bucket": "panproto-deploy",
+          "S3Key": "lambda/panproto-api.zip"
+        }
+      }
+    },
+    "PanprotoApi": {
+      "Type": "AWS::ApiGatewayV2::Api",
+      "Properties": {
+        "Name": "panproto-api",
+        "ProtocolType": "HTTP"
+      }
+    }
+  },
+  "Outputs": {
+    "ApiEndpoint": {
+      "Value": { "Fn::GetAtt": ["PanprotoApi", "ApiEndpoint"] }
+    }
+  }
+}

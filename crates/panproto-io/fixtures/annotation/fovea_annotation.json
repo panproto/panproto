@@ -1,0 +1,25 @@
+{
+  "id": "fovea-0042",
+  "sentence": "The researcher analyzed the data carefully.",
+  "tokens": ["The", "researcher", "analyzed", "the", "data", "carefully", "."],
+  "fixations": [
+    {
+      "participant_id": "P01",
+      "trial": 1,
+      "events": [
+        { "token_index": 0, "first_fixation_duration": 187, "gaze_duration": 187, "total_time": 210, "regressions_in": 0 },
+        { "token_index": 1, "first_fixation_duration": 245, "gaze_duration": 312, "total_time": 380, "regressions_in": 1 },
+        { "token_index": 2, "first_fixation_duration": 198, "gaze_duration": 267, "total_time": 310, "regressions_in": 0 },
+        { "token_index": 3, "first_fixation_duration": 0, "gaze_duration": 0, "total_time": 0, "regressions_in": 0 },
+        { "token_index": 4, "first_fixation_duration": 231, "gaze_duration": 289, "total_time": 340, "regressions_in": 0 },
+        { "token_index": 5, "first_fixation_duration": 276, "gaze_duration": 345, "total_time": 412, "regressions_in": 1 }
+      ]
+    }
+  ],
+  "metadata": {
+    "experiment": "reading-complexity-2026",
+    "display": "1920x1080",
+    "tracker": "EyeLink 1000 Plus",
+    "sampling_rate_hz": 1000
+  }
+}

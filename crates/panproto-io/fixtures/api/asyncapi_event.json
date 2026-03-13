@@ -1,0 +1,34 @@
+{
+  "token": "xoxb-9384752-8374625-abc123def456",
+  "team_id": "T0MGQL489",
+  "api_app_id": "A04T8NJFR2",
+  "event": {
+    "type": "message",
+    "subtype": "bot_message",
+    "text": "Deployment to production completed successfully :white_check_mark:",
+    "ts": "1774560123.000200",
+    "channel": "C0G7LBNTF",
+    "bot_id": "B04K2PQJR",
+    "blocks": [
+      {
+        "type": "section",
+        "block_id": "deploy_status",
+        "text": {
+          "type": "mrkdwn",
+          "text": "*panproto v0.2.0* deployed to `us-east-1`"
+        }
+      }
+    ]
+  },
+  "type": "event_callback",
+  "event_id": "Ev04Q8RDFS",
+  "event_time": 1774560123,
+  "authorizations": [
+    {
+      "enterprise_id": null,
+      "team_id": "T0MGQL489",
+      "user_id": "U04K2PQJR",
+      "is_bot": true
+    }
+  ]
+}

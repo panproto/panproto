@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "US.NY.055",
+      "properties": {
+        "name": "Monroe County",
+        "state": "New York",
+        "fips": "36055",
+        "population": 757280,
+        "area_sq_km": 1723.5
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-77.9953, 43.2542],
+          [-77.5816, 43.2542],
+          [-77.5816, 43.0835],
+          [-77.9953, 43.0835],
+          [-77.9953, 43.2542]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "US.NY.069",
+      "properties": {
+        "name": "Ontario County",
+        "state": "New York",
+        "fips": "36069",
+        "population": 112458,
+        "area_sq_km": 1696.8
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-77.3717, 42.9442],
+          [-77.1068, 42.9442],
+          [-77.1068, 42.7261],
+          [-77.3717, 42.7261],
+          [-77.3717, 42.9442]
+        ]]
+      }
+    }
+  ]
+}

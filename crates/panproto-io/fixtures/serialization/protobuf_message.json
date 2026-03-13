@@ -1,0 +1,23 @@
+{
+  "sentence": {
+    "text": "The researcher analyzed the data carefully.",
+    "token": [
+      { "word": "The", "start": 0, "end": 3, "pos": "DT", "lemma": "the" },
+      { "word": "researcher", "start": 4, "end": 14, "pos": "NN", "lemma": "researcher" },
+      { "word": "analyzed", "start": 15, "end": 23, "pos": "VBD", "lemma": "analyze" },
+      { "word": "the", "start": 24, "end": 27, "pos": "DT", "lemma": "the" },
+      { "word": "data", "start": 28, "end": 32, "pos": "NNS", "lemma": "datum" },
+      { "word": "carefully", "start": 33, "end": 42, "pos": "RB", "lemma": "carefully" },
+      { "word": ".", "start": 42, "end": 43, "pos": ".", "lemma": "." }
+    ],
+    "basicDependencies": [
+      { "dep": "ROOT", "governor": 0, "dependent": 3 },
+      { "dep": "det", "governor": 2, "dependent": 1 },
+      { "dep": "nsubj", "governor": 3, "dependent": 2 },
+      { "dep": "det", "governor": 5, "dependent": 4 },
+      { "dep": "dobj", "governor": 3, "dependent": 5 },
+      { "dep": "advmod", "governor": 3, "dependent": 6 },
+      { "dep": "punct", "governor": 3, "dependent": 7 }
+    ]
+  }
+}

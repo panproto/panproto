@@ -1,0 +1,44 @@
+{
+  "apiVersion": "apiextensions.k8s.io/v1",
+  "kind": "CustomResourceDefinition",
+  "metadata": {
+    "name": "protocols.panproto.io",
+    "labels": {
+      "app.kubernetes.io/name": "panproto",
+      "app.kubernetes.io/version": "0.2.0"
+    }
+  },
+  "spec": {
+    "group": "panproto.io",
+    "versions": [
+      {
+        "name": "v1alpha1",
+        "served": true,
+        "storage": true,
+        "schema": {
+          "openAPIV3Schema": {
+            "type": "object",
+            "properties": {
+              "spec": {
+                "type": "object",
+                "properties": {
+                  "format": { "type": "string", "enum": ["json", "protobuf", "avro"] },
+                  "version": { "type": "string" },
+                  "replicas": { "type": "integer", "minimum": 1, "maximum": 10 }
+                },
+                "required": ["format", "version"]
+              }
+            }
+          }
+        }
+      }
+    ],
+    "scope": "Namespaced",
+    "names": {
+      "plural": "protocols",
+      "singular": "protocol",
+      "kind": "Protocol",
+      "shortNames": ["proto"]
+    }
+  }
+}

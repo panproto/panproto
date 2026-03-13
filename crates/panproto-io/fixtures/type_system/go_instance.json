@@ -1,0 +1,31 @@
+{
+  "id": "svc-panproto-api",
+  "name": "panproto-api",
+  "version": "0.2.0",
+  "status": "healthy",
+  "uptime_seconds": 864000,
+  "endpoints": [
+    {
+      "path": "/api/v1/parse",
+      "method": "POST",
+      "latency_ms_p99": 12.4,
+      "requests_total": 1482937,
+      "error_rate": 0.0012
+    },
+    {
+      "path": "/api/v1/emit",
+      "method": "POST",
+      "latency_ms_p99": 8.7,
+      "requests_total": 983214,
+      "error_rate": 0.0008
+    }
+  ],
+  "config": {
+    "max_connections": 1024,
+    "read_timeout_ms": 30000,
+    "write_timeout_ms": 30000,
+    "tls_enabled": true
+  },
+  "started_at": "2026-03-02T06:00:00Z",
+  "checked_at": "2026-03-12T14:22:00Z"
+}

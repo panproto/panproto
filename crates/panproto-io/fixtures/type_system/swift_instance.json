@@ -1,0 +1,24 @@
+{
+  "id": "workout_2026_0312_1400",
+  "activityType": "running",
+  "startDate": "2026-03-12T14:00:00Z",
+  "endDate": "2026-03-12T14:42:18Z",
+  "duration": 2538,
+  "distance": {
+    "value": 7.24,
+    "unit": "km"
+  },
+  "calories": 512,
+  "averageHeartRate": 156,
+  "maxHeartRate": 178,
+  "route": [
+    { "latitude": 43.1566, "longitude": -77.6088, "elevation": 153.2, "timestamp": "2026-03-12T14:00:00Z" },
+    { "latitude": 43.1589, "longitude": -77.6112, "elevation": 148.7, "timestamp": "2026-03-12T14:05:00Z" },
+    { "latitude": 43.1612, "longitude": -77.6045, "elevation": 155.1, "timestamp": "2026-03-12T14:10:00Z" }
+  ],
+  "source": "Apple Watch Series 10",
+  "weather": {
+    "temperatureCelsius": 8.3,
+    "condition": "partly_cloudy"
+  }
+}

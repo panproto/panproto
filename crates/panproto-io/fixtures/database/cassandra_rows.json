@@ -1,0 +1,33 @@
+{
+  "columns": [
+    { "name": "sensor_id", "type": "uuid" },
+    { "name": "event_time", "type": "timestamp" },
+    { "name": "temperature", "type": "double" },
+    { "name": "humidity", "type": "double" },
+    { "name": "location", "type": "text" }
+  ],
+  "rows": [
+    {
+      "sensor_id": "550e8400-e29b-41d4-a716-446655440000",
+      "event_time": "2026-03-12T14:00:00.000Z",
+      "temperature": 22.3,
+      "humidity": 45.1,
+      "location": "building-a/floor-2/room-214"
+    },
+    {
+      "sensor_id": "550e8400-e29b-41d4-a716-446655440000",
+      "event_time": "2026-03-12T14:05:00.000Z",
+      "temperature": 22.5,
+      "humidity": 44.8,
+      "location": "building-a/floor-2/room-214"
+    },
+    {
+      "sensor_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "event_time": "2026-03-12T14:00:00.000Z",
+      "temperature": 19.8,
+      "humidity": 52.3,
+      "location": "building-b/floor-1/room-101"
+    }
+  ],
+  "paging_state": null
+}

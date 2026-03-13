@@ -1,0 +1,48 @@
+{
+  "resourceType": "Patient",
+  "id": "pat-2026-0042",
+  "meta": {
+    "versionId": "3",
+    "lastUpdated": "2026-03-12T14:22:00Z",
+    "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+  },
+  "identifier": [
+    {
+      "system": "http://hospital.example.org/mrn",
+      "value": "MRN-20260042"
+    }
+  ],
+  "active": true,
+  "name": [
+    {
+      "use": "official",
+      "family": "Silva",
+      "given": ["Mariana"],
+      "prefix": ["Ms."]
+    }
+  ],
+  "gender": "female",
+  "birthDate": "1997-04-15",
+  "telecom": [
+    { "system": "phone", "value": "+1-585-555-0142", "use": "home" },
+    { "system": "email", "value": "m.silva@example.com" }
+  ],
+  "address": [
+    {
+      "use": "home",
+      "line": ["42 Elm Street"],
+      "city": "Rochester",
+      "state": "NY",
+      "postalCode": "14607",
+      "country": "US"
+    }
+  ],
+  "communication": [
+    {
+      "language": {
+        "coding": [{ "system": "urn:ietf:bcp:47", "code": "en-US" }]
+      },
+      "preferred": true
+    }
+  ]
+}

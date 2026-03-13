@@ -1,0 +1,30 @@
+{
+  "schema": {
+    "name": "annotation_spans",
+    "fields": [
+      { "name": "doc_id", "type": "UTF8", "nullable": false },
+      { "name": "span_start", "type": "INT32", "nullable": false },
+      { "name": "span_end", "type": "INT32", "nullable": false },
+      { "name": "label", "type": "UTF8", "nullable": false },
+      { "name": "confidence", "type": "DOUBLE", "nullable": true },
+      { "name": "annotator", "type": "UTF8", "nullable": false }
+    ]
+  },
+  "num_rows": 4,
+  "row_groups": [
+    {
+      "num_rows": 4,
+      "columns": [
+        { "path": "doc_id", "encodings": ["PLAIN", "RLE"], "compressed_size": 48 },
+        { "path": "span_start", "encodings": ["DELTA_BINARY_PACKED"], "compressed_size": 16 },
+        { "path": "span_end", "encodings": ["DELTA_BINARY_PACKED"], "compressed_size": 16 }
+      ]
+    }
+  ],
+  "records": [
+    { "doc_id": "wsj-0042", "span_start": 0, "span_end": 7, "label": "AGENT", "confidence": 0.96, "annotator": "model-v3" },
+    { "doc_id": "wsj-0042", "span_start": 8, "span_end": 14, "label": "PRED", "confidence": 0.99, "annotator": "model-v3" },
+    { "doc_id": "wsj-0042", "span_start": 15, "span_end": 28, "label": "THEME", "confidence": 0.91, "annotator": "model-v3" },
+    { "doc_id": "wsj-0042", "span_start": 29, "span_end": 45, "label": "LOCATION", "confidence": 0.87, "annotator": "model-v3" }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "ucca-ewt-0042",
+  "text": "The researcher analyzed the data carefully.",
+  "tokens": [
+    { "index": 0, "text": "The", "start": 0, "end": 3 },
+    { "index": 1, "text": "researcher", "start": 4, "end": 14 },
+    { "index": 2, "text": "analyzed", "start": 15, "end": 23 },
+    { "index": 3, "text": "the", "start": 24, "end": 27 },
+    { "index": 4, "text": "data", "start": 28, "end": 32 },
+    { "index": 5, "text": "carefully", "start": 33, "end": 42 },
+    { "index": 6, "text": ".", "start": 42, "end": 43 }
+  ],
+  "nodes": [
+    { "id": "1.1", "type": "FN", "children": ["1.2", "1.3", "1.4", "1.5", "1.6"] },
+    { "id": "1.2", "type": "FN", "children": ["0", "1"], "category": "A" },
+    { "id": "1.3", "type": "FN", "children": ["2"], "category": "P" },
+    { "id": "1.4", "type": "FN", "children": ["3", "4"], "category": "A" },
+    { "id": "1.5", "type": "FN", "children": ["5"], "category": "D" },
+    { "id": "1.6", "type": "FN", "children": ["6"], "category": "U" }
+  ],
+  "edges": [
+    { "parent": "1.1", "child": "1.2", "label": "A" },
+    { "parent": "1.1", "child": "1.3", "label": "P" },
+    { "parent": "1.1", "child": "1.4", "label": "A" },
+    { "parent": "1.1", "child": "1.5", "label": "D" },
+    { "parent": "1.1", "child": "1.6", "label": "U" }
+  ],
+  "layer": "foundational"
+}

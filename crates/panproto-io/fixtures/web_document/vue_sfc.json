@@ -1,0 +1,49 @@
+{
+  "filename": "AnnotationPanel.vue",
+  "template": {
+    "type": "Element",
+    "tag": "template",
+    "children": [
+      {
+        "type": "Element",
+        "tag": "div",
+        "attrs": { "class": "annotation-panel" },
+        "children": [
+          {
+            "type": "Element",
+            "tag": "h2",
+            "children": [{ "type": "Text", "content": "Annotations" }]
+          },
+          {
+            "type": "Element",
+            "tag": "span",
+            "directives": [
+              { "name": "for", "value": "span in spans", "arg": null }
+            ],
+            "attrs": {
+              ":key": "span.id",
+              ":class": "['label', span.type.toLowerCase()]"
+            },
+            "children": [{ "type": "Interpolation", "content": "span.text" }]
+          }
+        ]
+      }
+    ]
+  },
+  "script": {
+    "lang": "ts",
+    "setup": true,
+    "imports": ["defineProps"],
+    "props": {
+      "spans": { "type": "Array", "required": true },
+      "editable": { "type": "Boolean", "default": false }
+    }
+  },
+  "styles": [
+    {
+      "lang": "scss",
+      "scoped": true,
+      "content": ".annotation-panel { padding: 1rem; } .label { border-radius: 4px; padding: 2px 6px; }"
+    }
+  ]
+}

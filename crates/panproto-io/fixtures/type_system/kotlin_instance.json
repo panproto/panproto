@@ -1,0 +1,26 @@
+{
+  "id": "txn_9c8b7a6e",
+  "type": "TRANSFER",
+  "amount": {
+    "value": "1250.00",
+    "currency": "EUR"
+  },
+  "sender": {
+    "accountId": "ACC-DE89370400440532013000",
+    "name": "Elena Wilson",
+    "iban": "DE89370400440532013000"
+  },
+  "receiver": {
+    "accountId": "ACC-GB29NWBK60161331926819",
+    "name": "Jun Chen",
+    "iban": "GB29NWBK60161331926819"
+  },
+  "reference": "Invoice INV-2026-0042",
+  "status": "COMPLETED",
+  "initiatedAt": "2026-03-12T10:30:00Z",
+  "completedAt": "2026-03-12T10:30:02Z",
+  "fees": {
+    "value": "1.50",
+    "currency": "EUR"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "@context": {
+    "nif": "http://persistence.uni-leipzig.org/nlp2rdf/ontologies/nif-core#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "itsrdf": "http://www.w3.org/2005/11/its/rdf#",
+    "dcterms": "http://purl.org/dc/terms/"
+  },
+  "@graph": [
+    {
+      "@id": "https://corpus.panproto.io/docs/wsj-0042#char=0,43",
+      "@type": "nif:Context",
+      "nif:beginIndex": 0,
+      "nif:endIndex": 43,
+      "nif:isString": "The researcher analyzed the data carefully.",
+      "dcterms:source": "wsj"
+    },
+    {
+      "@id": "https://corpus.panproto.io/docs/wsj-0042#char=0,14",
+      "@type": "nif:Phrase",
+      "nif:beginIndex": 0,
+      "nif:endIndex": 14,
+      "nif:anchorOf": "The researcher",
+      "nif:referenceContext": { "@id": "https://corpus.panproto.io/docs/wsj-0042#char=0,43" },
+      "itsrdf:taIdentRef": "http://dbpedia.org/resource/Researcher"
+    },
+    {
+      "@id": "https://corpus.panproto.io/docs/wsj-0042#char=4,14",
+      "@type": "nif:Word",
+      "nif:beginIndex": 4,
+      "nif:endIndex": 14,
+      "nif:anchorOf": "researcher",
+      "nif:lemma": "researcher",
+      "nif:posTag": "NN"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schema": {
+    "type": "record",
+    "name": "AnnotationEvent",
+    "namespace": "io.panproto.events",
+    "fields": [
+      { "name": "event_id", "type": "string" },
+      { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+      { "name": "document_id", "type": "string" },
+      { "name": "annotator", "type": ["null", "string"], "default": null },
+      { "name": "labels", "type": { "type": "array", "items": "string" } }
+    ]
+  },
+  "datum": {
+    "event_id": "ae-7f3a2b1c-0001",
+    "timestamp": 1774560120000,
+    "document_id": "doc-wsj-0042",
+    "annotator": { "string": "annotator-12" },
+    "labels": ["AGENT", "THEME", "PRED"]
+  }
+}

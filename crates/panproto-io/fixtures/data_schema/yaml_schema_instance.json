@@ -1,0 +1,35 @@
+{
+  "version": "3.9",
+  "services": {
+    "web": {
+      "image": "panproto/api:0.2.0",
+      "build": {
+        "context": ".",
+        "dockerfile": "Dockerfile"
+      },
+      "ports": ["8080:8080"],
+      "environment": {
+        "RUST_LOG": "info",
+        "DATABASE_URL": "postgres://panproto:secret@db:5432/panproto"
+      },
+      "depends_on": ["db", "redis"],
+      "restart": "unless-stopped"
+    },
+    "db": {
+      "image": "postgres:16-alpine",
+      "volumes": ["pgdata:/var/lib/postgresql/data"],
+      "environment": {
+        "POSTGRES_DB": "panproto",
+        "POSTGRES_USER": "panproto",
+        "POSTGRES_PASSWORD": "secret"
+      }
+    },
+    "redis": {
+      "image": "redis:7-alpine",
+      "ports": ["6379:6379"]
+    }
+  },
+  "volumes": {
+    "pgdata": {}
+  }
+}

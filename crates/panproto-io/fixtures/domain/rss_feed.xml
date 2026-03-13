@@ -1,0 +1,19 @@
+<rss version="2.0">
+  <channel>
+    <title>panproto releases</title>
+    <link>https://github.com/panproto/panproto</link>
+    <description>Latest releases of the panproto schema migration engine</description>
+    <item>
+      <title>v0.1.0 released</title>
+      <link>https://github.com/panproto/panproto/releases/tag/v0.1.0</link>
+      <pubDate>Wed, 12 Mar 2026 00:00:00 GMT</pubDate>
+      <description>Initial release with 10 crates, 5 protocols, and 212 tests</description>
+    </item>
+    <item>
+      <title>panproto-io: 77 protocol codecs</title>
+      <link>https://github.com/panproto/panproto/releases/tag/v0.2.0</link>
+      <pubDate>Thu, 13 Mar 2026 00:00:00 GMT</pubDate>
+      <description>Instance-level presentation functors for all 77 protocols</description>
+    </item>
+  </channel>
+</rss>

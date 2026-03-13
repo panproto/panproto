@@ -1,0 +1,32 @@
+{
+  "document_id": "PMID-12345678",
+  "text": "Interleukin-6 inhibits apoptosis of pancreatic beta cells through activation of the JAK/STAT pathway.",
+  "entities": [
+    { "id": "T1", "type": "Protein", "start": 0, "end": 13, "text": "Interleukin-6" },
+    { "id": "T2", "type": "Cell_type", "start": 40, "end": 62, "text": "pancreatic beta cells" },
+    { "id": "T3", "type": "Pathway", "start": 84, "end": 100, "text": "JAK/STAT pathway" },
+    { "id": "T4", "type": "Biological_process", "start": 23, "end": 32, "text": "apoptosis" }
+  ],
+  "events": [
+    {
+      "id": "E1",
+      "type": "Negative_regulation",
+      "trigger": { "id": "T5", "start": 14, "end": 22, "text": "inhibits" },
+      "arguments": [
+        { "role": "Theme", "ref": "E2" },
+        { "role": "Cause", "ref": "T1" }
+      ]
+    },
+    {
+      "id": "E2",
+      "type": "Biological_process",
+      "trigger": { "id": "T4", "start": 23, "end": 32, "text": "apoptosis" },
+      "arguments": [
+        { "role": "Theme", "ref": "T2" }
+      ]
+    }
+  ],
+  "attributes": [
+    { "id": "A1", "type": "Negation", "target": "E2", "value": true }
+  ]
+}

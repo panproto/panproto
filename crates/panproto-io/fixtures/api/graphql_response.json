@@ -1,0 +1,37 @@
+{
+  "data": {
+    "viewer": {
+      "login": "aaronstevenwhite",
+      "name": "Aaron Steven White",
+      "repositories": {
+        "totalCount": 42,
+        "edges": [
+          {
+            "node": {
+              "name": "panproto",
+              "description": "Pan-protocol data interchange framework",
+              "stargazerCount": 128,
+              "primaryLanguage": { "name": "Rust" },
+              "updatedAt": "2026-03-12T18:45:00Z"
+            },
+            "cursor": "Y3Vyc29yOnYyOpK5MjAyNi0wMy0xMlQxODo0NTowMFo="
+          },
+          {
+            "node": {
+              "name": "decomp-toolkit",
+              "description": "Decompositional semantics toolkit",
+              "stargazerCount": 87,
+              "primaryLanguage": { "name": "Python" },
+              "updatedAt": "2026-02-28T09:12:33Z"
+            },
+            "cursor": "Y3Vyc29yOnYyOpK5MjAyNi0wMi0yOFQwOToxMjozM1o="
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": true,
+          "endCursor": "Y3Vyc29yOnYyOpK5MjAyNi0wMi0yOFQwOToxMjozM1o="
+        }
+      }
+    }
+  }
+}

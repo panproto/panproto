@@ -1,0 +1,21 @@
+{
+  "schema": {
+    "fields": [
+      { "name": "sentence_id", "type": "integer" },
+      { "name": "token", "type": "string" },
+      { "name": "pos", "type": "string" },
+      { "name": "dep_rel", "type": "string" },
+      { "name": "head", "type": "integer" },
+      { "name": "embedding_norm", "type": "number" }
+    ],
+    "primaryKey": ["sentence_id"]
+  },
+  "data": [
+    { "sentence_id": 0, "token": "The", "pos": "DET", "dep_rel": "det", "head": 1, "embedding_norm": 1.42 },
+    { "sentence_id": 0, "token": "cat", "pos": "NOUN", "dep_rel": "nsubj", "head": 2, "embedding_norm": 3.87 },
+    { "sentence_id": 0, "token": "sat", "pos": "VERB", "dep_rel": "ROOT", "head": -1, "embedding_norm": 4.21 },
+    { "sentence_id": 0, "token": "on", "pos": "ADP", "dep_rel": "prep", "head": 2, "embedding_norm": 1.15 },
+    { "sentence_id": 0, "token": "the", "pos": "DET", "dep_rel": "det", "head": 5, "embedding_norm": 1.42 },
+    { "sentence_id": 0, "token": "mat", "pos": "NOUN", "dep_rel": "pobj", "head": 3, "embedding_norm": 3.65 }
+  ]
+}

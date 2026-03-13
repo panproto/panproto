@@ -1,0 +1,22 @@
+{
+  "_id": { "$oid": "65f3b2c4d5e6f7a8b9c0d1e2" },
+  "username": "ytanaka",
+  "email": "y.tanaka@example.org",
+  "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$RdescudvJCsgt3ub+b+daw",
+  "profile": {
+    "display_name": "Yuki Tanaka",
+    "avatar_url": "https://cdn.example.org/avatars/ytanaka.webp",
+    "bio": "Computational linguist interested in semantic representations",
+    "location": "Rochester, NY"
+  },
+  "roles": ["user", "contributor"],
+  "preferences": {
+    "theme": "dark",
+    "locale": "en-US",
+    "notifications": { "email": true, "push": false }
+  },
+  "created_at": { "$date": "2025-06-15T09:30:00.000Z" },
+  "updated_at": { "$date": "2026-03-12T14:22:00.000Z" },
+  "last_login": { "$date": "2026-03-12T14:22:00.000Z" },
+  "login_count": 247
+}

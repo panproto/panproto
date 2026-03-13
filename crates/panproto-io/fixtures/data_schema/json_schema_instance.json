@@ -1,0 +1,19 @@
+{
+  "first_name": "Yuki",
+  "last_name": "Tanaka",
+  "age": 34,
+  "email": "y.tanaka@example.org",
+  "address": {
+    "street": "42 Elm Street",
+    "city": "Rochester",
+    "state": "NY",
+    "postal_code": "14607",
+    "country": "US"
+  },
+  "phone_numbers": [
+    { "type": "home", "number": "+1-585-555-0142" },
+    { "type": "work", "number": "+1-585-555-0198" }
+  ],
+  "tags": ["linguistics", "computational-semantics"],
+  "registered": true
+}

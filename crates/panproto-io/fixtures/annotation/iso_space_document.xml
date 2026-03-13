@@ -1,0 +1,11 @@
+<ISOSpace>
+  <TEXT>John walked from the house to the park.</TEXT>
+  <TAGS>
+    <PLACE id="pl1" start="19" end="24" text="house" type="FAC" dimensionality="area"/>
+    <PLACE id="pl2" start="32" end="36" text="park" type="FAC" dimensionality="area"/>
+    <SPATIAL_ENTITY id="se1" start="0" end="4" text="John" type="person"/>
+    <MOTION id="m1" start="5" end="11" text="walked" motion_type="manner" motion_class="move"/>
+    <SPATIAL_SIGNAL id="ss1" start="12" end="16" text="from" semantic_type="directional"/>
+    <MLINK id="ml1" trigger="m1" source="pl1" goal="pl2" mover="se1"/>
+  </TAGS>
+</ISOSpace>

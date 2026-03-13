@@ -115,6 +115,44 @@ pub fn parse_xml_bytes(
 
                 element_stack.push((node_id, vertex_id));
             }
+            Ok(Event::Empty(ref e)) => {
+                // Self-closing element: <foo attr="val"/>
+                // Same as Start + End with no children.
+                let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let node_id = state.alloc_id();
+
+                let vertex_id = if let Some(parent) = element_stack.last() {
+                    find_child_vertex(schema, &parent.1, &tag)
+                        .unwrap_or_else(|| format!("{}:{}", parent.1, tag))
+                } else {
+                    find_root_by_tag(schema, &tag).unwrap_or_else(|| tag.clone())
+                };
+
+                let mut extra_fields = HashMap::new();
+                for attr in e.attributes().flatten() {
+                    let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+                    let val = String::from_utf8_lossy(&attr.value).to_string();
+                    extra_fields.insert(key, Value::Str(val));
+                }
+
+                let node = Node {
+                    id: node_id,
+                    anchor: vertex_id.clone(),
+                    value: None,
+                    discriminator: None,
+                    extra_fields,
+                };
+                state.nodes.insert(node_id, node);
+
+                if let Some(parent) = element_stack.last() {
+                    let edge = find_schema_edge(schema, &parent.1, &vertex_id, &tag);
+                    state.arcs.push((parent.0, node_id, edge));
+                } else {
+                    root_id = Some(node_id);
+                    root_vertex = vertex_id;
+                }
+                // No push to element_stack — self-closing has no children.
+            }
             Ok(Event::Text(ref e)) => {
                 let text = e.unescape().map_err(|err| ParseInstanceError::Parse {
                     protocol: protocol.to_string(),

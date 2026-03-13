@@ -1,0 +1,30 @@
+{
+  "id": "ch_3PqR7s2eZvKYlo2C0x1yLmE4",
+  "object": "charge",
+  "amount": 4999,
+  "amount_captured": 4999,
+  "amount_refunded": 0,
+  "currency": "usd",
+  "customer": "cus_Qk8nPvR3tW2x",
+  "description": "Annual subscription — Pro plan",
+  "paid": true,
+  "status": "succeeded",
+  "payment_method": "pm_1PqR7r2eZvKYlo2C",
+  "receipt_url": "https://pay.stripe.com/receipts/invoices/inv_1PqR7/rcpt_Qk8n",
+  "created": 1774560000,
+  "livemode": true,
+  "metadata": {
+    "plan": "pro_annual",
+    "user_id": "usr_8a3f2c"
+  },
+  "billing_details": {
+    "name": "Mariana Silva",
+    "email": "m.silva@example.com",
+    "address": {
+      "city": "Baltimore",
+      "state": "MD",
+      "country": "US",
+      "postal_code": "21218"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+<NAF xml:lang="en" version="3.0">
+  <nafHeader>
+    <fileDesc title="Sample NAF Document"/>
+    <linguisticProcessors layer="text">
+      <lp name="ixa-pipe-tok" version="1.8.5"/>
+    </linguisticProcessors>
+  </nafHeader>
+  <text>
+    <wf id="w1" offset="0" length="3" sent="1">The</wf>
+    <wf id="w2" offset="4" length="3" sent="1">cat</wf>
+    <wf id="w3" offset="8" length="3" sent="1">sat</wf>
+  </text>
+  <terms>
+    <term id="t1" type="open" lemma="the" pos="D" morphofeat="DT">
+      <span><target id="w1"/></span>
+    </term>
+    <term id="t2" type="open" lemma="cat" pos="N" morphofeat="NN">
+      <span><target id="w2"/></span>
+    </term>
+    <term id="t3" type="open" lemma="sit" pos="V" morphofeat="VBD">
+      <span><target id="w3"/></span>
+    </term>
+  </terms>
+  <deps>
+    <dep from="t3" to="t2" rfunc="nsubj"/>
+    <dep from="t2" to="t1" rfunc="det"/>
+  </deps>
+</NAF>

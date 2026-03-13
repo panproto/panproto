@@ -1,0 +1,20 @@
+{
+  "PK": { "S": "USER#ytanaka" },
+  "SK": { "S": "SESSION#2026-03-12T14:22:00Z" },
+  "GSI1PK": { "S": "TENANT#acme-corp" },
+  "GSI1SK": { "S": "USER#ytanaka" },
+  "user_id": { "S": "f47ac10b-58cc-4372-a567-0e02b2c3d479" },
+  "display_name": { "S": "Yuki Tanaka" },
+  "email": { "S": "y.tanaka@example.org" },
+  "roles": { "SS": ["admin", "editor"] },
+  "login_count": { "N": "247" },
+  "is_active": { "BOOL": true },
+  "metadata": {
+    "M": {
+      "ip_address": { "S": "198.51.100.42" },
+      "user_agent": { "S": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" }
+    }
+  },
+  "ttl": { "N": "1774646400" },
+  "version": { "N": "3" }
+}

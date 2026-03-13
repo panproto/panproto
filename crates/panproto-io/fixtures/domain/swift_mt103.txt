@@ -1,0 +1,10 @@
+tag:20:Transaction Reference
+value:FT2603130001
+tag:23B:Bank Operation Code
+value:CRED
+tag:32A:Value Date/Currency/Amount
+value:260313USD1000000,00
+tag:50K:Ordering Customer
+value:/12345678
+tag:59:Beneficiary Customer
+value:/87654321

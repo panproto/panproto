@@ -1,0 +1,39 @@
+{
+  "id": "concrete-comm-wsj-0042",
+  "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "type": "document",
+  "text": "The researcher analyzed the data carefully.",
+  "metadata": {
+    "tool": "panproto-io",
+    "timestamp": 1774560000,
+    "kBest": 1
+  },
+  "sectionList": [
+    {
+      "uuid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "kind": "passage",
+      "sentenceList": [
+        {
+          "uuid": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+          "tokenization": {
+            "uuid": "d4e5f6a7-b8c9-0123-defa-234567890123",
+            "kind": "TOKEN_LIST",
+            "tokenList": {
+              "tokenList": [
+                { "tokenIndex": 0, "text": "The", "textSpan": { "start": 0, "ending": 3 } },
+                { "tokenIndex": 1, "text": "researcher", "textSpan": { "start": 4, "ending": 14 } },
+                { "tokenIndex": 2, "text": "analyzed", "textSpan": { "start": 15, "ending": 23 } },
+                { "tokenIndex": 3, "text": "the", "textSpan": { "start": 24, "ending": 27 } },
+                { "tokenIndex": 4, "text": "data", "textSpan": { "start": 28, "ending": 32 } },
+                { "tokenIndex": 5, "text": "carefully", "textSpan": { "start": 33, "ending": 42 } },
+                { "tokenIndex": 6, "text": ".", "textSpan": { "start": 42, "ending": 43 } }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "entityMentionSetList": [],
+  "situationMentionSetList": []
+}
