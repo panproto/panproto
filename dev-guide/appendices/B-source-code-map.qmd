@@ -106,26 +106,64 @@ Diff, classify, and report schema changes.
 | `src/report.rs` | `Report` struct, human-readable and machine-readable output |
 | `src/error.rs` | `CheckError` enum |
 
-## crates/panproto-protocols --- Built-in protocols
+## crates/panproto-protocols --- Built-in protocols (schema-level presentations)
 
-Concrete protocol implementations for supported schema languages.
+Protocol definitions and schema-level parse/emit for supported schema languages.
 
 | File | Description |
 |---|---|
 | `src/lib.rs` | Public API, protocol registry |
 | `src/theories.rs` | Shared base theories (e.g., the "typed graph" sub-theory) |
-| `src/atproto.rs` | AT Protocol (Lexicon): `build_atproto_protocol()` |
-| `src/protobuf.rs` | Protocol Buffers: `build_protobuf_protocol()` |
-| `src/graphql.rs` | GraphQL: `build_graphql_protocol()` |
-| `src/json_schema.rs` | JSON Schema: `build_json_schema_protocol()` |
-| `src/sql.rs` | SQL DDL: `build_sql_protocol()` |
+| `src/emit.rs` | Shared schema emission helpers |
+| `src/annotation/` | Linguistic annotation formats (19 protocols) |
+| `src/api/` | API specification formats (5 protocols) |
+| `src/config/` | Configuration formats (4 protocols) |
+| `src/data_schema/` | Data schema formats (7 protocols) |
+| `src/data_science/` | Data science formats (3 protocols) |
+| `src/database/` | Database schema formats (6 protocols) |
+| `src/domain/` | Domain-specific formats (6 protocols) |
+| `src/serialization/` | Serialization/IDL formats (8 protocols) |
+| `src/type_system/` | Programming language type systems (8 protocols) |
+| `src/web_document/` | Web and document formats (10 protocols) |
 | `src/error.rs` | `ProtocolError` enum |
+
+## crates/panproto-io --- Instance-level presentations
+
+Format-specific parse/emit for all 77 protocols, producing `WInstance`/`FInstance`.
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Public API, `default_registry()`, re-exports |
+| `src/traits.rs` | `InstanceParser`, `InstanceEmitter`, `NativeRepr` trait definitions |
+| `src/error.rs` | `ParseInstanceError`, `EmitInstanceError` enums |
+| `src/registry.rs` | `ProtocolRegistry` runtime dispatch by protocol name |
+| `src/json_pathway.rs` | SIMD-accelerated JSON pathway via `simd-json` |
+| `src/json_codec.rs` | Generic `JsonCodec` reused by ~30 JSON-based protocols |
+| `src/xml_pathway.rs` | Zero-copy XML pathway via `quick-xml` |
+| `src/xml_codec.rs` | Generic `XmlCodec` reused by ~14 XML-based protocols |
+| `src/tabular_pathway.rs` | SIMD tabular pathway via `memchr` (CoNLL-U, CSV, etc.) |
+| `src/tabular_codec.rs` | Generic `TabularCodec` for delimited text protocols |
+| `src/arena.rs` | Arena allocation helpers for zero-copy hot paths |
+| `src/web_document/html.rs` | SIMD HTML codec via `tl` |
+| `src/web_document/markdown.rs` | Markdown codec via `pulldown-cmark` |
+| `src/annotation/conllu.rs` | CoNLL-U codec with custom SIMD field splitting |
+| `src/annotation/` | Annotation protocol codecs (19) |
+| `src/api/` | API protocol codecs (5) |
+| `src/config/` | Config protocol codecs (4) |
+| `src/data_schema/` | Data schema codecs (7) |
+| `src/data_science/` | Data science codecs (3) |
+| `src/database/` | Database codecs (6) |
+| `src/domain/` | Domain codecs (6) |
+| `src/serialization/` | Serialization codecs (8) |
+| `src/type_system/` | Type system codecs (8) |
+| `src/web_document/` | Web/document codecs (10) |
+| `benches/io_bench.rs` | divan throughput benchmarks |
 
 ## crates/panproto-core --- Shared re-exports
 
 | File | Description |
 |---|---|
-| `src/lib.rs` | Re-exports from `panproto-gat`, `panproto-schema`, `panproto-inst`, `panproto-mig`, `panproto-lens`, `panproto-check` |
+| `src/lib.rs` | Re-exports from `panproto-gat`, `panproto-schema`, `panproto-inst`, `panproto-mig`, `panproto-lens`, `panproto-check`, `panproto-io` |
 
 ## crates/panproto-wasm --- WASM boundary
 

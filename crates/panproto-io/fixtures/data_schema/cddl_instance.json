@@ -1,0 +1,19 @@
+{
+  "header": {
+    "alg": "ES256",
+    "kid": "key-2026-03"
+  },
+  "payload": {
+    "iss": "coap://sensor.local",
+    "sub": "temperature-monitor",
+    "aud": "coap://gateway.local",
+    "exp": 1774646400,
+    "iat": 1774560000,
+    "cti": "0b71"
+  },
+  "readings": [
+    { "sensor_id": 1, "value": 22.5, "unit": "Cel", "timestamp": 1774560000 },
+    { "sensor_id": 2, "value": 45.2, "unit": "%RH", "timestamp": 1774560000 }
+  ],
+  "signature": "MEUCIQDf...base64..."
+}

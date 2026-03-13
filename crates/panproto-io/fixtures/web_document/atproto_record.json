@@ -1,0 +1,27 @@
+{
+  "$type": "app.bsky.feed.post",
+  "text": "Just released panproto v0.2.0 with full round-trip support for 19 linguistic annotation protocols. Check it out!",
+  "createdAt": "2026-03-12T15:30:00.000Z",
+  "langs": ["en"],
+  "facets": [
+    {
+      "index": { "byteStart": 14, "byteEnd": 28 },
+      "features": [
+        {
+          "$type": "app.bsky.richtext.facet#tag",
+          "tag": "panproto"
+        }
+      ]
+    }
+  ],
+  "embed": {
+    "$type": "app.bsky.embed.external",
+    "external": {
+      "uri": "https://github.com/aaronstevenwhite/panproto/releases/tag/v0.2.0",
+      "title": "Release v0.2.0 - panproto",
+      "description": "Pan-protocol data interchange framework with 19 linguistic annotation protocols"
+    }
+  },
+  "reply": null,
+  "labels": { "$type": "com.atproto.label.defs#selfLabels", "values": [] }
+}

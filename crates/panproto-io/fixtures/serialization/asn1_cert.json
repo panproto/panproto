@@ -1,0 +1,32 @@
+{
+  "version": 3,
+  "serialNumber": "03:A1:B2:C3:D4:E5:F6:07:08:09:0A:0B:0C:0D:0E:0F:10:11",
+  "signatureAlgorithm": "sha256WithRSAEncryption",
+  "issuer": {
+    "commonName": "DigiCert Global G3 TLS RSA SHA256 2020 CA1",
+    "organizationName": "DigiCert Inc",
+    "country": "US"
+  },
+  "validity": {
+    "notBefore": "2026-01-15T00:00:00Z",
+    "notAfter": "2027-01-15T23:59:59Z"
+  },
+  "subject": {
+    "commonName": "api.panproto.io",
+    "organizationName": "Panproto Project",
+    "country": "US",
+    "stateOrProvince": "New York",
+    "locality": "Rochester"
+  },
+  "subjectPublicKeyInfo": {
+    "algorithm": "id-ecPublicKey",
+    "namedCurve": "prime256v1",
+    "keySize": 256
+  },
+  "extensions": {
+    "subjectAltName": ["api.panproto.io", "*.panproto.io"],
+    "keyUsage": ["digitalSignature"],
+    "extKeyUsage": ["serverAuth", "clientAuth"],
+    "basicConstraints": { "cA": false }
+  }
+}

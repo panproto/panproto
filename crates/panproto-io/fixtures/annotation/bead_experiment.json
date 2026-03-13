@@ -1,0 +1,44 @@
+{
+  "id": "bead-exp-2026-042",
+  "experiment": {
+    "name": "Acceptability Judgment: Extraction from Islands",
+    "design": "2x2 factorial",
+    "factors": [
+      { "name": "island", "levels": ["island", "non-island"] },
+      { "name": "extraction", "levels": ["extracted", "in-situ"] }
+    ]
+  },
+  "items": [
+    {
+      "item_id": 1,
+      "condition": { "island": "non-island", "extraction": "in-situ" },
+      "sentence": "The researcher thinks that the student analyzed the data.",
+      "expected_rating": "high"
+    },
+    {
+      "item_id": 2,
+      "condition": { "island": "non-island", "extraction": "extracted" },
+      "sentence": "What does the researcher think that the student analyzed?",
+      "expected_rating": "high"
+    },
+    {
+      "item_id": 3,
+      "condition": { "island": "island", "extraction": "in-situ" },
+      "sentence": "The researcher wonders whether the student analyzed the data.",
+      "expected_rating": "high"
+    },
+    {
+      "item_id": 4,
+      "condition": { "island": "island", "extraction": "extracted" },
+      "sentence": "What does the researcher wonder whether the student analyzed?",
+      "expected_rating": "low"
+    }
+  ],
+  "responses": [
+    { "participant_id": "P01", "item_id": 1, "rating": 6.2, "rt_ms": 3421 },
+    { "participant_id": "P01", "item_id": 2, "rating": 5.8, "rt_ms": 3890 },
+    { "participant_id": "P01", "item_id": 3, "rating": 6.0, "rt_ms": 3654 },
+    { "participant_id": "P01", "item_id": 4, "rating": 2.1, "rt_ms": 5102 }
+  ],
+  "scale": { "min": 1, "max": 7, "anchors": ["completely unacceptable", "perfectly acceptable"] }
+}

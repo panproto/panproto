@@ -1,0 +1,37 @@
+{
+  "total": 3,
+  "offset": 0,
+  "limit": 25,
+  "users": [
+    {
+      "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "username": "msilva",
+      "email": "m.silva@example.com",
+      "full_name": "Mariana Silva",
+      "role": "admin",
+      "created_at": "2025-09-01T10:00:00Z",
+      "last_login": "2026-03-12T17:45:00Z",
+      "is_active": true
+    },
+    {
+      "id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "username": "jchen",
+      "email": "j.chen@example.com",
+      "full_name": "Jun Chen",
+      "role": "editor",
+      "created_at": "2025-11-14T08:30:00Z",
+      "last_login": "2026-03-11T12:00:00Z",
+      "is_active": true
+    },
+    {
+      "id": "a3bb189e-8bf9-3888-9912-ace4e6543002",
+      "username": "enwilson",
+      "email": "e.wilson@example.com",
+      "full_name": "Elena Wilson",
+      "role": "viewer",
+      "created_at": "2026-01-22T15:20:00Z",
+      "last_login": null,
+      "is_active": false
+    }
+  ]
+}

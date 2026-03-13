@@ -1,0 +1,25 @@
+{
+  "schema": {
+    "fields": [
+      { "name": "word", "type": { "name": "utf8" }, "nullable": false },
+      { "name": "frequency", "type": { "name": "int", "bitWidth": 64 }, "nullable": false },
+      { "name": "log_probability", "type": { "name": "floatingpoint", "precision": "DOUBLE" }, "nullable": false },
+      { "name": "is_stopword", "type": { "name": "bool" }, "nullable": false }
+    ],
+    "metadata": {
+      "corpus": "english-web-2025",
+      "total_tokens": "42000000000"
+    }
+  },
+  "batches": [
+    {
+      "count": 5,
+      "columns": [
+        { "name": "word", "count": 5, "data": ["the", "of", "and", "to", "in"] },
+        { "name": "frequency", "count": 5, "data": [2894341, 1632517, 1493875, 1382649, 1178201] },
+        { "name": "log_probability", "count": 5, "data": [-2.41, -2.98, -3.07, -3.14, -3.31] },
+        { "name": "is_stopword", "count": 5, "data": [true, true, true, true, true] }
+      ]
+    }
+  ]
+}

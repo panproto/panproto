@@ -1,0 +1,53 @@
+{
+  "type": "Program",
+  "body": [
+    {
+      "type": "ExportDefaultDeclaration",
+      "declaration": {
+        "type": "FunctionDeclaration",
+        "id": { "type": "Identifier", "name": "AnnotationViewer" },
+        "params": [
+          {
+            "type": "ObjectPattern",
+            "properties": [
+              { "type": "Property", "key": { "type": "Identifier", "name": "spans" }, "shorthand": true },
+              { "type": "Property", "key": { "type": "Identifier", "name": "text" }, "shorthand": true }
+            ]
+          }
+        ],
+        "body": {
+          "type": "BlockStatement",
+          "body": [
+            {
+              "type": "ReturnStatement",
+              "argument": {
+                "type": "JSXElement",
+                "openingElement": {
+                  "type": "JSXOpeningElement",
+                  "name": { "type": "JSXIdentifier", "name": "div" },
+                  "attributes": [
+                    {
+                      "type": "JSXAttribute",
+                      "name": { "type": "JSXIdentifier", "name": "className" },
+                      "value": { "type": "Literal", "value": "annotation-viewer" }
+                    }
+                  ]
+                },
+                "children": [
+                  {
+                    "type": "JSXExpressionContainer",
+                    "expression": {
+                      "type": "CallExpression",
+                      "callee": { "type": "MemberExpression", "object": { "type": "Identifier", "name": "spans" }, "property": { "type": "Identifier", "name": "map" } }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "sourceType": "module"
+}

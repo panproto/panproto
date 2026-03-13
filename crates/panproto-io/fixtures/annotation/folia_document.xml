@@ -1,0 +1,15 @@
+<FoLiA xmlns="http://ilk.uvt.nl/folia" xml:id="example" version="2.5.3">
+  <metadata type="native">
+    <annotations>
+      <token-annotation annotator="ucto" annotatortype="auto"/>
+      <pos-annotation annotator="frog" annotatortype="auto" set="cgn"/>
+    </annotations>
+  </metadata>
+  <text xml:id="example.text">
+    <s xml:id="example.s.1">
+      <w xml:id="example.s.1.w.1"><t>The</t><pos class="DET"/></w>
+      <w xml:id="example.s.1.w.2"><t>cat</t><pos class="NOUN"/></w>
+      <w xml:id="example.s.1.w.3"><t>sat</t><pos class="VERB"/></w>
+    </s>
+  </text>
+</FoLiA>

@@ -208,13 +208,21 @@ I3 (root exists) is checked explicitly -- if the root is pruned, the pipeline re
 
 Putting it all together, the typical lifecycle of a W-type instance is:
 
-1. **Parse**: `parse_json(schema_v1, root, json)` creates a `WInstance` from raw data.
+1. **Parse**: Create a `WInstance` from raw data via one of two pathways:
+   - **Format-specific** (recommended): `panproto_io::parse_wtype("html", schema_v1, &raw_bytes)` — uses SIMD-accelerated format-specific parsers for maximum throughput.
+   - **Generic JSON**: `parse_json(schema_v1, root, &json_value)` — for data already in JSON form.
 2. **Validate**: `validate_wtype(schema_v1, instance)` confirms well-formedness.
 3. **Restrict**: `wtype_restrict(instance, schema_v1, schema_v2, migration)` projects to the new schema.
 4. **Validate** (optional): `validate_wtype(schema_v2, restricted)` confirms the result.
-5. **Serialize**: `to_json(schema_v2, restricted)` produces the migrated JSON.
+5. **Serialize**: Emit the migrated instance via:
+   - **Format-specific**: `panproto_io::emit_wtype("html", schema_v2, &restricted)` — native format output.
+   - **Generic JSON**: `to_json(schema_v2, restricted)` — produces JSON.
 
 Steps 2 and 4 are optional in production (the pipeline is designed to preserve validity), but recommended during development and testing.
+
+::: {.callout-note}
+The `panproto-io` crate provides format-specific parsers for all 77 supported protocols. The generic `parse_json`/`to_json` functions in this crate remain useful as the foundation for `panproto-io`'s JSON pathway and for direct JSON manipulation in tests and tooling.
+:::
 
 ## Design Rationale
 

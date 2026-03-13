@@ -1,0 +1,39 @@
+{
+  "data": {
+    "type": "articles",
+    "id": "7b2c4a91",
+    "attributes": {
+      "title": "Decompositional Semantics for Event Representation",
+      "body": "We present a framework for representing events using fine-grained semantic properties...",
+      "created_at": "2026-01-15T14:30:00Z",
+      "updated_at": "2026-03-10T08:22:17Z",
+      "status": "published"
+    },
+    "relationships": {
+      "author": {
+        "data": { "type": "people", "id": "42" },
+        "links": { "related": "/api/v1/people/42" }
+      },
+      "tags": {
+        "data": [
+          { "type": "tags", "id": "semantics" },
+          { "type": "tags", "id": "nlp" }
+        ]
+      }
+    },
+    "links": {
+      "self": "/api/v1/articles/7b2c4a91"
+    }
+  },
+  "included": [
+    {
+      "type": "people",
+      "id": "42",
+      "attributes": {
+        "name": "Aaron Steven White",
+        "affiliation": "University of Rochester"
+      }
+    }
+  ],
+  "meta": { "total_pages": 12, "current_page": 1 }
+}

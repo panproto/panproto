@@ -1,0 +1,30 @@
+{
+  "results": [
+    {
+      "columns": ["p", "r", "c"],
+      "data": [
+        {
+          "row": [
+            {
+              "name": "Aaron Steven White",
+              "affiliation": "University of Rochester",
+              "orcid": "0000-0002-4394-4577"
+            },
+            { "role": "first_author", "year": 2026 },
+            {
+              "title": "Predicate Decomposition in Semantic Parsing",
+              "venue": "ACL",
+              "doi": "10.18653/v1/2026.acl-main.195"
+            }
+          ],
+          "meta": [
+            { "id": 1001, "type": "node", "labels": ["Person", "Researcher"] },
+            { "id": 5001, "type": "relationship", "type_name": "AUTHORED" },
+            { "id": 2001, "type": "node", "labels": ["Paper", "Publication"] }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

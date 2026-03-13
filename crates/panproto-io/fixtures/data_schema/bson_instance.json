@@ -1,0 +1,16 @@
+{
+  "_id": { "$oid": "65f2a1b3c4e5d6a7b8c9d0e1" },
+  "title": "Predicate Decomposition in Semantic Parsing",
+  "authors": [
+    { "name": "Aaron Steven White", "affiliation": "University of Rochester" },
+    { "name": "Jun Chen", "affiliation": "Johns Hopkins University" }
+  ],
+  "year": { "$numberInt": "2026" },
+  "venue": "ACL",
+  "pages": { "start": 1524, "end": 1539 },
+  "abstract": "We propose a novel decomposition framework for predicate semantics...",
+  "citations": { "$numberInt": "12" },
+  "submitted_at": { "$date": "2026-01-10T23:59:59.000Z" },
+  "tags": ["semantics", "parsing", "decomposition"],
+  "is_published": true
+}

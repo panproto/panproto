@@ -154,12 +154,16 @@ Each protocol module exports a `protocol()` function that returns a `Protocol` s
 
 The theory names in the `Protocol` struct reference entries in the theory registry, which is populated by the `register_*` helpers. This indirection keeps protocol definitions declarative---a protocol does not construct its own theories, it names them.
 
-## Parser/Emitter Convention
+## The Two-Level Presentation Architecture
 
-Every protocol implements a bidirectional format conversion following a consistent naming convention:
+panproto's two-parameter architecture (schema theory + instance theory) is mirrored by two crates that provide the **presentation functors** --- the operations connecting raw format syntax to abstract algebraic models:
 
-- **Parser**: `parse_*(input: &str) -> Result<Schema, ProtocolError>` converts a native-format definition into panproto's graph-level `Schema` representation.
-- **Emitter**: `emit_*(schema: &Schema) -> Result<String, ProtocolError>` converts a `Schema` back into the native format.
+### Schema-Level Presentations (`panproto-protocols`)
+
+Every protocol implements a bidirectional schema-level conversion:
+
+- **Parser**: `parse_*(input: &str) -> Result<Schema, ProtocolError>` converts a native format _specification_ (`.proto` file, JSON Schema, SQL DDL, GraphQL SDL) into panproto's `Schema` representation --- a model of the protocol's schema theory $T_P^S$.
+- **Emitter**: `emit_*(schema: &Schema) -> Result<String, ProtocolError>` converts a `Schema` back into the native format specification.
 
 Examples:
 
@@ -167,7 +171,25 @@ Examples:
 - `emit_protobuf(schema)` emits a `.proto` file from a `Schema`.
 - `parse_sql(ddl_str)` parses SQL DDL statements into a `Schema`.
 
-This bidirectionality is essential for panproto's workflow: parse a source format, compute a migration or lens, apply it, and emit the result in the target format. The parser/emitter pair also enables round-trip testing: `parse(emit(parse(input)))` should produce the same `Schema` as `parse(input)`.
+### Instance-Level Presentations (`panproto-io`)
+
+The `panproto-io` crate provides the complementary **instance-level** conversions for all 77 protocols:
+
+- **Parser**: `parse_wtype(protocol, schema, &bytes) -> Result<WInstance, ParseInstanceError>` converts raw _data_ (an HTML document, a CoNLL-U file, a Protobuf wire message) into a `WInstance` or `FInstance` --- a model of the protocol's instance theory $T_P^I$.
+- **Emitter**: `emit_wtype(protocol, schema, &instance) -> Result<Vec<u8>, EmitInstanceError>` converts an instance back to raw format bytes.
+
+The choice of `WInstance` vs `FInstance` is determined by the protocol's `instance_theory` field, not by implementation preference.
+
+### The Complete Pipeline
+
+Together, these two levels of presentation complete the functorial data migration pipeline:
+
+```
+raw spec ──protocols parse──→ Schema v1 ──mig compile──→ CompiledMigration
+raw data ──io parse──→ Instance v1 ──inst restrict──→ Instance v2 ──io emit──→ raw data
+```
+
+The commutativity guarantee from Spivak 2012 ensures that parse → restrict → emit composes correctly across all 77 protocols. Both levels support round-trip testing: `parse(emit(parse(input)))` should produce a structurally equivalent result.
 
 ### Parsing Strategy
 
@@ -232,13 +254,31 @@ pub fn protocol() -> Protocol {
 }
 ```
 
-### Step 4: Implement Parser and Emitter
+### Step 4: Implement Schema Presentation (`panproto-protocols`)
 
-Write `parse_my_protocol` to convert the native format into a `Schema`. Write `emit_my_protocol` to convert back. Both should handle the full vocabulary of the protocol, mapping native concepts to graph elements.
+If your protocol has a schema definition language (e.g., `.proto`, DDL, SDL), write `parse_my_protocol` in the `panproto-protocols` crate to convert native format specifications into a `Schema`. Write `emit_my_protocol` to convert back.
+
+Some protocols (like CoNLL-U) have no separate schema language --- the schema is implicit in the format specification. These protocols only need Step 4b.
+
+### Step 4b: Implement Instance Presentation (`panproto-io`)
+
+Write an instance codec in `panproto-io` by implementing the `InstanceParser` and `InstanceEmitter` traits. For most protocols, this means choosing the right shared pathway:
+
+- **JSON data**: use `JsonCodec::new("my_protocol")` --- delegates to the SIMD `simd-json` pathway.
+- **XML data**: use `XmlCodec::new("my_protocol")` --- delegates to the `quick-xml` pull parser.
+- **Tab/delimited data**: use `TabularCodec::tsv("my_protocol", "table_name")` --- delegates to the `memchr` SIMD pathway.
+- **Custom format**: implement `InstanceParser` and `InstanceEmitter` directly using a dedicated parsing library.
+
+Register the codec in the appropriate category module's `register_all` function and add it to the `default_registry` test.
 
 ### Step 5: Add Integration Tests
 
-Add tests that round-trip: parse a native document, emit it back, and verify the result matches. Also add migration tests that exercise the protocol's edge rules and constraint sorts. Finally, add breaking-change tests to verify that the classification logic behaves correctly for your protocol's edge rules.
+Add tests at both levels:
+
+- **Schema round-trip** (`panproto-protocols`): parse a native specification, emit it back, verify the result matches.
+- **Instance round-trip** (`panproto-io`): parse native data, emit it back, re-parse, verify structural equality. Use real-world fixture data, not synthetic examples.
+- **Migration integration**: verify that `parse → restrict → emit` produces valid output.
+- **Breaking-change tests**: verify classification logic for your protocol's edge rules.
 
 ::: {.callout-warning}
 When composing theories via colimit, the shared theory must contain exactly the sorts that should be identified. If you share too few sorts, the colimit will create duplicate sorts that should be unified. If you share too many sorts, you may over-constrain the composition. Review the existing `register_*` functions for examples of correct sharing patterns.
@@ -292,17 +332,26 @@ The colimit composition pattern implements the categorical notion of a *theory m
 
 This is not merely an implementation convenience---it is a formal guarantee. The colimit preserves the equations and well-formedness conditions of both component theories. If `ThGraph` guarantees that every edge has a source and target vertex, and `ThConstraint` guarantees that every constraint is attached to a vertex, then the colimit theory inherits both guarantees.
 
-The protocol architecture follows the design principles outlined in @lynch2024, where data interchange protocols are understood as presentations of algebraic theories and protocol interoperability is mediated by theory morphisms. panproto's parser/emitter pairs implement the "model functor" that maps between the abstract theory and its concrete syntactic presentation.
+The protocol architecture follows the design principles outlined in @lynch2024, where data interchange protocols are understood as presentations of algebraic theories and protocol interoperability is mediated by theory morphisms. The `panproto-protocols` and `panproto-io` crates together implement both levels of the "model functor" from Lynch 2024: schema presentations map format specifications to abstract schema models, and instance presentations map format data to abstract instance models. This two-level factorization mirrors panproto's two-parameter architecture and ensures that the full pipeline --- from raw bytes through migration to target format --- composes correctly by construction.
 
 For a hands-on guide to building your own protocol, see [tutorial chapter 10](https://panproto.github.io/tutorial/chapters/10-building-your-own-protocol.html).
 
 ## Summary
 
-The `panproto-protocols` crate provides:
+The protocol system spans two crates:
+
+**`panproto-protocols`** (schema-level presentations) provides:
 
 - **10 building-block theories** (`ThGraph`, `ThSimpleGraph`, `ThHypergraph`, `ThConstraint`, `ThMulti`, `ThInterface`, `ThWType`, `ThFunctor`, `ThFlat`, `ThMeta`) that can be composed via colimit.
-- **5 theory groups** (A through E) covering the structural patterns found across 60+ protocols.
-- **A uniform protocol interface**: every protocol exports a `protocol()` function, a parser, and an emitter.
-- **A clear extension path**: adding a new protocol requires identifying component theories, composing them, defining rules, and implementing format conversion.
+- **5 theory groups** (A through E) covering the structural patterns found across 77 protocols.
+- **Schema-level parse/emit**: convert native format specifications (`.proto`, DDL, SDL) to/from `Schema`.
+- **A uniform protocol interface**: every protocol exports `protocol()`, `register_theories()`, and for schema-defining protocols, a parser/emitter pair.
 
-The colimit composition pattern is what makes panproto's protocol coverage tractable. Rather than implementing migration, lens, and breaking-change logic separately for each protocol, the shared theory infrastructure ensures that all protocols automatically benefit from the same engine. Adding a new protocol is a matter of choosing the right building blocks and writing a parser/emitter---the migration engine, lens system, and breaking change detector work for free.
+**`panproto-io`** (instance-level presentations) provides:
+
+- **77 protocol codecs** implementing `InstanceParser` and `InstanceEmitter` traits.
+- **4 shared pathways**: SIMD JSON (`simd-json`), zero-copy XML (`quick-xml`), SIMD HTML (`tl`), SIMD tabular (`memchr`) --- enabling ~50 protocols to share optimized core parsing infrastructure.
+- **Format-specific codecs** for HTML (`tl`), Markdown (`pulldown-cmark`), and CoNLL-U (custom `memchr`-based parser).
+- **A `ProtocolRegistry`** for runtime protocol dispatch by name.
+
+The colimit composition pattern is what makes panproto's protocol coverage tractable. Rather than implementing migration, lens, and breaking-change logic separately for each protocol, the shared theory infrastructure ensures that all protocols automatically benefit from the same engine. Adding a new protocol is a matter of choosing the right building blocks, writing a schema parser/emitter, and registering an instance codec.

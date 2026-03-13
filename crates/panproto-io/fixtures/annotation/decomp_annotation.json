@@ -1,0 +1,49 @@
+{
+  "id": "ewt-train-0042",
+  "sentence": "The researcher analyzed the data carefully.",
+  "tokens": ["The", "researcher", "analyzed", "the", "data", "carefully", "."],
+  "syntax": {
+    "heads": [1, 2, 0, 4, 2, 2, 2],
+    "deprels": ["det", "nsubj", "root", "det", "dobj", "advmod", "punct"]
+  },
+  "semantics": {
+    "predicate_nodes": [
+      {
+        "span": [2, 3],
+        "token": "analyzed",
+        "properties": {
+          "factuality": { "value": 2.8, "confidence": 0.92 },
+          "time": { "value": "past", "confidence": 0.99 },
+          "duration": { "value": 1.2, "confidence": 0.75 },
+          "change": { "value": 1.8, "confidence": 0.81 }
+        }
+      }
+    ],
+    "argument_nodes": [
+      {
+        "span": [0, 2],
+        "head_token": "researcher",
+        "properties": {
+          "volition": { "value": 3.6, "confidence": 0.88 },
+          "awareness": { "value": 3.4, "confidence": 0.85 },
+          "sentient": { "value": 4.2, "confidence": 0.94 }
+        }
+      },
+      {
+        "span": [3, 5],
+        "head_token": "data",
+        "properties": {
+          "change_of_state": { "value": 1.1, "confidence": 0.72 },
+          "existed_before": { "value": 4.5, "confidence": 0.96 },
+          "existed_after": { "value": 4.5, "confidence": 0.96 }
+        }
+      }
+    ],
+    "edges": [
+      { "predicate": 0, "argument": 0, "role": "ARG0" },
+      { "predicate": 0, "argument": 1, "role": "ARG1" }
+    ]
+  },
+  "annotator": "crowd-mean",
+  "source": "UDS-v2.0"
+}

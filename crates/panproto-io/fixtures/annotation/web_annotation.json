@@ -1,0 +1,41 @@
+{
+  "@context": "http://www.w3.org/ns/anno.jsonld",
+  "id": "https://annotations.panproto.io/anno/2026-0042",
+  "type": "Annotation",
+  "motivation": "classifying",
+  "created": "2026-03-12T14:22:00Z",
+  "creator": {
+    "id": "https://panproto.io/users/ytanaka",
+    "type": "Person",
+    "name": "Yuki Tanaka",
+    "nickname": "ytanaka"
+  },
+  "generator": {
+    "id": "https://panproto.io/tools/annotator/v0.2.0",
+    "type": "Software",
+    "name": "panproto-annotator",
+    "homepage": "https://github.com/aaronstevenwhite/panproto"
+  },
+  "body": [
+    {
+      "type": "TextualBody",
+      "value": "AGENT",
+      "purpose": "tagging",
+      "format": "text/plain"
+    },
+    {
+      "type": "TextualBody",
+      "value": "The entity performing the action of analyzing",
+      "purpose": "describing",
+      "language": "en"
+    }
+  ],
+  "target": {
+    "source": "https://corpus.panproto.io/docs/wsj-0042",
+    "selector": {
+      "type": "TextPositionSelector",
+      "start": 0,
+      "end": 14
+    }
+  }
+}

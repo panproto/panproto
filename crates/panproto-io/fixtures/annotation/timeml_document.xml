@@ -1,0 +1,12 @@
+<TimeML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <DOCID>wsj_0001</DOCID>
+  <DCT><TIMEX3 tid="t0" type="DATE" value="1989-11-02">11/02/89</TIMEX3></DCT>
+  <TEXT>
+    Kemper Financial Services Inc., <EVENT eid="e1" class="OCCURRENCE">charging</EVENT> that program trading is
+    <EVENT eid="e2" class="OCCURRENCE">ruining</EVENT> the stock market, <EVENT eid="e3" class="REPORTING">said</EVENT> it will
+    <EVENT eid="e4" class="ASPECTUAL">stop</EVENT> using the strategy.
+  </TEXT>
+  <MAKEINSTANCE eventID="e1" eiid="ei1" tense="PRESPART" aspect="PROGRESSIVE"/>
+  <MAKEINSTANCE eventID="e3" eiid="ei3" tense="PAST" aspect="NONE"/>
+  <TLINK lid="l1" relType="BEFORE" eventInstanceID="ei1" relatedToTime="t0"/>
+</TimeML>

@@ -1,0 +1,15 @@
+<graph xmlns="http://www.xces.org/ns/GrAF/1.0/">
+  <graphHeader>
+    <labelsDecl>
+      <labelUsage gi="tok" occurs="3"/>
+      <labelUsage gi="pos" occurs="3"/>
+    </labelsDecl>
+  </graphHeader>
+  <node xml:id="n1"><link targets="r1"/></node>
+  <node xml:id="n2"><link targets="r2"/></node>
+  <node xml:id="n3"><link targets="r3"/></node>
+  <a xml:id="tok1" label="tok" ref="n1"><fs><f name="string" value="The"/></fs></a>
+  <a xml:id="tok2" label="tok" ref="n2"><fs><f name="string" value="cat"/></fs></a>
+  <a xml:id="tok3" label="tok" ref="n3"><fs><f name="string" value="sat"/></fs></a>
+  <edge xml:id="e1" from="n2" to="n1"/>
+</graph>

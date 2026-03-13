@@ -1,0 +1,18 @@
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <titleStmt><title>Sample TEI Document</title></titleStmt>
+      <publicationStmt><p>CC BY-SA 4.0</p></publicationStmt>
+      <sourceDesc><p>Born digital</p></sourceDesc>
+    </fileDesc>
+  </teiHeader>
+  <text>
+    <body>
+      <div type="chapter" n="1">
+        <head>Introduction</head>
+        <p>Generalized algebraic theories provide a framework for universal schema migration.</p>
+        <p>The key insight is the <term>two-parameter architecture</term>: every protocol is a pair of GATs.</p>
+      </div>
+    </body>
+  </text>
+</TEI>

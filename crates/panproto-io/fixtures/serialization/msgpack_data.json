@@ -1,0 +1,28 @@
+{
+  "header": {
+    "version": 1,
+    "encoding": "msgpack",
+    "timestamp": 1774560000
+  },
+  "frames": [
+    {
+      "id": 1,
+      "type": "text",
+      "content": "The researcher analyzed the data carefully.",
+      "tokens": 7,
+      "lang": "en"
+    },
+    {
+      "id": 2,
+      "type": "annotation",
+      "spans": [
+        { "start": 0, "end": 14, "label": "ARG0" },
+        { "start": 15, "end": 23, "label": "PRED" },
+        { "start": 24, "end": 32, "label": "ARG1" },
+        { "start": 33, "end": 42, "label": "ARGM-MNR" }
+      ],
+      "source": "srl-model-v3"
+    }
+  ],
+  "checksum": "a3f2c1b4"
+}

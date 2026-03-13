@@ -1,0 +1,9 @@
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+  <office:body>
+    <office:text>
+      <text:h text:outline-level="1">Schema Migration</text:h>
+      <text:p>A schema defines a polynomial endofunctor on Set.</text:p>
+      <text:p>An instance is an element of the initial algebra.</text:p>
+    </office:text>
+  </office:body>
+</office:document-content>
