@@ -15,6 +15,8 @@ pub use panproto_inst as inst;
 pub use panproto_lens as lens;
 /// Re-export of `panproto-mig` for migration and lifting operations.
 pub use panproto_mig as mig;
+/// Re-export of `panproto-io` for instance-level parse/emit across all protocols.
+pub use panproto_io as io;
 /// Re-export of `panproto-protocols` for built-in protocol definitions.
 pub use panproto_protocols as protocols;
 /// Re-export of `panproto-schema` for schema types and builders.

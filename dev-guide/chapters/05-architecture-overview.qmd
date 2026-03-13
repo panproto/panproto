@@ -4,17 +4,18 @@ This chapter presents the 30,000-foot view of panproto: its crate hierarchy, the
 
 ## The Crate Dependency Hierarchy
 
-panproto is organized into ten crates arranged in five dependency levels. Each level depends only on the levels below it, producing a strict DAG that keeps compile times manageable and enforces separation of concerns.
+panproto is organized into eleven crates arranged in six dependency levels. Each level depends only on the levels below it, producing a strict DAG that keeps compile times manageable and enforces separation of concerns.
 
 | Level | Crates | Role |
 |-------|--------|------|
 | 0 | `panproto-gat` | The GAT engine: theories, morphisms, colimits |
 | 1 | `panproto-schema`, `panproto-inst` | Schema graphs and instance trees |
 | 2 | `panproto-mig`, `panproto-lens`, `panproto-check` | Migration compilation, lenses, breaking-change analysis |
-| 3 | `panproto-protocols` | Built-in protocol definitions (AT Protocol, SQL, Protobuf, ...) |
+| 3 | `panproto-protocols` | Protocol definitions: theory composition, schema-level presentation functors |
+| 3.5 | `panproto-io` | Instance-level presentation functors: format-specific parse/emit for all 77 protocols |
 | 4 | `panproto-core`, `panproto-wasm`, `panproto-cli` | Re-export facade, WASM boundary, CLI |
 
-: The five-level crate hierarchy. {#tbl-crate-levels}
+: The six-level crate hierarchy. {#tbl-crate-levels}
 
 **Level 0** is the mathematical foundation. It knows nothing about schemas, instances, or protocols -- only about the algebra of generalized algebraic theories.
 
@@ -22,7 +23,9 @@ panproto is organized into ten crates arranged in five dependency levels. Each l
 
 **Level 2** is where the interesting operations live: compiling migration specifications into executable form (`panproto-mig`), constructing bidirectional lenses (`panproto-lens`), and classifying schema changes as breaking or non-breaking (`panproto-check`).
 
-**Level 3** bundles concrete protocol definitions. Each protocol (AT Protocol, SQL, Protobuf, etc.) is a pair of GATs plus well-formedness rules, all built on the primitives from Levels 0--2.
+**Level 3** bundles concrete protocol definitions. Each protocol (AT Protocol, SQL, Protobuf, etc.) is a pair of GATs plus well-formedness rules, all built on the primitives from Levels 0--2. It also provides **schema-level presentation functors**: the parse/emit operations that convert native format specifications (`.proto` files, SQL DDL, GraphQL SDL) into abstract `Schema` models.
+
+**Level 3.5** provides the **instance-level presentation functors** via `panproto-io`. This crate connects raw data bytes (HTML, CoNLL-U, Protobuf wire messages, JSON documents, CSV rows) to abstract instance models (`WInstance`/`FInstance`). Together with `panproto-protocols`, it completes both levels of the functorial data migration pipeline: schema presentations map format specs to schema models, and instance presentations map format data to instance models. The commutativity guarantee from Spivak 2012 ensures that parse → restrict → emit composes correctly.
 
 **Level 4** provides the consumer-facing surfaces: `panproto-core` re-exports everything through a single dependency, `panproto-wasm` exposes a handle-based WebAssembly API, and `panproto-cli` wraps it all in a command-line tool.
 
@@ -56,6 +59,9 @@ graph BT
     subgraph Level 3
         protocols["panproto-protocols"]
     end
+    subgraph "Level 3.5"
+        io["panproto-io"]
+    end
     subgraph Level 4
         core["panproto-core"]
         wasm["panproto-wasm"]
@@ -76,6 +82,9 @@ graph BT
     check --> mig
     protocols --> gat
     protocols --> schema
+    io --> schema
+    io --> inst
+    io --> protocols
     core --> gat
     core --> schema
     core --> inst
@@ -83,6 +92,7 @@ graph BT
     core --> lens
     core --> check
     core --> protocols
+    core --> io
     wasm --> core
     cli --> core
 ```
@@ -144,9 +154,10 @@ The following sequence diagram traces the full lifecycle from defining a protoco
 
 ```{mermaid}
 %%| label: fig-migration-lifecycle
-%%| fig-cap: "Full migration lifecycle, from protocol definition through data lifting."
+%%| fig-cap: "Full migration lifecycle, from raw data through migration to target format."
 sequenceDiagram
     participant User
+    participant IO as panproto-io
     participant Protocols as panproto-protocols
     participant Schema as panproto-schema
     participant Check as panproto-check
@@ -160,10 +171,12 @@ sequenceDiagram
     Check-->>User: ExistenceReport (added/removed/modified)
     User->>Mig: compile(migration_spec)
     Mig-->>User: CompiledMigration
+    User->>IO: parse(protocol, schema_v1, raw_bytes)
+    IO-->>User: WInstance / FInstance (source)
     User->>Inst: wtype_restrict(instance, v1, v2, compiled)
     Inst-->>User: Migrated WInstance
-    User->>Inst: to_json(v2, migrated_instance)
-    Inst-->>User: JSON output
+    User->>IO: emit(protocol, schema_v2, migrated_instance)
+    IO-->>User: Raw bytes (target format)
 ```
 
 The pipeline is:
@@ -182,7 +195,8 @@ A quick reference for locating functionality:
 |---|---|
 | Define or inspect a GAT | `panproto-gat` |
 | Build a schema graph | `panproto-schema` |
-| Parse JSON into a tree instance | `panproto-inst` |
+| Parse generic JSON into a tree instance | `panproto-inst` |
+| Parse format-specific data (HTML, CoNLL-U, Protobuf, ...) | `panproto-io` |
 | Compile a migration | `panproto-mig` |
 | Build a bidirectional lens | `panproto-lens` |
 | Detect breaking changes | `panproto-check` |

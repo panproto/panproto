@@ -15,6 +15,7 @@ panproto-mig = { workspace = true }
 panproto-lens = { workspace = true }
 panproto-check = { workspace = true }
 panproto-protocols = { workspace = true }
+panproto-io = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,0 +1,53 @@
+[package]
+name = "panproto-io"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Instance-level presentation functors for panproto — blazingly fast parse/emit for 77 protocols"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Workspace crates
+panproto-schema = { workspace = true }
+panproto-inst = { workspace = true }
+panproto-protocols = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Collections & allocation
+smallvec = { workspace = true }
+rustc-hash = { workspace = true }
+bumpalo = { workspace = true }
+
+# SIMD-accelerated JSON parsing
+simd-json = "0.14"
+
+# Fast byte scanning
+memchr = "2.7"
+
+# XML parsing (zero-copy pull parser)
+quick-xml = "0.37"
+
+# HTML parsing (SIMD-accelerated)
+tl = "0.7"
+
+# Markdown parsing (fast pull parser)
+pulldown-cmark = "0.12"
+
+[dev-dependencies]
+divan = { workspace = true }
+proptest = { workspace = true }
+
+[[bench]]
+name = "io_bench"
+harness = false

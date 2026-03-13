@@ -11,6 +11,7 @@ members = [
     "crates/panproto-core",
     "crates/panproto-wasm",
     "crates/panproto-cli",
+    "crates/panproto-io",
     "tests/integration",
 ]
 
@@ -46,6 +47,10 @@ clap = { version = "4.5.60", features = ["derive"] }
 # Testing
 proptest = "1.10.0"
 
+# SIMD-accelerated parsing
+simd-json = "0.14"
+memchr = "2.7"
+
 # Benchmarking
 divan = "0.1.21"
 
@@ -58,6 +63,7 @@ panproto-lens = { version = "0.1.0", path = "crates/panproto-lens" }
 panproto-check = { version = "0.1.0", path = "crates/panproto-check" }
 panproto-protocols = { version = "0.1.0", path = "crates/panproto-protocols" }
 panproto-core = { version = "0.1.0", path = "crates/panproto-core" }
+panproto-io = { version = "0.1.0", path = "crates/panproto-io" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
