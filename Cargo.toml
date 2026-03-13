@@ -16,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -55,15 +55,15 @@ memchr = "2.7"
 divan = "0.1.21"
 
 # Workspace crates
-panproto-gat = { version = "0.1.0", path = "crates/panproto-gat" }
-panproto-schema = { version = "0.1.0", path = "crates/panproto-schema" }
-panproto-inst = { version = "0.1.0", path = "crates/panproto-inst" }
-panproto-mig = { version = "0.1.0", path = "crates/panproto-mig" }
-panproto-lens = { version = "0.1.0", path = "crates/panproto-lens" }
-panproto-check = { version = "0.1.0", path = "crates/panproto-check" }
-panproto-protocols = { version = "0.1.0", path = "crates/panproto-protocols" }
-panproto-core = { version = "0.1.0", path = "crates/panproto-core" }
-panproto-io = { version = "0.1.0", path = "crates/panproto-io" }
+panproto-gat = { version = "0.2.0", path = "crates/panproto-gat" }
+panproto-schema = { version = "0.2.0", path = "crates/panproto-schema" }
+panproto-inst = { version = "0.2.0", path = "crates/panproto-inst" }
+panproto-mig = { version = "0.2.0", path = "crates/panproto-mig" }
+panproto-lens = { version = "0.2.0", path = "crates/panproto-lens" }
+panproto-check = { version = "0.2.0", path = "crates/panproto-check" }
+panproto-protocols = { version = "0.2.0", path = "crates/panproto-protocols" }
+panproto-core = { version = "0.2.0", path = "crates/panproto-core" }
+panproto-io = { version = "0.2.0", path = "crates/panproto-io" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
