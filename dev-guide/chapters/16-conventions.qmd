@@ -1,0 +1,158 @@
+# Coding Conventions and API Design {#sec-conventions}
+
+This chapter documents the coding conventions and API design patterns used throughout the panproto codebase. Following these consistently makes the code predictable and keeps the review process efficient.
+
+## Rust Edition and Toolchain
+
+The workspace targets **Rust Edition 2024**, which requires rustc 1.85 or later. The workspace `Cargo.toml` enforces this:
+
+```{.toml include="../../Cargo.toml" start-line=17 end-line=21}
+```
+
+::: {.callout-important}
+Edition 2024 enables several language changes including the new `use<>` capture syntax and refined `impl Trait` behavior. If your local toolchain is older than 1.85, `rustup update stable` will get you there.
+:::
+
+## Workspace Lints
+
+Strict linting is configured at the workspace level. Every crate inherits these settings:
+
+```{.toml include="../../Cargo.toml" start-line=62 end-line=81}
+```
+
+Key policies:
+
+- **`unsafe_code = "deny"`** -- No unsafe code anywhere. The WASM boundary uses `wasm_bindgen`'s safe abstractions.
+- **`unwrap_used = "deny"`** -- No `.unwrap()` in library code. Use `?`, `.ok_or()`, or pattern matching. Test modules annotate `#[allow(clippy::unwrap_used)]` where appropriate.
+- **`pedantic` + `nursery`** -- Both clippy lint groups are enabled as warnings, catching style issues and potential bugs early.
+- **`missing_docs = "warn"`** -- Every public item should be documented.
+
+The release profile enables LTO, single codegen unit, and symbol stripping for minimal binary size. The `release-wasm` profile inherits from release but uses `opt-level = "z"` for aggressive size optimization.
+
+## Immutable Fluent Builder Pattern
+
+Both `SchemaBuilder` (Rust) and `SchemaBuilder`/`MigrationBuilder` (TypeScript) use the immutable fluent builder pattern. In Rust, `SchemaBuilder` takes `self` by value and returns `Result<Self, SchemaError>`:
+
+```{.rust include="../../crates/panproto-schema/src/builder.rs" start-line=17 end-line=53}
+```
+
+Each method consumes the builder and returns a new one (or an error). This ensures:
+
+- **No partial construction** -- if a step fails, the builder is consumed and cannot be reused in an inconsistent state
+- **Type-level linearity** -- the compiler prevents using a builder after it has been moved
+- **Composability** -- methods chain naturally with `?`
+
+In TypeScript, the same pattern uses `readonly` fields and returns new instances:
+
+```typescript
+vertex(id: string, kind: string, options?: VertexOptions): SchemaBuilder {
+  // ... validate ...
+  return new SchemaBuilder(/* new state */);
+}
+```
+
+::: {.callout-tip}
+Mark all builder constructors and pure functions with `#[must_use]`. This catches the common mistake of calling a builder method without binding the result.
+:::
+
+## Error Design
+
+The codebase uses a two-tier error strategy:
+
+### Library Crates: `thiserror`
+
+Every library crate defines its own error enum with `thiserror`:
+
+```rust
+#[derive(Debug, thiserror::Error)]
+pub enum SchemaError {
+    #[error("duplicate vertex: {0}")]
+    DuplicateVertex(String),
+    #[error("vertex not found: {0}")]
+    VertexNotFound(String),
+    // ...
+}
+```
+
+These errors are structured, matchable, and carry no formatting dependencies. They compose naturally with `?` across crate boundaries.
+
+### CLI Crate: `miette`
+
+Only `panproto-cli` uses `miette` for user-facing diagnostics. Library errors are converted via `.into_diagnostic()`:
+
+```rust
+let schema = load_json(path)?;  // returns miette::Result
+```
+
+This keeps the library crates lightweight. A GUI or web consumer of `panproto-core` never pulls in `miette`'s terminal formatting code.
+
+## `#[must_use]` on Builders and Pure Functions
+
+All builder types and pure functions are annotated with `#[must_use]`:
+
+```rust
+#[must_use]
+pub fn new(protocol: &Protocol) -> Self { ... }
+```
+
+This generates a compiler warning if the return value is discarded, which catches bugs like:
+
+```rust
+builder.vertex("post", "record", None)?;  // Warning: unused result
+// Should be: builder = builder.vertex(...)?;
+```
+
+## Collection Choices
+
+The codebase makes deliberate collection choices based on usage patterns:
+
+| Collection | Use Case | Rationale |
+|---|---|---|
+| `SmallVec<T, 4>` | Adjacency lists (outgoing/incoming edges) | Most vertices have fewer than 4 edges; avoids heap allocation |
+| `FxHashSet` | Hot internal paths (edge deduplication, surviving vertex sets) | Faster hashing than `std::collections::HashSet` for string keys |
+| `HashMap` | Public API surfaces | Standard, unsurprising, no extra dependency for consumers |
+| `BTreeSet` / `BTreeMap` | When deterministic iteration order is needed | Used in CLI output and test assertions |
+
+::: {.callout-note}
+`SmallVec` uses the 2.0.0-alpha series with serde support. `FxHashSet` comes from the `rustc-hash` crate, the same hasher used inside the Rust compiler.
+:::
+
+## Documentation Standards
+
+Every public item must have a doc comment. The conventions are:
+
+- **First line**: one-sentence summary in imperative mood ("Add a vertex to the schema.")
+- **`# Errors`** section: list each error variant that can be returned
+- **`# Example`** section: preferred for complex APIs, using `/// ```ignore` if the example requires external setup
+- **Cross-references**: use `[`name`]` links to other items in the same crate
+
+```rust
+/// Add a binary edge to the schema.
+///
+/// Validates that both `src` and `tgt` vertices exist and that
+/// the edge kind satisfies the protocol's edge rules.
+///
+/// # Errors
+///
+/// Returns [`SchemaError::VertexNotFound`] if either endpoint
+/// is missing, or [`SchemaError::UnknownEdgeKind`] if the kind
+/// is not recognized by the protocol.
+pub fn edge(self, src: &str, tgt: &str, kind: &str, name: Option<&str>)
+    -> Result<Self, SchemaError>
+```
+
+## Naming Conventions
+
+- **Crates**: `panproto-<name>` (kebab-case)
+- **Modules**: snake_case, matching the domain concept (`schema`, `migration`, `existence`)
+- **Types**: PascalCase, with `Builder` suffix for builders and `Error` suffix for errors
+- **Functions**: snake_case, with `check_` prefix for validation functions and `cmd_` prefix for CLI handlers
+- **TypeScript**: camelCase for functions and variables, PascalCase for classes and interfaces, matching the JS ecosystem conventions
+
+## Dependency Policy
+
+- Prefer workspace-level dependency declarations in the root `Cargo.toml`
+- Pin major versions but allow minor/patch updates
+- Use `features` sparingly; only enable what each crate needs
+- No `unsafe` dependencies without explicit justification
+- MIT license only for all dependencies

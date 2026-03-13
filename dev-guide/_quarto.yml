@@ -1,0 +1,83 @@
+project:
+  type: book
+  output-dir: _site
+
+book:
+  title: "panproto: Developer Guide"
+  subtitle: "Architecture, Internals, and Contributor Handbook"
+  author:
+    - name: "Aaron Steven White"
+      url: "https://github.com/aaronstevenwhite"
+  date: today
+  date-format: "MMMM YYYY"
+  repo-url: "https://github.com/panproto/panproto"
+  repo-subdir: dev-guide
+  repo-actions: [edit, issue]
+  site-url: "https://panproto.github.io/dev-guide/"
+  sidebar:
+    style: floating
+    collapse-level: 2
+  search: true
+  chapters:
+    - index.qmd
+    - part: "Getting Started"
+      chapters:
+        - chapters/01-welcome.qmd
+        - chapters/02-first-contribution.qmd
+    - part: "Development Environment"
+      chapters:
+        - chapters/03-building-testing.qmd
+        - chapters/04-debugging-profiling.qmd
+    - part: "Architecture & Internals"
+      chapters:
+        - chapters/05-architecture-overview.qmd
+        - chapters/06-gat-engine.qmd
+        - chapters/07-schema-protocols.qmd
+        - chapters/08-instances-wtype.qmd
+        - chapters/09-migration-engine.qmd
+        - chapters/10-lenses.qmd
+        - chapters/11-breaking-changes.qmd
+        - chapters/12-protocols.qmd
+        - chapters/13-wasm-boundary.qmd
+        - chapters/14-typescript-sdk.qmd
+        - chapters/15-cli.qmd
+    - part: "Contributing Process"
+      chapters:
+        - chapters/16-conventions.qmd
+        - chapters/17-testing.qmd
+        - chapters/18-pr-workflow.qmd
+    - part: "Project Operations"
+      chapters:
+        - chapters/19-release.qmd
+    - part: "Appendices"
+      chapters:
+        - appendices/A-glossary.qmd
+        - appendices/B-source-code-map.qmd
+        - appendices/C-troubleshooting.qmd
+
+bibliography: references.bib
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/chicago-author-date.csl
+link-citations: true
+citations-hover: true
+
+filters:
+  - include-code-files
+
+format:
+  html:
+    theme:
+      light: cosmo
+      dark: darkly
+    css: styles.css
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: false
+    code-tools: true
+    code-copy: true
+    highlight-style: github
+    mermaid:
+      theme: neutral
+
+execute:
+  freeze: auto

@@ -1,0 +1,13 @@
+# Quarto output
+/_site/
+/.quarto/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*~
+.vscode/
+.idea/

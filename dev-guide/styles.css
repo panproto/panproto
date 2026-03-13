@@ -1,0 +1,28 @@
+/* Dev Guide custom styles */
+
+/* Code block styling */
+div.sourceCode {
+  border-left: 3px solid #6c757d;
+  margin: 1.5em 0;
+}
+
+/* Mermaid diagram sizing */
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Callout refinement */
+.callout {
+  margin: 1.5em 0;
+}
+
+/* Table styling */
+table {
+  font-size: 0.95em;
+}
+
+/* Sidebar crate links */
+.sidebar nav a code {
+  font-size: 0.85em;
+}

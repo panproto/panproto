@@ -1,0 +1,196 @@
+# Troubleshooting FAQ {#sec-troubleshooting}
+
+This appendix covers the most common issues encountered when building, testing, and contributing to panproto, with diagnosis steps and fixes.
+
+## 1. WASM build fails: "can't find crate for 'core'" {.unnumbered}
+
+**Symptom:**
+
+```
+error[E0463]: can't find crate for `core`
+  |
+  = note: the `wasm32-unknown-unknown` target may not be installed
+```
+
+**Cause:** The `wasm32-unknown-unknown` compilation target is not installed in your Rust toolchain.
+
+**Fix:**
+
+```bash
+rustup target add wasm32-unknown-unknown
+```
+
+Then retry:
+
+```bash
+wasm-pack build crates/panproto-wasm --target web
+```
+
+::: {.callout-note}
+If you recently switched toolchains (e.g., from stable to nightly), you need to add the target again for the new toolchain.
+:::
+
+## 2. Clippy pedantic lint failures {.unnumbered}
+
+**Symptom:** CI fails on `cargo clippy --workspace -- -D warnings` with pedantic or nursery lint violations.
+
+**Common offenders and how to handle them:**
+
+| Lint | Typical trigger | Resolution |
+|---|---|---|
+| `clippy::module_name_repetitions` | A struct named `SchemaError` in `schema/error.rs` | Rename, or add `#[allow(clippy::module_name_repetitions)]` with a comment |
+| `clippy::must_use_candidate` | A public function that returns a value | Add `#[must_use]` or `#[allow()]` if the return value is legitimately optional |
+| `clippy::missing_errors_doc` | A public function returning `Result` without `# Errors` doc section | Add the doc section |
+| `clippy::missing_panics_doc` | A function that can panic without `# Panics` doc section | Add the doc section or eliminate the panic |
+| `clippy::too_many_lines` | A function exceeding the line threshold | Refactor into smaller functions, or `#[allow()]` with justification |
+
+**General rule:** Fix the code if the lint identifies a real improvement. Use `#[allow()]` only when the lint is a false positive, and always include a `// reason:` comment.
+
+## 3. nextest vs. cargo test {.unnumbered}
+
+**Symptom:** Tests pass with `cargo test` but fail with `cargo nextest run`, or vice versa.
+
+**Cause:** `cargo-nextest` runs each test in its own process, providing true isolation. `cargo test` runs tests as threads within a single process. If a test depends on shared mutable state (e.g., a global), it may pass under `cargo test` (lucky scheduling) but fail under nextest (isolated execution), or the reverse.
+
+**Fix:**
+
+1. **Install nextest** if you have not already: `cargo install cargo-nextest`.
+2. **Always use nextest** for local development to match CI behavior.
+3. If a test fails under nextest but passes under `cargo test`, the test likely has a hidden dependency on shared state. Fix the test.
+
+::: {.callout-important}
+CI uses `cargo nextest run --workspace`. If your tests pass with `cargo test` but not nextest, CI will fail.
+:::
+
+## 4. MessagePack deserialization errors at the WASM boundary {.unnumbered}
+
+**Symptom:** The TypeScript SDK throws errors like `InvalidMarkerRead`, `TypeMismatch`, or `LengthMismatch` when calling panproto functions.
+
+**Diagnosis:**
+
+1. **Check for version skew.** The most common cause is rebuilding the Rust WASM without rebuilding the TypeScript SDK (or vice versa). Rebuild both from the same commit:
+
+    ```bash
+    wasm-pack build crates/panproto-wasm --target web
+    cd sdk/typescript && pnpm build
+    ```
+
+2. **Inspect the payload.** Add a hex dump before deserialization (see @sec-debugging-profiling for instructions) and decode with a MessagePack inspector.
+
+3. **Compare types.** Open `crates/panproto-wasm/src/api.rs` and `sdk/typescript/src/types.ts` side by side. Every `#[serde(rename)]` attribute in Rust must match the corresponding TypeScript field name.
+
+**Fix:** After identifying the mismatch, update whichever side is out of date and rebuild.
+
+## 5. Handle-related panics {.unnumbered}
+
+**Symptom:** A panic with a message like `"invalid handle"`, `"handle already freed"`, or `"slab index out of bounds"`.
+
+**Cause:** The JavaScript side passed an invalid or stale handle to the WASM API.
+
+**Diagnosis:**
+
+| Panic message | Cause | Fix |
+|---|---|---|
+| `invalid handle` | Handle was never allocated (e.g., passing `0` or `-1`) | Check the JS call site; ensure `create_*` was called first |
+| `handle already freed` | `free()` called twice on the same handle | Guard against double-free in TS (set handle to `null` after free) |
+| `slab index out of bounds` | Handle value exceeds slab capacity | Likely a corrupted handle; check for integer overflow or incorrect casting |
+
+**Debugging aid:** Call `slab_stats()` from JavaScript to see how many handles are live. A growing count suggests a leak; a zero count after operations suggests premature freeing.
+
+## 6. Property test failures {.unnumbered}
+
+**Symptom:** A property test fails with output like:
+
+```
+proptest: Falsified after 42 cases:
+  input = SomeStruct { ... }
+  seed: 0xa1b2c3d4e5f67890
+```
+
+**Reproducing the failure:**
+
+```bash
+PROPTEST_SEED=0xa1b2c3d4e5f67890 cargo nextest run -p panproto-gat -- test_name
+```
+
+**Running more cases** to shake out rare failures:
+
+```bash
+PROPTEST_CASES=100000 cargo nextest run -p panproto-gat
+```
+
+::: {.callout-tip}
+## Minimizing failures
+
+`proptest` automatically tries to shrink the failing input to the smallest reproducing case. The output shows both the original and minimized inputs. Use the minimized input to write a targeted unit test.
+:::
+
+## 7. Reproducing CI failures locally {.unnumbered}
+
+CI runs four stages. Here is how to reproduce each one:
+
+### Lint stage
+
+```bash
+cargo clippy --workspace -- -D warnings
+cargo fmt --check
+```
+
+If `cargo fmt --check` fails, run `cargo fmt` to auto-fix and commit the changes.
+
+### Test stage
+
+```bash
+cargo nextest run --workspace
+```
+
+If a specific test fails, isolate it:
+
+```bash
+cargo nextest run -p panproto-mig -- failing_test_name
+```
+
+### WASM stage
+
+```bash
+wasm-pack build crates/panproto-wasm --target web
+wasm-pack test --headless --chrome crates/panproto-wasm
+```
+
+If you do not have Chrome installed, use `--headless --firefox`. If neither is available, install one or use `wasm-pack test --node` (note: Node.js WASM tests may behave slightly differently from browser tests).
+
+### TypeScript stage
+
+```bash
+cd sdk/typescript
+pnpm install
+pnpm build
+pnpm test
+npx prettier --check 'src/**/*.ts' 'tests/**/*.ts'
+```
+
+If Prettier fails, run `npx prettier --write 'src/**/*.ts' 'tests/**/*.ts'` to auto-fix.
+
+## 8. Build takes too long {.unnumbered}
+
+**Symptom:** `cargo build --workspace` takes several minutes on every change.
+
+**Possible causes and fixes:**
+
+1. **First build:** The initial build downloads and compiles all dependencies. This is expected to take 3--5 minutes. Subsequent incremental builds should take under 10 seconds.
+2. **Release mode:** If you accidentally used `--release`, switch back to debug mode for development.
+3. **LTO in dev:** Check that you are not setting `lto = true` in a custom profile for dev builds. The workspace only enables LTO in the `release` and `release-wasm` profiles.
+4. **Disk I/O:** If you are on a networked filesystem or a slow disk, consider using a local SSD for the `target/` directory.
+
+## 9. Rust edition 2024 errors {.unnumbered}
+
+**Symptom:** Compilation errors related to edition 2024 features or syntax changes.
+
+**Cause:** Your Rust toolchain is older than 1.85.
+
+**Fix:**
+
+```bash
+rustup update stable
+rustc --version  # should show 1.85.0 or newer
+```

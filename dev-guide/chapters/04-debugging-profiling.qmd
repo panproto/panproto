@@ -1,0 +1,220 @@
+# Debugging and Profiling {#sec-debugging-profiling}
+
+This chapter covers the tools and techniques for diagnosing issues in panproto --- from tracing log output through stepping into the migration pipeline to benchmarking with divan.
+
+## Tracing with RUST_LOG
+
+panproto uses the `tracing` crate for structured logging. Control verbosity through the `RUST_LOG` environment variable:
+
+```bash
+# Debug output for a single crate
+RUST_LOG=panproto_inst=debug cargo nextest run -p panproto-inst
+
+# Trace-level output (very verbose) for the migration engine
+RUST_LOG=panproto_mig=trace cargo nextest run -p panproto-mig
+
+# Multiple crates at different levels
+RUST_LOG=panproto_gat=info,panproto_mig=debug cargo nextest run --workspace
+
+# Everything at debug
+RUST_LOG=debug cargo nextest run --workspace
+```
+
+::: {.callout-tip}
+## Filtering a single test with tracing
+
+Combine `RUST_LOG` with a test filter to get focused output:
+
+```bash
+RUST_LOG=panproto_mig=debug cargo nextest run -p panproto-mig -- test_lift_roundtrip
+```
+:::
+
+## Stepping through the W-type restrict pipeline
+
+The restrict pipeline in `panproto-inst` transforms a W-type instance when a migration removes or restructures schema elements. The pipeline has five key functions that serve as natural debugging waypoints:
+
+1. **`compute_surviving_set()`** in `crates/panproto-inst/src/wtype.rs` --- Determines which nodes survive the migration. If your output is missing data, check whether the surviving set is too small.
+
+2. **`anchor_nodes()`** in `crates/panproto-inst/src/wtype.rs` --- Assigns surviving nodes to their new positions in the target schema. If nodes appear at wrong vertices, the anchor computation is the place to look.
+
+3. **`contract_ancestors()`** in `crates/panproto-inst/src/wtype.rs` --- Merges ancestor chains when intermediate vertices are removed. Panics here usually mean the surviving set is inconsistent with the vertex remap.
+
+4. **`resolve_edges()`** in `crates/panproto-inst/src/wtype.rs` --- Rewires edges according to the compiled migration's edge remap. If edges point to wrong targets, inspect the resolver.
+
+5. **`reconstruct_fans()`** in `crates/panproto-inst/src/fan.rs` --- Rebuilds fan structures (ordered child collections) after restrict. Missing or reordered children point to fan reconstruction issues.
+
+Set `RUST_LOG=panproto_inst=debug` to see entry/exit traces for each of these functions, including the sizes of intermediate data structures.
+
+## Inspecting WASM boundary data
+
+The WASM boundary (`panproto-wasm`) serializes all data as MessagePack via `rmp-serde`. When debugging WASM integration issues, you may need to inspect the raw bytes.
+
+### Hex-dump a MessagePack payload
+
+In the TypeScript SDK, add a temporary log before deserialization:
+
+```typescript
+// In sdk/typescript/src/msgpack.ts
+console.log('msgpack hex:', Buffer.from(bytes).toString('hex'));
+```
+
+Then decode the hex with a MessagePack inspector (e.g., [msgpack.org](https://msgpack.org) or the `msgpack-tools` CLI).
+
+### Common deserialization errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `InvalidMarkerRead` | Empty or truncated payload | Check that the Rust side returned data (not an empty `Vec<u8>`) |
+| `TypeMismatch` | Schema version skew between Rust and TS | Rebuild WASM and TS SDK from the same commit |
+| `LengthMismatch` on arrays | Struct field added/removed on one side | Ensure `#[serde(rename)]` and TS types match |
+| `UnknownVariant` | Enum variant added in Rust but not in TS | Add the variant to the TS `types.ts` discriminated union |
+
+### Handle-related debugging
+
+The WASM slab allocator (`crates/panproto-wasm/src/slab.rs`) uses opaque integer handles to reference Rust objects from JavaScript. Common handle issues:
+
+- **Invalid handle panic**: The JS side passed a handle that was never allocated. Check for off-by-one errors or stale handles after a `free()` call.
+- **Double-free panic**: The JS side called `free()` twice on the same handle. Add a guard in the TS wrapper to nullify handles after freeing.
+- **Memory leak**: Handles allocated but never freed. Use the `slab_stats()` debug API to check the count of live handles.
+
+## Benchmarking with divan
+
+Three crates have benchmarks using the `divan` framework:
+
+```bash
+# GAT engine benchmarks (theory construction, morphism checking, colimit)
+cargo bench -p panproto-gat
+
+# Instance benchmarks (W-type construction, restrict, parse)
+cargo bench -p panproto-inst
+
+# Migration benchmarks (compile, lift, compose)
+cargo bench -p panproto-mig
+```
+
+### Interpreting output
+
+divan produces output like:
+
+```
+panproto_gat         fastest       │ slowest       │ median        │ mean
+├─ colimit_small     142.3 ns      │ 289.1 ns      │ 148.7 ns      │ 152.4 ns
+├─ colimit_large     12.41 µs      │ 18.92 µs      │ 13.05 µs      │ 13.28 µs
+╰─ morphism_check    84.21 ns      │ 127.6 ns      │ 88.43 ns      │ 90.12 ns
+```
+
+Focus on the **median** column. Differences under 5% are noise; investigate anything over 10%.
+
+### CI regression checks
+
+CI runs benchmarks on every PR and compares against the `main` branch baseline. If a regression exceeds the threshold (currently 15%), CI reports it as a warning (not a failure). The benchmark data is attached as a PR comment.
+
+To reproduce a CI benchmark comparison locally:
+
+```bash
+# Baseline on main
+git checkout main
+cargo bench -p panproto-gat -- --save-baseline main
+
+# Your branch
+git checkout your-branch
+cargo bench -p panproto-gat -- --baseline main
+```
+
+## Common debugging scenarios
+
+### Migration compiles but lift returns wrong data
+
+1. **Check the surviving set.** Run with `RUST_LOG=panproto_inst=debug` and look at the `compute_surviving_set` output. Are all expected nodes present?
+2. **Inspect the vertex remap.** Print the compiled migration's `vertex_remap` field. Does every source vertex map to the correct target vertex?
+3. **Trace the lift.** The lift reconstructs source-schema data from a target instance. If it produces wrong values, the resolver functions in the compiled migration may be incorrect.
+
+### Existence check passes but restrict panics
+
+The existence check (`panproto-mig/src/existence.rs`) verifies that a migration *can* be applied, but it does not run the full restrict pipeline. A panic during restrict usually means:
+
+1. **Resolver coverage gap.** The compiled migration has a resolver for every edge in the target schema, but one of them returns an invalid handle. Add a test that calls `restrict()` directly on a minimal instance.
+2. **Fan arity mismatch.** A hyper-edge changed its arity (number of targets), but the fan reconstruction did not account for it. Check `reconstruct_fans()` with tracing enabled.
+
+### Property test found a failure but cannot reproduce it
+
+1. Look for the **seed** in the failure output: `proptest: seed = 0x1234abcd...`.
+2. Re-run with that seed:
+
+    ```bash
+    PROPTEST_SEED=0x1234abcd cargo nextest run -p panproto-gat -- test_name
+    ```
+
+3. If the test is non-deterministic (it should not be), check for `HashMap` iteration order sensitivity. panproto uses `rustc-hash` (`FxHashMap`) which has a fixed hash seed, so iteration order should be deterministic.
+
+### WASM tests pass locally but fail in CI
+
+1. CI runs WASM tests in headless Chrome. If you are testing locally with Node.js, there may be differences in `TextEncoder`/`TextDecoder` behavior.
+2. Reproduce CI conditions: `wasm-pack test --headless --chrome crates/panproto-wasm`.
+3. If headless Chrome is not installed, use `--headless --firefox` or install Chrome via your system package manager.
+
+### Colimit produces unexpected merged theory
+
+When two theories are merged via `colimit()` and the result has unexpected sorts or operations:
+
+1. **Verify the span.** The colimit is computed over a span: two morphisms from a shared sub-theory. Print both morphisms and confirm that the shared sorts map correctly in each direction.
+2. **Check equation preservation.** If the merged theory has conflicting equations, `colimit()` will return an error. But if equations are merely *missing*, the merged theory may be valid but semantically wrong. Inspect the equations in the output theory.
+3. **Trace with debug logging:**
+
+    ```bash
+    RUST_LOG=panproto_gat=debug cargo nextest run -p panproto-gat -- test_colimit
+    ```
+
+    The debug output shows each sort and operation merge step.
+
+### Schema validation passes but normalize changes structure
+
+The `normalize()` function in `panproto-schema` collapses reference chains and canonicalizes vertex ordering. If your schema looks correct before normalization but wrong after:
+
+1. **Check for reference cycles.** `normalize()` follows reference edges to collapse chains. A cycle causes infinite recursion (which Rust will catch as a stack overflow).
+2. **Inspect edge targets.** Print the schema's edges before and after normalization. Look for edges whose targets changed unexpectedly --- this usually means a reference chain was collapsed through an intermediate vertex you did not expect.
+3. **Run validate before and after:** If `validate()` passes before normalization but fails after, the normalization may have introduced an edge-rule violation. File a bug.
+
+## Profiling with system tools
+
+For deeper performance analysis beyond divan benchmarks:
+
+### CPU profiling on macOS
+
+```bash
+# Using Instruments (Xcode)
+cargo build -p panproto-gat --release
+xcrun xctrace record --template "Time Profiler" --launch -- \
+  ./target/release/deps/panproto_gat-*  # adjust binary name
+
+# Using samply
+cargo install samply
+samply record cargo bench -p panproto-gat
+```
+
+### Memory profiling
+
+panproto avoids allocator-heavy patterns, but if you suspect a memory issue:
+
+```bash
+# Using DHAT (heap profiling via valgrind)
+cargo install cargo-valgrind
+cargo valgrind --tool=dhat -p panproto-inst -- test_name
+
+# Or use the built-in allocator stats in tests
+RUST_LOG=panproto_inst=trace cargo nextest run -p panproto-inst -- test_large_instance
+```
+
+Look for unexpected `Vec` growth or `bumpalo` arena sizes in the trace output.
+
+## Quick reference
+
+| Goal | Tool / Command |
+|---|---|
+| Structured logs | `RUST_LOG=panproto_crate=debug cargo nextest run ...` |
+| WASM payload inspection | Hex-dump MessagePack bytes, decode with msgpack tools |
+| Handle debugging | `slab_stats()` API in `panproto-wasm` |
+| Benchmarks | `cargo bench -p panproto-gat` (also `-inst`, `-mig`) |
+| Reproduce property test | `PROPTEST_SEED=... cargo nextest run ...` |
+| Reproduce CI WASM tests | `wasm-pack test --headless --chrome crates/panproto-wasm` |

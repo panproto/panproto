@@ -1,0 +1,308 @@
+# panproto-protocols --- Protocol Definitions
+
+The `panproto-protocols` crate is where abstract category theory meets concrete data formats. It defines 60+ protocol specifications across 9 categories, each built by composing reusable building-block theories via colimit. This chapter explains the theory composition pattern, walks through the building blocks, and provides a guide for adding new protocols.
+
+If you are implementing a new protocol or trying to understand why panproto handles your protocol the way it does, this chapter is the primary reference.
+
+## Protocol Categories
+
+panproto organizes protocols into nine categories:
+
+| Category | Examples | Count |
+|---|---|---|
+| Serialization | Protobuf, Avro, Thrift, Cap'n Proto, FlatBuffers, ASN.1, Bond, MsgPack | 8 |
+| Data Schema | JSON Schema, XML/XSD, CSV/Table Schema, YAML, TOML, CDDL, INI, BSON | 8 |
+| API | GraphQL, OpenAPI, AsyncAPI, RAML, JSON:API | 5 |
+| Database | SQL, MongoDB, Cassandra, DynamoDB, Neo4j, Redis | 6 |
+| Type System | TypeScript, Python, Rust, Java, Go, Swift, Kotlin, C# | 8 |
+| Web/Document | ATProto, HTML, CSS, DOCX, ODF, Markdown, JSX, Vue, Svelte | 9 |
+| Data Science | Parquet, Arrow, DataFrame | 3 |
+| Domain | GeoJSON, FHIR, RSS/Atom, vCard/iCal, EDI X12, SWIFT MT | 6 |
+| Config | HCL, K8s CRD, Docker Compose, CloudFormation, Ansible | 5 |
+
+Despite this diversity, every protocol is defined using the same pattern: compose building-block theories via colimit, define edge rules and vertex kinds, and implement a parser/emitter pair. The combinatorial explosion of protocol-specific logic that plagues conventional interop tools is avoided by factoring common structure into shared theories.
+
+## Building-Block Theories
+
+The `theories` module defines the reusable GATs that protocols compose to form their schema and instance theories. Each function returns a standalone `Theory` value that can be registered in a theory registry and referenced by name.
+
+### Graph Theories
+
+The three graph theories form the foundation for schema representation:
+
+```{.rust include="../../crates/panproto-protocols/src/theories.rs" start-line=1 end-line=67}
+```
+
+**`th_graph`** is the most fundamental building block: a directed graph with `Vertex` and `Edge` sorts and `src`/`tgt` operations. Nearly every protocol uses this theory as its base, since schemas are fundamentally graphs---vertices represent types or fields, and edges represent relationships between them.
+
+**`th_simple_graph`** adds an equation enforcing edge uniqueness by endpoints. This is appropriate for protocols like Protobuf where each field name must be unique within a message---there cannot be two distinct edges with the same source and target.
+
+**`th_hypergraph`** introduces multi-arity connections via `HyperEdge` and `Label` sorts. A hyper-edge connects multiple vertices through labeled positions, modeling constructs like SQL table definitions (where a table relates multiple columns via labeled positions like "column_name" and "column_type") and multi-argument function signatures.
+
+### Constraint Theory
+
+The constraint theory demonstrates the dependent sort pattern:
+
+```{.rust include="../../crates/panproto-protocols/src/theories.rs" start-line=69 end-line=83}
+```
+
+The `Constraint` sort is parameterized by a vertex via `SortParam::new("v", "Vertex")`. This is a GAT-level encoding of the fact that constraints are attached to specific schema elements. A `maxLength` constraint on a string field is a different sort instance than a `maxLength` constraint on a different field, even though they share the same sort name.
+
+This dependent sort pattern has practical consequences throughout panproto:
+
+- The migration engine's existence checker (Chapter 9) can scope constraint compatibility checks to individual vertices.
+- The breaking change detector (Chapter 11) can attribute constraint tightening to the specific vertex affected.
+- The lens system (Chapter 10) can track per-vertex constraint changes in the complement.
+
+::: {.callout-note}
+The dependent sort `Constraint(v: Vertex)` is a GAT-level encoding of the categorical notion of a fibered sort [@cartmell1986]. It ensures that constraint-related operations are automatically scoped to the correct vertex, without requiring runtime dispatch or downcasting.
+:::
+
+### Instance Theories
+
+Beyond the schema theories, panproto defines instance theories that model how data is structured within a schema:
+
+- **`th_wtype`**: W-type trees with `Node`, `Arc`, and `Value` sorts. Operations include `anchor` (mapping nodes to schema vertices), `arc_src`/`arc_tgt` (tree edges), `arc_edge` (labeling arcs with schema edges), and `node_value` (payload). Used by JSON-like, XML-like, and document protocols.
+
+- **`th_functor`**: set-valued functors with `Table`, `Row`, and `ForeignKey` sorts. Operations include `table_vertex` (mapping tables to schema vertices) and `fk_src`/`fk_tgt` (foreign key endpoints). Used by relational and columnar protocols.
+
+- **`th_flat`**: flat key-value structures with `Node`, `Field`, and `Value` sorts. Operations include `field_node` (owning node), `field_value` (payload), and `node_anchor` (schema vertex). Used by IDL protocols like Protobuf where data has a flat field structure without deep nesting.
+
+- **`th_meta`**: metadata extension adding `Discriminator` and `ExtraField` sorts. Composes with `th_wtype` via colimit over the shared `Node` sort. Used by document protocols with mixed content models (XML, HTML) where elements can have both structured children and unstructured attributes.
+
+## The Colimit Composition Pattern
+
+Each protocol is defined by composing building-block theories via *colimit*---the categorical operation that glues theories together along shared sorts. The shared sorts act as the "meeting point" where two theories agree on what a concept means.
+
+For example, ATProto's schema theory is the colimit of `ThGraph`, `ThConstraint`, and `ThMulti`, all sharing the `Vertex` sort:
+
+```{mermaid}
+graph TD
+    ThGraph["ThGraph<br/>(Vertex, Edge, src, tgt)"]
+    ThConstraint["ThConstraint<br/>(Vertex, Constraint)"]
+    ThMulti["ThMulti<br/>(Vertex, Edge, EdgeLabel)"]
+    SharedV["Shared: Vertex"]
+    SharedVE["Shared: Vertex, Edge"]
+
+    ThGraph -->|colimit over| SharedV
+    ThConstraint -->|colimit over| SharedV
+    SharedV --> GC["ThGraph + ThConstraint"]
+    GC -->|colimit over| SharedVE
+    ThMulti -->|colimit over| SharedVE
+    SharedVE --> Schema["ATProto Schema Theory"]
+
+    ThWType["ThWType<br/>(Node, Arc, Value)"] --> Instance["ATProto Instance Theory"]
+```
+
+The colimit ensures that the `Vertex` sort in `ThGraph` and the `Vertex` sort in `ThConstraint` are identified---they refer to the same concept. The resulting schema theory has all the sorts and operations from both components, with shared sorts unified. This is not a mere union; the colimit preserves the equations and operation signatures from both theories, ensuring that the composed theory is well-formed.
+
+### Why Colimit?
+
+The colimit is the right categorical construction because it is the universal way to combine theories while identifying shared structure. Alternatives like products or coproducts either identify too much (products force all sorts to be shared) or too little (coproducts share nothing). The colimit lets you precisely control which sorts are identified and which remain distinct.
+
+In practice, this means:
+
+- `ThGraph` and `ThConstraint` share `Vertex` but not `Edge` and `Constraint`---edges and constraints are distinct concepts that happen to be attached to the same vertex sort.
+- `ThGraph` and `ThMulti` share both `Vertex` and `Edge`---multi-edge labels are an extension of the same edge concept.
+- `ThWType` and `ThMeta` share `Node`---metadata is an extension of the same node concept.
+
+## Theory Groups
+
+Protocols cluster into five theory groups based on their schema/instance theory pair. Each group has a corresponding `register_*` helper function that handles the colimit computation:
+
+| Group | Schema Theory | Instance Theory | Registration Helper |
+|---|---|---|---|
+| A | ThGraph + ThConstraint + ThMulti | ThWType | `register_constrained_multigraph_wtype` |
+| B | ThHypergraph + ThConstraint | ThFunctor | `register_hypergraph_functor` |
+| C | ThSimpleGraph + ThConstraint | ThFlat | `register_simple_graph_flat` |
+| D | ThGraph + ThConstraint + ThMulti + ThInterface | ThWType | `register_typed_graph_wtype` |
+| E | ThGraph + ThConstraint + ThMulti | ThWType + ThMeta | `register_multigraph_wtype_meta` |
+
+### Group A: Constrained Multigraph + W-Type
+
+The largest group, covering protocols with tree-shaped data and potentially parallel edges. ATProto, JSON Schema, OpenAPI, AsyncAPI, MongoDB, YAML Schema, TOML Schema, and many more belong here. The schema theory combines directed graphs (for type relationships), constraints (for validation rules like `maxLength`), and multi-edge support (for fields that share the same type). Instances are W-type trees.
+
+### Group B: Hypergraph + Functor
+
+Covers relational and columnar protocols: SQL, Cassandra, DynamoDB, Parquet, Arrow, DataFrame, CSV/Table Schema. The schema theory uses hypergraphs because tables are multi-arity relations (a table "connects" its columns). Instances are set-valued functors---each table maps to a set of rows.
+
+### Group C: Simple Graph + Flat
+
+Covers IDL and serialization protocols: Protobuf, Avro, Thrift, Cap'n Proto, FlatBuffers, ASN.1, Bond, HCL, Redis. These protocols have flat field structures (no deep nesting within a single message/record) and enforce field uniqueness, hence the simple graph. Instances are flat key-value structures.
+
+### Group D: Typed Graph + W-Type with Interfaces
+
+Covers type systems and API schemas with inheritance: GraphQL, TypeScript, Python, Rust, Java, Go, Swift, Kotlin, C#. Adds the `ThInterface` theory to Group A, modeling constructs like GraphQL interfaces, TypeScript interfaces, and Java abstract classes.
+
+### Group E: Multigraph + W-Type + Metadata
+
+Covers document formats with mixed content: XML/XSD, HTML, CSS, DOCX, ODF, Neo4j. Combines Group A's schema theory with an instance theory that adds metadata support (discriminators and extra fields) for elements that have both structured children and unstructured attributes.
+
+::: {.callout-tip}
+When adding a new protocol, first determine which theory group it belongs to. If it fits an existing group, you can reuse the corresponding `register_*` function and only need to define the protocol's edge rules, vertex kinds, and parser/emitter.
+:::
+
+## The Protocol Interface
+
+Each protocol module exports a `protocol()` function that returns a `Protocol` struct. The `Protocol` specifies:
+
+- **`name`**: the protocol identifier (e.g., `"atproto"`, `"json_schema"`, `"sql"`).
+- **`schema_theory`** and **`instance_theory`**: names referencing entries in the theory registry, populated by the `register_*` helpers.
+- **`edge_rules`**: which edge kinds are structurally significant and what source/target vertex kinds they connect. Used by `panproto-check` to classify breaking changes (Chapter 11).
+- **`obj_kinds`**: vertex kinds that represent composite objects (as opposed to scalar values like `"string"` or `"integer"`). Used during schema parsing and by the lens system.
+- **`constraint_sorts`**: which constraint sorts this protocol recognizes (e.g., `"maxLength"`, `"pattern"`, `"maxGraphemes"`). Used by both the migration engine's existence checker and the breaking change detector.
+
+The theory names in the `Protocol` struct reference entries in the theory registry, which is populated by the `register_*` helpers. This indirection keeps protocol definitions declarative---a protocol does not construct its own theories, it names them.
+
+## Parser/Emitter Convention
+
+Every protocol implements a bidirectional format conversion following a consistent naming convention:
+
+- **Parser**: `parse_*(input: &str) -> Result<Schema, ProtocolError>` converts a native-format definition into panproto's graph-level `Schema` representation.
+- **Emitter**: `emit_*(schema: &Schema) -> Result<String, ProtocolError>` converts a `Schema` back into the native format.
+
+Examples:
+
+- `parse_json_schema(json_str)` parses a JSON Schema document into a `Schema`.
+- `emit_protobuf(schema)` emits a `.proto` file from a `Schema`.
+- `parse_sql(ddl_str)` parses SQL DDL statements into a `Schema`.
+
+This bidirectionality is essential for panproto's workflow: parse a source format, compute a migration or lens, apply it, and emit the result in the target format. The parser/emitter pair also enables round-trip testing: `parse(emit(parse(input)))` should produce the same `Schema` as `parse(input)`.
+
+### Parsing Strategy
+
+Parsers typically follow a two-phase approach:
+
+1. **Syntactic parsing**: use a format-specific parser (e.g., `serde_json` for JSON Schema, `tree-sitter` for Protobuf) to produce an AST or intermediate representation.
+2. **Semantic translation**: walk the AST, creating vertices for types and fields, edges for relationships, constraints for validation rules, and hyper-edges for multi-arity relations.
+
+### Emitting Strategy
+
+Emitters reverse the process:
+
+1. **Topology traversal**: walk the schema graph, identifying root vertices, following edges in topological order.
+2. **Format construction**: generate the native syntax for each vertex (type declaration, field definition, constraint annotation) and edge (relationship, containment).
+
+## Adding a New Protocol
+
+To add a new protocol to panproto, follow these five steps:
+
+### Step 1: Identify Component Theories
+
+Determine which building-block theories your protocol needs. Most protocols fit one of the five existing groups. Ask yourself:
+
+- Does the protocol have directed edges between fields/types? Use `ThGraph`.
+- Does the protocol support parallel edges (e.g., multiple fields with the same type)? Add `ThMulti`.
+- Does the protocol have constraints (min/max length, required fields, patterns)? Add `ThConstraint`.
+- Does the protocol have multi-arity relations (e.g., SQL foreign keys, table definitions)? Use `ThHypergraph` instead of `ThGraph`.
+- Does the protocol support interfaces or inheritance? Add `ThInterface`.
+- Does the protocol have flat field structures with no deep nesting? Use `ThFlat` as the instance theory.
+- Does the protocol have tree-structured data? Use `ThWType`.
+- Does the protocol have mixed content (structured + unstructured)? Add `ThMeta` to `ThWType`.
+
+### Step 2: Compose via Colimit
+
+If your protocol fits an existing group, call the corresponding `register_*` function with your theory names:
+
+```rust
+// In your protocol module's register function:
+theories::register_constrained_multigraph_wtype(
+    registry,
+    "ThMyProtocolSchema",
+    "ThMyProtocolInstance",
+);
+```
+
+If your protocol needs a novel combination, compose the theories manually using `panproto_gat::colimit`, specifying shared sorts at each step. Follow the pattern established by the existing `register_*` functions.
+
+### Step 3: Define Edge Rules and Vertex Kinds
+
+Create a `protocol()` function in your module:
+
+```rust
+pub fn protocol() -> Protocol {
+    Protocol {
+        name: "my_protocol".into(),
+        schema_theory: "ThMyProtocolSchema".into(),
+        instance_theory: "ThMyProtocolInstance".into(),
+        edge_rules: vec![/* ... */],
+        obj_kinds: vec!["object".into(), "message".into()],
+        constraint_sorts: vec!["maxLength".into()],
+    }
+}
+```
+
+### Step 4: Implement Parser and Emitter
+
+Write `parse_my_protocol` to convert the native format into a `Schema`. Write `emit_my_protocol` to convert back. Both should handle the full vocabulary of the protocol, mapping native concepts to graph elements.
+
+### Step 5: Add Integration Tests
+
+Add tests that round-trip: parse a native document, emit it back, and verify the result matches. Also add migration tests that exercise the protocol's edge rules and constraint sorts. Finally, add breaking-change tests to verify that the classification logic behaves correctly for your protocol's edge rules.
+
+::: {.callout-warning}
+When composing theories via colimit, the shared theory must contain exactly the sorts that should be identified. If you share too few sorts, the colimit will create duplicate sorts that should be unified. If you share too many sorts, you may over-constrain the composition. Review the existing `register_*` functions for examples of correct sharing patterns.
+:::
+
+### Worked Example: A Hypothetical "TaskML" Protocol
+
+Suppose you are defining a protocol for a task management markup language with:
+
+- Tasks have fields (name, description, priority).
+- Tasks can have subtasks (nesting).
+- Fields have validation constraints (maxLength on name, enum values for priority).
+- No parallel edges (each field name is unique within a task).
+
+**Step 1**: This maps to Group C (simple graph + flat). The simple graph enforces field uniqueness; the flat instance theory models the non-nested field structure. But wait---subtasks imply nesting, which requires W-type trees. So this is actually Group A (constrained multigraph + W-type), minus the multi-edge support since field names are unique. You could use Group A as-is (the multi-edge capability is unused but harmless) or define a custom composition of `ThSimpleGraph + ThConstraint` with `ThWType`.
+
+**Step 2**: Using Group A for simplicity:
+
+```rust
+theories::register_constrained_multigraph_wtype(
+    registry,
+    "ThTaskMLSchema",
+    "ThTaskMLInstance",
+);
+```
+
+**Step 3**: Define the protocol:
+
+```rust
+pub fn protocol() -> Protocol {
+    Protocol {
+        name: "taskml".into(),
+        schema_theory: "ThTaskMLSchema".into(),
+        instance_theory: "ThTaskMLInstance".into(),
+        edge_rules: vec![EdgeRule {
+            edge_kind: "field".into(),
+            src_kinds: vec!["task".into()],
+            tgt_kinds: vec!["string".into(), "enum".into(), "integer".into()],
+        }],
+        obj_kinds: vec!["task".into()],
+        constraint_sorts: vec!["maxLength".into(), "enumValues".into()],
+    }
+}
+```
+
+**Steps 4--5**: Implement `parse_taskml` and `emit_taskml`, then write round-trip and migration tests.
+
+## Theoretical Foundations
+
+The colimit composition pattern implements the categorical notion of a *theory morphism* between generalized algebraic theories [@cartmell1986]. Each building-block theory is a GAT, and the colimit computes the pushout in the category of GATs, identifying sorts along the span defined by the shared theory.
+
+This is not merely an implementation convenience---it is a formal guarantee. The colimit preserves the equations and well-formedness conditions of both component theories. If `ThGraph` guarantees that every edge has a source and target vertex, and `ThConstraint` guarantees that every constraint is attached to a vertex, then the colimit theory inherits both guarantees.
+
+The protocol architecture follows the design principles outlined in @lynch2024, where data interchange protocols are understood as presentations of algebraic theories and protocol interoperability is mediated by theory morphisms. panproto's parser/emitter pairs implement the "model functor" that maps between the abstract theory and its concrete syntactic presentation.
+
+For a hands-on guide to building your own protocol, see [tutorial chapter 10](https://panproto.github.io/tutorial/chapters/10-building-your-own-protocol.html).
+
+## Summary
+
+The `panproto-protocols` crate provides:
+
+- **10 building-block theories** (`ThGraph`, `ThSimpleGraph`, `ThHypergraph`, `ThConstraint`, `ThMulti`, `ThInterface`, `ThWType`, `ThFunctor`, `ThFlat`, `ThMeta`) that can be composed via colimit.
+- **5 theory groups** (A through E) covering the structural patterns found across 60+ protocols.
+- **A uniform protocol interface**: every protocol exports a `protocol()` function, a parser, and an emitter.
+- **A clear extension path**: adding a new protocol requires identifying component theories, composing them, defining rules, and implementing format conversion.
+
+The colimit composition pattern is what makes panproto's protocol coverage tractable. Rather than implementing migration, lens, and breaking-change logic separately for each protocol, the shared theory infrastructure ensures that all protocols automatically benefit from the same engine. Adding a new protocol is a matter of choosing the right building blocks and writing a parser/emitter---the migration engine, lens system, and breaking change detector work for free.

@@ -1,0 +1,153 @@
+# panproto-wasm --- The WASM Boundary {#sec-wasm-boundary}
+
+The `panproto-wasm` crate is the thin glue layer between the Rust core and the TypeScript SDK. It exposes exactly ten `#[wasm_bindgen]` entry points. Every structured value crossing the boundary is serialized as MessagePack bytes -- never as a JS object graph. This chapter explains why, and walks through the implementation.
+
+## Design Rationale
+
+Two design decisions shape the entire WASM boundary:
+
+1. **Handle-based API.** Complex Rust objects (protocols, schemas, compiled migrations) never cross the boundary. Instead, they live in a Rust-side slab allocator, and JS holds opaque `u32` handles. This avoids the overhead and fragility of `serde-wasm-bindgen`, which must recursively convert Rust structs into JS objects on every call.
+
+2. **MessagePack over serde-wasm-bindgen.** Structured arguments (builder operations, migration mappings, records) are encoded as MessagePack byte slices with `rmp_serde`. MessagePack is faster than JSON for encode/decode, produces smaller payloads, and -- critically -- is deterministic: the same Rust struct always encodes to the same bytes, which simplifies testing and caching.
+
+::: {.callout-tip}
+The handle + MessagePack design means the WASM boundary has zero JS-heap allocations for data that stays on the Rust side. The only JS objects created are the `Uint8Array` wrappers around byte slices.
+:::
+
+## The Resource Enum and Slab Allocator
+
+All WASM-side resources are stored in a thread-local `Vec<Option<Resource>>`. Each resource is one of four variants:
+
+```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=15 end-line=55}
+```
+
+The `Resource` enum captures the three fundamental types (protocol, schema, compiled migration) plus a fourth variant (`MigrationWithSchemas`) that bundles a compiled migration with its source and target schemas -- needed for lens `get`/`put` operations.
+
+The `alloc` function scans for a freed slot before appending, so handle values are reused. Handles are `u32` indices, which means the slab can hold up to 4 billion simultaneous resources -- more than sufficient for any realistic workload.
+
+## The `with_resource` Pattern
+
+Accessing a resource requires borrowing the thread-local slab. The `with_resource` function encapsulates this pattern: it borrows the slab, looks up the handle, and passes a reference to a callback. The borrow is released when the callback returns, so the reference cannot escape:
+
+```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=57 end-line=75}
+```
+
+This pattern prevents a common class of bugs: holding a reference to a slab entry while mutating the slab (which would panic at runtime due to `RefCell` rules). The callback-based API makes it structurally impossible.
+
+::: {.callout-note}
+A `with_two_resources` variant exists for operations that need two handles simultaneously (e.g., `compile_migration` needs both source and target schemas). It takes the borrow once and looks up both indices.
+:::
+
+## The `BuildOp` Tagged Enum
+
+Schema construction operations are sent from JS as a MessagePack-encoded `Vec<BuildOp>`. The `BuildOp` enum uses serde's internally-tagged representation (`#[serde(tag = "op")]`), so each operation is a flat object with an `op` discriminant:
+
+```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=23 end-line=79}
+```
+
+The five variants (`Vertex`, `Edge`, `Constraint`, `HyperEdge`, `Required`) mirror the `SchemaBuilder` methods in `panproto-schema`. The TypeScript SDK constructs these as plain objects and encodes them with `@msgpack/msgpack`.
+
+## Entry Points
+
+### `define_protocol`
+
+Registers a protocol specification and returns a handle:
+
+```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=81 end-line=95}
+```
+
+The pattern is representative of all entry points: deserialize MessagePack input with `rmp_serde::from_slice`, perform the operation, allocate the result in the slab, and return the handle.
+
+### `build_schema`
+
+The most complex entry point. It takes a protocol handle and a `Vec<BuildOp>`, replays the operations through `SchemaBuilder`, and returns a schema handle:
+
+```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=97 end-line=168}
+```
+
+### All Ten Entry Points
+
+The complete set of WASM entry points, with their Rust signatures:
+
+| Entry Point | Signature | Returns |
+|---|---|---|
+| `define_protocol` | `(spec: &[u8]) -> Result<u32, JsError>` | Protocol handle |
+| `build_schema` | `(proto: u32, ops: &[u8]) -> Result<u32, JsError>` | Schema handle |
+| `check_existence` | `(proto: u32, src: u32, tgt: u32, mapping: &[u8]) -> Vec<u8>` | MessagePack report |
+| `compile_migration` | `(src: u32, tgt: u32, mapping: &[u8]) -> Result<u32, JsError>` | Migration handle |
+| `lift_record` | `(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack record |
+| `get_record` | `(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack view+complement |
+| `put_record` | `(migration: u32, view: &[u8], complement: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack record |
+| `compose_migrations` | `(m1: u32, m2: u32) -> Result<u32, JsError>` | Migration handle |
+| `diff_schemas` | `(s1: u32, s2: u32) -> Vec<u8>` | MessagePack diff |
+| `free_handle` | `(handle: u32)` | (void) |
+
+::: {.callout-important}
+`check_existence` and `diff_schemas` never return errors at the WASM boundary. Instead, they encode error information inside the returned MessagePack report. This simplifies the JS-side error handling for operations where "failure" is an expected, structured result.
+:::
+
+## Data Flow: JS to Rust and Back
+
+The following diagram shows the complete lifecycle of a call across the WASM boundary:
+
+```{mermaid}
+sequenceDiagram
+    participant JS as TypeScript SDK
+    participant Pack as packToWasm (msgpack)
+    participant WB as wasm_bindgen
+    participant Rust as panproto-wasm
+    participant Unpack as unpackFromWasm
+
+    JS->>Pack: structured JS value
+    Pack->>WB: Uint8Array
+    WB->>Rust: &[u8] (zero-copy view)
+    Rust->>Rust: rmp_serde::from_slice → typed Rust struct
+    Rust->>Rust: perform operation
+    Rust->>Rust: rmp_serde::to_vec → Vec<u8>
+    Rust->>WB: Vec<u8>
+    WB->>JS: Uint8Array
+    JS->>Unpack: Uint8Array
+    Unpack->>JS: structured JS value
+```
+
+The key property is that `wasm_bindgen` passes byte slices as zero-copy views into WASM linear memory. The only copies happen during MessagePack encode (JS side) and decode (Rust side), plus the reverse on the way back.
+
+## Slab Lifecycle
+
+Handles follow a simple lifecycle. Freed slots are reused on subsequent allocations:
+
+```{mermaid}
+stateDiagram-v2
+    [*] --> Allocated: alloc(resource)
+    Allocated --> InUse: with_resource(handle, f)
+    InUse --> Allocated: callback returns
+    Allocated --> Freed: free(handle)
+    Freed --> Allocated: alloc reuses slot
+    Freed --> [*]
+```
+
+On the TypeScript side, `WasmHandle` wraps each raw `u32` handle and calls `free_handle` in its `Symbol.dispose` implementation. A `FinalizationRegistry` acts as a safety net: if a `WasmHandle` is garbage-collected without being disposed, the registry calls `free_handle` to prevent leaks.
+
+## Error Handling
+
+Errors are represented as `WasmError` variants (an internal `thiserror` enum) and converted to `JsError` at the boundary via `Into`. The JS side receives them as standard `Error` objects. The five error variants are:
+
+- `DeserializationFailed` -- MessagePack input could not be decoded
+- `InvalidHandle` -- the `u32` index does not point to a live resource
+- `TypeMismatch` -- the resource at a handle is the wrong variant (e.g., expected Protocol, got Schema)
+- `SchemaBuildFailed` -- a `SchemaBuilder` operation failed validation
+- `MigrationFailed` / `LiftFailed` / `PutFailed` -- runtime operation errors
+
+## Adding a New Entry Point
+
+To add a new WASM entry point:
+
+1. Add a `#[wasm_bindgen] pub fn` to `crates/panproto-wasm/src/api.rs`
+2. If the function needs a new resource type, add a variant to `Resource` in `slab.rs` and a corresponding `as_*` extractor
+3. Add the TypeScript signature to `WasmExports` in `sdk/typescript/src/types.ts`
+4. Wrap the call in a typed method on the appropriate SDK class
+5. Add an integration test in `tests/integration/tests/wasm_boundary.rs`
+
+::: {.callout-tip}
+The `check_existence` entry point demonstrates the pattern for functions that should never throw across the boundary: wrap the inner logic in a fallible helper, and convert errors into a structured report in the outer function.
+:::

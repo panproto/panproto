@@ -1,0 +1,144 @@
+# Release Process {#sec-release}
+
+panproto uses tag-triggered releases. Pushing a `v*` tag to `main` triggers the full release pipeline: crate publishing, WASM build, npm publishing, changelog generation, and GitHub release creation.
+
+## Tag-Triggered Pipeline
+
+The `release.yml` workflow is triggered by tags matching `v*`:
+
+```yaml
+on:
+  push:
+    tags: ["v*"]
+```
+
+The pipeline has three jobs that run in sequence:
+
+```{mermaid}
+flowchart LR
+    Tag["Push v* tag"] --> PC[publish-crates]
+    PC --> PN[publish-npm]
+    PC --> GR[github-release]
+```
+
+## Ordered Crate Publishing
+
+Crates must be published in dependency order. The `publish-crates` job publishes them sequentially:
+
+| Level | Crate | Dependencies |
+|---|---|---|
+| 0 | `panproto-gat` | (none) |
+| 1 | `panproto-schema` | gat |
+| 2 | `panproto-inst` | gat, schema |
+| 2 | `panproto-mig` | gat, schema |
+| 3 | `panproto-lens` | gat, schema, inst, mig |
+| 3 | `panproto-check` | gat, schema, mig |
+| 3 | `panproto-protocols` | gat, schema |
+| 4 | `panproto-core` | all of the above |
+| 4 | `panproto-cli` | core |
+
+Each crate is published with `--no-verify` to skip local rebuild (CI has already verified the build). The `CARGO_REGISTRY_TOKEN` secret authenticates with crates.io.
+
+::: {.callout-important}
+If a crate publish fails mid-pipeline (e.g., due to a network error or version conflict), the remaining crates will not be published. You may need to manually publish the failed crate and re-run the workflow, or bump the version and create a new tag.
+:::
+
+## WASM and npm Publishing
+
+The `publish-npm` job depends on `publish-crates` and handles the TypeScript SDK release:
+
+1. **WASM build**: `wasm-pack build crates/panproto-wasm --target bundler --out-dir ../../sdk/typescript/wasm`
+2. **SDK build**: `cd sdk/typescript && pnpm install && pnpm build`
+3. **npm publish**: `cd sdk/typescript && pnpm publish --access public --no-git-checks`
+
+The `--target bundler` flag produces a WASM binary optimized for bundlers (Vite, webpack, esbuild). The `--no-git-checks` flag is needed because the working directory has uncommitted changes from the WASM build output.
+
+The npm package is published as `@panproto/core` with public access. The `NODE_AUTH_TOKEN` secret authenticates with the npm registry.
+
+## Changelog Generation with `git-cliff`
+
+The `github-release` job uses `git-cliff` to generate a changelog from conventional commits:
+
+```yaml
+- name: Generate changelog
+  uses: orhun/git-cliff-action@v4
+  with:
+    config: cliff.toml
+    args: --latest --strip header
+```
+
+The `cliff.toml` configuration file at the workspace root controls:
+
+- Which commit types are included (feat, fix, refactor, etc.)
+- How commits are grouped and sorted
+- The output format (Markdown)
+
+The `--latest` flag generates only the changelog for the current tag (not the full history). The `--strip header` flag removes the title line, since the GitHub release UI provides its own title.
+
+## GitHub Release Creation
+
+After changelog generation, a GitHub release is created with the `softprops/action-gh-release` action:
+
+```yaml
+- name: Create GitHub Release
+  uses: softprops/action-gh-release@v2
+  with:
+    body: ${{ steps.changelog.outputs.content }}
+    generate_release_notes: false
+```
+
+The release body is the `git-cliff` output. `generate_release_notes: false` disables GitHub's auto-generated notes in favor of the structured changelog.
+
+## Version Bumping Strategy
+
+panproto uses workspace-level versioning: all crates share the same version number, declared in `[workspace.package]`:
+
+```toml
+[workspace.package]
+version = "0.1.0"
+```
+
+To bump the version:
+
+1. Update `version` in `Cargo.toml` under `[workspace.package]`
+2. Update `version` in `sdk/typescript/package.json`
+3. Commit with message: `chore(workspace): bump version to 0.x.y`
+4. Tag: `git tag v0.x.y`
+5. Push: `git push origin main --tags`
+
+::: {.callout-note}
+During the 0.x.y phase, minor version bumps may include breaking changes (per semver rules for pre-1.0). After 1.0, breaking changes require a major version bump. The `cargo-semver-checks` CI job will alert on accidental breakage.
+:::
+
+## Doc Deployments
+
+Two documentation sites auto-deploy on push to `main`:
+
+- **Tutorial** (`publish-tutorial.yml`): The user-facing tutorial at `panproto.github.io/tutorial/` is built with Quarto and deployed to GitHub Pages.
+- **Dev guide**: This developer guide at `panproto.github.io/dev-guide/` follows the same pattern.
+
+Both workflows build the Quarto site and push the rendered HTML to the `gh-pages` branch. Deployment is automatic -- no manual steps are required after merging to `main`.
+
+## Pre-Release Checklist
+
+Before creating a release tag:
+
+1. All CI checks pass on `main`
+2. Version numbers are updated in both `Cargo.toml` and `package.json`
+3. Changelog entries exist for all notable changes (conventional commit messages)
+4. Integration tests cover any new features
+5. Benchmarks show no unexpected regressions
+6. `cargo semver-checks` passes (or breaking changes are intentional and version-bumped)
+7. The tutorial and dev guide are up to date
+
+## Hotfix Releases
+
+For urgent fixes:
+
+1. Create a `fix/` branch from the latest release tag
+2. Apply the fix, add tests
+3. Bump the patch version
+4. Merge to `main` via PR (all CI checks must pass)
+5. Tag and push: `git tag v0.x.y+1 && git push origin main --tags`
+
+The release pipeline handles the rest.

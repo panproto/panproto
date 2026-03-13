@@ -1,0 +1,66 @@
+# Preface {.unnumbered}
+
+This is the **panproto Developer Guide** --- an architecture reference and contributor handbook for the panproto project. It documents the internals of the universal schema migration engine: how crates are organized, how the algebraic machinery works under the hood, and how to contribute effectively.
+
+## Who this guide is for
+
+This guide is written for three audiences:
+
+- **Contributors** submitting bug fixes, performance improvements, or new features to the panproto codebase.
+- **Protocol authors** adding support for new schema languages (e.g., a new IDL or data-definition format) by implementing panproto's protocol trait.
+- **Researchers** who want to understand panproto's internals --- its use of Generalized Algebraic Theories, W-type instances, and bidirectional lenses --- in order to extend or build on the engine.
+
+If you are a *user* of panproto who wants to learn how to define schemas, run migrations, and use the TypeScript SDK, start with the [panproto Tutorial](https://panproto.github.io/tutorial/) instead. The tutorial teaches you how to **use** panproto; this guide explains how it **works**.
+
+## Prerequisites
+
+You should be comfortable with:
+
+- **Rust** (ownership, traits, generics, `Result`-based error handling). The codebase targets Edition 2024.
+- **Basic TypeScript**, enough to read the SDK wrapper and its tests.
+- **Algebraic concepts** like sorts, operations, and equations. You do not need a category theory background --- the [tutorial's category theory cheatsheet](https://panproto.github.io/tutorial/appendices/A-category-theory-cheatsheet.html) provides a gentle introduction --- but familiarity with algebraic thinking will help.
+
+## How to navigate this guide
+
+The guide is organized into five parts:
+
+**Part I --- Getting Started.**
+Read @sec-welcome and @sec-first-contribution to understand the project's goals, clone the repository, and land your first pull request. This is the recommended starting point for all new contributors.
+
+**Part II --- Development Environment.**
+Chapters 3--4 cover building, testing, debugging, and profiling. Return here whenever you need to set up a new machine or diagnose a test failure.
+
+**Part III --- Architecture & Internals.**
+Chapters 5--15 are deep dives into each crate and subsystem. Read the architecture overview first, then jump to whichever crate you are working on.
+
+**Part IV --- Contributing Process.**
+Chapters 16--18 cover coding conventions, the testing philosophy, and the PR workflow. Read these before opening your first pull request.
+
+**Part V --- Project Operations.**
+Chapter 19 covers the release process and versioning policy.
+
+**Appendices.**
+The glossary (Appendix A) defines every domain term. The source code map (Appendix B) is a directory-level index of the entire repository. The troubleshooting FAQ (Appendix C) addresses common build and test issues.
+
+::: {.callout-tip}
+## Quick-start path
+
+If you want to land a contribution as fast as possible: read chapters 1 and 2, build the project (chapter 3), make your change, then read chapters 16--18 before opening your PR.
+:::
+
+## Links
+
+- **Tutorial:** <https://panproto.github.io/tutorial/>
+- **Repository:** <https://github.com/panproto/panproto>
+- **Rustdoc:** generated from `cargo doc --workspace --no-deps`
+
+## Conventions used in this guide
+
+- Inline code like `panproto-gat` refers to a crate name.
+- File paths like `crates/panproto-gat/src/theory.rs` are relative to the repository root.
+- Shell commands assume a Unix-like environment (macOS or Linux).
+- Callout boxes highlight important notes, tips, and warnings.
+
+---
+
+*Aaron Steven White --- {{{< meta date >}}}*

@@ -1,0 +1,196 @@
+# Architecture Overview {#sec-architecture-overview}
+
+This chapter presents the 30,000-foot view of panproto: its crate hierarchy, the key design decisions that shaped the system, and the two-parameter architecture that ties everything together. By the end, you should be able to trace any piece of functionality back to the crate that owns it and understand _why_ the system is structured the way it is.
+
+## The Crate Dependency Hierarchy
+
+panproto is organized into ten crates arranged in five dependency levels. Each level depends only on the levels below it, producing a strict DAG that keeps compile times manageable and enforces separation of concerns.
+
+| Level | Crates | Role |
+|-------|--------|------|
+| 0 | `panproto-gat` | The GAT engine: theories, morphisms, colimits |
+| 1 | `panproto-schema`, `panproto-inst` | Schema graphs and instance trees |
+| 2 | `panproto-mig`, `panproto-lens`, `panproto-check` | Migration compilation, lenses, breaking-change analysis |
+| 3 | `panproto-protocols` | Built-in protocol definitions (AT Protocol, SQL, Protobuf, ...) |
+| 4 | `panproto-core`, `panproto-wasm`, `panproto-cli` | Re-export facade, WASM boundary, CLI |
+
+: The five-level crate hierarchy. {#tbl-crate-levels}
+
+**Level 0** is the mathematical foundation. It knows nothing about schemas, instances, or protocols -- only about the algebra of generalized algebraic theories.
+
+**Level 1** introduces the data model. `panproto-schema` defines the hypergraph structure that represents a data format's type system; `panproto-inst` defines instances (actual data) conforming to those schemas.
+
+**Level 2** is where the interesting operations live: compiling migration specifications into executable form (`panproto-mig`), constructing bidirectional lenses (`panproto-lens`), and classifying schema changes as breaking or non-breaking (`panproto-check`).
+
+**Level 3** bundles concrete protocol definitions. Each protocol (AT Protocol, SQL, Protobuf, etc.) is a pair of GATs plus well-formedness rules, all built on the primitives from Levels 0--2.
+
+**Level 4** provides the consumer-facing surfaces: `panproto-core` re-exports everything through a single dependency, `panproto-wasm` exposes a handle-based WebAssembly API, and `panproto-cli` wraps it all in a command-line tool.
+
+### The Re-export Facade
+
+`panproto-core` is the entry point most consumers import. It re-exports all sub-crate APIs under short module names:
+
+```{.rust include="../../crates/panproto-core/src/lib.rs" start-line=1 end-line=22}
+```
+
+This means downstream code writes `panproto::gat::Theory` rather than importing `panproto-gat` directly. The facade adds no logic of its own.
+
+### Crate Dependency Graph
+
+```{mermaid}
+%%| label: fig-crate-dag
+%%| fig-cap: "Crate dependency graph. Arrows point from dependant to dependency."
+graph BT
+    subgraph Level 0
+        gat["panproto-gat"]
+    end
+    subgraph Level 1
+        schema["panproto-schema"]
+        inst["panproto-inst"]
+    end
+    subgraph Level 2
+        mig["panproto-mig"]
+        lens["panproto-lens"]
+        check["panproto-check"]
+    end
+    subgraph Level 3
+        protocols["panproto-protocols"]
+    end
+    subgraph Level 4
+        core["panproto-core"]
+        wasm["panproto-wasm"]
+        cli["panproto-cli"]
+    end
+
+    schema --> gat
+    inst --> gat
+    inst --> schema
+    mig --> gat
+    mig --> schema
+    mig --> inst
+    lens --> gat
+    lens --> schema
+    lens --> mig
+    check --> gat
+    check --> schema
+    check --> mig
+    protocols --> gat
+    protocols --> schema
+    core --> gat
+    core --> schema
+    core --> inst
+    core --> mig
+    core --> lens
+    core --> check
+    core --> protocols
+    wasm --> core
+    cli --> core
+```
+
+## Key Design Decisions
+
+### Why GATs
+
+panproto formalizes data format specifications as _generalized algebraic theories_ (GATs), following the framework introduced by @cartmell1986. A GAT is a multi-sorted equational theory whose sorts may depend on terms of other sorts. This is precisely the expressive power needed to capture dependent typing relationships that appear in real-world data formats (e.g., "the type of a field depends on a discriminator tag").
+
+Ordinary algebraic theories in the sense of @lawvere1963 cannot express sort dependencies, so they are insufficient for modeling protocols like AT Protocol or Protobuf where type structure is genuinely dependent. GATs give us:
+
+- **Dependent sorts**: `Hom(a: Ob, b: Ob)` in a category theory, or `Constraint(v: Vertex)` in a schema theory.
+- **Structure-preserving morphisms**: maps between theories that respect arities and equations, enabling principled schema migration.
+- **Colimits**: pushouts that compose theories modularly, so protocols can be assembled from reusable fragments.
+
+::: {.callout-note}
+For the user-facing introduction to theories and protocols, see the [tutorial](https://panproto.github.io/tutorial/) chapters 3--4.
+:::
+
+### Why Handle-Based WASM API
+
+The WASM boundary (`panproto-wasm`) uses a handle/slab architecture rather than `serde-wasm-bindgen` serialization. Each Rust object (theory, schema, instance, migration) is stored in a typed slab on the Rust side, and JavaScript receives an opaque `u32` handle.
+
+The reason is performance. Serializing a large schema through `serde-wasm-bindgen` on every API call would dominate the cost of actual computation. With handles, the only data that crosses the WASM boundary is numeric IDs and small MessagePack payloads for results. The TypeScript SDK wraps these handles in ergonomic classes with `Symbol.dispose` support for deterministic cleanup.
+
+### Why MessagePack
+
+panproto uses MessagePack (via `rmp-serde`) as its primary serialization format for schema and instance data at rest. The choice over JSON, CBOR, or Protobuf-the-format comes down to:
+
+- **Deterministic serialization**: MessagePack's canonical form guarantees that structurally identical objects produce byte-identical output, which is essential for content-addressed storage and migration hash verification.
+- **Compact binary representation**: schemas with hundreds of vertices serialize to kilobytes rather than tens of kilobytes.
+- **Wide ecosystem support**: MessagePack libraries exist for every language panproto targets.
+
+JSON is still used as the human-facing format for CLI output and the `parse_json`/`to_json` round-trip in `panproto-inst`.
+
+### Why Immutable Fluent Builders
+
+`SchemaBuilder` and the migration DSL use an immutable fluent pattern: each method consumes `self` and returns `Result<Self, Error>`. This prevents partial construction -- you cannot hold a reference to a half-built schema and accidentally use it. The pattern also makes validation composable: each step validates its own invariant, and `build()` only needs to check global properties (like non-emptiness) and compute indices.
+
+## The Two-Parameter Architecture
+
+Every protocol in panproto is defined by a pair of GATs:
+
+1. **Schema theory** -- describes the _shape_ of a data format. Its models are schemas (hypergraphs of vertex kinds and edge rules).
+2. **Instance theory** -- describes the _content_ that inhabits a schema. Its models are instances (trees or tables of data).
+
+This factorization is the key architectural insight. A single schema theory can have multiple instance theories (e.g., W-type trees for document data, set-valued functors for relational data), and a single instance theory can serve multiple schema theories. The Protocol struct in `panproto-schema` captures this pairing:
+
+```
+Protocol = (schema_theory: GAT, instance_theory: GAT, edge_rules, ...)
+```
+
+Migration between protocol versions is then a morphism at the schema theory level, compiled into executable operations at the instance theory level. The mathematical guarantee is that restriction along a theory morphism is functorial -- it composes correctly and preserves the structural axioms of the instance theory [@spivak2012].
+
+## Migration Lifecycle
+
+The following sequence diagram traces the full lifecycle from defining a protocol through migrating data:
+
+```{mermaid}
+%%| label: fig-migration-lifecycle
+%%| fig-cap: "Full migration lifecycle, from protocol definition through data lifting."
+sequenceDiagram
+    participant User
+    participant Protocols as panproto-protocols
+    participant Schema as panproto-schema
+    participant Check as panproto-check
+    participant Mig as panproto-mig
+    participant Inst as panproto-inst
+
+    User->>Protocols: Define protocol (schema theory + instance theory)
+    User->>Schema: Build schema v1 via SchemaBuilder
+    User->>Schema: Build schema v2 via SchemaBuilder
+    User->>Check: check_existence(v1, v2)
+    Check-->>User: ExistenceReport (added/removed/modified)
+    User->>Mig: compile(migration_spec)
+    Mig-->>User: CompiledMigration
+    User->>Inst: wtype_restrict(instance, v1, v2, compiled)
+    Inst-->>User: Migrated WInstance
+    User->>Inst: to_json(v2, migrated_instance)
+    Inst-->>User: JSON output
+```
+
+The pipeline is:
+
+1. **Define protocols** -- select or compose GATs from the `panproto-protocols` registry.
+2. **Build schemas** -- construct v1 and v2 using `SchemaBuilder`, which validates each element against the protocol's edge rules.
+3. **Check existence** -- use `panproto-check` to classify the differences between v1 and v2 (what was added, removed, modified).
+4. **Compile migration** -- `panproto-mig` compiles a migration specification into a `CompiledMigration` containing vertex remaps, edge remaps, and contraction resolvers.
+5. **Lift data** -- `panproto-inst` executes the 5-step `wtype_restrict` pipeline to project instance data from v1 to v2.
+
+## What Lives Where
+
+A quick reference for locating functionality:
+
+| If you need to... | Look in... |
+|---|---|
+| Define or inspect a GAT | `panproto-gat` |
+| Build a schema graph | `panproto-schema` |
+| Parse JSON into a tree instance | `panproto-inst` |
+| Compile a migration | `panproto-mig` |
+| Build a bidirectional lens | `panproto-lens` |
+| Detect breaking changes | `panproto-check` |
+| Use a built-in protocol (AT Proto, SQL, ...) | `panproto-protocols` |
+| Import everything at once | `panproto-core` |
+| Call from JavaScript | `panproto-wasm` + `@panproto/core` |
+| Run from the command line | `panproto-cli` |
+
+: Where to find things. {#tbl-where}
+
+The next four chapters dive deep into the core crates -- starting with the GAT engine in @sec-gat-engine, then schemas and protocols in @sec-schema-protocols, and instances in @sec-instances-wtype.

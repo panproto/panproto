@@ -1,0 +1,206 @@
+# Source Code Map {#sec-source-code-map}
+
+This appendix provides a complete directory-level index of the panproto repository. Use it to find the file responsible for a given concept.
+
+## Workspace root
+
+| Path | Description |
+|---|---|
+| `Cargo.toml` | Workspace definition, shared dependencies, lint config, profiles |
+| `Cargo.lock` | Pinned dependency versions |
+| `LICENSE` | MIT license |
+| `README.md` | Project overview and quick-start |
+| `dev-guide/` | This developer guide (Quarto book) |
+| `sdk/` | Language SDKs |
+| `tests/` | Integration tests and fixtures |
+| `.github/` | CI/CD workflows and Dependabot config |
+
+## crates/panproto-gat --- GAT engine
+
+The algebraic core. Defines theories, morphisms, and colimits.
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Public API re-exports |
+| `src/theory.rs` | `Theory` struct: `new()`, `extending()`, `find_sort()`, `find_op()` |
+| `src/sort.rs` | `Sort`, `SortParam` structs |
+| `src/op.rs` | `Operation` struct: name, input sorts, output sort |
+| `src/eq.rs` | `Equation`, `Term` types for stating algebraic laws |
+| `src/morphism.rs` | `TheoryMorphism`, `check_morphism()` validation |
+| `src/colimit.rs` | `colimit()` pushout computation over theory morphisms |
+| `src/model.rs` | `Model`, `ModelValue`, `migrate_model()` |
+| `src/error.rs` | `GatError` enum |
+| `benches/gat_bench.rs` | divan benchmarks for colimit, morphism checking |
+
+## crates/panproto-schema --- Schema representation
+
+Typed hypergraph schemas and protocol definitions.
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Public API re-exports |
+| `src/schema.rs` | `Schema`, `Vertex`, `Edge`, `HyperEdge`, `Constraint` structs |
+| `src/builder.rs` | `SchemaBuilder` for fluent schema construction |
+| `src/protocol.rs` | `Protocol` trait, `EdgeRule` struct |
+| `src/validate.rs` | `validate()` --- check a schema against protocol rules |
+| `src/normalize.rs` | `normalize()` --- collapse reference chains and canonicalize |
+| `src/error.rs` | `SchemaError` enum |
+
+## crates/panproto-inst --- Instances (W-type and functor)
+
+The data layer: instance representation, parsing, and validation.
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Public API re-exports |
+| `src/wtype.rs` | W-type instance: `compute_surviving_set()`, `anchor_nodes()`, `contract_ancestors()`, `resolve_edges()` |
+| `src/fan.rs` | `Fan` struct, `reconstruct_fans()` |
+| `src/functor.rs` | Functor instance representation and conversion |
+| `src/value.rs` | `Value` enum (the leaf data carried by nodes) |
+| `src/metadata.rs` | Instance metadata: timestamps, provenance |
+| `src/parse.rs` | Parse raw data (JSON, MessagePack) into W-type instances |
+| `src/validate.rs` | Validate an instance against its schema |
+| `src/error.rs` | `InstError` enum |
+| `tests/integration.rs` | Per-crate integration tests |
+| `benches/inst_bench.rs` | divan benchmarks for W-type construction and restrict |
+
+## crates/panproto-mig --- Migration engine
+
+Compiles, executes, composes, and inverts migrations.
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Public API re-exports |
+| `src/migration.rs` | `Migration`, `CompiledMigration` structs |
+| `src/compile.rs` | `compile()` --- produce a compiled migration from a theory morphism diff |
+| `src/existence.rs` | `existence_check()` --- verify a migration can be applied to an instance |
+| `src/lift.rs` | `lift()` --- backward migration (target to source) |
+| `src/compose.rs` | `compose()` --- chain two migrations into one |
+| `src/invert.rs` | `invert()` --- reverse a migration (requires lens complement) |
+| `src/error.rs` | `MigError` enum |
+| `benches/mig_bench.rs` | divan benchmarks for compile, lift, compose |
+
+## crates/panproto-lens --- Bidirectional lenses
+
+Symmetric and asymmetric lenses with law checking.
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Public API re-exports |
+| `src/symmetric.rs` | Symmetric lens: `get`, `put`, complement storage |
+| `src/asymmetric.rs` | Asymmetric lens: one-directional with state |
+| `src/combinators.rs` | `compose()`, `product()`, `sum()`, `identity()` combinators |
+| `src/compose.rs` | Lens composition internals |
+| `src/laws.rs` | `check_get_put()`, `check_put_get()` law verification |
+| `src/error.rs` | `LensError` enum |
+
+## crates/panproto-check --- Breaking-change detection
+
+Diff, classify, and report schema changes.
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Public API re-exports |
+| `src/diff.rs` | `diff()` --- compute structural diff between two schemas |
+| `src/classify.rs` | `classify()` --- label each diff entry as breaking, compatible, or informational |
+| `src/report.rs` | `Report` struct, human-readable and machine-readable output |
+| `src/error.rs` | `CheckError` enum |
+
+## crates/panproto-protocols --- Built-in protocols
+
+Concrete protocol implementations for supported schema languages.
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Public API, protocol registry |
+| `src/theories.rs` | Shared base theories (e.g., the "typed graph" sub-theory) |
+| `src/atproto.rs` | AT Protocol (Lexicon): `build_atproto_protocol()` |
+| `src/protobuf.rs` | Protocol Buffers: `build_protobuf_protocol()` |
+| `src/graphql.rs` | GraphQL: `build_graphql_protocol()` |
+| `src/json_schema.rs` | JSON Schema: `build_json_schema_protocol()` |
+| `src/sql.rs` | SQL DDL: `build_sql_protocol()` |
+| `src/error.rs` | `ProtocolError` enum |
+
+## crates/panproto-core --- Shared re-exports
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Re-exports from `panproto-gat`, `panproto-schema`, `panproto-inst`, `panproto-mig`, `panproto-lens`, `panproto-check` |
+
+## crates/panproto-wasm --- WASM boundary
+
+JavaScript-facing API with slab allocation and MessagePack serialization.
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | `wasm-bindgen` entry point, initialization |
+| `src/api.rs` | Exported JS functions: `create_schema`, `compile_migration`, `restrict`, `lift`, etc. |
+| `src/slab.rs` | `Slab<T>` allocator: `alloc()`, `get()`, `free()`, `slab_stats()` |
+| `src/error.rs` | `WasmError`, JavaScript-friendly error conversion |
+
+## crates/panproto-cli --- Command-line interface
+
+| File | Description |
+|---|---|
+| `src/main.rs` | CLI binary: `clap`-based argument parsing, subcommands for migrate, check, validate, etc. |
+
+## sdk/typescript --- TypeScript SDK
+
+| File | Description |
+|---|---|
+| `src/index.ts` | Package entry point, public exports |
+| `src/panproto.ts` | `Panproto` class: high-level API wrapping WASM calls |
+| `src/schema.ts` | `Schema` class: schema construction and manipulation |
+| `src/protocol.ts` | `Protocol` class: protocol loading and configuration |
+| `src/migration.ts` | `Migration` class: compile, restrict, lift |
+| `src/lens.ts` | `Lens` class: bidirectional transformation API |
+| `src/wasm.ts` | WASM module loader and initialization |
+| `src/msgpack.ts` | MessagePack encode/decode helpers |
+| `src/types.ts` | TypeScript type definitions mirroring Rust structs |
+| `tests/panproto.test.ts` | End-to-end SDK tests |
+| `tests/schema.test.ts` | Schema construction tests |
+| `tests/migration.test.ts` | Migration pipeline tests |
+| `tests/wasm.test.ts` | WASM boundary tests |
+
+## tests/integration --- Cross-crate integration tests
+
+| File | Description |
+|---|---|
+| `src/lib.rs` | Shared test utilities |
+| `tests/atproto_roundtrip.rs` | AT Protocol schema, instance, migrate, round-trip |
+| `tests/atproto_recursive.rs` | Recursive AT Protocol schemas |
+| `tests/cross_protocol.rs` | Migration across different protocols |
+| `tests/sql_migration.rs` | SQL-specific migration scenarios |
+| `tests/breaking_change.rs` | Breaking-change detection on real diffs |
+| `tests/lens_laws.rs` | GetPut / PutGet law verification |
+| `tests/wasm_boundary.rs` | WASM serialization fidelity |
+| `tests/hypergraph_fan.rs` | Hyper-edge and fan operations |
+| `tests/theory_composition.rs` | Theory morphism and colimit composition |
+| `tests/cambria_subsumption.rs` | Comparison with Cambria-style lenses |
+| `tests/cql_subsumption.rs` | Comparison with CQL-style functorial migration |
+| `tests/custom_protocol.rs` | User-defined protocol tests |
+| `tests/self_description.rs` | Self-describing schema tests |
+| `tests/performance.rs` | Performance regression tests |
+| `fixtures/atproto/` | AT Protocol test fixture data |
+| `fixtures/sql/` | SQL test fixture data |
+
+## .github --- CI/CD
+
+| File | Description |
+|---|---|
+| `workflows/ci.yml` | Main CI: lint, test, WASM build, TS build/test |
+| `workflows/bench.yml` | Benchmark comparison on PRs |
+| `workflows/release.yml` | Crate publishing and npm release |
+| `workflows/publish-tutorial.yml` | Tutorial site deployment |
+| `dependabot.yml` | Automated dependency update configuration |
+
+## dev-guide --- This developer guide
+
+| Path | Description |
+|---|---|
+| `_quarto.yml` | Quarto book configuration: chapters, parts, format settings |
+| `index.qmd` | Preface / landing page |
+| `chapters/` | Numbered chapter files (`01-welcome.qmd` through `19-release.qmd`) |
+| `appendices/` | Appendix files (`A-glossary.qmd`, `B-source-code-map.qmd`, `C-troubleshooting.qmd`) |
+| `references.bib` | Bibliography |
+| `styles.css` | Custom CSS overrides |

@@ -1,0 +1,245 @@
+# panproto-schema -- Schemas and Protocols {#sec-schema-protocols}
+
+`panproto-schema` is a Level 1 crate that defines the data structures for schema graphs and the protocols that govern their construction. A _schema_ is a model of a protocol's schema theory GAT: it instantiates the abstract sorts (Vertex, Edge, Constraint, ...) with concrete elements that describe a particular data format version. A _protocol_ is the configuration object that says which GATs to use and what well-formedness rules to enforce.
+
+This chapter covers every major type in the crate and the validation pipeline that ensures schemas are well-formed at construction time.
+
+::: {.callout-note}
+For the user-facing explanation of schemas, see the [tutorial chapter 2](https://panproto.github.io/tutorial/chapters/02-the-shape-of-schemas.html).
+:::
+
+## Schema Elements
+
+A schema is a labeled, directed hypergraph. The four element types -- `Vertex`, `Edge`, `HyperEdge`, and `Constraint` -- correspond to sorts in the schema theory GAT. Each element carries enough metadata for the builder to validate it against the protocol's rules.
+
+```{.rust include="../../crates/panproto-schema/src/schema.rs" start-line=13 end-line=69}
+```
+
+### Vertex
+
+Every vertex has a unique `id`, a `kind` (drawn from the protocol's recognized set), and an optional NSID (namespace identifier). The `kind` field is the discriminator that edge rules use to determine which connections are legal. For example, in the AT Protocol, a vertex of kind `"record"` can have a `"record-schema"` edge to a vertex of kind `"object"`, but not to a vertex of kind `"string"`.
+
+### Edge
+
+Binary edges are the workhorses of schema structure. Each edge is directed (`src` to `tgt`), has a `kind` that determines its structural role, and may carry an optional `name` label. Property edges use the name to encode the field name (e.g., `"text"`, `"createdAt"`).
+
+### HyperEdge
+
+Hyper-edges generalize binary edges to connect multiple vertices via a labeled signature. They appear only in schema theories that include `ThHypergraph`. Each hyper-edge has a `parent_label` that identifies which vertex in its signature serves as the parent in the instance tree.
+
+### Constraint
+
+Constraints restrict the values a vertex can hold. They are typed by a `sort` (e.g., `"maxLength"`, `"format"`) and carry a string `value`. Constraints are not validated during schema construction -- the `validate` module checks them against the protocol's `constraint_sorts` after the schema is built.
+
+## The Schema Struct
+
+The `Schema` struct stores both the raw graph data and precomputed adjacency indices:
+
+```{.rust include="../../crates/panproto-schema/src/schema.rs" start-line=71 end-line=80}
+```
+
+The adjacency indices (`outgoing`, `incoming`, `between`) are `HashMap`s from vertex IDs (or vertex-pair tuples) to `SmallVec<Edge, N>`. Using `SmallVec` avoids heap allocation for vertices with few neighbors, which is the common case -- most schema vertices have between one and four outgoing edges.
+
+The indices are computed once at build time and never modified. This makes lookups O(1) and supports the fast graph traversals that the migration and validation pipelines require.
+
+### Schema as a GAT Model
+
+Mathematically, a `Schema` is a _model_ (or _algebra_) of the schema theory GAT. The sorts of the GAT are instantiated as follows:
+
+| GAT Sort | Schema field |
+|---|---|
+| Vertex | `vertices: HashMap<String, Vertex>` |
+| Edge | `edges: HashMap<Edge, String>` |
+| HyperEdge | `hyper_edges: HashMap<String, HyperEdge>` |
+| Constraint | `constraints: HashMap<String, Vec<Constraint>>` |
+
+: How GAT sorts map to Schema fields. {#tbl-schema-model}
+
+The operations of the GAT (e.g., `src: Edge -> Vertex`, `tgt: Edge -> Vertex`) are implicit in the `Edge` struct's `src` and `tgt` fields. This is a standard encoding: rather than storing operations as separate function objects, the operation's result is stored as a field of the input struct.
+
+## Protocols
+
+A `Protocol` identifies which schema theory and instance theory a data format uses, together with the well-formedness rules that the builder enforces.
+
+```{.rust include="../../crates/panproto-schema/src/protocol.rs" start-line=9 end-line=45}
+```
+
+### EdgeRule
+
+The `EdgeRule` struct is the mechanism for encoding well-formedness constraints on schema edges. Each rule governs a specific edge kind and specifies which vertex kinds are permitted as sources and targets. When a list is empty, any vertex kind is allowed in that position.
+
+This design keeps protocol definitions declarative. Rather than writing procedural validation code, protocol authors declare a table of rules and the builder enforces them uniformly.
+
+### Protocol Fields
+
+- `schema_theory` and `instance_theory` name the GATs in the theory registry. These are the two parameters of the two-parameter architecture described in @sec-architecture-overview.
+- `edge_rules` constrain which edges can connect which vertices.
+- `obj_kinds` lists vertex kinds that are considered "object-like" (containers that can have child properties). This is used by the instance parser to decide whether a JSON value should be walked recursively.
+- `constraint_sorts` lists the recognized constraint types for post-build validation.
+
+### Schema Structure Diagram
+
+```{mermaid}
+%%| label: fig-schema-classes
+%%| fig-cap: "Class diagram showing the relationships between Protocol, Schema, and element types."
+classDiagram
+    class Protocol {
+        +String name
+        +String schema_theory
+        +String instance_theory
+        +Vec~EdgeRule~ edge_rules
+        +Vec~String~ obj_kinds
+        +Vec~String~ constraint_sorts
+        +find_edge_rule(kind) Option~EdgeRule~
+        +is_known_vertex_kind(kind) bool
+    }
+
+    class EdgeRule {
+        +String edge_kind
+        +Vec~String~ src_kinds
+        +Vec~String~ tgt_kinds
+    }
+
+    class Schema {
+        +String protocol
+        +HashMap vertices
+        +HashMap edges
+        +HashMap hyper_edges
+        +HashMap constraints
+        +HashMap outgoing
+        +HashMap incoming
+        +HashMap between
+        +vertex(id) Option~Vertex~
+        +outgoing_edges(id) Slice~Edge~
+        +incoming_edges(id) Slice~Edge~
+    }
+
+    class Vertex {
+        +String id
+        +String kind
+        +Option~String~ nsid
+    }
+
+    class Edge {
+        +String src
+        +String tgt
+        +String kind
+        +Option~String~ name
+    }
+
+    Protocol *-- EdgeRule : edge_rules
+    Schema *-- Vertex : vertices
+    Schema *-- Edge : edges
+    Schema ..> Protocol : built against
+```
+
+## SchemaBuilder
+
+The `SchemaBuilder` is the only way to construct a `Schema`. It enforces a fluent, consume-self API where each method returns `Result<Self, SchemaError>`, so validation failures are caught immediately and partial construction is impossible.
+
+```{.rust include="../../crates/panproto-schema/src/builder.rs" start-line=17 end-line=53}
+```
+
+### Validation Pipeline
+
+The builder validates elements incrementally as they are added, then performs a final global check at `build()` time. The pipeline looks like this:
+
+```{mermaid}
+%%| label: fig-builder-pipeline
+%%| fig-cap: "SchemaBuilder validation pipeline. Each step checks one class of invariant."
+flowchart LR
+    A["vertex()"] --> B{"Vertex kind\nin protocol?"}
+    B -->|yes| C{"Duplicate\nID?"}
+    B -->|no| X1["SchemaError::\nUnknownVertexKind"]
+    C -->|no| D["Accept vertex"]
+    C -->|yes| X2["SchemaError::\nDuplicateVertex"]
+
+    E["edge()"] --> F{"src & tgt\nexist?"}
+    F -->|yes| G{"Edge kind\nhas rule?"}
+    F -->|no| X3["SchemaError::\nVertexNotFound"]
+    G -->|yes| H{"src/tgt kinds\nmatch rule?"}
+    G -->|no| X4["SchemaError::\nUnknownEdgeKind"]
+    H -->|yes| I["Accept edge"]
+    H -->|no| X5["SchemaError::\nInvalidEdge*"]
+
+    J["build()"] --> K{"Any\nvertices?"}
+    K -->|yes| L["Compute\nadjacency indices"]
+    K -->|no| X6["SchemaError::\nEmptySchema"]
+    L --> M["Return Schema"]
+
+    style X1 fill:#fdd,stroke:#c33
+    style X2 fill:#fdd,stroke:#c33
+    style X3 fill:#fdd,stroke:#c33
+    style X4 fill:#fdd,stroke:#c33
+    style X5 fill:#fdd,stroke:#c33
+    style X6 fill:#fdd,stroke:#c33
+    style M fill:#dfd,stroke:#3c3
+```
+
+### Vertex Validation
+
+When `vertex()` is called, the builder checks:
+
+1. **No duplicate ID**: the vertex ID must not already exist in the builder's vertex map.
+2. **Known kind**: if the protocol defines any edge rules or `obj_kinds`, the vertex kind must appear somewhere in those declarations. If the protocol is fully open (no rules at all), any kind is accepted.
+
+### Edge Validation
+
+When `edge()` is called, the builder checks:
+
+1. **Endpoints exist**: both `src` and `tgt` must be vertex IDs already added to the builder.
+2. **Known edge kind**: if the protocol defines edge rules, there must be a rule for this edge kind.
+3. **Source kind permitted**: if the matching `EdgeRule` has a non-empty `src_kinds` list, the source vertex's kind must appear in it.
+4. **Target kind permitted**: same check for `tgt_kinds`.
+5. **No duplicate edge**: the `(src, tgt, kind, name)` tuple must be unique.
+
+### Build-Time Index Computation
+
+The `build()` method iterates over all accepted edges exactly once, populating three indices:
+
+- `outgoing[src]` -- all edges leaving a vertex.
+- `incoming[tgt]` -- all edges arriving at a vertex.
+- `between[(src, tgt)]` -- all edges between a specific pair.
+
+These indices use `SmallVec<Edge, 4>` (or `SmallVec<Edge, 2>` for `between`) to avoid heap allocation in the common case. The choice of inline capacity (4 and 2 respectively) is based on profiling of real-world AT Protocol schemas, where the median vertex outdegree is 3.
+
+::: {.callout-tip}
+If you are adding a new protocol to `panproto-protocols`, start by defining the `Protocol` struct with its edge rules and vertex kinds. The `SchemaBuilder` will enforce those rules automatically -- you do not need to write any custom validation code.
+:::
+
+## Open vs. Closed Protocols
+
+The builder supports both _open_ and _closed_ protocols:
+
+- **Closed protocol**: defines `obj_kinds` and/or `edge_rules`. Only vertex kinds and edge kinds explicitly mentioned are accepted. This is the default for production protocols like AT Protocol and SQL.
+- **Open protocol**: has empty `obj_kinds` and `edge_rules`. Any vertex kind and any edge kind are accepted without validation. This is useful for testing and for protocols where the set of kinds is not known ahead of time.
+
+The distinction is handled by a guard clause in the builder: validation is skipped when the protocol has no declarations to validate against.
+
+## Schema Normalization
+
+The `normalize` module (in `schema/src/normalize.rs`) provides canonical ordering of schema elements for deterministic serialization. Normalization sorts vertices by ID, edges by `(src, tgt, kind, name)`, and constraints by `(sort, value)`. This ensures that structurally identical schemas produce byte-identical MessagePack output, which is critical for content-addressed storage and migration hash verification.
+
+## Schema Validation
+
+Beyond the per-element checks in the builder, the `validate` module provides post-build validation:
+
+- **Constraint sort validation**: checks that every constraint's `sort` field appears in the protocol's `constraint_sorts` list.
+- **Connectivity checks**: verifies that the schema graph is connected (every vertex is reachable from some root vertex via edges).
+- **Required-edge checks**: verifies that vertices which declare required edges actually have those edges in the schema.
+
+These checks are separated from the builder because they require the complete schema to evaluate. The builder validates local invariants (per-vertex, per-edge); the validator checks global invariants (connectivity, completeness).
+
+## Design Rationale
+
+### Why Adjacency Indices at Build Time
+
+Computing adjacency indices eagerly at build time (rather than lazily on first access) is a deliberate trade-off. Schema construction happens once; schema traversal happens many times during migration compilation, instance parsing, and validation. Paying the O(E) index-building cost once eliminates repeated O(E) scans during traversal.
+
+### Why String-Keyed Maps
+
+Vertices, edges, and constraints are identified by `String` keys rather than integer IDs. This is intentional: string IDs carry semantic meaning (e.g., `"post:body.text"`) that makes schemas human-readable and debuggable. The performance cost is acceptable because schema sizes are modest (hundreds to low thousands of elements) and all hot-path lookups go through the precomputed `HashMap` indices.
+
+### Why Edge in Adjacency Values
+
+The adjacency indices store full `Edge` clones rather than references or indices into a flat edge array. This avoids lifetime complications and makes the adjacency API simple (`outgoing_edges` returns `&[Edge]`). The memory cost of edge duplication is offset by the `SmallVec` inline storage optimization.

@@ -1,0 +1,301 @@
+# panproto-mig --- The Migration Engine
+
+The `panproto-mig` crate is the core migration engine for panproto. It computes, validates, and applies schema migrations---transforming instances from one schema version to another while preserving data integrity through theory morphisms. This chapter walks through the full migration pipeline, from specification to execution.
+
+If you have worked with database migrations or API versioning tools before, panproto's migration engine will feel conceptually familiar. The key difference is that panproto derives its validation rules from the protocol's algebraic theory rather than hardcoding them, making the same engine work across all 60+ supported protocols.
+
+The crate lives at `crates/panproto-mig` and is published as `panproto-mig` on crates.io. It depends on `panproto-schema` for schema types, `panproto-gat` for theory types, and `panproto-inst` for compiled migration and instance types.
+
+## The Migration Struct
+
+A `Migration` describes a mapping between two schemas. It encodes the graph morphism (vertex and edge maps), hyper-edge maps for protocols with multi-arity relations, and resolvers for disambiguation when intermediate vertices are contracted.
+
+```{.rust include="../../crates/panproto-mig/src/migration.rs" start-line=13 end-line=34}
+```
+
+The six fields break down into three logical groups:
+
+**Core morphism.** The `vertex_map` and `edge_map` fields define the fundamental graph morphism from source schema to target schema. Every source vertex that should survive in the target gets an entry in `vertex_map`; vertices absent from the map are dropped. Similarly, `edge_map` records how source edges correspond to target edges.
+
+**Hyper-edge morphism.** The `hyper_edge_map` and `label_map` fields handle protocols whose schema theories include the `HyperEdge` sort (Group B protocols such as SQL, Parquet, and Cassandra). A hyper-edge connects multiple vertices via labeled positions, so the mapping must track both the hyper-edge identity and the label assignments.
+
+**Contraction resolvers.** The `resolver` and `hyper_resolver` fields handle the case where a migration contracts intermediate vertices. For example, if a schema has the path `A -> B -> C` and the migration drops `B`, the resulting schema connects `A` directly to `C`. But there may be multiple edges between `A` and `C` in the target---the resolver records which one to use. The `hyper_resolver` does the same for hyper-edge contraction, additionally providing label remaps.
+
+### Identity and Empty Migrations
+
+Two constructors cover the common base cases: an identity migration that maps everything to itself, and an empty migration with no mappings at all.
+
+```{.rust include="../../crates/panproto-mig/src/migration.rs" start-line=36 end-line=67}
+```
+
+`Migration::identity` is the starting point for incremental migration construction---begin with identity and then override specific entries to express the desired transformation. It also serves as the unit element for composition: composing any migration with the identity yields the original migration.
+
+`Migration::empty` serves as the zero element when building migrations programmatically. It is primarily useful in test scaffolding or when constructing migrations from combinators where the initial state has no mappings.
+
+## The Migration Pipeline
+
+The full pipeline for applying a migration follows five stages:
+
+```{mermaid}
+sequenceDiagram
+    participant User
+    participant Mig as Migration
+    participant Exist as check_existence
+    participant Comp as compile()
+    participant CM as CompiledMigration
+    participant Lift as lift_wtype / lift_functor
+
+    User->>Mig: define vertex_map, edge_map, ...
+    Mig->>Exist: check_existence(protocol, src, tgt, mig, registry)
+    Exist-->>Mig: ExistenceReport { valid, errors }
+    Mig->>Comp: compile(src, tgt, migration)
+    Comp-->>CM: CompiledMigration
+    CM->>Lift: lift_wtype(instance, compiled) or lift_functor(...)
+    Lift-->>User: transformed instance
+```
+
+1. **Existence checking** (`check_existence`): validates that the migration is well-formed with respect to the protocol's theories. This is the "can we even do this?" step.
+2. **Compilation** (`compile`): pre-computes surviving sets, remapping tables, and resolvers for fast per-record application. This is the "prepare the execution plan" step.
+3. **Lifting** (`lift_wtype`, `lift_functor`): applies the compiled migration to concrete W-type or functor instances. This is the "execute" step.
+4. **Composition** (`compose`): chains two sequential migrations into a single equivalent migration. This is the "optimize multi-step evolution" step.
+5. **Inversion** (`invert`): constructs the inverse migration when the original is bijective. This is the "undo" step.
+
+Stages 1--3 form the critical path for applying a single migration. Stages 4 and 5 are used when managing sequences of migrations or implementing rollback capabilities.
+
+## Theory-Derived Existence Checking
+
+The existence checker is one of the most distinctive parts of panproto's migration engine. Unlike conventional migration tools that hardcode a fixed set of validation rules, `check_existence` inspects the protocol's schema and instance theory sorts at runtime to determine which checks apply. This keeps the migration engine generic across all supported protocols.
+
+### ExistenceReport and check_existence
+
+The `ExistenceReport` struct carries the validation result, and `check_existence` is the entry point:
+
+```{.rust include="../../crates/panproto-mig/src/existence.rs" start-line=17 end-line=78}
+```
+
+### How Theory Inspection Works
+
+The function looks up the protocol's schema theory and instance theory from a registry, then queries for specific sorts to decide which validation checks to run:
+
+- **Always checked** (regardless of theory structure): vertex map validity, edge map validity, kind consistency. These are fundamental properties of any graph morphism---they must hold for every protocol.
+- **`Constraint` sort present in schema theory**: enables constraint compatibility checking. The target schema must not impose strictly tighter constraints than the source. For example, reducing `maxLength` from 3000 to 300 means existing data with 3000-character strings would violate the new constraint.
+- **`HyperEdge` sort present in schema theory**: enables two additional checks. *Signature coherence* verifies that mapped hyper-edges have compatible label-to-vertex assignments. *Simultaneity* verifies that all labels in a target hyper-edge reference surviving vertices---you cannot have a SQL foreign key that references a dropped table.
+- **`Node` sort present in instance theory**: enables reachability risk detection for W-type instances. When intermediate vertices are dropped, subtrees that were connected through those vertices may become disconnected from the root, producing orphaned data.
+
+```{mermaid}
+flowchart TD
+    A[check_existence] --> B{Schema theory lookup}
+    B --> C[Always: vertex map validity]
+    B --> D[Always: edge map validity]
+    B --> E[Always: kind consistency]
+    B --> F{Constraint sort?}
+    F -->|Yes| G[Constraint compatibility]
+    F -->|No| H[Skip]
+    B --> I{HyperEdge sort?}
+    I -->|Yes| J[Signature coherence]
+    I -->|Yes| K[Simultaneity]
+    I -->|No| L[Skip]
+    A --> M{Instance theory lookup}
+    M --> N{Node sort?}
+    N -->|Yes| O[Reachability risks]
+    N -->|No| P[Skip]
+```
+
+This design means that when a new protocol is added with a novel theory composition, the existence checker automatically applies the right subset of conditions without any code changes to `panproto-mig` itself. A protocol whose schema theory has both `Constraint` and `HyperEdge` sorts (like SQL) will get all conditional checks; a protocol with neither (like a minimal custom protocol) will only get the universal checks.
+
+::: {.callout-note}
+The theory-derived approach to existence checking is directly inspired by the categorical semantics of double-pushout rewriting [@ehrig2006]. In that framework, the "dangling condition" and "identification condition" are derived from the structure of the rule span, not enumerated by hand. panproto generalizes this to arbitrary GAT-based schema theories.
+:::
+
+### Constraint Compatibility in Detail
+
+The constraint compatibility check deserves special attention because it is the most subtle. When the schema theory has a `Constraint` sort, the checker verifies two properties:
+
+1. **No tightening**: for each mapped vertex, every constraint in the target must not be strictly more restrictive than the corresponding constraint in the source. For upper-bound constraints (`maxLength`, `maxSize`, `maximum`), a smaller target value is tighter. For lower-bound constraints (`minLength`, `minimum`), a larger target value is tighter.
+
+2. **No missing required fields**: if the target schema marks an edge as required for a vertex, the source must have a corresponding edge (possibly via the edge map) that maps to it. Adding a required field with no default is a migration obstruction.
+
+### Reachability in Detail
+
+The reachability check applies only when the instance theory has a `Node` sort (W-type instances). It approximates whether dropping vertices will disconnect subtrees from the root by checking, for each surviving non-root vertex, whether it has at least one incoming edge from another surviving vertex in the source schema. If a vertex's only path from the root passes through a dropped vertex, the checker emits a `ReachabilityRisk` warning.
+
+::: {.callout-warning}
+The reachability check is an *approximation*. It verifies that each surviving vertex has a surviving parent, but it does not compute full transitive reachability from the root. In practice this is sufficient for the tree-structured instances that W-type theories model, but pathological graphs with long chains of dropped vertices could produce false negatives.
+:::
+
+## Compilation
+
+The `compile` function translates a `Migration` specification into a `CompiledMigration`---a form optimized for per-record application. Compilation pre-computes:
+
+1. **Surviving vertex set**: the image of `vertex_map` in the target schema. Only nodes anchored at these vertices will be kept during lifting.
+2. **Surviving edge set**: the image of `edge_map`. Only arcs corresponding to these edges will be preserved.
+3. **Vertex and edge remap tables**: maps from source IDs to target IDs. These allow the lifter to update anchors and edge labels in O(1) per element.
+4. **Resolver copies**: the contraction resolvers carried forward for use during lifting. When the lifter encounters two surviving nodes that were not directly connected in the source, it consults the resolver to determine which target edge to use.
+
+The compiled form enables `lift_wtype` and `lift_functor` to process each record in O(nodes) time without re-deriving the migration structure on every invocation. For high-throughput scenarios (e.g., migrating millions of ATProto records), this separation between compilation and execution is critical for performance.
+
+::: {.callout-tip}
+If your migration has already passed existence checking, compilation will not fail unless the migration references vertices or edges absent from the target schema (which existence checking should have caught). In practice, always run existence checking first---it produces much more informative error messages than compilation failures.
+:::
+
+## Lifting
+
+Lifting applies a compiled migration to a concrete instance. panproto supports two lifting modes corresponding to the two families of instance theories:
+
+### W-Type Lifting
+
+`lift_wtype` handles tree-shaped instances used by JSON-like, XML-like, and document protocols. The algorithm:
+
+1. Walks the source instance's node tree from the root.
+2. For each node, checks whether its anchor vertex is in the surviving set.
+3. If surviving: remaps the anchor to its target vertex ID and copies the node to the result.
+4. If dropped: omits the node. Any children anchored at surviving vertices are re-parented using the resolver.
+5. Rebuilds the arc list and fan list based on surviving nodes and the edge remap table.
+
+The resolver is critical during step 4. When a dropped intermediate vertex `B` sat between `A` and `C`, the lifter needs to create a direct arc from `A` to `C`. If multiple edges exist between `A` and `C` in the target schema, the resolver disambiguates.
+
+### Functor Lifting
+
+`lift_functor` handles tabular instances used by relational and columnar protocols. The algorithm:
+
+1. Iterates over tables in the source instance.
+2. For each table, checks whether its anchor vertex is in the surviving set.
+3. If surviving: copies all rows, remapping foreign keys according to the vertex remap table and dropping columns for non-surviving edges.
+4. If dropped: omits the entire table.
+
+Both lifting functions delegate to the corresponding `restrict` operations in `panproto-inst`, which provide the low-level tree/table manipulation.
+
+## Composition and Inversion
+
+### Composition
+
+Composition chains two migrations $m_1: S_1 \to S_2$ and $m_2: S_2 \to S_3$ into a single migration $m_2 \circ m_1: S_1 \to S_3$. The composed vertex map is the functional composition of the two vertex maps: for each source vertex $v$ in $S_1$, the composed map sends $v$ to $m_2(m_1(v))$. The edge and hyper-edge maps compose similarly.
+
+Resolvers from both migrations are merged, with $m_2$'s resolvers taking precedence when keys overlap. This is correct because the second migration's resolvers encode decisions about the final target schema, which supersede the intermediate schema's structure.
+
+Composition is associative: $(m_3 \circ m_2) \circ m_1 = m_3 \circ (m_2 \circ m_1)$. Combined with the identity migration as the unit, this makes migrations a category---the *migration category* over a fixed protocol.
+
+### Inversion
+
+Inversion constructs $m^{-1}: S_2 \to S_1$ from a migration $m: S_1 \to S_2$, but only when $m$ is bijective. Specifically, it requires:
+
+- **Injectivity of vertex_map**: no two source vertices map to the same target vertex. If `user.name` and `user.displayName` both map to `user.label`, the inverse cannot know which to restore.
+- **Surjectivity of vertex_map**: every target vertex has a preimage. If the target has a vertex that no source vertex maps to, the inverse has no source for it.
+- The same conditions on `edge_map` and `hyper_edge_map`.
+
+If any condition fails, `invert` returns an `InvertError` identifying the specific obstruction.
+
+::: {.callout-important}
+Inversion requires bijectivity. A migration that drops vertices or contracts edges is not invertible. Use the lens system (Chapter 10) when you need round-trip transformations for non-bijective mappings.
+:::
+
+## Relationship to Category Theory
+
+The migration pipeline implements the categorical notion of a *graph morphism* between C-sets (copresheaf instances) over a schema theory [@spivak2012]. Existence checking validates the naturality conditions of this morphism---the requirement that the mapping commutes with the schema's operations. Compilation pre-evaluates the action on objects. Lifting is the functorial action on instances (the pushforward along the schema morphism).
+
+Composition corresponds to composition of natural transformations. The theory-derived existence conditions generalize the gluing and dangling conditions from algebraic graph rewriting [@ehrig2006; @lowe1993]. Where DPO rewriting checks these conditions for a specific rewriting rule, panproto checks them for an arbitrary migration between two schemas under an arbitrary GAT-based theory.
+
+For a hands-on walkthrough of building and applying migrations, see [tutorial chapters 5--6](https://panproto.github.io/tutorial/chapters/05-migration-by-hand.html).
+
+## Worked Example: Renaming a Field
+
+To make the pipeline concrete, consider renaming the `text` field to `content` in a schema with vertices `{body, body.text}` and an edge `body -> body.text` with name `"text"`.
+
+**Step 1: Define the migration.**
+
+The `vertex_map` maps `body` to `body` and `body.text` to `body.content`. The `edge_map` maps the old edge to a new edge with name `"content"`. No resolvers are needed because no vertices are dropped.
+
+**Step 2: Check existence.**
+
+`check_existence` looks up the protocol's schema theory. If the theory has a `Constraint` sort, it verifies that any constraints on `body.text` are compatible with the constraints on `body.content` in the target. Since this is a rename (same kind, same constraints), all checks pass.
+
+**Step 3: Compile.**
+
+`compile` produces a `CompiledMigration` with:
+
+- `surviving_verts`: `{body, body.content}`
+- `surviving_edges`: `{body -> body.content (content)}`
+- `vertex_remap`: `{body.text -> body.content}`
+- `edge_remap`: old edge maps to new edge
+
+**Step 4: Lift.**
+
+`lift_wtype` walks the source instance. Nodes anchored at `body` keep their anchor. Nodes anchored at `body.text` have their anchor remapped to `body.content`. Arcs are updated to use the new edge. The result is a valid instance under the target schema.
+
+This is a bijective migration, so `invert` would also succeed, producing a migration that renames `content` back to `text`.
+
+## Interaction with Other Crates
+
+`panproto-mig` sits at the center of panproto's architecture:
+
+- **`panproto-schema`** provides the `Schema`, `Edge`, and `Protocol` types that migrations operate on.
+- **`panproto-gat`** provides the `Theory` type used for existence checking and the `colimit` function used by `panproto-protocols`.
+- **`panproto-inst`** provides `CompiledMigration`, `WInstance`, and the `wtype_restrict`/`functor_restrict` operations that lifting delegates to.
+- **`panproto-lens`** wraps `CompiledMigration` in a `Lens` and adds complement tracking for non-bijective transformations.
+- **`panproto-check`** uses `diff` to detect changes between schemas, which can be combined with migration information.
+
+Understanding these dependencies helps when debugging: if existence checking fails, the issue is in the migration specification or the theory registry. If compilation fails, the issue is in the schema. If lifting fails, the issue is in the instance or the compiled migration.
+
+## Performance Considerations
+
+The migration pipeline is designed for throughput:
+
+- **Existence checking** is O(|vertex_map| + |edge_map| + |hyper_edge_map|) for the universal checks, plus O(|constraints|) for the conditional constraint check and O(|hyper_edges| * |labels|) for the conditional signature coherence check. This is fast even for large schemas.
+- **Compilation** is O(|migration|) and happens once per schema version pair.
+- **Lifting** is O(|instance nodes|) per record, with hash-map lookups for remap and resolver operations. For W-type instances, this is a single tree traversal. For functor instances, this is a single pass over rows.
+- **Composition** is O(|vertex_map| + |edge_map|) and happens once when chaining migrations.
+
+For batch migration scenarios (e.g., migrating a million ATProto records from schema v1 to v2), the cost is dominated by lifting, which is linear in the total data size.
+
+## Error Handling
+
+The `panproto-mig` error types are designed to provide actionable diagnostics:
+
+- **`ExistenceError`**: includes variants for `WellFormedness` (invalid vertex/edge references), `ConstraintTightened`, `RequiredFieldMissing`, `KindInconsistency`, `SignatureCoherence`, `Simultaneity`, `ReachabilityRisk`, and `EdgeMissing`. Each variant carries enough context to identify the exact source of the problem.
+- **`ComposeError`**: reports when composition fails due to incompatible intermediate schemas.
+- **`InvertError`**: identifies the specific bijectivity violation (non-injective vertex map, non-surjective edge map, etc.).
+- **`LiftError`**: reports runtime failures during instance transformation.
+
+All error types implement `Display` for human-readable messages and `Serialize`/`Deserialize` for machine consumption.
+
+## Summary
+
+| Stage | Function | Input | Output |
+|---|---|---|---|
+| Validate | `check_existence` | `Migration` + protocol + schemas + theory registry | `ExistenceReport` |
+| Compile | `compile` | `Migration` + schemas | `CompiledMigration` |
+| Apply | `lift_wtype` / `lift_functor` | `CompiledMigration` + instance | Transformed instance |
+| Chain | `compose` | Two `Migration`s | Single `Migration` |
+| Reverse | `invert` | `Migration` | `Migration` (if bijective) |
+
+The key insight of `panproto-mig` is that the migration engine does not need to know the details of any specific protocol. The theory registry tells it which structural invariants to check, and the compiled migration tells the lifter which elements to keep, drop, or remap. This separation is what allows panproto to support 60+ protocols with a single migration engine.
+
+## Module Map
+
+The crate is organized into the following modules:
+
+| Module | Exports | Purpose |
+|---|---|---|
+| `migration` | `Migration` | Migration specification type with vertex/edge/hyper-edge maps and resolvers |
+| `existence` | `ExistenceReport`, `check_existence` | Theory-derived validation of migration well-formedness |
+| `compile` | `compile` | Pre-computation of surviving sets and remap tables |
+| `lift` | `lift_wtype`, `lift_functor` | Instance transformation for W-type and functor instances |
+| `compose` | `compose` | Sequential composition of two migrations |
+| `invert` | `invert` | Construction of inverse migrations for bijective mappings |
+| `error` | `ExistenceError`, `ComposeError`, `InvertError`, `LiftError`, `MigError` | Error types for each pipeline stage |
+
+All public types are re-exported from the crate root, so consumers can write `use panproto_mig::Migration` without navigating the module structure.
+
+## Testing Strategy
+
+The crate's test suite covers each pipeline stage independently:
+
+- **Existence checking tests** verify that specific error variants are produced for known-bad migrations (constraint tightening, kind inconsistency, required field missing, etc.). Each test constructs a minimal schema pair and migration, registers the appropriate theories, and asserts that the expected error variant appears in the report.
+- **Compilation tests** verify that surviving sets and remap tables are computed correctly for various migration shapes.
+- **Lifting tests** use small hand-crafted instances to verify that nodes are correctly dropped, remapped, and re-parented.
+- **Composition tests** verify that composing two migrations produces the same result as applying them sequentially.
+- **Inversion tests** verify that invertible migrations round-trip correctly and that non-invertible migrations produce the expected `InvertError`.
+
+The test suite is intentionally structured so that each test constructs its own minimal schema pair and migration from scratch, avoiding shared test fixtures that could mask bugs through accidental coupling. See Chapter 17 for the project-wide testing conventions.
+
+Property-based tests (using `proptest`) supplement the hand-crafted cases, generating random schemas and migrations to verify invariants like "composing a migration with its inverse yields an identity migration" and "existence checking accepts the identity migration for any schema."

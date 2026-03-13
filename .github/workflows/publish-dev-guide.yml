@@ -1,0 +1,31 @@
+name: Deploy Dev Guide
+
+on:
+  workflow_dispatch:
+  push:
+    branches: main
+    paths:
+      - 'dev-guide/**'
+      - 'crates/*/src/**'
+      - 'sdk/typescript/src/**'
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Render dev guide
+        run: cd dev-guide && quarto render
+
+      - name: Deploy to panproto/dev-guide repo
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.DEV_GUIDE_DEPLOY_KEY }}
+          external_repository: panproto/dev-guide
+          publish_branch: main
+          publish_dir: dev-guide/_site

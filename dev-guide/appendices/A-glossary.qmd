@@ -1,0 +1,158 @@
+# Glossary {#sec-glossary}
+
+This appendix defines every domain term used in the panproto codebase and documentation. Each definition is specific to panproto's usage. For the underlying category theory foundations, see the [tutorial's category theory cheatsheet](https://panproto.github.io/tutorial/appendices/A-category-theory-cheatsheet.html).
+
+## Algebraic foundations
+
+GAT (Generalized Algebraic Theory)
+: A theory with sorts, typed operations, and equations between terms --- the core abstraction panproto uses to represent schema languages. Implemented in `panproto-gat`.
+
+Sort
+: A named type within a GAT, optionally parameterized by other sorts. In panproto, schema elements like "vertex," "edge," and "constraint" are sorts.
+
+Operation
+: A typed function within a GAT that maps from a list of input sorts to an output sort. Operations represent structural relationships (e.g., "source" and "target" on an edge sort).
+
+Equation
+: An identity between two terms (compositions of operations) in a GAT, enforcing algebraic laws such as associativity or commutativity within the theory.
+
+Term
+: A tree-structured expression built from operations and variables, used to state equations and define morphism mappings.
+
+Theory
+: A complete GAT specification: a named collection of sorts, operations, and equations. Represented by the `Theory` struct in `panproto-gat`.
+
+Theory morphism
+: A structure-preserving map from one theory to another that sends sorts to sorts and operations to terms, respecting equations. Used to relate schema languages.
+
+Colimit / Pushout
+: The universal construction that merges two theories along a shared sub-theory, computed by `colimit()` in `panproto-gat`. This is how panproto translates between schema languages.
+
+Model
+: A concrete interpretation of a theory: an assignment of sets to sorts and functions to operations that satisfies all equations. Used for semantic validation.
+
+## Schema layer
+
+Schema
+: A typed hypergraph that conforms to a protocol's structural theory. Contains vertices, edges, hyper-edges, and constraints. Represented by `Schema` in `panproto-schema`.
+
+Protocol
+: A pair of GATs (structural and constraint) plus validation rules that defines a specific schema language. Implemented via the `Protocol` trait in `panproto-schema`.
+
+Vertex
+: A node in a schema's hypergraph, representing a named type or record. Analogous to a table (SQL), message (Protobuf), or record (AT Protocol).
+
+Edge
+: A directed connection between two vertices in a schema, representing a typed relationship (e.g., a foreign key or a field reference).
+
+Hyper-edge
+: An edge connecting one source vertex to multiple target vertices, used for relationships with variable arity (e.g., a union type's members).
+
+Constraint
+: A predicate attached to a schema element, drawn from the protocol's constraint theory. Examples: `maxLength`, `unique`, `nullable`.
+
+Edge rule
+: A validation rule within a protocol that governs which edges are legal between which vertex sorts (e.g., "a foreign key must target a primary key").
+
+NSID
+: Namespaced Identifier, the AT Protocol's hierarchical naming scheme for schema elements (e.g., `app.bsky.feed.post`).
+
+## Instance layer
+
+Instance
+: A concrete dataset that conforms to a schema --- the "data" as opposed to the "shape." Represented in `panproto-inst`.
+
+W-type instance
+: panproto's tree-structured representation of instance data, based on W-types from type theory. Each node has a label (vertex), children (edges), and a value.
+
+Functor instance
+: An alternative flat representation of instance data as a functor from the schema (viewed as a category) to **Set**. Used for algebraic operations on data.
+
+Node
+: A single element within a W-type instance, carrying a vertex label, a value, and references to child nodes via arcs.
+
+Arc
+: A labeled reference from one node to another within a W-type instance, corresponding to an edge in the schema.
+
+Fan
+: An ordered collection of arcs from a single node, representing a hyper-edge's multiple targets. Implemented in `crates/panproto-inst/src/fan.rs`.
+
+## Migration layer
+
+Migration
+: A description of how a schema changed from one version to another, derived from the theory morphism between the two schema versions.
+
+Compiled migration
+: The executable form of a migration: a surviving set, vertex remap, edge remap, and resolver functions, ready to transform instances. Produced by `compile()` in `panproto-mig`.
+
+Surviving set
+: The subset of source-schema vertices and edges that have corresponding elements in the target schema. Computed during migration compilation.
+
+Vertex remap
+: A mapping from source vertex handles to target vertex handles within a compiled migration.
+
+Edge remap
+: A mapping from source edge handles to target edge handles (or resolution functions) within a compiled migration.
+
+Resolver
+: A function within a compiled migration that computes the value of a target-schema element from source-schema data, used when a simple remap is insufficient (e.g., a column was split or merged).
+
+## Lens layer
+
+Lens
+: A bidirectional transformation that pairs a forward "get" with a backward "put," enabling round-trip data migration between schema versions.
+
+Complement
+: The information lost by a lens's "get" direction, stored so that "put" can reconstruct the original. Essential for lossless round-trips.
+
+Combinator
+: A function that builds complex lenses from simpler ones (e.g., `compose`, `product`, `sum`). Implemented in `crates/panproto-lens/src/combinators.rs`.
+
+Get
+: The forward direction of a lens: extracts target-schema data from a source instance.
+
+Put
+: The backward direction of a lens: given updated target data and a complement, reconstructs a source instance.
+
+GetPut law
+: The round-trip law stating that `put(get(s), s) = s` --- putting back unchanged data recovers the original source.
+
+PutGet law
+: The round-trip law stating that `get(put(t, s)) = t` --- getting after a put yields the updated target.
+
+## Restrict and lift operations
+
+Restrict
+: The forward migration operation: given a source instance and a compiled migration, produce the corresponding target instance by dropping non-surviving elements and remapping the rest.
+
+Lift
+: The backward migration operation: given a target instance and a compiled migration (with complement), reconstruct a source instance. The inverse of restrict.
+
+Anchor
+: The assignment of a surviving node to its position in the target schema during restrict. Computed by `anchor_nodes()`.
+
+Reachable
+: A node is reachable if it can be reached from a surviving node by following arcs. Unreachable nodes are dropped during restrict.
+
+Ancestor contraction
+: The merging of ancestor chains when intermediate vertices are removed by a migration. Implemented in `contract_ancestors()`.
+
+Edge resolution
+: The process of rewiring edges during restrict according to the compiled migration's edge remap and resolver functions.
+
+Fan reconstruction
+: Rebuilding fan (ordered child collection) structures after restrict, accounting for removed or reordered arcs.
+
+## Infrastructure
+
+Handle
+: An opaque integer identifier used by the WASM slab allocator to reference Rust objects from JavaScript without exposing raw pointers.
+
+Slab allocator
+: The allocation strategy in `panproto-wasm` that stores Rust objects in a `Vec`-backed slab, returning integer handles to JavaScript. Avoids GC interaction.
+
+MessagePack
+: The binary serialization format used at the WASM boundary to pass structured data between Rust and JavaScript. Implemented via `rmp-serde`.
+
+wasm-bindgen
+: The Rust-to-JavaScript binding generator used by `panproto-wasm` to expose the engine's API to the TypeScript SDK.

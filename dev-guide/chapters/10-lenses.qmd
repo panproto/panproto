@@ -1,0 +1,300 @@
+# panproto-lens --- Bidirectional Lenses
+
+The `panproto-lens` crate implements bidirectional lenses for panproto, enabling round-trip transformations between schema versions even when the mapping is not bijective. Where `panproto-mig` requires bijectivity for inversion, lenses track a *complement*---the data discarded during the forward direction---so that the backward direction can reconstruct the original source from a (possibly modified) view.
+
+This chapter covers the asymmetric lens primitives (`get` and `put`), the complement type, Cambria-style combinators for building lenses declaratively, and the lens laws that guarantee correctness.
+
+The crate lives at `crates/panproto-lens` and is published as `panproto-lens` on crates.io. It depends on `panproto-schema` for schema types, `panproto-inst` for W-type instances and compiled migrations, and `panproto-mig` for migration composition. It is a Level 2 crate in panproto's dependency hierarchy.
+
+## Why Lenses?
+
+Migrations (Chapter 9) handle the common case where a schema evolution preserves all information---renames, reorderings, and bijective restructurings. But many real-world evolutions are lossy: removing a deprecated field, collapsing two fields into one, or changing a field's type. These transformations cannot be inverted by `panproto-mig` because there is no unique preimage.
+
+Lenses solve this by capturing the "lost" information in a complement. The forward direction (`get`) produces a view of the data under the new schema plus a complement recording everything that was discarded. The backward direction (`put`) takes a (possibly modified) view and the stored complement, and reconstructs the original data.
+
+This makes lenses the right tool for:
+
+- **Schema downgrades**: projecting data from a newer schema version to an older one while retaining enough information to upgrade back.
+- **Cross-protocol bridges**: converting between protocols where the target has fewer fields than the source.
+- **Selective views**: exposing a subset of a record to an API consumer while preserving the full record server-side.
+- **Incremental adoption**: migrating to a new schema incrementally, with the complement serving as a rollback mechanism during the transition period.
+
+## The Complement
+
+When `get` projects a source instance onto a target view, some data is inevitably lost: nodes that have no counterpart in the target schema, arcs that connect dropped nodes, fans whose children were pruned, and structural decisions made during ancestor contraction. The `Complement` struct captures all of this.
+
+```{.rust include="../../crates/panproto-lens/src/asymmetric.rs" start-line=17 end-line=47}
+```
+
+Each field in the complement records a specific category of lost information:
+
+- **`dropped_nodes`**: a map from node ID to `Node` for every source node that does not appear in the target view. These are the nodes whose anchor vertex was not in the migration's surviving set.
+- **`dropped_arcs`**: source arcs where either the parent or child node was dropped. These arcs have no representation in the view.
+- **`dropped_fans`**: source fans (hyper-edge instances) where the parent or any child was dropped during `get`. Fans model multi-arity relationships in protocols like SQL.
+- **`contraction_choices`**: when `get` contracts intermediate vertices (connecting grandparent to grandchild directly), multiple edges may be candidates. This map records which edge was chosen for each contracted pair, so `put` can undo the contraction correctly.
+- **`original_parent`**: the parent mapping for surviving nodes before any contraction occurred. During `put`, this enables restoration of the original tree topology even when contraction changed the parent-child relationships.
+
+A complement is empty when the transformation is lossless---for example, a pure rename. The `is_empty` method provides a quick check for this case. When the complement is non-empty, it must be stored alongside the view so that `put` can later restore the original.
+
+::: {.callout-tip}
+In production systems, the complement is typically stored alongside the view in a metadata sidecar---either as a separate column in a database, a companion file, or an opaque blob attached to the record. The complement is serializable via `serde`, so it can be stored in any format that supports `Serialize`/`Deserialize`.
+:::
+
+## Forward Direction: get
+
+The `get` function runs the forward (restrict) pipeline, producing both the projected view and its complement.
+
+```{.rust include="../../crates/panproto-lens/src/asymmetric.rs" start-line=49 end-line=59}
+```
+
+Internally, `get` delegates to `wtype_restrict` from `panproto-inst` to compute the view, then calculates the set difference between the source and result to populate each complement field:
+
+1. **View computation**: calls `wtype_restrict` with the lens's compiled migration. This produces the projected instance under the target schema.
+2. **Dropped nodes**: iterates over source nodes, collecting any not present in the view.
+3. **Dropped arcs**: iterates over source arcs, collecting any where either endpoint was dropped.
+4. **Contraction choices**: for each arc in the view that connects two nodes not directly connected in the source, records the resolver edge that was used. This is the "decision" that contraction made.
+5. **Original parents**: for each surviving node in the view, records what its parent was in the source instance (before contraction may have changed the parent).
+6. **Dropped fans**: iterates over source fans, collecting any where the parent or a child was dropped.
+
+The resulting `(WInstance, Complement)` pair contains all the information from the original source, just partitioned into "visible" (the view) and "invisible" (the complement).
+
+## Backward Direction: put
+
+The `put` function restores a source instance from a (possibly modified) view and the stored complement. The reconstruction proceeds in stages:
+
+1. **Copy view nodes**: all nodes from the view are copied, with their anchors un-remapped from target vertex IDs back to source vertex IDs using the inverse of the compiled migration's vertex remap.
+2. **Re-insert dropped nodes**: every node recorded in the complement's `dropped_nodes` is inserted back into the node set.
+3. **Rebuild arcs from original parents**: for each surviving node, the `original_parent` mapping tells us who its parent was in the source. The function finds the appropriate edge (consulting `contraction_choices` for disambiguation) and creates an arc.
+4. **Re-insert dropped arcs**: arcs from the complement are added back, provided both endpoints are present in the restored node set.
+5. **Reconstruct fans**: view fans are un-remapped; dropped fans whose nodes are all present are re-inserted.
+
+The result is a full source instance that incorporates any edits made to the view while preserving the structural elements that were invisible to the view.
+
+::: {.callout-note}
+If the view was modified between `get` and `put` (e.g., a field value was changed by an API consumer), those modifications are preserved in the restored instance. The complement provides the *structure* that the view cannot represent; the view provides the *content* that may have been updated.
+:::
+
+## The get/put Round-Trip
+
+The following diagram illustrates the data flow through a complete round-trip:
+
+```{mermaid}
+flowchart LR
+    S[Source Instance] -->|get| V[View]
+    S -->|get| C[Complement]
+    V -->|put| R[Restored Instance]
+    C -->|put| R
+    R ---|should equal| S
+```
+
+The complement acts as a side channel, carrying exactly the information that the view cannot represent. Together, the view and complement contain all the information in the source---just partitioned differently.
+
+Consider a concrete example. Suppose a source schema has fields `{name, email, age}` and the target schema has only `{name, email}`. The `get` direction produces a view with `{name, email}` and a complement containing the `age` node, its arc from the parent, and any constraints. If an API consumer updates `email` in the view, calling `put` with the modified view and the original complement produces a source instance with the updated `email`, the original `name`, and the original `age`---nothing is lost.
+
+## Lens Laws
+
+panproto lenses satisfy two laws that jointly guarantee correctness:
+
+**GetPut law**: applying `put` to the result of `get` recovers the original source.
+
+$$\text{put}(\text{get}(s).\text{view},\; \text{get}(s).\text{complement}) = s$$
+
+This law says that `get` followed by `put` is a no-op: the round-trip preserves the source exactly. If this law were violated, data would be silently lost or corrupted during the round-trip.
+
+**PutGet law**: applying `get` to the result of `put` recovers the view and complement.
+
+$$\text{get}(\text{put}(v, c)) = (v, c)$$
+
+This law says that `put` followed by `get` is also a no-op: restoring a source from a view and complement, then projecting it again, yields the same view and complement. If this law were violated, `put` would introduce phantom data that `get` would then discard, or `put` would fail to fully incorporate the complement.
+
+### Property Testing
+
+These laws are property-tested in `panproto-lens` via the `check_laws` function, which:
+
+1. Generates random source schemas using the protocol's theory.
+2. Generates random source instances conforming to those schemas.
+3. Constructs lenses from random combinator chains.
+4. Verifies both GetPut and PutGet for each generated triple.
+
+The property tests run as part of the standard `cargo test` suite and also in the CI pipeline with extended iteration counts.
+
+::: {.callout-note}
+The lens laws follow the formulation of asymmetric lenses from @foster2007, adapted to the setting of W-type instances over GAT-based schema theories. The complement corresponds to the abstract complement in the lens framework of @johnson2013.
+:::
+
+## Cambria-Style Combinators
+
+Rather than constructing `Migration` objects and compiling them by hand, the combinator API lets you describe schema transformations as a chain of atomic operations. Each combinator represents a single, well-understood schema change.
+
+```{.rust include="../../crates/panproto-lens/src/combinators.rs" start-line=27 end-line=76}
+```
+
+### Combinator Semantics
+
+Each combinator has a precise effect on the schema and a defined impact on the complement:
+
+| Combinator | Effect | Lossless? | Complement Impact |
+|---|---|---|---|
+| `RenameField` | Changes an edge label | Yes | Empty complement |
+| `AddField` | Introduces a new vertex with default | Yes | Default recorded |
+| `RemoveField` | Drops a vertex and incident edges | No | Dropped nodes/arcs stored |
+| `WrapInObject` | Inserts intermediate object vertex | No | Re-parenting tracked |
+| `HoistField` | Moves nested field to grandparent | No | Original topology tracked |
+| `CoerceType` | Changes kind of matching vertices | Depends | Kind mapping stored if lossy |
+| `Compose` | Sequential composition | Depends | Union of sub-complements |
+
+**`RenameField`** is the simplest combinator: it changes an edge's `name` field from `old` to `new`. No data is lost because the edge still connects the same vertices. The complement is empty.
+
+**`AddField`** introduces a new vertex (with a specified kind and default value) connected to the root by a new edge. During `get`, the new field appears in the view with its default value. During `put`, if the view's value differs from the default, that value is preserved.
+
+**`RemoveField`** drops a vertex and all edges incident on it. The complement stores the dropped node and its arcs. This is the canonical lossy combinator.
+
+**`WrapInObject`** creates a new intermediate object vertex and re-parents existing children of the root under it. The complement tracks the original parent-child relationships.
+
+**`HoistField`** moves a field from a nested object up to its grandparent. The complement tracks the original nesting so `put` can restore it.
+
+**`CoerceType`** changes the `kind` of all vertices matching `from_kind` to `to_kind`. Whether this is lossless depends on the kinds involved---`string` to `text` might be lossless; `float` to `integer` is not.
+
+**`Compose`** enables sequential composition of two combinators within the enum itself, providing a recursive structure for complex transformations.
+
+### Building a Lens from Combinators
+
+The `from_combinators` function takes a source schema and a slice of combinators, applies each in sequence, and produces a fully compiled `Lens`:
+
+1. For each combinator, derive the next schema by applying the atomic transformation.
+2. Build a compiled migration for that step.
+3. Compose the step migration with the accumulated result.
+4. Return a `Lens` containing the composed compiled migration, the original source schema, and the final target schema.
+
+This means you never need to manually construct vertex maps, edge maps, or resolvers when using combinators. The target schema and migration are derived automatically from the combinator chain. Multi-step chains work correctly because each combinator operates on the output schema of the previous step---a rename followed by a hoist that references the renamed name will find the name as expected.
+
+::: {.callout-tip}
+Combinators are inspired by the Cambria lens language [@clarke2020]. If you are familiar with Cambria's JSON lens combinators, panproto's combinators will feel familiar---but they operate on the graph-level schema representation rather than on JSON paths, making them protocol-agnostic. The same combinator chain works for JSON Schema, Protobuf, SQL, or any other supported protocol.
+:::
+
+## Design Rationale
+
+The asymmetric lens design follows the theoretical framework of @hofmann2011, which establishes that complement-based lenses form a category: identity lenses exist, and lenses compose associatively. panproto exploits this by allowing lens composition through `Compose` combinators and through direct composition of compiled migrations.
+
+The choice of asymmetric (rather than symmetric) lenses is deliberate. In protocol evolution, one direction is typically authoritative---the new schema version defines the "view," and the old schema's extra structure is captured as complement. Symmetric lenses [@hofmann2011] would require both sides to carry complements, adding complexity without clear benefit for the schema migration use case.
+
+The complement-based approach also integrates naturally with panproto's existing infrastructure. A `Lens` wraps a `CompiledMigration` (the same type used by `panproto-mig`), so the forward direction of a lens is exactly a migration lift. The complement is the additional information needed to make the transformation reversible.
+
+## Worked Example: Removing a Deprecated Field
+
+Consider a schema with vertices `{post, post.text, post.legacy_id}` and edges from `post` to both children. The `legacy_id` field is deprecated and should be removed from the API view, but existing data in storage must retain it.
+
+**Step 1: Define the lens via combinators.**
+
+```rust
+let combinators = &[Combinator::RemoveField {
+    name: "legacy_id".to_string(),
+}];
+let lens = from_combinators(&src_schema, combinators, &protocol)?;
+```
+
+The `from_combinators` function derives the target schema (with `legacy_id` removed) and the compiled migration automatically.
+
+**Step 2: Get the view.**
+
+Calling `get(&lens, &source_instance)` produces:
+
+- **View**: an instance with nodes anchored at `post` and `post.text` only.
+- **Complement**: contains the `post.legacy_id` node, the arc from `post` to `post.legacy_id`, and any associated values.
+
+**Step 3: Modify the view (optional).**
+
+An API consumer updates `post.text` to a new value. The view now differs from the original.
+
+**Step 4: Put it back.**
+
+Calling `put(&lens, &modified_view, &complement)` produces a restored source instance with all three fields: `post`, `post.text` (with the updated value), and `post.legacy_id` (with the original value from the complement).
+
+The GetPut and PutGet laws guarantee this round-trip is correct regardless of the specific data values involved.
+
+## Complement Storage Strategies
+
+In production deployments, the complement must be persisted alongside the view. Common strategies include:
+
+- **Database column**: store the serialized complement as a JSONB or BLOB column alongside the view data. This is the simplest approach and works well when the complement is small relative to the view.
+- **Companion file**: for file-based storage (e.g., Parquet datasets), store the complement in a sidecar file with a `.complement.json` extension.
+- **Metadata header**: for protocols with metadata support (e.g., HTTP responses), encode the complement in a custom header or trailer.
+- **Separate table**: for relational databases, store complements in a dedicated table keyed by record ID and schema version. This avoids schema modifications to the main table.
+
+The `Complement` type derives `Serialize` and `Deserialize`, so any serde-compatible format works: JSON, MessagePack, CBOR, etc.
+
+## Interaction with Breaking Change Detection
+
+Lenses and breaking change detection (Chapter 11) are complementary:
+
+- A `RemoveField` combinator always produces a non-empty complement. The breaking change detector (`panproto-check`) will classify the corresponding schema change as breaking (vertex removal).
+- A `RenameField` combinator produces an empty complement. The breaking change detector will see the rename as a vertex removal + vertex addition, classifying the removal as breaking. To avoid this, use the migration engine's rename support instead.
+- A `CoerceType` combinator may or may not be breaking depending on the kinds involved. The breaking change detector classifies all kind changes as breaking, which aligns with the conservative interpretation.
+
+This interplay means you can use `panproto-check` to validate whether a lens is necessary: if the compatibility report says "fully compatible," a lens is unnecessary (a migration suffices). If it says "breaking," a lens with complement tracking is the appropriate tool.
+
+## Error Handling
+
+The `panproto-lens` error types cover failures in both the combinator and primitive layers:
+
+- **`LensError::Restrict`**: the underlying `wtype_restrict` call failed during `get`. This typically indicates a mismatch between the lens's schemas and the instance.
+- **`LensError::ComplementMismatch`**: during `put`, the complement is inconsistent with the view. This can happen if the complement was generated by a different lens or a different source instance.
+- **`LensError::FieldNotFound`**: a combinator references a field name not present in the schema.
+- **`LensError::VertexNotFound`**: a combinator references a vertex ID not present in the schema.
+- **`LensError::IncompatibleCoercion`**: a `CoerceType` combinator references a kind not present in any vertex.
+
+For a hands-on introduction to building and applying lenses, see [tutorial chapter 8](https://panproto.github.io/tutorial/chapters/08-lenses.html).
+
+## Summary
+
+The `panproto-lens` crate provides three layers of abstraction:
+
+- **Primitives**: `get` and `put` operate on `Lens` values, producing views and complements.
+- **Combinators**: `RenameField`, `AddField`, `RemoveField`, `WrapInObject`, `HoistField`, `CoerceType`, and `Compose` describe transformations declaratively.
+- **Laws**: `check_laws` property-tests GetPut and PutGet to verify correctness.
+
+Together, these layers enable safe, reversible schema evolution across all panproto-supported protocols, even when the evolution involves lossy structural changes. The complement is the key innovation: it makes non-bijective transformations reversible by explicitly tracking what was lost, rather than silently discarding it.
+
+## Module Map
+
+The crate is organized into the following modules:
+
+| Module | Exports | Purpose |
+|---|---|---|
+| `asymmetric` | `Complement`, `get`, `put` | Core lens primitives with complement tracking |
+| `combinators` | `Combinator`, `from_combinators` | Cambria-style declarative lens construction |
+| `compose` | `compose_compiled_migrations` | Composition of compiled migrations for multi-step lenses |
+| `laws` | `check_laws` | Property-based testing of GetPut and PutGet laws |
+| `error` | `LensError` | Error types for lens operations |
+
+The crate root re-exports `Lens`, `Complement`, `get`, `put`, `Combinator`, and `from_combinators` for convenient access.
+
+## When to Use Lenses vs. Migrations
+
+The choice between lenses and migrations depends on the nature of the schema change:
+
+| Scenario | Use Migration | Use Lens |
+|---|---|---|
+| Rename a field | Yes (bijective) | Yes (but unnecessary overhead) |
+| Reorder fields | Yes (bijective) | Yes (but unnecessary overhead) |
+| Remove a field | No (not invertible) | Yes (complement stores removed data) |
+| Add a required field | Possible (with default) | Yes (complement stores default) |
+| Change a field's type | No (not invertible) | Yes (if coercion is defined) |
+| Wrap fields in a new object | No (not invertible) | Yes (complement tracks re-parenting) |
+| Multi-step evolution | Compose migrations | Chain combinators |
+
+As a rule of thumb: if `panproto-mig`'s `invert` would succeed on your migration, use a migration. If it would fail, use a lens.
+
+## Performance Considerations
+
+Lens operations are slightly more expensive than plain migrations because of the complement computation:
+
+- **`get`** performs one `wtype_restrict` call (same cost as `lift_wtype`) plus a set-difference pass over the source instance to compute the complement. The overhead is O(|source nodes|).
+- **`put`** performs a reconstruction pass that is O(|view nodes| + |complement nodes|), with hash-map lookups for un-remapping and contraction choice disambiguation.
+- **Complement serialization** depends on the complement size, which is proportional to the amount of data dropped during `get`.
+
+For lossless transformations (empty complement), `get` and `put` have essentially the same cost as a migration lift and its inverse.
+
+In batch scenarios where the same lens is applied to many instances (e.g., projecting a million records to an API view), the lens should be constructed once and reused. The `Lens` struct is `Clone` and can be shared across threads via `Arc<Lens>`. The compiled migration inside the lens is immutable after construction, so concurrent `get` calls are safe without synchronization.
+
+The complement size is the primary cost driver. A lens that drops a single leaf field produces a small complement (one node, one arc). A lens that removes an entire subtree produces a complement proportional to the subtree size. When designing lens-based APIs, consider whether the complement can be compressed or whether a more targeted lens (removing only the specific fields needed) would reduce overhead.

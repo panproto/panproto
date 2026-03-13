@@ -1,0 +1,228 @@
+# PR Workflow and CI {#sec-pr-workflow}
+
+Every change to panproto goes through a pull request with automated CI checks. This chapter documents the CI pipeline, how to reproduce checks locally, and what reviewers look for.
+
+## CI Pipeline Overview
+
+The CI workflow runs on every push to `main` and on every pull request:
+
+```{.yaml include="../../.github/workflows/ci.yml" start-line=1 end-line=95}
+```
+
+The pipeline consists of eight independent jobs (plus the benchmark workflow on PRs):
+
+```{mermaid}
+flowchart LR
+    PR[Pull Request] --> fmt
+    PR --> clippy
+    PR --> test
+    PR --> wasm
+    PR --> doc
+    PR --> deny
+    PR --> semver
+
+    wasm --> ts
+
+    fmt:::check
+    clippy:::check
+    test:::check
+    wasm:::check
+    doc:::check
+    deny:::check
+    ts:::check
+    semver:::check
+
+    classDef check fill:#e8f5e9,stroke:#388e3c
+```
+
+## CI Jobs Explained
+
+### `fmt` -- Format Check
+
+Verifies that all Rust code is formatted with `rustfmt`:
+
+```bash
+cargo fmt --all -- --check
+```
+
+This is a fast, zero-dependency check. If it fails, run `cargo fmt --all` locally and commit the result.
+
+### `clippy` -- Lint Check
+
+Runs clippy with `-D warnings`, treating all warnings as errors:
+
+```bash
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+Combined with the workspace lint configuration (pedantic + nursery + `unwrap_used = deny`), this catches a wide range of issues. Uses `rust-cache` for faster incremental runs.
+
+### `test` -- Test Suite
+
+Runs the full test suite on two Rust versions: stable and 1.85 (the MSRV). Uses `cargo-nextest` for parallel, isolated test execution:
+
+```bash
+cargo nextest run --workspace
+```
+
+Testing on both stable and MSRV ensures we do not accidentally use features from newer Rust editions.
+
+### `wasm` -- WASM Build
+
+Verifies that the WASM crate compiles and packages correctly:
+
+```bash
+wasm-pack build crates/panproto-wasm --target web
+```
+
+This installs the `wasm32-unknown-unknown` target and uses `wasm-pack` to build the WASM binary. Failure here usually means a dependency pulled in something that does not compile to WASM (e.g., `std::fs`).
+
+### `doc` -- Documentation Build
+
+Builds rustdoc for the entire workspace with warnings treated as errors:
+
+```bash
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+```
+
+This catches broken doc links, missing documentation on public items (via `missing_docs = warn`), and malformed doc comments.
+
+### `deny` -- Dependency Audit
+
+Runs `cargo-deny` to check for:
+
+- License violations (only MIT-compatible licenses are allowed)
+- Known security advisories
+- Duplicate dependency versions
+- Banned crates
+
+Configuration lives in `deny.toml` at the workspace root.
+
+### `ts` -- TypeScript Tests
+
+Depends on the `wasm` job (needs the built WASM binary). Runs the full TypeScript test suite and type checking:
+
+```bash
+cd sdk/typescript && pnpm install
+cd sdk/typescript && pnpm test
+cd sdk/typescript && pnpm exec tsc --noEmit
+```
+
+### `semver` -- Semver Compatibility Check
+
+Only runs on pull requests. Uses `cargo-semver-checks` to verify that public API changes are backward-compatible (or that the version has been bumped appropriately):
+
+```bash
+cargo semver-checks  # with fetch-depth: 0 for full git history
+```
+
+::: {.callout-note}
+The `semver` job compares the PR branch against `main`. If you intentionally make a breaking change, bump the version in `Cargo.toml` before the check runs.
+:::
+
+## The Benchmark Workflow
+
+A separate `bench.yml` workflow runs on every PR against `main`:
+
+1. Checks out both `main` (baseline) and the PR branch
+2. Runs `cargo bench --workspace` on both
+3. Compares results using `benchmark-action/github-action-benchmark`
+4. Posts a comparison table as a PR comment
+5. Alerts if any benchmark regresses by more than 120% of baseline
+
+The alert threshold is intentionally generous (20% regression) because CI runners have variable performance. The workflow does **not** fail the PR on regression -- it only posts a warning comment.
+
+## Reproducing CI Locally
+
+Every CI job can be reproduced locally. Run these commands from the workspace root:
+
+```bash
+# Format check
+cargo fmt --all -- --check
+
+# Clippy
+cargo clippy --workspace --all-targets -- -D warnings
+
+# Tests (stable)
+cargo nextest run --workspace
+
+# WASM build
+wasm-pack build crates/panproto-wasm --target web
+
+# Documentation
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+
+# Dependency audit (requires cargo-deny)
+cargo deny check
+
+# TypeScript (requires pnpm and node 22+)
+cd sdk/typescript && pnpm install && pnpm test && pnpm exec tsc --noEmit
+
+# Semver check (requires cargo-semver-checks)
+cargo semver-checks
+
+# Benchmarks
+cargo bench --workspace
+```
+
+::: {.callout-tip}
+Install the required tools with:
+```bash
+cargo install cargo-nextest cargo-deny cargo-semver-checks wasm-pack
+npm install -g pnpm
+```
+:::
+
+## Branch Naming Convention
+
+Use descriptive branch names with a category prefix:
+
+| Prefix | Use Case | Example |
+|---|---|---|
+| `feat/` | New feature | `feat/graphql-protocol` |
+| `fix/` | Bug fix | `fix/lens-complement-roundtrip` |
+| `refactor/` | Internal restructuring | `refactor/slab-generics` |
+| `docs/` | Documentation changes | `docs/chapter-13-wasm` |
+| `bench/` | Benchmark additions or tuning | `bench/lift-throughput` |
+| `ci/` | CI/CD changes | `ci/add-wasm-size-check` |
+
+## Commit Message Format
+
+Follow the conventional commits format:
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer]
+```
+
+Types: `feat`, `fix`, `refactor`, `docs`, `test`, `bench`, `ci`, `chore`.
+Scopes: crate names (`schema`, `mig`, `wasm`, `cli`, `sdk`) or `workspace` for cross-cutting changes.
+
+Examples:
+
+```
+feat(mig): add hyper-edge resolver composition
+fix(wasm): prevent double-free on MigrationWithSchemas handle
+docs(sdk): document lens combinator pipeline function
+test(integration): add CQL subsumption property tests
+```
+
+## Code Review Expectations
+
+Reviewers look for:
+
+- **Correctness**: does the change do what it claims? Are edge cases handled?
+- **Test coverage**: new code should have unit tests; new features should have integration tests
+- **API design**: does the public API follow the immutable builder pattern? Are errors structured with `thiserror`?
+- **Documentation**: are public items documented? Do doc examples compile?
+- **Performance**: does the change affect hot paths? If so, are benchmarks included?
+- **Lint cleanliness**: does `cargo clippy` pass with zero warnings?
+- **WASM compatibility**: does the change compile to `wasm32-unknown-unknown`?
+- **Semver compliance**: are public API changes backward-compatible, or has the version been bumped?
+
+::: {.callout-important}
+All CI jobs must pass before a PR can be merged. If a job fails, fix the issue and push -- do not ask reviewers to merge with failing checks.
+:::

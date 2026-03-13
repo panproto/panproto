@@ -1,0 +1,215 @@
+# panproto-gat -- The GAT Engine {#sec-gat-engine}
+
+`panproto-gat` is Level 0 of the panproto crate hierarchy: the mathematical foundation on which everything else is built. This crate implements generalized algebraic theories (GATs) as defined by @cartmell1986, providing the data structures and algorithms for sorts, operations, equations, theory morphisms, and colimits.
+
+This chapter walks through every major type and function in the crate, explaining both the Rust implementation and the mathematical concepts it encodes.
+
+## Sorts and Sort Parameters
+
+A _sort_ is a type in a GAT. Sorts may be _simple_ (zero parameters) or _dependent_ (parameterized by terms of other sorts). The distinction between simple and dependent sorts is what separates GATs from ordinary algebraic theories in the sense of @lawvere1963: in an ordinary algebraic theory, all sorts are simple.
+
+### SortParam
+
+A `SortParam` names a dependency of a sort on a term of another sort. For example, in the theory of categories, the hom-sort `Hom(a: Ob, b: Ob)` has two parameters, each of sort `Ob`.
+
+### Sort
+
+A `Sort` combines a name with zero or more `SortParam` entries. Simple sorts have an empty parameter list.
+
+```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=1 end-line=36}
+```
+
+The `arity()` method returns the number of parameters -- this is the key invariant that theory morphisms must preserve.
+
+::: {.callout-tip}
+In panproto's schema theories, most sorts are simple (`Vertex`, `Edge`, `Constraint`). Dependent sorts appear when a schema theory needs to express constraints that depend on a vertex (e.g., `Constraint(v: Vertex)`), or when modeling categories where morphisms depend on their source and target objects.
+:::
+
+### Concrete Examples
+
+Here are some sorts you will encounter in panproto protocol definitions:
+
+- `Vertex` -- simple sort, arity 0. The vertices of a schema graph.
+- `Edge` -- simple sort, arity 0. Directed edges between vertices.
+- `Hom(a: Ob, b: Ob)` -- dependent sort, arity 2. Morphisms in a category.
+- `Constraint(v: Vertex)` -- dependent sort, arity 1. Constraints attached to a specific vertex.
+
+## Operations
+
+An _operation_ (also called a term constructor) is a function in a GAT. Each operation has a name, typed inputs, and a typed output. Operations with zero inputs are constants (nullary constructors).
+
+```{.rust include="../../crates/panproto-gat/src/op.rs" start-line=1 end-line=21}
+```
+
+The `inputs` field stores `(param_name, sort_name)` pairs. This is sufficient for first-order operations. Higher-order operations (operations whose inputs are themselves operations) are not directly supported -- panproto does not need them for its protocol modeling use case.
+
+### Operation Signatures in Practice
+
+In a graph schema theory, you would see operations like:
+
+- `src: (e: Edge) -> Vertex` -- the source vertex of an edge.
+- `tgt: (e: Edge) -> Vertex` -- the target vertex of an edge.
+- `unit: () -> Carrier` -- a nullary operation (constant) in a monoid theory.
+
+The type signature of an operation is the pair `(input_sorts, output_sort)`. Theory morphisms must preserve these signatures up to the sort mapping.
+
+## Equations
+
+Equations (axioms) constrain the behavior of operations. An equation consists of a name and two `Term` trees that must be considered equal. panproto uses a simple term language:
+
+- `Term::Var(name)` -- a variable reference.
+- `Term::App(op_name, args)` -- application of an operation to arguments.
+
+Equations are not computationally evaluated; they serve as proof obligations that theory morphisms must preserve. When `panproto-gat` checks a morphism, it verifies that for each equation `lhs = rhs` in the domain theory, the mapped equation `F(lhs) = F(rhs)` exists in the codomain theory.
+
+## Theory
+
+The `Theory` struct is the central type of `panproto-gat`. It groups sorts, operations, and equations under a name, with optional inheritance via `extends`.
+
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=8 end-line=30}
+```
+
+### Theory Inheritance
+
+The `extends` field enables compositional theory construction. When theory B extends theory A, B inherits all of A's sorts, operations, and equations. The `resolve_theory` function computes the transitive closure of the inheritance chain, merging declarations and detecting cycles.
+
+Diamond inheritance is handled correctly: if theories B and C both extend A, and theory D extends both B and C, the shared declarations from A appear exactly once in the resolved theory D.
+
+::: {.callout-note}
+For the conceptual introduction to GATs, see the [tutorial chapter 3](https://panproto.github.io/tutorial/chapters/03-what-is-a-theory.html).
+:::
+
+### Theory Structure Diagram
+
+```{mermaid}
+%%| label: fig-theory-structure
+%%| fig-cap: "Internal structure of a Theory. Sorts may have SortParam dependencies; Operations reference sorts by name; Equations contain Term trees."
+classDiagram
+    class Theory {
+        +String name
+        +Vec~String~ extends
+        +Vec~Sort~ sorts
+        +Vec~Operation~ ops
+        +Vec~Equation~ eqs
+        +find_sort(name) Option~Sort~
+        +find_op(name) Option~Operation~
+        +find_eq(name) Option~Equation~
+    }
+
+    class Sort {
+        +String name
+        +Vec~SortParam~ params
+        +is_simple() bool
+        +arity() usize
+    }
+
+    class SortParam {
+        +String name
+        +String sort
+    }
+
+    class Operation {
+        +String name
+        +Vec~(String, String)~ inputs
+        +String output
+        +arity() usize
+    }
+
+    class Equation {
+        +String name
+        +Term lhs
+        +Term rhs
+    }
+
+    class Term {
+        <<enumeration>>
+        Var(String)
+        App(String, Vec~Term~)
+    }
+
+    Theory *-- Sort : contains
+    Theory *-- Operation : contains
+    Theory *-- Equation : contains
+    Sort *-- SortParam : params
+    Equation *-- Term : lhs, rhs
+    Operation ..> Sort : references by name
+```
+
+## Theory Morphisms
+
+A _theory morphism_ is a structure-preserving map from one theory to another. It maps sorts to sorts and operations to operations, subject to three preservation conditions:
+
+1. **Arity preservation**: if sort S has arity n, then F(S) must also have arity n.
+2. **Signature preservation**: if operation `op: (a: A, b: B) -> C`, then `F(op): (a: F(A), b: F(B)) -> F(C)`.
+3. **Equation preservation**: if `lhs = rhs` is an equation in the domain, then `F(lhs) = F(rhs)` must be an equation in the codomain.
+
+```{.rust include="../../crates/panproto-gat/src/morphism.rs" start-line=7 end-line=23}
+```
+
+The `check_morphism` function validates all three conditions. This is the critical correctness check for schema migrations: a migration specification is valid if and only if it induces a valid theory morphism between the source and target schema theories.
+
+### Why Morphisms Matter for Migration
+
+When you migrate data from schema v1 to schema v2, the migration is mathematically a theory morphism from v2's schema theory to v1's schema theory (note the direction reversal -- this is the contravariance of restriction functors). The `CompiledMigration` in `panproto-inst` is the executable form of this morphism, and the `wtype_restrict` pipeline is the functor it induces on instances.
+
+This is the fundamental guarantee that makes panproto migrations principled: because the restrict operation is functorial, composing two migrations and restricting is the same as restricting twice [@spivak2012]. There are no "migration bugs" that arise from order-of-operations issues.
+
+## Colimits
+
+The `colimit` function computes the pushout of two theories over a shared base theory. This is how panproto composes protocol fragments modularly.
+
+```{.rust include="../../crates/panproto-gat/src/colimit.rs" start-line=6 end-line=24}
+```
+
+Given theories T1 and T2 that share a common sub-theory S, the colimit produces a combined theory containing all declarations from both, with the shared declarations identified (not duplicated).
+
+### Pushout Diagram
+
+```{mermaid}
+%%| label: fig-pushout
+%%| fig-cap: "Pushout (colimit) of two theories over a shared base. The shared sorts, operations, and equations appear exactly once in the result."
+graph LR
+    S["Shared theory S"]
+    T1["Theory T1"]
+    T2["Theory T2"]
+    C["Colimit T1 +_S T2"]
+
+    S -->|"inclusion"| T1
+    S -->|"inclusion"| T2
+    T1 -->|"injection"| C
+    T2 -->|"injection"| C
+
+    style C fill:#e8f4e8,stroke:#2d7d2d
+```
+
+### Conflict Detection
+
+The colimit function detects three kinds of conflicts:
+
+- **Sort conflicts**: T1 and T2 both declare a sort with the same name but different parameter lists, and the sort is not in the shared base.
+- **Operation conflicts**: same-named operations with incompatible signatures.
+- **Equation conflicts**: same-named equations with different term content.
+
+Compatible duplicates (same name, same definition) are silently deduplicated. This allows independent protocol extensions to share common vocabulary without coordination, as long as they agree on the meaning of shared names.
+
+### Practical Use: Composing Schema Theories
+
+The `panproto-protocols` crate uses colimits extensively. For example, the AT Protocol schema theory is built by combining a base graph theory (`ThGraph` with Vertex, Edge, src, tgt) with a constraint theory (`ThConstraint` with Constraint, target) over their shared `ThVertex`. The colimit produces a theory with all three sorts and all three operations, ready to serve as the schema theory for the AT Protocol.
+
+## Summary of the Mathematical Stack
+
+| Concept | Rust type | Mathematical origin |
+|---|---|---|
+| Type in a GAT | `Sort` | @cartmell1986, Definition 1 |
+| Term constructor | `Operation` | @cartmell1986, Definition 2 |
+| Axiom | `Equation` | @cartmell1986, Definition 3 |
+| Structure-preserving map | `TheoryMorphism` | @lawvere1963 (generalized to GATs) |
+| Theory composition | `colimit()` | Pushout in the category of GATs |
+
+: Mapping from mathematical concepts to Rust types. {#tbl-math-rust}
+
+The GATlab system [@lynch2024] takes a similar approach to implementing GATs in Julia, focusing on computational category theory. panproto's `panproto-gat` is more narrowly scoped -- it provides just enough GAT machinery to support schema migration and protocol composition, without attempting to be a general-purpose categorical algebra system.
+
+::: {.callout-important}
+`panproto-gat` is the only crate in the system that has zero knowledge of schemas, instances, or protocols. If you find yourself importing `panproto-schema` types in `panproto-gat`, something has gone wrong architecturally. The abstraction boundary here is strict and intentional.
+:::

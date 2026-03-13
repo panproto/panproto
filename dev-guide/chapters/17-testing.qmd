@@ -1,0 +1,198 @@
+# Test Strategy and Property Testing {#sec-testing}
+
+panproto uses a layered testing strategy: fast unit tests for individual functions, integration tests that exercise cross-crate workflows, property-based tests for algebraic invariants, and TypeScript tests for the SDK. This chapter explains how each layer works and how to extend them.
+
+## Test Pyramid
+
+| Layer | Tool | Scope | Run Command |
+|---|---|---|---|
+| Unit tests | `cargo test` | Per-module, per-crate | `cargo test -p panproto-schema` |
+| Integration tests | `cargo nextest` | Cross-crate workflows | `cargo nextest run -p panproto-integration` |
+| Property tests | `proptest` | Algebraic invariants | `cargo test -p panproto-mig` (included in unit tests) |
+| TypeScript tests | `pnpm test` | SDK + WASM round-trips | `cd sdk/typescript && pnpm test` |
+| Benchmarks | `divan` | Performance regression | `cargo bench -p panproto-schema` |
+
+::: {.callout-tip}
+Use `cargo nextest run` instead of `cargo test` for the integration suite. Nextest runs each test as a separate process, which avoids thread-local state contamination from the WASM slab allocator.
+:::
+
+## Unit Tests
+
+Each crate has inline `#[cfg(test)] mod tests` blocks adjacent to the code they test. The convention:
+
+- Test modules are annotated with `#[allow(clippy::unwrap_used, clippy::expect_used)]` since test assertions naturally use `.unwrap()`
+- Helper functions for constructing test fixtures are private to the test module
+- Test names describe the property being verified: `constraint_obstruction_detected`, `duplicate_vertex_rejected`
+
+Run a single crate's tests:
+
+```bash
+cargo test -p panproto-schema
+cargo test -p panproto-mig
+cargo test -p panproto-gat
+```
+
+## Integration Tests
+
+The `tests/integration` crate contains 14 integration tests that exercise end-to-end workflows. Each test file focuses on a specific scenario:
+
+| Test File | Description |
+|---|---|
+| `self_description.rs` | Verifies ThGAT (the theory of GATs) is itself a well-formed GAT |
+| `atproto_recursive.rs` | Recursive ATProto schema with nested threadViewPost projection |
+| `atproto_roundtrip.rs` | Parse JSON lexicon, apply identity migration, verify round-trip fidelity |
+| `sql_migration.rs` | SQL add-column, FK migration, and set-valued functor restrict |
+| `cross_protocol.rs` | ATProto-to-SQL interop via shared ThGraph sub-theory |
+| `lens_laws.rs` | GetPut and PutGet lens laws for identity and projection lenses |
+| `performance.rs` | Projection lift throughput exceeds baseline threshold |
+| `wasm_boundary.rs` | MessagePack serialization fidelity across the WASM boundary |
+| `breaking_change.rs` | ATProto lexicon breaking changes detected by diff/classify pipeline |
+| `cql_subsumption.rs` | CQL Sigma/Delta/Pi expressed as theory morphisms |
+| `cambria_subsumption.rs` | Cambria-style combinators expressed as lens compositions |
+| `hypergraph_fan.rs` | SQL FK as 4-ary hyperedge, column drop, fan reconstruction |
+| `theory_composition.rs` | colimit(ThGraph, ThConstraint) produces ThConstrainedGraph |
+| `custom_protocol.rs` | Define a new protocol from scratch, build schema, lift records |
+
+Run the full integration suite:
+
+```bash
+cargo nextest run -p panproto-integration
+```
+
+Run a single integration test:
+
+```bash
+cargo nextest run -p panproto-integration -- atproto_roundtrip
+```
+
+## Property-Based Testing with `proptest`
+
+Property-based tests verify algebraic invariants that must hold for all valid inputs. The `proptest` crate generates random inputs and shrinks failing cases to minimal counterexamples.
+
+### Heavily Property-Tested Functions
+
+The existence checker is a prime example of a function with rich algebraic properties:
+
+```{.rust include="../../crates/panproto-mig/src/existence.rs" start-line=38 end-line=44}
+```
+
+Properties tested for `check_existence` include:
+
+- **Identity migration is always valid**: mapping every vertex to itself with consistent edges must produce a valid report
+- **Kind-preserving maps are consistent**: if all mapped vertices have matching kinds, no `KindInconsistency` errors appear
+- **Constraint monotonicity**: loosening a constraint never introduces `ConstraintTightened` errors
+- **Composition preserves validity**: if migration A is valid and migration B is valid, their composition should pass the same checks
+
+### Writing a `proptest` Strategy for a New Type
+
+To property-test a new type, define a `proptest` strategy that generates valid instances. The pattern:
+
+```rust
+use proptest::prelude::*;
+
+/// Strategy for generating a valid Vertex.
+fn arb_vertex() -> impl Strategy<Value = Vertex> {
+    // Generate an id (alphanumeric, 1-20 chars) and a kind from a fixed set.
+    let id = "[a-z][a-z0-9.:-]{0,19}";
+    let kind = prop_oneof![
+        Just("object".to_string()),
+        Just("string".to_string()),
+        Just("integer".to_string()),
+        Just("record".to_string()),
+    ];
+    (id, kind).prop_map(|(id, kind)| Vertex {
+        id,
+        kind,
+        nsid: None,
+    })
+}
+
+/// Strategy for generating a valid Schema with 1-10 vertices.
+fn arb_schema() -> impl Strategy<Value = Schema> {
+    prop::collection::vec(arb_vertex(), 1..10)
+        .prop_flat_map(|vertices| {
+            // Generate edges between existing vertices...
+            // Build the schema...
+        })
+}
+
+proptest! {
+    #[test]
+    fn identity_migration_is_valid(schema in arb_schema()) {
+        let migration = build_identity_migration(&schema);
+        let report = check_existence(&protocol, &schema, &schema, &migration, &registry);
+        prop_assert!(report.valid, "identity migration should always be valid");
+    }
+}
+```
+
+::: {.callout-note}
+Strategies should generate structurally valid inputs (well-formed schemas with consistent vertices and edges). Testing with completely random bytes is not useful -- the interesting properties live in the space of valid structures.
+:::
+
+### Shrinking
+
+When `proptest` finds a failing case, it automatically shrinks the input to a minimal counterexample. For complex types like `Schema`, this means reducing the number of vertices and edges to the smallest set that still triggers the failure. The shrunk counterexample is printed in the test output and saved to a regression file.
+
+## TypeScript Tests
+
+The TypeScript SDK has its own test suite:
+
+```bash
+cd sdk/typescript && pnpm test
+```
+
+TypeScript tests exercise the SDK's public API, including WASM round-trips. They verify:
+
+- Schema builder fluent API produces valid schemas
+- Migration compile + lift produces correct output
+- Lens get/put round-tripping (GetPut and PutGet laws)
+- Error classes are thrown with correct types and messages
+- `WasmHandle` disposal and `FinalizationRegistry` safety net
+- MessagePack encoding matches Rust expectations
+
+Type checking is also verified:
+
+```bash
+cd sdk/typescript && pnpm exec tsc --noEmit
+```
+
+## Benchmarks with `divan`
+
+Per-crate benchmarks use the `divan` framework. Each crate with performance-sensitive code has a `benches/` directory:
+
+```bash
+cargo bench -p panproto-schema    # Schema building benchmarks
+cargo bench -p panproto-mig       # Migration compile + lift benchmarks
+cargo bench -p panproto-inst      # Instance parsing benchmarks
+```
+
+`divan` provides:
+
+- Statistical analysis (mean, median, standard deviation)
+- Automatic iteration count tuning
+- Comparison between groups via `#[divan::bench(args = [...])]`
+
+### CI Regression Detection
+
+The `bench.yml` workflow runs on every PR against `main`. It:
+
+1. Checks out both the `main` branch and the PR branch
+2. Runs `cargo bench --workspace` on both
+3. Compares results using `benchmark-action/github-action-benchmark`
+4. Posts a comment on the PR with a comparison table
+5. Alerts (but does not fail) if any benchmark regresses by more than 120% of the baseline
+
+::: {.callout-important}
+Benchmark results are inherently noisy on shared CI runners. A 120% threshold means the regression must be at least 20% worse than baseline to trigger an alert. If you see a spurious alert, re-run the workflow -- true regressions will be consistent.
+:::
+
+## Writing Tests for a New Feature
+
+When adding a new feature, add tests at multiple levels:
+
+1. **Unit tests**: in the crate where the feature lives, test individual functions
+2. **Property tests**: if the feature has algebraic invariants (commutativity, associativity, round-trip laws), write `proptest` strategies
+3. **Integration test**: if the feature involves multiple crates, add a test file in `tests/integration/tests/`
+4. **TypeScript test**: if the feature is exposed through the SDK, add tests in `sdk/typescript/`
+5. **Benchmark**: if the feature is on the hot path, add a `divan` benchmark

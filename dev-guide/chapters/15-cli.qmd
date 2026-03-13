@@ -1,0 +1,90 @@
+# panproto-cli --- The CLI Tool {#sec-cli}
+
+The `panproto-cli` crate provides a command-line interface for schema validation, migration checking, structural diffing, and record lifting. It is a thin wrapper around the `panproto-core` library, designed for scripting, CI pipelines, and quick local experiments.
+
+## Command Structure
+
+The CLI uses `clap` derive macros for argument parsing. The top-level `Cli` struct holds a global `--verbose` flag and dispatches to one of four subcommands:
+
+```{.rust include="../../crates/panproto-cli/src/main.rs" start-line=22 end-line=93}
+```
+
+Each subcommand maps directly to an underlying `panproto-core` API:
+
+| Subcommand | Core API | Description |
+|---|---|---|
+| `validate` | `panproto_core::schema::validate` | Validate a schema JSON file against a protocol's rules |
+| `check` | `panproto_core::mig::check_existence` | Check existence conditions for a migration mapping |
+| `diff` | Structural comparison | Report vertex/edge additions, removals, and kind changes |
+| `lift` | `panproto_core::mig::compile` + `lift_wtype` | Apply a migration to a JSON record |
+
+## Subcommand Details
+
+### `validate`
+
+```bash
+panproto validate --protocol atproto schema.json
+```
+
+Loads the schema from JSON, resolves the protocol by name (five built-in protocols are supported), and runs protocol-aware validation. Outputs a human-readable list of errors or a success message. Exits with code 1 on validation failure.
+
+### `check`
+
+```bash
+panproto check --src old-schema.json --tgt new-schema.json --mapping migration.json
+```
+
+Loads both schemas and the migration mapping, builds the theory registry from the protocol, and runs `mig::check_existence`. Outputs the report as human-readable text; with `--verbose`, also dumps the full JSON report for machine consumption.
+
+### `diff`
+
+```bash
+panproto diff old-schema.json new-schema.json
+```
+
+Computes structural differences between two schemas: added/removed vertices, added/removed edges, and kind changes. Sorts output deterministically. If the schemas are identical, prints a single line.
+
+### `lift`
+
+```bash
+panproto lift --migration mapping.json --src-schema old.json --tgt-schema new.json record.json
+```
+
+The most complex subcommand. It compiles the migration, parses the input JSON as a W-type instance (auto-detecting the root vertex), applies the migration via `lift_wtype`, and serializes the result back to pretty-printed JSON on stdout.
+
+## Error Handling with `miette`
+
+The CLI uses `miette` for user-facing error diagnostics. All subcommand handlers return `miette::Result<()>`, and errors are converted using `.into_diagnostic().wrap_err(...)` for context-rich messages:
+
+```rust
+let contents = std::fs::read_to_string(path)
+    .into_diagnostic()
+    .wrap_err_with(|| format!("failed to read {}", path.display()))?;
+```
+
+::: {.callout-note}
+`miette` is used **only** in the CLI crate. Library crates use `thiserror` for error types. This separation keeps the library crates lightweight and avoids pulling in `miette`'s formatting dependencies for non-CLI consumers.
+:::
+
+## Adding a New Subcommand
+
+To add a new subcommand to the CLI:
+
+1. **Add a variant** to the `Command` enum in `main.rs` with the appropriate `clap` attributes for arguments
+2. **Implement the handler** as a `fn cmd_<name>(...) -> Result<()>` function
+3. **Wire it up** in the `match cli.command` block in `main()`
+4. **Add tests** -- the integration test suite in `tests/integration/` can exercise CLI-accessible functionality through the Rust API directly
+
+For example, adding a `compose` subcommand that composes two migration files would require a new `Command::Compose` variant with `--m1` and `--m2` path arguments, a `cmd_compose` handler that loads both migrations and calls `mig::compile` + `compose_compiled`, and a `match` arm in `main()`.
+
+## Built-in Protocol Resolution
+
+The CLI resolves protocol names to built-in definitions. Supported names:
+
+- `atproto` -- AT Protocol (Bluesky)
+- `sql` -- SQL databases
+- `protobuf` -- Protocol Buffers
+- `graphql` -- GraphQL
+- `json-schema` / `jsonschema` -- JSON Schema
+
+Custom protocols are not yet supported via the CLI; use the TypeScript SDK or Rust API directly for custom protocol definitions.
