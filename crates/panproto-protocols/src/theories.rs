@@ -211,3 +211,244 @@ pub fn th_flat() -> Theory {
         vec![],
     )
 }
+
+// ── Shared theory registration helpers ──────────────────────────────
+
+use panproto_gat::colimit;
+use std::collections::HashMap;
+
+/// Register a **constrained multigraph + W-type** theory pair (Group A).
+///
+/// Schema: `colimit(ThGraph, ThConstraint, ThMulti)`.
+/// Instance: `ThWType`.
+///
+/// Used by: `ATProto`, JSON Schema, `OpenAPI`, `AsyncAPI`, RAML, JSON:API,
+/// `MongoDB`, YAML Schema, TOML Schema, INI, CDDL, BSON, `MsgPack`,
+/// K8s CRD, `CloudFormation`, Ansible, FHIR, RSS/Atom, vCard/iCal,
+/// `GeoJSON`, Markdown, and more.
+pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+    schema_name: &str,
+    instance_name: &str,
+) {
+    let g = th_graph();
+    let c = th_constraint();
+    let m = th_multi();
+    let w = th_wtype();
+
+    registry
+        .entry("ThGraph".into())
+        .or_insert_with(|| g.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThMulti".into())
+        .or_insert_with(|| m.clone());
+    registry
+        .entry("ThWType".into())
+        .or_insert_with(|| w.clone());
+
+    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
+    if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
+        let shared_ve = Theory::new(
+            "ThVertexEdge",
+            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+            vec![],
+            vec![],
+        );
+        if let Ok(mut schema_theory) = colimit(&gc, &m, &shared_ve) {
+            schema_theory.name = schema_name.into();
+            registry.insert(schema_name.into(), schema_theory);
+        }
+    }
+
+    let mut inst = w;
+    inst.name = instance_name.into();
+    registry.insert(instance_name.into(), inst);
+}
+
+/// Register a **hypergraph + functor** theory pair (Group B).
+///
+/// Schema: `colimit(ThHypergraph, ThConstraint)`.
+/// Instance: `ThFunctor`.
+///
+/// Used by: SQL, Cassandra, `DynamoDB`, Parquet, Arrow, `DataFrame`,
+/// CSV/Table Schema, EDI X12, SWIFT MT.
+pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+    schema_name: &str,
+    instance_name: &str,
+) {
+    let h = th_hypergraph();
+    let c = th_constraint();
+    let f = th_functor();
+
+    registry
+        .entry("ThHypergraph".into())
+        .or_insert_with(|| h.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThFunctor".into())
+        .or_insert_with(|| f.clone());
+
+    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
+    if let Ok(mut schema_theory) = colimit(&h, &c, &shared_vertex) {
+        schema_theory.name = schema_name.into();
+        registry.insert(schema_name.into(), schema_theory);
+    }
+
+    let mut inst = f;
+    inst.name = instance_name.into();
+    registry.insert(instance_name.into(), inst);
+}
+
+/// Register a **simple graph + flat** theory pair (Group C).
+///
+/// Schema: `colimit(ThSimpleGraph, ThConstraint)`.
+/// Instance: `ThFlat`.
+///
+/// Used by: Protobuf, Avro, Thrift, Cap'n Proto, `FlatBuffers`,
+/// ASN.1, Bond, Redis, HCL.
+pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+    schema_name: &str,
+    instance_name: &str,
+) {
+    let sg = th_simple_graph();
+    let c = th_constraint();
+    let fl = th_flat();
+
+    registry
+        .entry("ThSimpleGraph".into())
+        .or_insert_with(|| sg.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThFlat".into())
+        .or_insert_with(|| fl.clone());
+
+    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
+    if let Ok(mut schema_theory) = colimit(&sg, &c, &shared_vertex) {
+        schema_theory.name = schema_name.into();
+        registry.insert(schema_name.into(), schema_theory);
+    }
+
+    let mut inst = fl;
+    inst.name = instance_name.into();
+    registry.insert(instance_name.into(), inst);
+}
+
+/// Register a **typed graph + W-type** theory pair with interfaces (Group D).
+///
+/// Schema: `colimit(ThGraph, ThConstraint, ThMulti, ThInterface)`.
+/// Instance: `ThWType`.
+///
+/// Used by: GraphQL, TypeScript, Python, Rust Serde, Java, Go,
+/// Swift, Kotlin, C#, JSX/React, Vue, Svelte.
+pub fn register_typed_graph_wtype<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+    schema_name: &str,
+    instance_name: &str,
+) {
+    let g = th_graph();
+    let c = th_constraint();
+    let m = th_multi();
+    let iface = th_interface();
+    let w = th_wtype();
+
+    registry
+        .entry("ThGraph".into())
+        .or_insert_with(|| g.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThMulti".into())
+        .or_insert_with(|| m.clone());
+    registry
+        .entry("ThInterface".into())
+        .or_insert_with(|| iface.clone());
+    registry
+        .entry("ThWType".into())
+        .or_insert_with(|| w.clone());
+
+    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
+    if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
+        let shared_ve = Theory::new(
+            "ThVertexEdge",
+            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+            vec![],
+            vec![],
+        );
+        if let Ok(gcm) = colimit(&gc, &m, &shared_ve) {
+            let shared_vertex_only =
+                Theory::new("ThVertex2", vec![Sort::simple("Vertex")], vec![], vec![]);
+            if let Ok(mut schema_theory) = colimit(&gcm, &iface, &shared_vertex_only) {
+                schema_theory.name = schema_name.into();
+                registry.insert(schema_name.into(), schema_theory);
+            }
+        }
+    }
+
+    let mut inst = w;
+    inst.name = instance_name.into();
+    registry.insert(instance_name.into(), inst);
+}
+
+/// Register a **constrained multigraph + W-type + metadata** theory pair (Group E).
+///
+/// Schema: `colimit(ThGraph, ThConstraint, ThMulti)`.
+/// Instance: `colimit(ThWType, ThMeta)`.
+///
+/// Used by: XML/XSD, HTML, CSS, DOCX, ODF, Neo4j.
+pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+    schema_name: &str,
+    instance_name: &str,
+) {
+    let g = th_graph();
+    let c = th_constraint();
+    let m = th_multi();
+    let w = th_wtype();
+    let meta = th_meta();
+
+    registry
+        .entry("ThGraph".into())
+        .or_insert_with(|| g.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThMulti".into())
+        .or_insert_with(|| m.clone());
+    registry
+        .entry("ThWType".into())
+        .or_insert_with(|| w.clone());
+    registry
+        .entry("ThMeta".into())
+        .or_insert_with(|| meta.clone());
+
+    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
+    if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
+        let shared_ve = Theory::new(
+            "ThVertexEdge",
+            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+            vec![],
+            vec![],
+        );
+        if let Ok(mut schema_theory) = colimit(&gc, &m, &shared_ve) {
+            schema_theory.name = schema_name.into();
+            registry.insert(schema_name.into(), schema_theory);
+        }
+    }
+
+    let shared_node = Theory::new("ThNode", vec![Sort::simple("Node")], vec![], vec![]);
+    if let Ok(mut inst_theory) = colimit(&w, &meta, &shared_node) {
+        inst_theory.name = instance_name.into();
+        registry.insert(instance_name.into(), inst_theory);
+    }
+}

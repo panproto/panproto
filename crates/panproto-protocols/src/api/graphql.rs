@@ -501,6 +501,164 @@ fn parse_union_def(
     Ok((builder, deferred))
 }
 
+/// Emit a [`Schema`] as a GraphQL SDL string.
+///
+/// Reconstructs type, interface, input, enum, union, scalar, and
+/// subscription declarations from the schema graph.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
+pub fn emit_sdl(schema: &Schema) -> Result<String, ProtocolError> {
+    use crate::emit::{IndentWriter, find_roots};
+
+    let structural = &["field-of", "member-of", "implements", "type-of"];
+    let roots = find_roots(schema, structural);
+
+    let mut w = IndentWriter::new("  ");
+
+    for root in &roots {
+        match root.kind.as_str() {
+            "scalar" => {
+                w.line(&format!("scalar {}", root.id));
+                w.blank();
+            }
+            "type" | "subscription" | "interface" | "input" => {
+                emit_graphql_type_def(schema, root, &mut w);
+            }
+            "enum" => {
+                emit_graphql_enum(schema, root, &mut w);
+            }
+            "union" => {
+                emit_graphql_union(schema, root, &mut w);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(w.finish())
+}
+
+/// Emit a type/interface/input/subscription definition.
+fn emit_graphql_type_def(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+    w: &mut crate::emit::IndentWriter,
+) {
+    use crate::emit::children_by_edge;
+
+    let keyword = match vertex.kind.as_str() {
+        "interface" => "interface",
+        "input" => "input",
+        _ => "type",
+    };
+
+    // Check for implements edges.
+    let implements_edges: Vec<_> = schema
+        .outgoing_edges(&vertex.id)
+        .iter()
+        .filter(|e| e.kind == "implements")
+        .collect();
+
+    let implements_str = if implements_edges.is_empty() {
+        String::new()
+    } else {
+        let ifaces: Vec<&str> = implements_edges.iter().map(|e| e.tgt.as_str()).collect();
+        format!(" implements {}", ifaces.join(" & "))
+    };
+
+    w.line(&format!("{keyword} {}{implements_str} {{", vertex.id));
+    w.indent();
+
+    let fields = children_by_edge(schema, &vertex.id, "field-of");
+    for (edge, field_vertex) in &fields {
+        let field_name = edge.name.as_deref().unwrap_or(&field_vertex.id);
+
+        // Determine the type expression.
+        let type_expr = resolve_graphql_type_expr(schema, field_vertex);
+        w.line(&format!("{field_name}: {type_expr}"));
+    }
+
+    w.dedent();
+    w.line("}");
+    w.blank();
+}
+
+/// Resolve the GraphQL type expression for a field, including `non_null` and list wrappers.
+fn resolve_graphql_type_expr(schema: &Schema, field_vertex: &panproto_schema::Vertex) -> String {
+    use crate::emit::{constraint_value, resolve_type};
+
+    let base = resolve_type(schema, &field_vertex.id).map_or_else(
+        || {
+            match field_vertex.kind.as_str() {
+                "integer" => "Int",
+                "boolean" => "Boolean",
+                "float" => "Float",
+                _ => "String",
+            }
+            .to_string()
+        },
+        |type_vertex| type_vertex.id.clone(),
+    );
+
+    let is_list = constraint_value(schema, &field_vertex.id, "list").is_some_and(|v| v == "true");
+    let is_non_null =
+        constraint_value(schema, &field_vertex.id, "non_null").is_some_and(|v| v == "true");
+
+    let mut result = base;
+    if is_list {
+        result = format!("[{result}]");
+    }
+    if is_non_null {
+        result = format!("{result}!");
+    }
+    result
+}
+
+/// Emit an enum definition.
+fn emit_graphql_enum(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+    w: &mut crate::emit::IndentWriter,
+) {
+    use crate::emit::children_by_edge;
+
+    w.line(&format!("enum {} {{", vertex.id));
+    w.indent();
+
+    let members = children_by_edge(schema, &vertex.id, "member-of");
+    for (edge, _member_vertex) in &members {
+        let val_name = edge.name.as_deref().unwrap_or("UNKNOWN");
+        w.line(val_name);
+    }
+
+    w.dedent();
+    w.line("}");
+    w.blank();
+}
+
+/// Emit a union definition.
+fn emit_graphql_union(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+    w: &mut crate::emit::IndentWriter,
+) {
+    use crate::emit::children_by_edge;
+
+    let members = children_by_edge(schema, &vertex.id, "member-of");
+    let member_names: Vec<&str> = members
+        .iter()
+        .filter_map(|(edge, _)| edge.name.as_deref())
+        .collect();
+
+    w.line(&format!(
+        "union {} = {}",
+        vertex.id,
+        member_names.join(" | ")
+    ));
+    w.blank();
+}
+
 /// Well-formedness rules for GraphQL edges.
 fn edge_rules() -> Vec<EdgeRule> {
     vec![
@@ -722,6 +880,35 @@ union SearchResult = User | Post
                 "enum values should use enum-value kind"
             );
         }
+    }
+
+    #[test]
+    fn emit_sdl_roundtrip() {
+        let sdl = r"
+type User {
+  id: ID
+  name: String
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+}
+";
+        let schema1 = parse_sdl(sdl).expect("first parse should succeed");
+        let emitted = emit_sdl(&schema1).expect("emit should succeed");
+        let schema2 = parse_sdl(&emitted).expect("re-parse should succeed");
+
+        assert_eq!(
+            schema1.vertex_count(),
+            schema2.vertex_count(),
+            "vertex counts should match after round-trip"
+        );
+        assert_eq!(
+            schema1.edge_count(),
+            schema2.edge_count(),
+            "edge counts should match after round-trip"
+        );
     }
 
     #[test]

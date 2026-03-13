@@ -576,6 +576,84 @@ fn extract_constraint_columns_at(upper_str: &str, keyword: &str) -> Option<Vec<S
     if cols.is_empty() { None } else { Some(cols) }
 }
 
+/// Map a vertex kind back to a SQL type name.
+fn kind_to_sql_type(kind: &str) -> &'static str {
+    match kind {
+        "integer" => "INTEGER",
+        "boolean" => "BOOLEAN",
+        "number" => "FLOAT",
+        "bytes" => "BYTEA",
+        "timestamp" => "TIMESTAMP",
+        "date" => "DATE",
+        "uuid" => "UUID",
+        "json" => "JSONB",
+        _ => "TEXT",
+    }
+}
+
+/// Emit a [`Schema`] as SQL DDL `CREATE TABLE` statements.
+///
+/// Reconstructs table definitions from the schema graph, including
+/// column types and constraints (`NOT NULL`, `PRIMARY KEY`, `UNIQUE`,
+/// `DEFAULT`).
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
+pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
+    use std::fmt::Write;
+
+    use crate::emit::{children_by_edge, vertex_constraints};
+
+    let mut output = String::new();
+
+    // Find all table vertices.
+    let mut tables: Vec<&panproto_schema::Vertex> = schema
+        .vertices
+        .values()
+        .filter(|v| v.kind == "table")
+        .collect();
+    tables.sort_by(|a, b| a.id.cmp(&b.id));
+
+    for table in &tables {
+        let _ = writeln!(output, "CREATE TABLE {} (", table.id);
+
+        let columns = children_by_edge(schema, &table.id, "prop");
+        let col_count = columns.len();
+        for (i, (edge, col_vertex)) in columns.iter().enumerate() {
+            let col_name = edge.name.as_deref().unwrap_or(&col_vertex.id);
+            let sql_type = kind_to_sql_type(&col_vertex.kind);
+
+            let mut constraints_str = String::new();
+            let constraints = vertex_constraints(schema, &col_vertex.id);
+            for c in &constraints {
+                match c.sort.as_str() {
+                    "PRIMARY KEY" if c.value == "true" => {
+                        constraints_str.push_str(" PRIMARY KEY");
+                    }
+                    "NOT NULL" if c.value == "true" => {
+                        constraints_str.push_str(" NOT NULL");
+                    }
+                    "UNIQUE" if c.value == "true" => {
+                        constraints_str.push_str(" UNIQUE");
+                    }
+                    "DEFAULT" => {
+                        let _ = write!(constraints_str, " DEFAULT {}", c.value);
+                    }
+                    _ => {}
+                }
+            }
+
+            let comma = if i + 1 < col_count { "," } else { "" };
+            let _ = writeln!(output, "  {col_name} {sql_type}{constraints_str}{comma}");
+        }
+
+        output.push_str(");\n\n");
+    }
+
+    Ok(output)
+}
+
 /// Well-formedness rules for SQL edges.
 fn edge_rules() -> Vec<EdgeRule> {
     vec![
@@ -745,6 +823,32 @@ mod tests {
         let constraints = schema.constraints.get("orders");
         assert!(constraints.is_some());
         assert!(constraints.unwrap().iter().any(|c| c.sort == "PRIMARY KEY"));
+    }
+
+    #[test]
+    fn emit_ddl_roundtrip() {
+        let ddl = r"
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                active BOOLEAN DEFAULT true
+            );
+        ";
+
+        let schema1 = parse_ddl(ddl).expect("first parse should succeed");
+        let emitted = emit_ddl(&schema1).expect("emit should succeed");
+        let schema2 = parse_ddl(&emitted).expect("re-parse should succeed");
+
+        assert_eq!(
+            schema1.vertex_count(),
+            schema2.vertex_count(),
+            "vertex counts should match after round-trip"
+        );
+        assert_eq!(
+            schema1.edge_count(),
+            schema2.edge_count(),
+            "edge counts should match after round-trip"
+        );
     }
 
     #[test]

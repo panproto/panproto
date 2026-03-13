@@ -1,0 +1,140 @@
+# Protocol Catalog {.appendix}
+
+This appendix provides a complete reference for all 54 built-in protocols shipped with panproto. Each entry lists the protocol's native format or file extension, its theory group assignment (A through E), and the names of the parse and emit functions that implement it. The theory group determines which categorical structure underlies the protocol's schema representation and governs which cross-format conversions are lossless.
+
+## Serialization Protocols
+
+| Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
+|---|---|:---:|---|---|
+| Protobuf | `.proto` | C | `parse_protobuf` | `emit_protobuf` |
+| Avro | `.avsc` | C | `parse_avro` | `emit_avro` |
+| Thrift | `.thrift` | C | `parse_thrift` | `emit_thrift` |
+| Cap'n Proto | `.capnp` | C | `parse_capnproto` | `emit_capnproto` |
+| FlatBuffers | `.fbs` | C | `parse_flatbuffers` | `emit_flatbuffers` |
+| ASN.1 | `.asn1` | C | `parse_asn1` | `emit_asn1` |
+| Bond | `.bond` | C | `parse_bond` | `emit_bond` |
+| MsgPack Schema | JSON | A | `parse_msgpack_schema` | `emit_msgpack_schema` |
+
+## Data Schema Protocols
+
+| Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
+|---|---|:---:|---|---|
+| JSON Schema | JSON | A | `parse_json_schema` | `emit_json_schema` |
+| XML/XSD | `.xsd` | E | `parse_xsd` | `emit_xsd` |
+| CSV/Table Schema | JSON | B | `parse_table_schema` | `emit_table_schema` |
+| YAML Schema | YAML | A | `parse_yaml_schema` | `emit_yaml_schema` |
+| TOML Schema | JSON | A | `parse_toml_schema` | `emit_toml_schema` |
+| CDDL | `.cddl` | A | `parse_cddl` | `emit_cddl` |
+| INI Schema | JSON | A | `parse_ini_schema` | `emit_ini_schema` |
+| BSON Schema | JSON | A | `parse_bson_schema` | `emit_bson_schema` |
+
+## API Protocols
+
+| Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
+|---|---|:---:|---|---|
+| GraphQL | `.graphql` | D | `parse_graphql` | `emit_graphql` |
+| OpenAPI | YAML/JSON | A | `parse_openapi` | `emit_openapi` |
+| AsyncAPI | YAML/JSON | A | `parse_asyncapi` | `emit_asyncapi` |
+| RAML | `.raml` | A | `parse_raml` | `emit_raml` |
+| JSON:API | JSON | A | `parse_jsonapi` | `emit_jsonapi` |
+
+## Database Protocols
+
+| Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
+|---|---|:---:|---|---|
+| SQL | `.sql` | B | `parse_sql` | `emit_sql` |
+| MongoDB | JSON | A | `parse_mongodb` | `emit_mongodb` |
+| Cassandra | `.cql` | B | `parse_cassandra` | `emit_cassandra` |
+| DynamoDB | JSON | B | `parse_dynamodb` | `emit_dynamodb` |
+| Neo4j | Cypher | E | `parse_neo4j` | `emit_neo4j` |
+| Redis | FT.CREATE | C | `parse_redis` | `emit_redis` |
+
+## Type System Protocols
+
+| Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
+|---|---|:---:|---|---|
+| TypeScript | `.d.ts` | D | `parse_typescript` | `emit_typescript` |
+| Python (Pydantic) | Pydantic | D | `parse_pydantic` | `emit_pydantic` |
+| Rust Serde | `.rs` | D | `parse_rust_serde` | `emit_rust_serde` |
+| Java | `.java` | D | `parse_java` | `emit_java` |
+| Go | `.go` | D | `parse_go` | `emit_go` |
+| Swift | `.swift` | D | `parse_swift` | `emit_swift` |
+| Kotlin | `.kt` | D | `parse_kotlin` | `emit_kotlin` |
+| C# | `.cs` | D | `parse_csharp` | `emit_csharp` |
+
+## Web and Document Protocols
+
+| Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
+|---|---|:---:|---|---|
+| ATProto | JSON | A | `parse_atproto` | `emit_atproto` |
+| HTML | JSON | E | `parse_html` | `emit_html` |
+| CSS | JSON | E | `parse_css` | `emit_css` |
+| DOCX | JSON | E | `parse_docx` | `emit_docx` |
+| ODF | JSON | E | `parse_odf` | `emit_odf` |
+| Markdown | JSON | A | `parse_markdown` | `emit_markdown` |
+| JSX/React | TSX | D | `parse_jsx` | `emit_jsx` |
+| Vue | `.vue` | D | `parse_vue` | `emit_vue` |
+| Svelte | `.svelte` | D | `parse_svelte` | `emit_svelte` |
+| XML/XSD | `.xsd` | E | `parse_xsd` | `emit_xsd` |
+
+## Data Science Protocols
+
+| Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
+|---|---|:---:|---|---|
+| Parquet | JSON | B | `parse_parquet` | `emit_parquet` |
+| Arrow | JSON | B | `parse_arrow` | `emit_arrow` |
+| DataFrame | JSON | B | `parse_dataframe` | `emit_dataframe` |
+
+## Domain Protocols
+
+| Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
+|---|---|:---:|---|---|
+| GeoJSON | JSON | A | `parse_geojson` | `emit_geojson` |
+| FHIR | JSON | A | `parse_fhir` | `emit_fhir` |
+| RSS/Atom | JSON | A | `parse_rss_atom` | `emit_rss_atom` |
+| vCard/iCal | JSON | A | `parse_vcard_ical` | `emit_vcard_ical` |
+| EDI X12 | JSON | B | `parse_edi_x12` | `emit_edi_x12` |
+| SWIFT MT | JSON | B | `parse_swift_mt` | `emit_swift_mt` |
+
+## Config Protocols
+
+| Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
+|---|---|:---:|---|---|
+| HCL | `.tf` | C | `parse_hcl` | `emit_hcl` |
+| K8s CRD | YAML | A | `parse_k8s_crd` | `emit_k8s_crd` |
+| CloudFormation | JSON | A | `parse_cloudformation` | `emit_cloudformation` |
+| Ansible | YAML | A | `parse_ansible` | `emit_ansible` |
+
+## Theory Groups
+
+Each protocol is assigned to one of five theory groups. The group determines the categorical theory used to represent the protocol's schema internally and governs how models migrate between protocols.
+
+| Group | Theory Combination | Description |
+|:---:|---|---|
+| A | `colimit(ThGraph, ThConstraint, ThMulti)` + `ThWType` | Constrained multigraph with W-types. The most general setting for hierarchical, constraint-bearing schemas expressed in JSON or YAML surface syntax. |
+| B | `colimit(ThHypergraph, ThConstraint)` + `ThFunctor` | Hypergraph with functorial structure. Used for tabular and relational schemas where rows, columns, and foreign-key relationships are first-class. |
+| C | `colimit(ThSimpleGraph, ThConstraint)` + `ThFlat` | Simple graph with flat structure. Used for binary wire formats and IDL-defined schemas that lack recursive or dependent types. |
+| D | `colimit(ThGraph, ThConstraint, ThMulti, ThInterface)` + `ThWType` | Typed graph with interfaces and W-types. Used for host-language type systems that support interfaces, generics, and recursive types. |
+| E | `colimit(ThGraph, ThConstraint, ThMulti)` + `colimit(ThWType, ThMeta)` | Multigraph with W-types and meta-level structure. Used for document and markup formats where presentation, content, and schema are interleaved. |
+
+The theory group of a protocol is determined by the expressive requirements of its schema language, not by its surface syntax. Two protocols with different surface syntaxes may share a theory group if they require the same categorical structure.
+
+## Cross-Format Compatibility
+
+Conversions between protocols in the same theory group are **lossless**: both the parse and emit functors factor through the same internal representation, so no information is destroyed in the round-trip. For example, migrating a schema from JSON Schema (Group A) to OpenAPI (Group A) to YAML Schema (Group A) and back yields the original schema up to syntactic normalization.
+
+Conversions between protocols in different theory groups are **lossy in general**: the target theory may lack the expressive capacity to represent all structures definable in the source theory. The direction and degree of loss depend on the relationship between the two groups.
+
+| Source Group | Target Group | Typical Loss |
+|:---:|:---:|---|
+| A | B | Recursive and W-type structure is flattened; only the relational skeleton is preserved. |
+| A | C | Constraints and multi-edges are preserved; W-type recursion is unrolled to a fixed depth. |
+| A | D | Lossless for schemas that fit within a typed-graph model; interface declarations are synthesized. |
+| A | E | Lossless for schema content; meta-level presentation markup is synthesized with defaults. |
+| D | A | Interface and generic structure is erased; the remaining graph and W-type content is preserved. |
+| D | C | Interface and W-type structure is flattened; only the simple-graph skeleton is preserved. |
+| E | A | Meta-level markup is stripped; schema content is preserved. |
+| B | A | Hyperedges are decomposed into binary edges; functorial structure is encoded as constraints. |
+| C | A | Flat structure is embedded; W-type positions are left empty. |
+
+When a lossy conversion is required, panproto emits a diagnostic listing which structures were approximated and what information was discarded. Lossless conversions produce no diagnostics.

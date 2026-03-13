@@ -312,18 +312,31 @@ to coexist with structural information.
 
 We can now classify schema languages by the graph structure they require:
 
-| Schema Language   | Minimum Graph Structure       | Why                                                    |
-|-------------------|-------------------------------|--------------------------------------------------------|
-| JSON Schema       | Multigraph + constraints      | Parallel properties to same type; rich constraint set   |
-| Protobuf          | Multigraph                    | Parallel fields to same type; few built-in constraints  |
-| SQL DDL           | Hypergraph + constraints      | Foreign keys are multi-ary; CHECK, NOT NULL, etc.       |
-| GraphQL SDL       | Multigraph + constraints      | Parallel fields; nullability as constraint              |
-| ATProto Lexicon   | Multigraph + constraints      | Parallel properties; maxLength, maxGraphemes, etc.      |
+| Schema Language   | Minimum Graph Structure              | Theory Group | Why                                                          |
+|-------------------|--------------------------------------|--------------|--------------------------------------------------------------|
+| JSON Schema       | Multigraph + constraints             | A            | Parallel properties to same type; rich constraint set        |
+| Protobuf          | Simple graph (Multigraph)            | C            | Parallel fields to same type; few built-in constraints       |
+| SQL DDL           | Hypergraph + constraints             | B            | Foreign keys are multi-ary; CHECK, NOT NULL, etc.            |
+| GraphQL SDL       | Multigraph + constraints             | D            | Parallel fields; nullability as constraint                   |
+| ATProto Lexicon   | Multigraph + constraints             | A            | Parallel properties; maxLength, maxGraphemes, etc.           |
+| Avro              | Simple graph (Multigraph)            | C            | Parallel fields; Group C simple graph                        |
+| TypeScript        | Multigraph + constraints             | D            | Interfaces, generics; typed graph                            |
+| Cassandra CQL     | Hypergraph + constraints             | B            | Compound partition keys; multi-ary key structure             |
+| XML/XSD           | Multigraph + constraints + metadata  | E            | Element/attribute duality; meta-level annotations            |
+| OpenAPI           | Multigraph + constraints             | A            | Path parameters, schemas; rich constraint vocabulary         |
 
 Notice that no schema language we've examined requires only a simple directed
 graph. The moment you allow two fields of the same type (which is... always),
-you need at least a multigraph. SQL's foreign keys push the requirement to
-hypergraphs.
+you need at least a multigraph. SQL's and Cassandra's compound keys push the
+requirement to hypergraphs. XML/XSD's element-attribute duality introduces a
+meta-level that requires annotations beyond ordinary constraints.
+
+These ten protocols are a representative sample. panproto organizes its full
+set of 54 protocols into 5 theory groups based on the graph structure they
+require—from Group C (simple multigraphs, e.g. Protobuf, Avro, Thrift) through
+Group E (multigraphs with constraint and metadata layers, e.g. XML/XSD, HTML).
+The taxonomy extends uniformly to all 54 protocols; see
+@sec-protocol-catalog for the complete catalog with theory group assignments.
 
 This taxonomy explains a pattern you've probably noticed in the ecosystem:
 schema tools tend to be protocol-specific. **Buf** is excellent for Protobuf.

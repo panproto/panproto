@@ -466,6 +466,164 @@ fn parse_constraints(
     builder
 }
 
+/// Emit a [`Schema`] as an `ATProto` lexicon JSON value.
+///
+/// Reconstructs the lexicon document from the schema graph, including
+/// the record body, properties, and constraints.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
+pub fn emit_lexicon(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
+    // Find the root record vertex (has an nsid).
+    let root = schema
+        .vertices
+        .values()
+        .find(|v| v.nsid.is_some())
+        .ok_or_else(|| ProtocolError::Emit("no root vertex with nsid found".into()))?;
+
+    let nsid = root.nsid.as_deref().unwrap_or(&root.id);
+
+    let mut defs = serde_json::Map::new();
+
+    // Build the main definition.
+    let main_def = emit_lexicon_def(schema, root)?;
+    defs.insert("main".to_string(), main_def);
+
+    Ok(serde_json::json!({
+        "lexicon": 1,
+        "id": nsid,
+        "defs": defs
+    }))
+}
+
+/// Emit a single lexicon definition as a JSON value.
+fn emit_lexicon_def(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+) -> Result<serde_json::Value, ProtocolError> {
+    use crate::emit::{children_by_edge, vertex_constraints};
+
+    match vertex.kind.as_str() {
+        "record" => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".to_string(), serde_json::json!("record"));
+
+            // Walk record-schema edge to get body object.
+            let body_edges = children_by_edge(schema, &vertex.id, "record-schema");
+            if let Some((_, body_vertex)) = body_edges.first() {
+                let body = emit_lexicon_object(schema, body_vertex)?;
+                obj.insert("record".to_string(), body);
+            }
+
+            Ok(serde_json::Value::Object(obj))
+        }
+        "object" => emit_lexicon_object(schema, vertex),
+        "array" => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".to_string(), serde_json::json!("array"));
+
+            let items_edges = children_by_edge(schema, &vertex.id, "items");
+            if let Some((_, items_vertex)) = items_edges.first() {
+                let items_val = emit_lexicon_def(schema, items_vertex)?;
+                obj.insert("items".to_string(), items_val);
+            }
+
+            Ok(serde_json::Value::Object(obj))
+        }
+        "union" => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".to_string(), serde_json::json!("union"));
+
+            let variants = children_by_edge(schema, &vertex.id, "variant");
+            let refs: Vec<serde_json::Value> = variants
+                .iter()
+                .filter_map(|(edge, _)| edge.name.as_deref().map(|n| serde_json::json!(n)))
+                .collect();
+            if !refs.is_empty() {
+                obj.insert("refs".to_string(), serde_json::Value::Array(refs));
+            }
+
+            Ok(serde_json::Value::Object(obj))
+        }
+        _ => {
+            // Scalar types: string, integer, boolean, etc.
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".to_string(), serde_json::json!(vertex.kind.as_str()));
+
+            // Add constraints.
+            let constraints = vertex_constraints(schema, &vertex.id);
+            for c in &constraints {
+                let val = emit_constraint_value(c);
+                obj.insert(c.sort.clone(), val);
+            }
+
+            Ok(serde_json::Value::Object(obj))
+        }
+    }
+}
+
+/// Emit an object definition with properties.
+fn emit_lexicon_object(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+) -> Result<serde_json::Value, ProtocolError> {
+    use crate::emit::children_by_edge;
+
+    let mut obj = serde_json::Map::new();
+    obj.insert("type".to_string(), serde_json::json!("object"));
+
+    let props = children_by_edge(schema, &vertex.id, "prop");
+    if !props.is_empty() {
+        let mut properties = serde_json::Map::new();
+        for (edge, prop_vertex) in &props {
+            let prop_name = edge.name.as_deref().unwrap_or(&prop_vertex.id);
+            let prop_val = emit_lexicon_def(schema, prop_vertex)?;
+            properties.insert(prop_name.to_string(), prop_val);
+        }
+        obj.insert(
+            "properties".to_string(),
+            serde_json::Value::Object(properties),
+        );
+    }
+
+    // Reconstruct required fields from schema.required.
+    if let Some(req_edges) = schema.required.get(&vertex.id) {
+        let required: Vec<serde_json::Value> = req_edges
+            .iter()
+            .filter_map(|e| e.name.as_deref().map(|n| serde_json::json!(n)))
+            .collect();
+        if !required.is_empty() {
+            obj.insert("required".to_string(), serde_json::Value::Array(required));
+        }
+    }
+
+    Ok(serde_json::Value::Object(obj))
+}
+
+/// Convert a constraint to a JSON value, using numbers where appropriate.
+fn emit_constraint_value(c: &panproto_schema::Constraint) -> serde_json::Value {
+    match c.sort.as_str() {
+        "minLength" | "maxLength" | "minimum" | "maximum" | "maxGraphemes" => c
+            .value
+            .parse::<i64>()
+            .map_or_else(|_| serde_json::json!(c.value), |n| serde_json::json!(n)),
+        "closed" => c
+            .value
+            .parse::<bool>()
+            .map_or_else(|_| serde_json::json!(c.value), |b| serde_json::json!(b)),
+        "enum" => {
+            let vals: Vec<serde_json::Value> = c
+                .value
+                .split(',')
+                .map(|s| serde_json::json!(s.trim()))
+                .collect();
+            serde_json::Value::Array(vals)
+        }
+        _ => serde_json::json!(c.value),
+    }
+}
+
 /// Well-formedness rules for `ATProto` edges.
 fn edge_rules() -> Vec<EdgeRule> {
     vec![
@@ -600,6 +758,48 @@ mod tests {
         assert!(
             schema.is_some_and(|s| s.has_vertex("app.bsky.feed.post:body.createdAt")),
             "createdAt vertex should exist"
+        );
+    }
+
+    #[test]
+    fn emit_lexicon_roundtrip() {
+        let lexicon = serde_json::json!({
+            "lexicon": 1,
+            "id": "app.bsky.feed.post",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "record": {
+                        "type": "object",
+                        "required": ["text", "createdAt"],
+                        "properties": {
+                            "text": {
+                                "type": "string",
+                                "maxLength": 3000,
+                                "maxGraphemes": 300
+                            },
+                            "createdAt": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let schema1 = parse_lexicon(&lexicon).expect("first parse should succeed");
+        let emitted = emit_lexicon(&schema1).expect("emit should succeed");
+        let schema2 = parse_lexicon(&emitted).expect("re-parse should succeed");
+
+        assert_eq!(
+            schema1.vertex_count(),
+            schema2.vertex_count(),
+            "vertex counts should match after round-trip"
+        );
+        assert_eq!(
+            schema1.edge_count(),
+            schema2.edge_count(),
+            "edge counts should match after round-trip"
         );
     }
 

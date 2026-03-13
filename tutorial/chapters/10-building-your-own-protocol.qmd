@@ -1,6 +1,6 @@
 # Building Your Own Protocol
 
-So far we have worked with protocols that panproto ships out of the box—ATProto, SQL, Protobuf, GraphQL, JSON Schema. But panproto is not a fixed catalog. It is a toolkit for building schema languages, and the mechanism for doing so is the *colimit* of theories.
+So far we have worked with protocols that panproto ships out of the box—54 protocols across 9 categories—serialization, data schemas, APIs, databases, type systems, web/document formats, data science, domain-specific, and configuration. But panproto is not a fixed catalog. It is a toolkit for building schema languages, and the mechanism for doing so is the *colimit* of theories.
 
 This chapter shows how to define a new protocol from scratch by composing reusable component theories, and how the full machinery—migrations, existence checking, diff, lifting—comes along for free.
 
@@ -121,11 +121,38 @@ panproto ships with a library of reusable component theories designed to be comp
 | **ThMeta** | Meta-level annotations (documentation, deprecation) |
 | **ThFlat** | Flat key-value records (no nesting) |
 
-Every protocol panproto ships—ATProto, SQL, Protobuf, GraphQL, JSON Schema—is defined as a colimit of theories from this library. The library is not closed; you can define your own component theories and use them in colimits alongside the built-in ones.
+Every protocol panproto ships is defined as a colimit of theories from this library. The library is not closed; you can define your own component theories and use them in colimits alongside the built-in ones.
 
 :::{.callout-note}
 The compositional nature of colimits means that if two protocols share a component theory, panproto can automatically construct a partial translation between them. This is the foundation for cross-protocol migration, which we touched on in @sec-migration-by-hand and which becomes fully systematic once you see protocols as colimits.
 :::
+
+### All Protocols as Colimits
+
+Every one of panproto's 54 built-in protocols falls into one of five theory
+groups, determined by which component theories its colimit requires. The table
+below summarizes the groups; the instance theory column names the theory used
+to represent data (instances) for schemas in that group.
+
+| Theory Group | Schema Theory | Instance Theory | Protocol Count | Examples |
+|---|---|---|---|---|
+| A | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | 20 | ATProto, JSON Schema, OpenAPI, FHIR |
+| B | colimit(ThHypergraph, ThConstraint) | ThFunctor | 8 | SQL, Cassandra, Parquet, CSV |
+| C | colimit(ThSimpleGraph, ThConstraint) | ThFlat | 9 | Protobuf, Avro, Thrift, HCL |
+| D | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | 12 | GraphQL, TypeScript, Python, Java |
+| E | colimit(ThGraph, ThConstraint, ThMulti) | colimit(ThWType, ThMeta) | 6 | XML/XSD, HTML, CSS, Neo4j |
+
+: The five theory groups organising panproto's 54 built-in protocols. {#tbl-protocol-groups}
+
+Group membership determines which generic algorithms apply and how cross-group
+migrations are constructed—for instance, migrating from a Group C protocol
+(Protobuf) to a Group A protocol (JSON Schema) requires a theory morphism that
+embeds the simpler `ThSimpleGraph` into the richer
+`colimit(ThGraph, ThConstraint, ThMulti)`. The migration morphism itself
+remains the same kind of graph homomorphism described throughout this tutorial.
+
+See @sec-protocol-catalog for the complete catalog of all 54 protocols with
+their theory group assignments.
 
 ## Summary
 

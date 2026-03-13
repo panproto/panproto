@@ -54,13 +54,110 @@ An annotated summary of the public API surface. For full documentation, see the 
 
 ### Built-in Protocol Specs
 
-| Constant | Protocol |
-|----------|----------|
-| `ATPROTO_SPEC` | AT Protocol (Bluesky Lexicon) |
-| `SQL_SPEC` | SQL DDL (relational schemas) |
-| `PROTOBUF_SPEC` | Protocol Buffers |
-| `GRAPHQL_SPEC` | GraphQL SDL |
-| `JSON_SCHEMA_SPEC` | JSON Schema |
+All 54 built-in protocols are accessible via named constants. Every protocol supports bidirectional conversion: a `parse_*` function reads a source document into a panproto schema, and a matching `emit_*` function writes a panproto schema back out to that format. The emit functions are new — all protocols now have full parse + emit support.
+
+**Serialization**
+
+| Constant | Protocol | Parse / Emit |
+|----------|----------|--------------|
+| `PROTOBUF_SPEC` | Protocol Buffers | `parse_proto` / `emit_proto` |
+| `AVRO_SPEC` | Apache Avro | `parse_avsc` / `emit_avsc` |
+| `THRIFT_SPEC` | Apache Thrift | `parse_thrift` / `emit_thrift` |
+| `CAPNPROTO_SPEC` | Cap'n Proto | `parse_capnp` / `emit_capnp` |
+| `FLATBUFFERS_SPEC` | FlatBuffers | `parse_fbs` / `emit_fbs` |
+| `ASN1_SPEC` | ASN.1 | `parse_asn1` / `emit_asn1` |
+| `BOND_SPEC` | Microsoft Bond | `parse_bond` / `emit_bond` |
+| `MSGPACK_SPEC` | MsgPack Schema | `parse_msgpack_schema` / `emit_msgpack_schema` |
+
+**Data Schema**
+
+| Constant | Protocol | Parse / Emit |
+|----------|----------|--------------|
+| `JSON_SCHEMA_SPEC` | JSON Schema | `parse_json_schema` / `emit_json_schema` |
+| `XML_SCHEMA_SPEC` | XML / XSD | `parse_xsd` / `emit_xsd` |
+| `CSV_SCHEMA_SPEC` | CSV / Table Schema | `parse_tableschema` / `emit_tableschema` |
+| `YAML_SCHEMA_SPEC` | YAML Schema | `parse_yaml_schema` / `emit_yaml_schema` |
+| `TOML_SCHEMA_SPEC` | TOML Schema | `parse_toml_schema` / `emit_toml_schema` |
+| `CDDL_SPEC` | CDDL | `parse_cddl` / `emit_cddl` |
+| `INI_SCHEMA_SPEC` | INI Schema | `parse_ini_schema` / `emit_ini_schema` |
+| `BSON_SCHEMA_SPEC` | BSON Schema | `parse_bson_schema` / `emit_bson_schema` |
+
+**API**
+
+| Constant | Protocol | Parse / Emit |
+|----------|----------|--------------|
+| `GRAPHQL_SPEC` | GraphQL SDL | `parse_graphql` / `emit_graphql` |
+| `OPENAPI_SPEC` | OpenAPI | `parse_openapi` / `emit_openapi` |
+| `ASYNCAPI_SPEC` | AsyncAPI | `parse_asyncapi` / `emit_asyncapi` |
+| `RAML_SPEC` | RAML | `parse_raml` / `emit_raml` |
+| `JSONAPI_SPEC` | JSON:API | `parse_jsonapi` / `emit_jsonapi` |
+
+**Database**
+
+| Constant | Protocol | Parse / Emit |
+|----------|----------|--------------|
+| `SQL_SPEC` | SQL DDL | `parse_sql` / `emit_sql` |
+| `MONGODB_SPEC` | MongoDB | `parse_mongo` / `emit_mongo` |
+| `CASSANDRA_SPEC` | Cassandra | `parse_cassandra` / `emit_cassandra` |
+| `DYNAMODB_SPEC` | DynamoDB | `parse_dynamo` / `emit_dynamo` |
+| `NEO4J_SPEC` | Neo4j | `parse_neo4j` / `emit_neo4j` |
+| `REDIS_SPEC` | Redis | `parse_redis` / `emit_redis` |
+
+**Type Systems**
+
+| Constant | Protocol | Parse / Emit |
+|----------|----------|--------------|
+| `TYPESCRIPT_SPEC` | TypeScript | `parse_typescript` / `emit_typescript` |
+| `PYTHON_SPEC` | Python | `parse_python` / `emit_python` |
+| `RUST_SERDE_SPEC` | Rust Serde | `parse_rust_serde` / `emit_rust_serde` |
+| `JAVA_SPEC` | Java | `parse_java` / `emit_java` |
+| `GO_SPEC` | Go | `parse_go` / `emit_go` |
+| `SWIFT_SPEC` | Swift | `parse_swift` / `emit_swift` |
+| `KOTLIN_SPEC` | Kotlin | `parse_kotlin` / `emit_kotlin` |
+| `CSHARP_SPEC` | C# | `parse_csharp` / `emit_csharp` |
+
+**Web / Document**
+
+| Constant | Protocol | Parse / Emit |
+|----------|----------|--------------|
+| `ATPROTO_SPEC` | AT Protocol (Bluesky Lexicon) | `parse_atproto` / `emit_atproto` |
+| `HTML_SPEC` | HTML | `parse_html` / `emit_html` |
+| `CSS_SPEC` | CSS | `parse_css` / `emit_css` |
+| `DOCX_SPEC` | DOCX | `parse_docx` / `emit_docx` |
+| `ODF_SPEC` | ODF | `parse_odf` / `emit_odf` |
+| `MARKDOWN_SPEC` | Markdown | `parse_markdown` / `emit_markdown` |
+| `JSX_SPEC` | JSX / React | `parse_jsx` / `emit_jsx` |
+| `VUE_SPEC` | Vue | `parse_vue` / `emit_vue` |
+| `SVELTE_SPEC` | Svelte | `parse_svelte` / `emit_svelte` |
+| `XML_SPEC` | XML / XSD | `parse_xml` / `emit_xml` |
+
+**Data Science**
+
+| Constant | Protocol | Parse / Emit |
+|----------|----------|--------------|
+| `PARQUET_SPEC` | Parquet | `parse_parquet` / `emit_parquet` |
+| `ARROW_SPEC` | Arrow | `parse_arrow` / `emit_arrow` |
+| `DATAFRAME_SPEC` | DataFrame | `parse_dataframe` / `emit_dataframe` |
+
+**Domain**
+
+| Constant | Protocol | Parse / Emit |
+|----------|----------|--------------|
+| `GEOJSON_SPEC` | GeoJSON | `parse_geojson` / `emit_geojson` |
+| `FHIR_SPEC` | FHIR | `parse_fhir` / `emit_fhir` |
+| `RSS_SPEC` | RSS / Atom | `parse_rss` / `emit_rss` |
+| `VCARD_SPEC` | vCard / iCal | `parse_vcard` / `emit_vcard` |
+| `EDI_X12_SPEC` | EDI X12 | `parse_edi_x12` / `emit_edi_x12` |
+| `SWIFT_MT_SPEC` | SWIFT MT | `parse_swift_mt` / `emit_swift_mt` |
+
+**Config**
+
+| Constant | Protocol | Parse / Emit |
+|----------|----------|--------------|
+| `HCL_SPEC` | HCL | `parse_hcl` / `emit_hcl` |
+| `K8S_CRD_SPEC` | Kubernetes CRD | `parse_k8s_crd` / `emit_k8s_crd` |
+| `CLOUDFORMATION_SPEC` | CloudFormation | `parse_cloudformation` / `emit_cloudformation` |
+| `ANSIBLE_SPEC` | Ansible | `parse_ansible` / `emit_ansible` |
 
 ## Rust (`panproto-core`)
 
@@ -119,3 +216,14 @@ An annotated summary of the public API surface. For full documentation, see the 
 | `put(lens, view, complement)` → `Source` | Apply the backward direction, restoring the source. |
 | `from_combinators(steps)` → `Result<Lens, LensError>` | Build a lens from a sequence of combinators. |
 | `check_laws(lens)` → `LawReport` | Verify that a lens satisfies the get-put and put-get laws. |
+
+### `panproto_emit` — Emit Helpers
+
+The shared `emit` module provides utilities used by all `emit_*` functions. Protocol authors implementing a custom emitter should build on these primitives.
+
+| Item | Description |
+|------|-------------|
+| `find_roots(schema)` → `Vec<VertexId>` | Return all vertices with no incoming edges — the natural entry points for top-down emission. |
+| `children_by_edge(schema, vertex)` → `Vec<(EdgeId, VertexId)>` | List the outgoing edges and their target vertices for a given vertex, in declaration order. |
+| `constraint_value(schema, edge, key)` → `Option<Value>` | Look up a named constraint on an edge (e.g. a field's default value or cardinality bound). |
+| `IndentWriter` | A write adapter that tracks indentation depth and inserts consistent leading whitespace, suitable for text-based emitters. |

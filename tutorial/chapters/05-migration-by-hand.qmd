@@ -288,6 +288,33 @@ Different communities use different words for the operations we've described:
 panproto's terminology is closest to @litt2022's Cambria project, which was an important practical inspiration. The key difference is that Cambria hardcodes its schema language and migration semantics, while panproto parameterizes both by theories.
 
 
+## Cross-Format Migration: Parse, Migrate, Emit
+
+Everything in this chapter has focused on migration *within* a single protocol:
+a v1 ATProto schema to a v2 ATProto schema, or a v1 SQL schema to a v2 SQL
+schema. But the same machinery supports migration *across* protocols.
+
+Because panproto represents every schema as a graph regardless of its origin
+format, you can migrate between formats by composing three steps:
+
+1. **Parse** a Protobuf schema into a schema graph (a model of the Protobuf
+   theory, `colimit(ThSimpleGraph, ThConstraint)`).
+2. **Build a migration morphism** that maps Protobuf concepts to Avro
+   concepts—vertex by vertex and edge by edge—producing a graph homomorphism
+   from the Protobuf schema theory into the Avro schema theory.
+3. **Emit** the result as an Avro schema by applying the Avro emitter to the
+   target graph.
+
+The migration morphism in step 2 is the same kind of object as the
+intra-protocol migrations we've been building throughout this chapter. What
+differs is that the source and target schemas now belong to *different*
+protocols. panproto validates that the morphism respects both theories and that
+any constraints present in the source are satisfiable in the target.
+
+See @sec-format-conversion for a comprehensive treatment of cross-format
+conversion.
+
+
 ## Summary
 
 - A **migration** is a structure-preserving map (vertex map + edge map) from an old schema to a new schema.

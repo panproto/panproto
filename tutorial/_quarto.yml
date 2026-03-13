@@ -43,11 +43,13 @@ book:
       chapters:
         - chapters/10-building-your-own-protocol.qmd
         - chapters/11-self-description.qmd
+        - chapters/12-format-conversion.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-category-theory-cheatsheet.qmd
         - appendices/B-api-reference.qmd
         - appendices/C-guide-to-the-literature.qmd
+        - appendices/D-protocol-catalog.qmd
 
 bibliography: references.bib
 csl: https://raw.githubusercontent.com/citation-style-language/styles/master/chicago-author-date.csl

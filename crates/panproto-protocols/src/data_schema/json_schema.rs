@@ -320,6 +320,147 @@ fn json_type_to_kind(type_str: &str) -> String {
     .to_string()
 }
 
+/// Map a vertex kind back to a JSON Schema type keyword.
+fn kind_to_json_type(kind: &str) -> &'static str {
+    match kind {
+        "string" => "string",
+        "integer" => "integer",
+        "boolean" => "boolean",
+        "array" => "array",
+        "unknown" => "null",
+        _ => "object",
+    }
+}
+
+/// Emit a [`Schema`] as a JSON Schema document.
+///
+/// Reconstructs the JSON Schema from the schema graph, including
+/// properties, items, type keywords, and validation constraints.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
+pub fn emit_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
+    // The root vertex is "root".
+    let root = schema
+        .vertices
+        .get("root")
+        .ok_or_else(|| ProtocolError::Emit("no root vertex found".into()))?;
+
+    emit_json_schema_vertex(schema, root)
+}
+
+/// Emit a single vertex as a JSON Schema value.
+fn emit_json_schema_vertex(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+) -> Result<serde_json::Value, ProtocolError> {
+    use crate::emit::{children_by_edge, vertex_constraints};
+
+    let mut obj = serde_json::Map::new();
+
+    // Handle union vertices (type array).
+    if vertex.kind == "union" {
+        let variants = children_by_edge(schema, &vertex.id, "variant");
+        let types: Vec<serde_json::Value> = variants
+            .iter()
+            .map(|(_edge, v)| {
+                let type_str = kind_to_json_type(&v.kind);
+                serde_json::json!(type_str)
+            })
+            .collect();
+        if !types.is_empty() {
+            obj.insert("type".to_string(), serde_json::Value::Array(types));
+        }
+        return Ok(serde_json::Value::Object(obj));
+    }
+
+    // Set type keyword.
+    let json_type = kind_to_json_type(&vertex.kind);
+    obj.insert("type".to_string(), serde_json::json!(json_type));
+
+    // Add constraints.
+    let constraints = vertex_constraints(schema, &vertex.id);
+    for c in &constraints {
+        match c.sort.as_str() {
+            "type" => {
+                // Already handled above.
+            }
+            "minLength" | "maxLength" | "minimum" | "maximum" => {
+                if let Ok(n) = c.value.parse::<i64>() {
+                    obj.insert(c.sort.clone(), serde_json::json!(n));
+                } else {
+                    obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                }
+            }
+            "enum" => {
+                let vals: Vec<serde_json::Value> = c
+                    .value
+                    .split(',')
+                    .map(|s| serde_json::json!(s.trim()))
+                    .collect();
+                obj.insert("enum".to_string(), serde_json::Value::Array(vals));
+            }
+            "const" => {
+                obj.insert("const".to_string(), serde_json::json!(c.value));
+            }
+            "additionalProperties" => {
+                if c.value == "false" {
+                    obj.insert("additionalProperties".to_string(), serde_json::json!(false));
+                }
+            }
+            _ => {
+                obj.insert(c.sort.clone(), serde_json::json!(c.value));
+            }
+        }
+    }
+
+    // Handle properties (object type).
+    let props = children_by_edge(schema, &vertex.id, "prop");
+    if !props.is_empty() {
+        let mut properties = serde_json::Map::new();
+        for (edge, prop_vertex) in &props {
+            let prop_name = edge.name.as_deref().unwrap_or(&prop_vertex.id);
+            // Skip additionalProperties vertex (handled as constraint).
+            if prop_name == "additionalProperties" {
+                continue;
+            }
+            let prop_val = emit_json_schema_vertex(schema, prop_vertex)?;
+            properties.insert(prop_name.to_string(), prop_val);
+        }
+        if !properties.is_empty() {
+            obj.insert(
+                "properties".to_string(),
+                serde_json::Value::Object(properties),
+            );
+        }
+    }
+
+    // Handle items (array type).
+    let items = children_by_edge(schema, &vertex.id, "items");
+    if let Some((_, items_vertex)) = items.first() {
+        let items_val = emit_json_schema_vertex(schema, items_vertex)?;
+        obj.insert("items".to_string(), items_val);
+    }
+
+    // Handle variant edges for oneOf/anyOf/allOf.
+    let variants = children_by_edge(schema, &vertex.id, "variant");
+    if !variants.is_empty() {
+        // Group variants by their edge name (combiner keyword).
+        let mut combiners: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
+        for (edge, variant_vertex) in &variants {
+            let combiner = edge.name.as_deref().unwrap_or("oneOf");
+            let val = emit_json_schema_vertex(schema, variant_vertex)?;
+            combiners.entry(combiner.to_string()).or_default().push(val);
+        }
+        for (key, schemas) in &combiners {
+            obj.insert(key.clone(), serde_json::Value::Array(schemas.clone()));
+        }
+    }
+
+    Ok(serde_json::Value::Object(obj))
+}
+
 /// Well-formedness rules for JSON Schema edges.
 fn edge_rules() -> Vec<EdgeRule> {
     vec![
@@ -368,6 +509,38 @@ mod tests {
         register_theories(&mut registry);
         assert!(registry.contains_key("ThJsonSchemaSchema"));
         assert!(registry.contains_key("ThJsonSchemaInstance"));
+    }
+
+    #[test]
+    fn emit_schema_roundtrip() {
+        let schema_json = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "maxLength": 100
+                },
+                "age": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            }
+        });
+
+        let schema1 = parse_schema(&schema_json).expect("first parse should succeed");
+        let emitted = emit_schema(&schema1).expect("emit should succeed");
+        let schema2 = parse_schema(&emitted).expect("re-parse should succeed");
+
+        assert_eq!(
+            schema1.vertex_count(),
+            schema2.vertex_count(),
+            "vertex counts should match after round-trip"
+        );
+        assert_eq!(
+            schema1.edge_count(),
+            schema2.edge_count(),
+            "edge counts should match after round-trip"
+        );
     }
 
     #[test]

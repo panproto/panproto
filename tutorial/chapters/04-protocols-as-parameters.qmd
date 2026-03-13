@@ -2,7 +2,9 @@
 
 In the previous chapter, we saw that a *theory* defines an interface: a collection of sorts, operations, and axioms that any conforming model must satisfy. Theories let us talk about "categories," "graphs," "constraints," and so on without committing to a particular representation. In this chapter, we put that machinery to work by asking a sharper question: **what is a protocol?**
 
-The answer in panproto is surprisingly concise. A protocol is a pair of theories---one controlling the shape of schemas, and one controlling the shape of data. Everything else---migration, diffing, breaking-change detection, bidirectional lenses---is derived from that pair bymechanical reasoning. You do not write protocol-specific logic. You declare two theories and let the engine do the rest.
+The answer in panproto is surprisingly concise. A protocol is a pair of theories---one controlling the shape of schemas, and one controlling the shape of data. Everything else---migration, diffing, breaking-change detection, bidirectional lenses---is derived from that pair by mechanical reasoning. You do not write protocol-specific logic. You declare two theories and let the engine do the rest.
+
+panproto currently supports **54 protocols** organized into **five theory groups**, each defined by a characteristic schema theory and instance theory combination.
 
 
 ## The Two-Parameter Architecture
@@ -13,31 +15,88 @@ Every protocol that panproto supports is described by exactly two parameters:
 
 2. **Instance theory**: the algebraic theory whose models are data instances conforming to a schema. This determines what "a record" or "a row" looks like once you have a schema in hand.
 
-The following table catalogues several protocols and their decomposition into this two-parameter form. Don't worry about parsing every entry right now; the goal is to see the *pattern*. Each row is a protocol. Each protocol is fully characterized by its schema theory, its instance theory, and a restriction operator that implements migration.
+The following table catalogues all 54 protocols and their decomposition into this two-parameter form. The protocols are grouped by their shared (schema theory, instance theory) signature; within each group every row is an instance of the same theoretical machinery. Each row is a protocol fully characterized by its schema theory, its instance theory, and a restriction operator that implements migration.
 
 | Protocol | Schema Theory | Instance Theory | Restrict |
 |----------|--------------|----------------|----------|
-| CQL | ThCategory | ThFunctor | $\Delta_F$ (precomposition) |
+| **Group A: Constrained Multigraph + W-Type (20 protocols)** | | | |
 | ATProto | colimit(ThGraph, ThConstraint, ThMulti) | ThWType + ThMeta | Sig. restriction + BFS + contraction |
-| SQL | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ |
-| Protobuf | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
-| GraphQL | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
 | JSON Schema | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| OpenAPI | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| AsyncAPI | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| RAML | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| JSON:API | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| MongoDB | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| YAML Schema | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| TOML Schema | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| INI Schema | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| CDDL | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| BSON Schema | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| MsgPack Schema | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| K8s CRD | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| CloudFormation | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| Ansible | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| FHIR | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| RSS/Atom | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| vCard/iCal | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| GeoJSON | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| Markdown | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| **Group B: Hypergraph + Functor (8 protocols)** | | | |
+| SQL | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ (precomposition) |
+| CQL | ThCategory | ThFunctor | $\Delta_F$ (precomposition) |
+| Cassandra | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ |
+| DynamoDB | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ |
+| CSV/Table Schema | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ |
+| Parquet | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ |
+| Arrow | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ |
+| DataFrame | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ |
+| EDI X12 | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ |
+| SWIFT MT | colimit(ThHypergraph, ThConstraint) | ThFunctor | $\Delta_F$ |
+| **Group C: Simple Graph + Flat (9 protocols)** | | | |
+| Protobuf | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
+| Avro | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
+| Thrift | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
+| Cap'n Proto | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
+| FlatBuffers | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
+| ASN.1 | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
+| Bond | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
+| Redis | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
+| HCL | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
+| **Group D: Typed Graph + W-Type with Interfaces (12 protocols)** | | | |
+| GraphQL | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| TypeScript | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| Python | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| Rust Serde | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| Java | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| Go | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| Swift | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| Kotlin | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| C# | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| JSX/React | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| Vue | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| Svelte | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| **Group E: Constrained Multigraph + W-Type + Meta (6 protocols)** | | | |
+| XML/XSD | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Sig. restriction + BFS + contraction |
+| HTML | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Sig. restriction + BFS + contraction |
+| CSS | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Sig. restriction + BFS + contraction |
+| DOCX | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Sig. restriction + BFS + contraction |
+| ODF | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Sig. restriction + BFS + contraction |
+| Neo4j | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Sig. restriction + BFS + contraction |
 
-: The protocol table. Each protocol decomposes into a schema theory, an instance theory, and a derived restriction operator. {#tbl-protocol-table}
+: The protocol table. All 54 protocols decompose into a schema theory, an instance theory, and a derived restriction operator, organized into five theory groups. {#tbl-protocol-table}
 
 A few things to notice:
 
 - **Schema theories are colimits.** Most real-world protocols combine several concerns---graphs with constraints, multigraph structure with interfaces. The schema theory is assembled by taking a colimit (a structured union) of simpler component theories. This is exactly the colimit construction from Chapter 3.
 
-- **Instance theories cluster into two families.** There are functor-based instances (ThFunctor) and tree-based instances (ThWType). This is the deepest structural split in the table, and it determines how migration works at the data level.
+- **Instance theories cluster into three families.** There are functor-based instances (ThFunctor), tree-based instances (ThWType), and flat instances (ThFlat). This is the deepest structural split in the table, and it determines how migration works at the data level. ThFlat is best understood as a degenerate case of ThWType restricted to depth-1 trees.
 
-- **The restriction operator is determined by the instance theory.** Functor instances always migrate via precomposition ($\Delta_F$). W-type instances always migrate via the signature-restriction pipeline. You don't choose a migration strategy; it follows from the theory.
+- **The restriction operator is determined by the instance theory.** Functor instances always migrate via precomposition ($\Delta_F$). W-type instances always migrate via the signature-restriction pipeline. Flat instances use the simpler field-projection operator, which is the depth-1 specialization of tree surgery. You don't choose a migration strategy; it follows from the theory.
 
 
-## Two Families of Instances
+## Three Families of Instances
 
-The instance theory is where the rubber meets the road. It determines what "data" means for a given schema, and therefore what "migrating data" means. Let's look at the two families in detail.
+The instance theory is where the rubber meets the road. It determines what "data" means for a given schema, and therefore what "migrating data" means. Let's look at the three families in detail.
 
 ### Set-Valued Functors {#sec-functor-instances}
 
@@ -56,7 +115,7 @@ This is the pullback migration functor $\Delta_F$ from [@spivak2012]. It has lef
 
 ### W-Types: Tree-Shaped Data {#sec-wtype-instances}
 
-The functor model works beautifully for relational data, but most modern protocols---ATProto, GraphQL, JSON Schema, Protobuf---traffic in *tree-shaped* data. A Bluesky post is not a row in a table; it is a JSON document with nested objects, arrays, and references. The right mathematical model for this kind of data is a *W-type* (wellfounded tree), studied by @gambino2004 in the context of dependent type theory and related to the *containers* of @abbott2005.
+The functor model works beautifully for relational data, but most modern protocols---ATProto, GraphQL, JSON Schema, TypeScript, and the majority of the 54 protocols panproto supports---traffic in *tree-shaped* data. A Bluesky post is not a row in a table; it is a JSON document with nested objects, arrays, and references. The right mathematical model for this kind of data is a *W-type* (wellfounded tree), studied by @gambino2004 in the context of dependent type theory and related to the *containers* of @abbott2005.
 
 A W-type instance over a schema is a finitely-branching tree where:
 
@@ -76,26 +135,41 @@ This is exactly the shape of a JSON document, an ATProto record, or a GraphQL re
 
 We will walk through this pipeline concretely in [Chapter 7](07-lifting-data.qmd). For now, the key point is that this pipeline is *derived* from the theory pair. The engine knows it needs to do tree surgery (rather than precomposition) because the instance theory is ThWType rather than ThFunctor.
 
+### Flat Instances: Depth-1 Trees {#sec-flat-instances}
 
-## Comparing the Two Models
+ThFlat is not an independent theory so much as a disciplined restriction of ThWType. When the schema is a simple graph (no parallel edges, no recursive types) and instances are constrained to trees of depth at most 1, the full W-type machinery reduces to a much simpler operation: **field projection**.
 
-It's worth pausing to see these two instance theories side by side, because the choice between them is the central architectural decision that distinguishes protocol families.
+A flat instance over a simple-graph schema is a collection of key-value records where each key is a schema edge and each value is a leaf datum. Because the tree never nests beyond depth 1, contraction never fires, reachability is trivial, and edge resolution degenerates to a straightforward lookup. The restriction operator collapses to: keep the fields whose schema edges appear in the image of the migration map; discard the rest.
 
-| Aspect | Functor (ThFunctor) | W-Type (ThWType) |
-|--------|---------------------|-------------------|
-| Data shape | Flat tables of rows | Nested trees of nodes |
-| Schema role | Category (objects + morphisms) | Graph (vertices + edges) |
-| Instance role | Functor to **Set** | Wellfounded tree |
-| Migration | Precomposition ($\Delta_F$) | Tree surgery pipeline |
-| Canonical users | SQL, CQL | ATProto, GraphQL, JSON Schema |
-| Compositionality | Functorial (automatic) | Requires reachability analysis |
-| Adjoints available | Yes ($\Sigma_F$, $\Pi_F$) | Not in general |
+This simplification is not merely computational. ThFlat captures a genuine semantic boundary: protocols like Protobuf, Avro, and Thrift are deliberately flat. They are designed for high-throughput serialization where recursive nesting would impose unacceptable overhead. Treating ThFlat as a proper theory (rather than a naming convention) ensures that panproto can enforce the depth-1 constraint at the theory level and reject schemas that would violate it.
 
-: Comparing the two instance theory families. {#tbl-instance-comparison}
+The relationship is:
 
-Neither model is "better" in the abstract. The functor model has superior compositional properties---migration functors compose, and the adjoint triple gives you round-tripping for free. But the functor model demands that your data is tabular, which is a poor fit for document-oriented protocols. The W-type model handles trees natively, at the cost of more complex migration logic and fewer automatic guarantees.
+$$\text{ThFlat} \hookrightarrow \text{ThWType}$$
 
-panproto's contribution is that you don't have to choose one model for all protocols. Each protocol declares its own instance theory, and the engine adapts accordingly. SQL gets precomposition. ATProto gets tree surgery. The outer framework---schema morphisms, existence checks, breaking-change detection---works uniformly across both.
+where the inclusion is a theory morphism that restricts the tree-height axioms. A ThFlat instance is a ThWType instance; the converse does not hold.
+
+
+## Comparing the Three Models
+
+It's worth pausing to see these three instance theories side by side, because the choice among them is the central architectural decision that distinguishes protocol families.
+
+| Aspect | Functor (ThFunctor) | W-Type (ThWType) | Flat (ThFlat) |
+|--------|---------------------|-------------------|----------------|
+| Data shape | Flat tables of rows | Nested trees of nodes | Depth-1 key-value records |
+| Schema role | Category (objects + morphisms) | Graph (vertices + edges) | Simple graph (no parallel edges) |
+| Instance role | Functor to **Set** | Wellfounded tree | Depth-1 tree |
+| Migration | Precomposition ($\Delta_F$) | Tree surgery pipeline | Field projection |
+| Canonical users | SQL, CQL, Parquet | ATProto, GraphQL, TypeScript | Protobuf, Avro, Thrift |
+| Compositionality | Functorial (automatic) | Requires reachability analysis | Trivial (projection) |
+| Adjoints available | Yes ($\Sigma_F$, $\Pi_F$) | Not in general | Not in general |
+| Relationship | Independent | Generalizes ThFlat | Special case of ThWType |
+
+: Comparing the three instance theory families. {#tbl-instance-comparison}
+
+None of these models is "better" in the abstract. The functor model has superior compositional properties---migration functors compose, and the adjoint triple gives you round-tripping for free. But the functor model demands that your data is tabular, which is a poor fit for document-oriented protocols. The W-type model handles trees natively, at the cost of more complex migration logic and fewer automatic guarantees. ThFlat threads a middle path: it gives up the generality of arbitrary nesting in exchange for a migration operator so simple it is nearly free to compute.
+
+panproto's contribution is that you don't have to choose one model for all protocols. Each protocol declares its own instance theory, and the engine adapts accordingly. SQL gets precomposition. ATProto gets tree surgery. Protobuf gets field projection. The outer framework---schema morphisms, existence checks, breaking-change detection---works uniformly across all three.
 
 
 ## Building a Protocol from Theories
@@ -108,7 +182,7 @@ To make this concrete, let's look at how a protocol is actually defined in panpr
 That's it. A protocol is a record with two fields: a schema theory and an instance theory. The engine reads the theory structure---what sorts exist, what operations connect them, what axioms constrain them---and derives:
 
 - **The migration type**: what data a migration must carry (vertex map, edge map, constraint map, ...).
-- **The restriction operator**: how to apply a migration to an instance (precomposition or tree surgery).
+- **The restriction operator**: how to apply a migration to an instance (precomposition, tree surgery, or field projection).
 - **The existence checks**: which conditions a proposed migration must satisfy to be valid (Chapter 6).
 - **The breaking-change classifier**: which migrations are safe and which are breaking (Chapter 9).
 
@@ -128,8 +202,9 @@ You may have noticed that most schema theories in @tbl-protocol-table are colimi
 - **Multiplicity structure**: arrays, optional fields, repeated edges (ThMulti).
 - **Interface structure**: abstract types implemented by concrete ones (ThInterface).
 - **Hyperedge structure**: edges connecting more than two vertices simultaneously (ThHyperEdge).
+- **Metadata structure**: out-of-band annotation layers attached to the schema or instance (ThMeta).
 
-These concerns are largely independent of one another. A protocol might need graphs and constraints but not interfaces (ATProto). Another might need graphs, constraints, multiplicity, *and* interfaces (GraphQL). The colimit construction lets you assemble exactly the combination you need, with the categorical machinery ensuring that the pieces fit together coherently.
+These concerns are largely independent of one another. A protocol might need graphs and constraints but not interfaces (ATProto). Another might need graphs, constraints, multiplicity, *and* interfaces (GraphQL). Still another might need the full multigraph combination *plus* a metadata layer, as in the tree-plus-metadata protocols of Group E. The colimit construction lets you assemble exactly the combination you need, with the categorical machinery ensuring that the pieces fit together coherently.
 
 For example, ATProto's schema theory is:
 
@@ -144,6 +219,12 @@ $$\text{ThSQLSchema} = \text{colim}(\text{ThHypergraph}, \text{ThConstraint})$$
 GraphQL adds ThInterface on top of ATProto's combination:
 
 $$\text{ThGraphQLSchema} = \text{colim}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti}, \text{ThInterface})$$
+
+Group E protocols---XML/XSD, HTML, Neo4j, and their kin---add ThMeta to the constrained multigraph base. This captures the fact that these formats carry an additional annotation layer (XML attributes, HTML metadata, Neo4j property maps) that sits alongside the tree structure rather than inside it:
+
+$$\text{ThXMLSchema} = \text{colim}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti}, \text{ThMeta})$$
+
+The instance theory for Group E protocols is correspondingly $\text{colim}(\text{ThWType}, \text{ThMeta})$: a wellfounded tree together with a metadata functor that annotates nodes with out-of-band data. Migration for these protocols runs the standard W-type pipeline on the tree component and a separate restriction pass on the metadata component, with the two passes coupled at the nodes they share.
 
 The pattern is modular and extensible. If tomorrow a new protocol emerges that needs graph structure, constraints, and some novel "versioning" concern, you write ThVersioning as a new theory and take the colimit with the existing pieces. The engine will derive migration, existence checks, and breaking-change detection for the new combination without any protocol-specific code.
 
@@ -177,7 +258,7 @@ This pipeline is more expensive than precomposition, but it handles the structur
 
 ### Field Projection
 
-Protobuf uses a simpler variant. Because Protobuf schemas are simple graphs (no parallel edges, no deep nesting beyond `message` containment) and instances are flat (each field maps to a single value or a repeated list), the restriction operator reduces to field projection: keep the fields that the migration maps, drop the rest. This is a special case of the W-type pipeline where the tree has depth at most 2 and no contraction is ever needed.
+When the instance theory is ThFlat, the restriction operator reduces to field projection: keep the fields that the migration maps, drop the rest. As noted in @sec-flat-instances, this is the depth-1 degenerate case of the W-type pipeline---the BFS is trivial (root plus leaves only), contraction never fires, and fan reconstruction is a simple list filter. Group C protocols (Protobuf, Avro, Thrift, Cap'n Proto, FlatBuffers, ASN.1, Bond, Redis, HCL) all use this operator.
 
 
 ## From Table to Engine
@@ -185,9 +266,9 @@ Protobuf uses a simpler variant. Because Protobuf schemas are simple graphs (no 
 The protocol table is not just a reference chart. It is a *specification* that the engine reads at startup. When you instantiate panproto for a particular protocol, the engine:
 
 1. **Parses the schema theory** to determine what sorts (Vertex, Edge, Constraint, ...) exist and what operations connect them.
-2. **Parses the instance theory** to determine the data representation (functor or W-type).
+2. **Parses the instance theory** to determine the data representation (functor, W-type, or flat).
 3. **Derives the migration type** from the schema theory's sorts and operations. A migration must carry a map for each sort in the schema theory.
-4. **Derives the restriction operator** from the instance theory. Functor → precomposition. W-type → tree surgery.
+4. **Derives the restriction operator** from the instance theory. Functor → precomposition. W-type → tree surgery. Flat → field projection.
 5. **Derives existence checks** from the schema theory's axioms (Chapter 6).
 6. **Derives the breaking-change classifier** from the interaction of schema theory and instance theory (Chapter 9).
 
@@ -198,28 +279,31 @@ This is the sense in which panproto is *protocol-parametric*. The protocol is a 
 
 ## Protocols as a Design Space
 
-The two-parameter architecture also gives us a way to think about the *design space* of protocols. Each point in the space is a (schema theory, instance theory) pair. Existing protocols occupy specific points:
+The two-parameter architecture gives us a way to think about the *design space* of all 54 protocols. Each point in the space is a (schema theory, instance theory) pair; the five theory groups correspond to five clusters of points.
 
 ```{mermaid}
 %%| label: fig-design-space
-%%| fig-cap: "The protocol design space. Horizontal axis: schema theory complexity. Vertical axis: instance theory family."
+%%| fig-cap: "The protocol design space, showing all 54 protocols organized into five theory groups. Horizontal axis: schema theory complexity. Vertical axis: instance theory family."
 graph LR
     subgraph "Functor Instances"
-        CQL["CQL<br/>(ThCategory, ThFunctor)"]
-        SQL["SQL<br/>(ThHypergraph+ThConstraint, ThFunctor)"]
+        B["Group B<br/>Hypergraph + Functor<br/>(8 protocols)<br/>SQL, CQL, Parquet, Arrow, ..."]
     end
     subgraph "W-Type Instances"
-        Proto["Protobuf<br/>(ThSimpleGraph+ThConstraint, ThFlat)"]
-        AT["ATProto<br/>(ThGraph+ThConstraint+ThMulti, ThWType+ThMeta)"]
-        GQL["GraphQL<br/>(ThGraph+ThConstraint+ThMulti+ThInterface, ThWType)"]
-        JSON["JSON Schema<br/>(ThGraph+ThConstraint+ThMulti, ThWType)"]
+        A["Group A<br/>Constrained Multigraph + W-Type<br/>(20 protocols)<br/>ATProto, JSON Schema, OpenAPI, ..."]
+        D["Group D<br/>Typed Graph + W-Type + Interfaces<br/>(12 protocols)<br/>GraphQL, TypeScript, Rust Serde, ..."]
+        E["Group E<br/>Constrained Multigraph + W-Type + Meta<br/>(6 protocols)<br/>XML/XSD, HTML, Neo4j, ..."]
+    end
+    subgraph "Flat Instances"
+        C["Group C<br/>Simple Graph + Flat<br/>(9 protocols)<br/>Protobuf, Avro, Thrift, ..."]
     end
 ```
 
 This framing surfaces some natural questions:
 
-- **What lives between SQL and ATProto?** A protocol with hypergraph schemas but W-type instances---perhaps a document database with compound keys.
-- **What lives beyond GraphQL?** Add a ThVersioning theory to the schema colimit, and you get a protocol with built-in schema versioning at the theory level.
+- **What separates Group A from Group D?** Both use ThWType instances over constrained multigraph schemas. The distinguishing feature is ThInterface: Group D protocols treat abstract types (interfaces, traits, type classes) as first-class schema citizens, whereas Group A protocols do not.
+- **What makes Group E distinct from Group A?** Group E adds ThMeta to the schema colimit and correspondingly lifts the instance theory to $\text{colim}(\text{ThWType}, \text{ThMeta})$. The metadata layer is not just an annotation convention; it participates in migration.
+- **What lives between Group B and Group A?** A protocol with hypergraph schemas but W-type instances---perhaps a document database with compound keys and nested values. panproto can accommodate such a protocol by combining ThHypergraph, ThConstraint, and ThWType in the obvious way.
+- **What lies beyond Group D?** Add a ThVersioning theory to the schema colimit, and you get a protocol with built-in schema versioning at the theory level. The engine will derive migration and breaking-change detection for it automatically.
 - **Can you mix instance theories?** In principle, a protocol could use functor instances for some schema sorts and W-type instances for others. panproto doesn't support this yet, but the theory permits it.
 
 The design space is open. panproto gives you the coordinates.
@@ -233,19 +317,20 @@ The idea that data migration can be parameterized by algebraic structure has roo
 
 The W-type perspective comes from dependent type theory. @gambino2004 showed that wellfounded trees (W-types) are the natural inductive types in categories with dependent products. @abbott2005 connected this to the theory of containers, which views tree-shaped data as polynomial functors. panproto uses this connection: a W-type instance is a section of a polynomial functor determined by the schema.
 
-The insight that these two traditions can be unified under a common framework---that both functor instances and W-type instances arise as models of different instance theories, with migration derived from the theory structure---is, as far as we know, original to panproto.
+The insight that these traditions can be unified under a common framework---that functor instances, W-type instances, and flat instances all arise as models of different instance theories, with migration derived from the theory structure, and that 54 real-world protocols fall cleanly into five theory groups under this classification---is, as far as we know, original to panproto.
 
 
 ## Looking Ahead
 
-We now have the vocabulary to describe any protocol as a point in a two-dimensional space. In the next chapter, we'll use this vocabulary to do something concrete: migrate data by hand, step by step, watching the restriction operator at work on a real schema change. This will ground the abstractions of this chapter in the specifics of ATProto records and SQL rows.
+We now have the vocabulary to describe any protocol as a point in a two-dimensional space, and a catalogue of 54 protocols organized into five theory groups that illustrate how that space is populated. In the next chapter, we'll use this vocabulary to do something concrete: migrate data by hand, step by step, watching the restriction operator at work on a real schema change. This will ground the abstractions of this chapter in the specifics of ATProto records and SQL rows.
 
 
 ## Summary
 
-- A **protocol** in panproto is a pair: (schema theory, instance theory).
-- **Schema theories** are assembled as colimits of simpler theories capturing orthogonal concerns (graph structure, constraints, multiplicity, interfaces).
-- **Instance theories** fall into two families: **set-valued functors** (for tabular data) and **W-types** (for tree-shaped data).
-- The **restriction operator**---how migration acts on data---is determined by the instance theory. Functors use precomposition ($\Delta_F$). W-types use a multi-step tree surgery pipeline.
+- A **protocol** in panproto is a pair: (schema theory, instance theory). panproto currently supports **54 protocols** organized into **five theory groups**.
+- **Schema theories** are assembled as colimits of simpler theories capturing orthogonal concerns (graph structure, constraints, multiplicity, interfaces, metadata, hyperedges).
+- **Instance theories** fall into three families: **set-valued functors** (Group B, 8 protocols), **W-types** (Groups A, D, E; 38 protocols total), and **flat instances** (Group C, 9 protocols). ThFlat is the depth-1 degenerate case of ThWType.
+- The **restriction operator**---how migration acts on data---is determined by the instance theory. Functors use precomposition ($\Delta_F$). W-types use a multi-step tree surgery pipeline. Flat instances use field projection, which is the depth-1 specialization of tree surgery.
+- **Group E** protocols extend the W-type machinery with a metadata theory ($\text{colim}(\text{ThWType}, \text{ThMeta})$), enabling migration of both tree structure and out-of-band annotation in a single pass.
 - **Everything else is derived.** Migration types, existence checks, and breaking-change classifiers are mechanically produced from the two theories.
 - The protocol is a *parameter*, not hardcoded logic. Adding a new protocol means declaring two theories, not writing an engine.

@@ -521,6 +521,217 @@ fn proto_scalar_kind(type_name: &str) -> &'static str {
     }
 }
 
+/// Map a vertex kind back to a protobuf scalar type name.
+fn kind_to_proto_scalar(kind: &str) -> &'static str {
+    match kind {
+        "integer" => "int32",
+        "float" => "double",
+        "boolean" => "bool",
+        _ => "string",
+    }
+}
+
+/// Emit a [`Schema`] as a `.proto` format string.
+///
+/// Reconstructs messages, enums, and services from the schema graph,
+/// producing a valid proto3 file with `syntax = "proto3";` header.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
+pub fn emit_proto(schema: &Schema) -> Result<String, ProtocolError> {
+    use crate::emit::{IndentWriter, find_roots};
+
+    let structural = &["field-of", "variant-of"];
+    let roots = find_roots(schema, structural);
+
+    let mut w = IndentWriter::new("  ");
+    w.line("syntax = \"proto3\";");
+    w.blank();
+
+    for root in &roots {
+        match root.kind.as_str() {
+            "message" => emit_proto_message(schema, root, &mut w),
+            "enum" => emit_proto_enum(schema, root, &mut w),
+            "service" => emit_proto_service(schema, root, &mut w),
+            _ => {}
+        }
+    }
+
+    Ok(w.finish())
+}
+
+/// Emit a single message declaration.
+fn emit_proto_message(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+    w: &mut crate::emit::IndentWriter,
+) {
+    use crate::emit::{children_by_edge, constraint_value};
+
+    // Use the short name (last segment after dot).
+    let name = vertex.id.rsplit('.').next().unwrap_or(&vertex.id);
+    w.line(&format!("message {name} {{"));
+    w.indent();
+
+    let fields = children_by_edge(schema, &vertex.id, "field-of");
+    for (edge, field_vertex) in &fields {
+        let field_name = edge.name.as_deref().unwrap_or(&field_vertex.id);
+
+        match field_vertex.kind.as_str() {
+            "oneof" => {
+                w.line(&format!("oneof {field_name} {{"));
+                w.indent();
+                let oneof_fields = children_by_edge(schema, &field_vertex.id, "field-of");
+                for (oe, ov) in &oneof_fields {
+                    let of_name = oe.name.as_deref().unwrap_or(&ov.id);
+                    let type_name = resolve_proto_field_type(schema, ov);
+                    let num = constraint_value(schema, &ov.id, "field_number").unwrap_or("0");
+                    w.line(&format!("{type_name} {of_name} = {num};"));
+                }
+                w.dedent();
+                w.line("}");
+            }
+            "map" => {
+                let num = constraint_value(schema, &field_vertex.id, "field_number").unwrap_or("0");
+                let type_of_edges = children_by_edge(schema, &field_vertex.id, "type-of");
+                let mut key_type = "string";
+                let mut val_type = "string";
+                for (te, tv) in &type_of_edges {
+                    let edge_name = te.name.as_deref().unwrap_or("");
+                    if edge_name == "key" {
+                        key_type = kind_to_proto_scalar(&tv.kind);
+                    } else if edge_name == "value" {
+                        val_type = kind_to_proto_scalar(&tv.kind);
+                    }
+                }
+                w.line(&format!(
+                    "map<{key_type}, {val_type}> {field_name} = {num};"
+                ));
+            }
+            "field" => {
+                let label = constraint_value(schema, &field_vertex.id, "label").unwrap_or("");
+                let num = constraint_value(schema, &field_vertex.id, "field_number").unwrap_or("0");
+                let type_name = resolve_proto_field_type(schema, field_vertex);
+                let label_prefix = if label.is_empty() {
+                    String::new()
+                } else {
+                    format!("{label} ")
+                };
+                w.line(&format!("{label_prefix}{type_name} {field_name} = {num};"));
+            }
+            _ => {
+                // Nested message or enum handled as child vertex.
+                let num = constraint_value(schema, &field_vertex.id, "field_number").unwrap_or("0");
+                let type_name = resolve_proto_field_type(schema, field_vertex);
+                w.line(&format!("{type_name} {field_name} = {num};"));
+            }
+        }
+    }
+
+    // Check for nested messages/enums.
+    for (_, child) in children_by_edge(schema, &vertex.id, "field-of") {
+        if child.kind == "message" {
+            emit_proto_message(schema, child, w);
+        } else if child.kind == "enum" {
+            emit_proto_enum(schema, child, w);
+        }
+    }
+
+    w.dedent();
+    w.line("}");
+    w.blank();
+}
+
+/// Resolve the type name for a protobuf field.
+fn resolve_proto_field_type(schema: &Schema, field_vertex: &panproto_schema::Vertex) -> String {
+    use crate::emit::resolve_type;
+
+    resolve_type(schema, &field_vertex.id).map_or_else(
+        || kind_to_proto_scalar(&field_vertex.kind).to_string(),
+        |type_vertex| match type_vertex.kind.as_str() {
+            "message" | "enum" => type_vertex
+                .id
+                .rsplit('.')
+                .next()
+                .unwrap_or(&type_vertex.id)
+                .to_string(),
+            other => kind_to_proto_scalar(other).to_string(),
+        },
+    )
+}
+
+/// Emit a single enum declaration.
+fn emit_proto_enum(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+    w: &mut crate::emit::IndentWriter,
+) {
+    use crate::emit::children_by_edge;
+
+    let name = vertex.id.rsplit('.').next().unwrap_or(&vertex.id);
+    w.line(&format!("enum {name} {{"));
+    w.indent();
+
+    let variants = children_by_edge(schema, &vertex.id, "variant-of");
+    for (edge, _variant_vertex) in &variants {
+        let val_name = edge.name.as_deref().unwrap_or("UNKNOWN");
+        w.line(&format!("{val_name} = 0;"));
+    }
+
+    w.dedent();
+    w.line("}");
+    w.blank();
+}
+
+/// Emit a single service declaration.
+fn emit_proto_service(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+    w: &mut crate::emit::IndentWriter,
+) {
+    use crate::emit::children_by_edge;
+
+    let name = vertex.id.rsplit('.').next().unwrap_or(&vertex.id);
+    w.line(&format!("service {name} {{"));
+    w.indent();
+
+    let rpcs = children_by_edge(schema, &vertex.id, "field-of");
+    for (edge, rpc_vertex) in &rpcs {
+        if rpc_vertex.kind != "rpc" {
+            continue;
+        }
+        let rpc_name = edge.name.as_deref().unwrap_or(&rpc_vertex.id);
+
+        // Find input and output type-of edges.
+        let type_of_edges: Vec<_> = schema
+            .outgoing_edges(&rpc_vertex.id)
+            .iter()
+            .filter(|e| e.kind == "type-of")
+            .collect();
+
+        // The parser stores both input and output as type-of edges.
+        // First one is input, second is output (by insertion order).
+        let input_type = type_of_edges
+            .first()
+            .and_then(|e| schema.vertices.get(&e.tgt))
+            .map_or("Empty", |v| v.id.rsplit('.').next().unwrap_or(&v.id));
+
+        let output_type = type_of_edges
+            .get(1)
+            .and_then(|e| schema.vertices.get(&e.tgt))
+            .map_or("Empty", |v| v.id.rsplit('.').next().unwrap_or(&v.id));
+
+        w.line(&format!(
+            "rpc {rpc_name} ({input_type}) returns ({output_type});"
+        ));
+    }
+
+    w.dedent();
+    w.line("}");
+    w.blank();
+}
+
 /// Well-formedness rules for Protobuf edges.
 fn edge_rules() -> Vec<EdgeRule> {
     vec![
@@ -665,6 +876,33 @@ service SearchService {
         assert_eq!(
             schema.vertices.get("SearchService.Search").unwrap().kind,
             "rpc"
+        );
+    }
+
+    #[test]
+    fn emit_proto_roundtrip() {
+        let proto = r#"
+syntax = "proto3";
+
+message Person {
+  string name = 1;
+  int32 age = 2;
+  bool active = 3;
+}
+"#;
+        let schema1 = parse_proto(proto).expect("first parse should succeed");
+        let emitted = emit_proto(&schema1).expect("emit should succeed");
+        let schema2 = parse_proto(&emitted).expect("re-parse should succeed");
+
+        assert_eq!(
+            schema1.vertex_count(),
+            schema2.vertex_count(),
+            "vertex counts should match after round-trip"
+        );
+        assert_eq!(
+            schema1.edge_count(),
+            schema2.edge_count(),
+            "edge counts should match after round-trip"
         );
     }
 

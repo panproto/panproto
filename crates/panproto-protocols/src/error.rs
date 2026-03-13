@@ -27,4 +27,17 @@ pub enum ProtocolError {
     /// The input references an unknown type or definition.
     #[error("unknown reference: {0}")]
     UnknownRef(String),
+
+    /// Emit/serialization failed.
+    #[error("emit error: {0}")]
+    Emit(String),
+
+    /// The schema does not match the expected protocol structure.
+    #[error("protocol mismatch: expected {expected}, got vertex kinds {actual}")]
+    ProtocolMismatch {
+        /// Expected protocol name.
+        expected: String,
+        /// Actual vertex kinds found.
+        actual: String,
+    },
 }
