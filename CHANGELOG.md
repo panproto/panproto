@@ -2,6 +2,42 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Features
+
+- **panproto-vcs** (NEW): Schematic version control engine
+  - Content-addressed object store (blake3 hashing, canonical MessagePack serialization)
+  - Commit DAG with merge base, path finding, topological log walk
+  - Three-way schema merge via structural diff and conflict detection
+  - Branches, tags, HEAD, reflog (append-only audit trail)
+  - Rebase, cherry-pick, reset (soft/mixed/hard), stash
+  - Bisect (binary search for breaking commits), blame (element attribution)
+  - Garbage collection with full mark-sweep (enumerate + delete unreachable objects)
+  - Auto-migration derivation from SchemaDiff
+  - Repository orchestration (porcelain layer)
+  - FsStore (.panproto/ directory) and MemStore (for tests + WASM)
+- **panproto-protocols**: Expand building-block theories from 10 to 27
+  - ThOrder, ThCoproduct (retraction equation), ThRecursion (fold-unfold equation), ThSpan, ThCospan, ThPartial (witness equation), ThLinear, ThNominal
+  - ThReflexiveGraph (2 identity equations), ThSymmetricGraph (3 involution equations), ThPetriNet
+  - ThGraphInstance (graph-shaped instances), ThAnnotation (out-of-band metadata), ThCausal (dependent Before sort)
+  - ThOperad, ThTracedMonoidal, ThSimplicial
+  - ThSimpleGraph uses dependent Edge(s: Vertex, t: Vertex) sort
+  - Group F registration for graph-shaped instances
+- **panproto-schema**: Add Variant, Ordering, RecursionPoint, Span, UsageMode types; Protocol gains has_order, has_coproducts, has_recursion, has_causal, nominal_identity flags
+- **panproto-inst**: Add GInstance (graph-shaped instances with graph_restrict), unified Instance enum, Node gains position and annotations fields
+- **panproto-check**: SchemaDiff detects variant/ordering/recursion/usage changes; BreakingChange gains RemovedVariant, OrderToUnordered, RecursionBroken, LinearityTightened
+- **panproto-mig**: Theory-driven existence checks for Variant, Position, Mu, Usage sorts
+- **panproto-cli**: Rename binary to `schema`; add VCS subcommands (init, add, commit, status, log, show, branch, tag, checkout, merge, rebase, cherry-pick, reset, stash, reflog, bisect, blame, lift, gc)
+- All 76 protocols updated with theory flags; Neo4j moved to Group F (graph instance)
+
+### Documentation
+
+- Tutorial: chapters 13 (Schematic Version Control) and 14 (Building-Block Landscape)
+- Dev-guide: chapters 21 (VCS Engine with comprehensive related work) and 22 (Building-Block Theories with type-checking proofs)
+- Updated protocol counts (54 → 76), theory groups (5 → 6), per-group counts
+- Added bibliography entries for Mimram & Di Giusto, Schürmann, Topos Institute, Cambria
+
 ## [0.2.0] - 2026-03-13
 
 ### Features
