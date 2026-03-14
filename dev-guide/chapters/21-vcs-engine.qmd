@@ -58,17 +58,16 @@ pub struct CommitObject {
 - **Compose path**: chain migrations via `panproto_mig::compose`
 - **Is ancestor**: BFS reachability check
 
-## Three-Way Merge
+## Three-Way Merge (Pushout Construction)
 
-Given schemas base, ours, theirs:
+Given schemas base, ours, theirs, the merge computes the categorical pushout:
 
-1. `diff(base, ours)` and `diff(base, theirs)`
-2. Apply all non-conflicting vertex/edge/constraint additions from both sides
-3. Apply all non-conflicting variant/ordering/recursion additions from both sides
-4. Flag conflicts where both sides modified the same element differently
-5. Tie-break: ours wins
-6. Rebuild precomputed indices
-7. Derive migrations via `auto_mig::derive_migration`
+1. `diff(base, ours)` and `diff(base, theirs)` — the extended diff covers all 13 schema fields (vertices, edges, constraints, hyper-edges, required, NSIDs, variants, orderings, recursion points, usage modes, spans, nominal)
+2. For every element in every field, classify its fate on each side: unchanged, added, removed, or modified
+3. Apply the pushout rule: one-sided changes accepted; identical changes deduplicated; incompatible changes flagged as typed conflicts with the base value retained
+4. No tie-breaking — the merge is commutative: `merge(base, A, B) == merge(base, B, A)`
+5. Rebuild precomputed indices
+6. Derive migrations from ours→merged and theirs→merged via `auto_mig::derive_migration`
 
 ## Related Work and Differentiation
 

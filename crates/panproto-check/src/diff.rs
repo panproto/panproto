@@ -17,31 +17,81 @@ use serde::{Deserialize, Serialize};
 /// and new schema revisions.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaDiff {
+    // --- Vertices ---
     /// Vertex IDs present in the new schema but absent from the old.
     pub added_vertices: Vec<String>,
     /// Vertex IDs present in the old schema but absent from the new.
     pub removed_vertices: Vec<String>,
+    /// Vertices whose `kind` changed between old and new.
+    pub kind_changes: Vec<KindChange>,
+
+    // --- Edges ---
     /// Edges present in the new schema but absent from the old.
     pub added_edges: Vec<Edge>,
     /// Edges present in the old schema but absent from the new.
     pub removed_edges: Vec<Edge>,
+
+    // --- Constraints ---
     /// Constraints that changed between old and new, keyed by vertex ID.
     pub modified_constraints: HashMap<String, ConstraintDiff>,
-    /// Vertices whose `kind` changed between old and new.
-    pub kind_changes: Vec<KindChange>,
 
+    // --- Hyper-edges ---
+    /// Hyper-edge IDs added in the new schema.
+    pub added_hyper_edges: Vec<String>,
+    /// Hyper-edge IDs removed from the old schema.
+    pub removed_hyper_edges: Vec<String>,
+    /// Hyper-edges whose kind, signature, or parent label changed.
+    pub modified_hyper_edges: Vec<HyperEdgeChange>,
+
+    // --- Required edges ---
+    /// Per-vertex: required edges added in the new schema.
+    pub added_required: HashMap<String, Vec<Edge>>,
+    /// Per-vertex: required edges removed from the old schema.
+    pub removed_required: HashMap<String, Vec<Edge>>,
+
+    // --- NSIDs ---
+    /// Vertex-to-NSID mappings added in the new schema.
+    pub added_nsids: HashMap<String, String>,
+    /// Vertex IDs whose NSID mapping was removed.
+    pub removed_nsids: Vec<String>,
+    /// NSID mappings that changed: `(vertex_id, old_nsid, new_nsid)`.
+    pub changed_nsids: Vec<(String, String, String)>,
+
+    // --- Variants ---
     /// Variants added in the new schema.
     pub added_variants: Vec<Variant>,
     /// Variants removed from the old schema.
     pub removed_variants: Vec<Variant>,
+    /// Variants whose tag changed (same ID, different tag).
+    pub modified_variants: Vec<VariantChange>,
+
+    // --- Orderings ---
     /// Edge ordering changes: `(edge, old_position, new_position)`.
     pub order_changes: Vec<(Edge, Option<u32>, Option<u32>)>,
+
+    // --- Recursion points ---
     /// Recursion points added in the new schema.
     pub added_recursion_points: Vec<RecursionPoint>,
     /// Recursion points removed from the old schema.
     pub removed_recursion_points: Vec<RecursionPoint>,
+    /// Recursion points whose target vertex changed.
+    pub modified_recursion_points: Vec<RecursionPointChange>,
+
+    // --- Usage modes ---
     /// Usage mode changes: `(edge, old_mode, new_mode)`.
     pub usage_mode_changes: Vec<(Edge, UsageMode, UsageMode)>,
+
+    // --- Spans ---
+    /// Span IDs added in the new schema.
+    pub added_spans: Vec<String>,
+    /// Span IDs removed from the old schema.
+    pub removed_spans: Vec<String>,
+    /// Spans whose left or right vertex changed.
+    pub modified_spans: Vec<SpanChange>,
+
+    // --- Nominal ---
+    /// Nominal flag changes: `(vertex_id, old_value, new_value)`.
+    pub nominal_changes: Vec<(String, bool, bool)>,
 }
 
 /// Describes how constraints on a single vertex changed.
@@ -77,11 +127,65 @@ pub struct KindChange {
     pub new_kind: String,
 }
 
+/// Records changes to a hyper-edge's kind, signature, or parent label.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HyperEdgeChange {
+    /// The hyper-edge ID.
+    pub id: String,
+    /// Kind change: `(old_kind, new_kind)`, or `None` if unchanged.
+    pub kind_change: Option<(String, String)>,
+    /// Signature labels added: label → `vertex_id`.
+    pub signature_added: HashMap<String, String>,
+    /// Signature labels removed: label → `vertex_id`.
+    pub signature_removed: HashMap<String, String>,
+    /// Signature labels whose vertex changed: label → (`old_vid`, `new_vid`).
+    pub signature_changed: HashMap<String, (String, String)>,
+    /// Parent label change: `(old, new)`, or `None` if unchanged.
+    pub parent_label_change: Option<(String, String)>,
+}
+
+/// Records a variant whose tag changed between schema versions.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VariantChange {
+    /// The variant ID.
+    pub id: String,
+    /// The parent coproduct vertex ID.
+    pub parent_vertex: String,
+    /// The old tag.
+    pub old_tag: Option<String>,
+    /// The new tag.
+    pub new_tag: Option<String>,
+}
+
+/// Records a recursion point whose target vertex changed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecursionPointChange {
+    /// The fixpoint marker vertex ID.
+    pub mu_id: String,
+    /// The old target vertex.
+    pub old_target: String,
+    /// The new target vertex.
+    pub new_target: String,
+}
+
+/// Records a span whose left or right vertex changed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpanChange {
+    /// The span ID.
+    pub id: String,
+    /// Left vertex change: `(old, new)`, or `None` if unchanged.
+    pub left_change: Option<(String, String)>,
+    /// Right vertex change: `(old, new)`, or `None` if unchanged.
+    pub right_change: Option<(String, String)>,
+}
+
 /// Compute a structural diff between two schemas.
 ///
-/// Compares vertices, edges, constraints, and vertex kinds. The diff
-/// is symmetric with respect to additions/removals.
+/// Compares every schema field: vertices, edges, constraints, hyper-edges,
+/// required edges, NSIDs, variants, orderings, recursion points, usage modes,
+/// spans, and nominal flags.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
     let mut result = SchemaDiff::default();
 
@@ -99,8 +203,6 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
             result.removed_vertices.push((*v).clone());
         }
     }
-
-    // Sort for deterministic output.
     result.added_vertices.sort();
     result.removed_vertices.sort();
 
@@ -138,13 +240,13 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
     result.removed_edges.sort();
 
     // --- Constraints ---
-    let all_vertex_ids: FxHashSet<&String> = old
+    let all_constraint_vids: FxHashSet<&String> = old
         .constraints
         .keys()
         .chain(new.constraints.keys())
         .collect();
 
-    for vid in all_vertex_ids {
+    for vid in all_constraint_vids {
         let old_cs = old.constraints.get(vid).cloned().unwrap_or_default();
         let new_cs = new.constraints.get(vid).cloned().unwrap_or_default();
 
@@ -154,32 +256,21 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
         }
     }
 
+    // --- Hyper-edges ---
+    diff_hyper_edges(old, new, &mut result);
+
+    // --- Required edges ---
+    diff_required(old, new, &mut result);
+
+    // --- NSIDs ---
+    diff_nsids(old, new, &mut result);
+
     // --- Variants ---
-    for (parent, new_variants) in &new.variants {
-        let old_variants = old.variants.get(parent).cloned().unwrap_or_default();
-        let old_ids: FxHashSet<&str> = old_variants.iter().map(|v| v.id.as_str()).collect();
-        for v in new_variants {
-            if !old_ids.contains(v.id.as_str()) {
-                result.added_variants.push(v.clone());
-            }
-        }
-    }
-    for (parent, old_variants) in &old.variants {
-        let new_variants = new.variants.get(parent).cloned().unwrap_or_default();
-        let new_ids: FxHashSet<&str> = new_variants.iter().map(|v| v.id.as_str()).collect();
-        for v in old_variants {
-            if !new_ids.contains(v.id.as_str()) {
-                result.removed_variants.push(v.clone());
-            }
-        }
-    }
+    diff_variants(old, new, &mut result);
 
     // --- Orderings ---
-    let all_order_edges: FxHashSet<&Edge> = old
-        .orderings
-        .keys()
-        .chain(new.orderings.keys())
-        .collect();
+    let all_order_edges: FxHashSet<&Edge> =
+        old.orderings.keys().chain(new.orderings.keys()).collect();
     for edge in all_order_edges {
         let old_pos = old.orderings.get(edge).copied();
         let new_pos = new.orderings.get(edge).copied();
@@ -191,16 +282,7 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
     }
 
     // --- Recursion Points ---
-    for (id, rp) in &new.recursion_points {
-        if !old.recursion_points.contains_key(id) {
-            result.added_recursion_points.push(rp.clone());
-        }
-    }
-    for (id, rp) in &old.recursion_points {
-        if !new.recursion_points.contains_key(id) {
-            result.removed_recursion_points.push(rp.clone());
-        }
-    }
+    diff_recursion_points(old, new, &mut result);
 
     // --- Usage Modes ---
     let all_usage_edges: FxHashSet<&Edge> = old
@@ -218,8 +300,18 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
         }
     }
 
+    // --- Spans ---
+    diff_spans(old, new, &mut result);
+
+    // --- Nominal ---
+    diff_nominal(old, new, &mut result);
+
     result
 }
+
+// ---------------------------------------------------------------------------
+// Per-field diff helpers
+// ---------------------------------------------------------------------------
 
 /// Diff two constraint lists for a single vertex.
 fn diff_constraints(old: &[Constraint], new: &[Constraint]) -> ConstraintDiff {
@@ -261,24 +353,306 @@ fn diff_constraints(old: &[Constraint], new: &[Constraint]) -> ConstraintDiff {
     }
 }
 
-/// Returns `true` if the diff represents no changes.
+/// Diff hyper-edges: additions, removals, and modifications.
+fn diff_hyper_edges(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let old_ids: FxHashSet<&String> = old.hyper_edges.keys().collect();
+    let new_ids: FxHashSet<&String> = new.hyper_edges.keys().collect();
+
+    for id in &new_ids {
+        if !old_ids.contains(*id) {
+            result.added_hyper_edges.push((*id).clone());
+        }
+    }
+    for id in &old_ids {
+        if !new_ids.contains(*id) {
+            result.removed_hyper_edges.push((*id).clone());
+        }
+    }
+    result.added_hyper_edges.sort();
+    result.removed_hyper_edges.sort();
+
+    // Modifications on surviving hyper-edges.
+    for id in old_ids.intersection(&new_ids) {
+        let old_he = &old.hyper_edges[*id];
+        let new_he = &new.hyper_edges[*id];
+
+        if old_he == new_he {
+            continue;
+        }
+
+        let kind_change = if old_he.kind == new_he.kind {
+            None
+        } else {
+            Some((old_he.kind.clone(), new_he.kind.clone()))
+        };
+
+        let parent_label_change = if old_he.parent_label == new_he.parent_label {
+            None
+        } else {
+            Some((old_he.parent_label.clone(), new_he.parent_label.clone()))
+        };
+
+        let mut sig_added = HashMap::new();
+        let mut sig_removed = HashMap::new();
+        let mut sig_changed = HashMap::new();
+
+        for (label, new_vid) in &new_he.signature {
+            match old_he.signature.get(label) {
+                Some(old_vid) if old_vid != new_vid => {
+                    sig_changed.insert(label.clone(), (old_vid.clone(), new_vid.clone()));
+                }
+                None => {
+                    sig_added.insert(label.clone(), new_vid.clone());
+                }
+                _ => {}
+            }
+        }
+        for (label, old_vid) in &old_he.signature {
+            if !new_he.signature.contains_key(label) {
+                sig_removed.insert(label.clone(), old_vid.clone());
+            }
+        }
+
+        result.modified_hyper_edges.push(HyperEdgeChange {
+            id: (*id).clone(),
+            kind_change,
+            signature_added: sig_added,
+            signature_removed: sig_removed,
+            signature_changed: sig_changed,
+            parent_label_change,
+        });
+    }
+    result.modified_hyper_edges.sort_by(|a, b| a.id.cmp(&b.id));
+}
+
+/// Diff required-edge maps.
+fn diff_required(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let all_vids: FxHashSet<&String> = old.required.keys().chain(new.required.keys()).collect();
+
+    for vid in all_vids {
+        let old_edges: FxHashSet<&Edge> = old
+            .required
+            .get(vid)
+            .map(|v| v.iter().collect())
+            .unwrap_or_default();
+        let new_edges: FxHashSet<&Edge> = new
+            .required
+            .get(vid)
+            .map(|v| v.iter().collect())
+            .unwrap_or_default();
+
+        let added: Vec<Edge> = new_edges
+            .difference(&old_edges)
+            .map(|e| (*e).clone())
+            .collect();
+        let removed: Vec<Edge> = old_edges
+            .difference(&new_edges)
+            .map(|e| (*e).clone())
+            .collect();
+
+        if !added.is_empty() {
+            result.added_required.insert(vid.clone(), added);
+        }
+        if !removed.is_empty() {
+            result.removed_required.insert(vid.clone(), removed);
+        }
+    }
+}
+
+/// Diff NSID maps.
+fn diff_nsids(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    for (vid, new_nsid) in &new.nsids {
+        match old.nsids.get(vid) {
+            Some(old_nsid) if old_nsid != new_nsid => {
+                result
+                    .changed_nsids
+                    .push((vid.clone(), old_nsid.clone(), new_nsid.clone()));
+            }
+            None => {
+                result.added_nsids.insert(vid.clone(), new_nsid.clone());
+            }
+            _ => {}
+        }
+    }
+    for vid in old.nsids.keys() {
+        if !new.nsids.contains_key(vid) {
+            result.removed_nsids.push(vid.clone());
+        }
+    }
+    result.removed_nsids.sort();
+    result.changed_nsids.sort_by(|a, b| a.0.cmp(&b.0));
+}
+
+/// Diff variants: additions, removals, and tag modifications.
+fn diff_variants(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    // Build a flat lookup: (parent_vertex, variant_id) → Variant
+    let mut old_flat: HashMap<(&str, &str), &Variant> = HashMap::new();
+    let mut new_flat: HashMap<(&str, &str), &Variant> = HashMap::new();
+
+    for (parent, variants) in &old.variants {
+        for v in variants {
+            old_flat.insert((parent.as_str(), v.id.as_str()), v);
+        }
+    }
+    for (parent, variants) in &new.variants {
+        for v in variants {
+            new_flat.insert((parent.as_str(), v.id.as_str()), v);
+        }
+    }
+
+    // Additions and modifications.
+    for (&(parent, vid), new_v) in &new_flat {
+        match old_flat.get(&(parent, vid)) {
+            Some(old_v) => {
+                if old_v.tag != new_v.tag {
+                    result.modified_variants.push(VariantChange {
+                        id: vid.to_string(),
+                        parent_vertex: parent.to_string(),
+                        old_tag: old_v.tag.clone(),
+                        new_tag: new_v.tag.clone(),
+                    });
+                }
+            }
+            None => {
+                result.added_variants.push((*new_v).clone());
+            }
+        }
+    }
+
+    // Removals.
+    for (&(parent, vid), old_v) in &old_flat {
+        if !new_flat.contains_key(&(parent, vid)) {
+            result.removed_variants.push((*old_v).clone());
+        }
+    }
+
+    result
+        .modified_variants
+        .sort_by(|a, b| (&a.parent_vertex, &a.id).cmp(&(&b.parent_vertex, &b.id)));
+}
+
+/// Diff recursion points: additions, removals, and target changes.
+fn diff_recursion_points(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    for (id, new_rp) in &new.recursion_points {
+        match old.recursion_points.get(id) {
+            Some(old_rp) => {
+                if old_rp.target_vertex != new_rp.target_vertex {
+                    result.modified_recursion_points.push(RecursionPointChange {
+                        mu_id: id.clone(),
+                        old_target: old_rp.target_vertex.clone(),
+                        new_target: new_rp.target_vertex.clone(),
+                    });
+                }
+            }
+            None => {
+                result.added_recursion_points.push(new_rp.clone());
+            }
+        }
+    }
+    for (id, old_rp) in &old.recursion_points {
+        if !new.recursion_points.contains_key(id) {
+            result.removed_recursion_points.push(old_rp.clone());
+        }
+    }
+}
+
+/// Diff spans: additions, removals, and left/right changes.
+fn diff_spans(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let old_ids: FxHashSet<&String> = old.spans.keys().collect();
+    let new_ids: FxHashSet<&String> = new.spans.keys().collect();
+
+    for id in &new_ids {
+        if !old_ids.contains(*id) {
+            result.added_spans.push((*id).clone());
+        }
+    }
+    for id in &old_ids {
+        if !new_ids.contains(*id) {
+            result.removed_spans.push((*id).clone());
+        }
+    }
+    result.added_spans.sort();
+    result.removed_spans.sort();
+
+    for id in old_ids.intersection(&new_ids) {
+        let old_span = &old.spans[*id];
+        let new_span = &new.spans[*id];
+
+        if old_span == new_span {
+            continue;
+        }
+
+        let left_change = if old_span.left == new_span.left {
+            None
+        } else {
+            Some((old_span.left.clone(), new_span.left.clone()))
+        };
+        let right_change = if old_span.right == new_span.right {
+            None
+        } else {
+            Some((old_span.right.clone(), new_span.right.clone()))
+        };
+
+        result.modified_spans.push(SpanChange {
+            id: (*id).clone(),
+            left_change,
+            right_change,
+        });
+    }
+    result.modified_spans.sort_by(|a, b| a.id.cmp(&b.id));
+}
+
+/// Diff nominal flags.
+fn diff_nominal(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let all_vids: FxHashSet<&String> = old.nominal.keys().chain(new.nominal.keys()).collect();
+
+    for vid in all_vids {
+        let old_val = old.nominal.get(vid).copied().unwrap_or(false);
+        let new_val = new.nominal.get(vid).copied().unwrap_or(false);
+        if old_val != new_val {
+            result.nominal_changes.push((vid.clone(), old_val, new_val));
+        }
+    }
+    result.nominal_changes.sort_by(|a, b| a.0.cmp(&b.0));
+}
+
 impl SchemaDiff {
     /// Returns `true` if this diff contains no changes.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.added_vertices.is_empty()
             && self.removed_vertices.is_empty()
+            && self.kind_changes.is_empty()
             && self.added_edges.is_empty()
             && self.removed_edges.is_empty()
             && self.modified_constraints.is_empty()
-            && self.kind_changes.is_empty()
+            && self.added_hyper_edges.is_empty()
+            && self.removed_hyper_edges.is_empty()
+            && self.modified_hyper_edges.is_empty()
+            && self.added_required.is_empty()
+            && self.removed_required.is_empty()
+            && self.added_nsids.is_empty()
+            && self.removed_nsids.is_empty()
+            && self.changed_nsids.is_empty()
+            && self.added_variants.is_empty()
+            && self.removed_variants.is_empty()
+            && self.modified_variants.is_empty()
+            && self.order_changes.is_empty()
+            && self.added_recursion_points.is_empty()
+            && self.removed_recursion_points.is_empty()
+            && self.modified_recursion_points.is_empty()
+            && self.usage_mode_changes.is_empty()
+            && self.added_spans.is_empty()
+            && self.removed_spans.is_empty()
+            && self.modified_spans.is_empty()
+            && self.nominal_changes.is_empty()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use panproto_schema::Vertex;
+    use panproto_schema::{HyperEdge, RecursionPoint, Span, Variant, Vertex};
     use smallvec::SmallVec;
     use std::collections::HashMap;
 
@@ -341,6 +715,17 @@ mod tests {
         }
     }
 
+    /// Build a schema with additional extended fields set.
+    fn test_schema_ext(base: Schema, f: impl FnOnce(&mut Schema)) -> Schema {
+        let mut s = base;
+        f(&mut s);
+        s
+    }
+
+    // -----------------------------------------------------------------------
+    // Existing tests (preserved)
+    // -----------------------------------------------------------------------
+
     #[test]
     fn diff_added_and_removed_vertices() {
         let edge = Edge {
@@ -402,5 +787,569 @@ mod tests {
         let s = test_schema(&[("a", "object")], &[], HashMap::new());
         let d = diff(&s, &s);
         assert!(d.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // Hyper-edge diff tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn diff_hyper_edge_added() {
+        let base = test_schema(&[("a", "object")], &[], HashMap::new());
+        let new = test_schema_ext(base.clone(), |s| {
+            s.hyper_edges.insert(
+                "he1".into(),
+                HyperEdge {
+                    id: "he1".into(),
+                    kind: "join".into(),
+                    signature: HashMap::from([("left".into(), "a".into())]),
+                    parent_label: "left".into(),
+                },
+            );
+        });
+        let d = diff(&base, &new);
+        assert_eq!(d.added_hyper_edges, vec!["he1"]);
+        assert!(d.removed_hyper_edges.is_empty());
+        assert!(!d.is_empty());
+    }
+
+    #[test]
+    fn diff_hyper_edge_removed() {
+        let old = test_schema_ext(test_schema(&[("a", "object")], &[], HashMap::new()), |s| {
+            s.hyper_edges.insert(
+                "he1".into(),
+                HyperEdge {
+                    id: "he1".into(),
+                    kind: "join".into(),
+                    signature: HashMap::from([("left".into(), "a".into())]),
+                    parent_label: "left".into(),
+                },
+            );
+        });
+        let new = test_schema(&[("a", "object")], &[], HashMap::new());
+        let d = diff(&old, &new);
+        assert_eq!(d.removed_hyper_edges, vec!["he1"]);
+    }
+
+    #[test]
+    fn diff_hyper_edge_modified_kind() {
+        let he = HyperEdge {
+            id: "he1".into(),
+            kind: "join".into(),
+            signature: HashMap::from([("left".into(), "a".into())]),
+            parent_label: "left".into(),
+        };
+        let old = test_schema_ext(test_schema(&[("a", "object")], &[], HashMap::new()), |s| {
+            s.hyper_edges.insert("he1".into(), he.clone());
+        });
+        let new = test_schema_ext(test_schema(&[("a", "object")], &[], HashMap::new()), |s| {
+            let mut he2 = he.clone();
+            he2.kind = "merge".into();
+            s.hyper_edges.insert("he1".into(), he2);
+        });
+        let d = diff(&old, &new);
+        assert_eq!(d.modified_hyper_edges.len(), 1);
+        assert_eq!(
+            d.modified_hyper_edges[0].kind_change,
+            Some(("join".into(), "merge".into()))
+        );
+    }
+
+    #[test]
+    fn diff_hyper_edge_modified_signature() {
+        let old = test_schema_ext(
+            test_schema(&[("a", "object"), ("b", "string")], &[], HashMap::new()),
+            |s| {
+                s.hyper_edges.insert(
+                    "he1".into(),
+                    HyperEdge {
+                        id: "he1".into(),
+                        kind: "join".into(),
+                        signature: HashMap::from([("left".into(), "a".into())]),
+                        parent_label: "left".into(),
+                    },
+                );
+            },
+        );
+        let new = test_schema_ext(
+            test_schema(&[("a", "object"), ("b", "string")], &[], HashMap::new()),
+            |s| {
+                s.hyper_edges.insert(
+                    "he1".into(),
+                    HyperEdge {
+                        id: "he1".into(),
+                        kind: "join".into(),
+                        signature: HashMap::from([
+                            ("left".into(), "a".into()),
+                            ("right".into(), "b".into()),
+                        ]),
+                        parent_label: "left".into(),
+                    },
+                );
+            },
+        );
+        let d = diff(&old, &new);
+        assert_eq!(d.modified_hyper_edges.len(), 1);
+        assert_eq!(
+            d.modified_hyper_edges[0].signature_added.get("right"),
+            Some(&"b".to_string())
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Required-edge diff tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn diff_required_edge_added() {
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("x".into()),
+        };
+        let base = test_schema(
+            &[("a", "object"), ("b", "string")],
+            &[edge.clone()],
+            HashMap::new(),
+        );
+        let new = test_schema_ext(base.clone(), |s| {
+            s.required.insert("a".into(), vec![edge.clone()]);
+        });
+        let d = diff(&base, &new);
+        assert_eq!(d.added_required.len(), 1);
+        assert_eq!(d.added_required["a"].len(), 1);
+    }
+
+    #[test]
+    fn diff_required_edge_removed() {
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("x".into()),
+        };
+        let old = test_schema_ext(
+            test_schema(
+                &[("a", "object"), ("b", "string")],
+                &[edge.clone()],
+                HashMap::new(),
+            ),
+            |s| {
+                s.required.insert("a".into(), vec![edge.clone()]);
+            },
+        );
+        let new = test_schema(&[("a", "object"), ("b", "string")], &[edge], HashMap::new());
+        let d = diff(&old, &new);
+        assert_eq!(d.removed_required.len(), 1);
+        assert_eq!(d.removed_required["a"].len(), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // NSID diff tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn diff_nsid_added() {
+        let base = test_schema(&[("a", "object")], &[], HashMap::new());
+        let new = test_schema_ext(base.clone(), |s| {
+            s.nsids.insert("a".into(), "com.example.thing".into());
+        });
+        let d = diff(&base, &new);
+        assert_eq!(
+            d.added_nsids.get("a"),
+            Some(&"com.example.thing".to_string())
+        );
+    }
+
+    #[test]
+    fn diff_nsid_removed() {
+        let old = test_schema_ext(test_schema(&[("a", "object")], &[], HashMap::new()), |s| {
+            s.nsids.insert("a".into(), "com.example.thing".into());
+        });
+        let new = test_schema(&[("a", "object")], &[], HashMap::new());
+        let d = diff(&old, &new);
+        assert_eq!(d.removed_nsids, vec!["a"]);
+    }
+
+    #[test]
+    fn diff_nsid_changed() {
+        let old = test_schema_ext(test_schema(&[("a", "object")], &[], HashMap::new()), |s| {
+            s.nsids.insert("a".into(), "com.example.old".into());
+        });
+        let new = test_schema_ext(test_schema(&[("a", "object")], &[], HashMap::new()), |s| {
+            s.nsids.insert("a".into(), "com.example.new".into());
+        });
+        let d = diff(&old, &new);
+        assert_eq!(d.changed_nsids.len(), 1);
+        assert_eq!(
+            d.changed_nsids[0],
+            (
+                "a".into(),
+                "com.example.old".into(),
+                "com.example.new".into()
+            )
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Variant diff tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn diff_variant_tag_modified() {
+        let old = test_schema_ext(test_schema(&[("u", "union")], &[], HashMap::new()), |s| {
+            s.variants.insert(
+                "u".into(),
+                vec![Variant {
+                    id: "v1".into(),
+                    parent_vertex: "u".into(),
+                    tag: Some("a".into()),
+                }],
+            );
+        });
+        let new = test_schema_ext(test_schema(&[("u", "union")], &[], HashMap::new()), |s| {
+            s.variants.insert(
+                "u".into(),
+                vec![Variant {
+                    id: "v1".into(),
+                    parent_vertex: "u".into(),
+                    tag: Some("b".into()),
+                }],
+            );
+        });
+        let d = diff(&old, &new);
+        assert!(d.added_variants.is_empty());
+        assert!(d.removed_variants.is_empty());
+        assert_eq!(d.modified_variants.len(), 1);
+        assert_eq!(d.modified_variants[0].old_tag, Some("a".into()));
+        assert_eq!(d.modified_variants[0].new_tag, Some("b".into()));
+    }
+
+    // -----------------------------------------------------------------------
+    // Recursion point diff tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn diff_recursion_point_target_modified() {
+        let old = test_schema_ext(
+            test_schema(
+                &[("a", "object"), ("b", "string"), ("c", "integer")],
+                &[],
+                HashMap::new(),
+            ),
+            |s| {
+                s.recursion_points.insert(
+                    "mu1".into(),
+                    RecursionPoint {
+                        mu_id: "mu1".into(),
+                        target_vertex: "b".into(),
+                    },
+                );
+            },
+        );
+        let new = test_schema_ext(
+            test_schema(
+                &[("a", "object"), ("b", "string"), ("c", "integer")],
+                &[],
+                HashMap::new(),
+            ),
+            |s| {
+                s.recursion_points.insert(
+                    "mu1".into(),
+                    RecursionPoint {
+                        mu_id: "mu1".into(),
+                        target_vertex: "c".into(),
+                    },
+                );
+            },
+        );
+        let d = diff(&old, &new);
+        assert!(d.added_recursion_points.is_empty());
+        assert!(d.removed_recursion_points.is_empty());
+        assert_eq!(d.modified_recursion_points.len(), 1);
+        assert_eq!(d.modified_recursion_points[0].old_target, "b");
+        assert_eq!(d.modified_recursion_points[0].new_target, "c");
+    }
+
+    // -----------------------------------------------------------------------
+    // Span diff tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn diff_span_added() {
+        let base = test_schema(&[("a", "object"), ("b", "string")], &[], HashMap::new());
+        let new = test_schema_ext(base.clone(), |s| {
+            s.spans.insert(
+                "s1".into(),
+                Span {
+                    id: "s1".into(),
+                    left: "a".into(),
+                    right: "b".into(),
+                },
+            );
+        });
+        let d = diff(&base, &new);
+        assert_eq!(d.added_spans, vec!["s1"]);
+    }
+
+    #[test]
+    fn diff_span_modified() {
+        let old = test_schema_ext(
+            test_schema(
+                &[("a", "object"), ("b", "string"), ("c", "integer")],
+                &[],
+                HashMap::new(),
+            ),
+            |s| {
+                s.spans.insert(
+                    "s1".into(),
+                    Span {
+                        id: "s1".into(),
+                        left: "a".into(),
+                        right: "b".into(),
+                    },
+                );
+            },
+        );
+        let new = test_schema_ext(
+            test_schema(
+                &[("a", "object"), ("b", "string"), ("c", "integer")],
+                &[],
+                HashMap::new(),
+            ),
+            |s| {
+                s.spans.insert(
+                    "s1".into(),
+                    Span {
+                        id: "s1".into(),
+                        left: "a".into(),
+                        right: "c".into(),
+                    },
+                );
+            },
+        );
+        let d = diff(&old, &new);
+        assert_eq!(d.modified_spans.len(), 1);
+        assert_eq!(
+            d.modified_spans[0].right_change,
+            Some(("b".into(), "c".into()))
+        );
+        assert_eq!(d.modified_spans[0].left_change, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Nominal diff tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn diff_nominal_changed() {
+        let old = test_schema_ext(test_schema(&[("a", "object")], &[], HashMap::new()), |s| {
+            s.nominal.insert("a".into(), false);
+        });
+        let new = test_schema_ext(test_schema(&[("a", "object")], &[], HashMap::new()), |s| {
+            s.nominal.insert("a".into(), true);
+        });
+        let d = diff(&old, &new);
+        assert_eq!(d.nominal_changes.len(), 1);
+        assert_eq!(d.nominal_changes[0], ("a".into(), false, true));
+    }
+
+    // -----------------------------------------------------------------------
+    // is_empty comprehensive test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn is_empty_false_for_each_field() {
+        let base = test_schema(&[("a", "object")], &[], HashMap::new());
+
+        // Each of these should make is_empty() return false.
+        let cases: Vec<SchemaDiff> = vec![
+            SchemaDiff {
+                added_vertices: vec!["x".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_vertices: vec!["x".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                kind_changes: vec![KindChange {
+                    vertex_id: "a".into(),
+                    old_kind: "x".into(),
+                    new_kind: "y".into(),
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_edges: vec![Edge {
+                    src: "a".into(),
+                    tgt: "b".into(),
+                    kind: "p".into(),
+                    name: None,
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_edges: vec![Edge {
+                    src: "a".into(),
+                    tgt: "b".into(),
+                    kind: "p".into(),
+                    name: None,
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_constraints: HashMap::from([(
+                    "a".into(),
+                    ConstraintDiff {
+                        added: vec![Constraint {
+                            sort: "s".into(),
+                            value: "v".into(),
+                        }],
+                        removed: vec![],
+                        changed: vec![],
+                    },
+                )]),
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_hyper_edges: vec!["he".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_hyper_edges: vec!["he".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_hyper_edges: vec![HyperEdgeChange {
+                    id: "he".into(),
+                    kind_change: None,
+                    signature_added: HashMap::new(),
+                    signature_removed: HashMap::new(),
+                    signature_changed: HashMap::new(),
+                    parent_label_change: Some(("a".into(), "b".into())),
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_required: HashMap::from([("a".into(), vec![])]),
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_required: HashMap::from([("a".into(), vec![])]),
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_nsids: HashMap::from([("a".into(), "x".into())]),
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_nsids: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                changed_nsids: vec![("a".into(), "x".into(), "y".into())],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_variants: vec![Variant {
+                    id: "v".into(),
+                    parent_vertex: "u".into(),
+                    tag: None,
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_variants: vec![Variant {
+                    id: "v".into(),
+                    parent_vertex: "u".into(),
+                    tag: None,
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_variants: vec![VariantChange {
+                    id: "v".into(),
+                    parent_vertex: "u".into(),
+                    old_tag: None,
+                    new_tag: Some("t".into()),
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                order_changes: vec![(
+                    Edge {
+                        src: "a".into(),
+                        tgt: "b".into(),
+                        kind: "p".into(),
+                        name: None,
+                    },
+                    Some(0),
+                    Some(1),
+                )],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_recursion_points: vec![RecursionPoint {
+                    mu_id: "m".into(),
+                    target_vertex: "t".into(),
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_recursion_points: vec![RecursionPoint {
+                    mu_id: "m".into(),
+                    target_vertex: "t".into(),
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_recursion_points: vec![RecursionPointChange {
+                    mu_id: "m".into(),
+                    old_target: "a".into(),
+                    new_target: "b".into(),
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                usage_mode_changes: vec![(
+                    Edge {
+                        src: "a".into(),
+                        tgt: "b".into(),
+                        kind: "p".into(),
+                        name: None,
+                    },
+                    UsageMode::Structural,
+                    UsageMode::Linear,
+                )],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_spans: vec!["s".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_spans: vec!["s".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_spans: vec![SpanChange {
+                    id: "s".into(),
+                    left_change: Some(("a".into(), "b".into())),
+                    right_change: None,
+                }],
+                ..Default::default()
+            },
+            SchemaDiff {
+                nominal_changes: vec![("a".into(), false, true)],
+                ..Default::default()
+            },
+        ];
+
+        let _ = base; // suppress unused warning
+        for (i, d) in cases.iter().enumerate() {
+            assert!(!d.is_empty(), "case {i} should not be empty: {d:?}");
+        }
     }
 }

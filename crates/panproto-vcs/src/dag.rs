@@ -14,70 +14,109 @@ use crate::store::Store;
 
 /// Find the merge base (lowest common ancestor) of two commits.
 ///
-/// Uses a two-frontier BFS, alternately expanding from each side.
+/// Computes all ancestors of both commits, finds their intersection,
+/// then filters to the *lowest* (most recent) common ancestors — those
+/// that are not proper ancestors of any other common ancestor.
+///
+/// If multiple LCAs exist (criss-cross merges), returns the one with
+/// the highest timestamp for determinism.
+///
 /// Returns `None` if the commits have disjoint histories.
 ///
 /// # Errors
 ///
 /// Returns an error if loading commits from the store fails.
-pub fn merge_base(store: &dyn Store, a: ObjectId, b: ObjectId) -> Result<Option<ObjectId>, VcsError> {
+pub fn merge_base(
+    store: &dyn Store,
+    a: ObjectId,
+    b: ObjectId,
+) -> Result<Option<ObjectId>, VcsError> {
     if a == b {
         return Ok(Some(a));
     }
 
-    let mut ancestors_a: HashSet<ObjectId> = HashSet::new();
-    let mut ancestors_b: HashSet<ObjectId> = HashSet::new();
-    let mut queue_a: VecDeque<ObjectId> = VecDeque::new();
-    let mut queue_b: VecDeque<ObjectId> = VecDeque::new();
+    // 1. Compute all ancestors of both commits (including themselves).
+    let ancestors_a = all_ancestors(store, a)?;
+    let ancestors_b = all_ancestors(store, b)?;
 
-    ancestors_a.insert(a);
-    ancestors_b.insert(b);
-    queue_a.push_back(a);
-    queue_b.push_back(b);
-
-    loop {
-        let a_done = queue_a.is_empty();
-        let b_done = queue_b.is_empty();
-        if a_done && b_done {
-            return Ok(None);
-        }
-
-        // Expand one step from A's frontier.
-        if !a_done {
-            if let Some(result) = expand_frontier(store, &mut queue_a, &mut ancestors_a, &ancestors_b)? {
-                return Ok(Some(result));
-            }
-        }
-
-        // Expand one step from B's frontier.
-        if !b_done {
-            if let Some(result) = expand_frontier(store, &mut queue_b, &mut ancestors_b, &ancestors_a)? {
-                return Ok(Some(result));
-            }
-        }
+    // 2. Common ancestors.
+    let common: HashSet<ObjectId> = ancestors_a.intersection(&ancestors_b).copied().collect();
+    if common.is_empty() {
+        return Ok(None);
     }
+
+    // 3. Filter to LCAs: keep C where no other common ancestor is a
+    //    proper descendant of C (i.e., C is maximal).
+    let lcas: Vec<ObjectId> = common
+        .iter()
+        .filter(|&&c| {
+            // c is an LCA if no other common ancestor d has c as a proper ancestor.
+            !common
+                .iter()
+                .any(|&d| d != c && ancestors_of_contains(store, d, c))
+        })
+        .copied()
+        .collect();
+
+    // 4. Deterministic pick: highest timestamp, then lexicographic ObjectId.
+    Ok(lcas.into_iter().max_by(|x, y| {
+        let tx = get_commit(store, *x).map(|c| c.timestamp).unwrap_or(0);
+        let ty = get_commit(store, *y).map(|c| c.timestamp).unwrap_or(0);
+        tx.cmp(&ty).then_with(|| x.cmp(y))
+    }))
 }
 
-/// Expand one commit from the frontier, checking for intersection with
-/// the other side. Returns `Some(id)` if a common ancestor is found.
-fn expand_frontier(
-    store: &dyn Store,
-    queue: &mut VecDeque<ObjectId>,
-    own_ancestors: &mut HashSet<ObjectId>,
-    other_ancestors: &HashSet<ObjectId>,
-) -> Result<Option<ObjectId>, VcsError> {
-    if let Some(current) = queue.pop_front() {
+/// Compute all ancestors of a commit (including itself) via BFS.
+fn all_ancestors(store: &dyn Store, start: ObjectId) -> Result<HashSet<ObjectId>, VcsError> {
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+    visited.insert(start);
+    queue.push_back(start);
+
+    while let Some(current) = queue.pop_front() {
         let commit = get_commit(store, current)?;
         for &parent in &commit.parents {
-            if other_ancestors.contains(&parent) {
-                return Ok(Some(parent));
-            }
-            if own_ancestors.insert(parent) {
+            if visited.insert(parent) {
                 queue.push_back(parent);
             }
         }
     }
-    Ok(None)
+
+    Ok(visited)
+}
+
+/// Check whether `ancestor` is a proper ancestor of `descendant`.
+/// (Walks parents of `descendant` looking for `ancestor`.)
+fn ancestors_of_contains(store: &dyn Store, descendant: ObjectId, ancestor: ObjectId) -> bool {
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+
+    // Start from descendant's parents (proper ancestor, not self).
+    if let Ok(commit) = get_commit(store, descendant) {
+        for &parent in &commit.parents {
+            if parent == ancestor {
+                return true;
+            }
+            if visited.insert(parent) {
+                queue.push_back(parent);
+            }
+        }
+    }
+
+    while let Some(current) = queue.pop_front() {
+        if let Ok(commit) = get_commit(store, current) {
+            for &parent in &commit.parents {
+                if parent == ancestor {
+                    return true;
+                }
+                if visited.insert(parent) {
+                    queue.push_back(parent);
+                }
+            }
+        }
+    }
+
+    false
 }
 
 /// Find a path from `from` to `to` in the commit DAG.
@@ -238,11 +277,7 @@ pub fn is_ancestor(
 /// # Errors
 ///
 /// Returns [`VcsError::NoPath`] if no path exists.
-pub fn commit_count(
-    store: &dyn Store,
-    from: ObjectId,
-    to: ObjectId,
-) -> Result<usize, VcsError> {
+pub fn commit_count(store: &dyn Store, from: ObjectId, to: ObjectId) -> Result<usize, VcsError> {
     let path = find_path(store, from, to)?;
     Ok(path.len().saturating_sub(1))
 }
@@ -284,11 +319,7 @@ mod tests {
         let mut ids = Vec::new();
 
         for i in 0..n {
-            let parents = if i == 0 {
-                vec![]
-            } else {
-                vec![ids[i - 1]]
-            };
+            let parents = if i == 0 { vec![] } else { vec![ids[i - 1]] };
 
             let commit = CommitObject {
                 schema_id: ObjectId::from_bytes([i as u8; 32]),
@@ -472,5 +503,99 @@ mod tests {
     fn commit_count_linear() {
         let (store, ids) = build_linear_history(5);
         assert_eq!(commit_count(&store, ids[0], ids[4]).unwrap(), 4);
+    }
+
+    /// Build a criss-cross history:
+    /// ```text
+    ///     c0
+    ///    / \
+    ///   c1  c2
+    ///   |\ /|
+    ///   | X |
+    ///   |/ \|
+    ///   c3  c4
+    /// ```
+    /// c3 = merge(c1, c2), c4 = merge(c2, c1)
+    /// Both c1 and c2 are LCAs of c3 and c4.
+    fn build_criss_cross_history() -> (MemStore, Vec<ObjectId>) {
+        let mut store = MemStore::new();
+
+        let c0 = CommitObject {
+            schema_id: ObjectId::from_bytes([0; 32]),
+            parents: vec![],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 100,
+            message: "c0".into(),
+        };
+        let id0 = store.put(&Object::Commit(c0)).unwrap();
+
+        let c1 = CommitObject {
+            schema_id: ObjectId::from_bytes([1; 32]),
+            parents: vec![id0],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 200,
+            message: "c1".into(),
+        };
+        let id1 = store.put(&Object::Commit(c1)).unwrap();
+
+        let c2 = CommitObject {
+            schema_id: ObjectId::from_bytes([2; 32]),
+            parents: vec![id0],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 300,
+            message: "c2".into(),
+        };
+        let id2 = store.put(&Object::Commit(c2)).unwrap();
+
+        // c3 = merge(c1, c2)
+        let c3 = CommitObject {
+            schema_id: ObjectId::from_bytes([3; 32]),
+            parents: vec![id1, id2],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 400,
+            message: "c3".into(),
+        };
+        let id3 = store.put(&Object::Commit(c3)).unwrap();
+
+        // c4 = merge(c2, c1)
+        let c4 = CommitObject {
+            schema_id: ObjectId::from_bytes([4; 32]),
+            parents: vec![id2, id1],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 500,
+            message: "c4".into(),
+        };
+        let id4 = store.put(&Object::Commit(c4)).unwrap();
+
+        (store, vec![id0, id1, id2, id3, id4])
+    }
+
+    #[test]
+    fn merge_base_criss_cross() {
+        let (store, ids) = build_criss_cross_history();
+        // LCA of c3 and c4: both c1 and c2 are common ancestors.
+        // c0 is also a common ancestor but it's dominated by c1 and c2.
+        // The algorithm should return c1 or c2 (not c0).
+        let result = merge_base(&store, ids[3], ids[4]).unwrap().unwrap();
+        assert!(
+            result == ids[1] || result == ids[2],
+            "LCA should be c1 or c2, got {:?}",
+            result,
+        );
+        // Should NOT return c0.
+        assert_ne!(
+            result, ids[0],
+            "should not return c0 (dominated by c1 and c2)"
+        );
     }
 }
