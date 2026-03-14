@@ -42,30 +42,37 @@ The separation is intentional: the same `SchemaDiff` can be classified different
 
 The `SchemaDiff` struct records every structural difference between two schema revisions:
 
-```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=14 end-line=45}
+```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=14 end-line=95}
 ```
 
-The struct captures changes across vertices, edges, constraints, kind changes, coproduct variants, ordering, recursion points, and usage modes. Each category is a simple collection; the diff does not assign severity to any change.
+The struct captures changes across all 13 schema fields: vertices, edges, constraints, hyper-edges, required edges, NSIDs, variants, orderings, recursion points, usage modes, spans, and nominal flags. Each category is a simple collection; the diff does not assign severity to any change.
 
 ### Constraint and Kind Changes
 
 Constraint changes are captured at a finer granularity through `ConstraintDiff`, `ConstraintChange`, and `KindChange`:
 
-```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=47 end-line=78}
+```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=97 end-line=128}
 ```
 
 `ConstraintDiff` records three sub-categories for each vertex: constraints that were added (present in new but not old), constraints that were removed (present in old but not new), and constraints whose value changed (present in both but with different values). The `ConstraintChange` struct captures the sort, old value, and new value for each changed constraint, providing enough information for the classifier to determine the direction of change.
 
 `KindChange` records vertices whose `kind` field changed between versions---for example, a vertex that was `"string"` in the old schema but `"integer"` in the new schema.
 
+### Extended Change Types
+
+The diff also tracks fine-grained changes to hyper-edges, variants, recursion points, and spans:
+
+```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=130 end-line=180}
+```
+
 ### The diff Function
 
 The `diff` function computes this structural comparison:
 
-```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=80 end-line=85}
+```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=182 end-line=189}
 ```
 
-The function compares vertices, edges, constraints, and vertex kinds using set operations. Output is deterministic: added and removed lists are sorted for consistent comparison in tests and CI.
+The function compares all schema fields using set operations. Output is deterministic: added and removed lists are sorted for consistent comparison in tests and CI.
 
 ::: {.callout-note}
 The diff operates on panproto's graph-level schema representation, not on any protocol-specific format. A `SchemaDiff` between two JSON Schema versions and a `SchemaDiff` between two Protobuf versions have the same type and structure. Protocol-specific semantics only enter at the classification stage.
