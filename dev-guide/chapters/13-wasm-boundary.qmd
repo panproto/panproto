@@ -18,7 +18,7 @@ The handle + MessagePack design means the WASM boundary has zero JS-heap allocat
 
 All WASM-side resources are stored in a thread-local `Vec<Option<Resource>>`. Each resource is one of four variants:
 
-```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=15 end-line=55}
+```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=15 end-line=60}
 ```
 
 The `Resource` enum captures the three fundamental types (protocol, schema, compiled migration) plus a fourth variant (`MigrationWithSchemas`) that bundles a compiled migration with its source and target schemas -- needed for lens `get`/`put` operations.
@@ -29,7 +29,7 @@ The `alloc` function scans for a freed slot before appending, so handle values a
 
 Accessing a resource requires borrowing the thread-local slab. The `with_resource` function encapsulates this pattern: it borrows the slab, looks up the handle, and passes a reference to a callback. The borrow is released when the callback returns, so the reference cannot escape:
 
-```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=57 end-line=75}
+```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=62 end-line=80}
 ```
 
 This pattern prevents a common class of bugs: holding a reference to a slab entry while mutating the slab (which would panic at runtime due to `RefCell` rules). The callback-based API makes it structurally impossible.

@@ -129,13 +129,13 @@ Lift
 : The backward migration operation: given a target instance and a compiled migration (with complement), reconstruct a source instance. The inverse of restrict.
 
 Anchor
-: The assignment of a surviving node to its position in the target schema during restrict. Computed by `anchor_nodes()`.
+: The assignment of a surviving node to its position in the target schema during restrict. Computed by `anchor_surviving()`.
 
 Reachable
 : A node is reachable if it can be reached from a surviving node by following arcs. Unreachable nodes are dropped during restrict.
 
 Ancestor contraction
-: The merging of ancestor chains when intermediate vertices are removed by a migration. Implemented in `contract_ancestors()`.
+: The merging of ancestor chains when intermediate vertices are removed by a migration. Implemented in `ancestor_contraction()`.
 
 Edge resolution
 : The process of rewiring edges during restrict according to the compiled migration's edge remap and resolver functions.

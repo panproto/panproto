@@ -68,7 +68,7 @@ Every optimization preserves correctness. Formal proofs are provided in [Appendi
 
 ## Path Compression in Ancestor Contraction {#sec-opt-path-compression}
 
-**Location:** `crates/panproto-inst/src/wtype.rs`, in `contract_ancestors()`.
+**Location:** `crates/panproto-inst/src/wtype.rs`, in `ancestor_contraction()`.
 
 **Problem:** Step 3 of the restrict pipeline walks each surviving node up the instance tree to find its nearest surviving ancestor. In the worst case (a deeply nested schema with many pruned intermediate nodes), each walk is $O(d)$ where $d$ is the tree depth. With $n$ surviving nodes, total cost is $O(n \cdot d)$.
 

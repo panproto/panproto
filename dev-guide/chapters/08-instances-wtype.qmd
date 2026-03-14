@@ -23,7 +23,7 @@ The functorial data migration framework of @spivak2012 provides the categorical 
 
 The `CompiledMigration` struct is the bridge between `panproto-mig` (which compiles migration specifications) and `panproto-inst` (which executes them). It contains all the information the restrict pipeline needs to project an instance from the source schema to the target schema.
 
-```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=24 end-line=42}
+```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=29 end-line=47}
 ```
 
 The fields serve distinct roles in the pipeline:
@@ -42,7 +42,7 @@ The fields serve distinct roles in the pipeline:
 
 A `WInstance` is a tree-shaped data instance conforming to a schema. Nodes are keyed by numeric IDs, connected by arcs that carry the schema edge they correspond to.
 
-```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=44 end-line=65}
+```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=49 end-line=70}
 ```
 
 ### Node Structure
@@ -90,7 +90,7 @@ flowchart TD
 
 The first step selects the subset of instance nodes whose schema anchor vertex is retained by the migration. This is a pure filter: if a node's `anchor` is in `CompiledMigration::surviving_verts`, it is a candidate; otherwise it is dropped.
 
-```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=127 end-line=142}
+```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=139 end-line=148}
 ```
 
 After this step, some surviving nodes may be orphaned (their parent was dropped) or disconnected (reachable only through dropped intermediaries). Steps 2 and 3 handle these cases.
@@ -99,7 +99,7 @@ After this step, some surviving nodes may be orphaned (their parent was dropped)
 
 Not all anchor-surviving nodes are necessarily reachable from the root. Step 2 performs a breadth-first search starting from the root (if it survived Step 1) through children that are also in the candidate set.
 
-```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=148 end-line=172}
+```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=154 end-line=175}
 ```
 
 If the root itself does not survive anchor restriction, the entire instance is pruned and `wtype_restrict` returns `RestrictError::RootPruned`. This is a hard failure -- an instance without a root is not a valid W-type.
@@ -112,7 +112,7 @@ The BFS traversal follows the instance tree's parent-child arcs, not the schema 
 
 When intermediate nodes are pruned, their children need to be re-attached to the nearest surviving ancestor. Step 3 walks up the parent chain for each surviving non-root node to find that ancestor.
 
-```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=177 end-line=207}
+```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=188 end-line=231}
 ```
 
 The result is a map from each surviving node to its nearest surviving ancestor. This map drives the arc construction in Step 4: instead of the original `(parent, child)` arc, the restricted instance will have a `(ancestor, child)` arc.
@@ -127,7 +127,7 @@ Each contracted arc needs a schema edge in the target schema. Step 4 resolves th
 2. Falling back to a unique-edge heuristic: if there is exactly one edge between the ancestor's and child's remapped anchor vertices in the target schema, use it.
 3. Failing with `RestrictError::AmbiguousEdge` if multiple edges exist and no resolver entry was provided.
 
-```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=212 end-line=250}
+```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=247 end-line=274}
 ```
 
 The resolver is populated during migration compilation by `panproto-mig`. In practice, ambiguity is rare -- most vertex pairs in a schema are connected by at most one edge. When it does occur (e.g., a vertex has both a `"prop"` and a `"ref"` edge to the same target), the migration specification must include an explicit resolution.
@@ -138,7 +138,7 @@ For schemas that use hyper-edges, the final step rebuilds the hyper-edge fans. A
 
 When some children of a fan are pruned, the fan must be rebuilt with only the surviving children. If the `hyper_resolver` provides a mapping, the fan is remapped to a new hyper-edge ID with relabeled slots. Otherwise, the original fan is kept with its surviving children.
 
-```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=256 end-line=320}
+```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=286 end-line=335}
 ```
 
 Fans whose parent was pruned are dropped entirely. Fans with no surviving children are also dropped.

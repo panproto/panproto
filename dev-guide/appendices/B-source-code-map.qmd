@@ -53,8 +53,8 @@ The data layer: instance representation, parsing, and validation.
 | File | Description |
 |---|---|
 | `src/lib.rs` | Public API re-exports |
-| `src/wtype.rs` | W-type instance: `compute_surviving_set()`, `anchor_nodes()`, `contract_ancestors()`, `resolve_edges()` |
-| `src/fan.rs` | `Fan` struct, `reconstruct_fans()` |
+| `src/wtype.rs` | W-type instance: `anchor_surviving()`, `reachable_from_root()`, `ancestor_contraction()`, `resolve_edge()`, `reconstruct_fans()` |
+| `src/fan.rs` | `Fan` struct |
 | `src/functor.rs` | Functor instance representation and conversion |
 | `src/value.rs` | `Value` enum (the leaf data carried by nodes) |
 | `src/metadata.rs` | Instance metadata: timestamps, provenance |

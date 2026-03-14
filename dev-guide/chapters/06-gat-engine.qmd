@@ -16,7 +16,7 @@ A `SortParam` names a dependency of a sort on a term of another sort. For exampl
 
 A `Sort` combines a name with zero or more `SortParam` entries. Simple sorts have an empty parameter list.
 
-```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=1 end-line=36}
+```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=1 end-line=38}
 ```
 
 The `arity()` method returns the number of parameters -- this is the key invariant that theory morphisms must preserve.
@@ -38,7 +38,7 @@ Here are some sorts you will encounter in panproto protocol definitions:
 
 An _operation_ (also called a term constructor) is a function in a GAT. Each operation has a name, typed inputs, and a typed output. Operations with zero inputs are constants (nullary constructors).
 
-```{.rust include="../../crates/panproto-gat/src/op.rs" start-line=1 end-line=21}
+```{.rust include="../../crates/panproto-gat/src/op.rs" start-line=1 end-line=23}
 ```
 
 The `inputs` field stores `(param_name, sort_name)` pairs. This is sufficient for first-order operations. Higher-order operations (operations whose inputs are themselves operations) are not directly supported -- panproto does not need them for its protocol modeling use case.
@@ -66,7 +66,7 @@ Equations are not computationally evaluated; they serve as proof obligations tha
 
 The `Theory` struct is the central type of `panproto-gat`. It groups sorts, operations, and equations under a name, with optional inheritance via `extends`.
 
-```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=8 end-line=30}
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=10 end-line=44}
 ```
 
 ### Theory Inheritance
@@ -143,7 +143,7 @@ A _theory morphism_ is a structure-preserving map from one theory to another. It
 2. **Signature preservation**: if operation `op: (a: A, b: B) -> C`, then `F(op): (a: F(A), b: F(B)) -> F(C)`.
 3. **Equation preservation**: if `lhs = rhs` is an equation in the domain, then `F(lhs) = F(rhs)` must be an equation in the codomain.
 
-```{.rust include="../../crates/panproto-gat/src/morphism.rs" start-line=7 end-line=23}
+```{.rust include="../../crates/panproto-gat/src/morphism.rs" start-line=8 end-line=24}
 ```
 
 The `check_morphism` function validates all three conditions. This is the critical correctness check for schema migrations: a migration specification is valid if and only if it induces a valid theory morphism between the source and target schema theories.

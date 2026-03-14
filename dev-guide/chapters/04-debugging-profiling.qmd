@@ -34,15 +34,15 @@ RUST_LOG=panproto_mig=debug cargo nextest run -p panproto-mig -- test_lift_round
 
 The restrict pipeline in `panproto-inst` transforms a W-type instance when a migration removes or restructures schema elements. The pipeline has five key functions that serve as natural debugging waypoints:
 
-1. **`compute_surviving_set()`** in `crates/panproto-inst/src/wtype.rs` --- Determines which nodes survive the migration. If your output is missing data, check whether the surviving set is too small.
+1. **`anchor_surviving()`** in `crates/panproto-inst/src/wtype.rs` --- Determines which nodes survive the migration. If your output is missing data, check whether the surviving set is too small.
 
-2. **`anchor_nodes()`** in `crates/panproto-inst/src/wtype.rs` --- Assigns surviving nodes to their new positions in the target schema. If nodes appear at wrong vertices, the anchor computation is the place to look.
+2. **`reachable_from_root()`** in `crates/panproto-inst/src/wtype.rs` --- BFS from root through anchor-surviving nodes. If nodes appear unreachable despite surviving, the reachability check is the place to look.
 
-3. **`contract_ancestors()`** in `crates/panproto-inst/src/wtype.rs` --- Merges ancestor chains when intermediate vertices are removed. Panics here usually mean the surviving set is inconsistent with the vertex remap.
+3. **`ancestor_contraction()`** in `crates/panproto-inst/src/wtype.rs` --- Merges ancestor chains when intermediate vertices are removed. Panics here usually mean the surviving set is inconsistent with the vertex remap.
 
-4. **`resolve_edges()`** in `crates/panproto-inst/src/wtype.rs` --- Rewires edges according to the compiled migration's edge remap. If edges point to wrong targets, inspect the resolver.
+4. **`resolve_edge()`** in `crates/panproto-inst/src/wtype.rs` --- Rewires edges according to the compiled migration's edge remap. If edges point to wrong targets, inspect the resolver.
 
-5. **`reconstruct_fans()`** in `crates/panproto-inst/src/fan.rs` --- Rebuilds fan structures (ordered child collections) after restrict. Missing or reordered children point to fan reconstruction issues.
+5. **`reconstruct_fans()`** in `crates/panproto-inst/src/wtype.rs` --- Rebuilds fan structures (ordered child collections) after restrict. Missing or reordered children point to fan reconstruction issues.
 
 Set `RUST_LOG=panproto_inst=debug` to see entry/exit traces for each of these functions, including the sizes of intermediate data structures.
 
@@ -126,7 +126,7 @@ cargo bench -p panproto-gat -- --baseline main
 
 ### Migration compiles but lift returns wrong data
 
-1. **Check the surviving set.** Run with `RUST_LOG=panproto_inst=debug` and look at the `compute_surviving_set` output. Are all expected nodes present?
+1. **Check the surviving set.** Run with `RUST_LOG=panproto_inst=debug` and look at the `anchor_surviving` output. Are all expected nodes present?
 2. **Inspect the vertex remap.** Print the compiled migration's `vertex_remap` field. Does every source vertex map to the correct target vertex?
 3. **Trace the lift.** The lift reconstructs source-schema data from a target instance. If it produces wrong values, the resolver functions in the compiled migration may be incorrect.
 

@@ -60,7 +60,7 @@ A *model* of ThGAT is a concrete theory—ThGraph, ThConstraint, or any protocol
 
 The following test from panproto's codebase constructs ThGAT and verifies that known theories are valid models of it:
 
-```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=438 end-line=519}
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=549 end-line=630}
 ```
 
 This test is both a validation of the implementation and a demonstration of the self-description property: the same `Theory` type that represents ThGraph also represents ThGAT, and the same model-checking machinery that validates a schema against ThGraph validates a theory against ThGAT.
