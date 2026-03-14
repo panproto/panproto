@@ -12,6 +12,7 @@ members = [
     "crates/panproto-wasm",
     "crates/panproto-cli",
     "crates/panproto-io",
+    "crates/panproto-vcs",
     "tests/integration",
 ]
 
@@ -51,6 +52,9 @@ proptest = "1.10.0"
 simd-json = "0.14"
 memchr = "2.7"
 
+# Hashing
+blake3 = "1"
+
 # Benchmarking
 divan = "0.1.21"
 
@@ -64,6 +68,7 @@ panproto-check = { version = "0.2.0", path = "crates/panproto-check" }
 panproto-protocols = { version = "0.2.0", path = "crates/panproto-protocols" }
 panproto-core = { version = "0.2.0", path = "crates/panproto-core" }
 panproto-io = { version = "0.2.0", path = "crates/panproto-io" }
+panproto-vcs = { version = "0.2.0", path = "crates/panproto-vcs" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

@@ -1,0 +1,443 @@
+//! Content-addressing via canonical serialization and blake3 hashing.
+//!
+//! Every object in the VCS is identified by a blake3 hash of its canonical
+//! `MessagePack` representation. Canonical forms sort all map entries by key
+//! (using [`BTreeMap`]) and exclude derived/precomputed fields.
+
+use std::collections::BTreeMap;
+use std::fmt;
+use std::str::FromStr;
+
+use panproto_mig::Migration;
+use panproto_schema::{
+    Constraint, Edge, HyperEdge, RecursionPoint, Schema, Span, UsageMode, Variant, Vertex,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::error::VcsError;
+use crate::object::CommitObject;
+
+/// A content-addressed object identifier: a blake3 hash (32 bytes).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ObjectId([u8; 32]);
+
+impl ObjectId {
+    /// The zero object ID (useful as a sentinel).
+    pub const ZERO: Self = Self([0u8; 32]);
+
+    /// Create an `ObjectId` from raw bytes.
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Return the raw bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Return the first 7 hex characters (short form for display).
+    #[must_use]
+    pub fn short(&self) -> String {
+        let full = self.to_string();
+        full[..7].to_owned()
+    }
+}
+
+impl fmt::Display for ObjectId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in &self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for ObjectId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ObjectId({})", self.short())
+    }
+}
+
+/// Error parsing a hex string as an `ObjectId`.
+#[derive(Debug, thiserror::Error)]
+#[error("invalid object id: {reason}")]
+pub struct ParseObjectIdError {
+    reason: String,
+}
+
+impl FromStr for ObjectId {
+    type Err = ParseObjectIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() != 64 {
+            return Err(ParseObjectIdError {
+                reason: format!("expected 64 hex chars, got {}", s.len()),
+            });
+        }
+        let mut bytes = [0u8; 32];
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).map_err(|e| {
+                ParseObjectIdError {
+                    reason: e.to_string(),
+                }
+            })?;
+        }
+        Ok(Self(bytes))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Canonical forms — private structs with deterministic field ordering.
+// These exist only for hashing; they are never persisted directly.
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct CanonicalVertex {
+    id: String,
+    kind: String,
+    nsid: Option<String>,
+}
+
+impl From<&Vertex> for CanonicalVertex {
+    fn from(v: &Vertex) -> Self {
+        Self {
+            id: v.id.clone(),
+            kind: v.kind.clone(),
+            nsid: v.nsid.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct CanonicalHyperEdge {
+    id: String,
+    kind: String,
+    signature: BTreeMap<String, String>,
+    parent_label: String,
+}
+
+impl From<&HyperEdge> for CanonicalHyperEdge {
+    fn from(he: &HyperEdge) -> Self {
+        Self {
+            id: he.id.clone(),
+            kind: he.kind.clone(),
+            signature: he.signature.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            parent_label: he.parent_label.clone(),
+        }
+    }
+}
+
+/// Canonical schema: `BTreeMap` fields, sorted `Vec`s, excludes precomputed indices.
+#[derive(Serialize)]
+struct CanonicalSchema {
+    protocol: String,
+    vertices: BTreeMap<String, CanonicalVertex>,
+    edges: BTreeMap<Edge, String>,
+    hyper_edges: BTreeMap<String, CanonicalHyperEdge>,
+    constraints: BTreeMap<String, Vec<Constraint>>,
+    required: BTreeMap<String, Vec<Edge>>,
+    nsids: BTreeMap<String, String>,
+    variants: BTreeMap<String, Vec<Variant>>,
+    orderings: BTreeMap<Edge, u32>,
+    recursion_points: BTreeMap<String, RecursionPoint>,
+    spans: BTreeMap<String, Span>,
+    usage_modes: BTreeMap<Edge, UsageMode>,
+    nominal: BTreeMap<String, bool>,
+}
+
+impl From<&Schema> for CanonicalSchema {
+    fn from(s: &Schema) -> Self {
+        let mut constraints: BTreeMap<String, Vec<Constraint>> = s
+            .constraints
+            .iter()
+            .map(|(k, v)| {
+                let mut sorted = v.clone();
+                sorted.sort();
+                (k.clone(), sorted)
+            })
+            .collect();
+        // Remove empty constraint lists.
+        constraints.retain(|_, v| !v.is_empty());
+
+        let mut required: BTreeMap<String, Vec<Edge>> = s
+            .required
+            .iter()
+            .map(|(k, v)| {
+                let mut sorted = v.clone();
+                sorted.sort();
+                (k.clone(), sorted)
+            })
+            .collect();
+        required.retain(|_, v| !v.is_empty());
+
+        Self {
+            protocol: s.protocol.clone(),
+            vertices: s
+                .vertices
+                .iter()
+                .map(|(k, v)| (k.clone(), CanonicalVertex::from(v)))
+                .collect(),
+            edges: s.edges.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            hyper_edges: s
+                .hyper_edges
+                .iter()
+                .map(|(k, v)| (k.clone(), CanonicalHyperEdge::from(v)))
+                .collect(),
+            constraints,
+            required,
+            nsids: s.nsids.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            variants: s.variants.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            orderings: s.orderings.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            recursion_points: s.recursion_points.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            spans: s.spans.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            usage_modes: s.usage_modes.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            nominal: s.nominal.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+        }
+    }
+}
+
+/// Canonical migration: all `HashMap` fields become `BTreeMap`.
+#[derive(Serialize)]
+struct CanonicalMigration {
+    src: ObjectId,
+    tgt: ObjectId,
+    vertex_map: BTreeMap<String, String>,
+    edge_map: BTreeMap<Edge, Edge>,
+    hyper_edge_map: BTreeMap<String, String>,
+    label_map: BTreeMap<(String, String), String>,
+    resolver: BTreeMap<(String, String), Edge>,
+    hyper_resolver: BTreeMap<String, (String, BTreeMap<String, String>)>,
+}
+
+// ---------------------------------------------------------------------------
+// Public hashing functions
+// ---------------------------------------------------------------------------
+
+/// Compute the content-addressed ID of a schema.
+///
+/// The hash excludes precomputed indices (`outgoing`, `incoming`, `between`)
+/// since those are derived data.
+///
+/// # Errors
+///
+/// Returns an error if canonical serialization fails.
+pub fn hash_schema(schema: &Schema) -> Result<ObjectId, VcsError> {
+    let canonical = CanonicalSchema::from(schema);
+    let bytes = rmp_serde::to_vec(&canonical)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
+/// Compute the content-addressed ID of a migration.
+///
+/// The hash includes the source and target schema object IDs so that the
+/// same morphism applied between different schema pairs produces distinct
+/// migration IDs.
+///
+/// # Errors
+///
+/// Returns an error if canonical serialization fails.
+pub fn hash_migration(
+    src: ObjectId,
+    tgt: ObjectId,
+    migration: &Migration,
+) -> Result<ObjectId, VcsError> {
+    // Flatten hyper_resolver to BTreeMap with sorted inner maps.
+    let hyper_resolver: BTreeMap<String, (String, BTreeMap<String, String>)> = migration
+        .hyper_resolver
+        .iter()
+        .map(|((he_id, _labels), (tgt_he, remap))| {
+            let sorted_remap: BTreeMap<String, String> =
+                remap.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            (he_id.clone(), (tgt_he.clone(), sorted_remap))
+        })
+        .collect();
+
+    let canonical = CanonicalMigration {
+        src,
+        tgt,
+        vertex_map: migration
+            .vertex_map
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+        edge_map: migration
+            .edge_map
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+        hyper_edge_map: migration
+            .hyper_edge_map
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+        label_map: migration
+            .label_map
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+        resolver: migration
+            .resolver
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+        hyper_resolver,
+    };
+    let bytes = rmp_serde::to_vec(&canonical)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
+/// Compute the content-addressed ID of a commit.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_commit(commit: &CommitObject) -> Result<ObjectId, VcsError> {
+    let bytes = rmp_serde::to_vec(commit)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use panproto_schema::Vertex;
+    use smallvec::SmallVec;
+    use std::collections::HashMap;
+
+    fn make_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
+        let mut vert_map = HashMap::new();
+        let mut edge_map = HashMap::new();
+        let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
+        let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+
+        for (id, kind) in vertices {
+            vert_map.insert(
+                id.to_string(),
+                Vertex {
+                    id: id.to_string(),
+                    kind: kind.to_string(),
+                    nsid: None,
+                },
+            );
+        }
+        for edge in edges {
+            edge_map.insert(edge.clone(), edge.kind.clone());
+            outgoing
+                .entry(edge.src.clone())
+                .or_default()
+                .push(edge.clone());
+            incoming
+                .entry(edge.tgt.clone())
+                .or_default()
+                .push(edge.clone());
+            between
+                .entry((edge.src.clone(), edge.tgt.clone()))
+                .or_default()
+                .push(edge.clone());
+        }
+
+        Schema {
+            protocol: "test".into(),
+            vertices: vert_map,
+            edges: edge_map,
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            outgoing,
+            incoming,
+            between,
+        }
+    }
+
+    #[test]
+    fn hash_stability_same_schema() {
+        let s = make_schema(&[("a", "object"), ("b", "string")], &[]);
+        let h1 = hash_schema(&s).unwrap();
+        let h2 = hash_schema(&s).unwrap();
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn hash_differs_for_different_schemas() {
+        let s1 = make_schema(&[("a", "object")], &[]);
+        let s2 = make_schema(&[("a", "object"), ("b", "string")], &[]);
+        let h1 = hash_schema(&s1).unwrap();
+        let h2 = hash_schema(&s2).unwrap();
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn hash_ignores_precomputed_indices() {
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: None,
+        };
+        let s1 = make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]);
+
+        // Create the same schema but with empty precomputed indices.
+        let mut s2 = s1.clone();
+        s2.outgoing.clear();
+        s2.incoming.clear();
+        s2.between.clear();
+
+        let h1 = hash_schema(&s1).unwrap();
+        let h2 = hash_schema(&s2).unwrap();
+        assert_eq!(h1, h2, "hash should not depend on precomputed indices");
+    }
+
+    #[test]
+    fn object_id_display_and_parse() {
+        let id = ObjectId::ZERO;
+        let hex = id.to_string();
+        assert_eq!(hex.len(), 64);
+        assert!(hex.chars().all(|c| c == '0'));
+
+        let parsed: ObjectId = hex.parse().unwrap();
+        assert_eq!(parsed, id);
+    }
+
+    #[test]
+    fn object_id_short() {
+        let id = ObjectId::from_bytes([0xab; 32]);
+        assert_eq!(id.short(), "abababa");
+    }
+
+    #[test]
+    fn hash_commit_deterministic() {
+        let commit = CommitObject {
+            schema_id: ObjectId::ZERO,
+            parents: vec![],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test-author".into(),
+            timestamp: 1234567890,
+            message: "initial commit".into(),
+        };
+        let h1 = hash_commit(&commit).unwrap();
+        let h2 = hash_commit(&commit).unwrap();
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn hash_migration_includes_endpoints() {
+        let mig = Migration::empty();
+        let src1 = ObjectId::from_bytes([1; 32]);
+        let src2 = ObjectId::from_bytes([2; 32]);
+        let tgt = ObjectId::from_bytes([3; 32]);
+
+        let h1 = hash_migration(src1, tgt, &mig).unwrap();
+        let h2 = hash_migration(src2, tgt, &mig).unwrap();
+        assert_ne!(h1, h2, "different source schemas should produce different migration IDs");
+    }
+}

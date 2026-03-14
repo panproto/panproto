@@ -21,3 +21,5 @@ pub use panproto_io as io;
 pub use panproto_protocols as protocols;
 /// Re-export of `panproto-schema` for schema types and builders.
 pub use panproto_schema as schema;
+/// Re-export of `panproto-vcs` for schematic version control.
+pub use panproto_vcs as vcs;
