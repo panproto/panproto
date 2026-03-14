@@ -67,6 +67,8 @@ pub fn protocol() -> Protocol {
             "text".into(),
             "mark".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

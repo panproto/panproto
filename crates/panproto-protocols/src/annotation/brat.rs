@@ -45,6 +45,8 @@ pub fn protocol() -> Protocol {
             "source-id".into(),
             "text".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

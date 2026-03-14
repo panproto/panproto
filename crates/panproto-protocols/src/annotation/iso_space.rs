@@ -57,6 +57,8 @@ pub fn protocol() -> Protocol {
             "distance".into(),
             "gazref".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

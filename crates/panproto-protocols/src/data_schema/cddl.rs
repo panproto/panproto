@@ -39,6 +39,11 @@ pub fn protocol() -> Protocol {
             "tagged".into(),
         ],
         constraint_sorts: vec!["size".into(), "range".into(), "default".into()],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

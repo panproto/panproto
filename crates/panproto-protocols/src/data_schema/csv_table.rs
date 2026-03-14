@@ -51,6 +51,9 @@ pub fn protocol() -> Protocol {
             "pattern".into(),
             "enum".into(),
         ],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

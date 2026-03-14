@@ -52,6 +52,10 @@ pub fn protocol() -> Protocol {
             "const".into(),
             "additionalProperties".into(),
         ],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        ..Protocol::default()
     }
 }
 

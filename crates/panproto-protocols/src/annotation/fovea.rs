@@ -80,6 +80,8 @@ pub fn protocol() -> Protocol {
             "label".into(),
             "source".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

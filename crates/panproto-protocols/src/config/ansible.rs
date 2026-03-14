@@ -35,6 +35,10 @@ pub fn protocol() -> Protocol {
             "dict".into(),
         ],
         constraint_sorts: vec!["required".into(), "default".into()],
+        has_order: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

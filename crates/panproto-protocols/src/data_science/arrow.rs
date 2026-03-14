@@ -65,6 +65,10 @@ pub fn protocol() -> Protocol {
             "scale".into(),
             "bit-width".into(),
         ],
+        has_order: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

@@ -55,6 +55,9 @@ pub fn protocol() -> Protocol {
             "pattern".into(),
             "description".into(),
         ],
+        has_order: true,
+        has_recursion: true,
+        ..Protocol::default()
     }
 }
 

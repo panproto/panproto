@@ -51,6 +51,8 @@ pub fn protocol() -> Protocol {
             "to".into(),
             "label".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

@@ -40,12 +40,16 @@ pub fn protocol() -> Protocol {
             "node-key".into(),
             "type".into(),
         ],
+        has_coproducts: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 
 /// Register the component GATs for Neo4j.
 pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, S>) {
-    theories::register_multigraph_wtype_meta(registry, "ThNeo4jSchema", "ThNeo4jInstance");
+    theories::register_constrained_graph_instance(registry, "ThNeo4jSchema", "ThNeo4jInstance");
 }
 
 /// Parse Cypher constraint/index DDL into a [`Schema`].

@@ -60,6 +60,9 @@ pub fn protocol() -> Protocol {
             "STATIC".into(),
             "NOT NULL".into(),
         ],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

@@ -80,6 +80,8 @@ pub fn protocol() -> Protocol {
             "begin".into(),
             "end".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

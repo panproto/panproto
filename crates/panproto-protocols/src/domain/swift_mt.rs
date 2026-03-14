@@ -33,6 +33,9 @@ pub fn protocol() -> Protocol {
             "bic".into(),
         ],
         constraint_sorts: vec!["required".into(), "format".into(), "length".into()],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

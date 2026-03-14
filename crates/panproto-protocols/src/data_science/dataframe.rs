@@ -46,6 +46,9 @@ pub fn protocol() -> Protocol {
             "lt".into(),
             "isin".into(),
         ],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

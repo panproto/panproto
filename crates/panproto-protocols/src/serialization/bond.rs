@@ -60,6 +60,9 @@ pub fn protocol() -> Protocol {
             "optional".into(),
             "default".into(),
         ],
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

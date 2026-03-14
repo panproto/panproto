@@ -41,6 +41,10 @@ pub fn protocol() -> Protocol {
             "boolean-attr".into(),
             "content-categories".into(),
         ],
+        has_order: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

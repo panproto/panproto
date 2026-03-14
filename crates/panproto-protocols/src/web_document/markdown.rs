@@ -41,6 +41,9 @@ pub fn protocol() -> Protocol {
             "front-matter".into(),
         ],
         constraint_sorts: vec![],
+        has_order: true,
+        has_recursion: true,
+        ..Protocol::default()
     }
 }
 

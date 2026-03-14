@@ -43,6 +43,9 @@ pub fn protocol() -> Protocol {
             "minimum".into(),
             "maximum".into(),
         ],
+        has_order: true,
+        has_recursion: true,
+        ..Protocol::default()
     }
 }
 

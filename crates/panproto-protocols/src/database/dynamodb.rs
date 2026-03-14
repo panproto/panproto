@@ -37,6 +37,8 @@ pub fn protocol() -> Protocol {
             "read-capacity".into(),
             "write-capacity".into(),
         ],
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

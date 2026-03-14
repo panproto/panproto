@@ -37,6 +37,9 @@ pub fn protocol() -> Protocol {
             "uri".into(),
         ],
         constraint_sorts: vec!["required".into(), "format".into()],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

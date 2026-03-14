@@ -62,6 +62,10 @@ pub fn protocol() -> Protocol {
             "map-type".into(),
         ],
         constraint_sorts: vec!["json_tag".into(), "omitempty".into()],
+        has_order: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

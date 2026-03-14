@@ -49,6 +49,8 @@ pub fn protocol() -> Protocol {
             "ta-ident-ref".into(),
             "ta-class-ref".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 
