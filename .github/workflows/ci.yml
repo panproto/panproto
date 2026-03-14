@@ -91,9 +91,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: sdk/typescript/pnpm-lock.yaml
-      - run: cd sdk/typescript && pnpm install
+      - run: cd sdk/typescript && pnpm install --no-frozen-lockfile
       - run: cd sdk/typescript && pnpm test
       - run: cd sdk/typescript && pnpm exec tsc --noEmit
 
