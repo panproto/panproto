@@ -1,0 +1,118 @@
+# The Building-Block Landscape {#sec-building-blocks}
+
+panproto's 76 protocol definitions are composed from 27 building-block theories via colimit. Each building block captures a structural distinction that affects migration correctness: whether collections are ordered, whether types form coproducts, whether references are recursive, whether edges are linear. This chapter catalogs all 27 and explains when each is needed.
+
+## The Structure-Validation Boundary
+
+Some schema properties are algebraically natural, expressible as GAT sorts, operations, and equations. Others are irreducibly computational: cardinality bounds, regex patterns, format constraints. The distinction matters because algebraic properties compose cleanly through colimits and migrations, while validation properties must be checked imperatively.
+
+**Structural (expressible in GATs):**
+
+- Edge uniqueness: dependent sort `Edge(s: Vertex, t: Vertex)` in ThSimpleGraph
+- Optionality: section/retraction with equation in ThPartial
+- Recursive types: fold-unfold law in ThRecursion
+- Sum types: variant retraction with equation in ThCoproduct
+- Causality: dependent sort `Before(e1, e2)` with composition in ThCausal
+- Reflexivity: identity edges with equations in ThReflexiveGraph
+- Symmetry: involution with equations in ThSymmetricGraph
+
+**Validation (requires ThConstraint):**
+
+- `maxLength`, `minLength`: arithmetic
+- `pattern`: regex
+- `minimum`, `maximum`: ordered field arithmetic
+- `format` (date-time, email, URI): domain-specific
+
+The mechanism for lifting properties into structure is Cartmell's property-to-structure move [@cartmell1986]. A conditional property like injectivity ("if `f(a) = f(b)` then `a = b`") cannot be stated as an unconditional GAT equation. But you can add a retraction operation `r` with the unconditional equation `r(f(a)) = a`, which encodes injectivity as algebraic structure rather than as a logical property. This is why GATs have dependent sorts.
+
+## Schema-Side Theories (18)
+
+### Graph Shapes (6)
+
+| Theory | Sorts | Equations | Captures |
+|---|---|---|---|
+| ThGraph | Vertex, Edge | | Directed binary relationships |
+| ThSimpleGraph | Vertex, Edge(s,t) | | Edge uniqueness via dependent sort |
+| ThHypergraph | Vertex, HyperEdge, Label | | N-ary relationships |
+| ThReflexiveGraph | Vertex, Edge | src(id(v))=v, tgt(id(v))=v | Identity/default morphisms |
+| ThSymmetricGraph | Vertex, Edge | src(inv(e))=tgt(e), tgt(inv(e))=src(e), inv(inv(e))=e | Undirected relationships |
+| ThPetriNet | Place, Transition, Token | | Concurrent structure |
+
+### Modifiers (8)
+
+| Theory | Sorts | Equations | Captures |
+|---|---|---|---|
+| ThConstraint | Vertex, Constraint(v) | | Validation constraints |
+| ThMulti | Vertex, Edge, EdgeLabel | | Parallel edges |
+| ThInterface | Vertex, Interface | | Subtyping/polymorphism |
+| ThOrder | Edge, Position | | Ordered collections |
+| ThCoproduct | Vertex, Variant, Tag | variant_of(injection(v))=v | Sum types/unions |
+| ThRecursion | Vertex, Mu | unfold(fold(v))=v | Recursive types |
+| ThPartial | Vertex, Defined | defined(witness(d))=d | Optionality as structure |
+| ThLinear | Edge, Usage | | Use-counting (linear/affine) |
+
+### Structural (4)
+
+| Theory | Sorts | Equations | Captures |
+|---|---|---|---|
+| ThNominal | Vertex, Name | | Nominal identity |
+| ThSpan | Vertex, Span | | Diffs/correspondences |
+| ThCospan | Vertex, Apex | | Merge targets |
+| ThOperad | Color, MOperation | | Fan-in aggregation |
+
+## Instance-Side Theories (6)
+
+| Theory | Sorts | Equations | Captures |
+|---|---|---|---|
+| ThWType | Node, Arc, Value | | Tree-shaped data |
+| ThFunctor | Table, Row, ForeignKey | | Relational/tabular data |
+| ThFlat | Node, Field, Value | | Key-value data |
+| ThGraphInstance | IVertex, IEdge, Value, Vertex, Edge | | Graph-shaped data (most general) |
+| ThAnnotation | Vertex, Annotation, AnnotationKey, Value | | Out-of-band metadata |
+| ThCausal | Event, Timestamp, Before(e1,e2) | | Causal/temporal ordering |
+
+## Architectural Theories (3)
+
+| Theory | Sorts | Captures |
+|---|---|---|
+| ThTracedMonoidal | Wire, Box | Feedback/recursion creation |
+| ThSimplicial | Simplex, Face, Degeneracy | Layered/filtered data |
+
+## The 6 Theory Groups
+
+Protocols compose building blocks via colimit into theory groups:
+
+| Group | Schema | Instance | Count | Examples |
+|---|---|---|---|---|
+| A | colimit(Graph, Constraint, Multi) | WType | 30 | ATProto, JSON Schema, OpenAPI |
+| B | colimit(Hypergraph, Constraint) | Functor | 11 | SQL, Cassandra, Parquet |
+| C | colimit(SimpleGraph, Constraint) | Flat | 9 | Protobuf, Avro, Thrift |
+| D | colimit(Graph, Constraint, Multi, Interface) | WType | 16 | GraphQL, TypeScript, Rust |
+| E | colimit(Graph, Constraint, Multi) | colimit(WType, Meta) | 9 | XML, HTML, CSS |
+| F | colimit(Graph, Constraint, Multi) | GraphInstance | 1 | Neo4j |
+
+Each protocol opts into additional theories (ThOrder, ThCoproduct, etc.) by composing them into its schema theory via colimit.
+
+## Equations as Structural Invariants
+
+Only 6 of the 27 theories have equations. Each has been type-checked against the theory's sort declarations.
+
+**ThRecursion**: `unfold(fold(v)) = v`
+
+`fold(v)` has sort Mu (since fold: Vertex → Mu). `unfold(fold(v))` has sort Vertex (since unfold: Mu → Vertex). The right side `v` also has sort Vertex. Both sides match.
+
+**ThReflexiveGraph**: `src(id(v)) = v` and `tgt(id(v)) = v`
+
+`id(v)` has sort Edge (since id: Vertex → Edge). `src(id(v))` has sort Vertex (since src: Edge → Vertex). The right side `v` also has sort Vertex. Both sides match. Same reasoning for `tgt`.
+
+**ThSymmetricGraph**: three equations
+
+`src(inv(e)) = tgt(e)`: both sides have sort Vertex. `tgt(inv(e)) = src(e)`: both sides have sort Vertex. `inv(inv(e)) = e`: both sides have sort Edge.
+
+**ThCoproduct**: `variant_of(injection(v)) = v`
+
+`injection(v)` has sort Vertex (since injection: Variant → Vertex). `variant_of(injection(v))` has sort Variant (since variant_of: Vertex → Variant). The right side `v` also has sort Variant. Both sides match.
+
+**ThPartial**: `defined(witness(d)) = d`
+
+`witness(d)` has sort Vertex (since witness: Defined → Vertex). `defined(witness(d))` has sort Defined (since defined: Vertex → Defined). The right side `d` also has sort Defined. Both sides match.

@@ -1,0 +1,154 @@
+# Building-Block Theories {#sec-building-blocks}
+
+panproto defines 27 building-block GATs that compose via colimit into protocol-specific schema and instance theories. This chapter provides the formal definitions and type-checking proofs for all equations.
+
+## Formal Invariants
+
+Every building-block theory satisfies:
+
+1. **Sort closure**: every sort name in an operation's input/output types is declared in the theory's sorts list.
+2. **Equation well-typedness**: both sides of every equation have the same output sort.
+3. **No tautologies**: `lhs ≠ rhs` syntactically for all equations.
+
+## The Property-to-Structure Principle
+
+Several building blocks use Cartmell's property-to-structure move [@cartmell1986]: conditional properties (transitivity, injectivity) are encoded as unconditional equations by adding operations and dependent sorts.
+
+For example, injectivity of coproduct injection is not `injection(v1) = injection(v2) → v1 = v2` (a conditional equation, not expressible in GATs). Instead, ThCoproduct adds a retraction `variant_of : Vertex → Variant` with the equation `variant_of(injection(v)) = v`. The retraction is *structure*, not a *property*.
+
+This separation yields a clean boundary: structural properties (transitivity, injectivity, uniqueness, optionality) belong in GAT sorts+equations; validation properties (cardinality, patterns, ranges) belong in ThConstraint.
+
+## Theories with Equations
+
+### ThRecursion — Fold-Unfold
+
+```
+Sorts: Vertex, Mu
+Ops:   fold : Vertex → Mu
+       unfold : Mu → Vertex
+Eq:    unfold(fold(v)) = v
+```
+
+Type check: `fold(v) : Mu`, `unfold(fold(v)) : Vertex`, `v : Vertex`. Both sides: Vertex. ✓
+
+This is the isorecursive fold-unfold law. `fold` is a section of `unfold`.
+
+### ThReflexiveGraph — Identity Edges
+
+```
+Sorts: Vertex, Edge
+Ops:   id : Vertex → Edge
+       src : Edge → Vertex
+       tgt : Edge → Vertex
+Eqs:   src(id(v)) = v
+       tgt(id(v)) = v
+```
+
+Type check: `id(v) : Edge`, `src(id(v)) : Vertex`, `v : Vertex`. Both sides: Vertex. ✓
+
+Without the equations, this is just ThGraph + an extra operation. The equations make the identity edge load-bearing.
+
+### ThSymmetricGraph — Involution
+
+```
+Sorts: Vertex, Edge
+Ops:   inv : Edge → Edge
+       src : Edge → Vertex
+       tgt : Edge → Vertex
+Eqs:   src(inv(e)) = tgt(e)
+       tgt(inv(e)) = src(e)
+       inv(inv(e)) = e
+```
+
+Type checks:
+
+- `src(inv(e)) : Vertex`, `tgt(e) : Vertex` ✓
+- `inv(inv(e)) : Edge`, `e : Edge` ✓
+
+### ThCoproduct — Variant Retraction
+
+```
+Sorts: Vertex, Variant, Tag
+Ops:   injection : Variant → Vertex
+       tag : Variant → Tag
+       variant_of : Vertex → Variant
+Eq:    variant_of(injection(v)) = v
+```
+
+Type check: `injection(v) : Vertex`, `variant_of(injection(v)) : Variant`, `v : Variant`. Both sides: Variant. ✓
+
+### ThPartial — Definedness Witness
+
+```
+Sorts: Vertex, Defined
+Ops:   defined : Vertex → Defined
+       witness : Defined → Vertex
+Eq:    defined(witness(d)) = d
+```
+
+Type check: `witness(d) : Vertex`, `defined(witness(d)) : Defined`, `d : Defined`. Both sides: Defined. ✓
+
+## All 27 Theories (Complete List)
+
+### Schema shapes (6)
+
+| # | Name | Sorts | Ops | Eqs |
+|---|------|-------|-----|-----|
+| 1 | ThGraph | Vertex, Edge | src, tgt | 0 |
+| 2 | ThSimpleGraph | Vertex, Edge(s:V,t:V) | src, tgt | 0 |
+| 3 | ThHypergraph | Vertex, HyperEdge, Label | incident, parent_label | 0 |
+| 4 | ThReflexiveGraph | Vertex, Edge | id, src, tgt | 2 |
+| 5 | ThSymmetricGraph | Vertex, Edge | inv, src, tgt | 3 |
+| 6 | ThPetriNet | Place, Transition, Token | pre, post, marking | 0 |
+
+### Schema modifiers (8)
+
+| # | Name | Sorts | Ops | Eqs |
+|---|------|-------|-----|-----|
+| 7 | ThConstraint | Vertex, Constraint(v:V) | target | 0 |
+| 8 | ThMulti | Vertex, Edge, EdgeLabel | edge_label | 0 |
+| 9 | ThInterface | Vertex, Interface | implements | 0 |
+| 10 | ThOrder | Edge, Position | edge_position, succ | 0 |
+| 11 | ThCoproduct | Vertex, Variant, Tag | injection, tag, variant_of | 1 |
+| 12 | ThRecursion | Vertex, Mu | unfold, fold | 1 |
+| 13 | ThPartial | Vertex, Defined | defined, witness | 1 |
+| 14 | ThLinear | Edge, Usage | use_count | 0 |
+
+### Schema structural (4)
+
+| # | Name | Sorts | Ops | Eqs |
+|---|------|-------|-----|-----|
+| 15 | ThNominal | Vertex, Name | name | 0 |
+| 16 | ThSpan | Vertex, Span | span_left, span_right | 0 |
+| 17 | ThCospan | Vertex, Apex | inl, inr | 0 |
+| 18 | ThOperad | Color, MOperation | arity, op_output | 0 |
+
+### Instance (6)
+
+| # | Name | Sorts | Ops | Eqs |
+|---|------|-------|-----|-----|
+| 19 | ThWType | Node, Arc, Value | anchor, arc_src, arc_tgt, arc_edge, node_value | 0 |
+| 20 | ThFunctor | Table, Row, ForeignKey | table_vertex, fk_src, fk_tgt | 0 |
+| 21 | ThFlat | Node, Field, Value | field_node, field_value, node_anchor | 0 |
+| 22 | ThGraphInstance | IVertex, IEdge, Value, Vertex, Edge | i_src, i_tgt, iv_anchor, ie_anchor, iv_value | 0 |
+| 23 | ThAnnotation | Vertex, Annotation, AnnotationKey, Value | annotated, ann_key, ann_value | 0 |
+| 24 | ThCausal | Event, Timestamp, Before(e1,e2) | time, before_refl, before_trans | 0 |
+
+### Architectural (3)
+
+| # | Name | Sorts | Ops | Eqs |
+|---|------|-------|-----|-----|
+| 25 | ThTracedMonoidal | Wire, Box | trace_in, trace_out, feedback | 0 |
+| 26 | ThSimplicial | Simplex, Face, Degeneracy | face_map, degeneracy_map | 0 |
+| 27 | ThMeta | Node, Discriminator, ExtraField | discriminator, extra_field | 0 |
+
+## Theory Groups
+
+| Group | Schema composition | Instance | Protocols |
+|---|---|---|---|
+| A | colimit(Graph, Constraint, Multi) | WType | 30 |
+| B | colimit(Hypergraph, Constraint) | Functor | 11 |
+| C | colimit(SimpleGraph, Constraint) | Flat | 9 |
+| D | colimit(Graph, Constraint, Multi, Interface) | WType | 16 |
+| E | colimit(Graph, Constraint, Multi) | colimit(WType, Meta) | 9 |
+| F | colimit(Graph, Constraint, Multi) | GraphInstance | 1 |

@@ -1,0 +1,100 @@
+# Schematic Version Control {#sec-version-control}
+
+Schemas evolve. Fields get added, types change, constraints tighten. When multiple teams develop against the same schema, their changes diverge and eventually need merging. The `schema` CLI provides git-style version control for this process, except that instead of tracking text it tracks mathematical structure.
+
+## The Git Analogy
+
+| Git concept | panproto equivalent |
+|---|---|
+| Blob (file content) | Schema (graph structure) |
+| Diff/patch | Migration (graph morphism) |
+| Three-way merge | Colimit (pushout of schemas) |
+| Content-addressing (SHA) | Content-addressing (blake3) |
+| Commit DAG | Schema evolution DAG |
+| Branch | Named pointer to a schema version |
+| Conflict | Structural incompatibility |
+
+The important difference: git merges text and hopes the result compiles. panproto merges structure and guarantees data integrity.
+
+## Quick Start
+
+```bash
+# Initialize a schema repository
+schema init
+
+# Stage and commit a schema
+schema add schema.json
+schema commit -m "initial ATProto schema"
+
+# Create a branch for a feature
+schema branch add-verification
+schema checkout add-verification
+
+# Evolve the schema
+schema add schema-v2.json
+schema commit -m "add verification status field"
+
+# Merge back
+schema checkout main
+schema merge add-verification
+```
+
+## The Object Store
+
+Every schema, migration, and commit is identified by a blake3 hash of its canonical form. Two schemas with the same structure produce the same hash, even if they were created independently by different teams on different continents. Identity comes from structure, not naming.
+
+```
+.panproto/
+  objects/<hex[0..2]>/<hex[2..]>   # content-addressed objects
+  refs/heads/main                   # branch pointers
+  refs/tags/v1.0                    # tag pointers
+  HEAD                              # current branch
+  logs/                             # reflog (audit trail)
+```
+
+## Structural Merge
+
+When two branches evolve a schema independently, panproto computes a three-way merge:
+
+1. Find the merge base (lowest common ancestor in the DAG)
+2. Compute `diff(base, ours)` and `diff(base, theirs)`
+3. Apply all non-conflicting changes from both sides
+4. Flag overlapping modifications as conflicts
+
+Conflicts are structural, not textual. A `BothModifiedVertex` conflict means both branches changed the same vertex's kind in incompatible ways. A `RemovedVariant` conflict means a coproduct variant was removed, which would make existing tagged data ill-typed. These are things a textual merge cannot detect.
+
+## Lifting Data Through History
+
+The `lift` command migrates actual instance data through any path in the version DAG:
+
+```bash
+# Migrate a record from v1 to v3
+schema lift record.json v1.0 v3.0
+```
+
+This composes the migrations along the path `v1 → v2 → v3` into a single migration, then applies the functorial lift. The commutativity guarantee ensures you get the same result regardless of which path you take through the DAG.
+
+## Full Command Reference
+
+| Command | Description |
+|---|---|
+| `schema init` | Initialize repository |
+| `schema add <schema>` | Stage a schema |
+| `schema commit -m "msg"` | Commit staged changes |
+| `schema status` | Show working state |
+| `schema log` | Walk commit history |
+| `schema diff <old> <new>` | Schema diff |
+| `schema show <ref>` | Inspect an object |
+| `schema branch [name]` | Create/list branches |
+| `schema tag [name]` | Create/list tags |
+| `schema checkout <ref>` | Switch branch |
+| `schema merge <branch>` | Three-way merge |
+| `schema rebase <onto>` | Replay commits |
+| `schema cherry-pick <commit>` | Apply single commit |
+| `schema reset [--soft\|--mixed\|--hard]` | Move HEAD |
+| `schema stash [push\|pop\|list]` | Save/restore state |
+| `schema reflog` | Audit trail |
+| `schema bisect <good> <bad>` | Find breaking commit |
+| `schema blame --element-type vertex <id>` | Attribution |
+| `schema lift <record> <from> <to>` | Migrate data |
+| `schema gc` | Garbage collect |

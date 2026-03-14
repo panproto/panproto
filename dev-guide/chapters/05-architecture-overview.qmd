@@ -12,7 +12,7 @@ panproto is organized into eleven crates arranged in six dependency levels. Each
 | 1 | `panproto-schema`, `panproto-inst` | Schema graphs and instance trees |
 | 2 | `panproto-mig`, `panproto-lens`, `panproto-check` | Migration compilation, lenses, breaking-change analysis |
 | 3 | `panproto-protocols` | Protocol definitions: theory composition, schema-level presentation functors |
-| 3.5 | `panproto-io` | Instance-level presentation functors: format-specific parse/emit for all 77 protocols |
+| 3.5 | `panproto-io` | Instance-level presentation functors: format-specific parse/emit for all 76 protocols |
 | 4 | `panproto-core`, `panproto-wasm`, `panproto-cli` | Re-export facade, WASM boundary, CLI |
 
 : The six-level crate hierarchy. {#tbl-crate-levels}

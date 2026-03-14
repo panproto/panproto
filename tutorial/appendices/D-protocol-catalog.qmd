@@ -1,6 +1,6 @@
-# Protocol Catalog {.appendix}
+# Protocol Catalog {#sec-protocol-catalog .appendix}
 
-This appendix provides a complete reference for all 54 built-in protocols shipped with panproto. Each entry lists the protocol's native format or file extension, its theory group assignment (A through E), and the names of the parse and emit functions that implement it. The theory group determines which categorical structure underlies the protocol's schema representation and governs which cross-format conversions are lossless.
+This appendix provides a complete reference for all 76 built-in protocols shipped with panproto. Each entry lists the protocol's native format or file extension, its theory group assignment (A through F), and the names of the parse and emit functions that implement it. The theory group determines which categorical structure underlies the protocol's schema representation and governs which cross-format conversions are lossless.
 
 ## Serialization Protocols
 
@@ -107,7 +107,7 @@ This appendix provides a complete reference for all 54 built-in protocols shippe
 
 ## Theory Groups
 
-Each protocol is assigned to one of five theory groups. The group determines the categorical theory used to represent the protocol's schema internally and governs how models migrate between protocols.
+Each protocol is assigned to one of six theory groups. The group determines the categorical theory used to represent the protocol's schema internally and governs how models migrate between protocols.
 
 | Group | Theory Combination | Description |
 |:---:|---|---|

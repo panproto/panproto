@@ -332,10 +332,10 @@ requirement to hypergraphs. XML/XSD's element-attribute duality introduces a
 meta-level that requires annotations beyond ordinary constraints.
 
 These ten protocols are a representative sample. panproto organizes its full
-set of 54 protocols into 5 theory groups based on the graph structure they
+set of 76 protocols into 6 theory groups based on the graph structure they
 require—from Group C (simple multigraphs, e.g. Protobuf, Avro, Thrift) through
 Group E (multigraphs with constraint and metadata layers, e.g. XML/XSD, HTML).
-The taxonomy extends uniformly to all 54 protocols; see
+The taxonomy extends uniformly to all 76 protocols; see
 @sec-protocol-catalog for the complete catalog with theory group assignments.
 
 This taxonomy explains a pattern you've probably noticed in the ecosystem:

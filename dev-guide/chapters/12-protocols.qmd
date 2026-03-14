@@ -108,7 +108,7 @@ In practice, this means:
 
 ## Theory Groups
 
-Protocols cluster into five theory groups based on their schema/instance theory pair. Each group has a corresponding `register_*` helper function that handles the colimit computation:
+Protocols cluster into six theory groups based on their schema/instance theory pair. Each group has a corresponding `register_*` helper function that handles the colimit computation:
 
 | Group | Schema Theory | Instance Theory | Registration Helper |
 |---|---|---|---|
@@ -173,7 +173,7 @@ Examples:
 
 ### Instance-Level Presentations (`panproto-io`)
 
-The `panproto-io` crate provides the complementary **instance-level** conversions for all 77 protocols:
+The `panproto-io` crate provides the complementary **instance-level** conversions for all 76 protocols:
 
 - **Parser**: `parse_wtype(protocol, schema, &bytes) -> Result<WInstance, ParseInstanceError>` converts raw _data_ (an HTML document, a CoNLL-U file, a Protobuf wire message) into a `WInstance` or `FInstance` --- a model of the protocol's instance theory $T_P^I$.
 - **Emitter**: `emit_wtype(protocol, schema, &instance) -> Result<Vec<u8>, EmitInstanceError>` converts an instance back to raw format bytes.
@@ -189,7 +189,7 @@ raw spec ──protocols parse──→ Schema v1 ──mig compile──→ Com
 raw data ──io parse──→ Instance v1 ──inst restrict──→ Instance v2 ──io emit──→ raw data
 ```
 
-The commutativity guarantee from Spivak 2012 ensures that parse → restrict → emit composes correctly across all 77 protocols. Both levels support round-trip testing: `parse(emit(parse(input)))` should produce a structurally equivalent result.
+The commutativity guarantee from Spivak 2012 ensures that parse → restrict → emit composes correctly across all 76 protocols. Both levels support round-trip testing: `parse(emit(parse(input)))` should produce a structurally equivalent result.
 
 ### Parsing Strategy
 
@@ -343,13 +343,13 @@ The protocol system spans two crates:
 **`panproto-protocols`** (schema-level presentations) provides:
 
 - **10 building-block theories** (`ThGraph`, `ThSimpleGraph`, `ThHypergraph`, `ThConstraint`, `ThMulti`, `ThInterface`, `ThWType`, `ThFunctor`, `ThFlat`, `ThMeta`) that can be composed via colimit.
-- **5 theory groups** (A through E) covering the structural patterns found across 77 protocols.
+- **6 theory groups** (A through F) covering the structural patterns found across 76 protocols.
 - **Schema-level parse/emit**: convert native format specifications (`.proto`, DDL, SDL) to/from `Schema`.
 - **A uniform protocol interface**: every protocol exports `protocol()`, `register_theories()`, and for schema-defining protocols, a parser/emitter pair.
 
 **`panproto-io`** (instance-level presentations) provides:
 
-- **77 protocol codecs** implementing `InstanceParser` and `InstanceEmitter` traits.
+- **76 protocol codecs** implementing `InstanceParser` and `InstanceEmitter` traits.
 - **4 shared pathways**: SIMD JSON (`simd-json`), zero-copy XML (`quick-xml`), SIMD HTML (`tl`), SIMD tabular (`memchr`) --- enabling ~50 protocols to share optimized core parsing infrastructure.
 - **Format-specific codecs** for HTML (`tl`), Markdown (`pulldown-cmark`), and CoNLL-U (custom `memchr`-based parser).
 - **A `ProtocolRegistry`** for runtime protocol dispatch by name.

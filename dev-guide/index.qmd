@@ -22,7 +22,7 @@ You should be comfortable with:
 
 ## How to navigate this guide
 
-The guide is organized into five parts:
+The guide is organized into six parts:
 
 **Part I --- Getting Started.**
 Read @sec-welcome and @sec-first-contribution to understand the project's goals, clone the repository, and land your first pull request. This is the recommended starting point for all new contributors.
