@@ -29,6 +29,7 @@ pub struct EdgeRule {
 /// and an instance theory GAT (both defined in `panproto-protocols`),
 /// and supplies edge rules, recognized vertex kinds, and constraint sorts.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Protocol {
     /// Human-readable protocol name (e.g., `"atproto"`, `"sql"`).
     pub name: String,

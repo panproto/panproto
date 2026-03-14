@@ -386,31 +386,33 @@ mod tests {
     }
 
     #[test]
-    fn hash_stability_same_schema() {
+    fn hash_stability_same_schema() -> Result<(), Box<dyn std::error::Error>> {
         let s = make_schema(&[("a", "object"), ("b", "string")], &[]);
-        let h1 = hash_schema(&s).unwrap();
-        let h2 = hash_schema(&s).unwrap();
+        let h1 = hash_schema(&s)?;
+        let h2 = hash_schema(&s)?;
         assert_eq!(h1, h2);
+        Ok(())
     }
 
     #[test]
-    fn hash_differs_for_different_schemas() {
+    fn hash_differs_for_different_schemas() -> Result<(), Box<dyn std::error::Error>> {
         let s1 = make_schema(&[("a", "object")], &[]);
         let s2 = make_schema(&[("a", "object"), ("b", "string")], &[]);
-        let h1 = hash_schema(&s1).unwrap();
-        let h2 = hash_schema(&s2).unwrap();
+        let h1 = hash_schema(&s1)?;
+        let h2 = hash_schema(&s2)?;
         assert_ne!(h1, h2);
+        Ok(())
     }
 
     #[test]
-    fn hash_ignores_precomputed_indices() {
+    fn hash_ignores_precomputed_indices() -> Result<(), Box<dyn std::error::Error>> {
         let edge = Edge {
             src: "a".into(),
             tgt: "b".into(),
             kind: "prop".into(),
             name: None,
         };
-        let s1 = make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]);
+        let s1 = make_schema(&[("a", "object"), ("b", "string")], &[edge]);
 
         // Create the same schema but with empty precomputed indices.
         let mut s2 = s1.clone();
@@ -418,20 +420,22 @@ mod tests {
         s2.incoming.clear();
         s2.between.clear();
 
-        let h1 = hash_schema(&s1).unwrap();
-        let h2 = hash_schema(&s2).unwrap();
+        let h1 = hash_schema(&s1)?;
+        let h2 = hash_schema(&s2)?;
         assert_eq!(h1, h2, "hash should not depend on precomputed indices");
+        Ok(())
     }
 
     #[test]
-    fn object_id_display_and_parse() {
+    fn object_id_display_and_parse() -> Result<(), Box<dyn std::error::Error>> {
         let id = ObjectId::ZERO;
         let hex = id.to_string();
         assert_eq!(hex.len(), 64);
         assert!(hex.chars().all(|c| c == '0'));
 
-        let parsed: ObjectId = hex.parse().unwrap();
+        let parsed: ObjectId = hex.parse()?;
         assert_eq!(parsed, id);
+        Ok(())
     }
 
     #[test]
@@ -441,33 +445,35 @@ mod tests {
     }
 
     #[test]
-    fn hash_commit_deterministic() {
+    fn hash_commit_deterministic() -> Result<(), Box<dyn std::error::Error>> {
         let commit = CommitObject {
             schema_id: ObjectId::ZERO,
             parents: vec![],
             migration_id: None,
             protocol: "test".into(),
             author: "test-author".into(),
-            timestamp: 1234567890,
+            timestamp: 1_234_567_890,
             message: "initial commit".into(),
         };
-        let h1 = hash_commit(&commit).unwrap();
-        let h2 = hash_commit(&commit).unwrap();
+        let h1 = hash_commit(&commit)?;
+        let h2 = hash_commit(&commit)?;
         assert_eq!(h1, h2);
+        Ok(())
     }
 
     #[test]
-    fn hash_migration_includes_endpoints() {
+    fn hash_migration_includes_endpoints() -> Result<(), Box<dyn std::error::Error>> {
         let mig = Migration::empty();
         let src1 = ObjectId::from_bytes([1; 32]);
         let src2 = ObjectId::from_bytes([2; 32]);
         let tgt = ObjectId::from_bytes([3; 32]);
 
-        let h1 = hash_migration(src1, tgt, &mig).unwrap();
-        let h2 = hash_migration(src2, tgt, &mig).unwrap();
+        let h1 = hash_migration(src1, tgt, &mig)?;
+        let h2 = hash_migration(src2, tgt, &mig)?;
         assert_ne!(
             h1, h2,
             "different source schemas should produce different migration IDs"
         );
+        Ok(())
     }
 }

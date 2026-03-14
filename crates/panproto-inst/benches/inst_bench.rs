@@ -68,6 +68,12 @@ fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        variants: HashMap::new(),
+        orderings: HashMap::new(),
+        recursion_points: HashMap::new(),
+        spans: HashMap::new(),
+        usage_modes: HashMap::new(),
+        nominal: HashMap::new(),
     }
 }
 

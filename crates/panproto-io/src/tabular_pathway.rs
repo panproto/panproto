@@ -299,11 +299,7 @@ pub fn emit_conllu(instance: &FInstance, protocol: &str) -> Result<Vec<u8>, Emit
             message: "token table not found".into(),
         })?;
 
-    let sentence_rows = instance
-        .tables
-        .get("sentence")
-        .unwrap_or(&Vec::new())
-        .clone();
+    let sentence_rows = instance.tables.get("sentence").cloned().unwrap_or_default();
 
     let conllu_columns = [
         "ID", "FORM", "LEMMA", "UPOS", "XPOS", "FEATS", "HEAD", "DEPREL", "DEPS", "MISC",
@@ -366,6 +362,7 @@ pub fn emit_conllu(instance: &FInstance, protocol: &str) -> Result<Vec<u8>, Emit
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 

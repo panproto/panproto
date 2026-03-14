@@ -516,6 +516,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn emit_schema_roundtrip() {
         let schema_json = serde_json::json!({
             "type": "object",

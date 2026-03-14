@@ -7,7 +7,7 @@
 //! control for schema evolution.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use miette::{Context, IntoDiagnostic, Result};
@@ -219,7 +219,7 @@ enum Command {
         #[arg(long)]
         element_type: String,
 
-        /// Element identifier (vertex ID, edge "src->tgt", or "vertex_id:sort").
+        /// Element identifier (vertex ID, edge `"src->tgt"`, or `"vertex_id:sort"`).
         element_id: String,
     },
 
@@ -316,7 +316,7 @@ fn main() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Load and parse a JSON file into a typed value.
-fn load_json<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T> {
+fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     let contents = std::fs::read_to_string(path)
         .into_diagnostic()
         .wrap_err_with(|| format!("failed to read {}", path.display()))?;
@@ -369,7 +369,7 @@ fn open_repo() -> Result<vcs::Repository> {
 // Schema tool commands (pre-VCS)
 // ---------------------------------------------------------------------------
 
-fn cmd_validate(protocol_name: &str, schema_path: &PathBuf, verbose: bool) -> Result<()> {
+fn cmd_validate(protocol_name: &str, schema_path: &Path, verbose: bool) -> Result<()> {
     let schema: Schema = load_json(schema_path)?;
     let protocol = resolve_protocol(protocol_name)?;
 
@@ -396,12 +396,7 @@ fn cmd_validate(protocol_name: &str, schema_path: &PathBuf, verbose: bool) -> Re
     }
 }
 
-fn cmd_check(
-    src_path: &PathBuf,
-    tgt_path: &PathBuf,
-    mapping_path: &PathBuf,
-    verbose: bool,
-) -> Result<()> {
+fn cmd_check(src_path: &Path, tgt_path: &Path, mapping_path: &Path, verbose: bool) -> Result<()> {
     let src_schema: Schema = load_json(src_path)?;
     let tgt_schema: Schema = load_json(tgt_path)?;
     let migration: Migration = load_json(mapping_path)?;
@@ -452,10 +447,10 @@ fn cmd_check(
 }
 
 fn cmd_lift(
-    migration_path: &PathBuf,
-    src_schema_path: &PathBuf,
-    tgt_schema_path: &PathBuf,
-    record_path: &PathBuf,
+    migration_path: &Path,
+    src_schema_path: &Path,
+    tgt_schema_path: &Path,
+    record_path: &Path,
     verbose: bool,
 ) -> Result<()> {
     let migration: Migration = load_json(migration_path)?;
@@ -521,7 +516,7 @@ fn cmd_lift(
 // VCS commands
 // ---------------------------------------------------------------------------
 
-fn cmd_init(path: &PathBuf) -> Result<()> {
+fn cmd_init(path: &Path) -> Result<()> {
     vcs::Repository::init(path)
         .into_diagnostic()
         .wrap_err("failed to initialize repository")?;
@@ -532,7 +527,7 @@ fn cmd_init(path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn cmd_add(schema_path: &PathBuf) -> Result<()> {
+fn cmd_add(schema_path: &Path) -> Result<()> {
     let schema: Schema = load_json(schema_path)?;
     let mut repo = open_repo()?;
     repo.add(&schema)
@@ -584,7 +579,7 @@ fn cmd_log(limit: Option<usize>) -> Result<()> {
         println!("Author: {}", commit.author);
         println!("Date:   {}", format_timestamp(commit.timestamp));
         if commit.parents.len() > 1 {
-            let parents: Vec<String> = commit.parents.iter().map(|p| p.short()).collect();
+            let parents: Vec<String> = commit.parents.iter().map(vcs::ObjectId::short).collect();
             println!("Merge:  {}", parents.join(" "));
         }
         println!();
@@ -595,7 +590,7 @@ fn cmd_log(limit: Option<usize>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_diff(old_path: &PathBuf, new_path: &PathBuf, verbose: bool) -> Result<()> {
+fn cmd_diff(old_path: &Path, new_path: &Path, verbose: bool) -> Result<()> {
     let old_schema: Schema = load_json(old_path)?;
     let new_schema: Schema = load_json(new_path)?;
 
@@ -679,7 +674,7 @@ fn cmd_show(target: &str) -> Result<()> {
                 "Parents:   {}",
                 c.parents
                     .iter()
-                    .map(|p| p.to_string())
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
             );
@@ -977,7 +972,7 @@ fn cmd_blame(element_type: &str, element_id: &str) -> Result<()> {
                 src: parts[0].to_owned(),
                 tgt: sub_parts[0].to_owned(),
                 kind: sub_parts.get(1).unwrap_or(&"prop").to_string(),
-                name: sub_parts.get(2).map(|s| s.to_string()),
+                name: sub_parts.get(2).map(ToString::to_string),
             };
             vcs::blame::blame_edge(repo.store(), head_id, &edge).into_diagnostic()?
         }
@@ -1029,7 +1024,7 @@ fn format_timestamp(ts: u64) -> String {
 }
 
 /// Convert days since epoch to (year, month, day).
-fn days_to_ymd(days: u64) -> (u64, u64, u64) {
+const fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     // Algorithm from https://howardhinnant.github.io/date_algorithms.html
     let z = days + 719_468;
     let era = z / 146_097;

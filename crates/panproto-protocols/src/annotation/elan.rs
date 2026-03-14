@@ -300,7 +300,7 @@ mod tests {
         assert!(registry.contains_key("ThElanInstance"));
     }
 
-    /// ELAN: abstract `annotation` kind is not in obj_kinds or edge rules.
+    /// ELAN: abstract `annotation` kind is not in `obj_kinds` or edge rules.
     #[test]
     fn abstract_annotation_kind_absent() {
         let p = protocol();
@@ -423,7 +423,7 @@ mod tests {
         assert_eq!(schema.vertex_count(), s2.vertex_count());
     }
 
-    /// Praat TextGrid round-trip: parse a minimal text-grid schema and re-emit.
+    /// Praat `TextGrid` round-trip: parse a minimal text-grid schema and re-emit.
     #[test]
     fn praat_text_grid_round_trip() {
         let json = serde_json::json!({

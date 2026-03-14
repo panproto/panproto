@@ -1117,6 +1117,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn parse_and_emit() {
         let json = serde_json::json!({
             "personas": [

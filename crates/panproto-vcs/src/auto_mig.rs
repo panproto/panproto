@@ -196,8 +196,14 @@ mod tests {
             kind: "prop".into(),
             name: Some("x".into()),
         };
-        let old = make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]);
-        let new = make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]);
+        let old = make_schema(
+            &[("a", "object"), ("b", "string")],
+            std::slice::from_ref(&edge),
+        );
+        let new = make_schema(
+            &[("a", "object"), ("b", "string")],
+            std::slice::from_ref(&edge),
+        );
         let d = diff(&old, &new);
         let m = derive_migration(&old, &new, &d);
         assert_eq!(m.edge_map.len(), 1);

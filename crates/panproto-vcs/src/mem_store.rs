@@ -140,6 +140,7 @@ fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::VcsError;
     use panproto_schema::{Schema, Vertex};
     use std::collections::HashMap;
 
@@ -174,28 +175,30 @@ mod tests {
     }
 
     #[test]
-    fn put_get_round_trip() {
+    fn put_get_round_trip() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let schema = test_schema();
-        let obj = Object::Schema(schema.clone());
-        let id = store.put(&obj).unwrap();
+        let obj = Object::Schema(Box::new(schema.clone()));
+        let id = store.put(&obj)?;
 
         assert!(store.has(&id));
 
-        let retrieved = store.get(&id).unwrap();
+        let retrieved = store.get(&id)?;
         match retrieved {
             Object::Schema(s) => assert_eq!(s.protocol, schema.protocol),
             _ => panic!("expected Schema object"),
         }
+        Ok(())
     }
 
     #[test]
-    fn put_idempotent() {
+    fn put_idempotent() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        let obj = Object::Schema(test_schema());
-        let id1 = store.put(&obj).unwrap();
-        let id2 = store.put(&obj).unwrap();
+        let obj = Object::Schema(Box::new(test_schema()));
+        let id1 = store.put(&obj)?;
+        let id2 = store.put(&obj)?;
         assert_eq!(id1, id2);
+        Ok(())
     }
 
     #[test]
@@ -206,36 +209,38 @@ mod tests {
     }
 
     #[test]
-    fn ref_operations() {
+    fn ref_operations() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id = ObjectId::from_bytes([42; 32]);
 
         // Set and get.
-        store.set_ref("refs/heads/main", id).unwrap();
-        assert_eq!(store.get_ref("refs/heads/main").unwrap(), Some(id));
+        store.set_ref("refs/heads/main", id)?;
+        assert_eq!(store.get_ref("refs/heads/main")?, Some(id));
 
         // List.
-        let refs = store.list_refs("refs/heads/").unwrap();
+        let refs = store.list_refs("refs/heads/")?;
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].0, "refs/heads/main");
 
         // Delete.
-        store.delete_ref("refs/heads/main").unwrap();
-        assert_eq!(store.get_ref("refs/heads/main").unwrap(), None);
+        store.delete_ref("refs/heads/main")?;
+        assert_eq!(store.get_ref("refs/heads/main")?, None);
+        Ok(())
     }
 
     #[test]
-    fn head_state() {
+    fn head_state() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        assert_eq!(store.get_head().unwrap(), HeadState::Branch("main".into()));
+        assert_eq!(store.get_head()?, HeadState::Branch("main".into()));
 
         let id = ObjectId::from_bytes([1; 32]);
-        store.set_head(HeadState::Detached(id)).unwrap();
-        assert_eq!(store.get_head().unwrap(), HeadState::Detached(id));
+        store.set_head(HeadState::Detached(id))?;
+        assert_eq!(store.get_head()?, HeadState::Detached(id));
+        Ok(())
     }
 
     #[test]
-    fn reflog_append_and_read() {
+    fn reflog_append_and_read() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let entry1 = ReflogEntry {
             old_id: None,
@@ -252,41 +257,45 @@ mod tests {
             message: "second".into(),
         };
 
-        store.append_reflog("HEAD", entry1).unwrap();
-        store.append_reflog("HEAD", entry2).unwrap();
+        store.append_reflog("HEAD", entry1)?;
+        store.append_reflog("HEAD", entry2)?;
 
-        let log = store.read_reflog("HEAD", None).unwrap();
+        let log = store.read_reflog("HEAD", None)?;
         assert_eq!(log.len(), 2);
         // Newest first.
         assert_eq!(log[0].message, "second");
         assert_eq!(log[1].message, "first");
 
         // With limit.
-        let log = store.read_reflog("HEAD", Some(1)).unwrap();
+        let log = store.read_reflog("HEAD", Some(1))?;
         assert_eq!(log.len(), 1);
         assert_eq!(log[0].message, "second");
+        Ok(())
     }
 
     #[test]
-    fn resolve_head_empty_repo() {
+    fn resolve_head_empty_repo() -> Result<(), VcsError> {
         let store = MemStore::new();
         // HEAD points to main, but main has no commits.
-        assert_eq!(crate::store::resolve_head(&store).unwrap(), None);
+        assert_eq!(crate::store::resolve_head(&store)?, None);
+        Ok(())
     }
 
     #[test]
-    fn resolve_head_with_branch() {
+    fn resolve_head_with_branch() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id = ObjectId::from_bytes([1; 32]);
-        store.set_ref("refs/heads/main", id).unwrap();
-        assert_eq!(crate::store::resolve_head(&store).unwrap(), Some(id));
+        store.set_ref("refs/heads/main", id)?;
+        assert_eq!(crate::store::resolve_head(&store)?, Some(id));
+        Ok(())
     }
 
     #[test]
-    fn resolve_head_detached() {
+    fn resolve_head_detached() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id = ObjectId::from_bytes([1; 32]);
-        store.set_head(HeadState::Detached(id)).unwrap();
-        assert_eq!(crate::store::resolve_head(&store).unwrap(), Some(id));
+        store.set_head(HeadState::Detached(id))?;
+        assert_eq!(crate::store::resolve_head(&store)?, Some(id));
+        Ok(())
     }
 }

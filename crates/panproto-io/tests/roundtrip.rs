@@ -4,6 +4,8 @@
 //! `parse(emit(parse(input))) ≅ parse(input)` — structural equality
 //! after a full round-trip through parse → emit → re-parse.
 
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use panproto_io::ProtocolRegistry;
 use panproto_io::traits::NativeRepr;
 use panproto_schema::{Protocol, SchemaBuilder};

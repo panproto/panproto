@@ -98,7 +98,7 @@ fn walk_blame(
         };
 
         let schema = match store.get(&commit.schema_id)? {
-            Object::Schema(s) => s,
+            Object::Schema(s) => *s,
             other => {
                 return Err(VcsError::WrongObjectType {
                     expected: "schema",
@@ -182,10 +182,10 @@ mod tests {
     }
 
     #[test]
-    fn blame_vertex_in_root() {
+    fn blame_vertex_in_root() -> Result<(), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
         let s = make_schema(&[("a", "object")]);
-        let schema_id = store.put(&Object::Schema(s)).unwrap();
+        let schema_id = store.put(&Object::Schema(Box::new(s)))?;
         let commit = CommitObject {
             schema_id,
             parents: vec![],
@@ -195,20 +195,21 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let commit_id = store.put(&Object::Commit(commit)).unwrap();
+        let commit_id = store.put(&Object::Commit(commit))?;
 
-        let entry = blame_vertex(&store, commit_id, "a").unwrap();
+        let entry = blame_vertex(&store, commit_id, "a")?;
         assert_eq!(entry.commit_id, commit_id);
         assert_eq!(entry.author, "alice");
+        Ok(())
     }
 
     #[test]
-    fn blame_vertex_introduced_later() {
+    fn blame_vertex_introduced_later() -> Result<(), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
 
         // c0: only vertex "a"
         let s0 = make_schema(&[("a", "object")]);
-        let s0_id = store.put(&Object::Schema(s0)).unwrap();
+        let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
         let c0 = CommitObject {
             schema_id: s0_id,
             parents: vec![],
@@ -218,11 +219,11 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let c0_id = store.put(&Object::Commit(c0)).unwrap();
+        let c0_id = store.put(&Object::Commit(c0))?;
 
         // c1: adds vertex "b"
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-        let s1_id = store.put(&Object::Schema(s1)).unwrap();
+        let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
         let c1 = CommitObject {
             schema_id: s1_id,
             parents: vec![c0_id],
@@ -232,19 +233,20 @@ mod tests {
             timestamp: 200,
             message: "add b".into(),
         };
-        let c1_id = store.put(&Object::Commit(c1)).unwrap();
+        let c1_id = store.put(&Object::Commit(c1))?;
 
-        let entry = blame_vertex(&store, c1_id, "b").unwrap();
+        let entry = blame_vertex(&store, c1_id, "b")?;
         assert_eq!(entry.commit_id, c1_id);
         assert_eq!(entry.author, "bob");
         assert_eq!(entry.message, "add b");
+        Ok(())
     }
 
     #[test]
-    fn blame_vertex_not_found() {
+    fn blame_vertex_not_found() -> Result<(), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
         let s = make_schema(&[("a", "object")]);
-        let schema_id = store.put(&Object::Schema(s)).unwrap();
+        let schema_id = store.put(&Object::Schema(Box::new(s)))?;
         let commit = CommitObject {
             schema_id,
             parents: vec![],
@@ -254,8 +256,9 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let commit_id = store.put(&Object::Commit(commit)).unwrap();
+        let commit_id = store.put(&Object::Commit(commit))?;
 
         assert!(blame_vertex(&store, commit_id, "nonexistent").is_err());
+        Ok(())
     }
 }

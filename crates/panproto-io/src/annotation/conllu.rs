@@ -28,6 +28,7 @@ impl ConlluCodec {
 }
 
 impl InstanceParser for ConlluCodec {
+    #[allow(clippy::unnecessary_literal_bound)]
     fn protocol_name(&self) -> &str {
         "conllu"
     }
@@ -58,6 +59,7 @@ impl InstanceParser for ConlluCodec {
 }
 
 impl InstanceEmitter for ConlluCodec {
+    #[allow(clippy::unnecessary_literal_bound)]
     fn protocol_name(&self) -> &str {
         "conllu"
     }

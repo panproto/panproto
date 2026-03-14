@@ -415,7 +415,7 @@ fn check_variant_preservation(
 fn check_order_compatibility(src: &Schema, tgt: &Schema) -> Vec<ExistenceError> {
     let mut errors = Vec::new();
 
-    for (edge, _pos) in &src.orderings {
+    for edge in src.orderings.keys() {
         if !tgt.orderings.contains_key(edge) && tgt.edges.contains_key(edge) {
             errors.push(ExistenceError::WellFormedness {
                 message: format!(

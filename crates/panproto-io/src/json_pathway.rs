@@ -98,6 +98,7 @@ pub fn emit_json_value(schema: &Schema, instance: &WInstance) -> serde_json::Val
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use panproto_schema::SchemaBuilder;

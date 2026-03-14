@@ -107,109 +107,104 @@ pub struct ResetOutcome {
 mod tests {
     use super::*;
     use crate::MemStore;
+    use crate::error::VcsError;
     use crate::object::{CommitObject, Object};
 
     #[test]
-    fn reset_soft_moves_ref() {
+    fn reset_soft_moves_ref() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        let c0_id = store
-            .put(&Object::Commit(CommitObject {
-                schema_id: ObjectId::from_bytes([0; 32]),
-                parents: vec![],
-                migration_id: None,
-                protocol: "test".into(),
-                author: "test".into(),
-                timestamp: 100,
-                message: "c0".into(),
-            }))
-            .unwrap();
-        let c1_id = store
-            .put(&Object::Commit(CommitObject {
-                schema_id: ObjectId::from_bytes([1; 32]),
-                parents: vec![c0_id],
-                migration_id: None,
-                protocol: "test".into(),
-                author: "test".into(),
-                timestamp: 200,
-                message: "c1".into(),
-            }))
-            .unwrap();
+        let c0_id = store.put(&Object::Commit(CommitObject {
+            schema_id: ObjectId::from_bytes([0; 32]),
+            parents: vec![],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 100,
+            message: "c0".into(),
+        }))?;
+        let c1_id = store.put(&Object::Commit(CommitObject {
+            schema_id: ObjectId::from_bytes([1; 32]),
+            parents: vec![c0_id],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 200,
+            message: "c1".into(),
+        }))?;
 
-        store.set_ref("refs/heads/main", c1_id).unwrap();
+        store.set_ref("refs/heads/main", c1_id)?;
 
-        let outcome = reset(&mut store, c0_id, ResetMode::Soft, "test").unwrap();
+        let outcome = reset(&mut store, c0_id, ResetMode::Soft, "test")?;
         assert!(!outcome.should_clear_index);
         assert!(!outcome.should_write_working);
 
         // Ref should now point to c0.
-        assert_eq!(store.get_ref("refs/heads/main").unwrap(), Some(c0_id));
+        assert_eq!(store.get_ref("refs/heads/main")?, Some(c0_id));
+        Ok(())
     }
 
     #[test]
-    fn reset_mixed_clears_index() {
+    fn reset_mixed_clears_index() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        let c0_id = store
-            .put(&Object::Commit(CommitObject {
-                schema_id: ObjectId::from_bytes([0; 32]),
-                parents: vec![],
-                migration_id: None,
-                protocol: "test".into(),
-                author: "test".into(),
-                timestamp: 100,
-                message: "c0".into(),
-            }))
-            .unwrap();
+        let c0_id = store.put(&Object::Commit(CommitObject {
+            schema_id: ObjectId::from_bytes([0; 32]),
+            parents: vec![],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 100,
+            message: "c0".into(),
+        }))?;
 
-        store.set_ref("refs/heads/main", c0_id).unwrap();
+        store.set_ref("refs/heads/main", c0_id)?;
 
-        let outcome = reset(&mut store, c0_id, ResetMode::Mixed, "test").unwrap();
+        let outcome = reset(&mut store, c0_id, ResetMode::Mixed, "test")?;
         assert!(outcome.should_clear_index);
         assert!(!outcome.should_write_working);
+        Ok(())
     }
 
     #[test]
-    fn reset_hard_writes_working() {
+    fn reset_hard_writes_working() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        let c0_id = store
-            .put(&Object::Commit(CommitObject {
-                schema_id: ObjectId::from_bytes([0; 32]),
-                parents: vec![],
-                migration_id: None,
-                protocol: "test".into(),
-                author: "test".into(),
-                timestamp: 100,
-                message: "c0".into(),
-            }))
-            .unwrap();
+        let c0_id = store.put(&Object::Commit(CommitObject {
+            schema_id: ObjectId::from_bytes([0; 32]),
+            parents: vec![],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 100,
+            message: "c0".into(),
+        }))?;
 
-        store.set_ref("refs/heads/main", c0_id).unwrap();
+        store.set_ref("refs/heads/main", c0_id)?;
 
-        let outcome = reset(&mut store, c0_id, ResetMode::Hard, "test").unwrap();
+        let outcome = reset(&mut store, c0_id, ResetMode::Hard, "test")?;
         assert!(outcome.should_clear_index);
         assert!(outcome.should_write_working);
+        Ok(())
     }
 
     #[test]
-    fn reset_appends_reflog() {
+    fn reset_appends_reflog() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        let c0_id = store
-            .put(&Object::Commit(CommitObject {
-                schema_id: ObjectId::from_bytes([0; 32]),
-                parents: vec![],
-                migration_id: None,
-                protocol: "test".into(),
-                author: "test".into(),
-                timestamp: 100,
-                message: "c0".into(),
-            }))
-            .unwrap();
+        let c0_id = store.put(&Object::Commit(CommitObject {
+            schema_id: ObjectId::from_bytes([0; 32]),
+            parents: vec![],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 100,
+            message: "c0".into(),
+        }))?;
 
-        store.set_ref("refs/heads/main", c0_id).unwrap();
+        store.set_ref("refs/heads/main", c0_id)?;
 
-        reset(&mut store, c0_id, ResetMode::Soft, "alice").unwrap();
+        reset(&mut store, c0_id, ResetMode::Soft, "alice")?;
 
-        let log = store.read_reflog("HEAD", None).unwrap();
+        let log = store.read_reflog("HEAD", None)?;
         assert_eq!(log.len(), 1);
         assert!(log[0].message.contains("reset"));
+        Ok(())
     }
 }

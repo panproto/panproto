@@ -170,14 +170,15 @@ pub fn resolve_ref(store: &dyn Store, target: &str) -> Result<ObjectId, VcsError
 mod tests {
     use super::*;
     use crate::MemStore;
+    use crate::error::VcsError;
 
     #[test]
-    fn branch_create_list_delete() {
+    fn branch_create_list_delete() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id = ObjectId::from_bytes([1; 32]);
 
-        create_branch(&mut store, "feature", id).unwrap();
-        let branches = list_branches(&store).unwrap();
+        create_branch(&mut store, "feature", id)?;
+        let branches = list_branches(&store)?;
         assert_eq!(branches.len(), 1);
         assert_eq!(branches[0].0, "feature");
         assert_eq!(branches[0].1, id);
@@ -185,32 +186,35 @@ mod tests {
         // Duplicate should fail.
         assert!(create_branch(&mut store, "feature", id).is_err());
 
-        delete_branch(&mut store, "feature").unwrap();
-        assert!(list_branches(&store).unwrap().is_empty());
+        delete_branch(&mut store, "feature")?;
+        assert!(list_branches(&store)?.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn tag_create_list_delete() {
+    fn tag_create_list_delete() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id = ObjectId::from_bytes([2; 32]);
 
-        create_tag(&mut store, "v1.0", id).unwrap();
-        let tags = list_tags(&store).unwrap();
+        create_tag(&mut store, "v1.0", id)?;
+        let tags = list_tags(&store)?;
         assert_eq!(tags.len(), 1);
         assert_eq!(tags[0].0, "v1.0");
 
-        delete_tag(&mut store, "v1.0").unwrap();
-        assert!(list_tags(&store).unwrap().is_empty());
+        delete_tag(&mut store, "v1.0")?;
+        assert!(list_tags(&store)?.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn checkout_branch_test() {
+    fn checkout_branch_test() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id = ObjectId::from_bytes([1; 32]);
-        store.set_ref("refs/heads/dev", id).unwrap();
+        store.set_ref("refs/heads/dev", id)?;
 
-        checkout_branch(&mut store, "dev").unwrap();
-        assert_eq!(store.get_head().unwrap(), HeadState::Branch("dev".into()));
+        checkout_branch(&mut store, "dev")?;
+        assert_eq!(store.get_head()?, HeadState::Branch("dev".into()));
+        Ok(())
     }
 
     #[test]
@@ -220,39 +224,43 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_branch() {
+    fn resolve_ref_branch() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id = ObjectId::from_bytes([3; 32]);
-        store.set_ref("refs/heads/main", id).unwrap();
+        store.set_ref("refs/heads/main", id)?;
 
-        assert_eq!(resolve_ref(&store, "main").unwrap(), id);
+        assert_eq!(resolve_ref(&store, "main")?, id);
+        Ok(())
     }
 
     #[test]
-    fn resolve_ref_tag() {
+    fn resolve_ref_tag() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id = ObjectId::from_bytes([4; 32]);
-        store.set_ref("refs/tags/v1.0", id).unwrap();
+        store.set_ref("refs/tags/v1.0", id)?;
 
-        assert_eq!(resolve_ref(&store, "v1.0").unwrap(), id);
+        assert_eq!(resolve_ref(&store, "v1.0")?, id);
+        Ok(())
     }
 
     #[test]
-    fn resolve_ref_hex() {
+    fn resolve_ref_hex() -> Result<(), VcsError> {
         let store = MemStore::new();
         let id = ObjectId::from_bytes([5; 32]);
         let hex = id.to_string();
 
-        assert_eq!(resolve_ref(&store, &hex).unwrap(), id);
+        assert_eq!(resolve_ref(&store, &hex)?, id);
+        Ok(())
     }
 
     #[test]
-    fn resolve_ref_head() {
+    fn resolve_ref_head() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id = ObjectId::from_bytes([6; 32]);
-        store.set_ref("refs/heads/main", id).unwrap();
+        store.set_ref("refs/heads/main", id)?;
 
-        assert_eq!(resolve_ref(&store, "HEAD").unwrap(), id);
+        assert_eq!(resolve_ref(&store, "HEAD")?, id);
+        Ok(())
     }
 
     #[test]

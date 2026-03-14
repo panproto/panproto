@@ -2,11 +2,11 @@
 //!
 //! Many protocols (GraphQL responses, OpenAPI payloads, JSON Schema instances,
 //! ATProto records, etc.) use JSON as their instance encoding. This module
-//! provides a reusable [`JsonCodec`] that implements [`InstanceParser`] and
-//! [`InstanceEmitter`] by delegating to the [`json_pathway`](super::json_pathway).
+//! provides a reusable `JsonCodec` that implements `InstanceParser` and
+//! `InstanceEmitter` by delegating to the `json_pathway` module.
 //!
 //! Protocol-specific modules create a `JsonCodec` with their protocol name
-//! and register it in the [`ProtocolRegistry`](super::ProtocolRegistry).
+//! and register it in the `ProtocolRegistry`.
 
 use panproto_inst::{FInstance, WInstance};
 use panproto_schema::Schema;
@@ -111,6 +111,7 @@ impl InstanceEmitter for JsonCodec {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use panproto_schema::SchemaBuilder;

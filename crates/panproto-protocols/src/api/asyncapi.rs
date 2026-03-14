@@ -50,7 +50,6 @@ pub fn protocol() -> Protocol {
         has_recursion: true,
         has_causal: true,
         nominal_identity: true,
-        ..Protocol::default()
     }
 }
 

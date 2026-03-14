@@ -2,6 +2,8 @@
 //!
 //! Measures parse/emit speed in MB/s per protocol using real fixture data.
 
+#![allow(clippy::expect_used)]
+
 fn main() {
     divan::main();
 }
@@ -16,6 +18,7 @@ fn json_pathway_parse_small(bencher: divan::Bencher<'_, '_>) {
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
         constraint_sorts: vec![],
+        ..panproto_schema::Protocol::default()
     };
     let schema = panproto_schema::SchemaBuilder::new(&proto)
         .vertex("root", "object", None)

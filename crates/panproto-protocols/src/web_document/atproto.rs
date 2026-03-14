@@ -766,6 +766,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn emit_lexicon_roundtrip() {
         let lexicon = serde_json::json!({
             "lexicon": 1,

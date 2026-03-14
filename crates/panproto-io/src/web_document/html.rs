@@ -32,6 +32,7 @@ impl HtmlCodec {
 }
 
 impl InstanceParser for HtmlCodec {
+    #[allow(clippy::unnecessary_literal_bound)]
     fn protocol_name(&self) -> &str {
         "html"
     }
@@ -79,7 +80,7 @@ impl InstanceParser for HtmlCodec {
         for node_handle in dom.children() {
             walk_tl_node(
                 parser,
-                node_handle,
+                *node_handle,
                 root_id,
                 &root_anchor,
                 schema,
@@ -112,17 +113,18 @@ impl InstanceParser for HtmlCodec {
 }
 
 impl InstanceEmitter for HtmlCodec {
+    #[allow(clippy::unnecessary_literal_bound)]
     fn protocol_name(&self) -> &str {
         "html"
     }
 
     fn emit_wtype(
         &self,
-        schema: &Schema,
+        _schema: &Schema,
         instance: &WInstance,
     ) -> Result<Vec<u8>, EmitInstanceError> {
         let mut output = String::new();
-        emit_node(&mut output, schema, instance, instance.root);
+        emit_node(&mut output, instance, instance.root);
         Ok(output.into_bytes())
     }
 
@@ -143,7 +145,7 @@ impl InstanceEmitter for HtmlCodec {
 #[allow(clippy::too_many_arguments)]
 fn walk_tl_node(
     parser: &tl::Parser<'_>,
-    node_handle: &tl::NodeHandle,
+    node_handle: tl::NodeHandle,
     parent_id: u32,
     parent_anchor: &str,
     schema: &Schema,
@@ -151,9 +153,8 @@ fn walk_tl_node(
     arcs: &mut Vec<(u32, u32, Edge)>,
     next_id: &mut u32,
 ) {
-    let node = match node_handle.get(parser) {
-        Some(n) => n,
-        None => return,
+    let Some(node) = node_handle.get(parser) else {
+        return;
     };
 
     match node {
@@ -204,7 +205,7 @@ fn walk_tl_node(
             let children = tag.children();
             for child in children.top().iter() {
                 walk_tl_node(
-                    parser, child, node_id, &anchor, schema, nodes, arcs, next_id,
+                    parser, *child, node_id, &anchor, schema, nodes, arcs, next_id,
                 );
             }
         }
@@ -259,7 +260,7 @@ fn find_child_anchor(schema: &Schema, parent: &str, tag: &str) -> Option<String>
     None
 }
 
-fn emit_node(output: &mut String, schema: &Schema, instance: &WInstance, node_id: u32) {
+fn emit_node(output: &mut String, instance: &WInstance, node_id: u32) {
     let Some(node) = instance.nodes.get(&node_id) else {
         return;
     };
@@ -297,7 +298,7 @@ fn emit_node(output: &mut String, schema: &Schema, instance: &WInstance, node_id
     // Emit children.
     if let Some(children) = instance.children_map.get(&node_id) {
         for &child_id in children {
-            emit_node(output, schema, instance, child_id);
+            emit_node(output, instance, child_id);
         }
     }
 
@@ -309,7 +310,7 @@ fn emit_node(output: &mut String, schema: &Schema, instance: &WInstance, node_id
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use panproto_schema::SchemaBuilder;

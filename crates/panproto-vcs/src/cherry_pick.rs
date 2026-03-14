@@ -58,7 +58,7 @@ pub fn cherry_pick(
 
     // Load schemas.
     let base_schema = match store.get(&parent_commit.schema_id)? {
-        Object::Schema(s) => s,
+        Object::Schema(s) => *s,
         other => {
             return Err(VcsError::WrongObjectType {
                 expected: "schema",
@@ -68,7 +68,7 @@ pub fn cherry_pick(
     };
 
     let theirs_schema = match store.get(&commit.schema_id)? {
-        Object::Schema(s) => s,
+        Object::Schema(s) => *s,
         other => {
             return Err(VcsError::WrongObjectType {
                 expected: "schema",
@@ -91,7 +91,7 @@ pub fn cherry_pick(
         }
     };
     let ours_schema = match store.get(&head_commit.schema_id)? {
-        Object::Schema(s) => s,
+        Object::Schema(s) => *s,
         other => {
             return Err(VcsError::WrongObjectType {
                 expected: "schema",
@@ -109,7 +109,7 @@ pub fn cherry_pick(
     }
 
     // Store the merged schema.
-    let merged_schema_id = store.put(&Object::Schema(result.merged_schema))?;
+    let merged_schema_id = store.put(&Object::Schema(Box::new(result.merged_schema)))?;
 
     // Store the migration from ours to merged.
     let migration_id = store.put(&Object::Migration {
@@ -190,6 +190,7 @@ pub(crate) fn advance_head(
 mod tests {
     use super::*;
     use crate::MemStore;
+    use crate::error::VcsError;
     use panproto_schema::{Schema, Vertex};
     use std::collections::HashMap;
 
@@ -226,12 +227,12 @@ mod tests {
     }
 
     #[test]
-    fn cherry_pick_applies_change() {
+    fn cherry_pick_applies_change() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
         // c0: base with vertex a
         let s0 = make_schema(&[("a", "object")]);
-        let s0_id = store.put(&Object::Schema(s0)).unwrap();
+        let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
         let c0 = CommitObject {
             schema_id: s0_id,
             parents: vec![],
@@ -241,11 +242,11 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let c0_id = store.put(&Object::Commit(c0)).unwrap();
+        let c0_id = store.put(&Object::Commit(c0))?;
 
         // c1: adds vertex b (on a separate branch)
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-        let s1_id = store.put(&Object::Schema(s1)).unwrap();
+        let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
         let c1 = CommitObject {
             schema_id: s1_id,
             parents: vec![c0_id],
@@ -255,25 +256,36 @@ mod tests {
             timestamp: 200,
             message: "add b".into(),
         };
-        let c1_id = store.put(&Object::Commit(c1)).unwrap();
+        let c1_id = store.put(&Object::Commit(c1))?;
 
         // HEAD points to c0 (our branch).
-        store.set_ref("refs/heads/main", c0_id).unwrap();
+        store.set_ref("refs/heads/main", c0_id)?;
 
         // Cherry-pick c1 onto HEAD.
-        let new_id = cherry_pick(&mut store, c1_id, "alice").unwrap();
+        let new_id = cherry_pick(&mut store, c1_id, "alice")?;
 
         // Verify the new commit has vertex b.
-        let new_commit = match store.get(&new_id).unwrap() {
+        let new_commit = match store.get(&new_id)? {
             Object::Commit(c) => c,
-            _ => panic!("expected commit"),
+            other => {
+                return Err(VcsError::WrongObjectType {
+                    expected: "commit",
+                    found: other.type_name(),
+                });
+            }
         };
-        let new_schema = match store.get(&new_commit.schema_id).unwrap() {
-            Object::Schema(s) => s,
-            _ => panic!("expected schema"),
+        let new_schema = match store.get(&new_commit.schema_id)? {
+            Object::Schema(s) => *s,
+            other => {
+                return Err(VcsError::WrongObjectType {
+                    expected: "schema",
+                    found: other.type_name(),
+                });
+            }
         };
         assert!(new_schema.vertices.contains_key("b"));
         assert!(new_schema.vertices.contains_key("a"));
         assert!(new_commit.message.contains("cherry-pick"));
+        Ok(())
     }
 }

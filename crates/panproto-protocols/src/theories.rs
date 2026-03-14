@@ -328,7 +328,7 @@ pub fn th_order() -> Theory {
 ///
 /// Type check:
 /// - `injection(v) : Vertex` (injection: Variant → Vertex, v: Variant)
-/// - `variant_of(injection(v)) : Variant` (variant_of: Vertex → Variant)
+/// - `variant_of(injection(v)) : Variant` (`variant_of`: Vertex → Variant)
 /// - `v : Variant`
 /// - Both sides: `Variant`. ✓
 ///
@@ -684,7 +684,7 @@ pub fn th_annotation() -> Theory {
 /// evidence that `e1` causally precedes `e2`. Transitivity becomes
 /// a composition operation on evidence terms, not a conditional axiom.
 ///
-/// This is the same pattern as ThCategory (where `Hom(a,b)` carries
+/// This is the same pattern as `ThCategory` (where `Hom(a,b)` carries
 /// morphism evidence and composition is an operation).
 #[must_use]
 pub fn th_causal() -> Theory {
@@ -797,10 +797,10 @@ use std::collections::HashMap;
 /// Schema: `colimit(ThGraph, ThConstraint, ThMulti)`.
 /// Instance: `ThWType`.
 ///
-/// Used by: ATProto, JSON Schema, OpenAPI, AsyncAPI, RAML, JSON:API,
-/// MongoDB, YAML Schema, TOML Schema, INI, CDDL, BSON, MsgPack,
-/// K8s CRD, CloudFormation, Ansible, FHIR, RSS/Atom, vCard/iCal,
-/// GeoJSON, Markdown, and more.
+/// Used by: `ATProto`, `JSON Schema`, `OpenAPI`, `AsyncAPI`, `RAML`, `JSON:API`,
+/// `MongoDB`, `YAML Schema`, `TOML Schema`, `INI`, `CDDL`, `BSON`, `MsgPack`,
+/// `K8s CRD`, `CloudFormation`, `Ansible`, `FHIR`, `RSS/Atom`, `vCard/iCal`,
+/// `GeoJSON`, `Markdown`, and more.
 pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
@@ -848,7 +848,7 @@ pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
 /// Schema: `colimit(ThHypergraph, ThConstraint)`.
 /// Instance: `ThFunctor`.
 ///
-/// Used by: SQL, Cassandra, DynamoDB, Parquet, Arrow, DataFrame,
+/// Used by: SQL, Cassandra, `DynamoDB`, Parquet, Arrow, `DataFrame`,
 /// CSV/Table Schema, EDI X12, SWIFT MT.
 pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
@@ -885,8 +885,8 @@ pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
 /// Schema: `colimit(ThSimpleGraph, ThConstraint)`.
 /// Instance: `ThFlat`.
 ///
-/// Used by: Protobuf, Avro, Thrift, Cap'n Proto, FlatBuffers,
-/// ASN.1, Bond, Redis, HCL.
+/// Used by: `Protobuf`, `Avro`, `Thrift`, `Cap'n Proto`, `FlatBuffers`,
+/// `ASN.1`, `Bond`, `Redis`, `HCL`.
 pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,

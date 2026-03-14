@@ -34,7 +34,7 @@ impl XmlParseState {
         }
     }
 
-    fn alloc_id(&mut self) -> u32 {
+    const fn alloc_id(&mut self) -> u32 {
         let id = self.next_id;
         self.next_id += 1;
         id
@@ -51,6 +51,7 @@ impl XmlParseState {
 ///
 /// Returns [`ParseInstanceError::Parse`] if the XML is malformed or
 /// doesn't match the schema structure.
+#[allow(clippy::too_many_lines)]
 pub fn parse_xml_bytes(
     schema: &Schema,
     input: &[u8],
@@ -72,14 +73,13 @@ pub fn parse_xml_bytes(
                 let node_id = state.alloc_id();
 
                 // Determine the vertex kind: match tag against schema vertices.
-                let vertex_id = if let Some(parent) = element_stack.last() {
-                    // Look for an edge from parent to a vertex matching this tag.
-                    find_child_vertex(schema, &parent.1, &tag)
-                        .unwrap_or_else(|| format!("{}:{}", parent.1, tag))
-                } else {
-                    // Root element: find a root vertex in the schema.
-                    find_root_by_tag(schema, &tag).unwrap_or_else(|| tag.clone())
-                };
+                let vertex_id = element_stack.last().map_or_else(
+                    || find_root_by_tag(schema, &tag).unwrap_or_else(|| tag.clone()),
+                    |parent| {
+                        find_child_vertex(schema, &parent.1, &tag)
+                            .unwrap_or_else(|| format!("{}:{}", parent.1, tag))
+                    },
+                );
 
                 let _kind = schema
                     .vertices
@@ -112,7 +112,7 @@ pub fn parse_xml_bytes(
                     state.arcs.push((parent.0, node_id, edge));
                 } else {
                     root_id = Some(node_id);
-                    root_vertex = vertex_id.clone();
+                    root_vertex.clone_from(&vertex_id);
                 }
 
                 element_stack.push((node_id, vertex_id));
@@ -123,12 +123,13 @@ pub fn parse_xml_bytes(
                 let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 let node_id = state.alloc_id();
 
-                let vertex_id = if let Some(parent) = element_stack.last() {
-                    find_child_vertex(schema, &parent.1, &tag)
-                        .unwrap_or_else(|| format!("{}:{}", parent.1, tag))
-                } else {
-                    find_root_by_tag(schema, &tag).unwrap_or_else(|| tag.clone())
-                };
+                let vertex_id = element_stack.last().map_or_else(
+                    || find_root_by_tag(schema, &tag).unwrap_or_else(|| tag.clone()),
+                    |parent| {
+                        find_child_vertex(schema, &parent.1, &tag)
+                            .unwrap_or_else(|| format!("{}:{}", parent.1, tag))
+                    },
+                );
 
                 let mut extra_fields = HashMap::new();
                 for attr in e.attributes().flatten() {
@@ -211,18 +212,15 @@ pub fn parse_xml_bytes(
 ///
 /// Returns [`EmitInstanceError::Emit`] if serialization fails.
 pub fn emit_xml_bytes(
-    schema: &Schema,
+    _schema: &Schema,
     instance: &WInstance,
     _protocol: &str,
 ) -> Result<Vec<u8>, EmitInstanceError> {
     use quick_xml::Writer;
     use quick_xml::events::{BytesEnd, BytesStart, BytesText};
 
-    let mut writer = Writer::new(Vec::new());
-
     fn write_node(
         writer: &mut Writer<Vec<u8>>,
-        schema: &Schema,
         instance: &WInstance,
         node_id: u32,
     ) -> Result<(), EmitInstanceError> {
@@ -266,7 +264,7 @@ pub fn emit_xml_bytes(
         // Recurse into children.
         if let Some(children) = instance.children_map.get(&node_id) {
             for &child_id in children {
-                write_node(writer, schema, instance, child_id)?;
+                write_node(writer, instance, child_id)?;
             }
         }
 
@@ -280,7 +278,8 @@ pub fn emit_xml_bytes(
         Ok(())
     }
 
-    write_node(&mut writer, schema, instance, instance.root)?;
+    let mut writer = Writer::new(Vec::new());
+    write_node(&mut writer, instance, instance.root)?;
 
     Ok(writer.into_inner())
 }
@@ -335,6 +334,7 @@ fn find_schema_edge(schema: &Schema, parent: &str, child: &str, tag: &str) -> Ed
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use panproto_schema::SchemaBuilder;

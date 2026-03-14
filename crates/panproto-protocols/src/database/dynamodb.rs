@@ -428,7 +428,12 @@ mod tests {
         let schema = parse_dynamodb(&json).expect("parse");
         let emitted = emit_dynamodb(&schema).expect("emit");
         assert_eq!(emitted["TableName"], "items");
-        assert!(emitted["AttributeDefinitions"].as_array().unwrap().len() > 0);
+        assert!(
+            !emitted["AttributeDefinitions"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

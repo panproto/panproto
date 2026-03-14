@@ -104,12 +104,13 @@ pub const fn bisect_remaining(state: &BisectState) -> usize {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
     use crate::MemStore;
     use crate::object::{CommitObject, Object};
 
-    fn build_linear(n: usize) -> (MemStore, Vec<ObjectId>) {
+    fn build_linear(n: usize) -> Result<(MemStore, Vec<ObjectId>), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
         let mut ids = Vec::new();
 
@@ -124,19 +125,19 @@ mod tests {
                 timestamp: i as u64 * 100,
                 message: format!("commit {i}"),
             };
-            let id = store.put(&Object::Commit(commit)).unwrap();
+            let id = store.put(&Object::Commit(commit))?;
             ids.push(id);
         }
 
-        (store, ids)
+        Ok((store, ids))
     }
 
     #[test]
-    fn bisect_finds_in_linear_history() {
-        let (store, ids) = build_linear(8);
+    fn bisect_finds_in_linear_history() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear(8)?;
         // Suppose commit 5 introduced the break.
         // good = ids[0], bad = ids[7].
-        let (mut state, step) = bisect_start(&store, ids[0], ids[7]).unwrap();
+        let (mut state, step) = bisect_start(&store, ids[0], ids[7])?;
 
         // Walk through bisect steps.
         let breaking_index = 5;
@@ -151,7 +152,10 @@ mod tests {
                 }
                 BisectStep::Test(id) => {
                     // Simulate: commits before index 5 are good, 5+ are bad.
-                    let idx = ids.iter().position(|i| *i == id).unwrap();
+                    let idx = ids
+                        .iter()
+                        .position(|i| *i == id)
+                        .ok_or("commit not found in ids")?;
                     let is_good = idx < breaking_index;
                     current_step = bisect_step(&mut state, is_good);
                     steps += 1;
@@ -159,13 +163,15 @@ mod tests {
                 }
             }
         }
+        Ok(())
     }
 
     #[test]
-    fn bisect_adjacent_commits() {
-        let (store, ids) = build_linear(2);
-        let (_state, step) = bisect_start(&store, ids[0], ids[1]).unwrap();
+    fn bisect_adjacent_commits() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear(2)?;
+        let (_state, step) = bisect_start(&store, ids[0], ids[1])?;
         assert!(matches!(step, BisectStep::Found(id) if id == ids[1]));
+        Ok(())
     }
 
     #[test]

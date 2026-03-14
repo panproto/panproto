@@ -1,6 +1,6 @@
 //! Shared emit helpers for protocol serialization.
 //!
-//! These utilities help protocol modules convert a [`Schema`] back into
+//! These utilities help protocol modules convert a [`Schema`](panproto_schema::Schema) back into
 //! native format text. They provide common operations like finding root
 //! vertices, walking edges, and generating indented output.
 

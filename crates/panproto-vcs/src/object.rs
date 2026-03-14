@@ -15,7 +15,7 @@ use crate::ObjectId;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Object {
     /// A schema snapshot.
-    Schema(Schema),
+    Schema(Box<Schema>),
 
     /// A migration between two schemas, identified by their object IDs.
     Migration {

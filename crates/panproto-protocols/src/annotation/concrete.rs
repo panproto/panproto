@@ -574,8 +574,8 @@ mod tests {
         });
         let schema = parse_concrete_schema(&json2).expect("parse with parse-child edges");
         let edges = schema.outgoing_edges("root_c");
-        let parse_child_edges: Vec<_> = edges.iter().filter(|e| e.kind == "parse-child").collect();
-        assert_eq!(parse_child_edges.len(), 2, "expected 2 parse-child edges");
+        let parse_child_count = edges.iter().filter(|e| e.kind == "parse-child").count();
+        assert_eq!(parse_child_count, 2, "expected 2 parse-child edges");
         assert!(schema.has_vertex("child_c"));
         assert!(schema.has_vertex("another_c"));
     }

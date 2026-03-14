@@ -71,6 +71,12 @@ fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        variants: HashMap::new(),
+        orderings: HashMap::new(),
+        recursion_points: HashMap::new(),
+        spans: HashMap::new(),
+        usage_modes: HashMap::new(),
+        nominal: HashMap::new(),
     }
 }
 
@@ -212,6 +218,11 @@ fn check_existence_n_vertices(bencher: Bencher, n: usize) {
         edge_rules: vec![],
         obj_kinds: vec!["object".into()],
         constraint_sorts: vec![],
+        has_order: false,
+        has_coproducts: false,
+        has_recursion: false,
+        has_causal: false,
+        nominal_identity: false,
     };
     let registry = HashMap::new();
 

@@ -100,7 +100,7 @@ fn replay_one(
         });
     }
 
-    let merged_schema_id = store.put(&Object::Schema(result.merged_schema))?;
+    let merged_schema_id = store.put(&Object::Schema(Box::new(result.merged_schema)))?;
     let migration_id = store.put(&Object::Migration {
         src: tip_commit.schema_id,
         tgt: merged_schema_id,
@@ -152,7 +152,7 @@ fn load_schema(
     schema_id: ObjectId,
 ) -> Result<panproto_schema::Schema, VcsError> {
     match store.get(&schema_id)? {
-        Object::Schema(s) => Ok(s),
+        Object::Schema(s) => Ok(*s),
         other => Err(VcsError::WrongObjectType {
             expected: "schema",
             found: other.type_name(),
@@ -164,6 +164,7 @@ fn load_schema(
 mod tests {
     use super::*;
     use crate::MemStore;
+    use crate::error::VcsError;
     use panproto_schema::{Schema, Vertex};
     use std::collections::HashMap;
 
@@ -200,12 +201,12 @@ mod tests {
     }
 
     #[test]
-    fn rebase_linear_onto_diverged() {
+    fn rebase_linear_onto_diverged() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
         // c0: base
         let s0 = make_schema(&[("a", "object")]);
-        let s0_id = store.put(&Object::Schema(s0)).unwrap();
+        let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
         let c0 = CommitObject {
             schema_id: s0_id,
             parents: vec![],
@@ -215,11 +216,11 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let c0_id = store.put(&Object::Commit(c0)).unwrap();
+        let c0_id = store.put(&Object::Commit(c0))?;
 
         // c1: main branch adds vertex b
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-        let s1_id = store.put(&Object::Schema(s1)).unwrap();
+        let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
         let c1 = CommitObject {
             schema_id: s1_id,
             parents: vec![c0_id],
@@ -229,11 +230,11 @@ mod tests {
             timestamp: 200,
             message: "add b".into(),
         };
-        let c1_id = store.put(&Object::Commit(c1)).unwrap();
+        let c1_id = store.put(&Object::Commit(c1))?;
 
         // c2: feature branch (off c0) adds vertex c
         let s2 = make_schema(&[("a", "object"), ("c", "integer")]);
-        let s2_id = store.put(&Object::Schema(s2)).unwrap();
+        let s2_id = store.put(&Object::Schema(Box::new(s2)))?;
         let c2 = CommitObject {
             schema_id: s2_id,
             parents: vec![c0_id],
@@ -243,27 +244,38 @@ mod tests {
             timestamp: 300,
             message: "add c".into(),
         };
-        let c2_id = store.put(&Object::Commit(c2)).unwrap();
+        let c2_id = store.put(&Object::Commit(c2))?;
 
         // HEAD is on feature branch (c2).
-        store.set_ref("refs/heads/main", c2_id).unwrap();
+        store.set_ref("refs/heads/main", c2_id)?;
 
         // Rebase feature onto c1.
-        let new_tip = rebase(&mut store, c1_id, "bob").unwrap();
+        let new_tip = rebase(&mut store, c1_id, "bob")?;
 
         // Verify the rebased commit has both b and c.
-        let new_commit = match store.get(&new_tip).unwrap() {
+        let new_commit = match store.get(&new_tip)? {
             Object::Commit(c) => c,
-            _ => panic!("expected commit"),
+            other => {
+                return Err(VcsError::WrongObjectType {
+                    expected: "commit",
+                    found: other.type_name(),
+                });
+            }
         };
-        let new_schema = match store.get(&new_commit.schema_id).unwrap() {
+        let new_schema = match store.get(&new_commit.schema_id)? {
             Object::Schema(s) => s,
-            _ => panic!("expected schema"),
+            other => {
+                return Err(VcsError::WrongObjectType {
+                    expected: "schema",
+                    found: other.type_name(),
+                });
+            }
         };
         assert!(new_schema.vertices.contains_key("a"));
         assert!(new_schema.vertices.contains_key("b"));
         assert!(new_schema.vertices.contains_key("c"));
         // Parent should be c1.
         assert_eq!(new_commit.parents[0], c1_id);
+        Ok(())
     }
 }

@@ -134,6 +134,7 @@ pub fn gc_report(store: &dyn Store) -> Result<GcReport, VcsError> {
 mod tests {
     use super::*;
     use crate::MemStore;
+    use crate::error::VcsError;
     use crate::object::CommitObject;
 
     fn empty_schema() -> panproto_schema::Schema {
@@ -158,10 +159,10 @@ mod tests {
     }
 
     #[test]
-    fn mark_reachable_follows_commits() {
+    fn mark_reachable_follows_commits() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(empty_schema())).unwrap();
+        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
 
         let c0 = CommitObject {
             schema_id,
@@ -172,7 +173,7 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let c0_id = store.put(&Object::Commit(c0)).unwrap();
+        let c0_id = store.put(&Object::Commit(c0))?;
 
         let c1 = CommitObject {
             schema_id,
@@ -183,19 +184,20 @@ mod tests {
             timestamp: 200,
             message: "second".into(),
         };
-        let c1_id = store.put(&Object::Commit(c1)).unwrap();
+        let c1_id = store.put(&Object::Commit(c1))?;
 
-        let reachable = mark_reachable(&store, &[c1_id]).unwrap();
+        let reachable = mark_reachable(&store, &[c1_id])?;
         assert!(reachable.contains(&c1_id));
         assert!(reachable.contains(&c0_id));
         assert!(reachable.contains(&schema_id));
+        Ok(())
     }
 
     #[test]
-    fn gc_deletes_unreachable() {
+    fn gc_deletes_unreachable() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(empty_schema())).unwrap();
+        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
 
         let c0 = CommitObject {
             schema_id,
@@ -206,11 +208,11 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let c0_id = store.put(&Object::Commit(c0)).unwrap();
-        store.set_ref("refs/heads/main", c0_id).unwrap();
+        let c0_id = store.put(&Object::Commit(c0))?;
+        store.set_ref("refs/heads/main", c0_id)?;
 
         // Add an orphan object not reachable from any ref.
-        let orphan_schema_id = store.put(&Object::Schema(empty_schema())).unwrap();
+        let orphan_schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
         let orphan = CommitObject {
             schema_id: orphan_schema_id,
             parents: vec![],
@@ -220,24 +222,25 @@ mod tests {
             timestamp: 300,
             message: "orphan".into(),
         };
-        let orphan_id = store.put(&Object::Commit(orphan)).unwrap();
+        let orphan_id = store.put(&Object::Commit(orphan))?;
 
         // Before GC: orphan exists.
         assert!(store.has(&orphan_id));
 
-        let report = gc(&mut store).unwrap();
+        let report = gc(&mut store)?;
         assert_eq!(report.reachable, 2); // c0 + schema
         assert!(report.deleted.contains(&orphan_id));
 
         // After GC: orphan is gone.
         assert!(!store.has(&orphan_id));
+        Ok(())
     }
 
     #[test]
-    fn gc_report_counts_reachable() {
+    fn gc_report_counts_reachable() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(empty_schema())).unwrap();
+        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
 
         let c0 = CommitObject {
             schema_id,
@@ -248,10 +251,11 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let c0_id = store.put(&Object::Commit(c0)).unwrap();
-        store.set_ref("refs/heads/main", c0_id).unwrap();
+        let c0_id = store.put(&Object::Commit(c0))?;
+        store.set_ref("refs/heads/main", c0_id)?;
 
-        let report = gc_report(&store).unwrap();
+        let report = gc_report(&store)?;
         assert_eq!(report.reachable, 2);
+        Ok(())
     }
 }

@@ -334,137 +334,140 @@ mod tests {
     }
 
     #[test]
-    fn init_creates_directory_structure() {
-        let dir = tempfile::tempdir().unwrap();
-        let _store = FsStore::init(dir.path()).unwrap();
+    fn init_creates_directory_structure() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let _store = FsStore::init(dir.path())?;
 
         assert!(dir.path().join(".panproto/objects").is_dir());
         assert!(dir.path().join(".panproto/refs/heads").is_dir());
         assert!(dir.path().join(".panproto/refs/tags").is_dir());
         assert!(dir.path().join(".panproto/logs").is_dir());
         assert!(dir.path().join(".panproto/HEAD").is_file());
+        Ok(())
     }
 
     #[test]
-    fn open_nonexistent_returns_error() {
-        let dir = tempfile::tempdir().unwrap();
+    fn open_nonexistent_returns_error() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         let result = FsStore::open(dir.path());
         assert!(matches!(result, Err(VcsError::NotARepository)));
+        Ok(())
     }
 
     #[test]
-    fn open_after_init() {
-        let dir = tempfile::tempdir().unwrap();
-        FsStore::init(dir.path()).unwrap();
-        let store = FsStore::open(dir.path()).unwrap();
-        assert_eq!(store.get_head().unwrap(), HeadState::Branch("main".into()));
+    fn open_after_init() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        FsStore::init(dir.path())?;
+        let store = FsStore::open(dir.path())?;
+        assert_eq!(store.get_head()?, HeadState::Branch("main".into()));
+        Ok(())
     }
 
     #[test]
-    fn put_get_round_trip_fs() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = FsStore::init(dir.path()).unwrap();
-        let obj = Object::Schema(test_schema());
-        let id = store.put(&obj).unwrap();
+    fn put_get_round_trip_fs() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        let obj = Object::Schema(Box::new(test_schema()));
+        let id = store.put(&obj)?;
 
         assert!(store.has(&id));
 
-        let retrieved = store.get(&id).unwrap();
+        let retrieved = store.get(&id)?;
         match retrieved {
             Object::Schema(s) => assert_eq!(s.protocol, "test"),
             _ => panic!("expected Schema object"),
         }
+        Ok(())
     }
 
     #[test]
-    fn put_idempotent_fs() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = FsStore::init(dir.path()).unwrap();
-        let obj = Object::Schema(test_schema());
-        let id1 = store.put(&obj).unwrap();
-        let id2 = store.put(&obj).unwrap();
+    fn put_idempotent_fs() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        let obj = Object::Schema(Box::new(test_schema()));
+        let id1 = store.put(&obj)?;
+        let id2 = store.put(&obj)?;
         assert_eq!(id1, id2);
+        Ok(())
     }
 
     #[test]
-    fn ref_operations_fs() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = FsStore::init(dir.path()).unwrap();
+    fn ref_operations_fs() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
         let id = ObjectId::from_bytes([42; 32]);
 
-        store.set_ref("refs/heads/main", id).unwrap();
-        assert_eq!(store.get_ref("refs/heads/main").unwrap(), Some(id));
+        store.set_ref("refs/heads/main", id)?;
+        assert_eq!(store.get_ref("refs/heads/main")?, Some(id));
 
-        let refs = store.list_refs("refs/heads/").unwrap();
+        let refs = store.list_refs("refs/heads/")?;
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].0, "refs/heads/main");
 
-        store.delete_ref("refs/heads/main").unwrap();
-        assert_eq!(store.get_ref("refs/heads/main").unwrap(), None);
+        store.delete_ref("refs/heads/main")?;
+        assert_eq!(store.get_ref("refs/heads/main")?, None);
+        Ok(())
     }
 
     #[test]
-    fn head_state_fs() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = FsStore::init(dir.path()).unwrap();
-        assert_eq!(store.get_head().unwrap(), HeadState::Branch("main".into()));
+    fn head_state_fs() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        assert_eq!(store.get_head()?, HeadState::Branch("main".into()));
 
         let id = ObjectId::from_bytes([1; 32]);
-        store.set_head(HeadState::Detached(id)).unwrap();
-        assert_eq!(store.get_head().unwrap(), HeadState::Detached(id));
+        store.set_head(HeadState::Detached(id))?;
+        assert_eq!(store.get_head()?, HeadState::Detached(id));
+        Ok(())
     }
 
     #[test]
-    fn reflog_fs() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = FsStore::init(dir.path()).unwrap();
+    fn reflog_fs() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
 
-        store
-            .append_reflog(
-                "HEAD",
-                ReflogEntry {
-                    old_id: None,
-                    new_id: ObjectId::from_bytes([1; 32]),
-                    author: "test".into(),
-                    timestamp: 100,
-                    message: "first".into(),
-                },
-            )
-            .unwrap();
-        store
-            .append_reflog(
-                "HEAD",
-                ReflogEntry {
-                    old_id: Some(ObjectId::from_bytes([1; 32])),
-                    new_id: ObjectId::from_bytes([2; 32]),
-                    author: "test".into(),
-                    timestamp: 200,
-                    message: "second".into(),
-                },
-            )
-            .unwrap();
+        store.append_reflog(
+            "HEAD",
+            ReflogEntry {
+                old_id: None,
+                new_id: ObjectId::from_bytes([1; 32]),
+                author: "test".into(),
+                timestamp: 100,
+                message: "first".into(),
+            },
+        )?;
+        store.append_reflog(
+            "HEAD",
+            ReflogEntry {
+                old_id: Some(ObjectId::from_bytes([1; 32])),
+                new_id: ObjectId::from_bytes([2; 32]),
+                author: "test".into(),
+                timestamp: 200,
+                message: "second".into(),
+            },
+        )?;
 
-        let log = store.read_reflog("HEAD", None).unwrap();
+        let log = store.read_reflog("HEAD", None)?;
         assert_eq!(log.len(), 2);
         assert_eq!(log[0].message, "second");
         assert_eq!(log[1].message, "first");
+        Ok(())
     }
 
     #[test]
-    fn nested_branch_refs() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = FsStore::init(dir.path()).unwrap();
+    fn nested_branch_refs() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
         let id1 = ObjectId::from_bytes([1; 32]);
         let id2 = ObjectId::from_bytes([2; 32]);
 
-        store.set_ref("refs/heads/feature/add-field", id1).unwrap();
-        store
-            .set_ref("refs/heads/feature/remove-field", id2)
-            .unwrap();
+        store.set_ref("refs/heads/feature/add-field", id1)?;
+        store.set_ref("refs/heads/feature/remove-field", id2)?;
 
-        let refs = store.list_refs("refs/heads/").unwrap();
+        let refs = store.list_refs("refs/heads/")?;
         assert_eq!(refs.len(), 2);
         assert_eq!(refs[0].0, "refs/heads/feature/add-field");
         assert_eq!(refs[1].0, "refs/heads/feature/remove-field");
+        Ok(())
     }
 }

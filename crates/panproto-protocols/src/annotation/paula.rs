@@ -441,7 +441,7 @@ mod tests {
         assert_eq!(rule.tgt_kinds, vec!["media".to_string()]);
     }
 
-    /// points-to must include struct-node in tgt_kinds (SPointingRelation spec).
+    /// points-to must include struct-node in `tgt_kinds` (`SPointingRelation` spec).
     #[test]
     fn points_to_includes_struct_node() {
         let p = protocol();
@@ -458,7 +458,7 @@ mod tests {
         );
     }
 
-    /// order edge must accept span src/tgt (virtual tokenisation via STimeline).
+    /// order edge must accept span src/tgt (virtual tokenisation via `STimeline`).
     #[test]
     fn order_relation_includes_span() {
         let p = protocol();
@@ -467,7 +467,7 @@ mod tests {
         assert!(rule.tgt_kinds.contains(&"span".to_string()));
     }
 
-    /// meta-annotation can annotate corpus and document (SMetaAnnotation spec).
+    /// meta-annotation can annotate corpus and document (`SMetaAnnotation` spec).
     #[test]
     fn meta_annotation_annotates_corpus_and_document() {
         let p = protocol();
@@ -519,7 +519,7 @@ mod tests {
         assert_eq!(schema.vertex_count(), s2.vertex_count());
     }
 
-    /// Round-trip a schema that uses temporal constraint sorts (STimeline).
+    /// Round-trip a schema that uses temporal constraint sorts (`STimeline`).
     #[test]
     fn parse_and_emit_with_temporal() {
         let json = serde_json::json!({

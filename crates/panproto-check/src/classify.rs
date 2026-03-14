@@ -155,6 +155,7 @@ pub enum NonBreakingChange {
 /// The classification depends on the protocol's constraint sorts and
 /// edge rules to determine the severity of each change.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
     let mut breaking = Vec::new();
     let mut non_breaking = Vec::new();

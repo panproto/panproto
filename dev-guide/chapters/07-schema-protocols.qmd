@@ -61,7 +61,7 @@ The operations of the GAT (e.g., `src: Edge -> Vertex`, `tgt: Edge -> Vertex`) a
 
 A `Protocol` identifies which schema theory and instance theory a data format uses, together with the well-formedness rules that the builder enforces.
 
-```{.rust include="../../crates/panproto-schema/src/protocol.rs" start-line=9 end-line=62}
+```{.rust include="../../crates/panproto-schema/src/protocol.rs" start-line=9 end-line=63}
 ```
 
 ### EdgeRule

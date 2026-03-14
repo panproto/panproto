@@ -105,7 +105,7 @@ pub fn graph_restrict(
     for (id, node) in &instance.nodes {
         if let Some(new_anchor) = migration.vertex_remap.get(&node.anchor) {
             let mut new_node = node.clone();
-            new_node.anchor = new_anchor.clone();
+            new_anchor.clone_into(&mut new_node.anchor);
             new_nodes.insert(*id, new_node);
 
             if let Some(value) = instance.values.get(id) {
@@ -167,6 +167,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn graph_restrict_drops_unmapped_nodes() {
         let g = GInstance::new()
             .with_node(Node::new(0, "a"))
@@ -174,15 +175,15 @@ mod tests {
             .with_node(Node::new(2, "c"));
 
         let migration = CompiledMigration {
-            surviving_verts: ["a_new".into()].into_iter().collect(),
+            surviving_verts: std::iter::once("a_new".into()).collect(),
             surviving_edges: std::collections::HashSet::new(),
-            vertex_remap: [("a".into(), "a_new".into())].into_iter().collect(),
+            vertex_remap: std::iter::once(("a".into(), "a_new".into())).collect(),
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
         };
 
-        let restricted = graph_restrict(&g, &migration).unwrap();
+        let restricted = graph_restrict(&g, &migration).expect("graph_restrict should succeed");
         assert_eq!(restricted.node_count(), 1);
         assert_eq!(restricted.nodes[&0].anchor, "a_new");
     }

@@ -910,7 +910,7 @@ mod tests {
         };
         let base = test_schema(
             &[("a", "object"), ("b", "string")],
-            &[edge.clone()],
+            std::slice::from_ref(&edge),
             HashMap::new(),
         );
         let new = test_schema_ext(base.clone(), |s| {
@@ -932,7 +932,7 @@ mod tests {
         let old = test_schema_ext(
             test_schema(
                 &[("a", "object"), ("b", "string")],
-                &[edge.clone()],
+                std::slice::from_ref(&edge),
                 HashMap::new(),
             ),
             |s| {
@@ -1160,6 +1160,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn is_empty_false_for_each_field() {
         let base = test_schema(&[("a", "object")], &[], HashMap::new());
 

@@ -164,9 +164,10 @@ pub fn stash_drop(store: &mut dyn Store, index: usize) -> Result<(), VcsError> {
 mod tests {
     use super::*;
     use crate::MemStore;
+    use crate::error::VcsError;
 
     #[test]
-    fn stash_push_and_pop() {
+    fn stash_push_and_pop() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
         // Need a HEAD commit.
@@ -179,30 +180,30 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let head_id = store.put(&Object::Commit(head_commit)).unwrap();
-        store.set_ref("refs/heads/main", head_id).unwrap();
+        let head_id = store.put(&Object::Commit(head_commit))?;
+        store.set_ref("refs/heads/main", head_id)?;
 
         // Stash a schema.
         let stashed_schema_id = ObjectId::from_bytes([42; 32]);
-        let stash_id =
-            stash_push(&mut store, stashed_schema_id, "alice", Some("my stash")).unwrap();
-        assert!(store.get_ref("refs/stash").unwrap().is_some());
+        let _stash_id = stash_push(&mut store, stashed_schema_id, "alice", Some("my stash"))?;
+        assert!(store.get_ref("refs/stash")?.is_some());
 
         // List stashes.
-        let stashes = stash_list(&store).unwrap();
+        let stashes = stash_list(&store)?;
         assert_eq!(stashes.len(), 1);
         assert_eq!(stashes[0].message, "my stash");
 
         // Pop the stash.
-        let popped = stash_pop(&mut store).unwrap();
+        let popped = stash_pop(&mut store)?;
         assert_eq!(popped, stashed_schema_id);
 
         // Stash ref should be gone.
-        assert!(store.get_ref("refs/stash").unwrap().is_none());
+        assert!(store.get_ref("refs/stash")?.is_none());
+        Ok(())
     }
 
     #[test]
-    fn stash_multiple() {
+    fn stash_multiple() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
         let head_commit = CommitObject {
@@ -214,8 +215,8 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
         };
-        let head_id = store.put(&Object::Commit(head_commit)).unwrap();
-        store.set_ref("refs/heads/main", head_id).unwrap();
+        let head_id = store.put(&Object::Commit(head_commit))?;
+        store.set_ref("refs/heads/main", head_id)?;
 
         // Push two stashes.
         stash_push(
@@ -223,24 +224,23 @@ mod tests {
             ObjectId::from_bytes([1; 32]),
             "alice",
             Some("first"),
-        )
-        .unwrap();
+        )?;
         stash_push(
             &mut store,
             ObjectId::from_bytes([2; 32]),
             "alice",
             Some("second"),
-        )
-        .unwrap();
+        )?;
 
-        let stashes = stash_list(&store).unwrap();
+        let stashes = stash_list(&store)?;
         assert_eq!(stashes.len(), 2);
         assert_eq!(stashes[0].message, "second");
         assert_eq!(stashes[1].message, "first");
 
         // Pop most recent.
-        let popped = stash_pop(&mut store).unwrap();
+        let popped = stash_pop(&mut store)?;
         assert_eq!(popped, ObjectId::from_bytes([2; 32]));
+        Ok(())
     }
 
     #[test]

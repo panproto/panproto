@@ -308,13 +308,16 @@ fn get_migration(store: &dyn Store, id: Option<ObjectId>) -> Result<Migration, V
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
     use crate::{MemStore, Store};
 
     /// Build a linear chain of commits: c0 → c1 → c2 → ...
     /// Returns (store, vec of commit IDs).
-    fn build_linear_history(n: usize) -> (MemStore, Vec<ObjectId>) {
+    fn build_linear_history(
+        n: usize,
+    ) -> Result<(MemStore, Vec<ObjectId>), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
         let mut ids = Vec::new();
 
@@ -330,11 +333,11 @@ mod tests {
                 timestamp: i as u64 * 100,
                 message: format!("commit {i}"),
             };
-            let id = store.put(&Object::Commit(commit)).unwrap();
+            let id = store.put(&Object::Commit(commit))?;
             ids.push(id);
         }
 
-        (store, ids)
+        Ok((store, ids))
     }
 
     /// Build a diamond history:
@@ -345,7 +348,7 @@ mod tests {
     ///  \ /
     ///   c3
     /// ```
-    fn build_diamond_history() -> (MemStore, Vec<ObjectId>) {
+    fn build_diamond_history() -> Result<(MemStore, Vec<ObjectId>), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
 
         let c0 = CommitObject {
@@ -357,7 +360,7 @@ mod tests {
             timestamp: 100,
             message: "c0".into(),
         };
-        let id0 = store.put(&Object::Commit(c0)).unwrap();
+        let id0 = store.put(&Object::Commit(c0))?;
 
         let c1 = CommitObject {
             schema_id: ObjectId::from_bytes([1; 32]),
@@ -368,7 +371,7 @@ mod tests {
             timestamp: 200,
             message: "c1".into(),
         };
-        let id1 = store.put(&Object::Commit(c1)).unwrap();
+        let id1 = store.put(&Object::Commit(c1))?;
 
         let c2 = CommitObject {
             schema_id: ObjectId::from_bytes([2; 32]),
@@ -379,7 +382,7 @@ mod tests {
             timestamp: 300,
             message: "c2".into(),
         };
-        let id2 = store.put(&Object::Commit(c2)).unwrap();
+        let id2 = store.put(&Object::Commit(c2))?;
 
         let c3 = CommitObject {
             schema_id: ObjectId::from_bytes([3; 32]),
@@ -390,33 +393,36 @@ mod tests {
             timestamp: 400,
             message: "c3".into(),
         };
-        let id3 = store.put(&Object::Commit(c3)).unwrap();
+        let id3 = store.put(&Object::Commit(c3))?;
 
-        (store, vec![id0, id1, id2, id3])
+        Ok((store, vec![id0, id1, id2, id3]))
     }
 
     #[test]
-    fn merge_base_same_commit() {
-        let (store, ids) = build_linear_history(3);
-        assert_eq!(merge_base(&store, ids[1], ids[1]).unwrap(), Some(ids[1]));
+    fn merge_base_same_commit() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(3)?;
+        assert_eq!(merge_base(&store, ids[1], ids[1])?, Some(ids[1]));
+        Ok(())
     }
 
     #[test]
-    fn merge_base_linear() {
-        let (store, ids) = build_linear_history(5);
+    fn merge_base_linear() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(5)?;
         // merge_base of c4 and c2 should be c2 (c2 is ancestor of c4).
-        assert_eq!(merge_base(&store, ids[4], ids[2]).unwrap(), Some(ids[2]));
+        assert_eq!(merge_base(&store, ids[4], ids[2])?, Some(ids[2]));
+        Ok(())
     }
 
     #[test]
-    fn merge_base_diamond() {
-        let (store, ids) = build_diamond_history();
+    fn merge_base_diamond() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_diamond_history()?;
         // merge_base of c1 and c2 should be c0.
-        assert_eq!(merge_base(&store, ids[1], ids[2]).unwrap(), Some(ids[0]));
+        assert_eq!(merge_base(&store, ids[1], ids[2])?, Some(ids[0]));
+        Ok(())
     }
 
     #[test]
-    fn merge_base_disjoint() {
+    fn merge_base_disjoint() -> Result<(), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
         let c1 = CommitObject {
             schema_id: ObjectId::from_bytes([1; 32]),
@@ -436,73 +442,83 @@ mod tests {
             timestamp: 200,
             message: "orphan2".into(),
         };
-        let id1 = store.put(&Object::Commit(c1)).unwrap();
-        let id2 = store.put(&Object::Commit(c2)).unwrap();
-        assert_eq!(merge_base(&store, id1, id2).unwrap(), None);
+        let id1 = store.put(&Object::Commit(c1))?;
+        let id2 = store.put(&Object::Commit(c2))?;
+        assert_eq!(merge_base(&store, id1, id2)?, None);
+        Ok(())
     }
 
     #[test]
-    fn find_path_linear() {
-        let (store, ids) = build_linear_history(4);
-        let path = find_path(&store, ids[0], ids[3]).unwrap();
+    fn find_path_linear() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(4)?;
+        let path = find_path(&store, ids[0], ids[3])?;
         assert_eq!(path, vec![ids[0], ids[1], ids[2], ids[3]]);
+        Ok(())
     }
 
     #[test]
-    fn find_path_same() {
-        let (store, ids) = build_linear_history(1);
-        let path = find_path(&store, ids[0], ids[0]).unwrap();
+    fn find_path_same() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(1)?;
+        let path = find_path(&store, ids[0], ids[0])?;
         assert_eq!(path, vec![ids[0]]);
+        Ok(())
     }
 
     #[test]
-    fn log_walk_linear() {
-        let (store, ids) = build_linear_history(3);
-        let log = log_walk(&store, ids[2], None).unwrap();
+    fn log_walk_linear() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(3)?;
+        let log = log_walk(&store, ids[2], None)?;
         assert_eq!(log.len(), 3);
         // Newest first.
         assert_eq!(log[0].message, "commit 2");
         assert_eq!(log[1].message, "commit 1");
         assert_eq!(log[2].message, "commit 0");
+        Ok(())
     }
 
     #[test]
-    fn log_walk_with_limit() {
-        let (store, ids) = build_linear_history(5);
-        let log = log_walk(&store, ids[4], Some(2)).unwrap();
+    fn log_walk_with_limit() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(5)?;
+        let log = log_walk(&store, ids[4], Some(2))?;
         assert_eq!(log.len(), 2);
+        Ok(())
     }
 
     #[test]
-    fn log_walk_diamond() {
-        let (store, ids) = build_diamond_history();
-        let log = log_walk(&store, ids[3], None).unwrap();
+    fn log_walk_diamond() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_diamond_history()?;
+        let log = log_walk(&store, ids[3], None)?;
         // All 4 commits should be visited exactly once.
         assert_eq!(log.len(), 4);
+        Ok(())
     }
 
     #[test]
-    fn is_ancestor_true() {
-        let (store, ids) = build_linear_history(4);
-        assert!(is_ancestor(&store, ids[0], ids[3]).unwrap());
+    fn is_ancestor_true() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(4)?;
+        assert!(is_ancestor(&store, ids[0], ids[3])?);
+        Ok(())
     }
 
     #[test]
-    fn is_ancestor_false() {
-        let (store, ids) = build_linear_history(4);
-        assert!(!is_ancestor(&store, ids[3], ids[0]).unwrap());
+    fn is_ancestor_false() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(4)?;
+        assert!(!is_ancestor(&store, ids[3], ids[0])?);
+        Ok(())
     }
 
     #[test]
-    fn is_ancestor_self() {
-        let (store, ids) = build_linear_history(1);
-        assert!(is_ancestor(&store, ids[0], ids[0]).unwrap());
+    fn is_ancestor_self() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(1)?;
+        assert!(is_ancestor(&store, ids[0], ids[0])?);
+        Ok(())
     }
 
     #[test]
-    fn commit_count_linear() {
-        let (store, ids) = build_linear_history(5);
-        assert_eq!(commit_count(&store, ids[0], ids[4]).unwrap(), 4);
+    fn commit_count_linear() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_linear_history(5)?;
+        assert_eq!(commit_count(&store, ids[0], ids[4])?, 4);
+        Ok(())
     }
 
     /// Build a criss-cross history:
@@ -517,7 +533,8 @@ mod tests {
     /// ```
     /// c3 = merge(c1, c2), c4 = merge(c2, c1)
     /// Both c1 and c2 are LCAs of c3 and c4.
-    fn build_criss_cross_history() -> (MemStore, Vec<ObjectId>) {
+    fn build_criss_cross_history() -> Result<(MemStore, Vec<ObjectId>), Box<dyn std::error::Error>>
+    {
         let mut store = MemStore::new();
 
         let c0 = CommitObject {
@@ -529,7 +546,7 @@ mod tests {
             timestamp: 100,
             message: "c0".into(),
         };
-        let id0 = store.put(&Object::Commit(c0)).unwrap();
+        let id0 = store.put(&Object::Commit(c0))?;
 
         let c1 = CommitObject {
             schema_id: ObjectId::from_bytes([1; 32]),
@@ -540,7 +557,7 @@ mod tests {
             timestamp: 200,
             message: "c1".into(),
         };
-        let id1 = store.put(&Object::Commit(c1)).unwrap();
+        let id1 = store.put(&Object::Commit(c1))?;
 
         let c2 = CommitObject {
             schema_id: ObjectId::from_bytes([2; 32]),
@@ -551,7 +568,7 @@ mod tests {
             timestamp: 300,
             message: "c2".into(),
         };
-        let id2 = store.put(&Object::Commit(c2)).unwrap();
+        let id2 = store.put(&Object::Commit(c2))?;
 
         // c3 = merge(c1, c2)
         let c3 = CommitObject {
@@ -563,7 +580,7 @@ mod tests {
             timestamp: 400,
             message: "c3".into(),
         };
-        let id3 = store.put(&Object::Commit(c3)).unwrap();
+        let id3 = store.put(&Object::Commit(c3))?;
 
         // c4 = merge(c2, c1)
         let c4 = CommitObject {
@@ -575,27 +592,27 @@ mod tests {
             timestamp: 500,
             message: "c4".into(),
         };
-        let id4 = store.put(&Object::Commit(c4)).unwrap();
+        let id4 = store.put(&Object::Commit(c4))?;
 
-        (store, vec![id0, id1, id2, id3, id4])
+        Ok((store, vec![id0, id1, id2, id3, id4]))
     }
 
     #[test]
-    fn merge_base_criss_cross() {
-        let (store, ids) = build_criss_cross_history();
+    fn merge_base_criss_cross() -> Result<(), Box<dyn std::error::Error>> {
+        let (store, ids) = build_criss_cross_history()?;
         // LCA of c3 and c4: both c1 and c2 are common ancestors.
         // c0 is also a common ancestor but it's dominated by c1 and c2.
         // The algorithm should return c1 or c2 (not c0).
-        let result = merge_base(&store, ids[3], ids[4]).unwrap().unwrap();
+        let result = merge_base(&store, ids[3], ids[4])?.ok_or("expected Some")?;
         assert!(
             result == ids[1] || result == ids[2],
-            "LCA should be c1 or c2, got {:?}",
-            result,
+            "LCA should be c1 or c2, got {result:?}",
         );
         // Should NOT return c0.
         assert_ne!(
             result, ids[0],
             "should not return c0 (dominated by c1 and c2)"
         );
+        Ok(())
     }
 }

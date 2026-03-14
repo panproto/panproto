@@ -45,140 +45,226 @@ pub enum MergeConflict {
     // --- Vertices ---
     /// Both branches modified the same vertex's kind differently.
     BothModifiedVertex {
+        /// The ID of the vertex both sides modified.
         vertex_id: String,
+        /// The kind our branch changed the vertex to.
         ours_kind: String,
+        /// The kind their branch changed the vertex to.
         theirs_kind: String,
     },
 
     /// Both branches added a vertex with the same ID but different kinds.
     BothAddedVertexDifferently {
+        /// The ID of the vertex both sides added.
         vertex_id: String,
+        /// The kind our branch used.
         ours_kind: String,
+        /// The kind their branch used.
         theirs_kind: String,
     },
 
     /// One branch deleted a vertex that the other modified.
-    DeleteModifyVertex { vertex_id: String, deleted_by: Side },
+    DeleteModifyVertex {
+        /// The ID of the contested vertex.
+        vertex_id: String,
+        /// Which side performed the deletion.
+        deleted_by: Side,
+    },
 
     // --- Edges ---
     /// One branch deleted an edge that the other still has.
-    DeleteModifyEdge { edge: Edge, deleted_by: Side },
+    DeleteModifyEdge {
+        /// The contested edge.
+        edge: Edge,
+        /// Which side performed the deletion.
+        deleted_by: Side,
+    },
 
     // --- Constraints ---
     /// Both branches modified the same constraint differently.
     BothModifiedConstraint {
+        /// The vertex the constraint belongs to.
         vertex_id: String,
+        /// The constraint sort.
         sort: String,
+        /// The value our branch set.
         ours_value: String,
+        /// The value their branch set.
         theirs_value: String,
     },
 
     /// Both branches added the same constraint sort with different values.
     BothAddedConstraintDifferently {
+        /// The vertex the constraint belongs to.
         vertex_id: String,
+        /// The constraint sort.
         sort: String,
+        /// The value our branch added.
         ours_value: String,
+        /// The value their branch added.
         theirs_value: String,
     },
 
     /// One branch removed a constraint that the other modified.
     DeleteModifyConstraint {
+        /// The vertex the constraint belongs to.
         vertex_id: String,
+        /// The constraint sort.
         sort: String,
+        /// Which side performed the deletion.
         deleted_by: Side,
     },
 
     // --- Hyper-edges ---
     /// One branch deleted a hyper-edge that the other modified.
     DeleteModifyHyperEdge {
+        /// The ID of the contested hyper-edge.
         hyper_edge_id: String,
+        /// Which side performed the deletion.
         deleted_by: Side,
     },
 
     /// Both branches modified the same hyper-edge differently.
-    BothModifiedHyperEdge { hyper_edge_id: String },
+    BothModifiedHyperEdge {
+        /// The ID of the contested hyper-edge.
+        hyper_edge_id: String,
+    },
 
     /// Both branches added a hyper-edge with the same ID but different content.
-    BothAddedHyperEdgeDifferently { hyper_edge_id: String },
+    BothAddedHyperEdgeDifferently {
+        /// The ID of the contested hyper-edge.
+        hyper_edge_id: String,
+    },
 
     // --- Variants ---
     /// One branch removed a variant that the other modified.
     DeleteModifyVariant {
+        /// The ID of the contested variant.
         variant_id: String,
+        /// The parent vertex of the variant.
         parent_vertex: String,
+        /// Which side performed the deletion.
         deleted_by: Side,
     },
 
     /// Both branches modified the same variant's tag differently.
     BothModifiedVariant {
+        /// The ID of the contested variant.
         variant_id: String,
+        /// The parent vertex of the variant.
         parent_vertex: String,
+        /// The tag our branch set (if any).
         ours_tag: Option<String>,
+        /// The tag their branch set (if any).
         theirs_tag: Option<String>,
     },
 
     // --- Orderings ---
     /// Both branches changed the same edge's ordering differently.
     BothModifiedOrdering {
+        /// The contested edge.
         edge: Edge,
+        /// The position our branch set (if any).
         ours_position: Option<u32>,
+        /// The position their branch set (if any).
         theirs_position: Option<u32>,
     },
 
     // --- Recursion points ---
     /// Both branches modified the same recursion point's target differently.
     BothModifiedRecursionPoint {
+        /// The mu binder ID of the recursion point.
         mu_id: String,
+        /// The target vertex our branch set.
         ours_target: String,
+        /// The target vertex their branch set.
         theirs_target: String,
     },
 
     /// One branch removed a recursion point that the other modified.
-    DeleteModifyRecursionPoint { mu_id: String, deleted_by: Side },
+    DeleteModifyRecursionPoint {
+        /// The mu binder ID of the recursion point.
+        mu_id: String,
+        /// Which side performed the deletion.
+        deleted_by: Side,
+    },
 
     // --- Usage modes ---
     /// Both branches changed the same edge's usage mode differently.
     BothModifiedUsageMode {
+        /// The contested edge.
         edge: Edge,
+        /// The mode our branch set.
         ours_mode: UsageMode,
+        /// The mode their branch set.
         theirs_mode: UsageMode,
     },
 
     // --- NSIDs ---
     /// Both branches changed the same vertex's NSID differently.
     BothModifiedNsid {
+        /// The ID of the contested vertex.
         vertex_id: String,
+        /// The NSID our branch set.
         ours_nsid: String,
+        /// The NSID their branch set.
         theirs_nsid: String,
     },
 
     /// One branch removed an NSID that the other modified.
-    DeleteModifyNsid { vertex_id: String, deleted_by: Side },
+    DeleteModifyNsid {
+        /// The ID of the contested vertex.
+        vertex_id: String,
+        /// Which side performed the deletion.
+        deleted_by: Side,
+    },
 
     // --- Required ---
     /// Both branches changed the same vertex's required edges differently.
-    BothModifiedRequired { vertex_id: String },
+    BothModifiedRequired {
+        /// The ID of the contested vertex.
+        vertex_id: String,
+    },
 
     /// One branch removed required edges that the other modified.
-    DeleteModifyRequired { vertex_id: String, deleted_by: Side },
+    DeleteModifyRequired {
+        /// The ID of the contested vertex.
+        vertex_id: String,
+        /// Which side performed the deletion.
+        deleted_by: Side,
+    },
 
     // --- Nominal ---
     /// Both branches changed the same vertex's nominal flag differently.
     BothModifiedNominal {
+        /// The ID of the contested vertex.
         vertex_id: String,
+        /// The nominal value our branch set.
         ours_value: bool,
+        /// The nominal value their branch set.
         theirs_value: bool,
     },
 
     // --- Spans ---
     /// Both branches modified the same span differently.
-    BothModifiedSpan { span_id: String },
+    BothModifiedSpan {
+        /// The ID of the contested span.
+        span_id: String,
+    },
 
     /// One branch removed a span that the other modified.
-    DeleteModifySpan { span_id: String, deleted_by: Side },
+    DeleteModifySpan {
+        /// The ID of the contested span.
+        span_id: String,
+        /// Which side performed the deletion.
+        deleted_by: Side,
+    },
 
     /// Both branches added a span with the same ID but different content.
-    BothAddedSpanDifferently { span_id: String },
+    BothAddedSpanDifferently {
+        /// The ID of the contested span.
+        span_id: String,
+    },
 }
 
 /// Which side of the merge performed an operation.
@@ -346,6 +432,7 @@ enum ConflictCase {
 ///
 /// Given sets of added/removed/modified keys from each diff, applies the
 /// nine-case pushout rule.
+#[allow(clippy::too_many_arguments)]
 fn merge_keyed_eq<V: Clone + PartialEq>(
     base: &HashMap<String, V>,
     ours: &HashMap<String, V>,
@@ -404,11 +491,8 @@ fn merge_keyed_eq<V: Clone + PartialEq>(
                     result.insert(key.clone(), v.clone());
                 }
             }
-            (Fate::Unchanged, Fate::Removed) | (Fate::Removed, Fate::Unchanged) => {
+            (Fate::Unchanged | Fate::Removed, Fate::Removed) | (Fate::Removed, Fate::Unchanged) => {
                 // Removed — don't include.
-            }
-            (Fate::Removed, Fate::Removed) => {
-                // Both removed — don't include.
             }
             (Fate::Added, Fate::Added) => {
                 // Both added — check if identical.
@@ -423,7 +507,7 @@ fn merge_keyed_eq<V: Clone + PartialEq>(
                     // No base value; don't include.
                 }
             }
-            (Fate::Modified, Fate::Modified) => {
+            (Fate::Modified | Fate::Added, Fate::Modified) | (Fate::Modified, Fate::Added) => {
                 let ours_val = ours.get(key);
                 let theirs_val = theirs.get(key);
                 if ours_val == theirs_val {
@@ -449,21 +533,6 @@ fn merge_keyed_eq<V: Clone + PartialEq>(
                     result.insert(key.clone(), v.clone());
                 }
             }
-            // Impossible combos (Added+Modified, etc.) — treat as both-modified.
-            (Fate::Added, Fate::Modified) | (Fate::Modified, Fate::Added) => {
-                let ours_val = ours.get(key);
-                let theirs_val = theirs.get(key);
-                if ours_val == theirs_val {
-                    if let Some(v) = ours_val {
-                        result.insert(key.clone(), v.clone());
-                    }
-                } else {
-                    conflicts.push(make_conflict(key, ConflictCase::BothModifiedDifferently));
-                    if let Some(v) = base.get(key) {
-                        result.insert(key.clone(), v.clone());
-                    }
-                }
-            }
         }
     }
 
@@ -478,6 +547,7 @@ enum Fate {
     Modified,
 }
 
+#[allow(clippy::fn_params_excessive_bools)]
 const fn element_fate(
     in_base: bool,
     in_schema: bool,
@@ -511,6 +581,7 @@ fn fxset_from_iter<'a, I: Iterator<Item = &'a String>>(iter: I) -> FxHashSet<&'a
 // Per-field merge implementations
 // ===========================================================================
 
+#[allow(clippy::too_many_lines)]
 fn merge_vertices(
     base: &Schema,
     ours: &Schema,
@@ -560,10 +631,8 @@ fn merge_vertices(
         let t_modified = theirs_kind_changed.contains(vid.as_str());
 
         match (o_removed, t_removed, o_modified, t_modified) {
-            // Both removed.
-            (true, true, _, _) => {}
-            // Ours removed, theirs unchanged.
-            (true, false, _, false) => {}
+            // Both removed, or one removed while the other unchanged.
+            (true, true, _, _) | (true, false, _, false) | (false, true, false, _) => {}
             // Ours removed, theirs modified → conflict.
             (true, false, _, true) => {
                 conflicts.push(MergeConflict::DeleteModifyVertex {
@@ -572,8 +641,6 @@ fn merge_vertices(
                 });
                 result.insert(vid.clone(), base_v.clone());
             }
-            // Theirs removed, ours unchanged.
-            (false, true, false, _) => {}
             // Theirs removed, ours modified → conflict.
             (false, true, true, _) => {
                 conflicts.push(MergeConflict::DeleteModifyVertex {
@@ -662,9 +729,8 @@ fn merge_edges(
         let t_removed = theirs_removed.contains(edge);
 
         match (o_removed, t_removed) {
-            (true, true) => {}  // Both removed.
-            (true, false) => {} // Ours removed, theirs unchanged → remove.
-            (false, true) => {} // Theirs removed, ours unchanged → remove.
+            // Any removal means the edge is gone.
+            (true, _) | (_, true) => {}
             (false, false) => {
                 result.insert(edge.clone(), kind.clone());
             }
@@ -746,6 +812,7 @@ fn merge_constraints(
 }
 
 /// Merge constraints per-sort when both sides changed constraints on the same vertex.
+#[allow(clippy::too_many_lines)]
 fn merge_constraint_sorts(
     vid: &str,
     base_cs: &[Constraint],
@@ -805,11 +872,6 @@ fn merge_constraint_sorts(
         let t_fate = constraint_fate(in_base, t_added, t_removed, t_changed);
 
         match (o_fate, t_fate) {
-            (Fate::Unchanged, Fate::Unchanged) => {
-                if let Some(c) = base_by_sort.get(sort) {
-                    merged.push((*c).clone());
-                }
-            }
             (Fate::Unchanged, Fate::Added | Fate::Modified) => {
                 if let Some(c) = theirs_by_sort.get(sort) {
                     merged.push((*c).clone());
@@ -820,10 +882,9 @@ fn merge_constraint_sorts(
                     merged.push((*c).clone());
                 }
             }
-            (Fate::Unchanged, Fate::Removed) | (Fate::Removed, Fate::Unchanged) => {
+            (Fate::Unchanged | Fate::Removed, Fate::Removed) | (Fate::Removed, Fate::Unchanged) => {
                 // Removed.
             }
-            (Fate::Removed, Fate::Removed) => {}
             (Fate::Added, Fate::Added) => {
                 let ov = ours_by_sort.get(sort);
                 let tv = theirs_by_sort.get(sort);
@@ -879,7 +940,7 @@ fn merge_constraint_sorts(
                     merged.push((*c).clone());
                 }
             }
-            // Impossible combos.
+            // Unchanged on both sides, or impossible combos — retain base.
             _ => {
                 if let Some(c) = base_by_sort.get(sort) {
                     merged.push((*c).clone());
@@ -892,6 +953,7 @@ fn merge_constraint_sorts(
     merged
 }
 
+#[allow(clippy::fn_params_excessive_bools)]
 const fn constraint_fate(in_base: bool, added: bool, removed: bool, changed: bool) -> Fate {
     if added {
         return Fate::Added;
@@ -961,6 +1023,7 @@ fn merge_required(
     result
 }
 
+#[allow(clippy::too_many_lines)]
 fn merge_variants(
     base: &Schema,
     ours: &Schema,
@@ -1027,11 +1090,6 @@ fn merge_variants(
         let t_fate = element_fate(in_base, theirs_flat.contains_key(&key), t_a, t_r, t_m);
 
         match (o_fate, t_fate) {
-            (Fate::Unchanged, Fate::Unchanged) => {
-                if let Some(v) = base_flat.get(&key) {
-                    merged_flat.insert(key, v);
-                }
-            }
             (Fate::Unchanged, Fate::Added | Fate::Modified) => {
                 if let Some(v) = theirs_flat.get(&key) {
                     merged_flat.insert(key, v);
@@ -1083,6 +1141,7 @@ fn merge_variants(
                     merged_flat.insert(key, v);
                 }
             }
+            // Unchanged on both sides, or impossible combos — retain base.
             _ => {
                 if let Some(v) = base_flat.get(&key) {
                     merged_flat.insert(key, v);
@@ -1426,6 +1485,7 @@ fn merge_nominal(
     result
 }
 
+#[allow(clippy::too_many_lines)]
 fn merge_nsids(
     base: &Schema,
     ours: &Schema,
@@ -1501,11 +1561,6 @@ fn merge_nsids(
         };
 
         match (o_fate, t_fate) {
-            (Fate::Unchanged, Fate::Unchanged) => {
-                if let Some(v) = base.nsids.get(vid) {
-                    result.insert(vid.clone(), v.clone());
-                }
-            }
             (Fate::Unchanged, Fate::Added | Fate::Modified) => {
                 if let Some(v) = theirs.nsids.get(vid) {
                     result.insert(vid.clone(), v.clone());
@@ -1554,6 +1609,7 @@ fn merge_nsids(
                     result.insert(vid.clone(), v.clone());
                 }
             }
+            // Unchanged on both sides, or impossible combos — retain base.
             _ => {
                 if let Some(v) = base.nsids.get(vid) {
                     result.insert(vid.clone(), v.clone());
@@ -1572,7 +1628,7 @@ fn merge_nsids(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use panproto_schema::{HyperEdge, RecursionPoint, Variant};
+    use panproto_schema::{HyperEdge, Variant};
 
     fn make_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         let mut vert_map = HashMap::new();
@@ -1623,7 +1679,7 @@ mod tests {
     // =======================================================================
 
     #[test]
-    fn commutativity_no_conflicts() {
+    fn commutativity_no_conflicts() -> Result<(), Box<dyn std::error::Error>> {
         let base = make_schema(&[("a", "object")], &[]);
         let ours = make_schema(&[("a", "object"), ("b", "string")], &[]);
         let theirs = make_schema(&[("a", "object"), ("c", "integer")], &[]);
@@ -1640,11 +1696,12 @@ mod tests {
                 .merged_schema
                 .vertices
                 .get(id)
-                .expect("vertex missing in swapped merge");
+                .ok_or("vertex missing in swapped merge")?;
             assert_eq!(v1, v2, "vertex {id} differs between merge directions");
         }
         assert!(r1.conflicts.is_empty());
         assert!(r2.conflicts.is_empty());
+        Ok(())
     }
 
     #[test]
@@ -1861,8 +1918,8 @@ mod tests {
             kind: "prop".into(),
             name: Some("y".into()),
         };
-        let ours = make_schema(&[("a", "object"), ("b", "string")], &[edge_ours.clone()]);
-        let theirs = make_schema(&[("a", "object"), ("b", "string")], &[edge_theirs.clone()]);
+        let ours = make_schema(&[("a", "object"), ("b", "string")], &[edge_ours]);
+        let theirs = make_schema(&[("a", "object"), ("b", "string")], &[edge_theirs]);
 
         let result = three_way_merge(&base, &ours, &theirs);
         assert!(result.conflicts.is_empty());
@@ -1882,14 +1939,20 @@ mod tests {
             name: None,
         };
         let base = with_ext(
-            make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]),
+            make_schema(
+                &[("a", "object"), ("b", "string")],
+                std::slice::from_ref(&edge),
+            ),
             |s| {
                 s.orderings.insert(edge.clone(), 0);
             },
         );
         let ours = base.clone(); // unchanged
         let theirs = with_ext(
-            make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]),
+            make_schema(
+                &[("a", "object"), ("b", "string")],
+                std::slice::from_ref(&edge),
+            ),
             |s| {
                 s.orderings.insert(edge.clone(), 1);
             },
@@ -1979,14 +2042,20 @@ mod tests {
             name: None,
         };
         let base = with_ext(
-            make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]),
+            make_schema(
+                &[("a", "object"), ("b", "string")],
+                std::slice::from_ref(&edge),
+            ),
             |s| {
                 s.usage_modes.insert(edge.clone(), UsageMode::Structural);
             },
         );
         let ours = base.clone();
         let theirs = with_ext(
-            make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]),
+            make_schema(
+                &[("a", "object"), ("b", "string")],
+                std::slice::from_ref(&edge),
+            ),
             |s| {
                 s.usage_modes.insert(edge.clone(), UsageMode::Linear);
             },
@@ -2006,19 +2075,28 @@ mod tests {
             name: None,
         };
         let base = with_ext(
-            make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]),
+            make_schema(
+                &[("a", "object"), ("b", "string")],
+                std::slice::from_ref(&edge),
+            ),
             |s| {
                 s.usage_modes.insert(edge.clone(), UsageMode::Structural);
             },
         );
         let ours = with_ext(
-            make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]),
+            make_schema(
+                &[("a", "object"), ("b", "string")],
+                std::slice::from_ref(&edge),
+            ),
             |s| {
                 s.usage_modes.insert(edge.clone(), UsageMode::Linear);
             },
         );
         let theirs = with_ext(
-            make_schema(&[("a", "object"), ("b", "string")], &[edge.clone()]),
+            make_schema(
+                &[("a", "object"), ("b", "string")],
+                std::slice::from_ref(&edge),
+            ),
             |s| {
                 s.usage_modes.insert(edge.clone(), UsageMode::Affine);
             },
@@ -2059,7 +2137,7 @@ mod tests {
         let result = three_way_merge(&base, &ours, &theirs);
         assert!(result.conflicts.is_empty());
         let merged_variants = result.merged_schema.variants.get("u");
-        assert!(merged_variants.is_none() || merged_variants.unwrap().is_empty());
+        assert!(merged_variants.is_none() || merged_variants.is_some_and(Vec::is_empty));
     }
 
     // =======================================================================

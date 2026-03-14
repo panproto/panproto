@@ -17,7 +17,7 @@ pub enum Resource {
     /// A protocol specification.
     Protocol(Protocol),
     /// A built schema.
-    Schema(Schema),
+    Schema(Box<Schema>),
     /// A compiled migration ready for per-record application.
     Migration(CompiledMigration),
     /// A compiled migration bundled with its source and target schemas,

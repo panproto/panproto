@@ -164,7 +164,7 @@ pub fn build_schema(proto: u32, ops: &[u8]) -> Result<u32, JsError> {
         reason: e.to_string(),
     })?;
 
-    Ok(slab::alloc(Resource::Schema(schema)))
+    Ok(slab::alloc(Resource::Schema(Box::new(schema))))
 }
 
 /// Check existence conditions for a migration mapping between two schemas.

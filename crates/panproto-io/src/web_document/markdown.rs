@@ -33,6 +33,7 @@ impl MarkdownCodec {
 }
 
 impl InstanceParser for MarkdownCodec {
+    #[allow(clippy::unnecessary_literal_bound)]
     fn protocol_name(&self) -> &str {
         "markdown"
     }
@@ -143,7 +144,6 @@ impl InstanceParser for MarkdownCodec {
                     };
                     arcs.push((parent.0, node_id, edge));
                 }
-                Event::SoftBreak | Event::HardBreak => {}
                 _ => {}
             }
         }
@@ -171,6 +171,7 @@ impl InstanceParser for MarkdownCodec {
 }
 
 impl InstanceEmitter for MarkdownCodec {
+    #[allow(clippy::unnecessary_literal_bound)]
     fn protocol_name(&self) -> &str {
         "markdown"
     }
@@ -252,7 +253,6 @@ fn emit_md_node(output: &mut String, instance: &WInstance, node_id: u32, depth: 
             }
             output.push(' ');
         }
-        "paragraph" => {}
         "emphasis" => output.push('*'),
         "strong" => output.push_str("**"),
         "code-block" => output.push_str("```\n"),
@@ -293,6 +293,7 @@ fn find_root_vertex(schema: &Schema) -> Option<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use panproto_schema::SchemaBuilder;

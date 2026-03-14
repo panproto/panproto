@@ -67,7 +67,7 @@ impl Repository {
     ///
     /// Returns an error if the schema cannot be hashed or stored.
     pub fn add(&mut self, schema: &Schema) -> Result<Index, VcsError> {
-        let schema_id = self.store.put(&Object::Schema(schema.clone()))?;
+        let schema_id = self.store.put(&Object::Schema(Box::new(schema.clone())))?;
 
         let (migration_id, auto_derived, validation) = match store::resolve_head(&self.store)? {
             None => {
@@ -221,7 +221,7 @@ impl Repository {
             // Auto-commit the merge.
             let merged_schema_id = self
                 .store
-                .put(&Object::Schema(result.merged_schema.clone()))?;
+                .put(&Object::Schema(Box::new(result.merged_schema.clone())))?;
             let migration_id = self.store.put(&Object::Migration {
                 src: ours_commit.schema_id,
                 tgt: merged_schema_id,
@@ -337,7 +337,7 @@ impl Repository {
 
     fn load_schema(&self, id: ObjectId) -> Result<Schema, VcsError> {
         match self.store.get(&id)? {
-            Object::Schema(s) => Ok(s),
+            Object::Schema(s) => Ok(*s),
             other => Err(VcsError::WrongObjectType {
                 expected: "schema",
                 found: other.type_name(),
@@ -407,80 +407,84 @@ mod tests {
     }
 
     #[test]
-    fn init_add_commit() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut repo = Repository::init(dir.path()).unwrap();
+    fn init_add_commit() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
 
         let s = make_schema(&[("a", "object"), ("b", "string")]);
-        repo.add(&s).unwrap();
-        let commit_id = repo.commit("initial commit", "alice").unwrap();
+        repo.add(&s)?;
+        let commit_id = repo.commit("initial commit", "alice")?;
 
         // Verify commit exists.
-        let log = repo.log(None).unwrap();
+        let log = repo.log(None)?;
         assert_eq!(log.len(), 1);
         assert_eq!(log[0].message, "initial commit");
         assert_eq!(log[0].author, "alice");
 
         // Verify HEAD points to the commit.
-        let head = store::resolve_head(repo.store()).unwrap();
+        let head = store::resolve_head(repo.store())?;
         assert_eq!(head, Some(commit_id));
+        Ok(())
     }
 
     #[test]
-    fn add_commit_second_schema() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut repo = Repository::init(dir.path()).unwrap();
+    fn add_commit_second_schema() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
 
         let s1 = make_schema(&[("a", "object")]);
-        repo.add(&s1).unwrap();
-        repo.commit("first", "alice").unwrap();
+        repo.add(&s1)?;
+        repo.commit("first", "alice")?;
 
         let s2 = make_schema(&[("a", "object"), ("b", "string")]);
-        repo.add(&s2).unwrap();
-        repo.commit("second", "alice").unwrap();
+        repo.add(&s2)?;
+        repo.commit("second", "alice")?;
 
-        let log = repo.log(None).unwrap();
+        let log = repo.log(None)?;
         assert_eq!(log.len(), 2);
         assert_eq!(log[0].message, "second");
         assert_eq!(log[1].message, "first");
+        Ok(())
     }
 
     #[test]
-    fn merge_fast_forward() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut repo = Repository::init(dir.path()).unwrap();
+    fn merge_fast_forward() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
 
         let s1 = make_schema(&[("a", "object")]);
-        repo.add(&s1).unwrap();
-        let c1 = repo.commit("initial", "alice").unwrap();
+        repo.add(&s1)?;
+        let c1 = repo.commit("initial", "alice")?;
 
         // Create a branch at c1.
-        refs::create_branch(repo.store_mut(), "feature", c1).unwrap();
+        refs::create_branch(repo.store_mut(), "feature", c1)?;
 
         // Add a commit on feature.
-        refs::checkout_branch(repo.store_mut(), "feature").unwrap();
+        refs::checkout_branch(repo.store_mut(), "feature")?;
         let s2 = make_schema(&[("a", "object"), ("b", "string")]);
-        repo.add(&s2).unwrap();
-        repo.commit("add b", "bob").unwrap();
+        repo.add(&s2)?;
+        repo.commit("add b", "bob")?;
 
         // Switch back to main and merge feature.
-        refs::checkout_branch(repo.store_mut(), "main").unwrap();
-        let result = repo.merge("feature", "alice").unwrap();
+        refs::checkout_branch(repo.store_mut(), "main")?;
+        let result = repo.merge("feature", "alice")?;
         assert!(result.conflicts.is_empty());
 
         // main should now have vertex b.
-        let log = repo.log(None).unwrap();
-        let head_schema = repo.load_schema(log[0].schema_id).unwrap();
+        let log = repo.log(None)?;
+        let head_schema = repo.load_schema(log[0].schema_id)?;
         assert!(head_schema.vertices.contains_key("b"));
+        Ok(())
     }
 
     #[test]
-    fn nothing_staged_errors() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut repo = Repository::init(dir.path()).unwrap();
+    fn nothing_staged_errors() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
         assert!(matches!(
             repo.commit("empty", "alice"),
             Err(VcsError::NothingStaged)
         ));
+        Ok(())
     }
 }
