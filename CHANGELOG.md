@@ -4,6 +4,27 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Performance
+
+- **panproto-gat**: O(1) theory lookups via precomputed `FxHashMap` index cache (`find_sort`, `find_op`, `find_eq`); eliminates linear scans in `colimit()`, `check_morphism()`, `resolve_theory()`
+- **panproto-gat**: Zero-cost cloning via `Arc<str>` for all GAT type names (Sort, Operation, Equation, Term, Theory, TheoryMorphism); colimit and resolution clone ref-counted pointers instead of allocating strings
+- **panproto-gat**: Colimit uses theory index for O(1) membership checks instead of building temporary `FxHashSet`s
+- **panproto-inst**: Fused single-pass restrict pipeline — BFS traversal combines anchor checking, reachability, ancestor contraction, and edge resolution into one pass (was 4 separate passes)
+- **panproto-inst**: Path compression in `ancestor_contraction()` — O(n) amortized via cached parent chain walks (was O(n × depth))
+- **panproto-inst**: `resolve_edge()` avoids heap-allocating `(String, String)` tuple for resolver lookup
+- **panproto-inst**: `#[inline]` on hot WInstance accessors (`node()`, `children()`, `parent()`)
+- **panproto-mig**: Precomputed inverse maps in `compose()` — O(1) hyper-edge and vertex inverse lookups (was O(n) iterator scans)
+- **panproto-schema**: `#[inline]` on `has_vertex()`, `edges_between()`
+- **panproto-wasm**: `Arc<Schema>` in slab resource storage for O(1) schema sharing across migration handles
+- **panproto-wasm**: `opt-level = 3` for WASM release profile (was `"z"` / size-optimized)
+
+### Added
+
+- Comprehensive divan benchmarks across all compilation levels: GAT colimit/resolve/morphism at scale (10–500 sorts), instance restrict on deep/wide trees, migration compose chains, lens get/put round-trips
+- Formal correctness proofs for all optimizations in `tutorial/appendices/formal-proofs.qmd`
+- Optimization reference guide in `dev-guide/appendices/optimization-guide.qmd`
+- Tutorial section on fused restrict pipeline in chapter 7
+
 ## [0.3.0] - 2026-03-14
 
 ### Features

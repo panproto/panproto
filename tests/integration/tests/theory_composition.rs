@@ -53,7 +53,7 @@ fn colimit_graph_constraint_produces_constrained_graph() -> Result<(), Box<dyn s
     let vertex_count = constrained_graph
         .sorts
         .iter()
-        .filter(|s| s.name == "Vertex")
+        .filter(|s| &*s.name == "Vertex")
         .count();
     assert_eq!(vertex_count, 1, "Vertex should appear exactly once");
 
@@ -90,7 +90,7 @@ fn inclusion_morphism_into_colimit() -> Result<(), Box<dyn std::error::Error>> {
     let graph_inclusion = TheoryMorphism::new(
         "graph_incl",
         "ThGraph",
-        &colimit_theory.name,
+        colimit_theory.name.clone(),
         HashMap::from([
             ("Vertex".into(), "Vertex".into()),
             ("Edge".into(), "Edge".into()),
@@ -103,7 +103,7 @@ fn inclusion_morphism_into_colimit() -> Result<(), Box<dyn std::error::Error>> {
     let constraint_inclusion = TheoryMorphism::new(
         "constraint_incl",
         "ThConstraint",
-        &colimit_theory.name,
+        colimit_theory.name.clone(),
         HashMap::from([
             ("Vertex".into(), "Vertex".into()),
             ("Constraint".into(), "Constraint".into()),
@@ -206,8 +206,8 @@ fn colimit_is_associative() -> Result<(), Box<dyn std::error::Error>> {
     let abc_right = colimit(&a, &bc, &shared_y_for_abc)?;
 
     // Both should have the same sorts: X, Y, Z, W.
-    let left_sort_names: HashSet<&str> = abc_left.sorts.iter().map(|s| s.name.as_str()).collect();
-    let right_sort_names: HashSet<&str> = abc_right.sorts.iter().map(|s| s.name.as_str()).collect();
+    let left_sort_names: HashSet<&str> = abc_left.sorts.iter().map(|s| &*s.name).collect();
+    let right_sort_names: HashSet<&str> = abc_right.sorts.iter().map(|s| &*s.name).collect();
 
     assert_eq!(
         left_sort_names, right_sort_names,

@@ -120,26 +120,29 @@ pub fn migrate_model(morphism: &TheoryMorphism, model: &Model) -> Result<Model, 
 
     // Reindex sort interpretations.
     for (domain_sort, codomain_sort) in &morphism.sort_map {
-        let values = model.sort_interp.get(codomain_sort).ok_or_else(|| {
-            GatError::ModelError(format!(
-                "sort interpretation for '{codomain_sort}' not found in model"
-            ))
-        })?;
+        let values = model
+            .sort_interp
+            .get(codomain_sort.as_ref())
+            .ok_or_else(|| {
+                GatError::ModelError(format!(
+                    "sort interpretation for '{codomain_sort}' not found in model"
+                ))
+            })?;
         new_model
             .sort_interp
-            .insert(domain_sort.clone(), values.clone());
+            .insert(domain_sort.to_string(), values.clone());
     }
 
     // Reindex operation interpretations.
     for (domain_op, codomain_op) in &morphism.op_map {
-        let interp = model.op_interp.get(codomain_op).ok_or_else(|| {
+        let interp = model.op_interp.get(codomain_op.as_ref()).ok_or_else(|| {
             GatError::ModelError(format!(
                 "operation interpretation for '{codomain_op}' not found in model"
             ))
         })?;
         new_model
             .op_interp
-            .insert(domain_op.clone(), Arc::clone(interp));
+            .insert(domain_op.to_string(), Arc::clone(interp));
     }
 
     Ok(new_model)
@@ -148,6 +151,8 @@ pub fn migrate_model(morphism: &TheoryMorphism, model: &Model) -> Result<Model, 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     fn int_val(v: i64) -> ModelValue {
@@ -209,10 +214,10 @@ mod tests {
 
         // Morphism: M1 -> M2, mapping mul->times, unit->one.
         let sort_map =
-            std::collections::HashMap::from([("Carrier".to_owned(), "Carrier".to_owned())]);
+            std::collections::HashMap::from([(Arc::from("Carrier"), Arc::from("Carrier"))]);
         let op_map = std::collections::HashMap::from([
-            ("mul".to_owned(), "times".to_owned()),
-            ("unit".to_owned(), "one".to_owned()),
+            (Arc::from("mul"), Arc::from("times")),
+            (Arc::from("unit"), Arc::from("one")),
         ]);
 
         let morphism = TheoryMorphism::new("rename", "M1", "M2", sort_map, op_map);
@@ -235,7 +240,7 @@ mod tests {
     fn migrate_model_missing_sort_fails() {
         let model = Model::new("Empty");
 
-        let sort_map = std::collections::HashMap::from([("S".to_owned(), "Missing".to_owned())]);
+        let sort_map = std::collections::HashMap::from([(Arc::from("S"), Arc::from("Missing"))]);
 
         let morphism = TheoryMorphism::new(
             "bad",

@@ -169,7 +169,7 @@ pub fn functor_extend(
 
     // First pass: collect rows per target vertex and track row offsets
     // per source vertex for FK index offsetting.
-    let mut row_offsets: HashMap<String, usize> = HashMap::new();
+    let mut row_offsets: HashMap<String, usize> = HashMap::with_capacity(instance.tables.len());
     for (src_vertex, rows) in &instance.tables {
         let tgt_vertex = migration
             .vertex_remap

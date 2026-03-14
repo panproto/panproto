@@ -18,7 +18,13 @@ thiserror = { workspace = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 proptest = { workspace = true }
+smallvec = { workspace = true }
+
+[[bench]]
+name = "lens_bench"
+harness = false
 
 [lints]
 workspace = true

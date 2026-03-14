@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 /// A parameter of a dependent sort.
 ///
 /// Sort parameters allow sorts to depend on terms of other sorts,
@@ -10,9 +12,9 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct SortParam {
     /// The parameter name (e.g., "a", "b").
-    pub name: String,
+    pub name: Arc<str>,
     /// The sort this parameter ranges over (e.g., "Ob").
-    pub sort: String,
+    pub sort: Arc<str>,
 }
 
 /// A sort declaration in a GAT.
@@ -30,7 +32,7 @@ pub struct SortParam {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Sort {
     /// The sort name (e.g., "Vertex", "Edge", "Hom").
-    pub name: String,
+    pub name: Arc<str>,
     /// Parameters this sort depends on. Empty for simple sorts.
     pub params: Vec<SortParam>,
 }
@@ -38,7 +40,7 @@ pub struct Sort {
 impl Sort {
     /// Create a simple (non-dependent) sort.
     #[must_use]
-    pub fn simple(name: impl Into<String>) -> Self {
+    pub fn simple(name: impl Into<Arc<str>>) -> Self {
         Self {
             name: name.into(),
             params: Vec::new(),
@@ -47,7 +49,7 @@ impl Sort {
 
     /// Create a dependent sort with the given parameters.
     #[must_use]
-    pub fn dependent(name: impl Into<String>, params: Vec<SortParam>) -> Self {
+    pub fn dependent(name: impl Into<Arc<str>>, params: Vec<SortParam>) -> Self {
         Self {
             name: name.into(),
             params,
@@ -70,7 +72,7 @@ impl Sort {
 impl SortParam {
     /// Create a new sort parameter.
     #[must_use]
-    pub fn new(name: impl Into<String>, sort: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<Arc<str>>, sort: impl Into<Arc<str>>) -> Self {
         Self {
             name: name.into(),
             sort: sort.into(),
@@ -87,7 +89,7 @@ mod tests {
         let s = Sort::simple("Vertex");
         assert!(s.is_simple());
         assert_eq!(s.arity(), 0);
-        assert_eq!(s.name, "Vertex");
+        assert_eq!(&*s.name, "Vertex");
     }
 
     #[test]

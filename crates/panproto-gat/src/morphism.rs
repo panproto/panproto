@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::eq::Term;
 use crate::error::GatError;
@@ -11,26 +12,26 @@ use crate::theory::Theory;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TheoryMorphism {
     /// A human-readable name for this morphism.
-    pub name: String,
+    pub name: Arc<str>,
     /// The name of the domain theory.
-    pub domain: String,
+    pub domain: Arc<str>,
     /// The name of the codomain theory.
-    pub codomain: String,
+    pub codomain: Arc<str>,
     /// Mapping from domain sort names to codomain sort names.
-    pub sort_map: HashMap<String, String>,
+    pub sort_map: HashMap<Arc<str>, Arc<str>>,
     /// Mapping from domain operation names to codomain operation names.
-    pub op_map: HashMap<String, String>,
+    pub op_map: HashMap<Arc<str>, Arc<str>>,
 }
 
 impl TheoryMorphism {
     /// Create a new theory morphism.
     #[must_use]
     pub fn new(
-        name: impl Into<String>,
-        domain: impl Into<String>,
-        codomain: impl Into<String>,
-        sort_map: HashMap<String, String>,
-        op_map: HashMap<String, String>,
+        name: impl Into<Arc<str>>,
+        domain: impl Into<Arc<str>>,
+        codomain: impl Into<Arc<str>>,
+        sort_map: HashMap<Arc<str>, Arc<str>>,
+        op_map: HashMap<Arc<str>, Arc<str>>,
     ) -> Self {
         Self {
             name: name.into(),
@@ -70,16 +71,16 @@ pub fn check_morphism(
         let target_name = m
             .sort_map
             .get(&sort.name)
-            .ok_or_else(|| GatError::MissingSortMapping(sort.name.clone()))?;
+            .ok_or_else(|| GatError::MissingSortMapping(sort.name.to_string()))?;
 
         let target_sort = codomain
             .find_sort(target_name)
-            .ok_or_else(|| GatError::SortNotFound(target_name.clone()))?;
+            .ok_or_else(|| GatError::SortNotFound(target_name.to_string()))?;
 
         // 3. Sort arities must match.
         if sort.arity() != target_sort.arity() {
             return Err(GatError::SortArityMismatch {
-                sort: sort.name.clone(),
+                sort: sort.name.to_string(),
                 expected: sort.arity(),
                 got: target_sort.arity(),
             });
@@ -91,16 +92,16 @@ pub fn check_morphism(
         let target_name = m
             .op_map
             .get(&op.name)
-            .ok_or_else(|| GatError::MissingOpMapping(op.name.clone()))?;
+            .ok_or_else(|| GatError::MissingOpMapping(op.name.to_string()))?;
 
         let target_op = codomain
             .find_op(target_name)
-            .ok_or_else(|| GatError::OpNotFound(target_name.clone()))?;
+            .ok_or_else(|| GatError::OpNotFound(target_name.to_string()))?;
 
         // 4. Operation type signatures must be preserved under sort mapping.
         if op.inputs.len() != target_op.inputs.len() {
             return Err(GatError::OpTypeMismatch {
-                op: op.name.clone(),
+                op: op.name.to_string(),
                 detail: format!(
                     "arity mismatch: domain has {} inputs, codomain has {}",
                     op.inputs.len(),
@@ -113,11 +114,11 @@ pub fn check_morphism(
             let mapped_sort = m
                 .sort_map
                 .get(sort_name)
-                .ok_or_else(|| GatError::MissingSortMapping(sort_name.clone()))?;
+                .ok_or_else(|| GatError::MissingSortMapping(sort_name.to_string()))?;
             let (_, target_sort) = &target_op.inputs[i];
             if mapped_sort != target_sort {
                 return Err(GatError::OpTypeMismatch {
-                    op: op.name.clone(),
+                    op: op.name.to_string(),
                     detail: format!("input {i}: expected sort {mapped_sort}, got {target_sort}"),
                 });
             }
@@ -126,10 +127,10 @@ pub fn check_morphism(
         let mapped_output = m
             .sort_map
             .get(&op.output)
-            .ok_or_else(|| GatError::MissingSortMapping(op.output.clone()))?;
+            .ok_or_else(|| GatError::MissingSortMapping(op.output.to_string()))?;
         if mapped_output != &target_op.output {
             return Err(GatError::OpTypeMismatch {
-                op: op.name.clone(),
+                op: op.name.to_string(),
                 detail: format!(
                     "output: expected sort {mapped_output}, got {}",
                     target_op.output
@@ -151,7 +152,7 @@ pub fn check_morphism(
 
         if !preserved {
             return Err(GatError::EquationNotPreserved {
-                equation: eq.name.clone(),
+                equation: eq.name.to_string(),
                 detail: "mapped equation not found in codomain".to_owned(),
             });
         }
@@ -285,10 +286,10 @@ mod tests {
     fn identity_morphism_is_valid() {
         let t = monoid_theory("Monoid", "mul", "unit");
 
-        let sort_map = HashMap::from([("Carrier".to_owned(), "Carrier".to_owned())]);
+        let sort_map = HashMap::from([(Arc::from("Carrier"), Arc::from("Carrier"))]);
         let op_map = HashMap::from([
-            ("mul".to_owned(), "mul".to_owned()),
-            ("unit".to_owned(), "unit".to_owned()),
+            (Arc::from("mul"), Arc::from("mul")),
+            (Arc::from("unit"), Arc::from("unit")),
         ]);
 
         let m = TheoryMorphism::new("id", "Monoid", "Monoid", sort_map, op_map);
@@ -300,10 +301,10 @@ mod tests {
         let domain = monoid_theory("M1", "mul", "unit");
         let codomain = monoid_theory("M2", "times", "one");
 
-        let sort_map = HashMap::from([("Carrier".to_owned(), "Carrier".to_owned())]);
+        let sort_map = HashMap::from([(Arc::from("Carrier"), Arc::from("Carrier"))]);
         let op_map = HashMap::from([
-            ("mul".to_owned(), "times".to_owned()),
-            ("unit".to_owned(), "one".to_owned()),
+            (Arc::from("mul"), Arc::from("times")),
+            (Arc::from("unit"), Arc::from("one")),
         ]);
 
         let m = TheoryMorphism::new("rename", "M1", "M2", sort_map, op_map);
@@ -316,8 +317,8 @@ mod tests {
 
         let sort_map = HashMap::new(); // empty -- missing Carrier
         let op_map = HashMap::from([
-            ("mul".to_owned(), "mul".to_owned()),
-            ("unit".to_owned(), "unit".to_owned()),
+            (Arc::from("mul"), Arc::from("mul")),
+            (Arc::from("unit"), Arc::from("unit")),
         ]);
 
         let m = TheoryMorphism::new("bad", "M", "M", sort_map, op_map);
@@ -329,8 +330,8 @@ mod tests {
     fn missing_op_mapping_fails() {
         let t = monoid_theory("M", "mul", "unit");
 
-        let sort_map = HashMap::from([("Carrier".to_owned(), "Carrier".to_owned())]);
-        let op_map = HashMap::from([("mul".to_owned(), "mul".to_owned())]);
+        let sort_map = HashMap::from([(Arc::from("Carrier"), Arc::from("Carrier"))]);
+        let op_map = HashMap::from([(Arc::from("mul"), Arc::from("mul"))]);
         // missing unit mapping
 
         let m = TheoryMorphism::new("bad", "M", "M", sort_map, op_map);
@@ -350,7 +351,7 @@ mod tests {
             Vec::new(),
         );
 
-        let sort_map = HashMap::from([("S".to_owned(), "T".to_owned())]);
+        let sort_map = HashMap::from([(Arc::from("S"), Arc::from("T"))]);
 
         let m = TheoryMorphism::new("bad", "D", "C", sort_map, HashMap::new());
         let result = check_morphism(&m, &domain, &codomain);
@@ -374,10 +375,10 @@ mod tests {
         );
 
         let sort_map = HashMap::from([
-            ("A".to_owned(), "A".to_owned()),
-            ("B".to_owned(), "B".to_owned()),
+            (Arc::from("A"), Arc::from("A")),
+            (Arc::from("B"), Arc::from("B")),
         ]);
-        let op_map = HashMap::from([("f".to_owned(), "f".to_owned())]);
+        let op_map = HashMap::from([(Arc::from("f"), Arc::from("f"))]);
 
         let m = TheoryMorphism::new("bad", "D", "C", sort_map, op_map);
         let result = check_morphism(&m, &domain, &codomain);
@@ -395,13 +396,10 @@ mod tests {
         let theory = commutative_monoid_theory("CMonoid", "mul", "unit");
 
         // Identity morphism -- maps mul->mul and unit->unit.
-        // In a commutative monoid, mul(a,b) = mul(b,a) is an axiom,
-        // so mapping mul to itself is valid even though conceptually
-        // we think of "swapping arguments".
-        let sort_map = HashMap::from([("Carrier".to_owned(), "Carrier".to_owned())]);
+        let sort_map = HashMap::from([(Arc::from("Carrier"), Arc::from("Carrier"))]);
         let op_map = HashMap::from([
-            ("mul".to_owned(), "mul".to_owned()),
-            ("unit".to_owned(), "unit".to_owned()),
+            (Arc::from("mul"), Arc::from("mul")),
+            (Arc::from("unit"), Arc::from("unit")),
         ]);
 
         let m = TheoryMorphism::new("swap", "CMonoid", "CMonoid", sort_map, op_map);

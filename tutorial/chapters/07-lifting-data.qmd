@@ -407,6 +407,26 @@ The node's payload (the actual data—strings, integers, booleans) is not copied
 
 In benchmarks on an M2 MacBook Air, this fast path processes ~3.2 million nodes per second for a `threadViewPost`-like schema with 8 fields per post. The WASM target is slightly slower (~1.8M nodes/sec) due to bounds checking and the lack of SIMD, but still well above the 1M target.
 
+### Fused single-pass pipeline {#sec-fused-pipeline}
+
+The implementation goes further than the sequential five-step description suggests. In production, panproto *fuses* steps 1–4 into a single BFS traversal from the root. The key idea is that ancestor tracking during BFS is trivial: when we visit a node, its parent's nearest surviving ancestor was already computed (because BFS visits parents before children). If the current node survives, its ancestor is its parent's ancestor (or the parent itself, if the parent survives).
+
+The fused traversal:
+
+1. Starts at the root (if its anchor survives).
+2. For each node popped from the BFS queue:
+   - Check anchor survival (step 1).
+   - If surviving: record the node, resolve its edge from the nearest surviving ancestor (steps 3+4), and mark it as the new "nearest surviving ancestor" for its children.
+   - Enqueue all children regardless (non-surviving nodes may have surviving descendants).
+
+This reduces four passes (anchor scan, BFS, ancestor walk, edge resolution) to one, cutting the constant factor significantly. The individual step functions are retained for unit testing—the fused version must produce identical output for every input, which is verified by the property test suite.
+
+::: {.callout-note}
+## Path compression in ancestor contraction
+
+Even within the fused pipeline, the standalone `ancestor_contraction` function uses path compression (à la Tarjan's union-find): when walking the parent chain for one node, we cache the nearest surviving ancestor for every intermediate node visited. This gives $O(n)$ amortized time instead of $O(n \cdot d)$ where $d$ is the tree depth. In the fused pipeline, path compression is implicit—the BFS order guarantees that ancestors are always processed before descendants.
+:::
+
 ### When it gets expensive
 
 The pipeline slows down when:

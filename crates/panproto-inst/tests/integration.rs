@@ -594,8 +594,8 @@ fn test_fan_reconstruction_4_to_3() {
     let inst = WInstance::new(nodes, vec![], vec![fan], 0, "table".into());
 
     // Surviving: table, col1, col2, col3 (drop col4)
-    let surviving: HashSet<u32> = [0, 1, 2, 3].into_iter().collect();
-    let ancestors = HashMap::new();
+    let surviving: rustc_hash::FxHashSet<u32> = [0, 1, 2, 3].into_iter().collect();
+    let ancestors = rustc_hash::FxHashMap::default();
 
     let migration = CompiledMigration {
         surviving_verts: HashSet::from([

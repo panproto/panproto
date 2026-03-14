@@ -52,6 +52,7 @@ book:
         - appendices/B-api-reference.qmd
         - appendices/C-guide-to-the-literature.qmd
         - appendices/D-protocol-catalog.qmd
+        - appendices/E-formal-proofs.qmd
 
 bibliography: references.bib
 csl: https://raw.githubusercontent.com/citation-style-language/styles/master/chicago-author-date.csl

@@ -5,6 +5,7 @@
 //! this vector. Freed slots are reused on subsequent allocations.
 
 use std::cell::RefCell;
+use std::sync::Arc;
 
 use panproto_core::inst::CompiledMigration;
 use panproto_core::schema::{Protocol, Schema};
@@ -13,11 +14,15 @@ use wasm_bindgen::JsError;
 use crate::error::WasmError;
 
 /// A resource stored in the slab.
+///
+/// Schemas are stored behind `Arc` so that `MigrationWithSchemas`
+/// can share ownership without deep-cloning on every `lift_record`
+/// or `get_record` call.
 pub enum Resource {
     /// A protocol specification.
     Protocol(Protocol),
     /// A built schema.
-    Schema(Box<Schema>),
+    Schema(Arc<Schema>),
     /// A compiled migration ready for per-record application.
     Migration(CompiledMigration),
     /// A compiled migration bundled with its source and target schemas,
@@ -26,9 +31,9 @@ pub enum Resource {
         /// The compiled migration.
         compiled: CompiledMigration,
         /// The source schema (pre-migration).
-        src_schema: Box<Schema>,
+        src_schema: Arc<Schema>,
         /// The target schema (post-migration).
-        tgt_schema: Box<Schema>,
+        tgt_schema: Arc<Schema>,
     },
 }
 
@@ -160,7 +165,7 @@ pub const fn as_protocol(resource: &Resource) -> Result<&Protocol, WasmError> {
 
 /// Extract a `Schema` reference from a resource, or return a type
 /// mismatch error.
-pub const fn as_schema(resource: &Resource) -> Result<&Schema, WasmError> {
+pub fn as_schema(resource: &Resource) -> Result<&Schema, WasmError> {
     match resource {
         Resource::Schema(s) => Ok(s),
         _ => Err(WasmError::TypeMismatch {

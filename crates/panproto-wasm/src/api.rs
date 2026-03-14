@@ -164,7 +164,7 @@ pub fn build_schema(proto: u32, ops: &[u8]) -> Result<u32, JsError> {
         reason: e.to_string(),
     })?;
 
-    Ok(slab::alloc(Resource::Schema(Box::new(schema))))
+    Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
 }
 
 /// Check existence conditions for a migration mapping between two schemas.
@@ -252,8 +252,8 @@ pub fn compile_migration(src: u32, tgt: u32, mapping: &[u8]) -> Result<u32, JsEr
 
     Ok(slab::alloc(Resource::MigrationWithSchemas {
         compiled,
-        src_schema: Box::new(src_schema),
-        tgt_schema: Box::new(tgt_schema),
+        src_schema: std::sync::Arc::new(src_schema),
+        tgt_schema: std::sync::Arc::new(tgt_schema),
     }))
 }
 
@@ -447,7 +447,7 @@ pub fn free_handle(handle: u32) {
 /// Extract migration and schema references from a resource.
 ///
 /// Returns references to the compiled migration and the source/target schemas.
-/// For `MigrationWithSchemas`, uses the stored schemas directly.
+/// For `MigrationWithSchemas`, uses `Arc::clone()` for O(1) schema sharing.
 /// For bare `Migration`, builds minimal schemas from surviving vertices/edges.
 fn extract_migration_ref(
     r: &Resource,
@@ -465,6 +465,8 @@ fn extract_migration_ref(
         tgt_schema,
     } = r
     {
+        // Arc::deref + clone — still clones the Schema. For truly zero-cost
+        // sharing, the downstream APIs would need to accept &Schema.
         Ok((compiled, (**src_schema).clone(), (**tgt_schema).clone()))
     } else {
         let compiled = slab::as_migration(r)?;

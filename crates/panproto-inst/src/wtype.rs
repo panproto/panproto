@@ -1,19 +1,24 @@
 //! W-type instance representation and the `wtype_restrict` pipeline.
 //!
 //! A [`WInstance`] is a tree-shaped data instance conforming to a schema.
-//! The restrict operation (`wtype_restrict`) is a 5-step pipeline that
-//! projects a W-type instance along a migration mapping.
+//! The restrict operation (`wtype_restrict`) is a fused single-pass pipeline
+//! that projects a W-type instance along a migration mapping.
 //!
-//! The five steps are independently testable functions:
-//! 1. `anchor_surviving` — signature restriction
-//! 2. `reachable_from_root` — BFS reachability
-//! 3. `ancestor_contraction` — find nearest surviving ancestors
-//! 4. `resolve_edge` — edge resolution for contracted arcs
-//! 5. `reconstruct_fans` — hyper-edge fan reconstruction
+//! The pipeline fuses four concerns into one BFS traversal:
+//! 1. Anchor survival check — does this node's schema vertex survive?
+//! 2. Reachability — is this node reachable from the root?
+//! 3. Ancestor contraction — who is the nearest surviving ancestor?
+//! 4. Edge resolution — what edge connects the contracted arc?
+//!
+//! Fan reconstruction (step 5) runs as a separate pass since it operates
+//! on the original fan list, not the BFS tree.
+//!
+//! The five individual step functions are retained for testing and debugging.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use panproto_schema::{Edge, Schema};
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -74,7 +79,7 @@ impl WInstance {
         root: u32,
         schema_root: String,
     ) -> Self {
-        let mut parent_map = HashMap::new();
+        let mut parent_map = HashMap::with_capacity(arcs.len());
         let mut children_map: HashMap<u32, SmallVec<u32, 4>> = HashMap::new();
         for &(parent, child, _) in &arcs {
             parent_map.insert(child, parent);
@@ -92,30 +97,35 @@ impl WInstance {
     }
 
     /// Returns the number of nodes.
+    #[inline]
     #[must_use]
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
 
     /// Returns the number of arcs.
+    #[inline]
     #[must_use]
     pub fn arc_count(&self) -> usize {
         self.arcs.len()
     }
 
     /// Get a node by ID.
+    #[inline]
     #[must_use]
     pub fn node(&self, id: u32) -> Option<&Node> {
         self.nodes.get(&id)
     }
 
     /// Get the children of a node.
+    #[inline]
     #[must_use]
     pub fn children(&self, id: u32) -> &[u32] {
         self.children_map.get(&id).map_or(&[], SmallVec::as_slice)
     }
 
     /// Get the parent of a node.
+    #[inline]
     #[must_use]
     pub fn parent(&self, id: u32) -> Option<u32> {
         self.parent_map.get(&id).copied()
@@ -123,14 +133,10 @@ impl WInstance {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1: Signature restriction
+// Step 1: Signature restriction (retained for testing)
 // ---------------------------------------------------------------------------
 
 /// Keep nodes whose anchor vertex is in the surviving vertex set.
-///
-/// This is the first step of the restrict pipeline: it selects the
-/// subset of instance nodes whose schema anchor is retained by the
-/// migration.
 #[must_use]
 pub fn anchor_surviving(instance: &WInstance, surviving_verts: &HashSet<String>) -> HashSet<u32> {
     instance
@@ -142,13 +148,10 @@ pub fn anchor_surviving(instance: &WInstance, surviving_verts: &HashSet<String>)
 }
 
 // ---------------------------------------------------------------------------
-// Step 2: Reachability BFS
+// Step 2: Reachability BFS (retained for testing)
 // ---------------------------------------------------------------------------
 
 /// BFS from the root through anchor-surviving nodes.
-///
-/// Starting from the root (if it is in `candidates`), traverse children
-/// that are also in `candidates`. Returns the set of reachable node IDs.
 #[must_use]
 pub fn reachable_from_root(instance: &WInstance, candidates: &HashSet<u32>) -> HashSet<u32> {
     let mut reachable = HashSet::new();
@@ -172,49 +175,69 @@ pub fn reachable_from_root(instance: &WInstance, candidates: &HashSet<u32>) -> H
 }
 
 // ---------------------------------------------------------------------------
-// Step 3: Ancestor contraction
+// Step 3: Ancestor contraction with path compression (retained for testing)
 // ---------------------------------------------------------------------------
 
 /// For each surviving non-root node, find its nearest surviving ancestor.
 ///
-/// When intermediate nodes are pruned, children must be re-attached to
-/// the nearest surviving ancestor. This function walks up the parent
-/// chain for each surviving node to find that ancestor.
+/// Uses path compression: when we walk the parent chain for a node,
+/// we cache the result for every intermediate node visited. Subsequent
+/// queries hitting a cached node return in O(1). This gives O(n)
+/// amortized complexity instead of O(n × depth).
 #[must_use]
 pub fn ancestor_contraction(instance: &WInstance, surviving: &HashSet<u32>) -> HashMap<u32, u32> {
+    let mut cache: FxHashMap<u32, u32> = FxHashMap::default();
     let mut ancestors = HashMap::new();
+
     for &node_id in surviving {
         if node_id == instance.root {
             continue;
         }
-        // Walk up to find nearest surviving ancestor, with visited set to guard against cycles
+
+        // Check cache first
+        if let Some(&cached) = cache.get(&node_id) {
+            ancestors.insert(node_id, cached);
+            continue;
+        }
+
+        // Walk the parent chain, recording the path for compression
+        let mut path = Vec::new();
         let mut current = node_id;
-        let mut visited = HashSet::new();
-        visited.insert(node_id);
+        let mut found_ancestor = None;
+
         while let Some(parent) = instance.parent(current) {
-            if !visited.insert(parent) {
-                // Cycle detected — stop walking
+            if let Some(&cached) = cache.get(&parent) {
+                found_ancestor = Some(cached);
                 break;
             }
             if surviving.contains(&parent) {
-                ancestors.insert(node_id, parent);
+                found_ancestor = Some(parent);
                 break;
             }
+            path.push(parent);
             current = parent;
+        }
+
+        // Path compression: cache the ancestor for all nodes on the path
+        if let Some(ancestor) = found_ancestor {
+            ancestors.insert(node_id, ancestor);
+            cache.insert(node_id, ancestor);
+            for &intermediate in &path {
+                cache.insert(intermediate, ancestor);
+            }
         }
     }
     ancestors
 }
 
 // ---------------------------------------------------------------------------
-// Step 4: Edge resolution
+// Step 4: Edge resolution (retained for testing)
 // ---------------------------------------------------------------------------
 
 /// Resolve the edge for a contracted arc in the target schema.
 ///
-/// Given a (source, target) vertex pair in the target schema, find the
-/// unique edge. Consults the resolver first (for ambiguous cases), then
-/// falls back to the unique-edge heuristic.
+/// Avoids allocating a `(String, String)` tuple for the resolver lookup
+/// by checking the resolver with borrowed references.
 ///
 /// # Errors
 ///
@@ -227,10 +250,11 @@ pub fn resolve_edge(
     src_v: &str,
     tgt_v: &str,
 ) -> Result<Edge, RestrictError> {
-    // Check resolver first
-    let key = (src_v.to_string(), tgt_v.to_string());
-    if let Some(edge) = resolver.get(&key) {
-        return Ok(edge.clone());
+    // Check resolver — avoid allocation by scanning for matching key
+    for ((k_src, k_tgt), edge) in resolver {
+        if k_src == src_v && k_tgt == tgt_v {
+            return Ok(edge.clone());
+        }
     }
 
     // Fall back to unique-edge lookup
@@ -250,15 +274,10 @@ pub fn resolve_edge(
 }
 
 // ---------------------------------------------------------------------------
-// Step 5: Fan reconstruction
+// Step 5: Fan reconstruction (retained for testing)
 // ---------------------------------------------------------------------------
 
 /// Reconstruct fans after restriction.
-///
-/// For hyper-edge schemas, fans whose children are partially pruned
-/// need to be rebuilt with only the surviving children. If the
-/// hyper-resolver provides a mapping, use it; otherwise, build a
-/// reduced fan from the surviving children.
 ///
 /// # Errors
 ///
@@ -266,20 +285,18 @@ pub fn resolve_edge(
 /// be validly reconstructed.
 pub fn reconstruct_fans(
     instance: &WInstance,
-    surviving: &HashSet<u32>,
-    _ancestors: &HashMap<u32, u32>,
+    surviving: &FxHashSet<u32>,
+    _ancestors: &FxHashMap<u32, u32>,
     migration: &CompiledMigration,
     _tgt_schema: &Schema,
 ) -> Result<Vec<Fan>, RestrictError> {
     let mut result = Vec::new();
 
     for fan in &instance.fans {
-        // Check if the parent survives
         if !surviving.contains(&fan.parent) {
             continue;
         }
 
-        // Collect surviving children
         let surviving_children: HashMap<String, u32> = fan
             .children
             .iter()
@@ -291,7 +308,6 @@ pub fn reconstruct_fans(
             continue;
         }
 
-        // Check if the hyper-resolver has a mapping for this fan
         if let Some((new_he_id, label_map)) = migration.hyper_resolver.get(&fan.hyper_edge_id) {
             let mut new_children = HashMap::new();
             for (old_label, &node_id) in &surviving_children {
@@ -307,7 +323,6 @@ pub fn reconstruct_fans(
                 children: new_children,
             });
         } else {
-            // Keep original fan with surviving children only
             result.push(Fan {
                 hyper_edge_id: fan.hyper_edge_id.clone(),
                 parent: fan.parent,
@@ -320,19 +335,17 @@ pub fn reconstruct_fans(
 }
 
 // ---------------------------------------------------------------------------
-// Main restrict function
+// Main restrict function: fused single-pass pipeline
 // ---------------------------------------------------------------------------
 
 /// The restrict operation for W-type instances.
 ///
-/// This is the data migration algorithm for tree-structured data.
-/// It executes a 5-step pipeline:
+/// Executes a fused single-pass pipeline that combines anchor checking,
+/// BFS reachability, ancestor contraction, and edge resolution into one
+/// traversal. Fan reconstruction runs as a separate pass.
 ///
-/// 1. **Signature restriction**: keep nodes whose anchor survives
-/// 2. **Reachability BFS**: keep only nodes reachable from root
-/// 3. **Ancestor contraction**: find nearest surviving ancestors
-/// 4. **Edge resolution**: resolve edges for contracted arcs
-/// 5. **Fan reconstruction**: rebuild hyper-edge fans
+/// The fused approach visits each node at most once (O(n)) versus
+/// the sequential 5-step approach which makes 3-4 passes.
 ///
 /// # Errors
 ///
@@ -344,61 +357,95 @@ pub fn wtype_restrict(
     tgt_schema: &Schema,
     migration: &CompiledMigration,
 ) -> Result<WInstance, RestrictError> {
-    // Step 1: Signature restriction
-    let candidates = anchor_surviving(instance, &migration.surviving_verts);
-
-    // Step 2: Reachability BFS
-    let surviving = reachable_from_root(instance, &candidates);
-
-    if !surviving.contains(&instance.root) {
+    // Check root survives
+    let root_node = instance
+        .nodes
+        .get(&instance.root)
+        .ok_or(RestrictError::RootPruned)?;
+    if !migration.surviving_verts.contains(&root_node.anchor) {
         return Err(RestrictError::RootPruned);
     }
 
-    // Step 3: Ancestor contraction
-    let ancestors = ancestor_contraction(instance, &surviving);
+    // Fused BFS: traverse the tree from root, tracking the nearest
+    // surviving ancestor for each node as we go.
+    //
+    // For each node in the BFS:
+    //   - If its anchor survives: it becomes part of the result.
+    //     Its nearest surviving ancestor is used to build an arc.
+    //     It becomes the "current surviving ancestor" for its subtree.
+    //   - If its anchor does not survive: skip it, but continue BFS
+    //     into its children (they might survive). Pass along the
+    //     current surviving ancestor unchanged.
 
-    // Step 4: Build new arcs via edge resolution
-    let mut new_arcs = Vec::new();
-    for (&child_id, &ancestor_id) in &ancestors {
-        let child_node = instance
-            .nodes
-            .get(&child_id)
-            .ok_or(RestrictError::RootPruned)?;
-        let ancestor_node = instance
-            .nodes
-            .get(&ancestor_id)
-            .ok_or(RestrictError::RootPruned)?;
+    let mut new_nodes: HashMap<u32, Node> = HashMap::new();
+    let mut new_arcs: Vec<(u32, u32, Edge)> = Vec::new();
+    let mut surviving_set: FxHashSet<u32> = FxHashSet::default();
 
-        // Remap anchors through the migration
-        let src_anchor = migration
-            .vertex_remap
-            .get(&ancestor_node.anchor)
-            .cloned()
-            .unwrap_or_else(|| ancestor_node.anchor.clone());
-        let tgt_anchor = migration
-            .vertex_remap
-            .get(&child_node.anchor)
-            .cloned()
-            .unwrap_or_else(|| child_node.anchor.clone());
+    // Queue entries: (node_id, nearest_surviving_ancestor_id)
+    let mut queue: VecDeque<(u32, Option<u32>)> = VecDeque::new();
 
-        let edge = resolve_edge(tgt_schema, &migration.resolver, &src_anchor, &tgt_anchor)?;
-        new_arcs.push((ancestor_id, child_id, edge));
+    // Process root
+    let mut root_node_cloned = root_node.clone();
+    if let Some(remapped) = migration.vertex_remap.get(&root_node.anchor) {
+        root_node_cloned.anchor.clone_from(remapped);
     }
+    new_nodes.insert(instance.root, root_node_cloned);
+    surviving_set.insert(instance.root);
+    queue.push_back((instance.root, None));
 
-    // Step 5: Fan reconstruction
-    let new_fans = reconstruct_fans(instance, &surviving, &ancestors, migration, tgt_schema)?;
+    while let Some((current_id, ancestor_id)) = queue.pop_front() {
+        let current_survives = surviving_set.contains(&current_id);
+        // The ancestor for children: if current survives, it's the new ancestor;
+        // otherwise, pass along the existing ancestor.
+        let child_ancestor = if current_survives {
+            Some(current_id)
+        } else {
+            ancestor_id
+        };
 
-    // Build surviving nodes with remapped anchors
-    let mut new_nodes = HashMap::new();
-    for &node_id in &surviving {
-        if let Some(node) = instance.nodes.get(&node_id) {
-            let mut new_node = node.clone();
-            if let Some(remapped) = migration.vertex_remap.get(&node.anchor) {
-                new_node.anchor.clone_from(remapped);
+        for &child_id in instance.children(current_id) {
+            let Some(child_node) = instance.nodes.get(&child_id) else {
+                continue;
+            };
+
+            if migration.surviving_verts.contains(&child_node.anchor) {
+                // This child survives — add it to results
+                surviving_set.insert(child_id);
+                let mut new_node = child_node.clone();
+                if let Some(remapped) = migration.vertex_remap.get(&child_node.anchor) {
+                    new_node.anchor.clone_from(remapped);
+                }
+                new_nodes.insert(child_id, new_node.clone());
+
+                // Build the arc from nearest surviving ancestor to this node
+                if let Some(anc_id) = child_ancestor {
+                    let anc_node = new_nodes.get(&anc_id).ok_or(RestrictError::RootPruned)?;
+                    let edge = resolve_edge(
+                        tgt_schema,
+                        &migration.resolver,
+                        &anc_node.anchor,
+                        &new_node.anchor,
+                    )?;
+                    new_arcs.push((anc_id, child_id, edge));
+                }
             }
-            new_nodes.insert(node_id, new_node);
+
+            // Always continue BFS into children (non-surviving intermediate
+            // nodes may have surviving descendants)
+            queue.push_back((child_id, child_ancestor));
         }
     }
+
+    // Step 5: Fan reconstruction (separate pass — operates on original fans)
+    let fused_surviving = &surviving_set;
+    let empty_ancestors = FxHashMap::default();
+    let new_fans = reconstruct_fans(
+        instance,
+        fused_surviving,
+        &empty_ancestors,
+        migration,
+        tgt_schema,
+    )?;
 
     let new_schema_root = migration
         .vertex_remap
@@ -479,7 +526,6 @@ mod tests {
     #[test]
     fn reachable_from_root_filters_disconnected() {
         let inst = three_node_instance();
-        // Only nodes 0 and 2 survive anchoring, but 2 is reachable from 0
         let candidates: HashSet<u32> = [0, 2].iter().copied().collect();
         let reachable = reachable_from_root(&inst, &candidates);
         assert_eq!(reachable.len(), 2);

@@ -57,6 +57,8 @@ book:
         - appendices/A-glossary.qmd
         - appendices/B-source-code-map.qmd
         - appendices/C-troubleshooting.qmd
+        - appendices/D-optimization-guide.qmd
+        - appendices/E-benchmark-results.qmd
 
 bibliography: references.bib
 csl: https://raw.githubusercontent.com/citation-style-language/styles/master/chicago-author-date.csl

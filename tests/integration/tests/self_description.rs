@@ -5,6 +5,7 @@
 //! Also verifies that the theory of schema theories is a GAT.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use panproto_gat::{
     Model, ModelValue, Operation, Sort, SortParam, Theory, TheoryMorphism, check_morphism,
@@ -66,16 +67,16 @@ fn th_gat_is_well_formed() -> Result<(), Box<dyn std::error::Error>> {
     // Param sort is dependent with arity 1.
     let param = gat.find_sort("Param").ok_or("Param sort not found")?;
     assert_eq!(param.arity(), 1, "Param should have arity 1");
-    assert_eq!(param.params[0].sort, "Sort", "Param depends on Sort");
+    assert_eq!(&*param.params[0].sort, "Sort", "Param depends on Sort");
 
     // All operations have correct signatures.
     let sn = gat.find_op("sort_name").ok_or("sort_name not found")?;
     assert_eq!(sn.inputs.len(), 1);
-    assert_eq!(sn.inputs[0].1, "Sort");
-    assert_eq!(sn.output, "Name");
+    assert_eq!(&*sn.inputs[0].1, "Sort");
+    assert_eq!(&*sn.output, "Name");
 
     let oo = gat.find_op("op_output").ok_or("op_output not found")?;
-    assert_eq!(oo.output, "Sort");
+    assert_eq!(&*oo.output, "Sort");
 
     Ok(())
 }
@@ -97,15 +98,15 @@ fn th_gat_resolves_in_registry() -> Result<(), Box<dyn std::error::Error>> {
 fn th_gat_admits_identity_morphism() -> Result<(), Box<dyn std::error::Error>> {
     let gat = th_gat();
 
-    let sort_map: HashMap<String, String> = gat
+    let sort_map: HashMap<Arc<str>, Arc<str>> = gat
         .sorts
         .iter()
-        .map(|s| (s.name.clone(), s.name.clone()))
+        .map(|s| (Arc::clone(&s.name), Arc::clone(&s.name)))
         .collect();
-    let op_map: HashMap<String, String> = gat
+    let op_map: HashMap<Arc<str>, Arc<str>> = gat
         .ops
         .iter()
-        .map(|o| (o.name.clone(), o.name.clone()))
+        .map(|o| (Arc::clone(&o.name), Arc::clone(&o.name)))
         .collect();
 
     let id_morphism = TheoryMorphism::new("id", "ThGAT", "ThGAT", sort_map, op_map);
@@ -125,7 +126,7 @@ fn th_gat_can_model_itself() -> Result<(), Box<dyn std::error::Error>> {
     let sort_values: Vec<ModelValue> = gat
         .sorts
         .iter()
-        .map(|s| ModelValue::Str(s.name.clone()))
+        .map(|s| ModelValue::Str(s.name.to_string()))
         .collect();
     model.add_sort("Sort", sort_values.clone());
 
@@ -133,7 +134,7 @@ fn th_gat_can_model_itself() -> Result<(), Box<dyn std::error::Error>> {
     let op_values: Vec<ModelValue> = gat
         .ops
         .iter()
-        .map(|o| ModelValue::Str(o.name.clone()))
+        .map(|o| ModelValue::Str(o.name.to_string()))
         .collect();
     model.add_sort("Op", op_values);
 
@@ -141,7 +142,7 @@ fn th_gat_can_model_itself() -> Result<(), Box<dyn std::error::Error>> {
     let eq_values: Vec<ModelValue> = gat
         .eqs
         .iter()
-        .map(|e| ModelValue::Str(e.name.clone()))
+        .map(|e| ModelValue::Str(e.name.to_string()))
         .collect();
     model.add_sort("Eq", eq_values);
 
@@ -165,8 +166,8 @@ fn th_gat_can_model_itself() -> Result<(), Box<dyn std::error::Error>> {
     let ops_owned = gat.ops;
     model.add_op("op_output", move |args: &[ModelValue]| {
         if let ModelValue::Str(name) = &args[0] {
-            if let Some(op) = ops_owned.iter().find(|o| &o.name == name) {
-                return Ok(ModelValue::Str(op.output.clone()));
+            if let Some(op) = ops_owned.iter().find(|o| &*o.name == name.as_str()) {
+                return Ok(ModelValue::Str(op.output.to_string()));
             }
         }
         panic!("unexpected input to op_output op: {args:?}")

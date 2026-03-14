@@ -207,6 +207,7 @@ impl Schema {
 
     /// Return edges between a specific `(src, tgt)` pair.
     #[must_use]
+    #[inline]
     pub fn edges_between(&self, src: &str, tgt: &str) -> &[Edge] {
         self.between
             .get(&(src.to_owned(), tgt.to_owned()))
@@ -215,6 +216,7 @@ impl Schema {
 
     /// Returns `true` if the given vertex ID exists in this schema.
     #[must_use]
+    #[inline]
     pub fn has_vertex(&self, id: &str) -> bool {
         self.vertices.contains_key(id)
     }

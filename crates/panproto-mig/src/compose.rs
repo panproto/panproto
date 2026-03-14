@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use rustc_hash::FxHashMap;
+
 use crate::error::ComposeError;
 use crate::migration::Migration;
 
@@ -13,7 +15,8 @@ use crate::migration::Migration;
 /// into `m12: G1 -> G3`.
 ///
 /// The composition composes vertex maps and edge maps, and merges
-/// resolver tables.
+/// resolver tables. Precomputes inverse maps for O(1) lookups
+/// instead of O(n) scans.
 ///
 /// # Errors
 ///
@@ -64,8 +67,7 @@ pub fn compose(m1: &Migration, m2: &Migration) -> Result<Migration, ComposeError
     }
 
     // Merge resolvers: the composed resolver maps (src_in_g1, tgt_in_g1)
-    // pairs through the vertex map to g3 edges. Build the combined
-    // resolver from m1 mapped through m2.
+    // pairs through the vertex map to g3 edges.
     let mut resolver = HashMap::new();
     for ((src, tgt), edge) in &m1.resolver {
         let src3 = vertex_map.get(src).cloned().unwrap_or_else(|| src.clone());
@@ -79,34 +81,39 @@ pub fn compose(m1: &Migration, m2: &Migration) -> Result<Migration, ComposeError
     // Also include m2's resolvers that apply to surviving vertices.
     for ((src, tgt), edge) in &m2.resolver {
         let key = (src.clone(), tgt.clone());
-        // Only add if not already covered by the composed resolver.
         resolver.entry(key).or_insert_with(|| edge.clone());
     }
 
-    // Compose hyper_resolvers: include m1 entries whose keys survive,
-    // and remap m2 entries through m1's vertex_map.
+    // Precompute inverse maps for O(1) lookups instead of O(n) scans.
+    let he_inverse: FxHashMap<&str, &str> = m1
+        .hyper_edge_map
+        .iter()
+        .map(|(k, v)| (v.as_str(), k.as_str()))
+        .collect();
+
+    let vertex_inverse: FxHashMap<&str, &str> = m1
+        .vertex_map
+        .iter()
+        .map(|(k, v)| (v.as_str(), k.as_str()))
+        .collect();
+
+    // Compose hyper_resolvers using precomputed inverse maps.
     let mut hyper_resolver = HashMap::new();
     // Include m1's hyper_resolver entries directly (they use g1 keys).
     for (key, value) in &m1.hyper_resolver {
         hyper_resolver.insert(key.clone(), value.clone());
     }
-    // For m2's hyper_resolver entries, remap the key labels through
-    // m1's vertex_map so they reference g1 vertices.
+    // For m2's hyper_resolver entries, remap through inverse maps.
     for ((he_id, labels), (tgt_he, label_remap)) in &m2.hyper_resolver {
-        // Remap the hyper-edge ID back through m1's hyper_edge_map inverse
-        let src_he_id = m1
-            .hyper_edge_map
-            .iter()
-            .find(|(_, v)| *v == he_id)
-            .map_or_else(|| he_id.clone(), |(k, _)| k.clone());
-        // Remap labels through the inverse of m1's vertex_map
+        let src_he_id = he_inverse
+            .get(he_id.as_str())
+            .map_or_else(|| he_id.clone(), |k| (*k).to_owned());
         let remapped_labels: Vec<String> = labels
             .iter()
             .map(|l| {
-                m1.vertex_map
-                    .iter()
-                    .find(|(_, v)| *v == l)
-                    .map_or_else(|| l.clone(), |(k, _)| k.clone())
+                vertex_inverse
+                    .get(l.as_str())
+                    .map_or_else(|| l.clone(), |k| (*k).to_owned())
             })
             .collect();
         let key = (src_he_id, remapped_labels);

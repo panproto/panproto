@@ -6,7 +6,7 @@ use divan::Bencher;
 use panproto_inst::Value;
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{CompiledMigration, Node, WInstance};
-use panproto_mig::{Migration, check_existence, compile, lift_wtype};
+use panproto_mig::{Migration, check_existence, compile, compose, lift_wtype};
 use panproto_schema::{Edge, Schema, Vertex};
 
 fn main() {
@@ -169,6 +169,30 @@ fn projection_compiled(n: usize, keep: usize, edges: &[Edge]) -> CompiledMigrati
     }
 }
 
+fn chain_vertex_ids(n: usize) -> Vec<String> {
+    let mut ids = vec!["root".into()];
+    for i in 0..n {
+        ids.push(format!("v{i}"));
+    }
+    ids
+}
+
+fn make_protocol() -> panproto_schema::Protocol {
+    panproto_schema::Protocol {
+        name: "test".into(),
+        schema_theory: "ThGraph".into(),
+        instance_theory: "ThWType".into(),
+        edge_rules: vec![],
+        obj_kinds: vec!["object".into()],
+        constraint_sorts: vec![],
+        has_order: false,
+        has_coproducts: false,
+        has_recursion: false,
+        has_causal: false,
+        nominal_identity: false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Benchmarks: lift_wtype
 // ---------------------------------------------------------------------------
@@ -198,6 +222,15 @@ fn lift_wtype_contraction(bencher: Bencher) {
     bencher.bench(|| lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance));
 }
 
+#[divan::bench(args = [100, 500])]
+fn lift_wtype_at_scale(bencher: Bencher, n: usize) {
+    let (schema, edges) = chain_schema(n);
+    let instance = chain_instance(n, &edges);
+    let compiled = identity_compiled(n, &edges);
+
+    bencher.bench(|| lift_wtype(&compiled, &schema, &schema, &instance));
+}
+
 // ---------------------------------------------------------------------------
 // Benchmarks: check_existence
 // ---------------------------------------------------------------------------
@@ -205,25 +238,9 @@ fn lift_wtype_contraction(bencher: Bencher) {
 #[divan::bench(args = [10, 100])]
 fn check_existence_n_vertices(bencher: Bencher, n: usize) {
     let (schema, edges) = chain_schema(n);
-    let mut vertex_ids: Vec<String> = vec!["root".into()];
-    for i in 0..n {
-        vertex_ids.push(format!("v{i}"));
-    }
+    let vertex_ids = chain_vertex_ids(n);
     let migration = Migration::identity(&vertex_ids, &edges);
-
-    let protocol = panproto_schema::Protocol {
-        name: "test".into(),
-        schema_theory: "ThGraph".into(),
-        instance_theory: "ThWType".into(),
-        edge_rules: vec![],
-        obj_kinds: vec!["object".into()],
-        constraint_sorts: vec![],
-        has_order: false,
-        has_coproducts: false,
-        has_recursion: false,
-        has_causal: false,
-        nominal_identity: false,
-    };
+    let protocol = make_protocol();
     let registry = HashMap::new();
 
     bencher.bench(|| check_existence(&protocol, &schema, &schema, &migration, &registry));
@@ -236,11 +253,84 @@ fn check_existence_n_vertices(bencher: Bencher, n: usize) {
 #[divan::bench(args = [10, 100])]
 fn compile_n_vertices(bencher: Bencher, n: usize) {
     let (schema, edges) = chain_schema(n);
-    let mut vertex_ids: Vec<String> = vec!["root".into()];
-    for i in 0..n {
-        vertex_ids.push(format!("v{i}"));
-    }
+    let vertex_ids = chain_vertex_ids(n);
     let migration = Migration::identity(&vertex_ids, &edges);
 
     bencher.bench(|| compile(&schema, &schema, &migration));
+}
+
+// ---------------------------------------------------------------------------
+// Benchmarks: compose two migrations
+// ---------------------------------------------------------------------------
+
+#[divan::bench(args = [10, 50, 100])]
+fn compose_two_identity(bencher: Bencher, n: usize) {
+    let (_schema, edges) = chain_schema(n);
+    let vertex_ids = chain_vertex_ids(n);
+    let m = Migration::identity(&vertex_ids, &edges);
+
+    bencher.bench(|| compose(&m, &m));
+}
+
+#[divan::bench(args = [10, 50])]
+fn compose_chain_of_5(bencher: Bencher, n: usize) {
+    let (_schema, edges) = chain_schema(n);
+    let vertex_ids = chain_vertex_ids(n);
+    let m = Migration::identity(&vertex_ids, &edges);
+
+    bencher.bench(|| {
+        let m12 = compose(&m, &m).expect("compose 1-2");
+        let m123 = compose(&m12, &m).expect("compose 1-3");
+        let m1234 = compose(&m123, &m).expect("compose 1-4");
+        compose(&m1234, &m).expect("compose 1-5")
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Benchmarks: compose with renaming
+// ---------------------------------------------------------------------------
+
+#[divan::bench(args = [10, 50])]
+fn compose_with_renaming(bencher: Bencher, n: usize) {
+    let (_schema, edges) = chain_schema(n);
+    let vertex_ids = chain_vertex_ids(n);
+
+    // First migration: identity
+    let m1 = Migration::identity(&vertex_ids, &edges);
+
+    // Second migration: rename each vertex v{i} -> r{i}
+    let mut vertex_map = HashMap::new();
+    vertex_map.insert("root".to_string(), "root".to_string());
+    let mut edge_map = HashMap::new();
+    for i in 0..n {
+        vertex_map.insert(format!("v{i}"), format!("r{i}"));
+    }
+    for edge in &edges {
+        let new_src = vertex_map
+            .get(&edge.src)
+            .cloned()
+            .unwrap_or_else(|| edge.src.clone());
+        let new_tgt = vertex_map
+            .get(&edge.tgt)
+            .cloned()
+            .unwrap_or_else(|| edge.tgt.clone());
+        let new_edge = Edge {
+            src: new_src,
+            tgt: new_tgt,
+            kind: edge.kind.clone(),
+            name: edge.name.clone(),
+        };
+        edge_map.insert(edge.clone(), new_edge);
+    }
+
+    let m2 = Migration {
+        vertex_map,
+        edge_map,
+        hyper_edge_map: HashMap::new(),
+        label_map: HashMap::new(),
+        resolver: HashMap::new(),
+        hyper_resolver: HashMap::new(),
+    };
+
+    bencher.bench(|| compose(&m1, &m2));
 }

@@ -1,0 +1,247 @@
+# Optimization Guide {#sec-optimization-guide}
+
+This appendix documents the performance optimizations in panproto: why they exist, how they work, and how to measure their impact. If you are adding new code to a hot path, read this first.
+
+## Overview
+
+panproto is a compiler library. Its restrict pipeline targets over 1 million records per second in WASM, and the native target should be significantly faster. The optimizations fall into three categories:
+
+1. **Algorithmic** --- fusing pipeline passes, precomputing inverse maps, path compression.
+2. **Data representation** --- `Arc<str>` for zero-cost cloning, `FxHash` for faster hashing.
+3. **Build configuration** --- WASM `opt-level = 3`, LTO, codegen-units.
+
+Every optimization preserves correctness. Formal proofs are provided in [Appendix E of the tutorial](https://panproto.github.io/tutorial/appendices/E-formal-proofs.html).
+
+
+## Theory Index Cache {#sec-opt-index-cache}
+
+**Location:** `crates/panproto-gat/src/theory.rs`, in `Theory::new()` and `Theory::extending()`.
+
+**Problem:** `find_sort(name)` and `find_op(name)` are called frequently during morphism checking, colimit computation, and migration compilation. The naive implementation scans a `Vec<Sort>` linearly.
+
+**Solution:** A `HashMap<Arc<str>, usize>` index from names to vector positions is built once during `Theory` construction. Lookups become $O(1)$ amortized instead of $O(n)$.
+
+**Why it is safe:** `Theory` is immutable after construction. The index is a deterministic function of the sort vector, so it cannot become stale.
+
+**Performance characteristics:**
+
+| Operation | Without cache | With cache |
+|---|---|---|
+| `find_sort(name)` | $O(n)$ | $O(1)$ amortized |
+| `Theory::new()` | $O(n)$ | $O(n)$ (index build) |
+| Memory overhead | None | One `HashMap` (~48 bytes + entries) |
+
+
+## Arc\<str\> for Zero-Cost Cloning {#sec-opt-arc-str}
+
+**Location:** All crates. Sort names, operation names, edge labels, vertex labels, and other string identifiers are `Arc<str>` throughout.
+
+**Problem:** String-heavy data structures (theories, schemas, instances) are cloned frequently---during morphism construction, colimit computation, migration compilation, and WASM boundary crossings. With `String`, every clone copies the entire string buffer.
+
+**Solution:** `Arc<str>` wraps the string data in an atomically reference-counted pointer. Cloning increments a counter ($O(1)$) instead of allocating and copying ($O(n)$ in string length).
+
+**Migration path from String:** If you introduce a new struct with string fields:
+
+1. Use `Arc<str>` for any field that will be cloned, hashed, or compared by value.
+2. Accept `impl Into<Arc<str>>` in constructors so callers can pass `&str`, `String`, or `Arc<str>`.
+3. Use `.as_ref()` or `&*name` to get a `&str` when needed.
+
+**Semantic equivalence:** `Arc<str>` delegates `Eq`, `Hash`, `Ord`, `Serialize`, and `Deserialize` to the inner `str`. It is a drop-in replacement for `String` in all trait-dependent contexts.
+
+
+## FxHash in Hot Paths {#sec-opt-fxhash}
+
+**Location:** `panproto-gat`, `panproto-schema`, `panproto-inst`, `panproto-mig`, `panproto-lens`. Used via `rustc_hash::FxHashMap` and `rustc_hash::FxHashSet`.
+
+**Problem:** The default Rust hasher (`SipHash`) is designed for HashDoS resistance, which adds overhead for small, non-adversarial keys. Internal hash maps keyed by sort names, vertex IDs, or edge IDs do not face adversarial inputs.
+
+**Solution:** `FxHash` is a non-cryptographic hash function optimized for small keys. It is 2--5x faster than `SipHash` for keys under 16 bytes.
+
+**Where standard HashMap is still appropriate:**
+
+- **Serialization boundaries:** Any map that is serialized to MessagePack, JSON, or another format must use `BTreeMap` for deterministic key ordering (not `FxHashMap`, whose iteration order is unstable).
+- **Public API surfaces:** If a `HashMap` is exposed in a public type signature, prefer the standard hasher to avoid leaking the `rustc-hash` dependency.
+- **WASM bridge:** Maps crossing the WASM boundary use `BTreeMap` for deterministic round-trips.
+
+**Rule of thumb:** Use `FxHashMap`/`FxHashSet` for internal, short-lived maps in hot paths. Use `BTreeMap` at serialization boundaries. Use `HashMap` (default hasher) if the map is exposed publicly and performance is not critical.
+
+
+## Path Compression in Ancestor Contraction {#sec-opt-path-compression}
+
+**Location:** `crates/panproto-inst/src/wtype.rs`, in `contract_ancestors()`.
+
+**Problem:** Step 3 of the restrict pipeline walks each surviving node up the instance tree to find its nearest surviving ancestor. In the worst case (a deeply nested schema with many pruned intermediate nodes), each walk is $O(d)$ where $d$ is the tree depth. With $n$ surviving nodes, total cost is $O(n \cdot d)$.
+
+**Solution:** Path compression, borrowed from the union-find data structure [@tarjan1975]. After finding the nearest surviving ancestor for a node, cache the result. Also update all intermediate nodes on the walk to point directly to the answer.
+
+**Algorithm sketch:**
+
+```
+fn find_ancestor(node, cache, surviving, parent):
+    if node in cache:
+        return cache[node]
+
+    chain = []
+    current = parent(node)
+    while current not in surviving:
+        chain.push(current)
+        current = parent(current)
+
+    // current is the nearest surviving ancestor
+    for p in chain:
+        cache[p] = current
+    cache[node] = current
+    return current
+```
+
+**Amortized complexity:** Each node's pointer is compressed at most once. Total work across all calls is $O(|V|)$, giving $O(1)$ amortized per query after the first pass. This is safe because both the tree structure and the surviving set are immutable during the contraction phase.
+
+
+## Fused Restrict Pipeline {#sec-opt-fused-pipeline}
+
+**Location:** `crates/panproto-inst/src/wtype.rs`, in `wtype_restrict()`.
+
+**Problem:** The five-step restrict pipeline (anchor check, reachability BFS, ancestor contraction, edge resolution, fan reconstruction) requires five passes over the instance tree. Each pass has good cache locality on its own, but the repeated traversal has a cost.
+
+**Solution:** Steps 1--4 are fused into a single BFS pass. The BFS carries the nearest surviving ancestor as metadata on the frontier, so ancestor contraction happens inline. Edge resolution is performed immediately when a surviving node is emitted. Fan reconstruction remains a separate pass because it operates on a different data structure (fans, not tree nodes).
+
+**How it works:**
+
+1. Enqueue the root with ancestor = root.
+2. Dequeue a node. Check whether its anchor survives the migration (step 1).
+3. If it survives and was reached through a surviving path (step 2): emit it to the output tree, resolve its edge label (step 4), and set it as the "current ancestor" for its children.
+4. If it does not survive: propagate the parent's ancestor annotation to its children (step 3).
+5. Enqueue children and repeat.
+
+**Why individual step functions are retained:** The unfused step functions serve as the reference implementation. Integration tests run both the fused and sequential versions on every test case and assert identical output. This provides ongoing regression protection for the fused optimization.
+
+
+## Inverse Map Precomputation {#sec-opt-inverse-map}
+
+**Location:** `crates/panproto-mig/src/compose.rs`.
+
+**Problem:** Composing two migrations $m_1: S_2 \to S_1$ and $m_2: S_3 \to S_2$ requires mapping vertices and edges through $m_1$'s vertex/edge maps. A naive implementation scans $m_1$'s maps for each vertex in $m_2$, giving $O(|V_1| \cdot |V_2|)$ total cost.
+
+**Solution:** Precompute the inverse map $m_1^{-1}$ (from target positions to source positions) once in $O(|V_1|)$, then use it for $O(1)$ lookups during composition. Total cost drops to $O(|V_1| + |V_2|)$.
+
+
+## WASM Boundary: Arc\<Schema\> {#sec-opt-arc-schema}
+
+**Location:** `crates/panproto-wasm/src/slab.rs`.
+
+**Problem:** The WASM slab allocator stores schemas, migrations, and instances. Multiple migrations may reference the same schema. Without sharing, each migration would hold its own copy, wasting memory in the constrained WASM heap.
+
+**Solution:** Schemas are stored as `Arc<Schema>` in the slab. When a migration is compiled against a schema, it receives a clone of the `Arc` (reference count increment), not a deep copy. The schema is deallocated only when all references are dropped.
+
+This is especially important for the TypeScript SDK, where a single `Panproto` instance may hold dozens of schemas and migrations simultaneously.
+
+
+## WASM opt-level = 3 {#sec-opt-wasm-optlevel}
+
+**Location:** Workspace `Cargo.toml`, in the `[profile.release]` section.
+
+**Problem:** The default `opt-level` for release builds is `3`, but WASM builds sometimes use `opt-level = "s"` or `"z"` to minimize binary size. For a compiler library, execution speed matters more than download size.
+
+**Decision:** panproto uses `opt-level = 3` for WASM release builds, prioritizing compute speed over binary size. The rationale:
+
+- panproto is a compiler library, not a UI widget. Users load it once and run many migrations.
+- The binary size difference between `opt-level = 3` and `opt-level = "s"` is roughly 15--20% for panproto.
+- The performance difference on the restrict hot path is 20--40% in benchmarks.
+
+LTO (`lto = true`) and single codegen unit (`codegen-units = 1`) are also enabled to maximize cross-crate inlining.
+
+
+## Benchmarking Guide {#sec-benchmarking}
+
+### Running benchmarks
+
+panproto uses [divan](https://github.com/nvzqz/divan) for benchmarks. Each crate with benchmarks has a `benches/` directory.
+
+Run all benchmarks:
+
+```bash
+cargo bench --workspace
+```
+
+Run benchmarks for a specific crate:
+
+```bash
+cargo bench -p panproto-gat
+cargo bench -p panproto-inst
+cargo bench -p panproto-mig
+cargo bench -p panproto-io
+```
+
+Run a specific benchmark by name:
+
+```bash
+cargo bench -p panproto-gat -- colimit
+```
+
+### Interpreting divan output
+
+divan reports:
+
+| Column | Meaning |
+|---|---|
+| `fastest` | The fastest observed iteration time |
+| `median` | The median iteration time (most representative) |
+| `mean` | The arithmetic mean (sensitive to outliers) |
+| `samples` | Number of samples collected |
+| `iters` | Number of iterations per sample |
+
+Focus on the **median** for comparing before/after. If the median improves but the fastest does not, the optimization reduced variance (also valuable). If the fastest improves but the median does not, the optimization helped only in the best case (less valuable).
+
+### Adding a new benchmark
+
+1. Add a function in the appropriate `benches/*.rs` file:
+
+    ```rust
+    #[divan::bench]
+    fn my_new_benchmark(bencher: divan::Bencher) {
+        // Setup (not timed)
+        let input = setup_input();
+
+        bencher.bench_local(|| {
+            // Timed section
+            my_function(&input)
+        });
+    }
+    ```
+
+2. For parameterized benchmarks, use `#[divan::bench(args = [...])]`:
+
+    ```rust
+    #[divan::bench(args = [10, 100, 1000, 10_000])]
+    fn restrict_n_nodes(bencher: divan::Bencher, n: usize) {
+        let (instance, migration) = build_test_case(n);
+        bencher.bench_local(|| {
+            wtype_restrict(&instance, &migration)
+        });
+    }
+    ```
+
+3. Run the new benchmark to verify it works:
+
+    ```bash
+    cargo bench -p panproto-inst -- my_new_benchmark
+    ```
+
+### Comparing branches
+
+To compare performance before and after a change:
+
+```bash
+# On main branch
+cargo bench --workspace -- --save-baseline main
+
+# On your feature branch
+cargo bench --workspace -- --save-baseline feature
+
+# Compare (requires critcmp: cargo install critcmp)
+critcmp main feature
+```
+
+::: {.callout-note}
+divan does not natively support `--save-baseline` / `critcmp` in the same way as Criterion. For divan, the simplest approach is to run benchmarks on each branch and compare the terminal output manually, or pipe the output to files and diff them.
+:::

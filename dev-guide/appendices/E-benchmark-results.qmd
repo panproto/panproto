@@ -1,0 +1,344 @@
+# Benchmark Results {#sec-benchmark-results}
+
+## Test Environment
+
+| | |
+|---|---|
+| **Machine** | MacBook Pro 16-inch (2021) |
+| **Chip** | Apple M1 Max (10-core CPU: 8P + 2E, 32-core GPU) |
+| **Memory** | 64 GB unified |
+| **OS** | macOS 15.7.4 (24G517) |
+| **Rust** | `rustc 1.94.0 (4a4ef493e 2026-03-02)` |
+| **Cargo** | `cargo 1.94.0 (85eff7c80 2026-01-15)` |
+| **Profile** | `bench` (inherits `release`: `lto = true`, `codegen-units = 1`, `opt-level = 3`) |
+| **Framework** | [divan](https://github.com/nvzqz/divan) v0.1.21, timer precision 41 ns |
+| **Samples** | 100 per benchmark; iteration count auto-tuned by divan |
+
+All benchmarks were run with no other significant processes active. Numbers report the **median** across 100 samples unless otherwise noted. The `fastest` column shows best-case (warm cache) performance; `mean` shows arithmetic average including outliers.
+
+
+## GAT Engine (`panproto-gat`) {#sec-bench-gat}
+
+### `find_sort_by_name` --- O(1) Index Lookup
+
+Looks up the *last* sort by name in a theory of size $n$, exercising the `FxHashMap` index cache.
+
+| $n$ (sorts) | fastest | median | mean | iters/sample |
+|-------------|---------|--------|------|-------------|
+| 10 | 6.19 ns | 6.44 ns | 6.89 ns | 102,400 |
+| 50 | 6.56 ns | 6.97 ns | 8.21 ns | 102,400 |
+| 100 | 8.06 ns | 8.39 ns | 8.45 ns | 51,200 |
+| 500 | 4.69 ns | 4.89 ns | 5.02 ns | 102,400 |
+
+Sub-10 ns for all sizes confirms O(1) behavior. The 500-sort case is faster than 100-sort because the FxHash distribution happens to place the target key (`S499`) in a bucket with better cache-line alignment. The important point: **no growth with theory size**.
+
+### `theory_construction` --- Theory + Index Build
+
+Constructs a `Theory` with $n$ sorts, $n$ unary operations, and builds the three `FxHashMap` indices.
+
+| $n$ | fastest | median | mean | iters/sample |
+|-----|---------|--------|------|-------------|
+| 10 | 526 ns | 552 ns | 553 ns | 800 |
+| 50 | 2.15 µs | 2.25 µs | 2.25 µs | 200 |
+| 100 | 3.92 µs | 4.04 µs | 4.44 µs | 100 |
+| 500 | 19.4 µs | 19.6 µs | 20.0 µs | 100 |
+
+Linear scaling ($\approx$ 39 ns/sort at 500). The index build is amortized over all subsequent lookups.
+
+### `colimit` --- Theory Pushout
+
+Computes the categorical pushout of two theories over a shared base. `colimit_small` = 3 shared + 5 extra sorts per theory; `colimit_medium` = 10 + 20; `colimit_large` = 50 + 100.
+
+| Scenario | shared | extra/theory | fastest | median | mean |
+|----------|--------|-------------|---------|--------|------|
+| `colimit_small` | 3 | 5 | 1.11 µs | 1.18 µs | 1.71 µs |
+| `colimit_medium` | 10 | 20 | 2.79 µs | 2.94 µs | 3.28 µs |
+| `colimit_large` | 50 | 100 | 12.0 µs | 12.5 µs | 14.1 µs |
+
+### `colimit_with_equations`
+
+Same as above but both theories carry equations ($\min(n, 10)$ equations in the shared base, 5 per extension theory).
+
+| $n$ (shared sorts) | fastest | median | mean |
+|-------------------|---------|--------|------|
+| 10 | 2.10 µs | 2.23 µs | 2.24 µs |
+| 50 | 4.46 µs | 4.71 µs | 5.16 µs |
+| 100 | 7.37 µs | 8.04 µs | 10.0 µs |
+
+Equation checking adds $\approx 30\%$ over sort/op-only colimits at the same scale.
+
+### `resolve_theory` --- Inheritance Chain Resolution
+
+Resolves theory `T_d` at the bottom of a linear inheritance chain of depth $d$. Each theory adds 1 sort and 1 nullary operation.
+
+| $d$ (depth) | fastest | median | mean |
+|-------------|---------|--------|------|
+| 3 | 2.25 µs | 2.33 µs | 2.42 µs |
+| 10 | 10.9 µs | 11.3 µs | 11.5 µs |
+| 20 | 31.6 µs | 32.0 µs | 32.9 µs |
+| 50 | 129 µs | 132 µs | 135 µs |
+| 100 | 412 µs | 418 µs | 424 µs |
+
+Quadratic in depth (each level clones all ancestor sorts; `Arc<str>` cloning is O(1) per name but the vector grows). At depth 100, $\approx 4.2\;\mu\text{s}$ per level.
+
+### `check_morphism` --- Morphism Validation
+
+Validates a theory morphism on a theory with $n$ sorts, $n$ unary operations, and $\min(n, 20)$ equations.
+
+| $n$ | identity (median) | renaming (median) |
+|-----|-------------------|-------------------|
+| 10 | 2.96 µs | 2.92 µs |
+| 50 | 10.0 µs | 8.37 µs |
+| 100 | 16.5 µs | 16.6 µs |
+
+Renaming morphisms are comparable to identity because the dominant cost is equation preservation checking (comparing mapped terms in the codomain), which requires iterating over codomain equations regardless of whether names changed.
+
+
+## Instance Layer (`panproto-inst`) {#sec-bench-inst}
+
+### `parse_json_flat_fields` --- JSON → `WInstance`
+
+Parses a flat JSON object with $n$ string-valued fields into a `WInstance` (root + $n$ leaf nodes).
+
+| $n$ (fields) | fastest | median | mean |
+|-------------|---------|--------|------|
+| 3 | 1.83 µs | 1.92 µs | 1.98 µs |
+| 10 | 6.17 µs | 6.37 µs | 6.43 µs |
+| 50 | 29.0 µs | 29.6 µs | 29.7 µs |
+
+$\approx 590\;\text{ns/field}$ at 50 fields. Dominated by `serde_json` deserialization + node/arc construction.
+
+### `parse_json_nested_objects` --- Nested JSON → `WInstance`
+
+Parses a chain of nested objects, each with 3 leaf fields, to depth $d$.
+
+| $d$ (depth) | total nodes | fastest | median | mean |
+|-------------|-------------|---------|--------|------|
+| 3 | 13 | 3.00 µs | 3.12 µs | 3.19 µs |
+| 10 | 41 | 8.17 µs | 8.33 µs | 8.43 µs |
+| 20 | 81 | 15.8 µs | 16.3 µs | 17.2 µs |
+
+$\approx 200\;\text{ns/node}$ at depth 20. Nesting adds parent-map bookkeeping but does not cause a per-level blowup.
+
+### `wtype_restrict` --- Fused Restrict Pipeline
+
+#### Identity migration (no nodes removed)
+
+3-node instance (root + 2 string children), all vertices survive.
+
+| | fastest | median | mean | iters/sample |
+|-|---------|--------|------|-------------|
+| | 1.10 µs | 1.14 µs | 1.14 µs | 400 |
+
+#### Deep linear chain (all survive)
+
+Linear chain schema `root → v0 → v1 → ... → v_{n-1}`, identity migration.
+
+| $n$ (chain length) | nodes | fastest | median | mean |
+|-------------------|-------|---------|--------|------|
+| 10 | 11 | 5.21 µs | 5.29 µs | 5.34 µs |
+| 50 | 51 | 23.2 µs | 24.0 µs | 24.2 µs |
+| 100 | 101 | 46.7 µs | 49.1 µs | 49.5 µs |
+
+$\approx 490\;\text{ns/node}$ at 100 nodes = **2.04M nodes/sec**.
+
+#### Wide flat tree (all survive)
+
+Root with $n$ direct children (star topology), identity migration.
+
+| $n$ (children) | nodes | fastest | median | mean |
+|----------------|-------|---------|--------|------|
+| 10 | 11 | 5.25 µs | 5.67 µs | 5.71 µs |
+| 50 | 51 | 22.4 µs | 23.0 µs | 23.2 µs |
+
+Comparable to deep chains --- the fused BFS processes both topologies at the same per-node rate.
+
+#### Contraction (drop intermediate nodes)
+
+Linear chain of $n$ nodes; migration keeps only root + first 2 vertices. All other nodes are dropped. Exercises the fused BFS's ancestor propagation through non-surviving intermediates.
+
+| $n$ (total chain) | surviving | fastest | median | mean | iters/sample |
+|-------------------|-----------|---------|--------|------|-------------|
+| 10 | 3 | 1.56 µs | 1.59 µs | 1.60 µs | 400 |
+| 50 | 3 | 3.67 µs | 3.75 µs | 3.81 µs | 100 |
+
+Contraction on a 50-node chain produces only 3 output nodes in 3.75 µs. The BFS still visits all 50 nodes (to discover descendants), but the output construction is minimal.
+
+### `functor_restrict_n_tables` --- $\Delta_F$ Precomposition
+
+Restricts a functor instance with $n$ tables (each 10 rows, 5 columns) via identity migration.
+
+| $n$ (tables) | rows total | fastest | median | mean |
+|-------------|-----------|---------|--------|------|
+| 5 | 50 | 4.00 µs | 4.08 µs | 4.11 µs |
+| 20 | 200 | 17.1 µs | 17.3 µs | 17.4 µs |
+| 50 | 500 | 41.7 µs | 42.1 µs | 42.7 µs |
+
+$\approx 84\;\text{ns/row}$ at 500 rows.
+
+### `functor_extend_n_tables` --- $\Sigma_F$ Left Kan Extension
+
+Extends (pushes forward) a functor instance. More expensive than restrict because it computes column unions and fills `Null` values for missing columns.
+
+| $n$ (tables) | fastest | median | mean |
+|-------------|---------|--------|------|
+| 5 | 8.21 µs | 8.33 µs | 8.41 µs |
+| 20 | 33.0 µs | 33.4 µs | 33.5 µs |
+| 50 | 82.8 µs | 84.3 µs | 86.8 µs |
+
+$\approx 2\times$ the cost of restrict due to column-union filling.
+
+
+## Migration Engine (`panproto-mig`) {#sec-bench-mig}
+
+### `check_existence_n_vertices`
+
+Validates a migration's well-formedness against protocol theory rules.
+
+| $n$ (vertices) | fastest | median | mean |
+|---------------|---------|--------|------|
+| 10 | 1.42 µs | 1.46 µs | 1.77 µs |
+| 100 | 16.6 µs | 17.0 µs | 17.5 µs |
+
+### `compile_n_vertices`
+
+Compiles a migration specification into `CompiledMigration` (surviving sets, remap tables, resolvers).
+
+| $n$ (vertices) | fastest | median | mean |
+|---------------|---------|--------|------|
+| 10 | 8.58 µs | 8.87 µs | 9.02 µs |
+| 100 | 79.1 µs | 80.8 µs | 81.5 µs |
+
+$\approx 810\;\text{ns/vertex}$ at 100 vertices. Dominated by `HashSet`/`HashMap` construction for surviving sets and edge indices.
+
+### `compose` --- Migration Composition
+
+#### Two identity migrations
+
+| $n$ (vertices) | fastest | median | mean |
+|---------------|---------|--------|------|
+| 10 | 4.58 µs | 4.77 µs | 4.79 µs |
+| 50 | 20.6 µs | 21.2 µs | 21.2 µs |
+| 100 | 40.9 µs | 42.4 µs | 44.1 µs |
+
+#### Two migrations with renaming (source vertices remapped)
+
+| $n$ (vertices) | fastest | median | mean |
+|---------------|---------|--------|------|
+| 10 | 4.46 µs | 4.71 µs | 4.73 µs |
+| 50 | 20.7 µs | 21.5 µs | 21.5 µs |
+
+Renaming adds negligible overhead: the precomputed inverse maps resolve hyper-edge remapping in O(1) per entry.
+
+#### Chain of 5 migrations composed sequentially
+
+Each migration is an identity on a chain schema with $n$ vertices.
+
+| $n$ (vertices) | fastest | median | mean |
+|---------------|---------|--------|------|
+| 10 | 26.9 µs | 27.7 µs | 28.0 µs |
+| 50 | 125 µs | 131 µs | 131 µs |
+
+$\approx 5\times$ the cost of a single two-way compose, confirming linear scaling in chain length.
+
+### `lift_wtype` --- Apply Compiled Migration to Instance
+
+#### Simple (5-node chain, identity)
+
+| | fastest | median | mean | iters/sample |
+|-|---------|--------|------|-------------|
+| | 2.85 µs | 3.02 µs | 3.05 µs | 200 |
+
+#### Contraction (10-node chain, keep 3)
+
+| | fastest | median | mean | iters/sample |
+|-|---------|--------|------|-------------|
+| | 1.55 µs | 1.60 µs | 1.61 µs | 400 |
+
+#### At scale
+
+| $n$ (nodes) | fastest | median | mean |
+|-------------|---------|--------|------|
+| 100 | 47.1 µs | 51.2 µs | 51.5 µs |
+| 500 | 238 µs | 259 µs | 264 µs |
+
+At 500 nodes: $259\;\mu\text{s} \div 500 = 518\;\text{ns/node}$ = **1.93M nodes/sec**. This includes the full pipeline: migration compilation lookup, fused restrict BFS, node remapping, arc construction, and `WInstance` output allocation.
+
+
+## Lens Layer (`panproto-lens`) {#sec-bench-lens}
+
+### `get_identity_lens` --- Forward Direction (No Complement)
+
+Identity lens on a wide tree with $n$ fields. All nodes survive; complement is empty.
+
+| $n$ (fields) | nodes | fastest | median | mean |
+|-------------|-------|---------|--------|------|
+| 5 | 6 | 3.17 µs | 3.29 µs | 3.47 µs |
+| 20 | 21 | 11.7 µs | 12.1 µs | 12.8 µs |
+| 50 | 51 | 26.3 µs | 27.1 µs | 27.6 µs |
+
+### `get_projection_lens` --- Forward Direction (Large Complement)
+
+Projection lens keeping only 2 of $n$ fields. Complement stores $n - 2$ dropped nodes.
+
+| $n$ (fields) | kept | dropped | fastest | median | mean |
+|-------------|------|---------|---------|--------|------|
+| 10 | 2 | 8 | 3.58 µs | 3.75 µs | 3.79 µs |
+| 50 | 2 | 48 | 13.3 µs | 13.6 µs | 13.7 µs |
+
+Projection is *faster* than identity because the output tree is smaller (fewer nodes to allocate), even though the complement capture adds work.
+
+### `get_then_put_round_trip` --- Full Bidirectional Cycle
+
+Identity lens: `get` → `put` → verify restored. Exercises both directions.
+
+| $n$ (fields) | fastest | median | mean |
+|-------------|---------|--------|------|
+| 5 | 6.00 µs | 6.17 µs | 6.27 µs |
+| 20 | 22.2 µs | 23.2 µs | 23.9 µs |
+| 50 | 50.7 µs | 51.8 µs | 54.2 µs |
+
+`put` costs $\approx 1.5\times$ `get` because it must merge the complement (dropped nodes, dropped arcs, contraction choices) back into the view.
+
+### `get_then_put_projection` --- Bidirectional with Large Complement
+
+Projection lens keeping 2 of $n$ fields. The complement carries the bulk of the data.
+
+| $n$ (fields) | fastest | median | mean |
+|-------------|---------|--------|------|
+| 10 | 8.17 µs | 8.37 µs | 8.48 µs |
+| 50 | 33.1 µs | 34.3 µs | 35.0 µs |
+
+
+## Derived Throughput Summary
+
+| Operation | Scale | Throughput |
+|-----------|-------|-----------|
+| `find_sort` (O(1) index) | 10–500 sorts | **145–210M lookups/sec** |
+| `parse_json` (flat) | 50 fields | **1.69M fields/sec** |
+| `wtype_restrict` (deep chain) | 100 nodes | **2.04M nodes/sec** |
+| `lift_wtype` (full pipeline) | 500 nodes | **1.93M nodes/sec** |
+| `functor_restrict` | 500 rows | **11.9M rows/sec** |
+| `colimit` | 150 sorts | **80K colimits/sec** |
+| `compose` (two migrations) | 100 vertices | **23.6K composes/sec** |
+| Lens round-trip (`get` + `put`) | 50 fields | **19.3K round-trips/sec** |
+
+
+## How to Reproduce
+
+```bash
+# Run all benchmarks
+cargo bench --workspace
+
+# Run a specific crate's benchmarks
+cargo bench -p panproto-gat
+cargo bench -p panproto-inst
+cargo bench -p panproto-mig
+cargo bench -p panproto-lens
+
+# Run a specific benchmark by name filter
+cargo bench -p panproto-gat -- find_sort
+cargo bench -p panproto-inst -- wtype_restrict_deep
+```
+
+All benchmarks use divan v0.1.21. Each benchmark runs 100 samples with auto-tuned iteration counts (shown in the `iters/sample` column). Results include fastest, slowest, median, and mean.

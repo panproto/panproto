@@ -1,4 +1,4 @@
-use rustc_hash::FxHashSet;
+use std::sync::Arc;
 
 use crate::error::GatError;
 use crate::theory::Theory;
@@ -22,20 +22,15 @@ use crate::theory::Theory;
 /// Returns [`GatError::EqConflict`] if `t1` and `t2` both declare an equation
 /// with the same name but different content.
 pub fn colimit(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatError> {
-    let shared_sort_names: FxHashSet<String> =
-        shared.sorts.iter().map(|s| s.name.clone()).collect();
-    let shared_op_names: FxHashSet<String> = shared.ops.iter().map(|o| o.name.clone()).collect();
-    let shared_eq_names: FxHashSet<String> = shared.eqs.iter().map(|e| e.name.clone()).collect();
-
     // Start with all sorts from t1.
     let mut sorts = t1.sorts.clone();
-    let t1_sort_names: FxHashSet<String> = t1.sorts.iter().map(|s| s.name.clone()).collect();
 
     // Add sorts from t2, checking for conflicts.
+    // Use the theory's O(1) index for lookups instead of building separate HashSets.
     for sort in &t2.sorts {
-        if t1_sort_names.contains(&sort.name) {
+        if t1.has_sort(&sort.name) {
             // Present in both — must be identical or shared.
-            if shared_sort_names.contains(&sort.name) {
+            if shared.has_sort(&sort.name) {
                 // Shared sort: already included via t1, skip.
                 continue;
             }
@@ -43,11 +38,11 @@ pub fn colimit(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatE
             let t1_sort = t1
                 .find_sort(&sort.name)
                 .ok_or_else(|| GatError::SortConflict {
-                    name: sort.name.clone(),
+                    name: sort.name.to_string(),
                 })?;
             if t1_sort.params != sort.params {
                 return Err(GatError::SortConflict {
-                    name: sort.name.clone(),
+                    name: sort.name.to_string(),
                 });
             }
             // Compatible duplicate; already included.
@@ -58,19 +53,18 @@ pub fn colimit(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatE
 
     // Same for operations.
     let mut ops = t1.ops.clone();
-    let t1_op_names: FxHashSet<String> = t1.ops.iter().map(|o| o.name.clone()).collect();
 
     for op in &t2.ops {
-        if t1_op_names.contains(&op.name) {
-            if shared_op_names.contains(&op.name) {
+        if t1.has_op(&op.name) {
+            if shared.has_op(&op.name) {
                 continue;
             }
             let t1_op = t1.find_op(&op.name).ok_or_else(|| GatError::OpConflict {
-                name: op.name.clone(),
+                name: op.name.to_string(),
             })?;
             if t1_op.inputs != op.inputs || t1_op.output != op.output {
                 return Err(GatError::OpConflict {
-                    name: op.name.clone(),
+                    name: op.name.to_string(),
                 });
             }
         } else {
@@ -80,19 +74,15 @@ pub fn colimit(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatE
 
     // Same for equations.
     let mut eqs = t1.eqs.clone();
-    let t1_eq_names: FxHashSet<String> = t1.eqs.iter().map(|e| e.name.clone()).collect();
 
     for eq in &t2.eqs {
-        if t1_eq_names.contains(&eq.name) {
-            if shared_eq_names.contains(&eq.name) {
+        if let Some(t1_eq) = t1.find_eq(&eq.name) {
+            if shared.find_eq(&eq.name).is_some() {
                 continue;
             }
-            let t1_eq = t1.find_eq(&eq.name).ok_or_else(|| GatError::EqConflict {
-                name: eq.name.clone(),
-            })?;
             if t1_eq.lhs != eq.lhs || t1_eq.rhs != eq.rhs {
                 return Err(GatError::EqConflict {
-                    name: eq.name.clone(),
+                    name: eq.name.to_string(),
                 });
             }
         } else {
@@ -100,7 +90,7 @@ pub fn colimit(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatE
         }
     }
 
-    let name = format!("{}_{}_colimit", t1.name, t2.name);
+    let name: Arc<str> = format!("{}_{}_colimit", t1.name, t2.name).into();
     Ok(Theory::new(name, sorts, ops, eqs))
 }
 
@@ -143,7 +133,7 @@ mod tests {
 
         let result = colimit(&th_graph, &th_constraint, &shared).unwrap();
 
-        assert_eq!(result.name, "ThGraph_ThConstraint_colimit");
+        assert_eq!(&*result.name, "ThGraph_ThConstraint_colimit");
         assert_eq!(result.sorts.len(), 3); // Vertex, Edge, Constraint
         assert_eq!(result.ops.len(), 3); // src, tgt, target
 

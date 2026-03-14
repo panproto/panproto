@@ -1,4 +1,6 @@
-use rustc_hash::FxHashSet;
+use std::sync::Arc;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::eq::Equation;
 use crate::error::GatError;
@@ -11,76 +13,186 @@ use crate::sort::Sort;
 /// with optional inheritance via `extends`. When a theory extends another,
 /// it inherits all of the parent's sorts, operations, and equations.
 ///
+/// # Index cache
+///
+/// Precomputed `FxHashMap` indices provide O(1) lookup by name for sorts,
+/// operations, and equations. These are rebuilt from the vectors at
+/// construction and deserialization time.
+///
 /// # Examples
 ///
 /// A monoid theory declares one sort (`Carrier`), two operations (`mul`, `unit`),
 /// and three equations (associativity, left identity, right identity).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Theory {
     /// The theory name (e.g., "Monoid", "Category").
-    pub name: String,
+    pub name: Arc<str>,
     /// Names of parent theories this theory extends.
-    pub extends: Vec<String>,
+    pub extends: Vec<Arc<str>>,
     /// Sort declarations.
     pub sorts: Vec<Sort>,
     /// Operation declarations.
     pub ops: Vec<Operation>,
     /// Equations (axioms).
     pub eqs: Vec<Equation>,
+    /// O(1) sort lookup by name.
+    sort_idx: FxHashMap<Arc<str>, usize>,
+    /// O(1) operation lookup by name.
+    op_idx: FxHashMap<Arc<str>, usize>,
+    /// O(1) equation lookup by name.
+    eq_idx: FxHashMap<Arc<str>, usize>,
+}
+
+impl PartialEq for Theory {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.extends == other.extends
+            && self.sorts == other.sorts
+            && self.ops == other.ops
+            && self.eqs == other.eqs
+    }
+}
+
+impl Eq for Theory {}
+
+impl serde::Serialize for Theory {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut s = serializer.serialize_struct("Theory", 5)?;
+        s.serialize_field("name", &self.name)?;
+        s.serialize_field("extends", &self.extends)?;
+        s.serialize_field("sorts", &self.sorts)?;
+        s.serialize_field("ops", &self.ops)?;
+        s.serialize_field("eqs", &self.eqs)?;
+        s.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Theory {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        struct Raw {
+            name: Arc<str>,
+            extends: Vec<Arc<str>>,
+            sorts: Vec<Sort>,
+            ops: Vec<Operation>,
+            eqs: Vec<Equation>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        Ok(Self::extending(
+            raw.name,
+            raw.extends,
+            raw.sorts,
+            raw.ops,
+            raw.eqs,
+        ))
+    }
+}
+
+/// Build index maps from vectors.
+fn build_sort_idx(sorts: &[Sort]) -> FxHashMap<Arc<str>, usize> {
+    sorts
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (Arc::clone(&s.name), i))
+        .collect()
+}
+
+fn build_op_idx(ops: &[Operation]) -> FxHashMap<Arc<str>, usize> {
+    ops.iter()
+        .enumerate()
+        .map(|(i, o)| (Arc::clone(&o.name), i))
+        .collect()
+}
+
+fn build_eq_idx(eqs: &[Equation]) -> FxHashMap<Arc<str>, usize> {
+    eqs.iter()
+        .enumerate()
+        .map(|(i, e)| (Arc::clone(&e.name), i))
+        .collect()
 }
 
 impl Theory {
     /// Create a new theory with no parents.
     #[must_use]
     pub fn new(
-        name: impl Into<String>,
+        name: impl Into<Arc<str>>,
         sorts: Vec<Sort>,
         ops: Vec<Operation>,
         eqs: Vec<Equation>,
     ) -> Self {
+        let sort_idx = build_sort_idx(&sorts);
+        let op_idx = build_op_idx(&ops);
+        let eq_idx = build_eq_idx(&eqs);
         Self {
             name: name.into(),
             extends: Vec::new(),
             sorts,
             ops,
             eqs,
+            sort_idx,
+            op_idx,
+            eq_idx,
         }
     }
 
     /// Create a theory that extends one or more parent theories.
     #[must_use]
     pub fn extending(
-        name: impl Into<String>,
-        extends: Vec<String>,
+        name: impl Into<Arc<str>>,
+        extends: Vec<Arc<str>>,
         sorts: Vec<Sort>,
         ops: Vec<Operation>,
         eqs: Vec<Equation>,
     ) -> Self {
+        let sort_idx = build_sort_idx(&sorts);
+        let op_idx = build_op_idx(&ops);
+        let eq_idx = build_eq_idx(&eqs);
         Self {
             name: name.into(),
             extends,
             sorts,
             ops,
             eqs,
+            sort_idx,
+            op_idx,
+            eq_idx,
         }
     }
 
-    /// Look up a sort by name.
+    /// Look up a sort by name. O(1) via index cache.
+    #[inline]
     #[must_use]
     pub fn find_sort(&self, name: &str) -> Option<&Sort> {
-        self.sorts.iter().find(|s| s.name == name)
+        self.sort_idx.get(name).map(|&i| &self.sorts[i])
     }
 
-    /// Look up an operation by name.
+    /// Look up an operation by name. O(1) via index cache.
+    #[inline]
     #[must_use]
     pub fn find_op(&self, name: &str) -> Option<&Operation> {
-        self.ops.iter().find(|o| o.name == name)
+        self.op_idx.get(name).map(|&i| &self.ops[i])
     }
 
-    /// Look up an equation by name.
+    /// Look up an equation by name. O(1) via index cache.
+    #[inline]
     #[must_use]
     pub fn find_eq(&self, name: &str) -> Option<&Equation> {
-        self.eqs.iter().find(|e| e.name == name)
+        self.eq_idx.get(name).map(|&i| &self.eqs[i])
+    }
+
+    /// Check if a sort with the given name exists. O(1).
+    #[inline]
+    #[must_use]
+    pub fn has_sort(&self, name: &str) -> bool {
+        self.sort_idx.contains_key(name)
+    }
+
+    /// Check if an operation with the given name exists. O(1).
+    #[inline]
+    #[must_use]
+    pub fn has_op(&self, name: &str) -> bool {
+        self.op_idx.contains_key(name)
     }
 }
 
@@ -123,9 +235,9 @@ fn resolve_recursive<S: std::hash::BuildHasher>(
 
     in_stack.insert(name.to_owned());
 
-    let mut sort_names: FxHashSet<String> = FxHashSet::default();
-    let mut op_names: FxHashSet<String> = FxHashSet::default();
-    let mut eq_names: FxHashSet<String> = FxHashSet::default();
+    let mut sort_names: FxHashSet<Arc<str>> = FxHashSet::default();
+    let mut op_names: FxHashSet<Arc<str>> = FxHashSet::default();
+    let mut eq_names: FxHashSet<Arc<str>> = FxHashSet::default();
 
     let mut merged_sorts = Vec::new();
     let mut merged_ops = Vec::new();
@@ -135,17 +247,17 @@ fn resolve_recursive<S: std::hash::BuildHasher>(
     for parent_name in &theory.extends {
         let resolved_parent = resolve_recursive(parent_name, registry, visited, in_stack)?;
         for sort in resolved_parent.sorts {
-            if sort_names.insert(sort.name.clone()) {
+            if sort_names.insert(Arc::clone(&sort.name)) {
                 merged_sorts.push(sort);
             }
         }
         for op in resolved_parent.ops {
-            if op_names.insert(op.name.clone()) {
+            if op_names.insert(Arc::clone(&op.name)) {
                 merged_ops.push(op);
             }
         }
         for eq in resolved_parent.eqs {
-            if eq_names.insert(eq.name.clone()) {
+            if eq_names.insert(Arc::clone(&eq.name)) {
                 merged_eqs.push(eq);
             }
         }
@@ -153,17 +265,17 @@ fn resolve_recursive<S: std::hash::BuildHasher>(
 
     // Add this theory's own declarations.
     for sort in &theory.sorts {
-        if sort_names.insert(sort.name.clone()) {
+        if sort_names.insert(Arc::clone(&sort.name)) {
             merged_sorts.push(sort.clone());
         }
     }
     for op in &theory.ops {
-        if op_names.insert(op.name.clone()) {
+        if op_names.insert(Arc::clone(&op.name)) {
             merged_ops.push(op.clone());
         }
     }
     for eq in &theory.eqs {
-        if eq_names.insert(eq.name.clone()) {
+        if eq_names.insert(Arc::clone(&eq.name)) {
             merged_eqs.push(eq.clone());
         }
     }
@@ -171,13 +283,12 @@ fn resolve_recursive<S: std::hash::BuildHasher>(
     in_stack.remove(name);
     visited.insert(name.to_owned());
 
-    Ok(Theory {
-        name: name.to_owned(),
-        extends: Vec::new(),
-        sorts: merged_sorts,
-        ops: merged_ops,
-        eqs: merged_eqs,
-    })
+    Ok(Theory::new(
+        Arc::from(name),
+        merged_sorts,
+        merged_ops,
+        merged_eqs,
+    ))
 }
 
 #[cfg(test)]
@@ -245,7 +356,7 @@ mod tests {
     #[test]
     fn create_monoid_theory() {
         let t = monoid_theory();
-        assert_eq!(t.name, "Monoid");
+        assert_eq!(&*t.name, "Monoid");
         assert_eq!(t.sorts.len(), 1);
         assert_eq!(t.ops.len(), 2);
         assert_eq!(t.eqs.len(), 3);
@@ -283,7 +394,7 @@ mod tests {
         // Child: extends PointedSet and adds mul + equations.
         let child = Theory::extending(
             "Monoid",
-            vec!["PointedSet".to_owned()],
+            vec![Arc::from("PointedSet")],
             Vec::new(),
             vec![Operation::new(
                 "mul",
@@ -332,7 +443,7 @@ mod tests {
 
         let b = Theory::extending(
             "B",
-            vec!["A".to_owned()],
+            vec![Arc::from("A")],
             vec![Sort::simple("T")],
             Vec::new(),
             Vec::new(),
@@ -341,7 +452,7 @@ mod tests {
 
         let c = Theory::extending(
             "C",
-            vec!["B".to_owned()],
+            vec![Arc::from("B")],
             vec![Sort::simple("U")],
             Vec::new(),
             Vec::new(),
@@ -361,14 +472,14 @@ mod tests {
 
         let a = Theory::extending(
             "A",
-            vec!["B".to_owned()],
+            vec![Arc::from("B")],
             Vec::new(),
             Vec::new(),
             Vec::new(),
         );
         let b = Theory::extending(
             "B",
-            vec!["A".to_owned()],
+            vec![Arc::from("A")],
             Vec::new(),
             Vec::new(),
             Vec::new(),
@@ -400,7 +511,7 @@ mod tests {
 
         let left = Theory::extending(
             "Left",
-            vec!["Base".to_owned()],
+            vec![Arc::from("Base")],
             vec![Sort::simple("L")],
             Vec::new(),
             Vec::new(),
@@ -409,7 +520,7 @@ mod tests {
 
         let right = Theory::extending(
             "Right",
-            vec!["Base".to_owned()],
+            vec![Arc::from("Base")],
             vec![Sort::simple("R")],
             Vec::new(),
             Vec::new(),
@@ -418,7 +529,7 @@ mod tests {
 
         let diamond = Theory::extending(
             "Diamond",
-            vec!["Left".to_owned(), "Right".to_owned()],
+            vec![Arc::from("Left"), Arc::from("Right")],
             Vec::new(),
             Vec::new(),
             Vec::new(),
@@ -481,11 +592,11 @@ mod tests {
         );
 
         // Verify it is a well-formed GAT: has the expected structure.
-        assert_eq!(th_gat.name, "ThGAT");
+        assert_eq!(&*th_gat.name, "ThGAT");
         assert_eq!(th_gat.sorts.len(), 6);
         assert_eq!(th_gat.ops.len(), 5);
 
-        // All sorts are findable.
+        // All sorts are findable (O(1) via index).
         assert!(th_gat.find_sort("Sort").is_some());
         assert!(th_gat.find_sort("Op").is_some());
         assert!(th_gat.find_sort("Eq").is_some());
@@ -496,19 +607,19 @@ mod tests {
         // The dependent sort Param has arity 1.
         let param = th_gat.find_sort("Param").unwrap();
         assert_eq!(param.arity(), 1);
-        assert_eq!(param.params[0].sort, "Sort");
+        assert_eq!(&*param.params[0].sort, "Sort");
 
         // All ops are findable and have correct signatures.
         let sn = th_gat.find_op("sort_name").unwrap();
         assert_eq!(sn.inputs.len(), 1);
-        assert_eq!(sn.inputs[0].1, "Sort");
-        assert_eq!(sn.output, "Name");
+        assert_eq!(&*sn.inputs[0].1, "Sort");
+        assert_eq!(&*sn.output, "Name");
 
         let on = th_gat.find_op("op_name").unwrap();
-        assert_eq!(on.output, "Name");
+        assert_eq!(&*on.output, "Name");
 
         let oo = th_gat.find_op("op_output").unwrap();
-        assert_eq!(oo.output, "Sort");
+        assert_eq!(&*oo.output, "Sort");
 
         // ThGAT can resolve itself in a registry.
         let mut registry = HashMap::new();
