@@ -2,7 +2,7 @@
 
 Instance representation for panproto.
 
-This crate provides two models for concrete data instances that conform to schemas defined via `panproto-schema`: tree-shaped [W-type](https://ncatlab.org/nlab/show/W-type) instances and relational [set-valued functor](https://ncatlab.org/nlab/show/functor) instances. It also handles JSON serialization, validation, and instance restriction along migration mappings.
+This crate provides three models for concrete data instances that conform to schemas defined via `panproto-schema`: tree-shaped [W-type](https://ncatlab.org/nlab/show/W-type) instances, relational [set-valued functor](https://ncatlab.org/nlab/show/functor) instances, and graph-shaped instances. All three are unified under the `Instance` enum. The crate also handles JSON serialization, validation, and instance restriction along migration mappings.
 
 ## API
 
@@ -10,6 +10,8 @@ This crate provides two models for concrete data instances that conform to schem
 |------|-------------|
 | `WInstance` | Tree-shaped ([W-type](https://ncatlab.org/nlab/show/W-type)) instance with nodes, arcs, and hyper-edge fans |
 | `FInstance` | Relational ([set-valued functor](https://ncatlab.org/nlab/show/functor)) instance with tables and foreign keys |
+| `GInstance` | Graph-shaped instance with nodes and edges (cycles allowed, no root) |
+| `Instance` | Unified enum wrapping `WInstance`, `FInstance`, `GInstance` |
 | `Node` | Metadata for a W-type instance node |
 | `Value` / `FieldPresence` | Leaf values and field presence tracking |
 | `Fan` | Hyper-edge fan representation |

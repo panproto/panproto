@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "panproto"
+name = "schema"
 path = "src/main.rs"
 
 [dependencies]

@@ -66,6 +66,22 @@ pub fn check_existence(
         }
     }
 
+    // New theory-derived checks from building blocks.
+    if let Some(theory) = schema_theory {
+        if theory.find_sort("Variant").is_some() {
+            errors.extend(check_variant_preservation(src, tgt, migration));
+        }
+        if theory.find_sort("Position").is_some() {
+            errors.extend(check_order_compatibility(src, tgt));
+        }
+        if theory.find_sort("Mu").is_some() {
+            errors.extend(check_recursion_compatibility(src, tgt, migration));
+        }
+        if theory.find_sort("Usage").is_some() {
+            errors.extend(check_linearity(src, tgt, migration));
+        }
+    }
+
     // Always check basic morphism validity.
     errors.extend(check_vertex_map(src, tgt, migration));
     errors.extend(check_edge_map(src, tgt, migration));
@@ -360,6 +376,133 @@ fn check_reachability(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<
     errors
 }
 
+/// Check that coproduct variants are preserved by the migration.
+///
+/// Dropping a variant from a coproduct is a type error — existing
+/// data tagged with that variant becomes ill-typed.
+fn check_variant_preservation(
+    src: &Schema,
+    tgt: &Schema,
+    migration: &Migration,
+) -> Vec<ExistenceError> {
+    let mut errors = Vec::new();
+
+    for (parent_id, src_variants) in &src.variants {
+        if let Some(tgt_parent) = migration.vertex_map.get(parent_id) {
+            let tgt_variants = tgt.variants.get(tgt_parent).cloned().unwrap_or_default();
+            let tgt_variant_ids: std::collections::HashSet<&str> =
+                tgt_variants.iter().map(|v| v.id.as_str()).collect();
+
+            for v in src_variants {
+                if !tgt_variant_ids.contains(v.id.as_str()) {
+                    errors.push(ExistenceError::WellFormedness {
+                        message: format!(
+                            "variant '{}' of coproduct '{}' was dropped (type error for existing data)",
+                            v.id, parent_id
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    errors
+}
+
+/// Check that ordering compatibility is maintained.
+///
+/// Ordered → unordered is a lossy migration.
+fn check_order_compatibility(src: &Schema, tgt: &Schema) -> Vec<ExistenceError> {
+    let mut errors = Vec::new();
+
+    for (edge, _pos) in &src.orderings {
+        if !tgt.orderings.contains_key(edge) && tgt.edges.contains_key(edge) {
+            errors.push(ExistenceError::WellFormedness {
+                message: format!(
+                    "edge {} → {} ({}) was ordered in source but unordered in target",
+                    edge.src, edge.tgt, edge.kind
+                ),
+            });
+        }
+    }
+
+    errors
+}
+
+/// Check that recursion structure is preserved.
+///
+/// Removing a recursion point breaks recursive types.
+fn check_recursion_compatibility(
+    src: &Schema,
+    tgt: &Schema,
+    migration: &Migration,
+) -> Vec<ExistenceError> {
+    let mut errors = Vec::new();
+
+    for (mu_id, rp) in &src.recursion_points {
+        // Check if the fixpoint vertex survives.
+        if migration.vertex_map.contains_key(&rp.target_vertex)
+            && !tgt.recursion_points.contains_key(mu_id)
+        {
+            errors.push(ExistenceError::WellFormedness {
+                message: format!(
+                    "recursion point '{}' targeting '{}' was removed (breaks recursive types)",
+                    mu_id, rp.target_vertex
+                ),
+            });
+        }
+    }
+
+    errors
+}
+
+/// Check that linearity constraints are not tightened.
+///
+/// Structural → linear is a tightening that invalidates existing data
+/// using the edge multiple times.
+fn check_linearity(
+    src: &Schema,
+    tgt: &Schema,
+    migration: &Migration,
+) -> Vec<ExistenceError> {
+    let mut errors = Vec::new();
+
+    for (src_edge, tgt_edge) in &migration.edge_map {
+        let src_mode = src
+            .usage_modes
+            .get(src_edge)
+            .cloned()
+            .unwrap_or_default();
+        let tgt_mode = tgt
+            .usage_modes
+            .get(tgt_edge)
+            .cloned()
+            .unwrap_or_default();
+
+        let is_tightened = matches!(
+            (&src_mode, &tgt_mode),
+            (
+                panproto_schema::UsageMode::Structural,
+                panproto_schema::UsageMode::Linear | panproto_schema::UsageMode::Affine
+            ) | (
+                panproto_schema::UsageMode::Affine,
+                panproto_schema::UsageMode::Linear
+            )
+        );
+
+        if is_tightened {
+            errors.push(ExistenceError::WellFormedness {
+                message: format!(
+                    "edge {} → {} ({}) usage tightened from {src_mode:?} to {tgt_mode:?}",
+                    src_edge.src, src_edge.tgt, src_edge.kind
+                ),
+            });
+        }
+    }
+
+    errors
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -375,6 +518,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec!["maxLength".into()],
+            ..Protocol::default()
         }
     }
 
@@ -421,6 +565,12 @@ mod tests {
             constraints: HashMap::new(),
             required: HashMap::new(),
             nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
             outgoing,
             incoming,
             between,

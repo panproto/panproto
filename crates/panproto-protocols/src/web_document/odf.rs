@@ -37,6 +37,9 @@ pub fn protocol() -> Protocol {
             "master-page".into(),
         ],
         constraint_sorts: vec!["style-family".into(), "master-page-name".into()],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

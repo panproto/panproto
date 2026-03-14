@@ -86,6 +86,10 @@ pub fn protocol() -> Protocol {
             // Dependency role
             "deprel".into(),
         ],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        ..Protocol::default()
     }
 }
 

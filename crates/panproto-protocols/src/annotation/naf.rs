@@ -75,6 +75,8 @@ pub fn protocol() -> Protocol {
             "uri".into(),
             "prediction".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

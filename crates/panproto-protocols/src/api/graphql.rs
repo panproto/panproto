@@ -38,6 +38,11 @@ pub fn protocol() -> Protocol {
             "subscription".into(),
         ],
         constraint_sorts: vec!["non_null".into(), "list".into(), "deprecated".into()],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

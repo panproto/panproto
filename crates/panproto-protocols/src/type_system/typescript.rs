@@ -61,6 +61,10 @@ pub fn protocol() -> Protocol {
             "record".into(),
         ],
         constraint_sorts: vec!["optional".into(), "readonly".into(), "deprecated".into()],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        ..Protocol::default()
     }
 }
 

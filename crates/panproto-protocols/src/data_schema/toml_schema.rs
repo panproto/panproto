@@ -44,6 +44,10 @@ pub fn protocol() -> Protocol {
             "inline-table".into(),
         ],
         constraint_sorts: vec!["required".into(), "default".into(), "enum".into()],
+        has_order: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

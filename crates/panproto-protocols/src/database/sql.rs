@@ -46,6 +46,9 @@ pub fn protocol() -> Protocol {
             "DEFAULT".into(),
             "FOREIGN KEY".into(),
         ],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

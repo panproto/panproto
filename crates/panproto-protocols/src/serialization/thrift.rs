@@ -49,6 +49,10 @@ pub fn protocol() -> Protocol {
             "map".into(),
         ],
         constraint_sorts: vec!["field_id".into(), "required".into(), "optional".into()],
+        has_coproducts: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

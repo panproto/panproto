@@ -42,6 +42,8 @@ book:
         - chapters/14-typescript-sdk.qmd
         - chapters/20-python-sdk.qmd
         - chapters/15-cli.qmd
+        - chapters/21-vcs-engine.qmd
+        - chapters/22-building-blocks.qmd
     - part: "Contributing Process"
       chapters:
         - chapters/16-conventions.qmd

@@ -30,6 +30,9 @@ pub fn protocol() -> Protocol {
             "vector".into(),
         ],
         constraint_sorts: vec![],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

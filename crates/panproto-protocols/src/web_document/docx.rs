@@ -43,6 +43,9 @@ pub fn protocol() -> Protocol {
             "style-type".into(),
             "numbering-format".into(),
         ],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

@@ -58,6 +58,9 @@ pub fn protocol() -> Protocol {
             "position".into(),
             "text".into(),
         ],
+        has_order: true,
+        has_coproducts: true,
+        ..Protocol::default()
     }
 }
 

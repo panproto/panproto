@@ -14,7 +14,7 @@ What you might not have noticed is how *many* schema languages there are, and
 how eerily similar they look once you squint past the syntax. This chapter makes
 that observation concrete. We'll take a single, deliberately boring entity—a
 blog post—and write its schema in nine different formats drawn from panproto's
-coverage of 54 protocols. Then we'll show how panproto can construct the same
+coverage of 76 protocols. Then we'll show how panproto can construct the same
 schema using its TypeScript SDK, regardless of which protocol you're targeting.
 
 ## The Running Example: A Blog Post
@@ -196,7 +196,7 @@ clusters rather than code points.
 
 ## Beyond Five: The Full Spectrum
 
-Five formats illustrate the pattern, but panproto covers 54 protocols. To
+Five formats illustrate the pattern, but panproto covers 76 protocols. To
 give a sense of the breadth, here are four more representations of the same
 blog post—drawn from serialization, type system, API specification, and
 document-exchange traditions respectively.
@@ -518,7 +518,7 @@ tools can't easily generalize.
 But first, take a moment to appreciate the view from here: nine different schema
 languages, nine different communities, nine different ecosystems—all describing
 the same blog post, all using the same structural pattern. And these nine are a
-sample: panproto's full coverage spans 54 protocols, from serialization formats
+sample: panproto's full coverage spans 76 protocols, from serialization formats
 like MessagePack and CBOR to interface definition languages like Thrift and
 WSDL to domain-specific schema systems like FHIR and JSON-LD. The fact that a
 single structural account reaches across all of them is not an accident. It's a

@@ -55,6 +55,11 @@ pub fn protocol() -> Protocol {
             "maxItems".into(),
             "deprecated".into(),
         ],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

@@ -44,6 +44,8 @@ pub fn protocol() -> Protocol {
             "newpar".into(),
             "newdoc".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

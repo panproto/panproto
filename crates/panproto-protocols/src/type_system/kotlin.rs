@@ -64,6 +64,11 @@ pub fn protocol() -> Protocol {
             "val".into(),
             "var".into(),
         ],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

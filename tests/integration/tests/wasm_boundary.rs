@@ -26,6 +26,7 @@ fn protocol_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         }],
         obj_kinds: vec!["object".into(), "string".into()],
         constraint_sorts: vec!["maxLength".into()],
+        ..Protocol::default()
     };
 
     let bytes = rmp_serde::to_vec(&protocol)?;

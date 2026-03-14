@@ -150,6 +150,8 @@ pub fn protocol() -> Protocol {
             "subspace".into(),
             "property".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

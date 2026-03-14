@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use panproto_schema::{Constraint, Edge, Schema};
+use panproto_schema::{Constraint, Edge, RecursionPoint, Schema, UsageMode, Variant};
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +29,19 @@ pub struct SchemaDiff {
     pub modified_constraints: HashMap<String, ConstraintDiff>,
     /// Vertices whose `kind` changed between old and new.
     pub kind_changes: Vec<KindChange>,
+
+    /// Variants added in the new schema.
+    pub added_variants: Vec<Variant>,
+    /// Variants removed from the old schema.
+    pub removed_variants: Vec<Variant>,
+    /// Edge ordering changes: `(edge, old_position, new_position)`.
+    pub order_changes: Vec<(Edge, Option<u32>, Option<u32>)>,
+    /// Recursion points added in the new schema.
+    pub added_recursion_points: Vec<RecursionPoint>,
+    /// Recursion points removed from the old schema.
+    pub removed_recursion_points: Vec<RecursionPoint>,
+    /// Usage mode changes: `(edge, old_mode, new_mode)`.
+    pub usage_mode_changes: Vec<(Edge, UsageMode, UsageMode)>,
 }
 
 /// Describes how constraints on a single vertex changed.
@@ -138,6 +151,70 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
         let cdiff = diff_constraints(&old_cs, &new_cs);
         if !cdiff.added.is_empty() || !cdiff.removed.is_empty() || !cdiff.changed.is_empty() {
             result.modified_constraints.insert(vid.clone(), cdiff);
+        }
+    }
+
+    // --- Variants ---
+    for (parent, new_variants) in &new.variants {
+        let old_variants = old.variants.get(parent).cloned().unwrap_or_default();
+        let old_ids: FxHashSet<&str> = old_variants.iter().map(|v| v.id.as_str()).collect();
+        for v in new_variants {
+            if !old_ids.contains(v.id.as_str()) {
+                result.added_variants.push(v.clone());
+            }
+        }
+    }
+    for (parent, old_variants) in &old.variants {
+        let new_variants = new.variants.get(parent).cloned().unwrap_or_default();
+        let new_ids: FxHashSet<&str> = new_variants.iter().map(|v| v.id.as_str()).collect();
+        for v in old_variants {
+            if !new_ids.contains(v.id.as_str()) {
+                result.removed_variants.push(v.clone());
+            }
+        }
+    }
+
+    // --- Orderings ---
+    let all_order_edges: FxHashSet<&Edge> = old
+        .orderings
+        .keys()
+        .chain(new.orderings.keys())
+        .collect();
+    for edge in all_order_edges {
+        let old_pos = old.orderings.get(edge).copied();
+        let new_pos = new.orderings.get(edge).copied();
+        if old_pos != new_pos {
+            result
+                .order_changes
+                .push(((*edge).clone(), old_pos, new_pos));
+        }
+    }
+
+    // --- Recursion Points ---
+    for (id, rp) in &new.recursion_points {
+        if !old.recursion_points.contains_key(id) {
+            result.added_recursion_points.push(rp.clone());
+        }
+    }
+    for (id, rp) in &old.recursion_points {
+        if !new.recursion_points.contains_key(id) {
+            result.removed_recursion_points.push(rp.clone());
+        }
+    }
+
+    // --- Usage Modes ---
+    let all_usage_edges: FxHashSet<&Edge> = old
+        .usage_modes
+        .keys()
+        .chain(new.usage_modes.keys())
+        .collect();
+    for edge in all_usage_edges {
+        let old_mode = old.usage_modes.get(edge).cloned().unwrap_or_default();
+        let new_mode = new.usage_modes.get(edge).cloned().unwrap_or_default();
+        if old_mode != new_mode {
+            result
+                .usage_mode_changes
+                .push(((*edge).clone(), old_mode, new_mode));
         }
     }
 
@@ -252,6 +329,12 @@ mod tests {
             constraints,
             required: HashMap::new(),
             nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
             outgoing,
             incoming,
             between,

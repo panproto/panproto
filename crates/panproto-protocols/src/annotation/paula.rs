@@ -84,6 +84,8 @@ pub fn protocol() -> Protocol {
             "begin-time".into(),
             "end-time".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

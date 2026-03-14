@@ -40,6 +40,9 @@ pub fn protocol() -> Protocol {
             "union".into(),
         ],
         constraint_sorts: vec!["required".into(), "default".into()],
+        has_order: true,
+        has_recursion: true,
+        ..Protocol::default()
     }
 }
 

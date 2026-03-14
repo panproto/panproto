@@ -33,6 +33,10 @@ pub fn protocol() -> Protocol {
             "object".into(),
         ],
         constraint_sorts: vec!["required".into(), "default".into()],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        ..Protocol::default()
     }
 }
 

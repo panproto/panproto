@@ -77,7 +77,7 @@ graph LR
 
 **Emit.** The `emit_*` function for a protocol walks the Schema graph and produces native schema notation. The emit step is responsible for mapping the protocol-neutral representation back to the target format's specific constructs—assigning field numbers, choosing appropriate type names, generating the correct syntax.
 
-Every one of panproto's 54 built-in protocols has both a parse and an emit function. This means every pair of protocols is connected by a potential conversion path through the shared Schema graph.
+Every one of panproto's 76 built-in protocols has both a parse and an emit function. This means every pair of protocols is connected by a potential conversion path through the shared Schema graph.
 
 
 ## Cross-Protocol Examples
@@ -325,7 +325,7 @@ The second difference is in the use of the IR. In pandoc, the IR exists solely f
 
 - panproto is to schemas what pandoc is to documents: it converts between formats using a universal intermediate representation, the Schema graph.
 
-- Every protocol ships with a `parse_*` function (source format → Schema graph) and an `emit_*` function (Schema graph → target format). All 54 built-in protocols support both directions.
+- Every protocol ships with a `parse_*` function (source format → Schema graph) and an `emit_*` function (Schema graph → target format). All 76 built-in protocols support both directions.
 
 - The **conversion pipeline** is: `parse_*()` → Schema graph → (optional migration) → `emit_*()`. The optional migration step allows simultaneous format conversion and structural transformation.
 

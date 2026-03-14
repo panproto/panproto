@@ -66,6 +66,11 @@ pub fn protocol() -> Protocol {
             "optional".into(),
         ],
         constraint_sorts: vec!["optional".into(), "codingKey".into(), "default".into()],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

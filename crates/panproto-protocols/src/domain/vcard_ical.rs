@@ -37,6 +37,9 @@ pub fn protocol() -> Protocol {
             "geo".into(),
         ],
         constraint_sorts: vec!["required".into(), "cardinality".into()],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

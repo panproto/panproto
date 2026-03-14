@@ -46,6 +46,9 @@ pub fn protocol() -> Protocol {
             "animatable".into(),
             "shorthand".into(),
         ],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

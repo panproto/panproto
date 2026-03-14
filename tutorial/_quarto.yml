@@ -44,6 +44,8 @@ book:
         - chapters/10-building-your-own-protocol.qmd
         - chapters/11-self-description.qmd
         - chapters/12-format-conversion.qmd
+        - chapters/13-version-control.qmd
+        - chapters/14-building-blocks.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-category-theory-cheatsheet.qmd

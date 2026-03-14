@@ -36,6 +36,8 @@ pub fn protocol() -> Protocol {
             "boolean".into(),
         ],
         constraint_sorts: vec!["required".into(), "default".into(), "enum".into()],
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

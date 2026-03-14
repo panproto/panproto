@@ -101,6 +101,8 @@ pub fn parse_xml_bytes(
                     value: None,
                     discriminator: None,
                     extra_fields,
+                    position: None,
+                    annotations: HashMap::new(),
                 };
                 state.nodes.insert(node_id, node);
 
@@ -141,6 +143,8 @@ pub fn parse_xml_bytes(
                     value: None,
                     discriminator: None,
                     extra_fields,
+                    position: None,
+                    annotations: HashMap::new(),
                 };
                 state.nodes.insert(node_id, node);
 
@@ -342,6 +346,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["document".into(), "element".into(), "text".into()],
             constraint_sorts: vec![],
+            ..panproto_schema::Protocol::default()
         };
         SchemaBuilder::new(&proto)
             .vertex("doc", "document", None)

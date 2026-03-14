@@ -42,6 +42,9 @@ pub fn protocol() -> Protocol {
             "usage".into(),
             "repeat".into(),
         ],
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

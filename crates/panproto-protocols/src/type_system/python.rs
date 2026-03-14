@@ -67,6 +67,11 @@ pub fn protocol() -> Protocol {
             "pattern".into(),
             "alias".into(),
         ],
+        has_order: true,
+        has_coproducts: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

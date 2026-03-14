@@ -55,6 +55,9 @@ pub fn protocol() -> Protocol {
             "signal-id".into(),
             "subordinate-signal".into(),
         ],
+        has_order: true,
+        has_causal: true,
+        ..Protocol::default()
     }
 }
 

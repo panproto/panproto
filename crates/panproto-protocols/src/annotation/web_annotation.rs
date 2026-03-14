@@ -69,6 +69,8 @@ pub fn protocol() -> Protocol {
             "via".into(),
             "accessibility".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

@@ -81,6 +81,8 @@ pub fn protocol() -> Protocol {
             "role".into(),
             "subkind".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

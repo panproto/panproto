@@ -47,6 +47,9 @@ pub fn protocol() -> Protocol {
             "minLength".into(),
             "maxLength".into(),
         ],
+        has_order: true,
+        has_coproducts: true,
+        ..Protocol::default()
     }
 }
 

@@ -43,6 +43,10 @@ pub fn protocol() -> Protocol {
             "converted-type".into(),
             "field-id".into(),
         ],
+        has_order: true,
+        has_recursion: true,
+        nominal_identity: true,
+        ..Protocol::default()
     }
 }
 

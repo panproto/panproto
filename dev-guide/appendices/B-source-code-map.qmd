@@ -129,7 +129,7 @@ Protocol definitions and schema-level parse/emit for supported schema languages.
 
 ## crates/panproto-io --- Instance-level presentations
 
-Format-specific parse/emit for all 77 protocols, producing `WInstance`/`FInstance`.
+Format-specific parse/emit for all 76 protocols, producing `WInstance`/`FInstance`.
 
 | File | Description |
 |---|---|

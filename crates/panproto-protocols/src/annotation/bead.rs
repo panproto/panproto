@@ -62,6 +62,8 @@ pub fn protocol() -> Protocol {
             "response-value".into(),
             "response-time".into(),
         ],
+        has_order: true,
+        ..Protocol::default()
     }
 }
 

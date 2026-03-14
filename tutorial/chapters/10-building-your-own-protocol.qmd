@@ -1,6 +1,6 @@
 # Building Your Own Protocol
 
-So far we have worked with protocols that panproto ships out of the box—54 protocols across 9 categories—serialization, data schemas, APIs, databases, type systems, web/document formats, data science, domain-specific, and configuration. But panproto is not a fixed catalog. It is a toolkit for building schema languages, and the mechanism for doing so is the *colimit* of theories.
+So far we have worked with protocols that panproto ships out of the box—76 protocols across 9 categories—serialization, data schemas, APIs, databases, type systems, web/document formats, data science, domain-specific, and configuration. But panproto is not a fixed catalog. It is a toolkit for building schema languages, and the mechanism for doing so is the *colimit* of theories.
 
 This chapter shows how to define a new protocol from scratch by composing reusable component theories, and how the full machinery—migrations, existence checking, diff, lifting—comes along for free.
 
@@ -129,20 +129,21 @@ The compositional nature of colimits means that if two protocols share a compone
 
 ### All Protocols as Colimits
 
-Every one of panproto's 54 built-in protocols falls into one of five theory
+Every one of panproto's 76 built-in protocols falls into one of six theory
 groups, determined by which component theories its colimit requires. The table
 below summarizes the groups; the instance theory column names the theory used
 to represent data (instances) for schemas in that group.
 
 | Theory Group | Schema Theory | Instance Theory | Protocol Count | Examples |
 |---|---|---|---|---|
-| A | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | 20 | ATProto, JSON Schema, OpenAPI, FHIR |
-| B | colimit(ThHypergraph, ThConstraint) | ThFunctor | 8 | SQL, Cassandra, Parquet, CSV |
+| A | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | 30 | ATProto, JSON Schema, OpenAPI, FHIR |
+| B | colimit(ThHypergraph, ThConstraint) | ThFunctor | 11 | SQL, Cassandra, Parquet, CSV |
 | C | colimit(ThSimpleGraph, ThConstraint) | ThFlat | 9 | Protobuf, Avro, Thrift, HCL |
-| D | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | 12 | GraphQL, TypeScript, Python, Java |
-| E | colimit(ThGraph, ThConstraint, ThMulti) | colimit(ThWType, ThMeta) | 6 | XML/XSD, HTML, CSS, Neo4j |
+| D | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | 16 | GraphQL, TypeScript, Python, Java |
+| E | colimit(ThGraph, ThConstraint, ThMulti) | colimit(ThWType, ThMeta) | 9 | XML/XSD, HTML, CSS |
+| F | colimit(ThGraph, ThConstraint, ThMulti) | ThGraphInstance | 1 | Neo4j |
 
-: The five theory groups organising panproto's 54 built-in protocols. {#tbl-protocol-groups}
+: The six theory groups organising panproto's 76 built-in protocols. {#tbl-protocol-groups}
 
 Group membership determines which generic algorithms apply and how cross-group
 migrations are constructed—for instance, migrating from a Group C protocol
@@ -151,7 +152,7 @@ embeds the simpler `ThSimpleGraph` into the richer
 `colimit(ThGraph, ThConstraint, ThMulti)`. The migration morphism itself
 remains the same kind of graph homomorphism described throughout this tutorial.
 
-See @sec-protocol-catalog for the complete catalog of all 54 protocols with
+See @sec-protocol-catalog for the complete catalog of all 76 protocols with
 their theory group assignments.
 
 ## Summary
