@@ -10,7 +10,7 @@ The crate lives at `crates/panproto-check` and is published as `panproto-check` 
 
 Schema evolution is routine in long-lived systems. An API adds a field, a database drops a column, a serialization format renames a message. Most of these changes are safe---existing consumers can ignore additions and tolerate relaxed constraints. But some changes are dangerous: removing a field that downstream consumers depend on, tightening a constraint that existing data violates, or changing a field's type in an incompatible way.
 
-panproto's breaking change detection automates the process of distinguishing safe from dangerous changes. It integrates into CI pipelines via the `panproto check` CLI command, and into programmatic workflows via the Rust and TypeScript APIs.
+panproto's breaking change detection automates the process of distinguishing safe from dangerous changes. It integrates into CI pipelines via the `schema check` CLI command, and into programmatic workflows via the Rust and TypeScript APIs.
 
 ## The Detection Pipeline
 
@@ -153,7 +153,7 @@ The report module converts a `CompatReport` into output suitable for humans or m
 3. An itemized list of non-breaking changes (if any), with a count header and numbered entries.
 4. If both lists are empty: `"No changes detected."`
 
-This is what the `panproto check` CLI command displays by default.
+This is what the `schema check` CLI command displays by default.
 
 ### JSON Reports
 
@@ -175,7 +175,7 @@ Breaking change detection is complementary to the migration and lens systems:
 
 - **Before migration**: run `diff` + `classify` to determine whether a migration is safe. If the report says "breaking," the developer knows to provide a migration with resolvers, supply default values, or use a lens with complement tracking.
 - **With lenses**: the `RemoveField` combinator in `panproto-lens` always produces a non-empty complement. The check crate can confirm that the corresponding schema change is indeed breaking, validating that the lens is necessary and correctly scoped.
-- **In CI**: the `panproto check` CLI command runs this pipeline and exits with a non-zero status on breaking changes, enabling automated gatekeeping. Pull requests that introduce breaking changes without an accompanying migration can be flagged automatically.
+- **In CI**: the `schema check` CLI command runs this pipeline and exits with a non-zero status on breaking changes, enabling automated gatekeeping. Pull requests that introduce breaking changes without an accompanying migration can be flagged automatically.
 - **In documentation**: the text report can be included in changelog entries or release notes to communicate the nature of schema changes to downstream consumers.
 
 ## Theoretical Foundations
@@ -235,10 +235,10 @@ This report tells the developer that they need to either revert the breaking cha
 
 ## Integration with CI
 
-The `panproto check` CLI command wraps this pipeline for use in CI:
+The `schema check` CLI command wraps this pipeline for use in CI:
 
 ```bash
-panproto check --old schema-v1.json --new schema-v2.json --protocol atproto
+schema check --old schema-v1.json --new schema-v2.json --protocol atproto
 ```
 
 Exit codes:

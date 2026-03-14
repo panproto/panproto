@@ -241,7 +241,7 @@ The point: composition of compatibility levels is not a lattice operation. It de
 panproto produces a human-readable diff report that combines the structural diff with the compatibility classification. The report is designed for code review: a developer should be able to read it and understand both *what* changed and *whether it is safe*.
 
 ```
-panproto diff v1/schema.json v2/schema.json
+schema diff v1/schema.json v2/schema.json
 
 Schema: app.bsky.feed.defs#threadViewPost
 
@@ -299,17 +299,17 @@ jobs:
 
       - name: Check compatibility
         run: |
-          panproto diff /tmp/old-schema.json schemas/schema.json
+          schema diff /tmp/old-schema.json schemas/schema.json
 
       - name: Block breaking changes
         run: |
-          panproto check \
+          schema check \
             --src /tmp/old-schema.json \
             --tgt schemas/schema.json \
             --level backward-compatible
 ```
 
-The `panproto check` command accepts a `--level` flag:
+The `schema check` command accepts a `--level` flag:
 
 - `--level fully-compatible`: Fail unless the change is fully compatible in both directions.
 - `--level backward-compatible`: Fail unless at least a forward migration exists (the default).
@@ -321,13 +321,13 @@ For local development, the same commands work without CI:
 
 ```bash
 # Show the diff and classification
-panproto diff old-schema.json new-schema.json
+schema diff old-schema.json new-schema.json
 
 # Check against a specific compatibility level (exit code 0 = pass, 1 = fail)
-panproto check --src old-schema.json --tgt new-schema.json --level backward-compatible
+schema check --src old-schema.json --tgt new-schema.json --level backward-compatible
 
 # Output as JSON for programmatic consumption
-panproto diff old-schema.json new-schema.json --format json
+schema diff old-schema.json new-schema.json --format json
 ```
 
 ### Schema registry integration
@@ -336,7 +336,7 @@ For teams that use a schema registry, panproto can check compatibility against t
 
 ```bash
 # Check against the latest version in the registry
-panproto check \
+schema check \
   --src "registry://app.bsky.feed.defs#threadViewPost@latest" \
   --tgt schemas/schema.json
 ```
@@ -419,7 +419,7 @@ The breaking changes workflow in panproto connects every concept from the preced
 5. **Lenses** (@sec-lenses) make the migration bidirectional.
 6. **The compatibility classifier** (this chapter) decides whether the change is safe to deploy.
 
-The classifier is the user-facing endpoint of the theory. A developer does not need to understand polynomial functors or pushout complements to use `panproto check`. They see a clear verdict—fully compatible, backward compatible, or breaking—backed by a proof-strength guarantee from the underlying mathematics.
+The classifier is the user-facing endpoint of the theory. A developer does not need to understand polynomial functors or pushout complements to use `schema check`. They see a clear verdict—fully compatible, backward compatible, or breaking—backed by a proof-strength guarantee from the underlying mathematics.
 
 This is the design philosophy of panproto: the theory is deep, but the interface is simple. The complexity lives in the library, not in the developer's head.
 
