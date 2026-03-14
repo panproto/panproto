@@ -10,11 +10,13 @@ This crate provides a single, convenient entry point for consumers by re-exporti
 |--------|-------|-------------|
 | `gat` | `panproto-gat` | GAT types, theories, morphisms, colimits |
 | `schema` | `panproto-schema` | Schema graph, builder, validation |
-| `inst` | `panproto-inst` | W-type and functor instances, JSON round-trip |
+| `inst` | `panproto-inst` | W-type, functor, and graph instances, JSON round-trip |
 | `mig` | `panproto-mig` | Migration compilation, lifting, composition |
 | `lens` | `panproto-lens` | Bidirectional lenses and combinators |
 | `check` | `panproto-check` | Breaking change detection and reporting |
 | `protocols` | `panproto-protocols` | Built-in protocol definitions and parsers |
+| `io` | `panproto-io` | Instance-level parse/emit for all 76 protocols |
+| `vcs` | `panproto-vcs` | Schematic version control engine |
 
 ## Example
 
