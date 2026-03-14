@@ -108,17 +108,25 @@ export function defineProtocol(spec: ProtocolSpec, wasm: WasmModule): Protocol {
  */
 export const ATPROTO_SPEC: ProtocolSpec = {
   name: 'atproto',
-  schemaTheory: 'ThConstrainedMultiGraph',
-  instanceTheory: 'ThWTypeMeta',
+  schemaTheory: 'ThATProtoSchema',
+  instanceTheory: 'ThATProtoInstance',
   edgeRules: [
     { edgeKind: 'record-schema', srcKinds: ['record'], tgtKinds: ['object'] },
-    { edgeKind: 'prop', srcKinds: ['object'], tgtKinds: [] },
-    { edgeKind: 'item', srcKinds: ['array'], tgtKinds: [] },
+    { edgeKind: 'prop', srcKinds: ['object', 'query', 'procedure', 'subscription'], tgtKinds: [] },
+    { edgeKind: 'items', srcKinds: ['array'], tgtKinds: [] },
     { edgeKind: 'variant', srcKinds: ['union'], tgtKinds: [] },
-    { edgeKind: 'ref', srcKinds: [], tgtKinds: ['record'] },
+    { edgeKind: 'ref', srcKinds: [], tgtKinds: [] },
+    { edgeKind: 'self-ref', srcKinds: [], tgtKinds: [] },
   ] satisfies EdgeRule[],
-  objKinds: ['record', 'object'],
-  constraintSorts: ['maxLength', 'minLength', 'maxGraphemes', 'minGraphemes', 'format'],
+  objKinds: [
+    'record', 'object', 'array', 'union', 'string', 'integer', 'boolean',
+    'bytes', 'cid-link', 'blob', 'unknown', 'token', 'query', 'procedure',
+    'subscription', 'ref',
+  ],
+  constraintSorts: [
+    'minLength', 'maxLength', 'minimum', 'maximum', 'maxGraphemes',
+    'enum', 'const', 'default', 'closed',
+  ],
 };
 
 /**

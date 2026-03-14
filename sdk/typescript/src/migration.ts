@@ -143,16 +143,24 @@ export class MigrationBuilder {
    * @throws {@link MigrationError} if compilation fails
    */
   compile(): CompiledMigration {
-    const mapping = packMigrationMapping({
-      vertex_map: Object.fromEntries(this.#vertexMap),
-      edge_map: this.#edgeMap.map(([src, tgt]) => [
+    const edgeMap = new Map(
+      this.#edgeMap.map(([src, tgt]) => [
         { src: src.src, tgt: src.tgt, kind: src.kind, name: src.name ?? null },
         { src: tgt.src, tgt: tgt.tgt, kind: tgt.kind, name: tgt.name ?? null },
-      ]),
-      resolver: this.#resolvers.map(([[s, t], e]) => [
-        [s, t],
+      ] as const),
+    );
+    const resolver = new Map(
+      this.#resolvers.map(([[s, t], e]) => [
+        [s, t] as const,
         { src: e.src, tgt: e.tgt, kind: e.kind, name: e.name ?? null },
-      ]),
+      ] as const),
+    );
+    const mapping = packMigrationMapping({
+      vertex_map: Object.fromEntries(this.#vertexMap),
+      edge_map: edgeMap,
+      hyper_edge_map: {},
+      label_map: new Map(),
+      resolver,
     });
 
     try {
@@ -303,24 +311,34 @@ export class CompiledMigration implements Disposable {
  * @returns The existence report
  */
 export function checkExistence(
+  protoHandle: number,
   src: BuiltSchema,
   tgt: BuiltSchema,
   spec: MigrationSpec,
   wasm: WasmModule,
 ): ExistenceReport {
-  const mapping = packMigrationMapping({
-    vertex_map: spec.vertexMap,
-    edge_map: spec.edgeMap.map(([s, t]) => [
+  const edgeMap = new Map(
+    spec.edgeMap.map(([s, t]) => [
       { src: s.src, tgt: s.tgt, kind: s.kind, name: s.name ?? null },
       { src: t.src, tgt: t.tgt, kind: t.kind, name: t.name ?? null },
-    ]),
-    resolver: spec.resolvers.map(([[s, t], e]) => [
-      [s, t],
+    ] as const),
+  );
+  const resolver = new Map(
+    spec.resolvers.map(([[s, t], e]) => [
+      [s, t] as const,
       { src: e.src, tgt: e.tgt, kind: e.kind, name: e.name ?? null },
-    ]),
+    ] as const),
+  );
+  const mapping = packMigrationMapping({
+    vertex_map: spec.vertexMap,
+    edge_map: edgeMap,
+    hyper_edge_map: {},
+    label_map: new Map(),
+    resolver,
   });
 
   const resultBytes = wasm.exports.check_existence(
+    protoHandle,
     src._handle.id,
     tgt._handle.id,
     mapping,

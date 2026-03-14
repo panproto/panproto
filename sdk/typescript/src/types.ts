@@ -188,7 +188,7 @@ export interface ExistenceReport {
 export interface WasmExports {
   define_protocol(spec: Uint8Array): number;
   build_schema(proto: number, ops: Uint8Array): number;
-  check_existence(src: number, tgt: number, mapping: Uint8Array): Uint8Array;
+  check_existence(proto: number, src: number, tgt: number, mapping: Uint8Array): Uint8Array;
   compile_migration(src: number, tgt: number, mapping: Uint8Array): number;
   lift_record(migration: number, record: Uint8Array): Uint8Array;
   get_record(migration: number, record: Uint8Array): Uint8Array;
@@ -210,7 +210,7 @@ export interface WasmModule {
 
 /** Base error class for all panproto errors. */
 export class PanprotoError extends Error {
-  override readonly name = 'PanprotoError';
+  override readonly name: string = 'PanprotoError';
 
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);

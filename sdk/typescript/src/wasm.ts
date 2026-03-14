@@ -11,28 +11,71 @@
 import type { WasmModule, WasmExports } from './types.js';
 import { WasmError } from './types.js';
 
-/** Default WASM binary URL (relative to package root). */
-const DEFAULT_WASM_URL = new URL('./panproto_wasm_bg.wasm', import.meta.url);
+/** Default wasm-bindgen glue module URL (relative to package root). */
+const DEFAULT_GLUE_URL = new URL('./panproto_wasm.js', import.meta.url);
+
+/**
+ * Shape of a pre-imported wasm-bindgen glue module.
+ *
+ * The `default` export is the wasm-bindgen init function. We type it
+ * loosely so any wasm-bindgen output module satisfies the interface.
+ */
+export interface WasmGlueModule {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  default: (...args: any[]) => Promise<{ memory: WebAssembly.Memory }>;
+  define_protocol: WasmExports['define_protocol'];
+  build_schema: WasmExports['build_schema'];
+  check_existence: WasmExports['check_existence'];
+  compile_migration: WasmExports['compile_migration'];
+  lift_record: WasmExports['lift_record'];
+  get_record: WasmExports['get_record'];
+  put_record: WasmExports['put_record'];
+  compose_migrations: WasmExports['compose_migrations'];
+  diff_schemas: WasmExports['diff_schemas'];
+  free_handle: WasmExports['free_handle'];
+}
 
 /**
  * Load the panproto WASM module.
  *
- * @param url - URL or path to the WASM binary. Defaults to the bundled binary.
+ * Accepts either:
+ * - A URL to the wasm-bindgen `.js` glue module (loaded via dynamic import)
+ * - A pre-imported wasm-bindgen glue module object (for bundler environments like Vite)
+ *
+ * @param input - URL string, URL object, or pre-imported glue module.
+ *                Defaults to the bundled glue module URL.
  * @returns The initialized WASM module
  * @throws {@link WasmError} if loading or instantiation fails
  */
-export async function loadWasm(url?: string | URL): Promise<WasmModule> {
-  const wasmUrl = url ?? DEFAULT_WASM_URL;
-
+export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<WasmModule> {
   try {
-    const response = typeof wasmUrl === 'string'
-      ? await fetch(wasmUrl)
-      : await fetch(wasmUrl);
+    let glue: WasmGlueModule;
 
-    const { instance } = await WebAssembly.instantiateStreaming(response);
+    if (input && typeof input === 'object' && 'default' in input && typeof input.default === 'function') {
+      // Pre-imported glue module — used in bundler environments (Vite, webpack)
+      glue = input;
+    } else {
+      // Dynamic import from URL
+      const url = (input as string | URL | undefined) ?? DEFAULT_GLUE_URL;
+      glue = await import(/* @vite-ignore */ String(url));
+    }
 
-    const exports = instance.exports as unknown as WasmExports;
-    const memory = instance.exports['memory'] as WebAssembly.Memory;
+    const initOutput = await glue.default();
+
+    const exports: WasmExports = {
+      define_protocol: glue.define_protocol,
+      build_schema: glue.build_schema,
+      check_existence: glue.check_existence,
+      compile_migration: glue.compile_migration,
+      lift_record: glue.lift_record,
+      get_record: glue.get_record,
+      put_record: glue.put_record,
+      compose_migrations: glue.compose_migrations,
+      diff_schemas: glue.diff_schemas,
+      free_handle: glue.free_handle,
+    };
+
+    const memory: WebAssembly.Memory = initOutput.memory;
 
     if (!memory) {
       throw new WasmError('WASM module missing memory export');
@@ -42,7 +85,7 @@ export async function loadWasm(url?: string | URL): Promise<WasmModule> {
   } catch (error) {
     if (error instanceof WasmError) throw error;
     throw new WasmError(
-      `Failed to load WASM module from ${String(wasmUrl)}`,
+      `Failed to load WASM module: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }

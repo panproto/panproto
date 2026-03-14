@@ -85,6 +85,9 @@ export type {
   WasmExports,
 } from './types.js';
 
+// WASM
+export type { WasmGlueModule } from './wasm.js';
+
 // Errors
 export {
   PanprotoError,

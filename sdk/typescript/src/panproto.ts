@@ -9,7 +9,7 @@
 
 import type { WasmModule, ProtocolSpec, DiffReport } from './types.js';
 import { PanprotoError } from './types.js';
-import { loadWasm } from './wasm.js';
+import { loadWasm, type WasmGlueModule } from './wasm.js';
 import {
   Protocol,
   defineProtocol,
@@ -63,13 +63,14 @@ export class Panproto implements Disposable {
   /**
    * Initialize the panproto SDK by loading the WASM module.
    *
-   * @param wasmUrl - Optional URL or path to the WASM binary.
-   *                  Defaults to the bundled binary.
+   * @param input - URL to the wasm-bindgen glue module, or a pre-imported
+   *                glue module object (for bundler environments like Vite).
+   *                Defaults to the bundled glue module.
    * @returns An initialized Panproto instance
    * @throws {@link import('./types.js').WasmError} if WASM loading fails
    */
-  static async init(wasmUrl?: string | URL): Promise<Panproto> {
-    const wasm = await loadWasm(wasmUrl);
+  static async init(input?: string | URL | WasmGlueModule): Promise<Panproto> {
+    const wasm = await loadWasm(input);
     return new Panproto(wasm);
   }
 
@@ -142,7 +143,13 @@ export class Panproto implements Disposable {
     tgt: BuiltSchema,
     builder: MigrationBuilder,
   ): import('./types.js').ExistenceReport {
-    return checkExistence(src, tgt, builder.toSpec(), this.#wasm);
+    const proto = this.#protocols.get(src.protocol);
+    if (!proto) {
+      throw new PanprotoError(
+        `Protocol "${src.protocol}" not registered. Call protocol() first.`,
+      );
+    }
+    return checkExistence(proto._handle.id, src, tgt, builder.toSpec(), this.#wasm);
   }
 
   /**

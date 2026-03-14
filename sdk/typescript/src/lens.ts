@@ -8,8 +8,6 @@
  * @module
  */
 
-import type { Edge } from './types.js';
-
 // ---------------------------------------------------------------------------
 // Combinator types
 // ---------------------------------------------------------------------------
@@ -160,7 +158,8 @@ export function compose(first: Combinator, second: Combinator): ComposeCombinato
  * @throws If the combinators array is empty
  */
 export function pipeline(combinators: readonly [Combinator, ...Combinator[]]): Combinator {
-  return combinators.reduce<Combinator>((acc, c) => compose(acc, c));
+  const [first, ...rest] = combinators;
+  return rest.reduce<Combinator>((acc, c) => compose(acc, c), first);
 }
 
 /**

@@ -63,4 +63,4 @@ If you want to land a contribution as fast as possible: read chapters 1 and 2, b
 
 ---
 
-*Aaron Steven White --- {{{< meta date >}}}*
+*Aaron Steven White --- {{< meta date >}}*

@@ -65,17 +65,19 @@ export interface SchemaOp {
   readonly [key: string]: unknown;
 }
 
-/** A migration mapping sent to WASM. */
-export interface MigrationMapping {
-  readonly vertex_map: Record<string, string>;
-  readonly edge_map: Array<[EdgeWire, EdgeWire]>;
-  readonly resolver: Array<[[string, string], EdgeWire]>;
-}
-
 /** Wire format for an edge (matches Rust serialization). */
-interface EdgeWire {
+export interface EdgeWire {
   readonly src: string;
   readonly tgt: string;
   readonly kind: string;
   readonly name: string | null;
+}
+
+/** A migration mapping sent to WASM (matches Rust `Migration` struct). */
+export interface MigrationMapping {
+  readonly vertex_map: Record<string, string>;
+  readonly edge_map: Map<EdgeWire, EdgeWire>;
+  readonly hyper_edge_map: Record<string, string>;
+  readonly label_map: Map<readonly [string, string], string>;
+  readonly resolver: Map<readonly [string, string], EdgeWire>;
 }
