@@ -59,7 +59,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo install wasm-pack
-      - run: wasm-pack build crates/panproto-wasm --target web
+      - run: wasm-pack build crates/panproto-wasm --target web --dev
 
   doc:
     name: Documentation

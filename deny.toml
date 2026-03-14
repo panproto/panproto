@@ -19,6 +19,10 @@ allow = [
 multiple-versions = "warn"
 wildcards = "deny"
 
+[[bans.skip]]
+crate = "panproto-integration-tests"
+reason = "internal test crate, publish = false"
+
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"

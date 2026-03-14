@@ -25,10 +25,12 @@ Level 3  Concrete instances as models of schemas
 | `panproto-mig` | Migration engine: theory-derived existence checks, compilation, lift, compose, invert |
 | `panproto-lens` | Bidirectional lenses with [Cambria](https://www.inkandswitch.com/cambria/)-style combinators and law verification |
 | `panproto-check` | Breaking change detection via structural diffing and protocol-aware classification |
-| `panproto-protocols` | Built-in protocol definitions for ATProto, SQL, Protobuf, GraphQL, JSON Schema |
+| `panproto-protocols` | Built-in protocol definitions (76 protocols including ATProto, SQL, Protobuf, GraphQL, JSON Schema) |
+| `panproto-io` | Instance-level parse/emit codecs across all protocols (JSON, XML, tabular, web documents) |
+| `panproto-vcs` | Schematic version control: content-addressed object store, commit DAG, pushout-based merge |
 | `panproto-core` | Re-export facade |
 | `panproto-wasm` | [WASM](https://webassembly.org/) bindings with handle-based slab allocator and [MessagePack](https://msgpack.org/) boundary |
-| `panproto-cli` | CLI: `validate`, `check`, `diff`, `lift` |
+| `panproto-cli` | CLI (`schema`): validate, check, diff, lift, and git-style version control |
 
 ### TypeScript SDK
 
@@ -78,17 +80,26 @@ const schema = proto.schema()
 
 ```sh
 # Validate a schema against a protocol
-panproto validate --protocol atproto schema.json
+schema validate --protocol atproto schema.json
 
 # Detect breaking changes between two schema versions
-panproto check --protocol atproto old.json new.json
+schema check --protocol atproto old.json new.json
 
 # Diff two schemas
-panproto diff old.json new.json
+schema diff old.json new.json
 
 # Apply a migration to a record
-panproto lift --protocol atproto --migration mig.json \
+schema lift --protocol atproto --migration mig.json \
   --src-schema old.json --tgt-schema new.json record.json
+
+# Version control
+schema init
+schema add schema.json
+schema commit -m "initial schema"
+schema branch feature
+schema checkout feature
+schema merge main
+schema log
 ```
 
 ## Building
@@ -96,10 +107,10 @@ panproto lift --protocol atproto --migration mig.json \
 ```sh
 # Rust
 cargo build --workspace
-[cargo-nextest](https://nexte.st/) run --workspace
+cargo nextest run --workspace
 
 # WASM
-[wasm-pack](https://rustwasm.github.io/wasm-pack/) build crates/panproto-wasm --target web
+wasm-pack build crates/panproto-wasm --target web
 
 # TypeScript SDK
 cd sdk/typescript && pnpm install && pnpm build && pnpm test
@@ -114,6 +125,8 @@ panproto implements a three-level architecture rooted in category theory:
 **[Set-valued functor](https://ncatlab.org/nlab/show/functor) instances** (relational data like SQL tables) use [precomposition](https://ncatlab.org/nlab/show/precomposition) (&#916;<sub>F</sub>) for restrict and [left Kan extension](https://ncatlab.org/nlab/show/Kan+extension) (&#931;<sub>F</sub>) for extend.
 
 **[Bidirectional lenses](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29)** provide `get` (restrict + complement capture) and `put` (restore from complement) directions, with six [Cambria](https://www.inkandswitch.com/cambria/)-style combinators: `RenameField`, `AddField`, `RemoveField`, `WrapInObject`, `HoistField`, `CoerceType`. The `GetPut` and `PutGet` laws are verified at test time.
+
+**Schematic version control** (`panproto-vcs`) provides git-style operations — commit, branch, merge, rebase, cherry-pick, bisect, blame — operating on schema graphs rather than text. Merges are computed as categorical pushouts with typed conflict detection across all schema fields. There is no heuristic tie-breaking; the merge is commutative.
 
 **Theory-derived existence conditions** determine migration validity by inspecting the schema and instance [theory](https://ncatlab.org/nlab/show/generalized+algebraic+theory) sorts at runtime, rather than hardcoding checks per protocol.
 
