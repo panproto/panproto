@@ -42,7 +42,11 @@ impl TabularCodec {
 
     /// Create a codec with a custom delimiter.
     #[must_use]
-    pub fn with_delimiter(protocol: impl Into<String>, table_vertex: impl Into<String>, delimiter: u8) -> Self {
+    pub fn with_delimiter(
+        protocol: impl Into<String>,
+        table_vertex: impl Into<String>,
+        delimiter: u8,
+    ) -> Self {
         Self {
             protocol: protocol.into(),
             table_vertex: table_vertex.into(),

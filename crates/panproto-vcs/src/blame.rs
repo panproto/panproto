@@ -39,7 +39,9 @@ pub fn blame_vertex(
     head: ObjectId,
     vertex_id: &str,
 ) -> Result<BlameEntry, VcsError> {
-    walk_blame(store, head, |schema| schema.vertices.contains_key(vertex_id))
+    walk_blame(store, head, |schema| {
+        schema.vertices.contains_key(vertex_id)
+    })
 }
 
 /// Find which commit introduced an edge.
@@ -47,11 +49,7 @@ pub fn blame_vertex(
 /// # Errors
 ///
 /// Returns an error if the edge is not found or loading fails.
-pub fn blame_edge(
-    store: &dyn Store,
-    head: ObjectId,
-    edge: &Edge,
-) -> Result<BlameEntry, VcsError> {
+pub fn blame_edge(store: &dyn Store, head: ObjectId, edge: &Edge) -> Result<BlameEntry, VcsError> {
     walk_blame(store, head, |schema| schema.edges.contains_key(edge))
 }
 
@@ -95,7 +93,7 @@ fn walk_blame(
                 return Err(VcsError::WrongObjectType {
                     expected: "commit",
                     found: other.type_name(),
-                })
+                });
             }
         };
 
@@ -105,7 +103,7 @@ fn walk_blame(
                 return Err(VcsError::WrongObjectType {
                     expected: "schema",
                     found: other.type_name(),
-                })
+                });
             }
         };
 
@@ -146,8 +144,8 @@ fn walk_blame(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::CommitObject;
     use crate::MemStore;
+    use crate::object::CommitObject;
     use panproto_schema::{Schema, Vertex};
     use std::collections::HashMap;
 

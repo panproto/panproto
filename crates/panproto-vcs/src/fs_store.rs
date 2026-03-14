@@ -79,10 +79,7 @@ impl FsStore {
 
     fn object_path(&self, id: &ObjectId) -> PathBuf {
         let hex = id.to_string();
-        self.root
-            .join("objects")
-            .join(&hex[..2])
-            .join(&hex[2..])
+        self.root.join("objects").join(&hex[..2]).join(&hex[2..])
     }
 
     fn ref_path(&self, name: &str) -> PathBuf {

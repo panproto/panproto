@@ -137,7 +137,10 @@ pub fn parse_tei(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         builder = builder.constraint(doc_id, "lang", lang);
     }
 
-    if let Some(header) = document.get("header").and_then(serde_json::Value::as_object) {
+    if let Some(header) = document
+        .get("header")
+        .and_then(serde_json::Value::as_object)
+    {
         let header_id = format!("{doc_id}.header");
         builder = builder.vertex(&header_id, "tei-header", None)?;
         builder = builder.edge(doc_id, &header_id, "contains", Some("header"))?;
@@ -161,7 +164,10 @@ fn parse_header(
     header: &serde_json::Map<String, serde_json::Value>,
     header_id: &str,
 ) -> Result<SchemaBuilder, ProtocolError> {
-    if let Some(file_desc) = header.get("fileDesc").and_then(serde_json::Value::as_object) {
+    if let Some(file_desc) = header
+        .get("fileDesc")
+        .and_then(serde_json::Value::as_object)
+    {
         let fd_id = format!("{header_id}.fileDesc");
         b = b.vertex(&fd_id, "file-desc", None)?;
         b = b.edge(header_id, &fd_id, "metadata", Some("fileDesc"))?;
@@ -231,7 +237,12 @@ fn parse_div(
         .and_then(serde_json::Value::as_str)
         .map_or_else(|| format!("{parent_id}.div.{index}"), String::from);
     b = b.vertex(&div_id, "div", None)?;
-    b = b.edge(parent_id, &div_id, "contains", Some(&format!("div.{index}")))?;
+    b = b.edge(
+        parent_id,
+        &div_id,
+        "contains",
+        Some(&format!("div.{index}")),
+    )?;
     b = apply_common_attrs(b, div, &div_id);
 
     if let Some(paragraphs) = div.get("paragraphs").and_then(serde_json::Value::as_array) {
@@ -373,7 +384,12 @@ fn parse_app(
         .and_then(serde_json::Value::as_str)
         .map_or_else(|| format!("{parent_id}.app.{index}"), String::from);
     b = b.vertex(&app_id, "app", None)?;
-    b = b.edge(parent_id, &app_id, "contains", Some(&format!("app.{index}")))?;
+    b = b.edge(
+        parent_id,
+        &app_id,
+        "contains",
+        Some(&format!("app.{index}")),
+    )?;
     b = apply_common_attrs(b, app, &app_id);
 
     if let Some(lem_obj) = app.get("lem").and_then(serde_json::Value::as_object) {
@@ -629,10 +645,7 @@ pub fn emit_tei(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn emit_header(
-    schema: &Schema,
-    header_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_header(schema: &Schema, header_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut header = serde_json::Map::new();
 
     let meta_children = children_by_edge(schema, header_id, "metadata");
@@ -671,10 +684,7 @@ fn emit_header(
     Ok(serde_json::Value::Object(header))
 }
 
-fn emit_text_body(
-    schema: &Schema,
-    text_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_text_body(schema: &Schema, text_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut text_obj = serde_json::Map::new();
 
     let text_children = children_by_edge(schema, text_id, "contains");
@@ -699,10 +709,7 @@ fn emit_text_body(
 }
 
 #[allow(clippy::too_many_lines)]
-fn emit_div(
-    schema: &Schema,
-    div_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_div(schema: &Schema, div_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut obj = emit_constrained_map(schema, div_id);
 
     let children = children_by_edge(schema, div_id, "contains");
@@ -740,10 +747,7 @@ fn emit_div(
     Ok(serde_json::Value::Object(obj))
 }
 
-fn emit_line_group(
-    schema: &Schema,
-    lg_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_line_group(schema: &Schema, lg_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut obj = emit_constrained_map(schema, lg_id);
     let children = children_by_edge(schema, lg_id, "contains");
     let mut lines = Vec::new();
@@ -770,10 +774,7 @@ fn emit_line_group(
     Ok(serde_json::Value::Object(obj))
 }
 
-fn emit_speech(
-    schema: &Schema,
-    sp_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_speech(schema: &Schema, sp_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut obj = emit_constrained_map(schema, sp_id);
     let children = children_by_edge(schema, sp_id, "contains");
     let mut paragraphs = Vec::new();
@@ -806,10 +807,7 @@ fn emit_speech(
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn emit_app(
-    schema: &Schema,
-    app_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_app(schema: &Schema, app_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut obj = emit_constrained_map(schema, app_id);
     let children = children_by_edge(schema, app_id, "contains");
     let mut readings = Vec::new();
@@ -831,10 +829,7 @@ fn emit_app(
 }
 
 #[allow(clippy::too_many_lines)]
-fn emit_paragraph(
-    schema: &Schema,
-    p_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_paragraph(schema: &Schema, p_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut obj = emit_constrained_map(schema, p_id);
 
     let children = children_by_edge(schema, p_id, "contains");
@@ -845,8 +840,7 @@ fn emit_paragraph(
         match child.kind.as_str() {
             "s" => sentences.push(emit_sentence(schema, &child.id)?),
             "w" | "pc" | "c" => tokens.push(emit_token(schema, &child.id)?),
-            "name" | "pers-name" | "place-name" | "org-name" | "date" | "time" | "rs"
-            | "ref" => {
+            "name" | "pers-name" | "place-name" | "org-name" | "date" | "time" | "rs" | "ref" => {
                 entities.push(emit_entity(schema, &child.id)?);
             }
             _ => {}
@@ -866,10 +860,7 @@ fn emit_paragraph(
 }
 
 #[allow(clippy::too_many_lines)]
-fn emit_sentence(
-    schema: &Schema,
-    s_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_sentence(schema: &Schema, s_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut obj = emit_constrained_map(schema, s_id);
 
     let children = children_by_edge(schema, s_id, "contains");
@@ -879,8 +870,7 @@ fn emit_sentence(
     for (_, child) in &children {
         match child.kind.as_str() {
             "w" | "pc" | "c" => tokens.push(emit_token(schema, &child.id)?),
-            "name" | "pers-name" | "place-name" | "org-name" | "date" | "time" | "rs"
-            | "ref" => {
+            "name" | "pers-name" | "place-name" | "org-name" | "date" | "time" | "rs" | "ref" => {
                 entities.push(emit_entity(schema, &child.id)?);
             }
             "seg" | "phr" | "cl" => {
@@ -902,10 +892,7 @@ fn emit_sentence(
     Ok(serde_json::Value::Object(obj))
 }
 
-fn emit_token(
-    schema: &Schema,
-    tok_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_token(schema: &Schema, tok_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let vertex = schema
         .vertices
         .get(tok_id)
@@ -943,10 +930,7 @@ fn emit_token(
     Ok(serde_json::Value::Object(obj))
 }
 
-fn emit_entity(
-    schema: &Schema,
-    ent_id: &str,
-) -> Result<serde_json::Value, ProtocolError> {
+fn emit_entity(schema: &Schema, ent_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let vertex = schema
         .vertices
         .get(ent_id)
@@ -1187,7 +1171,9 @@ mod tests {
         let title_id = "td.header.fileDesc.titleStmt.title";
         let constraints: Vec<_> = vertex_constraints(&schema, title_id);
         assert!(
-            constraints.iter().any(|c| c.sort == "value" && c.value == "My Title"),
+            constraints
+                .iter()
+                .any(|c| c.sort == "value" && c.value == "My Title"),
             "title should use 'value' constraint, got: {constraints:?}"
         );
         assert!(
@@ -1273,7 +1259,11 @@ mod tests {
         assert!(schema.has_vertex("app1.rdg.1"), "rdg.1 missing");
 
         let lem_constraints: Vec<_> = vertex_constraints(&schema, "app1.lem");
-        assert!(lem_constraints.iter().any(|c| c.sort == "value" && c.value == "original"));
+        assert!(
+            lem_constraints
+                .iter()
+                .any(|c| c.sort == "value" && c.value == "original")
+        );
 
         let emitted = emit_tei(&schema).expect("emit apparatus");
         let div = &emitted["document"]["text"]["body"]["divs"][0];

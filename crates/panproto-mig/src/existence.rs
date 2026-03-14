@@ -460,24 +460,12 @@ fn check_recursion_compatibility(
 ///
 /// Structural → linear is a tightening that invalidates existing data
 /// using the edge multiple times.
-fn check_linearity(
-    src: &Schema,
-    tgt: &Schema,
-    migration: &Migration,
-) -> Vec<ExistenceError> {
+fn check_linearity(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<ExistenceError> {
     let mut errors = Vec::new();
 
     for (src_edge, tgt_edge) in &migration.edge_map {
-        let src_mode = src
-            .usage_modes
-            .get(src_edge)
-            .cloned()
-            .unwrap_or_default();
-        let tgt_mode = tgt
-            .usage_modes
-            .get(tgt_edge)
-            .cloned()
-            .unwrap_or_default();
+        let src_mode = src.usage_modes.get(src_edge).cloned().unwrap_or_default();
+        let tgt_mode = tgt.usage_modes.get(tgt_edge).cloned().unwrap_or_default();
 
         let is_tightened = matches!(
             (&src_mode, &tgt_mode),

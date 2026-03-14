@@ -37,11 +37,7 @@ impl InstanceParser for XmlCodec {
         NativeRepr::WType
     }
 
-    fn parse_wtype(
-        &self,
-        schema: &Schema,
-        input: &[u8],
-    ) -> Result<WInstance, ParseInstanceError> {
+    fn parse_wtype(&self, schema: &Schema, input: &[u8]) -> Result<WInstance, ParseInstanceError> {
         xml_pathway::parse_xml_bytes(schema, input, &self.protocol)
     }
 

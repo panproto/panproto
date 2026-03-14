@@ -33,11 +33,7 @@ use rustc_hash::FxHashSet;
 /// 5. **Resolver / hyper-resolver**: Empty.
 #[must_use]
 pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migration {
-    let removed_verts: FxHashSet<&str> = diff
-        .removed_vertices
-        .iter()
-        .map(String::as_str)
-        .collect();
+    let removed_verts: FxHashSet<&str> = diff.removed_vertices.iter().map(String::as_str).collect();
 
     let removed_edges: FxHashSet<&Edge> = diff.removed_edges.iter().collect();
 
@@ -58,9 +54,7 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
             continue;
         }
         // Both endpoints must survive.
-        if removed_verts.contains(edge.src.as_str())
-            || removed_verts.contains(edge.tgt.as_str())
-        {
+        if removed_verts.contains(edge.src.as_str()) || removed_verts.contains(edge.tgt.as_str()) {
             continue;
         }
 
@@ -70,7 +64,9 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
         } else {
             // Edge was removed from new but endpoints survive — look for
             // a matching edge with the same name between the same vertices.
-            if let Some(matching) = find_matching_edge(new, &edge.src, &edge.tgt, edge.name.as_deref()) {
+            if let Some(matching) =
+                find_matching_edge(new, &edge.src, &edge.tgt, edge.name.as_deref())
+            {
                 edge_map.insert(edge.clone(), matching);
             }
         }
@@ -120,10 +116,7 @@ fn find_matching_edge(schema: &Schema, src: &str, tgt: &str, name: Option<&str>)
 }
 
 /// Find a label in a hyper-edge that points to the given vertex.
-fn find_label_for_vertex(
-    he: &panproto_schema::HyperEdge,
-    vertex_id: &str,
-) -> Option<String> {
+fn find_label_for_vertex(he: &panproto_schema::HyperEdge, vertex_id: &str) -> Option<String> {
     he.signature
         .iter()
         .find(|(_, v)| *v == vertex_id)

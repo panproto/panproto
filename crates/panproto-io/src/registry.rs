@@ -49,8 +49,10 @@ impl ProtocolRegistry {
     ///
     /// If a codec was already registered for this protocol name, it is replaced.
     pub fn register<C: ProtocolCodec + 'static>(&mut self, codec: C) {
-        self.codecs
-            .insert(InstanceParser::protocol_name(&codec).to_string(), Box::new(codec));
+        self.codecs.insert(
+            InstanceParser::protocol_name(&codec).to_string(),
+            Box::new(codec),
+        );
     }
 
     /// Look up the native representation for a protocol.

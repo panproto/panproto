@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 use memchr::memchr_iter;
 
-use panproto_inst::value::Value;
 use panproto_inst::FInstance;
+use panproto_inst::value::Value;
 use panproto_schema::Schema;
 
 use crate::error::{EmitInstanceError, ParseInstanceError};
@@ -102,7 +102,10 @@ pub fn parse_tsv(
         let fields = split_fields(line, delimiter);
         let mut row = HashMap::new();
         for (i, field) in fields.iter().enumerate() {
-            let col_name = headers.get(i).cloned().unwrap_or_else(|| format!("col_{i}"));
+            let col_name = headers
+                .get(i)
+                .cloned()
+                .unwrap_or_else(|| format!("col_{i}"));
             let val = String::from_utf8_lossy(field).to_string();
             if val != "_" {
                 row.insert(col_name, Value::Str(val));
@@ -226,10 +229,13 @@ pub fn emit_tsv(
     table_vertex: &str,
     delimiter: u8,
 ) -> Result<Vec<u8>, EmitInstanceError> {
-    let rows = instance.tables.get(table_vertex).ok_or_else(|| EmitInstanceError::Emit {
-        protocol: protocol.to_string(),
-        message: format!("table '{table_vertex}' not found in instance"),
-    })?;
+    let rows = instance
+        .tables
+        .get(table_vertex)
+        .ok_or_else(|| EmitInstanceError::Emit {
+            protocol: protocol.to_string(),
+            message: format!("table '{table_vertex}' not found in instance"),
+        })?;
 
     if rows.is_empty() {
         return Ok(Vec::new());
@@ -284,16 +290,20 @@ pub fn emit_tsv(
 /// # Errors
 ///
 /// Returns [`EmitInstanceError::Emit`] if required tables are missing.
-pub fn emit_conllu(
-    instance: &FInstance,
-    protocol: &str,
-) -> Result<Vec<u8>, EmitInstanceError> {
-    let token_rows = instance.tables.get("token").ok_or_else(|| EmitInstanceError::Emit {
-        protocol: protocol.to_string(),
-        message: "token table not found".into(),
-    })?;
+pub fn emit_conllu(instance: &FInstance, protocol: &str) -> Result<Vec<u8>, EmitInstanceError> {
+    let token_rows = instance
+        .tables
+        .get("token")
+        .ok_or_else(|| EmitInstanceError::Emit {
+            protocol: protocol.to_string(),
+            message: "token table not found".into(),
+        })?;
 
-    let sentence_rows = instance.tables.get("sentence").unwrap_or(&Vec::new()).clone();
+    let sentence_rows = instance
+        .tables
+        .get("sentence")
+        .unwrap_or(&Vec::new())
+        .clone();
 
     let conllu_columns = [
         "ID", "FORM", "LEMMA", "UPOS", "XPOS", "FEATS", "HEAD", "DEPREL", "DEPS", "MISC",
@@ -316,9 +326,10 @@ pub fn emit_conllu(
             current_sent = sent_idx;
 
             // Emit sentence metadata comments.
-            if let Some(sent_row) = sentence_rows.iter().find(|r| {
-                matches!(r.get("sent_idx"), Some(Value::Int(n)) if *n == sent_idx)
-            }) {
+            if let Some(sent_row) = sentence_rows
+                .iter()
+                .find(|r| matches!(r.get("sent_idx"), Some(Value::Int(n)) if *n == sent_idx))
+            {
                 for (key, val) in sent_row {
                     if key == "sent_idx" {
                         continue;
@@ -454,6 +465,10 @@ mod tests {
 
         let t1 = instance.tables.get("token").expect("tokens");
         let t2 = instance2.tables.get("token").expect("tokens");
-        assert_eq!(t1.len(), t2.len(), "token count should match after round-trip");
+        assert_eq!(
+            t1.len(),
+            t2.len(),
+            "token count should match after round-trip"
+        );
     }
 }

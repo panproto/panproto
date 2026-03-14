@@ -106,8 +106,8 @@ pub struct ResetOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::{CommitObject, Object};
     use crate::MemStore;
+    use crate::object::{CommitObject, Object};
 
     #[test]
     fn reset_soft_moves_ref() {
@@ -142,10 +142,7 @@ mod tests {
         assert!(!outcome.should_write_working);
 
         // Ref should now point to c0.
-        assert_eq!(
-            store.get_ref("refs/heads/main").unwrap(),
-            Some(c0_id)
-        );
+        assert_eq!(store.get_ref("refs/heads/main").unwrap(), Some(c0_id));
     }
 
     #[test]

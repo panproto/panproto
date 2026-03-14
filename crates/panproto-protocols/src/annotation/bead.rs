@@ -96,7 +96,10 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
             if let Some(name) = lex_def.get("name").and_then(serde_json::Value::as_str) {
                 builder = builder.constraint(lex_id, "name", name);
             }
-            if let Some(desc) = lex_def.get("description").and_then(serde_json::Value::as_str) {
+            if let Some(desc) = lex_def
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+            {
                 builder = builder.constraint(lex_id, "description", desc);
             }
             if let Some(lc) = lex_def
@@ -132,7 +135,10 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
             if let Some(name) = tmpl_def.get("name").and_then(serde_json::Value::as_str) {
                 builder = builder.constraint(tmpl_id, "name", name);
             }
-            if let Some(desc) = tmpl_def.get("description").and_then(serde_json::Value::as_str) {
+            if let Some(desc) = tmpl_def
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+            {
                 builder = builder.constraint(tmpl_id, "description", desc);
             }
             if let Some(lc) = tmpl_def
@@ -143,7 +149,9 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
             }
 
             // Template-level constraints
-            if let Some(constrs) = tmpl_def.get("constraints").and_then(serde_json::Value::as_array)
+            if let Some(constrs) = tmpl_def
+                .get("constraints")
+                .and_then(serde_json::Value::as_array)
             {
                 for (ci, cdef) in constrs.iter().enumerate() {
                     let cid = format!("{tmpl_id}.constraint.{ci}");
@@ -170,19 +178,23 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                     if let Some(name) = slot_def.get("name").and_then(serde_json::Value::as_str) {
                         builder = builder.constraint(&slot_vid, "name", name);
                     }
-                    if let Some(desc) =
-                        slot_def.get("description").and_then(serde_json::Value::as_str)
+                    if let Some(desc) = slot_def
+                        .get("description")
+                        .and_then(serde_json::Value::as_str)
                     {
                         builder = builder.constraint(&slot_vid, "description", desc);
                     }
-                    if let Some(req) = slot_def.get("required").and_then(serde_json::Value::as_bool)
+                    if let Some(req) = slot_def
+                        .get("required")
+                        .and_then(serde_json::Value::as_bool)
                     {
                         builder = builder.constraint(&slot_vid, "required", &req.to_string());
                     }
 
                     // Slot-level constraints
-                    if let Some(sc) =
-                        slot_def.get("constraints").and_then(serde_json::Value::as_array)
+                    if let Some(sc) = slot_def
+                        .get("constraints")
+                        .and_then(serde_json::Value::as_array)
                     {
                         for (sci, scdef) in sc.iter().enumerate() {
                             let scid = format!("{slot_vid}.constraint.{sci}");
@@ -270,10 +282,7 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
             {
                 builder = builder.constraint(it_id, "judgment-type", jt);
             }
-            if let Some(tt) = it_def
-                .get("task_type")
-                .and_then(serde_json::Value::as_str)
-            {
+            if let Some(tt) = it_def.get("task_type").and_then(serde_json::Value::as_str) {
                 builder = builder.constraint(it_id, "task-type", tt);
             }
         }
@@ -346,8 +355,9 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                     if let Some(lbl) = srel_def.get("label").and_then(serde_json::Value::as_str) {
                         builder = builder.constraint(&srel_id, "label", lbl);
                     }
-                    if let Some(dir) =
-                        srel_def.get("directed").and_then(serde_json::Value::as_bool)
+                    if let Some(dir) = srel_def
+                        .get("directed")
+                        .and_then(serde_json::Value::as_bool)
                     {
                         builder = builder.constraint(&srel_id, "directed", &dir.to_string());
                     }
@@ -455,13 +465,14 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
     let mut judgments = serde_json::Map::new();
 
     // Helper: collect named constraints into a JSON object
-    let named_constraints = |schema: &Schema, vid: &str| -> serde_json::Map<String, serde_json::Value> {
-        let mut m = serde_json::Map::new();
-        for c in vertex_constraints(schema, vid) {
-            m.insert(c.sort.clone(), serde_json::json!(c.value));
-        }
-        m
-    };
+    let named_constraints =
+        |schema: &Schema, vid: &str| -> serde_json::Map<String, serde_json::Value> {
+            let mut m = serde_json::Map::new();
+            for c in vertex_constraints(schema, vid) {
+                m.insert(c.sort.clone(), serde_json::json!(c.value));
+            }
+            m
+        };
 
     let mut sorted_vertices: Vec<_> = schema.vertices.values().collect();
     sorted_vertices.sort_by(|a, b| a.id.cmp(&b.id));
@@ -507,10 +518,7 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                                     serde_json::Value::Object(named_constraints(schema, &cv.id))
                                 })
                                 .collect();
-                            slot_obj.insert(
-                                "constraints".into(),
-                                serde_json::Value::Array(sc_arr),
-                            );
+                            slot_obj.insert("constraints".into(), serde_json::Value::Array(sc_arr));
                         }
                         slots_map.insert(key, serde_json::Value::Object(slot_obj));
                     }
@@ -523,9 +531,7 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if !tc_edges.is_empty() {
                     let tc_arr: Vec<serde_json::Value> = tc_edges
                         .iter()
-                        .map(|(_, cv)| {
-                            serde_json::Value::Object(named_constraints(schema, &cv.id))
-                        })
+                        .map(|(_, cv)| serde_json::Value::Object(named_constraints(schema, &cv.id)))
                         .collect();
                     obj.insert("constraints".into(), serde_json::Value::Array(tc_arr));
                 }
@@ -563,11 +569,10 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
             "item" => {
                 let mut obj = serde_json::Map::new();
                 // filled_template_refs via item-ref edges
-                let refs: Vec<serde_json::Value> =
-                    children_by_edge(schema, &v.id, "item-ref")
-                        .iter()
-                        .map(|(_, rv)| serde_json::json!(rv.id))
-                        .collect();
+                let refs: Vec<serde_json::Value> = children_by_edge(schema, &v.id, "item-ref")
+                    .iter()
+                    .map(|(_, rv)| serde_json::json!(rv.id))
+                    .collect();
                 if !refs.is_empty() {
                     obj.insert(
                         "filled_template_refs".into(),
@@ -590,20 +595,16 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                     .map(|(_, cv)| serde_json::Value::Object(named_constraints(schema, &cv.id)))
                     .collect();
                 if !srel_arr.is_empty() {
-                    obj.insert(
-                        "span_relations".into(),
-                        serde_json::Value::Array(srel_arr),
-                    );
+                    obj.insert("span_relations".into(), serde_json::Value::Array(srel_arr));
                 }
                 items.insert(v.id.clone(), serde_json::Value::Object(obj));
             }
             "experiment-list" => {
                 let mut obj = named_constraints(schema, &v.id);
-                let refs: Vec<serde_json::Value> =
-                    children_by_edge(schema, &v.id, "item-ref")
-                        .iter()
-                        .map(|(_, rv)| serde_json::json!(rv.id))
-                        .collect();
+                let refs: Vec<serde_json::Value> = children_by_edge(schema, &v.id, "item-ref")
+                    .iter()
+                    .map(|(_, rv)| serde_json::json!(rv.id))
+                    .collect();
                 if !refs.is_empty() {
                     obj.insert("item_refs".into(), serde_json::Value::Array(refs));
                 }
@@ -669,17 +670,18 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
 // ── Private helpers ────────────────────────────────────────────────────────
 
 /// Apply lexical-item fields from a JSON definition to the schema builder.
-fn parse_lexical_item(mut builder: SchemaBuilder, vid: &str, def: &serde_json::Value) -> SchemaBuilder {
+fn parse_lexical_item(
+    mut builder: SchemaBuilder,
+    vid: &str,
+    def: &serde_json::Value,
+) -> SchemaBuilder {
     if let Some(v) = def.get("lemma").and_then(serde_json::Value::as_str) {
         builder = builder.constraint(vid, "name", v);
     }
     if let Some(v) = def.get("form").and_then(serde_json::Value::as_str) {
         builder = builder.constraint(vid, "label", v);
     }
-    if let Some(v) = def
-        .get("language_code")
-        .and_then(serde_json::Value::as_str)
-    {
+    if let Some(v) = def.get("language_code").and_then(serde_json::Value::as_str) {
         builder = builder.constraint(vid, "language-code", v);
     }
     if let Some(v) = def.get("source").and_then(serde_json::Value::as_str) {
@@ -741,11 +743,7 @@ fn edge_rules() -> Vec<EdgeRule> {
         // contains: lexicon→lexical-item, template→slot, item→span, item→span-relation
         EdgeRule {
             edge_kind: "contains".into(),
-            src_kinds: vec![
-                "lexicon".into(),
-                "template".into(),
-                "item".into(),
-            ],
+            src_kinds: vec!["lexicon".into(), "template".into(), "item".into()],
             tgt_kinds: vec![
                 "lexical-item".into(),
                 "slot".into(),
@@ -797,7 +795,12 @@ fn edge_rules() -> Vec<EdgeRule> {
         // items: domain → domain or primitive (array items stand-off)
         {
             let mut tgt = domain_kinds.clone();
-            tgt.extend(["string".into(), "integer".into(), "float".into(), "boolean".into()]);
+            tgt.extend([
+                "string".into(),
+                "integer".into(),
+                "float".into(),
+                "boolean".into(),
+            ]);
             EdgeRule {
                 edge_kind: "items".into(),
                 src_kinds: domain_kinds,
@@ -968,7 +971,10 @@ mod tests {
 
         // Lexicon and its item
         assert!(schema.has_vertex("lex1"), "lexicon vertex missing");
-        assert!(schema.has_vertex("lex1.item.run"), "lexical-item vertex missing");
+        assert!(
+            schema.has_vertex("lex1.item.run"),
+            "lexical-item vertex missing"
+        );
         assert_eq!(
             constraint_value(&schema, "lex1", "name"),
             Some("Test Lexicon")
@@ -1006,10 +1012,7 @@ mod tests {
             constraint_value(&schema, "span1", "span-type"),
             Some("syntactic")
         );
-        assert_eq!(
-            constraint_value(&schema, "srel1", "directed"),
-            Some("true")
-        );
+        assert_eq!(constraint_value(&schema, "srel1", "directed"), Some("true"));
 
         // ExperimentList
         assert!(schema.has_vertex("list1"), "experiment-list vertex missing");
@@ -1020,10 +1023,7 @@ mod tests {
 
         // Judgment
         assert!(schema.has_vertex("j1"), "judgment vertex missing");
-        assert_eq!(
-            constraint_value(&schema, "j1", "response-value"),
-            Some("4")
-        );
+        assert_eq!(constraint_value(&schema, "j1", "response-value"), Some("4"));
         assert_eq!(
             constraint_value(&schema, "j1", "response-time"),
             Some("1250")

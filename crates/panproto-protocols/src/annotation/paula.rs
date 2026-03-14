@@ -125,7 +125,10 @@ pub fn parse_paula_schema(json: &serde_json::Value) -> Result<Schema, ProtocolEr
                 builder = builder.vertex(&field_id, field_kind, None)?;
                 builder = builder.edge(name, &field_id, "prop", Some(field_name))?;
 
-                if let Some(ns) = field_def.get("namespace").and_then(serde_json::Value::as_str) {
+                if let Some(ns) = field_def
+                    .get("namespace")
+                    .and_then(serde_json::Value::as_str)
+                {
                     builder = builder.constraint(&field_id, "namespace", ns);
                 }
                 if let Some(layer) = field_def.get("layer").and_then(serde_json::Value::as_str) {
@@ -139,12 +142,16 @@ pub fn parse_paula_schema(json: &serde_json::Value) -> Result<Schema, ProtocolEr
                     builder = builder.constraint(&field_id, "end", end);
                 }
                 // Temporal constraints (STimelineRelation / SMedialRelation)
-                if let Some(bt) =
-                    field_def.get("begin-time").and_then(serde_json::Value::as_str)
+                if let Some(bt) = field_def
+                    .get("begin-time")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "begin-time", bt);
                 }
-                if let Some(et) = field_def.get("end-time").and_then(serde_json::Value::as_str) {
+                if let Some(et) = field_def
+                    .get("end-time")
+                    .and_then(serde_json::Value::as_str)
+                {
                     builder = builder.constraint(&field_id, "end-time", et);
                 }
             }
@@ -455,9 +462,7 @@ mod tests {
     #[test]
     fn order_relation_includes_span() {
         let p = protocol();
-        let rule = p
-            .find_edge_rule("order")
-            .expect("order rule must exist");
+        let rule = p.find_edge_rule("order").expect("order rule must exist");
         assert!(rule.src_kinds.contains(&"span".to_string()));
         assert!(rule.tgt_kinds.contains(&"span".to_string()));
     }

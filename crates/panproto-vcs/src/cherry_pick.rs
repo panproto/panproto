@@ -39,15 +39,12 @@ pub fn cherry_pick(
             return Err(VcsError::WrongObjectType {
                 expected: "commit",
                 found: other.type_name(),
-            })
+            });
         }
     };
 
     // Need at least one parent to compute the diff.
-    let parent_id = commit
-        .parents
-        .first()
-        .ok_or(VcsError::NoPath)?;
+    let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
 
     let parent_commit = match store.get(parent_id)? {
         Object::Commit(c) => c,
@@ -55,7 +52,7 @@ pub fn cherry_pick(
             return Err(VcsError::WrongObjectType {
                 expected: "commit",
                 found: other.type_name(),
-            })
+            });
         }
     };
 
@@ -66,7 +63,7 @@ pub fn cherry_pick(
             return Err(VcsError::WrongObjectType {
                 expected: "schema",
                 found: other.type_name(),
-            })
+            });
         }
     };
 
@@ -76,22 +73,21 @@ pub fn cherry_pick(
             return Err(VcsError::WrongObjectType {
                 expected: "schema",
                 found: other.type_name(),
-            })
+            });
         }
     };
 
     // Load HEAD's schema.
-    let head_id = store::resolve_head(store)?
-        .ok_or_else(|| VcsError::RefNotFound {
-            name: "HEAD".to_owned(),
-        })?;
+    let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
+        name: "HEAD".to_owned(),
+    })?;
     let head_commit = match store.get(&head_id)? {
         Object::Commit(c) => c,
         other => {
             return Err(VcsError::WrongObjectType {
                 expected: "commit",
                 found: other.type_name(),
-            })
+            });
         }
     };
     let ours_schema = match store.get(&head_commit.schema_id)? {
@@ -100,7 +96,7 @@ pub fn cherry_pick(
             return Err(VcsError::WrongObjectType {
                 expected: "schema",
                 found: other.type_name(),
-            })
+            });
         }
     };
 

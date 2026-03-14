@@ -106,8 +106,8 @@ pub const fn bisect_remaining(state: &BisectState) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::{CommitObject, Object};
     use crate::MemStore;
+    use crate::object::{CommitObject, Object};
 
     fn build_linear(n: usize) -> (MemStore, Vec<ObjectId>) {
         let mut store = MemStore::new();

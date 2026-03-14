@@ -66,9 +66,11 @@ impl Store for MemStore {
     }
 
     fn delete_ref(&mut self, name: &str) -> Result<(), VcsError> {
-        self.refs.remove(name).ok_or_else(|| VcsError::RefNotFound {
-            name: name.to_owned(),
-        })?;
+        self.refs
+            .remove(name)
+            .ok_or_else(|| VcsError::RefNotFound {
+                name: name.to_owned(),
+            })?;
         Ok(())
     }
 

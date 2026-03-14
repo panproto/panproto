@@ -364,8 +364,7 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
                 .filter(|e| e.kind == "enhanced-dep")
                 .filter_map(|e| {
                     // Recover head_id from the source vertex's id-range constraint.
-                    let head_id = constraint_value(schema, &e.src, "id-range")
-                        .unwrap_or("0");
+                    let head_id = constraint_value(schema, &e.src, "id-range").unwrap_or("0");
                     e.name.as_deref().map(|label| {
                         // label is already "head_id:relation" if stored that way,
                         // but we reconstruct from head_id + relation (the label).
@@ -406,10 +405,8 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
         let mut token_lines: Vec<(String, String)> = Vec::new();
 
         for (_edge, token_vertex) in &tokens {
-            let id_col = constraint_value(schema, &token_vertex.id, "id-range")
-                .unwrap_or("_");
-            let form = constraint_value(schema, &token_vertex.id, "form")
-                .unwrap_or("_");
+            let id_col = constraint_value(schema, &token_vertex.id, "id-range").unwrap_or("_");
+            let form = constraint_value(schema, &token_vertex.id, "form").unwrap_or("_");
 
             let is_word = token_vertex.kind == "word";
 
@@ -463,8 +460,7 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
             };
 
             // HEAD from head constraint.
-            let head = constraint_value(schema, &token_vertex.id, "head")
-                .unwrap_or("_");
+            let head = constraint_value(schema, &token_vertex.id, "head").unwrap_or("_");
 
             // DEPREL: recover from basic dep edge going either out (root) or
             // being the edge name on incoming dep edges whose src has a dep edge
@@ -491,8 +487,7 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
                 .map_or_else(|| "_".to_string(), |v| v.join("|"));
 
             // MISC from misc constraint.
-            let misc = constraint_value(schema, &token_vertex.id, "misc")
-                .unwrap_or("_");
+            let misc = constraint_value(schema, &token_vertex.id, "misc").unwrap_or("_");
 
             let line = format!(
                 "{id_col}\t{form}\t{lemma}\t{upos}\t{xpos}\t{feats}\t{head}\t{deprel}\t{deps}\t{misc}"
@@ -763,10 +758,7 @@ mod tests {
 
         let schema = parse_conllu(conllu_text).expect("should parse empty node");
         assert!(schema.has_vertex("sent_0.tok_1.1"));
-        assert_eq!(
-            schema.vertices.get("sent_0.tok_1.1").unwrap().kind,
-            "empty"
-        );
+        assert_eq!(schema.vertices.get("sent_0.tok_1.1").unwrap().kind, "empty");
         // Must NOT have upos/xpos/lemma for the empty node.
         assert!(!schema.has_vertex("sent_0.tok_1.1.upos"));
         assert!(!schema.has_vertex("sent_0.tok_1.1.xpos"));
@@ -785,8 +777,7 @@ mod tests {
 
         let schema = parse_conllu(conllu_text).expect("should parse enhanced deps");
         // enhanced-dep edge should exist from tok_2 -> tok_1.1.
-        let enhanced = schema
-            .edges_between("sent_0.tok_2", "sent_0.tok_1.1");
+        let enhanced = schema.edges_between("sent_0.tok_2", "sent_0.tok_1.1");
         assert!(
             enhanced.iter().any(|e| e.kind == "enhanced-dep"),
             "expected enhanced-dep edge from tok_2 to tok_1.1"
@@ -820,7 +811,9 @@ mod tests {
         // Edge rules for upos/xpos/feat/lemma-of must only allow "word" sources.
         let p = protocol();
         for kind in &["upos", "xpos", "feat", "lemma-of"] {
-            let rule = p.find_edge_rule(kind).unwrap_or_else(|| panic!("no rule for {kind}"));
+            let rule = p
+                .find_edge_rule(kind)
+                .unwrap_or_else(|| panic!("no rule for {kind}"));
             assert_eq!(
                 rule.src_kinds,
                 vec!["word".to_string()],

@@ -39,9 +39,8 @@ pub fn parse_json_bytes(
     // SIMD pathway: parse bytes into serde_json::Value via simd-json.
     // simd-json requires a mutable buffer for in-place parsing.
     let mut buf = input.to_vec();
-    let json_val: serde_json::Value = simd_json::serde::from_slice(&mut buf).map_err(|e| {
-        ParseInstanceError::Json(format!("{e}"))
-    })?;
+    let json_val: serde_json::Value = simd_json::serde::from_slice(&mut buf)
+        .map_err(|e| ParseInstanceError::Json(format!("{e}")))?;
 
     parse_json(schema, root_vertex, &json_val).map_err(|e| ParseInstanceError::Parse {
         protocol: protocol.to_string(),
@@ -132,7 +131,10 @@ mod tests {
 
         let instance =
             parse_json_bytes(&schema, "root", input, "test").expect("parse should succeed");
-        assert!(instance.node_count() >= 2, "should have at least root + name nodes");
+        assert!(
+            instance.node_count() >= 2,
+            "should have at least root + name nodes"
+        );
 
         let emitted = emit_json_bytes(&schema, &instance, "test").expect("emit should succeed");
         let instance2 =

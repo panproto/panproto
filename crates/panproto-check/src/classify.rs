@@ -261,9 +261,7 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
     // --- Ordering changes ---
     for (edge, old_pos, new_pos) in &diff.order_changes {
         if old_pos.is_some() && new_pos.is_none() {
-            breaking.push(BreakingChange::OrderToUnordered {
-                edge: edge.clone(),
-            });
+            breaking.push(BreakingChange::OrderToUnordered { edge: edge.clone() });
         }
     }
 
@@ -279,9 +277,13 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         // Tightening: Structural → Linear/Affine, or Affine → Linear
         let is_tightened = matches!(
             (old_mode, new_mode),
-            (panproto_schema::UsageMode::Structural, panproto_schema::UsageMode::Linear)
-                | (panproto_schema::UsageMode::Structural, panproto_schema::UsageMode::Affine)
-                | (panproto_schema::UsageMode::Affine, panproto_schema::UsageMode::Linear)
+            (
+                panproto_schema::UsageMode::Structural | panproto_schema::UsageMode::Affine,
+                panproto_schema::UsageMode::Linear
+            ) | (
+                panproto_schema::UsageMode::Structural,
+                panproto_schema::UsageMode::Affine
+            )
         );
         if is_tightened {
             breaking.push(BreakingChange::LinearityTightened {

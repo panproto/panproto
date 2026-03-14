@@ -41,10 +41,9 @@ pub fn stash_push(
     author: &str,
     message: Option<&str>,
 ) -> Result<ObjectId, VcsError> {
-    let head_id = store::resolve_head(store)?
-        .ok_or_else(|| VcsError::RefNotFound {
-            name: "HEAD".to_owned(),
-        })?;
+    let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
+        name: "HEAD".to_owned(),
+    })?;
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -104,7 +103,7 @@ pub fn stash_pop(store: &mut dyn Store) -> Result<ObjectId, VcsError> {
             return Err(VcsError::WrongObjectType {
                 expected: "commit",
                 found: other.type_name(),
-            })
+            });
         }
     };
 
@@ -185,7 +184,8 @@ mod tests {
 
         // Stash a schema.
         let stashed_schema_id = ObjectId::from_bytes([42; 32]);
-        let stash_id = stash_push(&mut store, stashed_schema_id, "alice", Some("my stash")).unwrap();
+        let stash_id =
+            stash_push(&mut store, stashed_schema_id, "alice", Some("my stash")).unwrap();
         assert!(store.get_ref("refs/stash").unwrap().is_some());
 
         // List stashes.
@@ -218,8 +218,20 @@ mod tests {
         store.set_ref("refs/heads/main", head_id).unwrap();
 
         // Push two stashes.
-        stash_push(&mut store, ObjectId::from_bytes([1; 32]), "alice", Some("first")).unwrap();
-        stash_push(&mut store, ObjectId::from_bytes([2; 32]), "alice", Some("second")).unwrap();
+        stash_push(
+            &mut store,
+            ObjectId::from_bytes([1; 32]),
+            "alice",
+            Some("first"),
+        )
+        .unwrap();
+        stash_push(
+            &mut store,
+            ObjectId::from_bytes([2; 32]),
+            "alice",
+            Some("second"),
+        )
+        .unwrap();
 
         let stashes = stash_list(&store).unwrap();
         assert_eq!(stashes.len(), 2);

@@ -99,7 +99,10 @@ pub fn parse_elan(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         builder = builder.vertex(name, kind, None)?;
 
         // Constraints from top-level attributes.
-        if let Some(constraints) = def.get("constraints").and_then(serde_json::Value::as_object) {
+        if let Some(constraints) = def
+            .get("constraints")
+            .and_then(serde_json::Value::as_object)
+        {
             for (sort, val) in constraints {
                 if let Some(v) = val.as_str() {
                     builder = builder.constraint(name, sort, v);
@@ -118,8 +121,9 @@ pub fn parse_elan(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                 builder = builder.vertex(&field_id, field_kind, None)?;
                 builder = builder.edge(name, &field_id, "contains", Some(field_name))?;
 
-                if let Some(fc) =
-                    field_def.get("constraints").and_then(serde_json::Value::as_object)
+                if let Some(fc) = field_def
+                    .get("constraints")
+                    .and_then(serde_json::Value::as_object)
                 {
                     for (sort, val) in fc {
                         if let Some(v) = val.as_str() {
@@ -133,9 +137,10 @@ pub fn parse_elan(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         // Typed references (time-ref, type-ref, cv-ref, parent-ref).
         if let Some(refs) = def.get("refs").and_then(serde_json::Value::as_array) {
             for (i, r) in refs.iter().enumerate() {
-                if let (Some(edge_kind), Some(target)) =
-                    (r.get("edge").and_then(|v| v.as_str()), r.get("target").and_then(|v| v.as_str()))
-                {
+                if let (Some(edge_kind), Some(target)) = (
+                    r.get("edge").and_then(|v| v.as_str()),
+                    r.get("target").and_then(|v| v.as_str()),
+                ) {
                     let ref_id = format!("{name}:ref{i}");
                     let ref_kind = r
                         .get("kind")
@@ -356,7 +361,13 @@ mod tests {
     #[test]
     fn praat_kinds_present() {
         let p = protocol();
-        for kind in &["text-grid", "interval-tier", "point-tier", "interval", "point"] {
+        for kind in &[
+            "text-grid",
+            "interval-tier",
+            "point-tier",
+            "interval",
+            "point",
+        ] {
             assert!(
                 p.is_known_vertex_kind(kind),
                 "Praat kind '{kind}' must be recognized"

@@ -2,13 +2,13 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::ObjectId;
 use crate::cherry_pick::advance_head;
 use crate::dag;
 use crate::error::VcsError;
 use crate::merge;
 use crate::object::{CommitObject, Object};
 use crate::store::{self, Store};
-use crate::ObjectId;
 
 /// Rebase the current branch onto `onto`.
 ///
@@ -27,19 +27,13 @@ use crate::ObjectId;
 ///
 /// Returns an error if any step produces conflicts, or if no merge base
 /// is found.
-pub fn rebase(
-    store: &mut dyn Store,
-    onto: ObjectId,
-    author: &str,
-) -> Result<ObjectId, VcsError> {
-    let head_id = store::resolve_head(store)?
-        .ok_or_else(|| VcsError::RefNotFound {
-            name: "HEAD".to_owned(),
-        })?;
+pub fn rebase(store: &mut dyn Store, onto: ObjectId, author: &str) -> Result<ObjectId, VcsError> {
+    let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
+        name: "HEAD".to_owned(),
+    })?;
 
     // Find merge base.
-    let base_id = dag::merge_base(store, head_id, onto)?
-        .ok_or(VcsError::NoCommonAncestor)?;
+    let base_id = dag::merge_base(store, head_id, onto)?.ok_or(VcsError::NoCommonAncestor)?;
 
     // Collect commits to replay (from merge_base to HEAD, exclusive of base).
     let path = dag::find_path(store, base_id, head_id)?;
@@ -72,7 +66,13 @@ pub fn rebase(
     }
 
     // Append reflog.
-    advance_head(store, old_head, current_tip, author, &format!("rebase onto {}", onto.short()))?;
+    advance_head(
+        store,
+        old_head,
+        current_tip,
+        author,
+        &format!("rebase onto {}", onto.short()),
+    )?;
 
     Ok(current_tip)
 }

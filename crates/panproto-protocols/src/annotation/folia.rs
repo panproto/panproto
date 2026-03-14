@@ -121,7 +121,10 @@ pub fn parse_folia(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         builder = builder.vertex(name, kind, None)?;
 
         // Constraints (xml-id, class, set, annotator, processor, etc.).
-        if let Some(constraints) = def.get("constraints").and_then(serde_json::Value::as_object) {
+        if let Some(constraints) = def
+            .get("constraints")
+            .and_then(serde_json::Value::as_object)
+        {
             for (sort, val) in constraints {
                 if let Some(v) = val.as_str() {
                     builder = builder.constraint(name, sort, v);
@@ -140,8 +143,9 @@ pub fn parse_folia(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                 builder = builder.vertex(&field_id, field_kind, None)?;
                 builder = builder.edge(name, &field_id, "contains", Some(field_name))?;
 
-                if let Some(fc) =
-                    field_def.get("constraints").and_then(serde_json::Value::as_object)
+                if let Some(fc) = field_def
+                    .get("constraints")
+                    .and_then(serde_json::Value::as_object)
                 {
                     for (sort, val) in fc {
                         if let Some(v) = val.as_str() {
@@ -153,7 +157,10 @@ pub fn parse_folia(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
 
         // Annotation-of edges (inline annotation → word/morpheme).
-        if let Some(ann_of) = def.get("annotation-of").and_then(serde_json::Value::as_array) {
+        if let Some(ann_of) = def
+            .get("annotation-of")
+            .and_then(serde_json::Value::as_array)
+        {
             for (i, target) in ann_of.iter().enumerate() {
                 if let Some(tgt) = target.as_str() {
                     let ref_id = format!("{name}:ann{i}");
@@ -182,7 +189,10 @@ pub fn parse_folia(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
 
         // Dependency dependent edge: the dependent word (<dep> in FoLiA).
-        if let Some(dep_targets) = def.get("dep-dependent").and_then(serde_json::Value::as_array) {
+        if let Some(dep_targets) = def
+            .get("dep-dependent")
+            .and_then(serde_json::Value::as_array)
+        {
             for (i, target) in dep_targets.iter().enumerate() {
                 if let Some(tgt) = target.as_str() {
                     let ref_id = format!("{name}:dep{i}");
@@ -215,7 +225,13 @@ pub fn parse_folia(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
 /// Returns [`ProtocolError`] if emission fails.
 #[allow(clippy::too_many_lines)]
 pub fn emit_folia(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
-    let structural = &["contains", "annotation-of", "span", "dep-head", "dep-dependent"];
+    let structural = &[
+        "contains",
+        "annotation-of",
+        "span",
+        "dep-head",
+        "dep-dependent",
+    ];
     let roots = find_roots(schema, structural);
 
     let mut types = serde_json::Map::new();
@@ -334,7 +350,12 @@ fn edge_rules() -> Vec<EdgeRule> {
                 "lang-annotation".into(),
                 "domain-annotation".into(),
             ],
-            tgt_kinds: vec!["word".into(), "morpheme".into(), "phoneme".into(), "string".into()],
+            tgt_kinds: vec![
+                "word".into(),
+                "morpheme".into(),
+                "phoneme".into(),
+                "string".into(),
+            ],
         },
         EdgeRule {
             edge_kind: "span".into(),
@@ -520,8 +541,14 @@ mod tests {
 
         // Verify that dep-head and dep-dependent edges exist.
         let out = schema.outgoing_edges("dep1");
-        assert!(out.iter().any(|e| e.kind == "dep-head"), "dep-head edge missing");
-        assert!(out.iter().any(|e| e.kind == "dep-dependent"), "dep-dependent edge missing");
+        assert!(
+            out.iter().any(|e| e.kind == "dep-head"),
+            "dep-head edge missing"
+        );
+        assert!(
+            out.iter().any(|e| e.kind == "dep-dependent"),
+            "dep-dependent edge missing"
+        );
 
         // Round-trip.
         let emitted = emit_folia(&schema).expect("emit dep");

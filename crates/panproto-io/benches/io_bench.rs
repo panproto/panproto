@@ -32,7 +32,6 @@ fn json_pathway_parse_small(bencher: divan::Bencher<'_, '_>) {
         .expect("build");
 
     bencher.bench_local(|| {
-        panproto_io::json_pathway::parse_json_bytes(&schema, "root", input, "test")
-            .expect("parse")
+        panproto_io::json_pathway::parse_json_bytes(&schema, "root", input, "test").expect("parse")
     });
 }

@@ -9,12 +9,12 @@
 
 use std::collections::HashMap;
 
-use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::WInstance;
 use panproto_inst::metadata::Node;
+use panproto_inst::value::{FieldPresence, Value};
 use panproto_schema::{Edge, Schema};
-use quick_xml::events::Event;
 use quick_xml::Reader;
+use quick_xml::events::Event;
 
 use crate::error::{EmitInstanceError, ParseInstanceError};
 
@@ -165,8 +165,7 @@ pub fn parse_xml_bytes(
                 if !text.trim().is_empty() {
                     if let Some(current) = element_stack.last() {
                         if let Some(node) = state.nodes.get_mut(&current.0) {
-                            node.value =
-                                Some(FieldPresence::Present(Value::Str(text.to_string())));
+                            node.value = Some(FieldPresence::Present(Value::Str(text.to_string())));
                         }
                     }
                 }
@@ -179,7 +178,10 @@ pub fn parse_xml_bytes(
             Err(e) => {
                 return Err(ParseInstanceError::Parse {
                     protocol: protocol.to_string(),
-                    message: format!("XML parse error at position {}: {e}", reader.error_position()),
+                    message: format!(
+                        "XML parse error at position {}: {e}",
+                        reader.error_position()
+                    ),
                 });
             }
         }
@@ -224,17 +226,16 @@ pub fn emit_xml_bytes(
         instance: &WInstance,
         node_id: u32,
     ) -> Result<(), EmitInstanceError> {
-        let node = instance.nodes.get(&node_id).ok_or_else(|| EmitInstanceError::Emit {
-            protocol: String::new(),
-            message: format!("node {node_id} not found"),
-        })?;
+        let node = instance
+            .nodes
+            .get(&node_id)
+            .ok_or_else(|| EmitInstanceError::Emit {
+                protocol: String::new(),
+                message: format!("node {node_id} not found"),
+            })?;
 
         // Determine tag name from anchor (use last segment after ':').
-        let tag = node
-            .anchor
-            .rsplit(':')
-            .next()
-            .unwrap_or(&node.anchor);
+        let tag = node.anchor.rsplit(':').next().unwrap_or(&node.anchor);
 
         let mut elem = BytesStart::new(tag);
 

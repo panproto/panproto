@@ -66,7 +66,10 @@ pub fn parse_brat(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     let mut builder = SchemaBuilder::new(&proto);
 
     // Parse text-bound annotations (T annotations).
-    if let Some(textbounds) = json.get("textbounds").and_then(serde_json::Value::as_object) {
+    if let Some(textbounds) = json
+        .get("textbounds")
+        .and_then(serde_json::Value::as_object)
+    {
         for (id, def) in textbounds {
             let kind = def
                 .get("kind")
@@ -135,7 +138,10 @@ pub fn parse_brat(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // Parse attributes (A/M annotations).
-    if let Some(attributes) = json.get("attributes").and_then(serde_json::Value::as_object) {
+    if let Some(attributes) = json
+        .get("attributes")
+        .and_then(serde_json::Value::as_object)
+    {
         for (id, def) in attributes {
             builder = builder.vertex(id, "attribute", None)?;
 
@@ -152,8 +158,9 @@ pub fn parse_brat(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // Parse normalizations (N annotations).
-    if let Some(normalizations) =
-        json.get("normalizations").and_then(serde_json::Value::as_object)
+    if let Some(normalizations) = json
+        .get("normalizations")
+        .and_then(serde_json::Value::as_object)
     {
         for (id, def) in normalizations {
             builder = builder.vertex(id, "normalization", None)?;
@@ -186,7 +193,10 @@ pub fn parse_brat(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // Parse equivalence sets (* annotations).
-    if let Some(equivalences) = json.get("equivalences").and_then(serde_json::Value::as_array) {
+    if let Some(equivalences) = json
+        .get("equivalences")
+        .and_then(serde_json::Value::as_array)
+    {
         for (idx, members_val) in equivalences.iter().enumerate() {
             let equiv_id = format!("Equiv{idx}");
             builder = builder.vertex(&equiv_id, "equivalence", None)?;
@@ -374,7 +384,10 @@ pub fn emit_brat(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
         result.insert("notes".into(), serde_json::Value::Object(notes));
     }
     if !equivalences.is_empty() {
-        result.insert("equivalences".into(), serde_json::Value::Array(equivalences));
+        result.insert(
+            "equivalences".into(),
+            serde_json::Value::Array(equivalences),
+        );
     }
 
     Ok(serde_json::Value::Object(result))
@@ -531,7 +544,10 @@ mod tests {
         assert_eq!(note_obj["target"].as_str().unwrap(), "T1");
         assert_eq!(note_obj["value"].as_str().unwrap(), "This is p53 protein");
         // Must not have a "type" key in the emitted note.
-        assert!(!note_obj.contains_key("type"), "emitted note must not have a 'type' field");
+        assert!(
+            !note_obj.contains_key("type"),
+            "emitted note must not have a 'type' field"
+        );
     }
 
     #[test]
@@ -606,8 +622,13 @@ mod tests {
             .get("T1")
             .map(|cs| cs.iter().collect())
             .unwrap_or_default();
-        let has_text = constraints.iter().any(|c| c.sort == "text" && c.value == "p53");
-        assert!(has_text, "T1 must have a 'text' constraint with value 'p53'");
+        let has_text = constraints
+            .iter()
+            .any(|c| c.sort == "text" && c.value == "p53");
+        assert!(
+            has_text,
+            "T1 must have a 'text' constraint with value 'p53'"
+        );
         let emitted = emit_brat(&schema).expect("emit");
         assert_eq!(emitted["textbounds"]["T1"]["text"].as_str().unwrap(), "p53");
     }

@@ -102,7 +102,10 @@ pub fn parse_ucca(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
             // constraint rather than as vertex kinds.
             builder = builder.vertex(layer_id, "layer", None)?;
 
-            if let Some(attrs) = layer_def.get("attrs").and_then(serde_json::Value::as_object) {
+            if let Some(attrs) = layer_def
+                .get("attrs")
+                .and_then(serde_json::Value::as_object)
+            {
                 for (sort, value) in attrs {
                     if let Some(v) = value.as_str() {
                         builder = builder.constraint(layer_id, sort, v);
@@ -174,9 +177,7 @@ pub fn parse_ucca(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                             .get("target")
                             .and_then(serde_json::Value::as_str)
                             .unwrap_or("");
-                        let category = edge_obj
-                            .get("category")
-                            .and_then(serde_json::Value::as_str);
+                        let category = edge_obj.get("category").and_then(serde_json::Value::as_str);
 
                         if !target.is_empty() {
                             let is_remote = edge_obj
@@ -195,8 +196,9 @@ pub fn parse_ucca(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
             }
 
             // Implicit edges: node → implicit node (no surface realization).
-            if let Some(implicit_targets) =
-                node_def.get("implicit").and_then(serde_json::Value::as_array)
+            if let Some(implicit_targets) = node_def
+                .get("implicit")
+                .and_then(serde_json::Value::as_array)
             {
                 for imp in implicit_targets {
                     if let Some(tgt) = imp.as_str() {
@@ -504,10 +506,7 @@ mod tests {
 
         // Edge categories live on edges, not nodes.
         let outgoing_1_1 = schema.outgoing_edges("1.1");
-        let primary_edges: Vec<_> = outgoing_1_1
-            .iter()
-            .filter(|e| e.kind == "edge")
-            .collect();
+        let primary_edges: Vec<_> = outgoing_1_1.iter().filter(|e| e.kind == "edge").collect();
         assert_eq!(primary_edges.len(), 2);
         let categories: Vec<_> = primary_edges
             .iter()
@@ -516,10 +515,7 @@ mod tests {
         assert!(categories.contains(&"P"));
         assert!(categories.contains(&"A"));
 
-        let remote_edges: Vec<_> = outgoing_1_1
-            .iter()
-            .filter(|e| e.kind == "remote")
-            .collect();
+        let remote_edges: Vec<_> = outgoing_1_1.iter().filter(|e| e.kind == "remote").collect();
         assert_eq!(remote_edges.len(), 1);
         assert_eq!(remote_edges[0].name.as_deref(), Some("A"));
 

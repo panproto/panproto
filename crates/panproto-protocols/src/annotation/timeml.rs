@@ -63,11 +63,7 @@ pub fn protocol() -> Protocol {
 
 /// Register the component GATs for `TimeML`.
 pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, S>) {
-    theories::register_constrained_multigraph_wtype(
-        registry,
-        "ThTimeMlSchema",
-        "ThTimeMlInstance",
-    );
+    theories::register_constrained_multigraph_wtype(registry, "ThTimeMlSchema", "ThTimeMlInstance");
 }
 
 /// Parse a JSON-based `TimeML` annotation into a [`Schema`].
@@ -87,8 +83,9 @@ pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         for (id, def) in events {
             builder = builder.vertex(id, "event", None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -104,8 +101,9 @@ pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         for (id, def) in timexes {
             builder = builder.vertex(id, "timex3", None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -121,8 +119,9 @@ pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         for (id, def) in signals {
             builder = builder.vertex(id, "signal", None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -138,8 +137,9 @@ pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         for (id, def) in tlinks {
             builder = builder.vertex(id, "tlink", None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -155,8 +155,9 @@ pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         for (id, def) in slinks {
             builder = builder.vertex(id, "slink", None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -172,8 +173,9 @@ pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         for (id, def) in alinks {
             builder = builder.vertex(id, "alink", None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -185,12 +187,16 @@ pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // Parse makeinstances (vertices + constraints only).
-    if let Some(instances) = json.get("makeinstances").and_then(serde_json::Value::as_object) {
+    if let Some(instances) = json
+        .get("makeinstances")
+        .and_then(serde_json::Value::as_object)
+    {
         for (id, def) in instances {
             builder = builder.vertex(id, "makeinstance", None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -249,7 +255,10 @@ pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // Makeinstance edges.
-    if let Some(instances) = json.get("makeinstances").and_then(serde_json::Value::as_object) {
+    if let Some(instances) = json
+        .get("makeinstances")
+        .and_then(serde_json::Value::as_object)
+    {
         for (id, def) in instances {
             if let Some(event) = def.get("event").and_then(serde_json::Value::as_str) {
                 builder = builder.edge(id, event, "event-instance", None)?;

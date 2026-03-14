@@ -24,7 +24,9 @@ pub enum ParseInstanceError {
 
     /// The requested representation (`WType` or `Functor`) is not supported
     /// by this protocol's instance theory.
-    #[error("protocol '{protocol}' does not support {requested:?} representation (native: {native:?})")]
+    #[error(
+        "protocol '{protocol}' does not support {requested:?} representation (native: {native:?})"
+    )]
     UnsupportedRepresentation {
         /// The protocol name.
         protocol: String,
@@ -62,7 +64,9 @@ pub enum EmitInstanceError {
 
     /// The requested representation (`WType` or `Functor`) is not supported
     /// by this protocol's instance theory.
-    #[error("protocol '{protocol}' does not support {requested:?} representation (native: {native:?})")]
+    #[error(
+        "protocol '{protocol}' does not support {requested:?} representation (native: {native:?})"
+    )]
     UnsupportedRepresentation {
         /// The protocol name.
         protocol: String,

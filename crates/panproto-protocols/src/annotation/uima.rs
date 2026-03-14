@@ -180,8 +180,9 @@ pub fn parse_uima_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
                     .unwrap_or("feature-description");
                 builder = builder.vertex(&feat_id, feat_kind, None)?;
 
-                if let Some(rt) =
-                    feat_def.get("range-type").and_then(serde_json::Value::as_str)
+                if let Some(rt) = feat_def
+                    .get("range-type")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&feat_id, "range-type", rt);
                 }
@@ -470,10 +471,20 @@ mod tests {
             .get("Span")
             .map(|cs| cs.iter().collect())
             .unwrap_or_default();
-        let has_begin = constraints.iter().any(|c| c.sort == "begin" && c.value == "0");
-        let has_end = constraints.iter().any(|c| c.sort == "end" && c.value == "10");
-        assert!(has_begin, "Span must have a 'begin' constraint with value '0'");
-        assert!(has_end, "Span must have an 'end' constraint with value '10'");
+        let has_begin = constraints
+            .iter()
+            .any(|c| c.sort == "begin" && c.value == "0");
+        let has_end = constraints
+            .iter()
+            .any(|c| c.sort == "end" && c.value == "10");
+        assert!(
+            has_begin,
+            "Span must have a 'begin' constraint with value '0'"
+        );
+        assert!(
+            has_end,
+            "Span must have an 'end' constraint with value '10'"
+        );
 
         let emitted = emit_uima_schema(&schema).expect("emit");
         assert_eq!(emitted["types"]["Span"]["begin"].as_str().unwrap(), "0");
@@ -501,7 +512,10 @@ mod tests {
             .outgoing_edges("MySofa")
             .iter()
             .any(|e| e.kind == "sofa-of" && e.tgt == "MyAnnotation");
-        assert!(has_edge, "sofa-of edge must go from sofa to annotation-base");
+        assert!(
+            has_edge,
+            "sofa-of edge must go from sofa to annotation-base"
+        );
     }
 
     #[test]
@@ -565,7 +579,10 @@ mod tests {
             .outgoing_edges("Token")
             .iter()
             .any(|e| e.kind == "index-of");
-        assert!(!token_has_edge, "type-description must not have outgoing index-of edges");
+        assert!(
+            !token_has_edge,
+            "type-description must not have outgoing index-of edges"
+        );
     }
 
     #[test]
@@ -584,9 +601,15 @@ mod tests {
         });
         let schema = parse_uima_schema(&json).expect("should parse list features");
         assert!(schema.has_vertex("Doc.words"));
-        assert_eq!(schema.vertices.get("Doc.words").unwrap().kind, "string-list");
+        assert_eq!(
+            schema.vertices.get("Doc.words").unwrap().kind,
+            "string-list"
+        );
         assert!(schema.has_vertex("Doc.counts"));
-        assert_eq!(schema.vertices.get("Doc.counts").unwrap().kind, "integer-list");
+        assert_eq!(
+            schema.vertices.get("Doc.counts").unwrap().kind,
+            "integer-list"
+        );
     }
 
     #[test]

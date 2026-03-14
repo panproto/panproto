@@ -142,7 +142,13 @@ impl Repository {
 
         // Advance HEAD.
         if let Some(old) = head_id {
-            advance_head(&mut self.store, old, commit_id, author, &format!("commit: {message}"))?;
+            advance_head(
+                &mut self.store,
+                old,
+                commit_id,
+                author,
+                &format!("commit: {message}"),
+            )?;
         } else {
             // First commit — set the branch ref.
             match self.store.get_head()? {
@@ -171,19 +177,22 @@ impl Repository {
     /// # Errors
     ///
     /// Returns an error if HEAD or the branch cannot be resolved.
-    pub fn merge(
-        &mut self,
-        branch: &str,
-        author: &str,
-    ) -> Result<merge::MergeResult, VcsError> {
-        let ours_id = store::resolve_head(&self.store)?
-            .ok_or_else(|| VcsError::RefNotFound { name: "HEAD".to_owned() })?;
+    pub fn merge(&mut self, branch: &str, author: &str) -> Result<merge::MergeResult, VcsError> {
+        let ours_id = store::resolve_head(&self.store)?.ok_or_else(|| VcsError::RefNotFound {
+            name: "HEAD".to_owned(),
+        })?;
         let theirs_id = refs::resolve_ref(&self.store, branch)?;
 
         // Fast-forward check.
         if dag::is_ancestor(&self.store, ours_id, theirs_id)? {
             // Theirs is ahead of ours — fast-forward.
-            advance_head(&mut self.store, ours_id, theirs_id, author, &format!("merge {branch}: fast-forward"))?;
+            advance_head(
+                &mut self.store,
+                ours_id,
+                theirs_id,
+                author,
+                &format!("merge {branch}: fast-forward"),
+            )?;
             let theirs_commit = self.load_commit(theirs_id)?;
             let theirs_schema = self.load_schema(theirs_commit.schema_id)?;
             return Ok(merge::MergeResult {
@@ -195,8 +204,8 @@ impl Repository {
         }
 
         // Find merge base.
-        let base_id = dag::merge_base(&self.store, ours_id, theirs_id)?
-            .ok_or(VcsError::NoCommonAncestor)?;
+        let base_id =
+            dag::merge_base(&self.store, ours_id, theirs_id)?.ok_or(VcsError::NoCommonAncestor)?;
 
         let base_commit = self.load_commit(base_id)?;
         let ours_commit = self.load_commit(ours_id)?;
@@ -210,7 +219,9 @@ impl Repository {
 
         if result.conflicts.is_empty() {
             // Auto-commit the merge.
-            let merged_schema_id = self.store.put(&Object::Schema(result.merged_schema.clone()))?;
+            let merged_schema_id = self
+                .store
+                .put(&Object::Schema(result.merged_schema.clone()))?;
             let migration_id = self.store.put(&Object::Migration {
                 src: ours_commit.schema_id,
                 tgt: merged_schema_id,
@@ -232,7 +243,13 @@ impl Repository {
                 message: format!("merge branch '{branch}'"),
             };
             let merge_id = self.store.put(&Object::Commit(merge_commit))?;
-            advance_head(&mut self.store, ours_id, merge_id, author, &format!("merge {branch}"))?;
+            advance_head(
+                &mut self.store,
+                ours_id,
+                merge_id,
+                author,
+                &format!("merge {branch}"),
+            )?;
         }
 
         Ok(result)
@@ -244,8 +261,9 @@ impl Repository {
     ///
     /// Returns an error if HEAD cannot be resolved.
     pub fn log(&self, limit: Option<usize>) -> Result<Vec<CommitObject>, VcsError> {
-        let head_id = store::resolve_head(&self.store)?
-            .ok_or_else(|| VcsError::RefNotFound { name: "HEAD".to_owned() })?;
+        let head_id = store::resolve_head(&self.store)?.ok_or_else(|| VcsError::RefNotFound {
+            name: "HEAD".to_owned(),
+        })?;
         dag::log_walk(&self.store, head_id, limit)
     }
 
@@ -337,9 +355,8 @@ impl Repository {
             return Ok(Index::default());
         }
         let json = std::fs::read_to_string(&path)?;
-        serde_json::from_str(&json).map_err(|e| {
-            VcsError::Serialization(crate::error::SerializationError(e.to_string()))
-        })
+        serde_json::from_str(&json)
+            .map_err(|e| VcsError::Serialization(crate::error::SerializationError(e.to_string())))
     }
 
     fn write_index(&self, index: &Index) -> Result<(), VcsError> {

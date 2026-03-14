@@ -174,19 +174,14 @@ pub fn parse_web_annotation_schema(json: &serde_json::Value) -> Result<Schema, P
                 builder = builder.edge(name, &field_id, edge_kind, Some(field_name))?;
 
                 for sort in FIELD_CONSTRAINT_SORTS {
-                    if let Some(val) =
-                        field_def.get(*sort).and_then(serde_json::Value::as_str)
-                    {
+                    if let Some(val) = field_def.get(*sort).and_then(serde_json::Value::as_str) {
                         builder = builder.constraint(&field_id, sort, val);
                     }
                 }
 
                 // bodyValue: a plain-string value on the annotation itself
                 if field_name == "bodyValue" {
-                    if let Some(val) = field_def
-                        .get("value")
-                        .and_then(serde_json::Value::as_str)
-                    {
+                    if let Some(val) = field_def.get("value").and_then(serde_json::Value::as_str) {
                         builder = builder.constraint(name, "body-value", val);
                     }
                 }
@@ -274,8 +269,12 @@ fn edge_rules() -> Vec<EdgeRule> {
         "time-selector".into(),
     ];
 
-    let all_agent_kinds: Vec<String> =
-        vec!["agent".into(), "person".into(), "organization".into(), "software".into()];
+    let all_agent_kinds: Vec<String> = vec![
+        "agent".into(),
+        "person".into(),
+        "organization".into(),
+        "software".into(),
+    ];
 
     let all_body_kinds: Vec<String> = vec![
         "body".into(),
@@ -320,7 +319,11 @@ fn edge_rules() -> Vec<EdgeRule> {
         },
         EdgeRule {
             edge_kind: "creator".into(),
-            src_kinds: vec!["annotation".into(), "text-body".into(), "specific-resource".into()],
+            src_kinds: vec![
+                "annotation".into(),
+                "text-body".into(),
+                "specific-resource".into(),
+            ],
             tgt_kinds: all_agent_kinds.clone(),
         },
         EdgeRule {
@@ -352,11 +355,7 @@ fn edge_rules() -> Vec<EdgeRule> {
                 "data-position-selector".into(),
                 "time-selector".into(),
             ],
-            tgt_kinds: vec![
-                "string".into(),
-                "integer".into(),
-                "uri".into(),
-            ],
+            tgt_kinds: vec!["string".into(), "integer".into(), "uri".into()],
         },
     ]
 }
@@ -402,7 +401,13 @@ mod tests {
     #[test]
     fn new_vertex_kinds_present() {
         let p = protocol();
-        for kind in &["choice", "time-selector", "person", "organization", "software"] {
+        for kind in &[
+            "choice",
+            "time-selector",
+            "person",
+            "organization",
+            "software",
+        ] {
             assert!(
                 p.obj_kinds.iter().any(|k| k == kind),
                 "missing obj_kind: {kind}"
@@ -413,7 +418,15 @@ mod tests {
     #[test]
     fn new_constraint_sorts_present() {
         let p = protocol();
-        for sort in &["generated", "purpose", "accessibility", "rights", "canonical", "via", "body-value"] {
+        for sort in &[
+            "generated",
+            "purpose",
+            "accessibility",
+            "rights",
+            "canonical",
+            "via",
+            "body-value",
+        ] {
             assert!(
                 p.constraint_sorts.iter().any(|s| s == sort),
                 "missing constraint_sort: {sort}"
@@ -485,9 +498,14 @@ mod tests {
             }
         });
         let schema = parse_web_annotation_schema(&json).expect("should parse bodyValue");
-        let constraints = schema.constraints.get("anno4").expect("constraints on anno4");
+        let constraints = schema
+            .constraints
+            .get("anno4")
+            .expect("constraints on anno4");
         assert!(
-            constraints.iter().any(|c| c.sort == "body-value" && c.value == "tagging note"),
+            constraints
+                .iter()
+                .any(|c| c.sort == "body-value" && c.value == "tagging note"),
             "body-value constraint not set on annotation vertex"
         );
     }
@@ -509,7 +527,10 @@ mod tests {
             }
         });
         let schema = parse_web_annotation_schema(&json).expect("should parse motivation+generated");
-        let constraints = schema.constraints.get("anno5.body").expect("constraints on body field");
+        let constraints = schema
+            .constraints
+            .get("anno5.body")
+            .expect("constraints on body field");
         assert!(constraints.iter().any(|c| c.sort == "motivation"));
         assert!(constraints.iter().any(|c| c.sort == "generated"));
     }

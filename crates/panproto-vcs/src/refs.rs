@@ -12,7 +12,11 @@ use crate::store::{HeadState, Store};
 /// # Errors
 ///
 /// Returns [`VcsError::BranchExists`] if the branch already exists.
-pub fn create_branch(store: &mut dyn Store, name: &str, commit_id: ObjectId) -> Result<(), VcsError> {
+pub fn create_branch(
+    store: &mut dyn Store,
+    name: &str,
+    commit_id: ObjectId,
+) -> Result<(), VcsError> {
     let ref_name = format!("refs/heads/{name}");
     if store.get_ref(&ref_name)?.is_some() {
         return Err(VcsError::BranchExists {
@@ -140,10 +144,9 @@ pub fn resolve_ref(store: &dyn Store, target: &str) -> Result<ObjectId, VcsError
 
     // Try as HEAD.
     if target == "HEAD" {
-        return crate::store::resolve_head(store)?
-            .ok_or_else(|| VcsError::RefNotFound {
-                name: "HEAD".to_owned(),
-            });
+        return crate::store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
+            name: "HEAD".to_owned(),
+        });
     }
 
     // Try as a branch.

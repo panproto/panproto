@@ -27,7 +27,10 @@ pub struct GcReport {
 /// # Errors
 ///
 /// Returns an error if loading objects fails.
-pub fn mark_reachable(store: &dyn Store, roots: &[ObjectId]) -> Result<HashSet<ObjectId>, VcsError> {
+pub fn mark_reachable(
+    store: &dyn Store,
+    roots: &[ObjectId],
+) -> Result<HashSet<ObjectId>, VcsError> {
     let mut reachable = HashSet::new();
     let mut queue: Vec<ObjectId> = roots.to_vec();
 
@@ -130,8 +133,8 @@ pub fn gc_report(store: &dyn Store) -> Result<GcReport, VcsError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::CommitObject;
     use crate::MemStore;
+    use crate::object::CommitObject;
 
     fn empty_schema() -> panproto_schema::Schema {
         panproto_schema::Schema {

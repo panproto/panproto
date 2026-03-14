@@ -40,11 +40,7 @@ impl InstanceParser for HtmlCodec {
         NativeRepr::WType
     }
 
-    fn parse_wtype(
-        &self,
-        schema: &Schema,
-        input: &[u8],
-    ) -> Result<WInstance, ParseInstanceError> {
+    fn parse_wtype(&self, schema: &Schema, input: &[u8]) -> Result<WInstance, ParseInstanceError> {
         let html_str = std::str::from_utf8(input).map_err(|e| ParseInstanceError::Parse {
             protocol: "html".into(),
             message: format!("invalid UTF-8: {e}"),
@@ -93,7 +89,13 @@ impl InstanceParser for HtmlCodec {
             );
         }
 
-        Ok(WInstance::new(nodes, arcs, Vec::new(), root_id, root_anchor))
+        Ok(WInstance::new(
+            nodes,
+            arcs,
+            Vec::new(),
+            root_id,
+            root_anchor,
+        ))
     }
 
     fn parse_functor(
@@ -201,7 +203,9 @@ fn walk_tl_node(
             // Recurse into children.
             let children = tag.children();
             for child in children.top().iter() {
-                walk_tl_node(parser, child, node_id, &anchor, schema, nodes, arcs, next_id);
+                walk_tl_node(
+                    parser, child, node_id, &anchor, schema, nodes, arcs, next_id,
+                );
             }
         }
         tl::Node::Raw(text) => {

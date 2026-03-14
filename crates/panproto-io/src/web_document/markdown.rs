@@ -41,19 +41,14 @@ impl InstanceParser for MarkdownCodec {
         NativeRepr::WType
     }
 
-    fn parse_wtype(
-        &self,
-        schema: &Schema,
-        input: &[u8],
-    ) -> Result<WInstance, ParseInstanceError> {
+    fn parse_wtype(&self, schema: &Schema, input: &[u8]) -> Result<WInstance, ParseInstanceError> {
         let md_str = std::str::from_utf8(input).map_err(|e| ParseInstanceError::Parse {
             protocol: "markdown".into(),
             message: format!("invalid UTF-8: {e}"),
         })?;
 
-        let options = Options::ENABLE_TABLES
-            | Options::ENABLE_STRIKETHROUGH
-            | Options::ENABLE_FOOTNOTES;
+        let options =
+            Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_FOOTNOTES;
         let parser = Parser::new_ext(md_str, options);
 
         let mut nodes = HashMap::new();
@@ -86,7 +81,9 @@ impl InstanceParser for MarkdownCodec {
                     let node_id = next_id;
                     next_id += 1;
 
-                    let Some(parent) = element_stack.last() else { continue };
+                    let Some(parent) = element_stack.last() else {
+                        continue;
+                    };
                     let anchor = format!("{}:{kind}", parent.1);
 
                     nodes.insert(
@@ -120,7 +117,9 @@ impl InstanceParser for MarkdownCodec {
                     let node_id = next_id;
                     next_id += 1;
 
-                    let Some(parent) = element_stack.last() else { continue };
+                    let Some(parent) = element_stack.last() else {
+                        continue;
+                    };
                     let anchor = format!("{}:text", parent.1);
 
                     nodes.insert(
@@ -239,15 +238,15 @@ fn emit_md_node(output: &mut String, instance: &WInstance, node_id: u32, depth: 
         return;
     }
 
-    let kind = node
-        .discriminator
-        .as_deref()
-        .unwrap_or("");
+    let kind = node.discriminator.as_deref().unwrap_or("");
 
     // Emit opening syntax based on kind.
     match kind {
         k if k.starts_with("heading-") => {
-            let level: usize = k.strip_prefix("heading-").and_then(|l| l.parse().ok()).unwrap_or(1);
+            let level: usize = k
+                .strip_prefix("heading-")
+                .and_then(|l| l.parse().ok())
+                .unwrap_or(1);
             for _ in 0..level {
                 output.push('#');
             }

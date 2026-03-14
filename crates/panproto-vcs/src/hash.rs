@@ -78,11 +78,10 @@ impl FromStr for ObjectId {
         }
         let mut bytes = [0u8; 32];
         for (i, byte) in bytes.iter_mut().enumerate() {
-            *byte = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).map_err(|e| {
-                ParseObjectIdError {
+            *byte =
+                u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).map_err(|e| ParseObjectIdError {
                     reason: e.to_string(),
-                }
-            })?;
+                })?;
         }
         Ok(Self(bytes))
     }
@@ -123,7 +122,11 @@ impl From<&HyperEdge> for CanonicalHyperEdge {
         Self {
             id: he.id.clone(),
             kind: he.kind.clone(),
-            signature: he.signature.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            signature: he
+                .signature
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
             parent_label: he.parent_label.clone(),
         }
     }
@@ -179,7 +182,11 @@ impl From<&Schema> for CanonicalSchema {
                 .iter()
                 .map(|(k, v)| (k.clone(), CanonicalVertex::from(v)))
                 .collect(),
-            edges: s.edges.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            edges: s
+                .edges
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
             hyper_edges: s
                 .hyper_edges
                 .iter()
@@ -187,12 +194,32 @@ impl From<&Schema> for CanonicalSchema {
                 .collect(),
             constraints,
             required,
-            nsids: s.nsids.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-            variants: s.variants.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            nsids: s
+                .nsids
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            variants: s
+                .variants
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
             orderings: s.orderings.iter().map(|(k, v)| (k.clone(), *v)).collect(),
-            recursion_points: s.recursion_points.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-            spans: s.spans.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-            usage_modes: s.usage_modes.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            recursion_points: s
+                .recursion_points
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            spans: s
+                .spans
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            usage_modes: s
+                .usage_modes
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
             nominal: s.nominal.iter().map(|(k, v)| (k.clone(), *v)).collect(),
         }
     }
@@ -438,6 +465,9 @@ mod tests {
 
         let h1 = hash_migration(src1, tgt, &mig).unwrap();
         let h2 = hash_migration(src2, tgt, &mig).unwrap();
-        assert_ne!(h1, h2, "different source schemas should produce different migration IDs");
+        assert_ne!(
+            h1, h2,
+            "different source schemas should produce different migration IDs"
+        );
     }
 }

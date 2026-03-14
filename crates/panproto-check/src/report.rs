@@ -118,7 +118,10 @@ fn format_breaking(change: &BreakingChange) -> String {
             format!("Removed variant: {vertex_id}/{variant_id}")
         }
         BreakingChange::OrderToUnordered { edge } => {
-            format!("Order removed: {} -> {} ({})", edge.src, edge.tgt, edge.kind)
+            format!(
+                "Order removed: {} -> {} ({})",
+                edge.src, edge.tgt, edge.kind
+            )
         }
         BreakingChange::RecursionBroken { mu_id } => {
             format!("Recursion broken: {mu_id}")

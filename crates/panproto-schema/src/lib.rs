@@ -26,7 +26,6 @@ pub use error::{SchemaError, ValidationError};
 pub use normalize::normalize;
 pub use protocol::{EdgeRule, Protocol};
 pub use schema::{
-    Constraint, Edge, HyperEdge, Ordering, RecursionPoint, Schema, Span, UsageMode, Variant,
-    Vertex,
+    Constraint, Edge, HyperEdge, Ordering, RecursionPoint, Schema, Span, UsageMode, Variant, Vertex,
 };
 pub use validate::validate;

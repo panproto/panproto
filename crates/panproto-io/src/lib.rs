@@ -79,10 +79,10 @@ pub mod tabular_codec;
 
 // ── Protocol category modules ──────────────────────────────────────────
 
-/// API specification protocols (GraphQL, OpenAPI, AsyncAPI, JSON:API, RAML).
-pub mod api;
 /// Linguistic annotation protocols (brat, CoNLL-U, NAF, etc.).
 pub mod annotation;
+/// API specification protocols (GraphQL, OpenAPI, AsyncAPI, JSON:API, RAML).
+pub mod api;
 /// Configuration protocols (CloudFormation, Ansible, K8s CRD, HCL).
 pub mod config;
 /// Data schema protocols (JSON Schema, YAML Schema, TOML Schema, etc.).
@@ -143,29 +143,93 @@ mod tests {
         // All 77 protocols.
         let expected = [
             // API (5)
-            "graphql", "openapi", "asyncapi", "jsonapi", "raml",
+            "graphql",
+            "openapi",
+            "asyncapi",
+            "jsonapi",
+            "raml",
             // Data schema (7)
-            "json_schema", "yaml_schema", "toml_schema", "cddl", "bson", "csv_table", "ini_schema",
+            "json_schema",
+            "yaml_schema",
+            "toml_schema",
+            "cddl",
+            "bson",
+            "csv_table",
+            "ini_schema",
             // Database (6)
-            "mongodb", "dynamodb", "cassandra", "neo4j", "sql", "redis",
+            "mongodb",
+            "dynamodb",
+            "cassandra",
+            "neo4j",
+            "sql",
+            "redis",
             // Type system (8)
-            "typescript", "python", "rust_serde", "java", "go_struct", "kotlin", "csharp", "swift",
+            "typescript",
+            "python",
+            "rust_serde",
+            "java",
+            "go_struct",
+            "kotlin",
+            "csharp",
+            "swift",
             // Config (4)
-            "cloudformation", "ansible", "k8s_crd", "hcl",
+            "cloudformation",
+            "ansible",
+            "k8s_crd",
+            "hcl",
             // Data science (3)
-            "dataframe", "parquet", "arrow",
+            "dataframe",
+            "parquet",
+            "arrow",
             // Serialization (8)
-            "protobuf", "avro", "thrift", "capnproto", "flatbuffers", "asn1", "bond", "msgpack_schema",
+            "protobuf",
+            "avro",
+            "thrift",
+            "capnproto",
+            "flatbuffers",
+            "asn1",
+            "bond",
+            "msgpack_schema",
             // Annotation — JSON-based (6)
-            "brat", "decomp", "ucca", "fovea", "bead", "web_annotation",
+            "brat",
+            "decomp",
+            "ucca",
+            "fovea",
+            "bead",
+            "web_annotation",
             // Annotation — XML-based (9)
-            "naf", "uima", "folia", "tei", "timeml", "elan", "iso_space", "paula", "laf_graf",
+            "naf",
+            "uima",
+            "folia",
+            "tei",
+            "timeml",
+            "elan",
+            "iso_space",
+            "paula",
+            "laf_graf",
             // Annotation — tab/line (2) + other (2)
-            "conllu", "amr", "concrete", "nif",
+            "conllu",
+            "amr",
+            "concrete",
+            "nif",
             // Web/Document (10)
-            "atproto", "jsx", "vue", "svelte", "css", "html", "markdown", "xml_xsd", "docx", "odf",
+            "atproto",
+            "jsx",
+            "vue",
+            "svelte",
+            "css",
+            "html",
+            "markdown",
+            "xml_xsd",
+            "docx",
+            "odf",
             // Domain (6)
-            "geojson", "fhir", "rss_atom", "vcard_ical", "swift_mt", "edi_x12",
+            "geojson",
+            "fhir",
+            "rss_atom",
+            "vcard_ical",
+            "swift_mt",
+            "edi_x12",
         ];
 
         for name in &expected {
@@ -175,7 +239,9 @@ mod tests {
             );
         }
 
-        assert_eq!(registry.len(), expected.len(),
+        assert_eq!(
+            registry.len(),
+            expected.len(),
             "registry should have exactly {expected_len} protocols, got {actual}",
             expected_len = expected.len(),
             actual = registry.len(),

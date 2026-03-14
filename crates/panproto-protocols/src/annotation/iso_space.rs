@@ -92,8 +92,9 @@ pub fn parse_iso_space(json: &serde_json::Value) -> Result<Schema, ProtocolError
                 .unwrap_or("spatial-entity");
             builder = builder.vertex(id, kind, None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -109,8 +110,9 @@ pub fn parse_iso_space(json: &serde_json::Value) -> Result<Schema, ProtocolError
         for (id, def) in motions {
             builder = builder.vertex(id, "motion", None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -130,8 +132,9 @@ pub fn parse_iso_space(json: &serde_json::Value) -> Result<Schema, ProtocolError
                 .unwrap_or("spatial-signal");
             builder = builder.vertex(id, kind, None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -151,8 +154,9 @@ pub fn parse_iso_space(json: &serde_json::Value) -> Result<Schema, ProtocolError
                 .unwrap_or("spatial-relation");
             builder = builder.vertex(id, kind, None)?;
 
-            if let Some(constraints) =
-                def.get("constraints").and_then(serde_json::Value::as_object)
+            if let Some(constraints) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
             {
                 for (sort, val) in constraints {
                     if let Some(v) = val.as_str() {
@@ -199,7 +203,10 @@ pub fn parse_iso_space(json: &serde_json::Value) -> Result<Schema, ProtocolError
     }
 
     // Signal-of links (motion-signal→motion).
-    if let Some(signal_links) = json.get("signal_links").and_then(serde_json::Value::as_object) {
+    if let Some(signal_links) = json
+        .get("signal_links")
+        .and_then(serde_json::Value::as_object)
+    {
         for (id, def) in signal_links {
             if let (Some(signal), Some(target)) = (
                 def.get("signal").and_then(serde_json::Value::as_str),

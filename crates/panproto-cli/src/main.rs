@@ -525,7 +525,10 @@ fn cmd_init(path: &PathBuf) -> Result<()> {
     vcs::Repository::init(path)
         .into_diagnostic()
         .wrap_err("failed to initialize repository")?;
-    println!("Initialized empty panproto repository in {}", path.join(".panproto").display());
+    println!(
+        "Initialized empty panproto repository in {}",
+        path.join(".panproto").display()
+    );
     Ok(())
 }
 
@@ -573,7 +576,11 @@ fn cmd_log(limit: Option<usize>) -> Result<()> {
 
     for commit in &commits {
         let schema_short = commit.schema_id.short();
-        println!("commit {} (schema {})", vcs::hash::hash_commit(commit).into_diagnostic()?, schema_short);
+        println!(
+            "commit {} (schema {})",
+            vcs::hash::hash_commit(commit).into_diagnostic()?,
+            schema_short
+        );
         println!("Author: {}", commit.author);
         println!("Date:   {}", format_timestamp(commit.timestamp));
         if commit.parents.len() > 1 {
@@ -626,7 +633,10 @@ fn cmd_diff(old_path: &PathBuf, new_path: &PathBuf, verbose: bool) -> Result<()>
         println!("  - vertex {v} ({kind})");
     }
     for kc in &schema_diff.kind_changes {
-        println!("  ~ vertex {}: {} -> {}", kc.vertex_id, kc.old_kind, kc.new_kind);
+        println!(
+            "  ~ vertex {}: {} -> {}",
+            kc.vertex_id, kc.old_kind, kc.new_kind
+        );
     }
     for e in &schema_diff.added_edges {
         let label = e.name.as_deref().unwrap_or("");
@@ -644,7 +654,10 @@ fn cmd_diff(old_path: &PathBuf, new_path: &PathBuf, verbose: bool) -> Result<()>
             println!("  - constraint {vid}: {} = {}", c.sort, c.value);
         }
         for c in &cdiff.changed {
-            println!("  ~ constraint {vid}: {} = {} -> {}", c.sort, c.old_value, c.new_value);
+            println!(
+                "  ~ constraint {vid}: {} = {} -> {}",
+                c.sort, c.old_value, c.new_value
+            );
         }
     }
 
@@ -662,7 +675,14 @@ fn cmd_show(target: &str) -> Result<()> {
         vcs::Object::Commit(c) => {
             println!("commit {id}");
             println!("Schema:    {}", c.schema_id);
-            println!("Parents:   {}", c.parents.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "));
+            println!(
+                "Parents:   {}",
+                c.parents
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
             if let Some(mig_id) = c.migration_id {
                 println!("Migration: {mig_id}");
             }
@@ -752,7 +772,12 @@ fn cmd_checkout(target: &str) -> Result<()> {
 
     // Try branch first.
     let branch_ref = format!("refs/heads/{target}");
-    if repo.store().get_ref(&branch_ref).into_diagnostic()?.is_some() {
+    if repo
+        .store()
+        .get_ref(&branch_ref)
+        .into_diagnostic()?
+        .is_some()
+    {
         vcs::refs::checkout_branch(repo.store_mut(), target).into_diagnostic()?;
         println!("Switched to branch '{target}'");
     } else {
@@ -819,11 +844,10 @@ fn cmd_reset(target: &str, mode: &str, author: &str) -> Result<()> {
         _ => miette::bail!("invalid reset mode: {mode}. Use: soft, mixed, hard"),
     };
 
-    let outcome = repo.reset(target_id, reset_mode, author).into_diagnostic()?;
-    println!(
-        "HEAD is now at {} (mode: {mode})",
-        outcome.new_head.short()
-    );
+    let outcome = repo
+        .reset(target_id, reset_mode, author)
+        .into_diagnostic()?;
+    println!("HEAD is now at {} (mode: {mode})", outcome.new_head.short());
     Ok(())
 }
 
@@ -838,7 +862,9 @@ fn cmd_stash(action: StashAction) -> Result<()> {
                 miette::bail!("nothing staged to stash");
             }
             let index: vcs::Index = load_json(&index_path)?;
-            let staged = index.staged.ok_or_else(|| miette::miette!("nothing staged to stash"))?;
+            let staged = index
+                .staged
+                .ok_or_else(|| miette::miette!("nothing staged to stash"))?;
 
             let stash_id = vcs::stash::stash_push(
                 repo.store_mut(),
@@ -878,7 +904,10 @@ fn cmd_stash(action: StashAction) -> Result<()> {
 
 fn cmd_reflog(ref_name: &str, limit: Option<usize>) -> Result<()> {
     let repo = open_repo()?;
-    let entries = repo.store().read_reflog(ref_name, limit).into_diagnostic()?;
+    let entries = repo
+        .store()
+        .read_reflog(ref_name, limit)
+        .into_diagnostic()?;
 
     if entries.is_empty() {
         println!("No reflog entries for {ref_name}.");
@@ -908,8 +937,8 @@ fn cmd_bisect(good: &str, bad: &str) -> Result<()> {
         .into_diagnostic()
         .wrap_err_with(|| format!("cannot resolve '{bad}'"))?;
 
-    let (state, step) = vcs::bisect::bisect_start(repo.store(), good_id, bad_id)
-        .into_diagnostic()?;
+    let (state, step) =
+        vcs::bisect::bisect_start(repo.store(), good_id, bad_id).into_diagnostic()?;
 
     match step {
         vcs::bisect::BisectStep::Found(id) => {
@@ -934,8 +963,9 @@ fn cmd_blame(element_type: &str, element_id: &str) -> Result<()> {
         .ok_or_else(|| miette::miette!("no commits yet"))?;
 
     let entry = match element_type {
-        "vertex" => vcs::blame::blame_vertex(repo.store(), head_id, element_id)
-            .into_diagnostic()?,
+        "vertex" => {
+            vcs::blame::blame_vertex(repo.store(), head_id, element_id).into_diagnostic()?
+        }
         "edge" => {
             // Parse "src->tgt" or "src->tgt:kind:name".
             let parts: Vec<&str> = element_id.split("->").collect();
@@ -949,8 +979,7 @@ fn cmd_blame(element_type: &str, element_id: &str) -> Result<()> {
                 kind: sub_parts.get(1).unwrap_or(&"prop").to_string(),
                 name: sub_parts.get(2).map(|s| s.to_string()),
             };
-            vcs::blame::blame_edge(repo.store(), head_id, &edge)
-                .into_diagnostic()?
+            vcs::blame::blame_edge(repo.store(), head_id, &edge).into_diagnostic()?
         }
         "constraint" => {
             // Parse "vertex_id:sort".
@@ -964,7 +993,12 @@ fn cmd_blame(element_type: &str, element_id: &str) -> Result<()> {
         _ => miette::bail!("unknown element type: {element_type}. Use: vertex, edge, constraint"),
     };
 
-    println!("{} {} {}", entry.commit_id.short(), entry.author, entry.message);
+    println!(
+        "{} {} {}",
+        entry.commit_id.short(),
+        entry.author,
+        entry.message
+    );
     println!("Date: {}", format_timestamp(entry.timestamp));
     Ok(())
 }

@@ -56,11 +56,7 @@ pub fn protocol() -> Protocol {
 
 /// Register the component GATs for NIF.
 pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, S>) {
-    theories::register_constrained_multigraph_wtype(
-        registry,
-        "ThNifSchema",
-        "ThNifInstance",
-    );
+    theories::register_constrained_multigraph_wtype(registry, "ThNifSchema", "ThNifInstance");
 }
 
 /// Parse a JSON-based NIF schema into a [`Schema`].
@@ -96,68 +92,71 @@ pub fn parse_nif_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErro
                 builder = builder.edge(name, &field_id, "sub-string", Some(field_name))?;
 
                 // nif:OffsetBasedString / nif:String index constraints
-                if let Some(begin) =
-                    field_def.get("begin-index").and_then(serde_json::Value::as_str)
+                if let Some(begin) = field_def
+                    .get("begin-index")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "begin-index", begin);
                 }
-                if let Some(end) =
-                    field_def.get("end-index").and_then(serde_json::Value::as_str)
+                if let Some(end) = field_def
+                    .get("end-index")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "end-index", end);
                 }
-                if let Some(anchor) =
-                    field_def.get("anchor-of").and_then(serde_json::Value::as_str)
+                if let Some(anchor) = field_def
+                    .get("anchor-of")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "anchor-of", anchor);
                 }
-                if let Some(v) =
-                    field_def.get("is-string").and_then(serde_json::Value::as_str)
+                if let Some(v) = field_def
+                    .get("is-string")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "is-string", v);
                 }
-                if let Some(v) =
-                    field_def.get("pred-lang").and_then(serde_json::Value::as_str)
+                if let Some(v) = field_def
+                    .get("pred-lang")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "pred-lang", v);
                 }
 
                 // Lexical annotation constraints (nif:posTag, nif:lemma, nif:stem)
-                if let Some(v) =
-                    field_def.get("pos-tag").and_then(serde_json::Value::as_str)
-                {
+                if let Some(v) = field_def.get("pos-tag").and_then(serde_json::Value::as_str) {
                     builder = builder.constraint(&field_id, "pos-tag", v);
                 }
-                if let Some(v) =
-                    field_def.get("lemma").and_then(serde_json::Value::as_str)
-                {
+                if let Some(v) = field_def.get("lemma").and_then(serde_json::Value::as_str) {
                     builder = builder.constraint(&field_id, "lemma", v);
                 }
-                if let Some(v) =
-                    field_def.get("stem").and_then(serde_json::Value::as_str)
-                {
+                if let Some(v) = field_def.get("stem").and_then(serde_json::Value::as_str) {
                     builder = builder.constraint(&field_id, "stem", v);
                 }
 
                 // Sentiment and named-entity annotation (nif:sentimentValue,
                 // itsrdf:taConfidence, itsrdf:taIdentRef, itsrdf:taClassRef)
-                if let Some(v) =
-                    field_def.get("sentiment-value").and_then(serde_json::Value::as_str)
+                if let Some(v) = field_def
+                    .get("sentiment-value")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "sentiment-value", v);
                 }
-                if let Some(v) =
-                    field_def.get("confidence").and_then(serde_json::Value::as_str)
+                if let Some(v) = field_def
+                    .get("confidence")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "confidence", v);
                 }
-                if let Some(v) =
-                    field_def.get("ta-ident-ref").and_then(serde_json::Value::as_str)
+                if let Some(v) = field_def
+                    .get("ta-ident-ref")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "ta-ident-ref", v);
                 }
-                if let Some(v) =
-                    field_def.get("ta-class-ref").and_then(serde_json::Value::as_str)
+                if let Some(v) = field_def
+                    .get("ta-class-ref")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "ta-class-ref", v);
                 }
@@ -175,7 +174,10 @@ pub fn parse_nif_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErro
         }
 
         // reference-context edges: each string links back to its nif:Context.
-        if let Some(refs) = def.get("reference-context").and_then(serde_json::Value::as_array) {
+        if let Some(refs) = def
+            .get("reference-context")
+            .and_then(serde_json::Value::as_array)
+        {
             for ref_val in refs {
                 if let Some(ctx_id) = ref_val.as_str() {
                     builder = builder.edge(name, ctx_id, "reference-context", None)?;
@@ -351,7 +353,8 @@ mod tests {
         }
         // reference-context must be an edge kind, not a constraint sort.
         assert!(
-            !p.constraint_sorts.contains(&"reference-context".to_string()),
+            !p.constraint_sorts
+                .contains(&"reference-context".to_string()),
             "reference-context must not be a constraint sort"
         );
         assert!(p.find_edge_rule("reference-context").is_some());
@@ -425,10 +428,7 @@ mod tests {
         assert_eq!(w1_field["stem"], "run");
         assert_eq!(w1_field["sentiment-value"], "0.5");
         assert_eq!(w1_field["confidence"], "0.9");
-        assert_eq!(
-            w1_field["ta-ident-ref"],
-            "http://dbpedia.org/resource/Run"
-        );
+        assert_eq!(w1_field["ta-ident-ref"], "http://dbpedia.org/resource/Run");
         assert_eq!(
             w1_field["ta-class-ref"],
             "http://nerd.eurecom.fr/ontology#Person"
@@ -478,10 +478,7 @@ mod tests {
         });
         let schema = parse_nif_schema(&json).expect("should parse");
         // item vertex should be of kind "section".
-        let section_vertex = schema
-            .vertices
-            .values()
-            .find(|v| v.kind == "section");
+        let section_vertex = schema.vertices.values().find(|v| v.kind == "section");
         assert!(section_vertex.is_some(), "expected a section vertex");
     }
 }

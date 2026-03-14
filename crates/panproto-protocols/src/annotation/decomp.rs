@@ -157,11 +157,7 @@ pub fn protocol() -> Protocol {
 
 /// Register the component GATs for Decomp/UDS with a theory registry.
 pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, S>) {
-    theories::register_constrained_multigraph_wtype(
-        registry,
-        "ThDecompSchema",
-        "ThDecompInstance",
-    );
+    theories::register_constrained_multigraph_wtype(registry, "ThDecompSchema", "ThDecompInstance");
 }
 
 // ── Parse ─────────────────────────────────────────────────────────────────────
@@ -261,9 +257,7 @@ pub fn parse_decomp(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         let sentences = doc_val
             .get("sentences")
             .and_then(serde_json::Value::as_object)
-            .ok_or_else(|| {
-                ProtocolError::MissingField(format!("{doc_key}.sentences"))
-            })?;
+            .ok_or_else(|| ProtocolError::MissingField(format!("{doc_key}.sentences")))?;
 
         for (sent_key, sent_val) in sentences {
             let sent_vid = format!("{doc_vid}.{sent_key}");
@@ -330,7 +324,10 @@ fn parse_semantics(
     sent_vid: &str,
     known: &HashSet<String>,
 ) -> Result<SchemaBuilder, panproto_schema::SchemaError> {
-    let Some(sem) = sent_val.get("semantics").and_then(serde_json::Value::as_object) else {
+    let Some(sem) = sent_val
+        .get("semantics")
+        .and_then(serde_json::Value::as_object)
+    else {
         return Ok(builder);
     };
 
@@ -348,13 +345,18 @@ fn parse_semantics(
             builder = builder.edge(sent_vid, &pred_vid, "contains", Some(pred_key))?;
 
             if let Some(fp) = pred_val.get("frompredpatt") {
-                let fp_str = if fp.as_bool().unwrap_or(false) { "true" } else { "false" };
+                let fp_str = if fp.as_bool().unwrap_or(false) {
+                    "true"
+                } else {
+                    "false"
+                };
                 builder = builder.constraint(&pred_vid, "frompredpatt", fp_str);
             }
 
             // Interface head edge
-            if let Some(head_pos) =
-                pred_val.get("head_token").and_then(serde_json::Value::as_str)
+            if let Some(head_pos) = pred_val
+                .get("head_token")
+                .and_then(serde_json::Value::as_str)
             {
                 let tok_vid = format!("{sent_vid}.tok_{head_pos}");
                 if known.contains(&tok_vid) {
@@ -363,8 +365,9 @@ fn parse_semantics(
             }
 
             // Interface nonhead edges (deduplicated)
-            if let Some(span_arr) =
-                pred_val.get("span_tokens").and_then(serde_json::Value::as_array)
+            if let Some(span_arr) = pred_val
+                .get("span_tokens")
+                .and_then(serde_json::Value::as_array)
             {
                 let mut added: HashSet<String> = HashSet::new();
                 for tok_pos in span_arr.iter().filter_map(serde_json::Value::as_str) {
@@ -383,8 +386,7 @@ fn parse_semantics(
                 &[PRED_PARTICULAR, PRED_DYNAMIC, PRED_HYPOTHETICAL],
                 &pred_vid,
             )?;
-            builder =
-                parse_subspace(builder, pred_val, "time", TIME_GRANULARITIES, &pred_vid)?;
+            builder = parse_subspace(builder, pred_val, "time", TIME_GRANULARITIES, &pred_vid)?;
             builder = parse_subspace(
                 builder,
                 pred_val,
@@ -405,8 +407,9 @@ fn parse_semantics(
             builder = builder.constraint(&arg_vid, "type", "argument");
             builder = builder.edge(sent_vid, &arg_vid, "contains", Some(arg_key))?;
 
-            if let Some(head_pos) =
-                arg_val.get("head_token").and_then(serde_json::Value::as_str)
+            if let Some(head_pos) = arg_val
+                .get("head_token")
+                .and_then(serde_json::Value::as_str)
             {
                 let tok_vid = format!("{sent_vid}.tok_{head_pos}");
                 if known.contains(&tok_vid) {
@@ -414,8 +417,9 @@ fn parse_semantics(
                 }
             }
 
-            if let Some(span_arr) =
-                arg_val.get("span_tokens").and_then(serde_json::Value::as_array)
+            if let Some(span_arr) = arg_val
+                .get("span_tokens")
+                .and_then(serde_json::Value::as_array)
             {
                 let mut added: HashSet<String> = HashSet::new();
                 for tok_pos in span_arr.iter().filter_map(serde_json::Value::as_str) {
@@ -457,8 +461,9 @@ fn parse_semantics(
             builder = builder.edge(&pred_vid, &arg_vid, "sem-dep", Some(edge_key))?;
 
             // Protorole annotations as float prop vertices on the predicate.
-            if let Some(protoroles) =
-                edge_val.get("protoroles").and_then(serde_json::Value::as_object)
+            if let Some(protoroles) = edge_val
+                .get("protoroles")
+                .and_then(serde_json::Value::as_object)
             {
                 for prop in PROTOROLE_PROPERTIES {
                     if let Some(ann) = protoroles.get(*prop) {
@@ -469,11 +474,8 @@ fn parse_semantics(
                         if let Some(v) = ann.get("value").and_then(serde_json::Value::as_f64) {
                             builder = builder.constraint(&prop_vid, "value", &v.to_string());
                         }
-                        if let Some(c) =
-                            ann.get("confidence").and_then(serde_json::Value::as_f64)
-                        {
-                            builder =
-                                builder.constraint(&prop_vid, "confidence", &c.to_string());
+                        if let Some(c) = ann.get("confidence").and_then(serde_json::Value::as_f64) {
+                            builder = builder.constraint(&prop_vid, "confidence", &c.to_string());
                         }
                         builder = builder.edge(&pred_vid, &prop_vid, "prop", Some(prop))?;
                     }
@@ -481,8 +483,9 @@ fn parse_semantics(
             }
 
             // Event-structure mereology on edges (e.g. pred1_contains_pred2).
-            if let Some(event_struct) =
-                edge_val.get("event_structure").and_then(serde_json::Value::as_object)
+            if let Some(event_struct) = edge_val
+                .get("event_structure")
+                .and_then(serde_json::Value::as_object)
             {
                 for (mero_key, ann) in event_struct {
                     let mero_vid = format!("{pred_vid}.es.{arg_key}.{mero_key}");
@@ -513,7 +516,10 @@ fn parse_subspace(
     known_props: &[&str],
     parent_vid: &str,
 ) -> Result<SchemaBuilder, panproto_schema::SchemaError> {
-    let Some(subspace_obj) = node_val.get(subspace).and_then(serde_json::Value::as_object) else {
+    let Some(subspace_obj) = node_val
+        .get(subspace)
+        .and_then(serde_json::Value::as_object)
+    else {
         return Ok(builder);
     };
 
@@ -587,8 +593,7 @@ fn emit_sentence(schema: &Schema, sent_vid: &str) -> serde_json::Value {
                 tok_obj.insert((*sort).to_string(), serde_json::json!(v));
             }
         }
-        let pos = constraint_value(schema, &tok_vertex.id, "position")
-            .unwrap_or(&tok_vertex.id);
+        let pos = constraint_value(schema, &tok_vertex.id, "position").unwrap_or(&tok_vertex.id);
         tokens_map.insert(pos.to_string(), serde_json::Value::Object(tok_obj));
     }
 
@@ -630,9 +635,7 @@ fn emit_sentence(schema: &Schema, sent_vid: &str) -> serde_json::Value {
                         if !prop_vertex.id.contains(arg_key) {
                             continue;
                         }
-                        if let Some(pname) =
-                            constraint_value(schema, &prop_vertex.id, "property")
-                        {
+                        if let Some(pname) = constraint_value(schema, &prop_vertex.id, "property") {
                             protoroles_map.insert(
                                 pname.to_string(),
                                 emit_annotation(schema, &prop_vertex.id),
@@ -714,8 +717,7 @@ fn emit_sem_node(schema: &Schema, node_vid: &str, sem_type: &str) -> serde_json:
     }
 
     // Annotation subspaces from prop children (excluding protoroles).
-    let mut subspaces: HashMap<String, serde_json::Map<String, serde_json::Value>> =
-        HashMap::new();
+    let mut subspaces: HashMap<String, serde_json::Map<String, serde_json::Value>> = HashMap::new();
     for (_prop_edge, prop_vertex) in children_by_edge(schema, node_vid, "prop") {
         let sub = constraint_value(schema, &prop_vertex.id, "subspace");
         let prop_name = constraint_value(schema, &prop_vertex.id, "property");
@@ -833,8 +835,12 @@ fn edge_rules() -> Vec<EdgeRule> {
         EdgeRule {
             edge_kind: "items".into(),
             src_kinds: [sem_kinds(), vec!["sentence".into()]].concat(),
-            tgt_kinds: [sem_kinds(), scalar_kinds(), vec!["token".into(), "sentence".into()]]
-                .concat(),
+            tgt_kinds: [
+                sem_kinds(),
+                scalar_kinds(),
+                vec!["token".into(), "sentence".into()],
+            ]
+            .concat(),
         },
     ]
 }
@@ -871,18 +877,34 @@ mod tests {
         }
 
         for kind in &[
-            "corpus", "document", "sentence", "token", "predicate", "argument",
-            "string", "integer", "float", "boolean",
+            "corpus",
+            "document",
+            "sentence",
+            "token",
+            "predicate",
+            "argument",
+            "string",
+            "integer",
+            "float",
+            "boolean",
         ] {
-            assert!(
-                p.is_known_vertex_kind(kind),
-                "unknown vertex kind '{kind}'"
-            );
+            assert!(p.is_known_vertex_kind(kind), "unknown vertex kind '{kind}'");
         }
 
         for sort in &[
-            "domain", "type", "position", "form", "lemma", "upos", "xpos",
-            "deprel", "frompredpatt", "value", "confidence", "subspace", "property",
+            "domain",
+            "type",
+            "position",
+            "form",
+            "lemma",
+            "upos",
+            "xpos",
+            "deprel",
+            "frompredpatt",
+            "value",
+            "confidence",
+            "subspace",
+            "property",
         ] {
             assert!(
                 p.constraint_sorts.iter().any(|s| s == sort),
@@ -1040,9 +1062,15 @@ mod tests {
 
         // ── Annotation subspace prop vertices ────────────────────────────
         let factual_vid = format!("{pred_vid}.factuality.factual");
-        assert!(schema.has_vertex(&factual_vid), "missing factuality.factual");
+        assert!(
+            schema.has_vertex(&factual_vid),
+            "missing factuality.factual"
+        );
         assert_eq!(schema.vertices[&factual_vid].kind, "float");
-        assert_eq!(constraint_value(&schema, &factual_vid, "value"), Some("0.9"));
+        assert_eq!(
+            constraint_value(&schema, &factual_vid, "value"),
+            Some("0.9")
+        );
         assert_eq!(
             constraint_value(&schema, &factual_vid, "confidence"),
             Some("1")
@@ -1056,7 +1084,10 @@ mod tests {
 
         // ── Protorole prop vertices ──────────────────────────────────────
         let pr_aware_vid = format!("{pred_vid}.pr.arg-1-1.awareness");
-        assert!(schema.has_vertex(&pr_aware_vid), "missing protorole awareness");
+        assert!(
+            schema.has_vertex(&pr_aware_vid),
+            "missing protorole awareness"
+        );
         assert_eq!(
             constraint_value(&schema, &pr_aware_vid, "subspace"),
             Some("protoroles")

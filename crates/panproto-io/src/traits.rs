@@ -51,11 +51,7 @@ pub trait InstanceParser: Send + Sync {
     ///
     /// Returns [`ParseInstanceError::UnsupportedRepresentation`] if this
     /// protocol's instance theory does not support W-type instances.
-    fn parse_wtype(
-        &self,
-        schema: &Schema,
-        input: &[u8],
-    ) -> Result<WInstance, ParseInstanceError>;
+    fn parse_wtype(&self, schema: &Schema, input: &[u8]) -> Result<WInstance, ParseInstanceError>;
 
     /// Parse bytes into a functor instance (tabular).
     ///
@@ -63,11 +59,8 @@ pub trait InstanceParser: Send + Sync {
     ///
     /// Returns [`ParseInstanceError::UnsupportedRepresentation`] if this
     /// protocol's instance theory does not support functor instances.
-    fn parse_functor(
-        &self,
-        schema: &Schema,
-        input: &[u8],
-    ) -> Result<FInstance, ParseInstanceError>;
+    fn parse_functor(&self, schema: &Schema, input: &[u8])
+    -> Result<FInstance, ParseInstanceError>;
 }
 
 /// Emit a panproto instance to raw format bytes.

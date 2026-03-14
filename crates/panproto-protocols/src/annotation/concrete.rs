@@ -135,8 +135,9 @@ pub fn parse_concrete_schema(json: &serde_json::Value) -> Result<Schema, Protoco
                 if let Some(tool) = field_def.get("tool").and_then(serde_json::Value::as_str) {
                     builder = builder.constraint(&field_id, "tool", tool);
                 }
-                if let Some(ts) =
-                    field_def.get("timestamp").and_then(serde_json::Value::as_str)
+                if let Some(ts) = field_def
+                    .get("timestamp")
+                    .and_then(serde_json::Value::as_str)
                 {
                     builder = builder.constraint(&field_id, "timestamp", ts);
                 }
@@ -183,7 +184,10 @@ pub fn parse_concrete_schema(json: &serde_json::Value) -> Result<Schema, Protoco
                 }
             }
         }
-        if let Some(refs) = def.get("parse_children").and_then(serde_json::Value::as_array) {
+        if let Some(refs) = def
+            .get("parse_children")
+            .and_then(serde_json::Value::as_array)
+        {
             for r in refs {
                 if let Some(tgt) = r.as_str() {
                     builder = builder.edge(name, tgt, "parse-child", None)?;

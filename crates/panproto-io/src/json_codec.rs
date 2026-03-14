@@ -63,11 +63,7 @@ impl InstanceParser for JsonCodec {
         self.native_repr
     }
 
-    fn parse_wtype(
-        &self,
-        schema: &Schema,
-        input: &[u8],
-    ) -> Result<WInstance, ParseInstanceError> {
+    fn parse_wtype(&self, schema: &Schema, input: &[u8]) -> Result<WInstance, ParseInstanceError> {
         let root = find_root_vertex(schema).ok_or_else(|| ParseInstanceError::SchemaMismatch {
             protocol: self.protocol.clone(),
             message: "schema has no root vertex".into(),

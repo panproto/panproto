@@ -138,8 +138,9 @@ pub fn parse_naf(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                 builder = builder.edge(doc_id, layer_id, "contains", Some(kind))?;
             }
 
-            if let Some(elements) =
-                layer_def.get("elements").and_then(serde_json::Value::as_object)
+            if let Some(elements) = layer_def
+                .get("elements")
+                .and_then(serde_json::Value::as_object)
             {
                 for (elem_id, elem_def) in elements {
                     let elem_kind = elem_def
@@ -161,8 +162,9 @@ pub fn parse_naf(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
 
                     // Register external-ref vertices inline so they exist in
                     // pass 2 when the ext-ref edges are added.
-                    if let Some(ext_refs) =
-                        elem_def.get("ext_refs").and_then(serde_json::Value::as_array)
+                    if let Some(ext_refs) = elem_def
+                        .get("ext_refs")
+                        .and_then(serde_json::Value::as_array)
                     {
                         for (i, ext) in ext_refs.iter().enumerate() {
                             if let Some(ext_obj) = ext.as_object() {
@@ -178,11 +180,11 @@ pub fn parse_naf(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                                 {
                                     builder = builder.constraint(&ext_id, "reference", reference);
                                 }
-                                if let Some(confidence) =
-                                    ext_obj.get("confidence").and_then(serde_json::Value::as_str)
+                                if let Some(confidence) = ext_obj
+                                    .get("confidence")
+                                    .and_then(serde_json::Value::as_str)
                                 {
-                                    builder =
-                                        builder.constraint(&ext_id, "confidence", confidence);
+                                    builder = builder.constraint(&ext_id, "confidence", confidence);
                                 }
                             }
                         }
@@ -193,13 +195,15 @@ pub fn parse_naf(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
 
         // --- pass 2: cross-element reference edges ---
         for (_layer_id, layer_def) in layers {
-            if let Some(elements) =
-                layer_def.get("elements").and_then(serde_json::Value::as_object)
+            if let Some(elements) = layer_def
+                .get("elements")
+                .and_then(serde_json::Value::as_object)
             {
                 for (elem_id, elem_def) in elements {
                     // span-ref (term/entity/chunk → word-form)
-                    if let Some(spans) =
-                        elem_def.get("span_refs").and_then(serde_json::Value::as_array)
+                    if let Some(spans) = elem_def
+                        .get("span_refs")
+                        .and_then(serde_json::Value::as_array)
                     {
                         for span_ref in spans {
                             if let Some(tgt) = span_ref.as_str() {
@@ -223,8 +227,9 @@ pub fn parse_naf(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                     }
 
                     // coref-ref (coref → span)
-                    if let Some(coref_refs) =
-                        elem_def.get("coref_refs").and_then(serde_json::Value::as_array)
+                    if let Some(coref_refs) = elem_def
+                        .get("coref_refs")
+                        .and_then(serde_json::Value::as_array)
                     {
                         for cr in coref_refs {
                             if let Some(tgt) = cr.as_str() {
@@ -248,8 +253,9 @@ pub fn parse_naf(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                     }
 
                     // ext-ref (entity/term → external-ref)
-                    if let Some(ext_refs) =
-                        elem_def.get("ext_refs").and_then(serde_json::Value::as_array)
+                    if let Some(ext_refs) = elem_def
+                        .get("ext_refs")
+                        .and_then(serde_json::Value::as_array)
                     {
                         for (i, ext) in ext_refs.iter().enumerate() {
                             if ext.is_object() {
@@ -260,25 +266,25 @@ pub fn parse_naf(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                     }
 
                     // opinion-ref (opinion → term/span holder/target)
-                    if let Some(opinion_refs) =
-                        elem_def.get("opinion_refs").and_then(serde_json::Value::as_array)
+                    if let Some(opinion_refs) = elem_def
+                        .get("opinion_refs")
+                        .and_then(serde_json::Value::as_array)
                     {
                         for or_ref in opinion_refs {
                             if let Some(tgt) = or_ref.as_str() {
-                                builder =
-                                    builder.edge(elem_id, tgt, "opinion-ref", None)?;
+                                builder = builder.edge(elem_id, tgt, "opinion-ref", None)?;
                             }
                         }
                     }
 
                     // parent-child (non-terminal → non-terminal/terminal)
-                    if let Some(children) =
-                        elem_def.get("children").and_then(serde_json::Value::as_array)
+                    if let Some(children) = elem_def
+                        .get("children")
+                        .and_then(serde_json::Value::as_array)
                     {
                         for child_ref in children {
                             if let Some(tgt) = child_ref.as_str() {
-                                builder =
-                                    builder.edge(elem_id, tgt, "parent-child", None)?;
+                                builder = builder.edge(elem_id, tgt, "parent-child", None)?;
                             }
                         }
                     }
@@ -318,161 +324,146 @@ pub fn emit_naf(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
     for root in &roots {
         if root.kind.as_str() == "naf-document" {
             let constraints = vertex_constraints(schema, &root.id);
-                for c in &constraints {
-                    if c.sort == "id" {
-                        document.insert("id".into(), serde_json::json!(c.value));
+            for c in &constraints {
+                if c.sort == "id" {
+                    document.insert("id".into(), serde_json::json!(c.value));
+                }
+            }
+
+            // Find layers contained by this document, sorted in dependency
+            // order so that base layers (text) are emitted before derived
+            // layers (terms, deps) that reference their elements. This
+            // ensures the parser can resolve all vertex references in a
+            // single forward pass.
+            let layer_order = |kind: &str| -> u8 {
+                match kind {
+                    "text-layer" => 0,
+                    "terms-layer" => 1,
+                    "chunks-layer" => 2,
+                    "entities-layer" => 3,
+                    "deps-layer" => 4,
+                    "coreferences-layer" => 5,
+                    "srl-layer" => 6,
+                    "constituency-layer" => 7,
+                    "opinion-layer" => 8,
+                    "temporal-layer" => 9,
+                    "factuality-layer" => 10,
+                    _ => 11,
+                }
+            };
+            let mut layer_children = children_by_edge(schema, &root.id, "contains");
+            layer_children.sort_by_key(|(_, layer)| layer_order(layer.kind.as_str()));
+            for (edge, layer) in &layer_children {
+                let mut layer_obj = serde_json::Map::new();
+                layer_obj.insert("kind".into(), serde_json::json!(layer.kind));
+
+                let mut elements = serde_json::Map::new();
+                let elem_children = children_by_edge(schema, &layer.id, "contains");
+                for (_edge, elem) in &elem_children {
+                    let mut elem_obj = serde_json::Map::new();
+                    elem_obj.insert("kind".into(), serde_json::json!(elem.kind));
+
+                    // Emit constraints as attrs.
+                    let elem_constraints = vertex_constraints(schema, &elem.id);
+                    if !elem_constraints.is_empty() {
+                        let mut attrs = serde_json::Map::new();
+                        for c in &elem_constraints {
+                            attrs.insert(c.sort.clone(), serde_json::json!(c.value));
+                        }
+                        elem_obj.insert("attrs".into(), serde_json::Value::Object(attrs));
                     }
+
+                    // Emit span-ref edges.
+                    let span_refs = children_by_edge(schema, &elem.id, "span-ref");
+                    if !span_refs.is_empty() {
+                        let arr: Vec<serde_json::Value> = span_refs
+                            .iter()
+                            .map(|(_, child)| serde_json::json!(child.id))
+                            .collect();
+                        elem_obj.insert("span_refs".into(), serde_json::Value::Array(arr));
+                    }
+
+                    // Emit head reference.
+                    let head_refs = children_by_edge(schema, &elem.id, "head");
+                    if let Some((_, child)) = head_refs.first() {
+                        elem_obj.insert("head_ref".into(), serde_json::json!(child.id));
+                    }
+
+                    // Emit dep-ref.
+                    let dep_refs = children_by_edge(schema, &elem.id, "dep-ref");
+                    if let Some((_, child)) = dep_refs.first() {
+                        elem_obj.insert("dep_ref".into(), serde_json::json!(child.id));
+                    }
+
+                    // Emit coref-ref edges.
+                    let coref_refs = children_by_edge(schema, &elem.id, "coref-ref");
+                    if !coref_refs.is_empty() {
+                        let arr: Vec<serde_json::Value> = coref_refs
+                            .iter()
+                            .map(|(_, child)| serde_json::json!(child.id))
+                            .collect();
+                        elem_obj.insert("coref_refs".into(), serde_json::Value::Array(arr));
+                    }
+
+                    // Emit pred-ref.
+                    let pred_refs = children_by_edge(schema, &elem.id, "pred-ref");
+                    if let Some((_, child)) = pred_refs.first() {
+                        elem_obj.insert("pred_ref".into(), serde_json::json!(child.id));
+                    }
+
+                    // Emit role-ref.
+                    let role_refs = children_by_edge(schema, &elem.id, "role-ref");
+                    if let Some((_, child)) = role_refs.first() {
+                        elem_obj.insert("role_ref".into(), serde_json::json!(child.id));
+                    }
+
+                    // Emit ext-ref edges.
+                    let ext_refs = children_by_edge(schema, &elem.id, "ext-ref");
+                    if !ext_refs.is_empty() {
+                        let arr: Vec<serde_json::Value> = ext_refs
+                            .iter()
+                            .map(|(_, child)| {
+                                let mut ext_obj = serde_json::Map::new();
+                                let ext_constraints = vertex_constraints(schema, &child.id);
+                                for c in &ext_constraints {
+                                    ext_obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                                }
+                                serde_json::Value::Object(ext_obj)
+                            })
+                            .collect();
+                        elem_obj.insert("ext_refs".into(), serde_json::Value::Array(arr));
+                    }
+
+                    // Emit opinion-ref edges (opinion holder/target).
+                    let opinion_refs = children_by_edge(schema, &elem.id, "opinion-ref");
+                    if !opinion_refs.is_empty() {
+                        let arr: Vec<serde_json::Value> = opinion_refs
+                            .iter()
+                            .map(|(_, child)| serde_json::json!(child.id))
+                            .collect();
+                        elem_obj.insert("opinion_refs".into(), serde_json::Value::Array(arr));
+                    }
+
+                    // Emit parent-child edges (constituency tree).
+                    let children = children_by_edge(schema, &elem.id, "parent-child");
+                    if !children.is_empty() {
+                        let arr: Vec<serde_json::Value> = children
+                            .iter()
+                            .map(|(_, child)| serde_json::json!(child.id))
+                            .collect();
+                        elem_obj.insert("children".into(), serde_json::Value::Array(arr));
+                    }
+
+                    elements.insert(elem.id.clone(), serde_json::Value::Object(elem_obj));
                 }
 
-                // Find layers contained by this document, sorted in dependency
-                // order so that base layers (text) are emitted before derived
-                // layers (terms, deps) that reference their elements. This
-                // ensures the parser can resolve all vertex references in a
-                // single forward pass.
-                let layer_order = |kind: &str| -> u8 {
-                    match kind {
-                        "text-layer" => 0,
-                        "terms-layer" => 1,
-                        "chunks-layer" => 2,
-                        "entities-layer" => 3,
-                        "deps-layer" => 4,
-                        "coreferences-layer" => 5,
-                        "srl-layer" => 6,
-                        "constituency-layer" => 7,
-                        "opinion-layer" => 8,
-                        "temporal-layer" => 9,
-                        "factuality-layer" => 10,
-                        _ => 11,
-                    }
-                };
-                let mut layer_children = children_by_edge(schema, &root.id, "contains");
-                layer_children.sort_by_key(|(_, layer)| layer_order(layer.kind.as_str()));
-                for (edge, layer) in &layer_children {
-                    let mut layer_obj = serde_json::Map::new();
-                    layer_obj.insert("kind".into(), serde_json::json!(layer.kind));
-
-                    let mut elements = serde_json::Map::new();
-                    let elem_children = children_by_edge(schema, &layer.id, "contains");
-                    for (_edge, elem) in &elem_children {
-                        let mut elem_obj = serde_json::Map::new();
-                        elem_obj.insert("kind".into(), serde_json::json!(elem.kind));
-
-                        // Emit constraints as attrs.
-                        let elem_constraints = vertex_constraints(schema, &elem.id);
-                        if !elem_constraints.is_empty() {
-                            let mut attrs = serde_json::Map::new();
-                            for c in &elem_constraints {
-                                attrs.insert(c.sort.clone(), serde_json::json!(c.value));
-                            }
-                            elem_obj.insert("attrs".into(), serde_json::Value::Object(attrs));
-                        }
-
-                        // Emit span-ref edges.
-                        let span_refs = children_by_edge(schema, &elem.id, "span-ref");
-                        if !span_refs.is_empty() {
-                            let arr: Vec<serde_json::Value> = span_refs
-                                .iter()
-                                .map(|(_, child)| serde_json::json!(child.id))
-                                .collect();
-                            elem_obj.insert("span_refs".into(), serde_json::Value::Array(arr));
-                        }
-
-                        // Emit head reference.
-                        let head_refs = children_by_edge(schema, &elem.id, "head");
-                        if let Some((_, child)) = head_refs.first() {
-                            elem_obj.insert("head_ref".into(), serde_json::json!(child.id));
-                        }
-
-                        // Emit dep-ref.
-                        let dep_refs = children_by_edge(schema, &elem.id, "dep-ref");
-                        if let Some((_, child)) = dep_refs.first() {
-                            elem_obj.insert("dep_ref".into(), serde_json::json!(child.id));
-                        }
-
-                        // Emit coref-ref edges.
-                        let coref_refs = children_by_edge(schema, &elem.id, "coref-ref");
-                        if !coref_refs.is_empty() {
-                            let arr: Vec<serde_json::Value> = coref_refs
-                                .iter()
-                                .map(|(_, child)| serde_json::json!(child.id))
-                                .collect();
-                            elem_obj
-                                .insert("coref_refs".into(), serde_json::Value::Array(arr));
-                        }
-
-                        // Emit pred-ref.
-                        let pred_refs = children_by_edge(schema, &elem.id, "pred-ref");
-                        if let Some((_, child)) = pred_refs.first() {
-                            elem_obj.insert("pred_ref".into(), serde_json::json!(child.id));
-                        }
-
-                        // Emit role-ref.
-                        let role_refs = children_by_edge(schema, &elem.id, "role-ref");
-                        if let Some((_, child)) = role_refs.first() {
-                            elem_obj.insert("role_ref".into(), serde_json::json!(child.id));
-                        }
-
-                        // Emit ext-ref edges.
-                        let ext_refs = children_by_edge(schema, &elem.id, "ext-ref");
-                        if !ext_refs.is_empty() {
-                            let arr: Vec<serde_json::Value> = ext_refs
-                                .iter()
-                                .map(|(_, child)| {
-                                    let mut ext_obj = serde_json::Map::new();
-                                    let ext_constraints =
-                                        vertex_constraints(schema, &child.id);
-                                    for c in &ext_constraints {
-                                        ext_obj.insert(
-                                            c.sort.clone(),
-                                            serde_json::json!(c.value),
-                                        );
-                                    }
-                                    serde_json::Value::Object(ext_obj)
-                                })
-                                .collect();
-                            elem_obj
-                                .insert("ext_refs".into(), serde_json::Value::Array(arr));
-                        }
-
-                        // Emit opinion-ref edges (opinion holder/target).
-                        let opinion_refs = children_by_edge(schema, &elem.id, "opinion-ref");
-                        if !opinion_refs.is_empty() {
-                            let arr: Vec<serde_json::Value> = opinion_refs
-                                .iter()
-                                .map(|(_, child)| serde_json::json!(child.id))
-                                .collect();
-                            elem_obj.insert(
-                                "opinion_refs".into(),
-                                serde_json::Value::Array(arr),
-                            );
-                        }
-
-                        // Emit parent-child edges (constituency tree).
-                        let children = children_by_edge(schema, &elem.id, "parent-child");
-                        if !children.is_empty() {
-                            let arr: Vec<serde_json::Value> = children
-                                .iter()
-                                .map(|(_, child)| serde_json::json!(child.id))
-                                .collect();
-                            elem_obj
-                                .insert("children".into(), serde_json::Value::Array(arr));
-                        }
-
-                        elements
-                            .insert(elem.id.clone(), serde_json::Value::Object(elem_obj));
-                    }
-
-                    if !elements.is_empty() {
-                        layer_obj
-                            .insert("elements".into(), serde_json::Value::Object(elements));
-                    }
-
-                    let _layer_name = edge.name.as_deref().unwrap_or(&layer.id);
-                    layers.insert(
-                        layer.id.clone(),
-                        serde_json::Value::Object(layer_obj),
-                    );
+                if !elements.is_empty() {
+                    layer_obj.insert("elements".into(), serde_json::Value::Object(elements));
                 }
+
+                let _layer_name = edge.name.as_deref().unwrap_or(&layer.id);
+                layers.insert(layer.id.clone(), serde_json::Value::Object(layer_obj));
+            }
         }
     }
 

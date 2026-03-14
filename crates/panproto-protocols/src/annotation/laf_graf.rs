@@ -83,7 +83,10 @@ pub fn parse_laf_graf(json: &serde_json::Value) -> Result<Schema, ProtocolError>
     if let Some(nodes) = json.get("nodes").and_then(serde_json::Value::as_object) {
         for (id, def) in nodes {
             builder = builder.vertex(id, "node", None)?;
-            if let Some(cs) = def.get("constraints").and_then(serde_json::Value::as_object) {
+            if let Some(cs) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
+            {
                 for (sort, val) in cs {
                     if let Some(v) = val.as_str() {
                         builder = builder.constraint(id, sort, v);
@@ -96,7 +99,10 @@ pub fn parse_laf_graf(json: &serde_json::Value) -> Result<Schema, ProtocolError>
     if let Some(regions) = json.get("regions").and_then(serde_json::Value::as_object) {
         for (id, def) in regions {
             builder = builder.vertex(id, "region", None)?;
-            if let Some(cs) = def.get("constraints").and_then(serde_json::Value::as_object) {
+            if let Some(cs) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
+            {
                 for (sort, val) in cs {
                     if let Some(v) = val.as_str() {
                         builder = builder.constraint(id, sort, v);
@@ -109,7 +115,10 @@ pub fn parse_laf_graf(json: &serde_json::Value) -> Result<Schema, ProtocolError>
     if let Some(anchors) = json.get("anchors").and_then(serde_json::Value::as_object) {
         for (id, def) in anchors {
             builder = builder.vertex(id, "anchor", None)?;
-            if let Some(cs) = def.get("constraints").and_then(serde_json::Value::as_object) {
+            if let Some(cs) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
+            {
                 for (sort, val) in cs {
                     if let Some(v) = val.as_str() {
                         builder = builder.constraint(id, sort, v);
@@ -122,7 +131,10 @@ pub fn parse_laf_graf(json: &serde_json::Value) -> Result<Schema, ProtocolError>
     if let Some(edges) = json.get("edges").and_then(serde_json::Value::as_object) {
         for (id, def) in edges {
             builder = builder.vertex(id, "edge", None)?;
-            if let Some(cs) = def.get("constraints").and_then(serde_json::Value::as_object) {
+            if let Some(cs) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
+            {
                 for (sort, val) in cs {
                     if let Some(v) = val.as_str() {
                         builder = builder.constraint(id, sort, v);
@@ -132,10 +144,16 @@ pub fn parse_laf_graf(json: &serde_json::Value) -> Result<Schema, ProtocolError>
         }
     }
 
-    if let Some(annotations) = json.get("annotations").and_then(serde_json::Value::as_object) {
+    if let Some(annotations) = json
+        .get("annotations")
+        .and_then(serde_json::Value::as_object)
+    {
         for (id, def) in annotations {
             builder = builder.vertex(id, "annotation", None)?;
-            if let Some(cs) = def.get("constraints").and_then(serde_json::Value::as_object) {
+            if let Some(cs) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
+            {
                 for (sort, val) in cs {
                     if let Some(v) = val.as_str() {
                         builder = builder.constraint(id, sort, v);
@@ -163,7 +181,10 @@ pub fn parse_laf_graf(json: &serde_json::Value) -> Result<Schema, ProtocolError>
     {
         for (id, def) in fstructs {
             builder = builder.vertex(id, "feature-structure", None)?;
-            if let Some(cs) = def.get("constraints").and_then(serde_json::Value::as_object) {
+            if let Some(cs) = def
+                .get("constraints")
+                .and_then(serde_json::Value::as_object)
+            {
                 for (sort, val) in cs {
                     if let Some(v) = val.as_str() {
                         builder = builder.constraint(id, sort, v);
@@ -220,7 +241,10 @@ pub fn parse_laf_graf(json: &serde_json::Value) -> Result<Schema, ProtocolError>
         }
     }
 
-    if let Some(annotations) = json.get("annotations").and_then(serde_json::Value::as_object) {
+    if let Some(annotations) = json
+        .get("annotations")
+        .and_then(serde_json::Value::as_object)
+    {
         for (id, def) in annotations {
             // `annotates-node`: annotation → node or edge-vertex (the target
             // being annotated). Distinct from the feature-structure link.
@@ -353,8 +377,7 @@ pub fn emit_laf_graf(schema: &Schema) -> Result<serde_json::Value, ProtocolError
                                         .iter()
                                         .find(|c| c.sort == "value")
                                         .map_or("", |c| c.value.as_str());
-                                    features
-                                        .insert(fname.to_string(), serde_json::json!(fval));
+                                    features.insert(fname.to_string(), serde_json::json!(fval));
                                 }
                             }
                         }
@@ -378,8 +401,7 @@ pub fn emit_laf_graf(schema: &Schema) -> Result<serde_json::Value, ProtocolError
                                     .iter()
                                     .find(|c| c.sort == "value")
                                     .map_or("", |c| c.value.as_str());
-                                features
-                                    .insert(fname.to_string(), serde_json::json!(fval));
+                                features.insert(fname.to_string(), serde_json::json!(fval));
                             }
                         }
                     }
@@ -576,7 +598,10 @@ mod tests {
         let has_legacy = rules.iter().any(|r| r.edge_kind == "annotation-of");
         assert!(has_annotates_node, "annotates-node edge kind must exist");
         assert!(has_annotation_fs, "annotation-fs edge kind must exist");
-        assert!(!has_legacy, "annotation-of must not exist (replaced by distinct kinds)");
+        assert!(
+            !has_legacy,
+            "annotation-of must not exist (replaced by distinct kinds)"
+        );
     }
 
     #[test]

@@ -205,7 +205,10 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
             }
 
             // Relation types
-            if let Some(rel_types) = ont.get("relationTypes").and_then(serde_json::Value::as_array) {
+            if let Some(rel_types) = ont
+                .get("relationTypes")
+                .and_then(serde_json::Value::as_array)
+            {
                 for relt in rel_types {
                     let relt_id = required_str(relt, "id")?;
                     add_vertex!(relt_id, "relation-type");
@@ -219,7 +222,8 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                             if sym { "true" } else { "false" },
                         );
                     }
-                    if let Some(trans) = relt.get("transitive").and_then(serde_json::Value::as_bool) {
+                    if let Some(trans) = relt.get("transitive").and_then(serde_json::Value::as_bool)
+                    {
                         builder = builder.constraint(
                             relt_id,
                             "transitive",
@@ -295,7 +299,10 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
 
         // Entity collections
-        if let Some(ecols) = world.get("entityCollections").and_then(serde_json::Value::as_array) {
+        if let Some(ecols) = world
+            .get("entityCollections")
+            .and_then(serde_json::Value::as_array)
+        {
             for ec in ecols {
                 let ec_id = required_str(ec, "id")?;
                 add_vertex!(ec_id, "entity-collection");
@@ -309,14 +316,20 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
 
         // Event collections
-        if let Some(evcols) = world.get("eventCollections").and_then(serde_json::Value::as_array) {
+        if let Some(evcols) = world
+            .get("eventCollections")
+            .and_then(serde_json::Value::as_array)
+        {
             for evc in evcols {
                 let evc_id = required_str(evc, "id")?;
                 add_vertex!(evc_id, "event-collection");
                 if let Some(name) = evc.get("name").and_then(serde_json::Value::as_str) {
                     builder = builder.constraint(evc_id, "name", name);
                 }
-                if let Some(ct) = evc.get("collectionType").and_then(serde_json::Value::as_str) {
+                if let Some(ct) = evc
+                    .get("collectionType")
+                    .and_then(serde_json::Value::as_str)
+                {
                     builder = builder.constraint(evc_id, "collection-type", ct);
                 }
             }
@@ -324,7 +337,10 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // Annotations and their bounding boxes
-    if let Some(annotations) = json.get("annotations").and_then(serde_json::Value::as_array) {
+    if let Some(annotations) = json
+        .get("annotations")
+        .and_then(serde_json::Value::as_array)
+    {
         for ann in annotations {
             let ann_id = required_str(ann, "id")?;
             add_vertex!(ann_id, "annotation");
@@ -338,7 +354,9 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                     for (bi, bb) in boxes.iter().enumerate() {
                         let bb_id = format!("{ann_id}.bbox_{bi}");
                         add_vertex!(&bb_id, "bounding-box");
-                        if let Some(fn_val) = bb.get("frameNumber").and_then(serde_json::Value::as_i64) {
+                        if let Some(fn_val) =
+                            bb.get("frameNumber").and_then(serde_json::Value::as_i64)
+                        {
                             builder =
                                 builder.constraint(&bb_id, "frame-number", &fn_val.to_string());
                         }
@@ -372,7 +390,10 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // Video summaries
-    if let Some(summaries) = json.get("videoSummaries").and_then(serde_json::Value::as_array) {
+    if let Some(summaries) = json
+        .get("videoSummaries")
+        .and_then(serde_json::Value::as_array)
+    {
         for sum in summaries {
             let sum_id = required_str(sum, "id")?;
             add_vertex!(sum_id, "video-summary");
@@ -394,7 +415,10 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // Claim relations
-    if let Some(claim_rels) = json.get("claimRelations").and_then(serde_json::Value::as_array) {
+    if let Some(claim_rels) = json
+        .get("claimRelations")
+        .and_then(serde_json::Value::as_array)
+    {
         for cr in claim_rels {
             let cr_id = required_str(cr, "id")?;
             add_vertex!(cr_id, "claim-relation");
@@ -418,7 +442,8 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
 
             // ontology → entity-type, role-type, event-type, relation-type via contains
             for type_arr_key in &["entities", "roles", "events", "relationTypes"] {
-                if let Some(type_arr) = ont.get(type_arr_key).and_then(serde_json::Value::as_array) {
+                if let Some(type_arr) = ont.get(type_arr_key).and_then(serde_json::Value::as_array)
+                {
                     for t in type_arr {
                         let t_id = required_str(t, "id")?;
                         add_edge!(ont_id, t_id, "contains", None);
@@ -440,16 +465,18 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                 for evt_t in event_types {
                     let evt_t_id = required_str(evt_t, "id")?;
 
-                    if let Some(parent_id) =
-                        evt_t.get("parentEventId").and_then(serde_json::Value::as_str)
+                    if let Some(parent_id) = evt_t
+                        .get("parentEventId")
+                        .and_then(serde_json::Value::as_str)
                     {
                         add_edge!(evt_t_id, parent_id, "contains", None);
                     }
 
                     if let Some(roles) = evt_t.get("roles").and_then(serde_json::Value::as_array) {
                         for role_slot in roles {
-                            if let Some(rt_id) =
-                                role_slot.get("roleTypeId").and_then(serde_json::Value::as_str)
+                            if let Some(rt_id) = role_slot
+                                .get("roleTypeId")
+                                .and_then(serde_json::Value::as_str)
                             {
                                 add_edge!(evt_t_id, rt_id, "has-role", None);
                             }
@@ -479,22 +506,31 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         if let Some(entities) = world.get("entities").and_then(serde_json::Value::as_array) {
             for ent in entities {
                 let ent_id = required_str(ent, "id")?;
-                if let Some(assignments) =
-                    ent.get("typeAssignments").and_then(serde_json::Value::as_array)
+                if let Some(assignments) = ent
+                    .get("typeAssignments")
+                    .and_then(serde_json::Value::as_array)
                 {
                     for asgn in assignments {
-                        let persona_id =
-                            asgn.get("personaId").and_then(serde_json::Value::as_str).unwrap_or("");
-                        let et_id =
-                            asgn.get("entityTypeId").and_then(serde_json::Value::as_str).unwrap_or("");
+                        let persona_id = asgn
+                            .get("personaId")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
+                        let et_id = asgn
+                            .get("entityTypeId")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
                         if !persona_id.is_empty() && !et_id.is_empty() {
                             add_edge!(ent_id, et_id, "type-assignment", Some(persona_id));
                         }
-                        if let Some(conf) = asgn.get("confidence").and_then(serde_json::Value::as_f64) {
-                            builder =
-                                builder.constraint(ent_id, "confidence", &conf.to_string());
+                        if let Some(conf) =
+                            asgn.get("confidence").and_then(serde_json::Value::as_f64)
+                        {
+                            builder = builder.constraint(ent_id, "confidence", &conf.to_string());
                         }
-                        if let Some(j) = asgn.get("justification").and_then(serde_json::Value::as_str) {
+                        if let Some(j) = asgn
+                            .get("justification")
+                            .and_then(serde_json::Value::as_str)
+                        {
                             builder = builder.constraint(ent_id, "justification", j);
                         }
                     }
@@ -506,14 +542,19 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         if let Some(events) = world.get("events").and_then(serde_json::Value::as_array) {
             for ev in events {
                 let ev_id = required_str(ev, "id")?;
-                if let Some(interps) =
-                    ev.get("personaInterpretations").and_then(serde_json::Value::as_array)
+                if let Some(interps) = ev
+                    .get("personaInterpretations")
+                    .and_then(serde_json::Value::as_array)
                 {
                     for interp in interps {
-                        let persona_id =
-                            interp.get("personaId").and_then(serde_json::Value::as_str).unwrap_or("");
-                        let evt_t_id =
-                            interp.get("eventTypeId").and_then(serde_json::Value::as_str).unwrap_or("");
+                        let persona_id = interp
+                            .get("personaId")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
+                        let evt_t_id = interp
+                            .get("eventTypeId")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
                         if !persona_id.is_empty() && !evt_t_id.is_empty() {
                             add_edge!(ev_id, evt_t_id, "interpretation", Some(persona_id));
                         }
@@ -523,10 +564,14 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
 
         // entity-collection → entity via contains
-        if let Some(ecols) = world.get("entityCollections").and_then(serde_json::Value::as_array) {
+        if let Some(ecols) = world
+            .get("entityCollections")
+            .and_then(serde_json::Value::as_array)
+        {
             for ec in ecols {
                 let ec_id = required_str(ec, "id")?;
-                if let Some(entity_ids) = ec.get("entityIds").and_then(serde_json::Value::as_array) {
+                if let Some(entity_ids) = ec.get("entityIds").and_then(serde_json::Value::as_array)
+                {
                     for eid_val in entity_ids {
                         if let Some(eid) = eid_val.as_str() {
                             add_edge!(ec_id, eid, "contains", None);
@@ -537,7 +582,10 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
 
         // event-collection → event via contains
-        if let Some(evcols) = world.get("eventCollections").and_then(serde_json::Value::as_array) {
+        if let Some(evcols) = world
+            .get("eventCollections")
+            .and_then(serde_json::Value::as_array)
+        {
             for evc in evcols {
                 let evc_id = required_str(evc, "id")?;
                 if let Some(event_ids) = evc.get("eventIds").and_then(serde_json::Value::as_array) {
@@ -552,7 +600,10 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // annotation → world-object via annotates; annotation → bounding-box via has-bbox
-    if let Some(annotations) = json.get("annotations").and_then(serde_json::Value::as_array) {
+    if let Some(annotations) = json
+        .get("annotations")
+        .and_then(serde_json::Value::as_array)
+    {
         for ann in annotations {
             let ann_id = required_str(ann, "id")?;
 
@@ -580,7 +631,10 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // video-summary → video/persona via prop
-    if let Some(summaries) = json.get("videoSummaries").and_then(serde_json::Value::as_array) {
+    if let Some(summaries) = json
+        .get("videoSummaries")
+        .and_then(serde_json::Value::as_array)
+    {
         for sum in summaries {
             let sum_id = required_str(sum, "id")?;
             if let Some(vid_id) = sum.get("videoId").and_then(serde_json::Value::as_str) {
@@ -603,7 +657,10 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     }
 
     // claim-relation → source/target claim via claim-rel
-    if let Some(claim_rels) = json.get("claimRelations").and_then(serde_json::Value::as_array) {
+    if let Some(claim_rels) = json
+        .get("claimRelations")
+        .and_then(serde_json::Value::as_array)
+    {
         for cr in claim_rels {
             let cr_id = required_str(cr, "id")?;
             if let Some(src_id) = cr.get("sourceClaimId").and_then(serde_json::Value::as_str) {
@@ -694,8 +751,7 @@ pub fn emit_fovea(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                                 .iter()
                                 .map(|(_, rt)| serde_json::json!({ "roleTypeId": rt.id }))
                                 .collect();
-                            child_obj
-                                .insert("roles".into(), serde_json::Value::Array(roles_json));
+                            child_obj.insert("roles".into(), serde_json::Value::Array(roles_json));
                             evt_arr.push(serde_json::Value::Object(child_obj));
                         }
                         "relation-type" => relt_arr.push(serde_json::Value::Object(child_obj)),
@@ -704,15 +760,9 @@ pub fn emit_fovea(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                             let relates = children_by_edge(schema, &child.id, "relates");
                             for (re, rt_v) in &relates {
                                 if re.name.as_deref() == Some("source") {
-                                    child_obj.insert(
-                                        "sourceId".into(),
-                                        serde_json::json!(rt_v.id),
-                                    );
+                                    child_obj.insert("sourceId".into(), serde_json::json!(rt_v.id));
                                 } else if re.name.as_deref() == Some("target") {
-                                    child_obj.insert(
-                                        "targetId".into(),
-                                        serde_json::json!(rt_v.id),
-                                    );
+                                    child_obj.insert("targetId".into(), serde_json::json!(rt_v.id));
                                 }
                             }
                             rel_arr.push(serde_json::Value::Object(child_obj));
@@ -774,18 +824,20 @@ pub fn emit_fovea(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 times.push(serde_json::Value::Object(obj));
             }
             "entity-collection" => {
-                let member_ids: Vec<serde_json::Value> = children_by_edge(schema, &v.id, "contains")
-                    .iter()
-                    .map(|(_, child)| serde_json::json!(child.id))
-                    .collect();
+                let member_ids: Vec<serde_json::Value> =
+                    children_by_edge(schema, &v.id, "contains")
+                        .iter()
+                        .map(|(_, child)| serde_json::json!(child.id))
+                        .collect();
                 obj.insert("entityIds".into(), serde_json::Value::Array(member_ids));
                 entity_collections.push(serde_json::Value::Object(obj));
             }
             "event-collection" => {
-                let member_ids: Vec<serde_json::Value> = children_by_edge(schema, &v.id, "contains")
-                    .iter()
-                    .map(|(_, child)| serde_json::json!(child.id))
-                    .collect();
+                let member_ids: Vec<serde_json::Value> =
+                    children_by_edge(schema, &v.id, "contains")
+                        .iter()
+                        .map(|(_, child)| serde_json::json!(child.id))
+                        .collect();
                 obj.insert("eventIds".into(), serde_json::Value::Array(member_ids));
                 event_collections.push(serde_json::Value::Object(obj));
             }
@@ -869,8 +921,8 @@ pub fn emit_fovea(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 claim_relations.push(serde_json::Value::Object(obj));
             }
             // Leaf / scalar kinds — not emitted as top-level arrays.
-            "entity-type" | "event-type" | "role-type" | "relation-type"
-            | "ontology-relation" | "bounding-box" | "string" | "boolean" | "float" => {}
+            "entity-type" | "event-type" | "role-type" | "relation-type" | "ontology-relation"
+            | "bounding-box" | "string" | "boolean" | "float" => {}
             _ => {}
         }
     }
@@ -981,10 +1033,7 @@ fn edge_rules() -> Vec<EdgeRule> {
         },
         EdgeRule {
             edge_kind: "items".into(),
-            src_kinds: vec![
-                "entity-collection".into(),
-                "event-collection".into(),
-            ],
+            src_kinds: vec!["entity-collection".into(), "event-collection".into()],
             tgt_kinds: vec!["entity".into(), "event".into()],
         },
     ]
@@ -1183,10 +1232,7 @@ mod tests {
 
         // Verify persona
         assert!(schema.has_vertex("persona-1"));
-        assert_eq!(
-            schema.vertices.get("persona-1").unwrap().kind,
-            "persona"
-        );
+        assert_eq!(schema.vertices.get("persona-1").unwrap().kind, "persona");
 
         // Verify ontology
         assert!(schema.has_vertex("ont-1"));
@@ -1199,10 +1245,7 @@ mod tests {
             "entity-type"
         );
         assert!(schema.has_vertex("rt-agent"));
-        assert_eq!(
-            schema.vertices.get("rt-agent").unwrap().kind,
-            "role-type"
-        );
+        assert_eq!(schema.vertices.get("rt-agent").unwrap().kind, "role-type");
         assert!(schema.has_vertex("evt-meeting"));
         assert_eq!(
             schema.vertices.get("evt-meeting").unwrap().kind,
@@ -1213,10 +1256,7 @@ mod tests {
 
         // Verify world-state vertices
         assert!(schema.has_vertex("ent-alice"));
-        assert_eq!(
-            schema.vertices.get("ent-alice").unwrap().kind,
-            "entity"
-        );
+        assert_eq!(schema.vertices.get("ent-alice").unwrap().kind, "entity");
         assert!(schema.has_vertex("ev-briefing"));
         assert!(schema.has_vertex("t-1"));
         assert_eq!(schema.vertices.get("t-1").unwrap().kind, "time");
@@ -1229,10 +1269,7 @@ mod tests {
             constraint_value(&schema, "ann-1.bbox_0", "frame-number"),
             Some("10")
         );
-        assert_eq!(
-            constraint_value(&schema, "ann-1.bbox_0", "x"),
-            Some("100")
-        );
+        assert_eq!(constraint_value(&schema, "ann-1.bbox_0", "x"), Some("100"));
 
         // Verify video
         assert!(schema.has_vertex("vid-1"));
@@ -1242,10 +1279,7 @@ mod tests {
         assert!(schema.has_vertex("cl-1"));
         assert_eq!(schema.vertices.get("cl-1").unwrap().kind, "claim");
         assert!(schema.has_vertex("cr-1"));
-        assert_eq!(
-            schema.vertices.get("cr-1").unwrap().kind,
-            "claim-relation"
-        );
+        assert_eq!(schema.vertices.get("cr-1").unwrap().kind, "claim-relation");
 
         // Constraint checks
         assert_eq!(

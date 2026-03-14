@@ -87,10 +87,7 @@ pub fn th_simple_graph() -> Theory {
             Sort::simple("Vertex"),
             Sort::dependent(
                 "Edge",
-                vec![
-                    SortParam::new("s", "Vertex"),
-                    SortParam::new("t", "Vertex"),
-                ],
+                vec![SortParam::new("s", "Vertex"), SortParam::new("t", "Vertex")],
             ),
         ],
         vec![
@@ -459,10 +456,7 @@ pub fn th_partial() -> Theory {
         ],
         vec![Equation::new(
             "defined_witness",
-            Term::app(
-                "defined",
-                vec![Term::app("witness", vec![Term::var("d")])],
-            ),
+            Term::app("defined", vec![Term::app("witness", vec![Term::var("d")])]),
             Term::var("d"),
         )],
     )
@@ -701,10 +695,7 @@ pub fn th_causal() -> Theory {
             Sort::simple("Timestamp"),
             Sort::dependent(
                 "Before",
-                vec![
-                    SortParam::new("e1", "Event"),
-                    SortParam::new("e2", "Event"),
-                ],
+                vec![SortParam::new("e1", "Event"), SortParam::new("e2", "Event")],
             ),
         ],
         vec![
@@ -712,10 +703,7 @@ pub fn th_causal() -> Theory {
             Operation::unary("before_refl", "e", "Event", "Before"),
             Operation::new(
                 "before_trans",
-                vec![
-                    ("p".into(), "Before".into()),
-                    ("q".into(), "Before".into()),
-                ],
+                vec![("p".into(), "Before".into()), ("q".into(), "Before".into())],
                 "Before",
             ),
         ],
@@ -823,17 +811,26 @@ pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
     let m = th_multi();
     let w = th_wtype();
 
-    registry.entry("ThGraph".into()).or_insert_with(|| g.clone());
-    registry.entry("ThConstraint".into()).or_insert_with(|| c.clone());
-    registry.entry("ThMulti".into()).or_insert_with(|| m.clone());
-    registry.entry("ThWType".into()).or_insert_with(|| w.clone());
+    registry
+        .entry("ThGraph".into())
+        .or_insert_with(|| g.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThMulti".into())
+        .or_insert_with(|| m.clone());
+    registry
+        .entry("ThWType".into())
+        .or_insert_with(|| w.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
     if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
         let shared_ve = Theory::new(
             "ThVertexEdge",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-            vec![], vec![],
+            vec![],
+            vec![],
         );
         if let Ok(mut schema_theory) = colimit(&gc, &m, &shared_ve) {
             schema_theory.name = schema_name.into();
@@ -862,9 +859,15 @@ pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
     let c = th_constraint();
     let f = th_functor();
 
-    registry.entry("ThHypergraph".into()).or_insert_with(|| h.clone());
-    registry.entry("ThConstraint".into()).or_insert_with(|| c.clone());
-    registry.entry("ThFunctor".into()).or_insert_with(|| f.clone());
+    registry
+        .entry("ThHypergraph".into())
+        .or_insert_with(|| h.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThFunctor".into())
+        .or_insert_with(|| f.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
     if let Ok(mut schema_theory) = colimit(&h, &c, &shared_vertex) {
@@ -893,9 +896,15 @@ pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
     let c = th_constraint();
     let fl = th_flat();
 
-    registry.entry("ThSimpleGraph".into()).or_insert_with(|| sg.clone());
-    registry.entry("ThConstraint".into()).or_insert_with(|| c.clone());
-    registry.entry("ThFlat".into()).or_insert_with(|| fl.clone());
+    registry
+        .entry("ThSimpleGraph".into())
+        .or_insert_with(|| sg.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThFlat".into())
+        .or_insert_with(|| fl.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
     if let Ok(mut schema_theory) = colimit(&sg, &c, &shared_vertex) {
@@ -926,18 +935,29 @@ pub fn register_typed_graph_wtype<S: ::std::hash::BuildHasher>(
     let iface = th_interface();
     let w = th_wtype();
 
-    registry.entry("ThGraph".into()).or_insert_with(|| g.clone());
-    registry.entry("ThConstraint".into()).or_insert_with(|| c.clone());
-    registry.entry("ThMulti".into()).or_insert_with(|| m.clone());
-    registry.entry("ThInterface".into()).or_insert_with(|| iface.clone());
-    registry.entry("ThWType".into()).or_insert_with(|| w.clone());
+    registry
+        .entry("ThGraph".into())
+        .or_insert_with(|| g.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThMulti".into())
+        .or_insert_with(|| m.clone());
+    registry
+        .entry("ThInterface".into())
+        .or_insert_with(|| iface.clone());
+    registry
+        .entry("ThWType".into())
+        .or_insert_with(|| w.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
     if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
         let shared_ve = Theory::new(
             "ThVertexEdge",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-            vec![], vec![],
+            vec![],
+            vec![],
         );
         if let Ok(gcm) = colimit(&gc, &m, &shared_ve) {
             let shared_vertex_only =
@@ -971,18 +991,29 @@ pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
     let w = th_wtype();
     let meta = th_meta();
 
-    registry.entry("ThGraph".into()).or_insert_with(|| g.clone());
-    registry.entry("ThConstraint".into()).or_insert_with(|| c.clone());
-    registry.entry("ThMulti".into()).or_insert_with(|| m.clone());
-    registry.entry("ThWType".into()).or_insert_with(|| w.clone());
-    registry.entry("ThMeta".into()).or_insert_with(|| meta.clone());
+    registry
+        .entry("ThGraph".into())
+        .or_insert_with(|| g.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThMulti".into())
+        .or_insert_with(|| m.clone());
+    registry
+        .entry("ThWType".into())
+        .or_insert_with(|| w.clone());
+    registry
+        .entry("ThMeta".into())
+        .or_insert_with(|| meta.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
     if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
         let shared_ve = Theory::new(
             "ThVertexEdge",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-            vec![], vec![],
+            vec![],
+            vec![],
         );
         if let Ok(mut schema_theory) = colimit(&gc, &m, &shared_ve) {
             schema_theory.name = schema_name.into();
@@ -1014,17 +1045,26 @@ pub fn register_constrained_graph_instance<S: ::std::hash::BuildHasher>(
     let m = th_multi();
     let gi = th_graph_instance();
 
-    registry.entry("ThGraph".into()).or_insert_with(|| g.clone());
-    registry.entry("ThConstraint".into()).or_insert_with(|| c.clone());
-    registry.entry("ThMulti".into()).or_insert_with(|| m.clone());
-    registry.entry("ThGraphInstance".into()).or_insert_with(|| gi.clone());
+    registry
+        .entry("ThGraph".into())
+        .or_insert_with(|| g.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThMulti".into())
+        .or_insert_with(|| m.clone());
+    registry
+        .entry("ThGraphInstance".into())
+        .or_insert_with(|| gi.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
     if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
         let shared_ve = Theory::new(
             "ThVertexEdge",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-            vec![], vec![],
+            vec![],
+            vec![],
         );
         if let Ok(mut schema_theory) = colimit(&gc, &m, &shared_ve) {
             schema_theory.name = schema_name.into();
