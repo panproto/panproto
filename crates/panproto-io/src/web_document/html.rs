@@ -73,6 +73,8 @@ impl InstanceParser for HtmlCodec {
                 value: None,
                 discriminator: None,
                 extra_fields: HashMap::new(),
+                position: None,
+                annotations: HashMap::new(),
             },
         );
 
@@ -183,6 +185,8 @@ fn walk_tl_node(
                     value: None,
                     discriminator: Some(kind),
                     extra_fields,
+                    position: None,
+                    annotations: HashMap::new(),
                 },
             );
 
@@ -215,6 +219,8 @@ fn walk_tl_node(
                         value: Some(FieldPresence::Present(Value::Str(content))),
                         discriminator: None,
                         extra_fields: HashMap::new(),
+                        position: None,
+                        annotations: HashMap::new(),
                     },
                 );
 
@@ -312,6 +318,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["document".into(), "element".into(), "text".into()],
             constraint_sorts: vec![],
+            ..panproto_schema::Protocol::default()
         };
         SchemaBuilder::new(&proto)
             .vertex("doc", "document", None)

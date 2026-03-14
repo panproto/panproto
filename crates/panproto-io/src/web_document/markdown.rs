@@ -72,6 +72,8 @@ impl InstanceParser for MarkdownCodec {
                 value: None,
                 discriminator: None,
                 extra_fields: HashMap::new(),
+                position: None,
+                annotations: HashMap::new(),
             },
         );
 
@@ -95,6 +97,8 @@ impl InstanceParser for MarkdownCodec {
                             value: None,
                             discriminator: Some(kind.clone()),
                             extra_fields: HashMap::new(),
+                            position: None,
+                            annotations: HashMap::new(),
                         },
                     );
 
@@ -127,6 +131,8 @@ impl InstanceParser for MarkdownCodec {
                             value: Some(FieldPresence::Present(Value::Str(text.to_string()))),
                             discriminator: None,
                             extra_fields: HashMap::new(),
+                            position: None,
+                            annotations: HashMap::new(),
                         },
                     );
 
@@ -300,6 +306,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["document".into(), "paragraph".into(), "text".into()],
             constraint_sorts: vec![],
+            ..panproto_schema::Protocol::default()
         };
         SchemaBuilder::new(&proto)
             .vertex("doc", "document", None)
