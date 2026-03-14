@@ -11,6 +11,7 @@ env:
 
 jobs:
   fmt:
+    name: Formatting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +21,7 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
+    name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,18 +32,25 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
+    name: Tests (${{ matrix.rust }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        rust: [stable, "1.85"]
+        rust: [stable, "1.85.0"]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@${{ matrix.rust }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.rust }}
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --workspace
 
   wasm:
+    name: WASM Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +62,7 @@ jobs:
       - run: wasm-pack build crates/panproto-wasm --target web
 
   doc:
+    name: Documentation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,17 +73,21 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
 
   deny:
+    name: Dependency Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v1
 
   ts:
+    name: TypeScript SDK
     needs: wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -84,6 +98,7 @@ jobs:
       - run: cd sdk/typescript && pnpm exec tsc --noEmit
 
   semver:
+    name: Semver Check
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:

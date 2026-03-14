@@ -6,7 +6,7 @@ Every change to panproto goes through a pull request with automated CI checks. T
 
 The CI workflow runs on every push to `main` and on every pull request:
 
-```{.yaml include="../../.github/workflows/ci.yml" start-line=1 end-line=95}
+```{.yaml include="../../.github/workflows/ci.yml" start-line=1 end-line=109}
 ```
 
 The pipeline consists of eight independent jobs (plus the benchmark workflow on PRs):
