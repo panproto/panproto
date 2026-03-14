@@ -26,6 +26,12 @@ pub struct Node {
     pub discriminator: Option<String>,
     /// Extra fields preserved for round-trip fidelity.
     pub extra_fields: HashMap<String, Value>,
+    /// Position in an ordered collection (if any).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<u32>,
+    /// Out-of-band annotations (metadata distinct from data).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub annotations: HashMap<String, Value>,
 }
 
 impl Node {
@@ -38,6 +44,8 @@ impl Node {
             value: None,
             discriminator: None,
             extra_fields: HashMap::new(),
+            position: None,
+            annotations: HashMap::new(),
         }
     }
 
