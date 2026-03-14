@@ -19,22 +19,15 @@ The important difference: git merges text and hopes the result compiles. panprot
 ## Quick Start
 
 ```bash
-# Initialize a schema repository
 schema init
-
-# Stage and commit a schema
 schema add schema.json
 schema commit -m "initial ATProto schema"
 
-# Create a branch for a feature
 schema branch add-verification
 schema checkout add-verification
-
-# Evolve the schema
 schema add schema-v2.json
 schema commit -m "add verification status field"
 
-# Merge back
 schema checkout main
 schema merge add-verification
 ```
@@ -52,49 +45,210 @@ Every schema, migration, and commit is identified by a blake3 hash of its canoni
   logs/                             # reflog (audit trail)
 ```
 
-## Structural Merge
+## Command Reference
 
-When two branches evolve a schema independently, panproto computes a three-way merge:
+### `schema init`
 
-1. Find the merge base (lowest common ancestor in the DAG)
-2. Compute `diff(base, ours)` and `diff(base, theirs)`
-3. Apply all non-conflicting changes from both sides
-4. Flag overlapping modifications as conflicts
+Creates a `.panproto/` directory with the object store, refs, and HEAD pointing to `main`.
 
-Conflicts are structural, not textual. A `BothModifiedVertex` conflict means both branches changed the same vertex's kind in incompatible ways. A `RemovedVariant` conflict means a coproduct variant was removed, which would make existing tagged data ill-typed. These are things a textual merge cannot detect.
-
-## Lifting Data Through History
-
-The `lift` command migrates actual instance data through any path in the version DAG:
+In git, `init` creates `.git/` for tracking arbitrary files. Here it creates `.panproto/` for tracking a single schema and its evolution. There is no working tree in the git sense; the repository tracks one schema at a time, not a directory of files.
 
 ```bash
-# Migrate a record from v1 to v3
-schema lift record.json v1.0 v3.0
+schema init
+schema init my-project
 ```
 
-This composes the migrations along the path `v1 → v2 → v3` into a single migration, then applies the functorial lift. The commutativity guarantee ensures you get the same result regardless of which path you take through the DAG.
+### `schema add`
 
-## Full Command Reference
+Stages a schema for the next commit. Loads the schema JSON, computes a structural diff against the current HEAD's schema, auto-derives a migration (the graph morphism mapping surviving vertices and edges), and validates the migration via the existence checker.
 
-| Command | Description |
-|---|---|
-| `schema init` | Initialize repository |
-| `schema add <schema>` | Stage a schema |
-| `schema commit -m "msg"` | Commit staged changes |
-| `schema status` | Show working state |
-| `schema log` | Walk commit history |
-| `schema diff <old> <new>` | Schema diff |
-| `schema show <ref>` | Inspect an object |
-| `schema branch [name]` | Create/list branches |
-| `schema tag [name]` | Create/list tags |
-| `schema checkout <ref>` | Switch branch |
-| `schema merge <branch>` | Three-way merge |
-| `schema rebase <onto>` | Replay commits |
-| `schema cherry-pick <commit>` | Apply single commit |
-| `schema reset [--soft\|--mixed\|--hard]` | Move HEAD |
-| `schema stash [push\|pop\|list]` | Save/restore state |
-| `schema reflog` | Audit trail |
-| `schema bisect <good> <bad>` | Find breaking commit |
-| `schema blame --element-type vertex <id>` | Attribution |
-| `schema lift <record> <from> <to>` | Migrate data |
-| `schema gc` | Garbage collect |
+In git, `add` stages file contents for commit. Here it stages a *schema graph* and simultaneously computes and validates the *migration morphism* that transforms the old schema into the new one. If the diff involves vertex renames or edge contractions that cannot be auto-derived, you can supply an explicit migration file with `--migration`.
+
+```bash
+schema add schema.json
+schema add schema.json --migration explicit-migration.json
+```
+
+### `schema commit`
+
+Creates a commit from the staged schema. The commit object stores the schema's content hash, the migration's content hash, parent commit IDs, and metadata. Advances the current branch ref and appends a reflog entry.
+
+In git, a commit snapshots the entire working tree. Here a commit snapshots a single schema graph and the morphism that produced it from its parent. Every commit carries enough information to migrate instance data forward or backward.
+
+```bash
+schema commit -m "add verification status field"
+```
+
+### `schema status`
+
+Shows the current HEAD (branch name or detached commit ID) and whether anything is staged.
+
+### `schema log`
+
+Walks the commit DAG from HEAD backwards, printing each commit's ID, author, timestamp, message, and schema hash. For merge commits, shows all parent IDs.
+
+In git, `log` shows file-level changes. Here it shows schema-level evolution: which vertices and edges were added, removed, or modified at each step.
+
+```bash
+schema log
+schema log -n 5
+```
+
+### `schema diff`
+
+Computes a structural diff between two schema files. Reports added and removed vertices and edges, kind changes, constraint changes, variant changes, ordering changes, and usage mode changes.
+
+Git's diff operates on lines of text. This diff operates on the schema graph: it knows that adding a vertex is different from adding an edge, that tightening a constraint is different from relaxing one, and that removing a coproduct variant is a type error while removing an optional field is merely lossy.
+
+```bash
+schema diff old-schema.json new-schema.json
+```
+
+### `schema show`
+
+Inspects any object in the store by ref name or object ID. For commits, shows the schema ID, parent IDs, migration ID, protocol, author, and message. For schemas, shows vertex and edge counts. For migrations, shows the vertex and edge mapping counts.
+
+Git's `show` displays file contents and diffs. This `show` displays the internal structure of content-addressed schema objects.
+
+```bash
+schema show main
+schema show v1.0
+```
+
+### `schema branch`
+
+Creates, lists, or deletes branches. Branches are lightweight pointers to commit IDs, exactly as in git. With no arguments, lists all branches and marks the current one.
+
+```bash
+schema branch
+schema branch feature
+schema branch -d feature
+```
+
+### `schema tag`
+
+Creates, lists, or deletes tags. Tags are immutable pointers to commits, typically used for schema releases.
+
+```bash
+schema tag v1.0
+schema tag -d v1.0
+```
+
+### `schema checkout`
+
+Switches HEAD to the named branch, or detaches HEAD at a specific commit. In git, checkout also updates the working tree; here it updates which schema version HEAD points to.
+
+```bash
+schema checkout feature
+```
+
+### `schema merge`
+
+Merges a branch into the current branch. Finds the merge base (lowest common ancestor), computes diffs from the base to both tips, and applies all non-conflicting changes.
+
+This is where panproto diverges most from git. Git's merge operates on lines of text and produces conflict markers when the same lines were edited. panproto's merge operates on the schema graph and produces typed conflicts: `BothModifiedVertex` (both branches changed the same vertex's kind differently), `BothModifiedConstraint` (both changed the same constraint value), `DeleteModifyVertex` (one branch deleted a vertex the other modified), `RemovedVariant` (a coproduct variant was dropped, making existing data ill-typed), or `LinearityTightened` (an edge's usage mode became more restrictive). If there are no conflicts, the merge is auto-committed. If there are, the conflicts are reported with their structural types.
+
+Fast-forward merges work as in git: if one side is an ancestor of the other, the ref is simply moved forward.
+
+```bash
+schema merge feature
+```
+
+### `schema rebase`
+
+Replays the current branch's commits onto another branch. Finds the merge base, collects all commits from the base to HEAD, then replays each one on top of the target via three-way merge. If any step conflicts, the rebase stops with an error.
+
+The mechanics are the same as git rebase, but each replay step uses structural three-way merge rather than textual merge. This means a rebase can detect schema-level conflicts (like incompatible kind changes) that git rebase would miss.
+
+```bash
+schema rebase main
+```
+
+### `schema cherry-pick`
+
+Applies a single commit's schema change to the current branch. Extracts the diff between the commit and its parent, then three-way merges it onto HEAD using the parent as the base.
+
+Same idea as git cherry-pick, but the "diff" being applied is a schema graph morphism, not a text patch.
+
+```bash
+schema cherry-pick abc1234...
+```
+
+### `schema reset`
+
+Moves HEAD to a different commit. Three modes, matching git:
+
+- `--soft`: moves the ref only; the index is unchanged
+- `--mixed` (default): moves the ref and clears the index
+- `--hard`: moves the ref, clears the index, and overwrites the working schema
+
+All modes append a reflog entry, so the old position is recoverable.
+
+```bash
+schema reset --soft v1.0
+schema reset --hard HEAD~3
+```
+
+### `schema stash`
+
+Saves the current staged schema to a stash stack and clears the index. `pop` restores the most recent stash. `list` shows all entries. `drop` discards the top entry.
+
+In git, stash saves uncommitted working tree changes. Here it saves the staged schema so you can switch branches without committing.
+
+```bash
+schema stash push -m "work in progress"
+schema stash pop
+schema stash list
+```
+
+### `schema reflog`
+
+Shows the history of mutations to a ref. Every commit, merge, checkout, reset, rebase, and cherry-pick appends an entry recording the old and new ref values. This is the recovery mechanism: if a reset or rebase moves HEAD past a commit you need, the reflog still has the old ID.
+
+Works identically to git reflog.
+
+```bash
+schema reflog
+schema reflog main
+```
+
+### `schema bisect`
+
+Binary search for the commit that introduced a breaking change. Given a known-good and known-bad commit, bisect finds the path between them and presents the midpoint for testing. You report whether the midpoint is good or bad, and it narrows the range. Converges in O(log n) steps.
+
+Git bisect tests whether code compiles or a test passes. Here you can test whether a schema change introduced a breaking change, a validation failure, or any other property you care about.
+
+```bash
+schema bisect v1.0 HEAD
+```
+
+### `schema blame`
+
+Shows which commit introduced a specific schema element: a vertex, an edge, or a constraint. Walks the DAG backwards from HEAD, comparing each commit's schema to its parent's, and returns the commit where the element first appeared or was last modified.
+
+Git blame operates on lines of text in a file. This blame operates on structural elements of a schema graph. You can ask "who added the `user_status` vertex?" or "when was the `maxLength` constraint on `text` changed?"
+
+```bash
+schema blame --element-type vertex user_status
+schema blame --element-type constraint "text:maxLength"
+```
+
+### `schema lift`
+
+Migrates instance data from one schema version to another. Finds the path between two refs in the DAG, composes all migrations along the path into a single morphism, and applies the functorial lift to the record.
+
+This has no git equivalent. Git tracks file history but cannot transform file *contents* based on structural changes. panproto can, because migrations are graph morphisms with a well-defined action on instance data. The commutativity guarantee ensures the result is the same regardless of which path you take through the DAG.
+
+```bash
+schema lift --migration mig.json --src-schema v1.json --tgt-schema v2.json record.json
+```
+
+### `schema gc`
+
+Marks all objects reachable from branches, tags, stash, and HEAD, then deletes everything else. Safe to run at any time.
+
+Works like git gc but simpler: there are no packfiles or loose object optimization. Objects are either reachable or deleted.
+
+```bash
+schema gc
+```

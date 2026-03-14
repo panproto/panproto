@@ -1,90 +1,214 @@
-# panproto-cli --- The CLI Tool {#sec-cli}
+# panproto-cli {#sec-cli}
 
-The `panproto-cli` crate provides a command-line interface for schema validation, migration checking, structural diffing, and record lifting. It is a thin wrapper around the `panproto-core` library, designed for scripting, CI pipelines, and quick local experiments.
+The `panproto-cli` crate provides the `schema` binary. It wraps `panproto-core` and `panproto-vcs` for use in terminals, scripts, and CI pipelines. The binary has two groups of commands: schema tools (validate, check, diff, lift) and version control (init through gc).
 
-## Command Structure
+## Schema Tool Commands
 
-The CLI uses `clap` derive macros for argument parsing. The top-level `Cli` struct holds a global `--verbose` flag and dispatches to one of four subcommands:
+These operate on schema files directly, without a `.panproto/` repository.
 
-```{.rust include="../../crates/panproto-cli/src/main.rs" start-line=22 end-line=93}
-```
-
-Each subcommand maps directly to an underlying `panproto-core` API:
-
-| Subcommand | Core API | Description |
-|---|---|---|
-| `validate` | `panproto_core::schema::validate` | Validate a schema JSON file against a protocol's rules |
-| `check` | `panproto_core::mig::check_existence` | Check existence conditions for a migration mapping |
-| `diff` | Structural comparison | Report vertex/edge additions, removals, and kind changes |
-| `lift` | `panproto_core::mig::compile` + `lift_wtype` | Apply a migration to a JSON record |
-
-## Subcommand Details
-
-### `validate`
+### `schema validate`
 
 ```bash
-panproto validate --protocol atproto schema.json
+schema validate --protocol atproto schema.json
 ```
 
-Loads the schema from JSON, resolves the protocol by name (five built-in protocols are supported), and runs protocol-aware validation. Outputs a human-readable list of errors or a success message. Exits with code 1 on validation failure.
+Loads the schema from JSON, resolves the protocol by name, and runs protocol-aware validation. Exits with code 1 on failure. Calls `panproto_core::schema::validate`.
 
-### `check`
+### `schema check`
 
 ```bash
-panproto check --src old-schema.json --tgt new-schema.json --mapping migration.json
+schema check --src old.json --tgt new.json --mapping migration.json
 ```
 
-Loads both schemas and the migration mapping, builds the theory registry from the protocol, and runs `mig::check_existence`. Outputs the report as human-readable text; with `--verbose`, also dumps the full JSON report for machine consumption.
+Loads both schemas and the migration mapping, builds the theory registry from the protocol, and runs `mig::check_existence`. With `--verbose`, also dumps the full JSON report.
 
-### `diff`
+### `schema diff`
 
 ```bash
-panproto diff old-schema.json new-schema.json
+schema diff old-schema.json new-schema.json
 ```
 
-Computes structural differences between two schemas: added/removed vertices, added/removed edges, and kind changes. Sorts output deterministically. If the schemas are identical, prints a single line.
+Computes structural differences between two schema files. Reports added/removed vertices and edges, kind changes, constraint changes, variant changes, ordering changes, and usage mode changes. Unlike git diff, this understands the schema graph structure: it distinguishes a tightened constraint from a relaxed one, and a removed coproduct variant from a removed optional field.
 
-### `lift`
+### `schema lift`
 
 ```bash
-panproto lift --migration mapping.json --src-schema old.json --tgt-schema new.json record.json
+schema lift --migration mig.json --src-schema old.json --tgt-schema new.json record.json
 ```
 
-The most complex subcommand. It compiles the migration, parses the input JSON as a W-type instance (auto-detecting the root vertex), applies the migration via `lift_wtype`, and serializes the result back to pretty-printed JSON on stdout.
+Compiles the migration, parses the input JSON as a W-type instance (auto-detecting the root vertex), applies `lift_wtype`, and writes the result as pretty-printed JSON to stdout. This command has no git equivalent; it transforms actual data through a schema change.
 
-## Error Handling with `miette`
+## Version Control Commands
 
-The CLI uses `miette` for user-facing error diagnostics. All subcommand handlers return `miette::Result<()>`, and errors are converted using `.into_diagnostic().wrap_err(...)` for context-rich messages:
+These require a `.panproto/` repository (created by `schema init`). See @sec-vcs-engine for the architectural details of the object store, DAG algorithms, and merge strategy.
 
-```rust
-let contents = std::fs::read_to_string(path)
-    .into_diagnostic()
-    .wrap_err_with(|| format!("failed to read {}", path.display()))?;
+### `schema init`
+
+```bash
+schema init
 ```
 
-::: {.callout-note}
-`miette` is used **only** in the CLI crate. Library crates use `thiserror` for error types. This separation keeps the library crates lightweight and avoids pulling in `miette`'s formatting dependencies for non-CLI consumers.
-:::
+Creates `.panproto/` with the object store, refs, logs, and HEAD pointing to `main`. Unlike `git init`, this does not create a working tree. The repository tracks a single schema's evolution, not a directory of files.
+
+### `schema add`
+
+```bash
+schema add schema.json
+```
+
+Stages a schema for the next commit. Internally: loads the schema, hashes it via `hash::hash_schema`, computes `check::diff` against HEAD's schema, calls `auto_mig::derive_migration` to produce the migration morphism, runs `mig::check_existence` to validate it, and writes the result to `.panproto/index.json`. Unlike `git add`, which stages file blobs, this stages a schema graph and simultaneously derives and validates the migration that connects it to the previous version.
+
+### `schema commit`
+
+```bash
+schema commit -m "add verification status field"
+```
+
+Reads the index, stores the schema and migration as content-addressed objects, creates a `CommitObject` with parent pointer(s), advances the branch ref, appends a reflog entry, and clears the index. Unlike git commits which snapshot a tree of files, each commit here stores exactly one schema and one migration morphism.
+
+### `schema status`
+
+```bash
+schema status
+```
+
+Prints the current HEAD state (branch name or detached commit ID) and whether the index has a staged schema.
+
+### `schema log`
+
+```bash
+schema log
+schema log -n 5
+```
+
+Walks the DAG from HEAD using a timestamp-ordered max-heap (see `dag::log_walk`). Handles merge commits by visiting each commit exactly once. Prints commit ID, author, date, schema hash, and message.
+
+### `schema show`
+
+```bash
+schema show main
+schema show v1.0
+schema show abc1234...
+```
+
+Resolves the argument as a branch, tag, or raw object ID (via `refs::resolve_ref`), then loads and displays the object. For commits: schema ID, parents, migration ID, protocol, author, message. For schemas: protocol, vertex count, edge count. For migrations: source/target IDs, mapping counts.
+
+### `schema branch`
+
+```bash
+schema branch             # list branches
+schema branch feature     # create at HEAD
+schema branch -d feature  # delete
+```
+
+Calls `refs::create_branch`, `refs::list_branches`, or `refs::delete_branch`.
+
+### `schema tag`
+
+```bash
+schema tag v1.0
+schema tag -d v1.0
+```
+
+Calls `refs::create_tag`, `refs::list_tags`, or `refs::delete_tag`. Tags are immutable pointers, typically marking schema releases.
+
+### `schema checkout`
+
+```bash
+schema checkout feature
+```
+
+If the argument matches a branch name, calls `refs::checkout_branch` to set HEAD as a symbolic ref. Otherwise resolves it as a commit ID and calls `refs::checkout_detached`.
+
+### `schema merge`
+
+```bash
+schema merge feature
+```
+
+Calls `repo::merge`. First checks for fast-forward (if HEAD is an ancestor of the target, just moves the ref). Otherwise finds the merge base via `dag::merge_base`, loads the three schemas (base, ours, theirs), and runs `merge::three_way_merge`. Clean merges are auto-committed as merge commits with two parents. Conflicts are reported with their structural types.
+
+The merge algorithm differs from git in a fundamental way: instead of three-way text merge with conflict markers, it computes the union of non-conflicting structural changes (vertex additions, edge additions, constraint changes, variant additions) and produces typed conflict descriptors for overlapping modifications. There are no conflict markers to resolve manually; conflicts are reported as structured data.
+
+### `schema rebase`
+
+```bash
+schema rebase main
+```
+
+Calls `rebase::rebase`. Finds the merge base, collects commits from merge_base to HEAD, moves the branch ref to the target, then replays each commit via `merge::three_way_merge` using the commit's parent schema as the base. Each replayed commit gets a new commit ID (different parent). Stops on conflict.
+
+### `schema cherry-pick`
+
+```bash
+schema cherry-pick abc1234...
+```
+
+Calls `cherry_pick::cherry_pick`. Loads the commit and its parent, extracts the schema diff, and three-way merges it onto HEAD using the parent as the base. Creates a new commit with the message prefixed by "cherry-pick:".
+
+### `schema reset`
+
+```bash
+schema reset --soft v1.0
+schema reset --mixed v1.0   # default
+schema reset --hard v1.0
+```
+
+Calls `reset::reset`. Soft moves the ref only. Mixed also clears the index. Hard also writes the target commit's schema to the working schema file. All modes append a reflog entry.
+
+### `schema stash`
+
+```bash
+schema stash push -m "wip"
+schema stash pop
+schema stash list
+schema stash drop
+```
+
+Stashes are stored as special commits with the HEAD commit as parent. The `refs/stash` ref points to the latest; the reflog preserves the stack history.
+
+### `schema reflog`
+
+```bash
+schema reflog
+schema reflog main
+```
+
+Reads the NDJSON reflog file for the specified ref (default: HEAD). Every mutation (commit, merge, checkout, reset, rebase, cherry-pick) appends an entry with old ID, new ID, author, timestamp, and action description.
+
+### `schema bisect`
+
+```bash
+schema bisect v1.0 HEAD
+```
+
+Calls `bisect::bisect_start`. Finds the path from good to bad, presents the midpoint. The user inspects the midpoint (e.g. via `schema show`) and re-runs with a narrowed range. Converges in O(log n) steps.
+
+### `schema blame`
+
+```bash
+schema blame --element-type vertex user_status
+schema blame --element-type edge "post->text:prop:text"
+schema blame --element-type constraint "text:maxLength"
+```
+
+Calls `blame::blame_vertex`, `blame::blame_edge`, or `blame::blame_constraint`. Walks the first-parent chain from HEAD, checking at each commit whether the element is present in that commit's schema but absent from its parent's. Returns the introducing commit. Unlike `git blame` which operates on lines of text, this operates on structural elements of the schema graph.
+
+### `schema gc`
+
+```bash
+schema gc
+```
+
+Calls `gc::gc`. Collects all ref targets as roots, marks reachable objects via BFS through commit/schema/migration links, enumerates all objects in the store, and deletes unreachable ones. Reports the number of reachable and deleted objects.
+
+## Error Handling
+
+The CLI uses `miette` for user-facing error diagnostics. All handlers return `miette::Result<()>` and convert errors using `.into_diagnostic().wrap_err(...)`. Library crates use `thiserror`; `miette` is CLI-only.
 
 ## Adding a New Subcommand
 
-To add a new subcommand to the CLI:
-
-1. **Add a variant** to the `Command` enum in `main.rs` with the appropriate `clap` attributes for arguments
-2. **Implement the handler** as a `fn cmd_<name>(...) -> Result<()>` function
-3. **Wire it up** in the `match cli.command` block in `main()`
-4. **Add tests** -- the integration test suite in `tests/integration/` can exercise CLI-accessible functionality through the Rust API directly
-
-For example, adding a `compose` subcommand that composes two migration files would require a new `Command::Compose` variant with `--m1` and `--m2` path arguments, a `cmd_compose` handler that loads both migrations and calls `mig::compile` + `compose_compiled`, and a `match` arm in `main()`.
-
-## Built-in Protocol Resolution
-
-The CLI resolves protocol names to built-in definitions. Supported names:
-
-- `atproto` -- AT Protocol (Bluesky)
-- `sql` -- SQL databases
-- `protobuf` -- Protocol Buffers
-- `graphql` -- GraphQL
-- `json-schema` / `jsonschema` -- JSON Schema
-
-Custom protocols are not yet supported via the CLI; use the TypeScript SDK or Rust API directly for custom protocol definitions.
+1. Add a variant to the `Command` enum in `main.rs` with `clap` attributes
+2. Implement the handler as `fn cmd_<name>(...) -> Result<()>`
+3. Wire it up in the `match cli.command` block
+4. Add tests via the Rust API in `tests/integration/`
