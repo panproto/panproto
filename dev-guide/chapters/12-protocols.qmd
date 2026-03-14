@@ -30,7 +30,7 @@ The `theories` module defines the reusable GATs that protocols compose to form t
 
 The three graph theories form the foundation for schema representation:
 
-```{.rust include="../../crates/panproto-protocols/src/theories.rs" start-line=1 end-line=67}
+```{.rust include="../../crates/panproto-protocols/src/theories.rs" start-line=49 end-line=130}
 ```
 
 **`th_graph`** is the most fundamental building block: a directed graph with `Vertex` and `Edge` sorts and `src`/`tgt` operations. Nearly every protocol uses this theory as its base, since schemas are fundamentally graphs---vertices represent types or fields, and edges represent relationships between them.
@@ -43,7 +43,7 @@ The three graph theories form the foundation for schema representation:
 
 The constraint theory demonstrates the dependent sort pattern:
 
-```{.rust include="../../crates/panproto-protocols/src/theories.rs" start-line=69 end-line=83}
+```{.rust include="../../crates/panproto-protocols/src/theories.rs" start-line=132 end-line=147}
 ```
 
 The `Constraint` sort is parameterized by a vertex via `SortParam::new("v", "Vertex")`. This is a GAT-level encoding of the fact that constraints are attached to specific schema elements. A `maxLength` constraint on a string field is a different sort instance than a `maxLength` constraint on a different field, even though they share the same sort name.

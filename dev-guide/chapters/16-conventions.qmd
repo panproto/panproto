@@ -6,7 +6,7 @@ This chapter documents the coding conventions and API design patterns used throu
 
 The workspace targets **Rust Edition 2024**, which requires rustc 1.85 or later. The workspace `Cargo.toml` enforces this:
 
-```{.toml include="../../Cargo.toml" start-line=17 end-line=21}
+```{.toml include="../../Cargo.toml" start-line=19 end-line=25}
 ```
 
 ::: {.callout-important}
@@ -17,7 +17,7 @@ Edition 2024 enables several language changes including the new `use<>` capture 
 
 Strict linting is configured at the workspace level. Every crate inherits these settings:
 
-```{.toml include="../../Cargo.toml" start-line=62 end-line=81}
+```{.toml include="../../Cargo.toml" start-line=73 end-line=92}
 ```
 
 Key policies:

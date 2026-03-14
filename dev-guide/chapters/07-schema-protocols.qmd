@@ -35,7 +35,7 @@ Constraints restrict the values a vertex can hold. They are typed by a `sort` (e
 
 The `Schema` struct stores both the raw graph data and precomputed adjacency indices:
 
-```{.rust include="../../crates/panproto-schema/src/schema.rs" start-line=71 end-line=80}
+```{.rust include="../../crates/panproto-schema/src/schema.rs" start-line=139 end-line=178}
 ```
 
 The adjacency indices (`outgoing`, `incoming`, `between`) are `HashMap`s from vertex IDs (or vertex-pair tuples) to `SmallVec<Edge, N>`. Using `SmallVec` avoids heap allocation for vertices with few neighbors, which is the common case -- most schema vertices have between one and four outgoing edges.
@@ -61,7 +61,7 @@ The operations of the GAT (e.g., `src: Edge -> Vertex`, `tgt: Edge -> Vertex`) a
 
 A `Protocol` identifies which schema theory and instance theory a data format uses, together with the well-formedness rules that the builder enforces.
 
-```{.rust include="../../crates/panproto-schema/src/protocol.rs" start-line=9 end-line=45}
+```{.rust include="../../crates/panproto-schema/src/protocol.rs" start-line=9 end-line=62}
 ```
 
 ### EdgeRule

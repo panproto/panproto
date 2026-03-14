@@ -27,7 +27,7 @@ cd panproto
 
 The repository is a Cargo workspace. Here is the workspace definition from the root `Cargo.toml`:
 
-```{.toml include="../../Cargo.toml" start-line=1 end-line=22}
+```{.toml include="../../Cargo.toml" start-line=1 end-line=25}
 ```
 
 Every `crates/panproto-*` directory is an independent crate. The `tests/integration` crate holds cross-crate integration tests. The TypeScript SDK lives in `sdk/typescript/`.

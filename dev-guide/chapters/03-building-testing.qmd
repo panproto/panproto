@@ -44,7 +44,7 @@ Useful when iterating on one crate. Downstream crates are not recompiled.
 
 The workspace defines two release profiles:
 
-```{.toml include="../../Cargo.toml" start-line=73 end-line=81}
+```{.toml include="../../Cargo.toml" start-line=84 end-line=92}
 ```
 
 `release` enables LTO, single codegen unit, and symbol stripping for maximum performance. `release-wasm` inherits from `release` but uses `opt-level = "z"` to minimize binary size for the WASM target.

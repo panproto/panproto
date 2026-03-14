@@ -70,7 +70,7 @@ The existence checker is one of the most distinctive parts of panproto's migrati
 
 The `ExistenceReport` struct carries the validation result, and `check_existence` is the entry point:
 
-```{.rust include="../../crates/panproto-mig/src/existence.rs" start-line=17 end-line=78}
+```{.rust include="../../crates/panproto-mig/src/existence.rs" start-line=17 end-line=94}
 ```
 
 ### How Theory Inspection Works

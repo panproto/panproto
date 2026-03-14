@@ -33,7 +33,7 @@ panproto is organized into eleven crates arranged in six dependency levels. Each
 
 `panproto-core` is the entry point most consumers import. It re-exports all sub-crate APIs under short module names:
 
-```{.rust include="../../crates/panproto-core/src/lib.rs" start-line=1 end-line=22}
+```{.rust include="../../crates/panproto-core/src/lib.rs" start-line=1 end-line=26}
 ```
 
 This means downstream code writes `panproto::gat::Theory` rather than importing `panproto-gat` directly. The facade adds no logic of its own.
