@@ -111,6 +111,28 @@ fn format_breaking(change: &BreakingChange) -> String {
         } => {
             format!("Constraint added: {vertex_id}.{sort} = {value}")
         }
+        BreakingChange::RemovedVariant {
+            vertex_id,
+            variant_id,
+        } => {
+            format!("Removed variant: {vertex_id}/{variant_id}")
+        }
+        BreakingChange::OrderToUnordered { edge } => {
+            format!("Order removed: {} -> {} ({})", edge.src, edge.tgt, edge.kind)
+        }
+        BreakingChange::RecursionBroken { mu_id } => {
+            format!("Recursion broken: {mu_id}")
+        }
+        BreakingChange::LinearityTightened {
+            edge,
+            old_mode,
+            new_mode,
+        } => {
+            format!(
+                "Linearity tightened: {} -> {} ({}) {old_mode:?} -> {new_mode:?}",
+                edge.src, edge.tgt, edge.kind
+            )
+        }
     }
 }
 
@@ -195,6 +217,36 @@ fn breaking_to_json(change: &BreakingChange) -> serde_json::Value {
             "vertex_id": vertex_id,
             "sort": sort,
             "value": value,
+        }),
+        BreakingChange::RemovedVariant {
+            vertex_id,
+            variant_id,
+        } => json!({
+            "type": "removed_variant",
+            "vertex_id": vertex_id,
+            "variant_id": variant_id,
+        }),
+        BreakingChange::OrderToUnordered { edge } => json!({
+            "type": "order_to_unordered",
+            "src": edge.src,
+            "tgt": edge.tgt,
+            "kind": edge.kind,
+        }),
+        BreakingChange::RecursionBroken { mu_id } => json!({
+            "type": "recursion_broken",
+            "mu_id": mu_id,
+        }),
+        BreakingChange::LinearityTightened {
+            edge,
+            old_mode,
+            new_mode,
+        } => json!({
+            "type": "linearity_tightened",
+            "src": edge.src,
+            "tgt": edge.tgt,
+            "kind": edge.kind,
+            "old_mode": format!("{old_mode:?}"),
+            "new_mode": format!("{new_mode:?}"),
         }),
     }
 }

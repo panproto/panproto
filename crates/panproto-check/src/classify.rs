@@ -75,6 +75,36 @@ pub enum BreakingChange {
         /// The constraint value.
         value: String,
     },
+
+    /// A coproduct variant was removed (type error for existing data).
+    RemovedVariant {
+        /// The parent coproduct vertex ID.
+        vertex_id: String,
+        /// The removed variant ID.
+        variant_id: String,
+    },
+
+    /// An ordered collection became unordered (lossy).
+    OrderToUnordered {
+        /// The edge that lost its ordering.
+        edge: panproto_schema::Edge,
+    },
+
+    /// A recursion point was removed (breaks recursive types).
+    RecursionBroken {
+        /// The removed fixpoint marker ID.
+        mu_id: String,
+    },
+
+    /// An edge's usage mode was tightened (e.g., structural → linear).
+    LinearityTightened {
+        /// The affected edge.
+        edge: panproto_schema::Edge,
+        /// The old usage mode.
+        old_mode: panproto_schema::UsageMode,
+        /// The new usage mode.
+        new_mode: panproto_schema::UsageMode,
+    },
 }
 
 /// A non-breaking (backward-compatible) change.
@@ -220,6 +250,48 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         }
     }
 
+    // --- Variant changes ---
+    for v in &diff.removed_variants {
+        breaking.push(BreakingChange::RemovedVariant {
+            vertex_id: v.parent_vertex.clone(),
+            variant_id: v.id.clone(),
+        });
+    }
+
+    // --- Ordering changes ---
+    for (edge, old_pos, new_pos) in &diff.order_changes {
+        if old_pos.is_some() && new_pos.is_none() {
+            breaking.push(BreakingChange::OrderToUnordered {
+                edge: edge.clone(),
+            });
+        }
+    }
+
+    // --- Recursion point changes ---
+    for rp in &diff.removed_recursion_points {
+        breaking.push(BreakingChange::RecursionBroken {
+            mu_id: rp.mu_id.clone(),
+        });
+    }
+
+    // --- Usage mode changes ---
+    for (edge, old_mode, new_mode) in &diff.usage_mode_changes {
+        // Tightening: Structural → Linear/Affine, or Affine → Linear
+        let is_tightened = matches!(
+            (old_mode, new_mode),
+            (panproto_schema::UsageMode::Structural, panproto_schema::UsageMode::Linear)
+                | (panproto_schema::UsageMode::Structural, panproto_schema::UsageMode::Affine)
+                | (panproto_schema::UsageMode::Affine, panproto_schema::UsageMode::Linear)
+        );
+        if is_tightened {
+            breaking.push(BreakingChange::LinearityTightened {
+                edge: edge.clone(),
+                old_mode: old_mode.clone(),
+                new_mode: new_mode.clone(),
+            });
+        }
+    }
+
     let compatible = breaking.is_empty();
     CompatReport {
         breaking,
@@ -304,6 +376,7 @@ mod tests {
             }],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec!["maxLength".into()],
+            ..Protocol::default()
         }
     }
 
