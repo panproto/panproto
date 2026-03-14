@@ -268,6 +268,12 @@ impl SchemaBuilder {
             constraints: self.constraints,
             required: self.required,
             nsids: self.nsids,
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
             outgoing,
             incoming,
             between,
@@ -324,6 +330,7 @@ mod tests {
                 "minimum".to_owned(),
                 "maximum".to_owned(),
             ],
+            ..Protocol::default()
         }
     }
 

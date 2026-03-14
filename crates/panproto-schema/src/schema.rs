@@ -68,6 +68,74 @@ pub struct Constraint {
     pub value: String,
 }
 
+/// A variant in a coproduct (sum type / union).
+///
+/// Each variant is injected into a parent vertex (the union/coproduct)
+/// with an optional discriminant tag.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Variant {
+    /// Unique variant identifier.
+    pub id: String,
+    /// The parent coproduct vertex this variant belongs to.
+    pub parent_vertex: String,
+    /// Optional discriminant tag.
+    pub tag: Option<String>,
+}
+
+/// An ordering annotation on an edge.
+///
+/// Records that the children reached via this edge are ordered,
+/// with a specific position index.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Ordering {
+    /// The edge being ordered.
+    pub edge: Edge,
+    /// Position in the ordered collection.
+    pub position: u32,
+}
+
+/// A recursion point (fixpoint marker) in the schema.
+///
+/// Marks a vertex as a recursive reference to another vertex,
+/// satisfying the fold-unfold law: `unfold(fold(v)) = v`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RecursionPoint {
+    /// The fixpoint marker vertex ID.
+    pub mu_id: String,
+    /// The target vertex this unfolds to.
+    pub target_vertex: String,
+}
+
+/// A span connecting two vertices through a common source.
+///
+/// Spans model correspondences, diffs, and migrations:
+/// `left ← span → right`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Span {
+    /// Unique span identifier.
+    pub id: String,
+    /// Left vertex of the span.
+    pub left: String,
+    /// Right vertex of the span.
+    pub right: String,
+}
+
+/// Use-counting mode for an edge.
+///
+/// Captures the substructural distinction between edges that can
+/// be used freely (structural), exactly once (linear), or at most
+/// once (affine).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum UsageMode {
+    /// Can be used any number of times (default).
+    #[default]
+    Structural,
+    /// Must be used exactly once (e.g., protobuf `oneof`).
+    Linear,
+    /// Can be used at most once.
+    Affine,
+}
+
 /// A schema: a model of the protocol's schema theory.
 ///
 /// Contains both the raw data (vertices, edges, constraints, etc.) and
@@ -88,6 +156,26 @@ pub struct Schema {
     pub required: HashMap<String, Vec<Edge>>,
     /// NSID mapping: vertex ID to NSID string.
     pub nsids: HashMap<String, String>,
+
+    /// Coproduct variants per union vertex ID.
+    #[serde(default)]
+    pub variants: HashMap<String, Vec<Variant>>,
+    /// Edge ordering positions (edge → position index).
+    #[serde(default)]
+    pub orderings: HashMap<Edge, u32>,
+    /// Recursion points (fixpoint markers).
+    #[serde(default)]
+    pub recursion_points: HashMap<String, RecursionPoint>,
+    /// Spans connecting pairs of vertices.
+    #[serde(default)]
+    pub spans: HashMap<String, Span>,
+    /// Edge usage modes (default: `Structural` for all).
+    #[serde(default)]
+    pub usage_modes: HashMap<Edge, UsageMode>,
+    /// Whether each vertex uses nominal identity (`true`) or
+    /// structural identity (`false`). Absent = structural.
+    #[serde(default)]
+    pub nominal: HashMap<String, bool>,
 
     // -- precomputed indices --
     /// Outgoing edges per vertex ID.

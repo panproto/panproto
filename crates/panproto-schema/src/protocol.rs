@@ -28,7 +28,7 @@ pub struct EdgeRule {
 /// construction and validation. Each protocol names a schema theory GAT
 /// and an instance theory GAT (both defined in `panproto-protocols`),
 /// and supplies edge rules, recognized vertex kinds, and constraint sorts.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Protocol {
     /// Human-readable protocol name (e.g., `"atproto"`, `"sql"`).
     pub name: String,
@@ -42,6 +42,23 @@ pub struct Protocol {
     pub obj_kinds: Vec<String>,
     /// Recognized constraint sorts (e.g., `"maxLength"`, `"format"`).
     pub constraint_sorts: Vec<String>,
+
+    // -- structural feature flags (all default to false) --
+    /// Whether this protocol uses ordered collections (`ThOrder`).
+    #[serde(default)]
+    pub has_order: bool,
+    /// Whether this protocol has coproduct/union types (`ThCoproduct`).
+    #[serde(default)]
+    pub has_coproducts: bool,
+    /// Whether this protocol supports recursive types (`ThRecursion`).
+    #[serde(default)]
+    pub has_recursion: bool,
+    /// Whether this protocol has causal/temporal ordering (`ThCausal`).
+    #[serde(default)]
+    pub has_causal: bool,
+    /// Whether this protocol uses nominal identity (`ThNominal`).
+    #[serde(default)]
+    pub nominal_identity: bool,
 }
 
 impl Protocol {

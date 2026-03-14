@@ -185,6 +185,12 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Str
         constraints: new_constraints,
         required: new_required,
         nsids: new_nsids,
+        variants: schema.variants.clone(),
+        orderings: schema.orderings.clone(),
+        recursion_points: schema.recursion_points.clone(),
+        spans: schema.spans.clone(),
+        usage_modes: schema.usage_modes.clone(),
+        nominal: schema.nominal.clone(),
         outgoing,
         incoming,
         between,
@@ -211,6 +217,7 @@ mod tests {
             }],
             obj_kinds: vec!["object".to_owned(), "string".to_owned(), "ref".to_owned()],
             constraint_sorts: vec![],
+            ..Protocol::default()
         }
     }
 
