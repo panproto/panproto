@@ -224,6 +224,12 @@ class TestSchemaData:
             hyper_edges={},
             constraints={"v1": [panproto.Constraint(sort="maxLength", value="100")]},
             required={},
+            variants={},
+            orderings={},
+            recursion_points={},
+            usage_modes={},
+            spans={},
+            nominal={},
         )
         assert sd["protocol"] == "atproto"
         assert "v1" in sd["vertices"]

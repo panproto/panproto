@@ -537,5 +537,7 @@ def _build_wasm_mapping(
     return {
         "vertex_map": dict(vertex_map),
         "edge_map": [(_edge_to_wire(s), _edge_to_wire(t)) for s, t in edge_map],
+        "hyper_edge_map": {},
+        "label_map": [],
         "resolver": [(list(key), _edge_to_wire(edge)) for key, edge in resolvers],
     }

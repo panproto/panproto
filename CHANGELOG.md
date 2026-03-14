@@ -8,8 +8,9 @@ All notable changes to panproto will be documented in this file.
 
 - **panproto-vcs** (NEW): Schematic version control engine
   - Content-addressed object store (blake3 hashing, canonical MessagePack serialization)
-  - Commit DAG with merge base, path finding, topological log walk
-  - Three-way schema merge via structural diff and conflict detection
+  - Commit DAG with proper LCA merge-base algorithm (replaces two-frontier BFS)
+  - **Pushout-based three-way merge** — formally correct categorical pushout with typed conflict detection across all 13 schema fields; no "ours wins" tie-breaking; commutative (merge(base, A, B) == merge(base, B, A))
+  - 25 `MergeConflict` variants covering vertices, edges, constraints, hyper-edges, variants, orderings, recursion points, usage modes, NSIDs, required edges, nominal flags, and spans
   - Branches, tags, HEAD, reflog (append-only audit trail)
   - Rebase, cherry-pick, reset (soft/mixed/hard), stash
   - Bisect (binary search for breaking commits), blame (element attribution)
@@ -17,6 +18,10 @@ All notable changes to panproto will be documented in this file.
   - Auto-migration derivation from SchemaDiff
   - Repository orchestration (porcelain layer)
   - FsStore (.panproto/ directory) and MemStore (for tests + WASM)
+- **panproto-check**: Extend `SchemaDiff` to track all 13 schema fields
+  - New: hyper-edge add/remove/modify, required edge add/remove, NSID add/remove/change, variant tag modifications, recursion point target modifications, span add/remove/modify, nominal flag changes
+  - `is_empty()` now checks all 26 fields (was only checking 6)
+  - BreakingChange gains RemovedVariant, OrderToUnordered, RecursionBroken, LinearityTightened
 - **panproto-protocols**: Expand building-block theories from 10 to 27
   - ThOrder, ThCoproduct (retraction equation), ThRecursion (fold-unfold equation), ThSpan, ThCospan, ThPartial (witness equation), ThLinear, ThNominal
   - ThReflexiveGraph (2 identity equations), ThSymmetricGraph (3 involution equations), ThPetriNet
@@ -26,17 +31,32 @@ All notable changes to panproto will be documented in this file.
   - Group F registration for graph-shaped instances
 - **panproto-schema**: Add Variant, Ordering, RecursionPoint, Span, UsageMode types; Protocol gains has_order, has_coproducts, has_recursion, has_causal, nominal_identity flags
 - **panproto-inst**: Add GInstance (graph-shaped instances with graph_restrict), unified Instance enum, Node gains position and annotations fields
-- **panproto-check**: SchemaDiff detects variant/ordering/recursion/usage changes; BreakingChange gains RemovedVariant, OrderToUnordered, RecursionBroken, LinearityTightened
 - **panproto-mig**: Theory-driven existence checks for Variant, Position, Mu, Usage sorts
 - **panproto-cli**: Rename binary to `schema`; add VCS subcommands (init, add, commit, status, log, show, branch, tag, checkout, merge, rebase, cherry-pick, reset, stash, reflog, bisect, blame, lift, gc)
+- **@panproto/core** (TypeScript): Add Variant, RecursionPoint, Span, UsageMode types to SchemaData; refactor WASM loading for bundler compatibility (Vite/webpack)
+- **panproto-python**: Update ATProto spec with full vertex kinds, edge rules, and constraint sorts; add hyper_edge_map and label_map to MigrationMapping; extend SchemaData with variants, recursion_points, spans, usage_modes, nominal
 - All 76 protocols updated with theory flags; Neo4j moved to Group F (graph instance)
+
+### Fixes
+
+- **panproto-vcs merge**: Fix false `DeleteModifyVertex` conflicts when one side removes a vertex and the other leaves it unchanged (compared against ours instead of base)
+- **panproto-vcs merge**: Fix orderings/recursion_points/usage_modes silently dropping theirs' changes (overwrote base unconditionally with ours' values)
+- **panproto-vcs merge**: Fix hyper_edges/required/nsids ignoring removals (only handled additions)
+- **panproto-vcs merge**: Fix spans always empty and nominal always copying base
+- **panproto-vcs dag**: Replace merge-base two-frontier BFS with proper LCA algorithm (handles criss-cross merges correctly)
+- **panproto-wasm**: Box large `Schema` variant in slab `Resource` enum to reduce stack usage
+- Resolve all clippy pedantic/nursery warnings across entire workspace (strict `-D warnings`)
+- Fix CI workflow: use `dtolnay/rust-toolchain@master` with toolchain param, upgrade cargo-deny to v2, install wasm-pack via cargo
+- Fix `include-code-file` line numbers in tutorial and dev-guide after code changes
 
 ### Documentation
 
 - Tutorial: chapters 13 (Schematic Version Control) and 14 (Building-Block Landscape)
 - Dev-guide: chapters 21 (VCS Engine with comprehensive related work) and 22 (Building-Block Theories with type-checking proofs)
+- Updated merge documentation to reflect pushout semantics (no tie-breaking, commutativity guarantee)
 - Updated protocol counts (54 → 76), theory groups (5 → 6), per-group counts
 - Added bibliography entries for Mimram & Di Giusto, Schürmann, Topos Institute, Cambria
+- Updated README with VCS, IO crates and corrected CLI name
 
 ## [0.2.0] - 2026-03-13
 

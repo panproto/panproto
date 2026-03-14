@@ -171,7 +171,9 @@ describe('Panproto (integration with mocks)', () => {
   });
 
   it('ATPROTO_SPEC has correct constraint sorts', () => {
-    expect(ATPROTO_SPEC.constraintSorts).toContain('maxLength');
-    expect(ATPROTO_SPEC.constraintSorts).toContain('format');
+    expect(ATPROTO_SPEC.constraintSorts).toContain('enum');
+    expect(ATPROTO_SPEC.constraintSorts).toContain('const');
+    expect(ATPROTO_SPEC.constraintSorts).toContain('default');
+    expect(ATPROTO_SPEC.constraintSorts).toContain('closed');
   });
 });

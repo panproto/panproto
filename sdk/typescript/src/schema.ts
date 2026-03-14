@@ -312,6 +312,12 @@ export class SchemaBuilder {
       required: Object.fromEntries(
         Array.from(this.#required.entries()).map(([k, v]) => [k, [...v]]),
       ),
+      variants: {},
+      orderings: {},
+      recursionPoints: {},
+      usageModes: {},
+      spans: {},
+      nominal: {},
     };
 
     return new BuiltSchema(handle, data, this.#wasm);

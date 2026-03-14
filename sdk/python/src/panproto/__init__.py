@@ -69,9 +69,12 @@ from panproto._types import (
     LiftResult,
     MigrationSpec,
     ProtocolSpec,
+    RecursionPoint,
     SchemaChange,
     SchemaChangeKind,
     SchemaData,
+    Span,
+    Variant,
     Vertex,
     VertexOptions,
 )
@@ -118,6 +121,7 @@ __all__ = [
     # Protocol
     "Protocol",
     "ProtocolSpec",
+    "RecursionPoint",
     "RemoveField",
     # Lens
     "RenameField",
@@ -127,6 +131,8 @@ __all__ = [
     "SchemaChangeKind",
     "SchemaData",
     "SchemaValidationError",
+    "Span",
+    "Variant",
     "Vertex",
     "VertexOptions",
     "WasmError",

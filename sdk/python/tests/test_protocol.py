@@ -22,31 +22,31 @@ class TestAtprotoSpec:
         assert panproto.ATPROTO_SPEC["name"] == "atproto"
 
     def test_schema_theory(self) -> None:
-        """Verify the schema theory is ThConstrainedMultiGraph.
+        """Verify the schema theory is ThATProtoSchema.
 
         Parameters
         ----------
         None
         """
-        assert panproto.ATPROTO_SPEC["schema_theory"] == "ThConstrainedMultiGraph"
+        assert panproto.ATPROTO_SPEC["schema_theory"] == "ThATProtoSchema"
 
     def test_instance_theory(self) -> None:
-        """Verify the instance theory is ThWTypeMeta.
+        """Verify the instance theory is ThATProtoInstance.
 
         Parameters
         ----------
         None
         """
-        assert panproto.ATPROTO_SPEC["instance_theory"] == "ThWTypeMeta"
+        assert panproto.ATPROTO_SPEC["instance_theory"] == "ThATProtoInstance"
 
     def test_edge_rules_count(self) -> None:
-        """Verify ATProto has exactly 5 edge rules.
+        """Verify ATProto has exactly 6 edge rules.
 
         Parameters
         ----------
         None
         """
-        assert len(panproto.ATPROTO_SPEC["edge_rules"]) == 5
+        assert len(panproto.ATPROTO_SPEC["edge_rules"]) == 6
 
     def test_edge_rule_kinds(self) -> None:
         """Verify the edge rule kinds present in ATProto.
@@ -56,7 +56,7 @@ class TestAtprotoSpec:
         None
         """
         kinds = {r["edge_kind"] for r in panproto.ATPROTO_SPEC["edge_rules"]}
-        assert kinds == {"record-schema", "prop", "item", "variant", "ref"}
+        assert kinds == {"record-schema", "prop", "items", "variant", "ref", "self-ref"}
 
     def test_record_schema_rule(self) -> None:
         """Verify the record-schema edge rule constrains record -> object.
@@ -78,7 +78,7 @@ class TestAtprotoSpec:
         None
         """
         rule = next(r for r in panproto.ATPROTO_SPEC["edge_rules"] if r["edge_kind"] == "prop")
-        assert rule["src_kinds"] == ["object"]
+        assert rule["src_kinds"] == ["object", "query", "procedure", "subscription"]
         assert rule["tgt_kinds"] == []
 
     def test_obj_kinds(self) -> None:
@@ -88,7 +88,11 @@ class TestAtprotoSpec:
         ----------
         None
         """
-        assert panproto.ATPROTO_SPEC["obj_kinds"] == ["record", "object"]
+        assert panproto.ATPROTO_SPEC["obj_kinds"] == [
+            "record", "object", "array", "union", "string", "integer", "boolean",
+            "bytes", "cid-link", "blob", "unknown", "token", "query", "procedure",
+            "subscription", "ref",
+        ]
 
     def test_constraint_sorts(self) -> None:
         """Verify ATProto constraint sorts.
@@ -97,7 +101,10 @@ class TestAtprotoSpec:
         ----------
         None
         """
-        expected = ["maxLength", "minLength", "maxGraphemes", "minGraphemes", "format"]
+        expected = [
+            "minLength", "maxLength", "minimum", "maximum", "maxGraphemes",
+            "enum", "const", "default", "closed",
+        ]
         assert panproto.ATPROTO_SPEC["constraint_sorts"] == expected
 
 
@@ -539,7 +546,7 @@ class TestBuiltinProtocols:
 
         Notes
         -----
-        ATProto uses ThConstrainedMultiGraph/ThWTypeMeta.
+        ATProto uses ThATProtoSchema/ThATProtoInstance.
         SQL uses ThConstrainedHypergraph/ThFunctor.
         Protobuf, GraphQL, and JSON Schema share ThConstrainedGraph/ThWType.
         """

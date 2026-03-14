@@ -188,17 +188,25 @@ def define_protocol(spec: ProtocolSpec, wasm: WasmModule) -> Protocol:
 
 ATPROTO_SPEC: ProtocolSpec = ProtocolSpec(
     name="atproto",
-    schema_theory="ThConstrainedMultiGraph",
-    instance_theory="ThWTypeMeta",
+    schema_theory="ThATProtoSchema",
+    instance_theory="ThATProtoInstance",
     edge_rules=[
         EdgeRule(edge_kind="record-schema", src_kinds=["record"], tgt_kinds=["object"]),
-        EdgeRule(edge_kind="prop", src_kinds=["object"], tgt_kinds=[]),
-        EdgeRule(edge_kind="item", src_kinds=["array"], tgt_kinds=[]),
+        EdgeRule(edge_kind="prop", src_kinds=["object", "query", "procedure", "subscription"], tgt_kinds=[]),
+        EdgeRule(edge_kind="items", src_kinds=["array"], tgt_kinds=[]),
         EdgeRule(edge_kind="variant", src_kinds=["union"], tgt_kinds=[]),
-        EdgeRule(edge_kind="ref", src_kinds=[], tgt_kinds=["record"]),
+        EdgeRule(edge_kind="ref", src_kinds=[], tgt_kinds=[]),
+        EdgeRule(edge_kind="self-ref", src_kinds=[], tgt_kinds=[]),
     ],
-    obj_kinds=["record", "object"],
-    constraint_sorts=["maxLength", "minLength", "maxGraphemes", "minGraphemes", "format"],
+    obj_kinds=[
+        "record", "object", "array", "union", "string", "integer", "boolean",
+        "bytes", "cid-link", "blob", "unknown", "token", "query", "procedure",
+        "subscription", "ref",
+    ],
+    constraint_sorts=[
+        "minLength", "maxLength", "minimum", "maximum", "maxGraphemes",
+        "enum", "const", "default", "closed",
+    ],
 )
 """Built-in ATProto protocol specification.
 

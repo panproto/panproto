@@ -220,6 +220,57 @@ class Constraint(TypedDict):
     value: str
 
 
+class Variant(TypedDict):
+    """A variant in a coproduct (sum type / union).
+
+    Attributes
+    ----------
+    id : str
+        Unique variant identifier.
+    parent_vertex : str
+        The parent coproduct vertex this variant belongs to.
+    tag : str | None
+        Optional discriminant tag.
+    """
+
+    id: str
+    parent_vertex: str
+    tag: str | None
+
+
+class RecursionPoint(TypedDict):
+    """A recursion point (fixpoint marker) in the schema.
+
+    Attributes
+    ----------
+    mu_id : str
+        The fixpoint marker vertex ID.
+    target_vertex : str
+        The target vertex this unfolds to.
+    """
+
+    mu_id: str
+    target_vertex: str
+
+
+class Span(TypedDict):
+    """A span connecting two vertices through a common source.
+
+    Attributes
+    ----------
+    id : str
+        Unique span identifier.
+    left : str
+        Left vertex of the span.
+    right : str
+        Right vertex of the span.
+    """
+
+    id: str
+    left: str
+    right: str
+
+
 class EdgeOptions(TypedDict, total=False):
     """Options for edge creation.
 
@@ -249,6 +300,18 @@ class SchemaData(TypedDict):
         Constraints per vertex id.
     required : dict[str, list[Edge]]
         Required edges per vertex id.
+    variants : dict[str, list[Variant]]
+        Coproduct variants per union vertex id.
+    orderings : dict[str, int]
+        Edge ordering positions (edge key to position index).
+    recursion_points : dict[str, RecursionPoint]
+        Recursion points (fixpoint markers).
+    usage_modes : dict[str, str]
+        Edge usage modes (edge key to mode string).
+    spans : dict[str, Span]
+        Spans connecting pairs of vertices.
+    nominal : dict[str, bool]
+        Whether each vertex uses nominal identity.
     """
 
     protocol: str
@@ -257,6 +320,12 @@ class SchemaData(TypedDict):
     hyper_edges: dict[str, HyperEdge]
     constraints: dict[str, list[Constraint]]
     required: dict[str, list[Edge]]
+    variants: dict[str, list[Variant]]
+    orderings: dict[str, int]
+    recursion_points: dict[str, RecursionPoint]
+    usage_modes: dict[str, str]
+    spans: dict[str, Span]
+    nominal: dict[str, bool]
 
 
 # ---------------------------------------------------------------------------
@@ -350,12 +419,18 @@ class MigrationMapping(TypedDict):
         Source vertex id to target vertex id.
     edge_map : list[tuple[EdgeWire, EdgeWire]]
         Pairs of (source edge, target edge) in wire format.
+    hyper_edge_map : dict[str, str]
+        Source hyper-edge id to target hyper-edge id.
+    label_map : list[tuple[tuple[str, str], str]]
+        Label remapping entries: ``((hyper_edge_id, old_label), new_label)``.
     resolver : list[tuple[list[str], EdgeWire]]
         Resolver entries: ``([src_kind, tgt_kind], resolved_edge)``.
     """
 
     vertex_map: dict[str, str]
     edge_map: list[tuple[EdgeWire, EdgeWire]]
+    hyper_edge_map: dict[str, str]
+    label_map: list[tuple[tuple[str, str], str]]
     resolver: list[tuple[list[str], EdgeWire]]
 
 

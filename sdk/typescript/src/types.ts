@@ -96,6 +96,29 @@ export interface Constraint {
   readonly value: string;
 }
 
+/** A variant in a schema graph (union member). */
+export interface Variant {
+  readonly id: string;
+  readonly parent_vertex: string;
+  readonly tag?: string | undefined;
+}
+
+/** A recursion point (mu-binding site). */
+export interface RecursionPoint {
+  readonly mu_id: string;
+  readonly target_vertex: string;
+}
+
+/** Usage mode for a vertex (structural, linear, or affine). */
+export type UsageMode = 'structural' | 'linear' | 'affine';
+
+/** A span between two vertices. */
+export interface Span {
+  readonly id: string;
+  readonly left: string;
+  readonly right: string;
+}
+
 /** Options for edge creation. */
 export interface EdgeOptions {
   readonly name?: string;
@@ -109,6 +132,12 @@ export interface SchemaData {
   readonly hyperEdges: Readonly<Record<string, HyperEdge>>;
   readonly constraints: Readonly<Record<string, readonly Constraint[]>>;
   readonly required: Readonly<Record<string, readonly Edge[]>>;
+  readonly variants: Readonly<Record<string, readonly Variant[]>>;
+  readonly orderings: Readonly<Record<string, number>>;
+  readonly recursionPoints: Readonly<Record<string, RecursionPoint>>;
+  readonly usageModes: Readonly<Record<string, UsageMode>>;
+  readonly spans: Readonly<Record<string, Span>>;
+  readonly nominal: Readonly<Record<string, boolean>>;
 }
 
 // ---------------------------------------------------------------------------
