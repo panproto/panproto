@@ -16,6 +16,8 @@ smallvec = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
 
 [lints]
 workspace = true

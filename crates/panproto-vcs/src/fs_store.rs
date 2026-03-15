@@ -294,6 +294,7 @@ fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
         Object::Schema(schema) => hash::hash_schema(schema),
         Object::Migration { src, tgt, mapping } => hash::hash_migration(*src, *tgt, mapping),
         Object::Commit(commit) => hash::hash_commit(commit),
+        Object::Tag(tag) => hash::hash_tag(tag),
     }
 }
 

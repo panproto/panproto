@@ -81,6 +81,42 @@ pub enum VcsError {
     /// No path found between two commits.
     #[error("no path found between commits")]
     NoPath,
+
+    /// Branch is not fully merged into HEAD.
+    #[error("branch '{name}' is not fully merged")]
+    BranchNotMerged {
+        /// The branch name.
+        name: String,
+    },
+
+    /// A merge or cherry-pick is already in progress.
+    #[error("a {operation} is already in progress")]
+    OperationInProgress {
+        /// The operation type (e.g. "merge", "cherry-pick").
+        operation: String,
+    },
+
+    /// Feature is not yet implemented.
+    #[error("{feature} is not yet implemented")]
+    NotImplemented {
+        /// Description of the unimplemented feature.
+        feature: String,
+    },
+
+    /// Merge cannot fast-forward but --ff-only was requested.
+    #[error("cannot fast-forward; refusing to merge")]
+    FastForwardOnly,
+
+    /// Amend requested but no commits exist.
+    #[error("nothing to amend")]
+    NothingToAmend,
+
+    /// A tag already exists.
+    #[error("tag already exists: {name}")]
+    TagExists {
+        /// The tag name.
+        name: String,
+    },
 }
 
 /// Wrapper for serialization errors from rmp-serde.

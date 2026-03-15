@@ -37,6 +37,7 @@ crates/panproto-vcs/src/
 - `Object::Schema(Schema)`: a schema snapshot
 - `Object::Migration { src, tgt, mapping }`: a morphism between two schemas
 - `Object::Commit(CommitObject)`: a point in the DAG
+- `Object::Tag(TagObject)`: an annotated tag storing target object ID, tagger name, timestamp, and message
 
 ```rust
 pub struct CommitObject {
@@ -50,6 +51,26 @@ pub struct CommitObject {
 }
 ```
 
+## Merge Options
+
+`MergeOptions` controls merge behavior:
+
+```rust
+pub struct MergeOptions {
+    pub no_commit: bool,   // stage result without committing
+    pub ff_only: bool,     // fail if not fast-forwardable
+    pub no_ff: bool,       // force merge commit even on fast-forward
+    pub squash: bool,      // collapse into a single non-merge commit
+    pub message: Option<String>,  // custom commit message
+}
+```
+
+## Cherry-Pick and GC Options
+
+`CherryPickOptions` controls cherry-pick behavior: `no_commit` stages without committing, `record_origin` appends the source commit ID to the message.
+
+`GcOptions` has a single `dry_run` field. When true, `gc::gc` reports unreachable objects without deleting them.
+
 ## DAG Algorithms
 
 - **Merge base**: two-frontier BFS, alternately expanding from each side
@@ -57,6 +78,32 @@ pub struct CommitObject {
 - **Log walk**: max-heap by timestamp for topological-chronological order
 - **Compose path**: chain migrations via `panproto_mig::compose`
 - **Is ancestor**: BFS reachability check
+
+## Repository Operations
+
+Beyond the core commit flow, `repo.rs` exposes several additional operations:
+
+- `Repository::amend()` — replaces the most recent commit. Creates a new commit with the same parent(s) but updated schema, migration, and message. The old commit becomes unreachable (collectible by `gc`).
+- `refs::force_delete_branch` — deletes a branch regardless of merge status
+- `refs::rename_branch` — renames a branch ref, updating HEAD if the current branch is renamed
+- `refs::create_and_checkout_branch` — creates a branch at HEAD and switches to it atomically
+- `refs::create_annotated_tag` — creates a `TagObject` in the store and points a tag ref at it
+- `refs::create_tag_force` — overwrites an existing tag ref
+- `stash::stash_apply` — re-applies the top stash entry without removing it from the stack
+- `stash::stash_show` — returns the schema diff between the stash entry and its parent
+- `stash::stash_clear` — drops all stash entries and removes the `refs/stash` ref
+
+## Error Variants
+
+`VcsError` is `#[non_exhaustive]` and includes:
+
+- `ObjectNotFound`, `RefNotFound`, `BranchNotFound`, `TagNotFound`
+- `BranchAlreadyExists`, `TagAlreadyExists`
+- `NotOnBranch`, `DetachedHead`, `IndexEmpty`, `IndexNotEmpty`
+- `MergeConflict`, `RebaseConflict`, `CherryPickConflict`
+- `FastForwardRequired`, `NothingToAmend`
+- `StashEmpty`, `InvalidRef`, `CorruptObject`
+- `RemoteNotSupported`
 
 ## Three-Way Merge (Pushout Construction)
 

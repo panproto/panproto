@@ -6,6 +6,8 @@
 //! breaking change detection, record lifting, and git-like version
 //! control for schema evolution.
 
+mod format;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -72,12 +74,24 @@ enum Command {
         /// Directory to initialize (defaults to current dir).
         #[arg(default_value = ".")]
         path: PathBuf,
+
+        /// Use the given name for the initial branch.
+        #[arg(short = 'b', long = "initial-branch")]
+        initial_branch: Option<String>,
     },
 
     /// Stage a schema for the next commit.
     Add {
         /// Path to the schema JSON file.
         schema: PathBuf,
+
+        /// Show what would be staged without actually staging.
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+
+        /// Force staging even if validation fails.
+        #[arg(short = 'f', long)]
+        force: bool,
     },
 
     /// Create a new commit from staged changes.
@@ -89,31 +103,99 @@ enum Command {
         /// Author name.
         #[arg(long, default_value = "anonymous")]
         author: String,
+
+        /// Amend the previous commit instead of creating a new one.
+        #[arg(long)]
+        amend: bool,
+
+        /// Allow creating a commit with no changes.
+        #[arg(long)]
+        allow_empty: bool,
     },
 
     /// Show repository status.
-    Status,
+    Status {
+        /// Show output in short format.
+        #[arg(short = 's', long)]
+        short: bool,
+
+        /// Show output in machine-readable format.
+        #[arg(long)]
+        porcelain: bool,
+
+        /// Show branch information.
+        #[arg(short = 'b', long)]
+        branch: bool,
+    },
 
     /// Show commit history.
     Log {
         /// Maximum number of commits to show.
         #[arg(short = 'n', long)]
         limit: Option<usize>,
+
+        /// Show each commit on a single line.
+        #[arg(long)]
+        oneline: bool,
+
+        /// Show an ASCII graph of the branch structure.
+        #[arg(long)]
+        graph: bool,
+
+        /// Show all branches, not just the current one.
+        #[arg(long)]
+        all: bool,
+
+        /// Pretty-print commits using a format string.
+        #[arg(long)]
+        format: Option<String>,
+
+        /// Filter commits by author.
+        #[arg(long)]
+        author: Option<String>,
+
+        /// Filter commits whose message matches a pattern.
+        #[arg(long)]
+        grep: Option<String>,
     },
 
     /// Diff two schemas or show staged changes.
     Diff {
         /// Path to the old schema (or first ref).
-        old: PathBuf,
+        old: Option<PathBuf>,
 
         /// Path to the new schema (or second ref).
-        new: PathBuf,
+        new: Option<PathBuf>,
+
+        /// Show a diffstat summary.
+        #[arg(long)]
+        stat: bool,
+
+        /// Show only names of changed elements.
+        #[arg(long)]
+        name_only: bool,
+
+        /// Show names and status (A/D/M) of changed elements.
+        #[arg(long)]
+        name_status: bool,
+
+        /// Diff the staged schema against HEAD.
+        #[arg(long, alias = "cached")]
+        staged: bool,
     },
 
     /// Inspect a commit, schema, or migration object.
     Show {
         /// Ref name or object ID.
         target: String,
+
+        /// Pretty-print using a format string.
+        #[arg(long)]
+        format: Option<String>,
+
+        /// Show a diffstat summary for commits.
+        #[arg(long)]
+        stat: bool,
     },
 
     /// Create, list, or delete branches.
@@ -124,6 +206,26 @@ enum Command {
         /// Delete the branch.
         #[arg(short, long)]
         delete: bool,
+
+        /// Force-delete the branch even if not fully merged.
+        #[arg(short = 'D')]
+        force_delete: bool,
+
+        /// Force overwrite if branch already exists.
+        #[arg(short = 'f', long)]
+        force: bool,
+
+        /// Rename a branch (value is the new name).
+        #[arg(short = 'm', long = "move")]
+        rename: Option<String>,
+
+        /// Show commit info for each branch.
+        #[arg(short = 'v', long)]
+        verbose: bool,
+
+        /// List both local and remote-tracking branches.
+        #[arg(short = 'a', long)]
+        all: bool,
     },
 
     /// Create, list, or delete tags.
@@ -134,42 +236,110 @@ enum Command {
         /// Delete the tag.
         #[arg(short, long)]
         delete: bool,
+
+        /// Create an annotated tag.
+        #[arg(short = 'a', long)]
+        annotate: bool,
+
+        /// Tag message (implies --annotate).
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+
+        /// List tags matching a pattern.
+        #[arg(short = 'l', long)]
+        list: bool,
+
+        /// Force-replace an existing tag.
+        #[arg(short = 'f', long)]
+        force: bool,
     },
 
     /// Switch to a branch or commit.
     Checkout {
         /// Branch name or commit ID.
         target: String,
+
+        /// Create a new branch with the given name at HEAD and switch to it.
+        #[arg(short = 'b')]
+        create: bool,
+
+        /// Detach HEAD at the target commit.
+        #[arg(long)]
+        detach: bool,
     },
 
     /// Merge a branch into the current branch.
     Merge {
         /// Branch to merge.
-        branch: String,
+        branch: Option<String>,
 
         /// Author name.
         #[arg(long, default_value = "anonymous")]
         author: String,
+
+        /// Perform the merge but do not commit.
+        #[arg(long)]
+        no_commit: bool,
+
+        /// Refuse to merge unless fast-forward is possible.
+        #[arg(long)]
+        ff_only: bool,
+
+        /// Create a merge commit even for fast-forward merges.
+        #[arg(long)]
+        no_ff: bool,
+
+        /// Squash the branch into a single change set.
+        #[arg(long)]
+        squash: bool,
+
+        /// Abort an in-progress merge.
+        #[arg(long)]
+        abort: bool,
+
+        /// Custom merge commit message.
+        #[arg(short = 'm', long)]
+        message: Option<String>,
     },
 
     /// Replay current branch onto another.
     Rebase {
         /// Branch or commit to rebase onto.
-        onto: String,
+        onto: Option<String>,
 
         /// Author name.
         #[arg(long, default_value = "anonymous")]
         author: String,
+
+        /// Abort the current rebase operation.
+        #[arg(long)]
+        abort: bool,
+
+        /// Continue a paused rebase after resolving conflicts.
+        #[arg(long, alias = "continue")]
+        cont: bool,
     },
 
     /// Apply a single commit's migration to the current branch.
     CherryPick {
         /// Commit ID to cherry-pick.
-        commit: String,
+        commit: Option<String>,
 
         /// Author name.
         #[arg(long, default_value = "anonymous")]
         author: String,
+
+        /// Apply the change without committing.
+        #[arg(short = 'n', long)]
+        no_commit: bool,
+
+        /// Append "(cherry picked from commit ...)" to the message.
+        #[arg(short = 'x')]
+        record_origin: bool,
+
+        /// Abort the current cherry-pick operation.
+        #[arg(long)]
+        abort: bool,
     },
 
     /// Move HEAD / unstage / restore.
@@ -177,9 +347,17 @@ enum Command {
         /// Target ref or commit ID.
         target: String,
 
-        /// Reset mode.
-        #[arg(long, default_value = "mixed")]
-        mode: String,
+        /// Soft reset: move HEAD only, keep staged and working changes.
+        #[arg(long)]
+        soft: bool,
+
+        /// Hard reset: move HEAD, discard all changes.
+        #[arg(long)]
+        hard: bool,
+
+        /// Legacy mode flag (hidden, for backward compatibility).
+        #[arg(long, hide = true)]
+        mode: Option<String>,
 
         /// Author name.
         #[arg(long, default_value = "anonymous")]
@@ -202,6 +380,10 @@ enum Command {
         /// Maximum entries to show.
         #[arg(short = 'n', long)]
         limit: Option<usize>,
+
+        /// Show reflogs for all refs.
+        #[arg(long)]
+        all: bool,
     },
 
     /// Binary search for the commit that introduced a breaking change.
@@ -221,6 +403,10 @@ enum Command {
 
         /// Element identifier (vertex ID, edge `"src->tgt"`, or `"vertex_id:sort"`).
         element_id: String,
+
+        /// Walk history from the first commit forward.
+        #[arg(long)]
+        reverse: bool,
     },
 
     /// Apply a migration to a record, transforming it from source to
@@ -243,7 +429,75 @@ enum Command {
     },
 
     /// Garbage collect unreachable objects.
-    Gc,
+    Gc {
+        /// Show what would be deleted without actually deleting.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Prune loose objects older than the default expiry.
+        #[arg(long)]
+        prune: bool,
+    },
+
+    // -- Remote command stubs --
+    /// Add, list, or remove remote repositories.
+    Remote {
+        /// Remote operation.
+        #[command(subcommand)]
+        action: RemoteAction,
+    },
+
+    /// Push schemas to a remote repository.
+    Push {
+        /// Remote name.
+        remote: Option<String>,
+
+        /// Branch to push.
+        branch: Option<String>,
+    },
+
+    /// Pull schemas from a remote repository.
+    Pull {
+        /// Remote name.
+        remote: Option<String>,
+
+        /// Branch to pull.
+        branch: Option<String>,
+    },
+
+    /// Fetch schemas from a remote repository.
+    Fetch {
+        /// Remote name.
+        remote: Option<String>,
+    },
+
+    /// Clone a remote repository.
+    Clone {
+        /// Repository URL.
+        url: String,
+
+        /// Local path.
+        path: Option<PathBuf>,
+    },
+}
+
+/// Remote sub-operations.
+#[derive(Subcommand, Debug)]
+enum RemoteAction {
+    /// Register a new remote.
+    Add {
+        /// Remote name.
+        name: String,
+        /// Remote URL.
+        url: String,
+    },
+    /// Remove a remote.
+    Remove {
+        /// Remote name to remove.
+        name: String,
+    },
+    /// List configured remotes.
+    List,
 }
 
 /// Stash sub-operations.
@@ -265,49 +519,230 @@ enum StashAction {
     List,
     /// Drop the most recent stash.
     Drop,
+    /// Apply a stash entry without removing it.
+    Apply {
+        /// Stash index to apply.
+        #[arg(default_value = "0")]
+        index: usize,
+    },
+    /// Show the contents of a stash entry.
+    Show {
+        /// Stash index to inspect.
+        #[arg(default_value = "0")]
+        index: usize,
+    },
+    /// Remove all stash entries.
+    Clear,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    dispatch(cli.command, cli.verbose)
+}
 
-    match cli.command {
+/// Dispatch a parsed CLI command to the appropriate handler.
+fn dispatch(command: Command, verbose: bool) -> Result<()> {
+    match command {
         // Schema tools.
-        Command::Validate { protocol, schema } => cmd_validate(&protocol, &schema, cli.verbose),
-        Command::Check { src, tgt, mapping } => cmd_check(&src, &tgt, &mapping, cli.verbose),
+        Command::Validate { protocol, schema } => cmd_validate(&protocol, &schema, verbose),
+        Command::Check { src, tgt, mapping } => cmd_check(&src, &tgt, &mapping, verbose),
         Command::Lift {
             migration,
             src_schema,
             tgt_schema,
             record,
-        } => cmd_lift(&migration, &src_schema, &tgt_schema, &record, cli.verbose),
+        } => cmd_lift(&migration, &src_schema, &tgt_schema, &record, verbose),
 
-        // VCS commands.
-        Command::Init { path } => cmd_init(&path),
-        Command::Add { schema } => cmd_add(&schema),
-        Command::Commit { message, author } => cmd_commit(&message, &author),
-        Command::Status => cmd_status(),
-        Command::Log { limit } => cmd_log(limit),
-        Command::Diff { old, new } => cmd_diff(&old, &new, cli.verbose),
-        Command::Show { target } => cmd_show(&target),
-        Command::Branch { name, delete } => cmd_branch(name.as_deref(), delete),
-        Command::Tag { name, delete } => cmd_tag(name.as_deref(), delete),
-        Command::Checkout { target } => cmd_checkout(&target),
-        Command::Merge { branch, author } => cmd_merge(&branch, &author),
-        Command::Rebase { onto, author } => cmd_rebase(&onto, &author),
-        Command::CherryPick { commit, author } => cmd_cherry_pick(&commit, &author),
+        // Core VCS commands.
+        Command::Init {
+            path,
+            initial_branch,
+        } => cmd_init(&path, initial_branch.as_deref()),
+        Command::Add {
+            schema,
+            dry_run,
+            force,
+        } => cmd_add(&schema, dry_run, force),
+        Command::Commit {
+            message,
+            author,
+            amend,
+            allow_empty,
+        } => cmd_commit(&message, &author, amend, allow_empty),
+        Command::Status {
+            short,
+            porcelain,
+            branch,
+        } => cmd_status(short, porcelain, branch),
+        Command::Log {
+            limit,
+            oneline,
+            graph,
+            all,
+            format,
+            author,
+            grep,
+        } => cmd_log(
+            limit,
+            oneline,
+            graph,
+            all,
+            format.as_deref(),
+            author.as_deref(),
+            grep.as_deref(),
+        ),
+        Command::Diff {
+            old,
+            new,
+            stat,
+            name_only,
+            name_status,
+            staged,
+        } => cmd_diff(
+            old.as_deref(),
+            new.as_deref(),
+            &DiffOptions {
+                stat,
+                name_only,
+                name_status,
+                staged,
+                verbose,
+            },
+        ),
+        Command::Show {
+            target,
+            format,
+            stat,
+        } => cmd_show(&target, format.as_deref(), stat),
+
+        // Branching, tagging, and merge commands.
+        command @ (Command::Branch { .. }
+        | Command::Tag { .. }
+        | Command::Checkout { .. }
+        | Command::Merge { .. }) => dispatch_branch_commands(command),
+
+        // History rewriting and misc commands.
+        command @ (Command::Rebase { .. }
+        | Command::CherryPick { .. }
+        | Command::Reset { .. }
+        | Command::Stash { .. }
+        | Command::Reflog { .. }
+        | Command::Bisect { .. }
+        | Command::Blame { .. }
+        | Command::Gc { .. }
+        | Command::Remote { .. }
+        | Command::Push { .. }
+        | Command::Pull { .. }
+        | Command::Fetch { .. }
+        | Command::Clone { .. }) => dispatch_history_commands(command),
+    }
+}
+
+/// Dispatch branching, tagging, checkout, and merge commands.
+fn dispatch_branch_commands(command: Command) -> Result<()> {
+    match command {
+        Command::Branch {
+            name,
+            delete,
+            force_delete,
+            force,
+            rename,
+            verbose,
+            all,
+        } => cmd_branch(&BranchCmdOptions {
+            name: name.as_deref(),
+            delete,
+            force_delete,
+            force,
+            rename: rename.as_deref(),
+            verbose,
+            all,
+        }),
+        Command::Tag {
+            name,
+            delete,
+            annotate,
+            message,
+            list,
+            force,
+        } => cmd_tag(&TagCmdOptions {
+            name: name.as_deref(),
+            delete,
+            annotate,
+            message: message.as_deref(),
+            list,
+            force,
+        }),
+        Command::Checkout {
+            target,
+            create,
+            detach,
+        } => cmd_checkout(&target, create, detach),
+        Command::Merge {
+            branch,
+            author,
+            no_commit,
+            ff_only,
+            no_ff,
+            squash,
+            abort,
+            message,
+        } => cmd_merge(&MergeCmdOptions {
+            branch: branch.as_deref(),
+            author: &author,
+            no_commit,
+            ff_only,
+            no_ff,
+            squash,
+            abort,
+            message: message.as_deref(),
+        }),
+        _ => unreachable!(),
+    }
+}
+
+/// Dispatch history rewriting and miscellaneous commands.
+fn dispatch_history_commands(command: Command) -> Result<()> {
+    match command {
+        Command::Rebase {
+            onto,
+            author,
+            abort,
+            cont,
+        } => cmd_rebase(onto.as_deref(), &author, abort, cont),
+        Command::CherryPick {
+            commit,
+            author,
+            no_commit,
+            record_origin,
+            abort,
+        } => cmd_cherry_pick(commit.as_deref(), &author, no_commit, record_origin, abort),
         Command::Reset {
             target,
+            soft,
+            hard,
             mode,
             author,
-        } => cmd_reset(&target, &mode, &author),
+        } => cmd_reset(&target, soft, hard, mode.as_deref(), &author),
         Command::Stash { action } => cmd_stash(action),
-        Command::Reflog { ref_name, limit } => cmd_reflog(&ref_name, limit),
+        Command::Reflog {
+            ref_name,
+            limit,
+            all,
+        } => cmd_reflog(&ref_name, limit, all),
         Command::Bisect { good, bad } => cmd_bisect(&good, &bad),
         Command::Blame {
             element_type,
             element_id,
-        } => cmd_blame(&element_type, &element_id),
-        Command::Gc => cmd_gc(),
+            reverse,
+        } => cmd_blame(&element_type, &element_id, reverse),
+        Command::Gc { dry_run, prune } => cmd_gc(dry_run, prune),
+        Command::Remote { action } => cmd_remote(action),
+        Command::Push { remote, branch } => cmd_push(remote.as_deref(), branch.as_deref()),
+        Command::Pull { remote, branch } => cmd_pull(remote.as_deref(), branch.as_deref()),
+        Command::Fetch { remote } => cmd_fetch(remote.as_deref()),
+        Command::Clone { url, path } => cmd_clone(&url, path.as_deref()),
+        _ => unreachable!(),
     }
 }
 
@@ -516,20 +951,36 @@ fn cmd_lift(
 // VCS commands
 // ---------------------------------------------------------------------------
 
-fn cmd_init(path: &Path) -> Result<()> {
-    vcs::Repository::init(path)
+fn cmd_init(path: &Path, initial_branch: Option<&str>) -> Result<()> {
+    let mut repo = vcs::Repository::init(path)
         .into_diagnostic()
         .wrap_err("failed to initialize repository")?;
+    if let Some(branch_name) = initial_branch {
+        vcs::refs::rename_branch(repo.store_mut(), "main", branch_name).into_diagnostic()?;
+    }
+    let branch = initial_branch.unwrap_or("main");
     println!(
-        "Initialized empty panproto repository in {}",
+        "Initialized empty panproto repository in {} (branch: {branch})",
         path.join(".panproto").display()
     );
     Ok(())
 }
 
-fn cmd_add(schema_path: &Path) -> Result<()> {
+fn cmd_add(schema_path: &Path, dry_run: bool, force: bool) -> Result<()> {
     let schema: Schema = load_json(schema_path)?;
+
+    if dry_run {
+        println!(
+            "Would stage schema from {} ({} vertices, {} edges)",
+            schema_path.display(),
+            schema.vertex_count(),
+            schema.edge_count()
+        );
+        return Ok(());
+    }
+
     let mut repo = open_repo()?;
+    let _ = force; // reserved for skipping validation in the future
     repo.add(&schema)
         .into_diagnostic()
         .wrap_err("failed to stage schema")?;
@@ -537,20 +988,56 @@ fn cmd_add(schema_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn cmd_commit(message: &str, author: &str) -> Result<()> {
+fn cmd_commit(message: &str, author: &str, amend: bool, allow_empty: bool) -> Result<()> {
     let mut repo = open_repo()?;
-    let commit_id = repo
-        .commit(message, author)
-        .into_diagnostic()
-        .wrap_err("failed to commit")?;
-    println!("[{}] {message}", commit_id.short());
+    let _ = allow_empty; // placeholder for future use
+
+    if amend {
+        let commit_id = repo
+            .amend(message, author)
+            .into_diagnostic()
+            .wrap_err("failed to amend commit")?;
+        println!("[{}] (amended) {message}", commit_id.short());
+    } else {
+        let commit_id = repo
+            .commit(message, author)
+            .into_diagnostic()
+            .wrap_err("failed to commit")?;
+        println!("[{}] {message}", commit_id.short());
+    }
     Ok(())
 }
 
-fn cmd_status() -> Result<()> {
+fn cmd_status(short: bool, porcelain: bool, show_branch: bool) -> Result<()> {
     let repo = open_repo()?;
     let head = repo.store().get_head().into_diagnostic()?;
 
+    if porcelain {
+        // Machine-readable output.
+        match &head {
+            vcs::HeadState::Branch(name) => println!("## {name}"),
+            vcs::HeadState::Detached(id) => println!("## HEAD (detached) {}", id.short()),
+        }
+        return Ok(());
+    }
+
+    if short {
+        match &head {
+            vcs::HeadState::Branch(name) => {
+                if show_branch {
+                    println!("## {name}");
+                }
+            }
+            vcs::HeadState::Detached(id) => {
+                if show_branch {
+                    println!("## HEAD (detached) {}", id.short());
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // Default (long) format.
     match &head {
         vcs::HeadState::Branch(name) => {
             let head_id = vcs::store::resolve_head(repo.store()).into_diagnostic()?;
@@ -565,11 +1052,42 @@ fn cmd_status() -> Result<()> {
     Ok(())
 }
 
-fn cmd_log(limit: Option<usize>) -> Result<()> {
+fn cmd_log(
+    limit: Option<usize>,
+    oneline: bool,
+    _graph: bool,
+    _all: bool,
+    fmt: Option<&str>,
+    filter_author: Option<&str>,
+    filter_grep: Option<&str>,
+) -> Result<()> {
     let repo = open_repo()?;
     let commits = repo.log(limit).into_diagnostic()?;
 
     for commit in &commits {
+        // Apply filters.
+        if let Some(author_pat) = filter_author {
+            if !commit.author.contains(author_pat) {
+                continue;
+            }
+        }
+        if let Some(grep_pat) = filter_grep {
+            if !commit.message.contains(grep_pat) {
+                continue;
+            }
+        }
+
+        if let Some(fmt_str) = fmt {
+            println!("{}", format::format_commit(commit, fmt_str)?);
+            continue;
+        }
+
+        if oneline {
+            println!("{}", format::format_commit_oneline(commit)?);
+            continue;
+        }
+
+        // Default format.
         let schema_short = commit.schema_id.short();
         println!(
             "commit {} (schema {})",
@@ -590,7 +1108,74 @@ fn cmd_log(limit: Option<usize>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_diff(old_path: &Path, new_path: &Path, verbose: bool) -> Result<()> {
+/// Options controlling diff output format.
+#[allow(clippy::struct_excessive_bools)]
+struct DiffOptions {
+    stat: bool,
+    name_only: bool,
+    name_status: bool,
+    staged: bool,
+    verbose: bool,
+}
+
+fn cmd_diff(old_path: Option<&Path>, new_path: Option<&Path>, opts: &DiffOptions) -> Result<()> {
+    let DiffOptions {
+        stat,
+        name_only,
+        name_status,
+        staged,
+        verbose,
+    } = *opts;
+    if staged {
+        // Diff staged schema vs HEAD.
+        let repo = open_repo()?;
+        let index_path = repo.store().root().join("index.json");
+        if !index_path.exists() {
+            miette::bail!("nothing staged");
+        }
+        let index: vcs::Index = load_json(&index_path)?;
+        let staged_entry = index
+            .staged
+            .ok_or_else(|| miette::miette!("nothing staged"))?;
+
+        let head_id = vcs::store::resolve_head(repo.store())
+            .into_diagnostic()?
+            .ok_or_else(|| miette::miette!("no commits yet — use diff with file paths instead"))?;
+        let head_obj = repo.store().get(&head_id).into_diagnostic()?;
+        let vcs::Object::Commit(head_commit) = head_obj else {
+            miette::bail!("HEAD does not point to a commit")
+        };
+        let old_obj = repo.store().get(&head_commit.schema_id).into_diagnostic()?;
+        let old_schema = match old_obj {
+            vcs::Object::Schema(s) => *s,
+            _ => miette::bail!("HEAD commit does not reference a schema"),
+        };
+        let new_obj = repo
+            .store()
+            .get(&staged_entry.schema_id)
+            .into_diagnostic()?;
+        let new_schema = match new_obj {
+            vcs::Object::Schema(s) => *s,
+            _ => miette::bail!("staged entry does not reference a schema"),
+        };
+
+        let schema_diff = panproto_core::check::diff::diff(&old_schema, &new_schema);
+        print_diff(
+            &schema_diff,
+            &old_schema,
+            &new_schema,
+            stat,
+            name_only,
+            name_status,
+        );
+        return Ok(());
+    }
+
+    let old_path =
+        old_path.ok_or_else(|| miette::miette!("old schema path is required (or use --staged)"))?;
+    let new_path =
+        new_path.ok_or_else(|| miette::miette!("new schema path is required (or use --staged)"))?;
+
     let old_schema: Schema = load_json(old_path)?;
     let new_schema: Schema = load_json(new_path)?;
 
@@ -605,12 +1190,52 @@ fn cmd_diff(old_path: &Path, new_path: &Path, verbose: bool) -> Result<()> {
     }
 
     let schema_diff = panproto_core::check::diff::diff(&old_schema, &new_schema);
+    print_diff(
+        &schema_diff,
+        &old_schema,
+        &new_schema,
+        stat,
+        name_only,
+        name_status,
+    );
+    Ok(())
+}
 
+fn print_diff(
+    schema_diff: &panproto_core::check::diff::SchemaDiff,
+    old_schema: &Schema,
+    new_schema: &Schema,
+    stat: bool,
+    name_only: bool,
+    name_status: bool,
+) {
     if schema_diff.is_empty() {
         println!("Schemas are identical.");
-        return Ok(());
+        return;
     }
 
+    if stat {
+        println!("{}", format::format_diff_stat(schema_diff));
+        return;
+    }
+
+    if name_only {
+        println!(
+            "{}",
+            format::format_diff_name_only(schema_diff, old_schema, new_schema)
+        );
+        return;
+    }
+
+    if name_status {
+        println!(
+            "{}",
+            format::format_diff_name_status(schema_diff, old_schema, new_schema)
+        );
+        return;
+    }
+
+    // Default detailed output.
     let total = schema_diff.added_vertices.len()
         + schema_diff.removed_vertices.len()
         + schema_diff.added_edges.len()
@@ -655,11 +1280,9 @@ fn cmd_diff(old_path: &Path, new_path: &Path, verbose: bool) -> Result<()> {
             );
         }
     }
-
-    Ok(())
 }
 
-fn cmd_show(target: &str) -> Result<()> {
+fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
     let repo = open_repo()?;
     let id = vcs::refs::resolve_ref(repo.store(), target)
         .into_diagnostic()
@@ -668,6 +1291,11 @@ fn cmd_show(target: &str) -> Result<()> {
     let object = repo.store().get(&id).into_diagnostic()?;
     match object {
         vcs::Object::Commit(c) => {
+            if let Some(fmt_str) = fmt {
+                println!("{}", format::format_commit(&c, fmt_str)?);
+                return Ok(());
+            }
+
             println!("commit {id}");
             println!("Schema:    {}", c.schema_id);
             println!(
@@ -685,6 +1313,26 @@ fn cmd_show(target: &str) -> Result<()> {
             println!("Author:    {}", c.author);
             println!("Date:      {}", format_timestamp(c.timestamp));
             println!("\n    {}", c.message);
+
+            if stat {
+                // Show diff stat between parent and this commit.
+                if let Some(parent_id) = c.parents.first() {
+                    let parent_obj = repo.store().get(parent_id).into_diagnostic()?;
+                    if let vcs::Object::Commit(parent_commit) = parent_obj {
+                        let old_obj = repo
+                            .store()
+                            .get(&parent_commit.schema_id)
+                            .into_diagnostic()?;
+                        let new_obj = repo.store().get(&c.schema_id).into_diagnostic()?;
+                        if let (vcs::Object::Schema(old_s), vcs::Object::Schema(new_s)) =
+                            (old_obj, new_obj)
+                        {
+                            let d = panproto_core::check::diff::diff(&old_s, &new_s);
+                            println!("\n {}", format::format_diff_stat(&d));
+                        }
+                    }
+                }
+            }
         }
         vcs::Object::Schema(s) => {
             println!("schema {id}");
@@ -699,37 +1347,99 @@ fn cmd_show(target: &str) -> Result<()> {
             println!("Vertex mappings: {}", mapping.vertex_map.len());
             println!("Edge mappings:   {}", mapping.edge_map.len());
         }
+        vcs::Object::Tag(tag) => {
+            println!("tag {id}");
+            println!("Target:    {}", tag.target);
+            println!("Tagger:    {}", tag.tagger);
+            println!("Date:      {}", format_timestamp(tag.timestamp));
+            println!("\n    {}", tag.message);
+        }
     }
     Ok(())
 }
 
-fn cmd_branch(name: Option<&str>, delete: bool) -> Result<()> {
+/// Options for the `branch` subcommand.
+#[allow(clippy::struct_excessive_bools)]
+struct BranchCmdOptions<'a> {
+    name: Option<&'a str>,
+    delete: bool,
+    force_delete: bool,
+    force: bool,
+    rename: Option<&'a str>,
+    verbose: bool,
+    #[allow(dead_code)]
+    all: bool,
+}
+
+fn cmd_branch(opts: &BranchCmdOptions<'_>) -> Result<()> {
+    let BranchCmdOptions {
+        name,
+        delete,
+        force_delete,
+        force,
+        rename,
+        verbose,
+        all: _,
+    } = *opts;
+
     let mut repo = open_repo()?;
 
-    match (name, delete) {
-        (Some(name), true) => {
-            vcs::refs::delete_branch(repo.store_mut(), name).into_diagnostic()?;
-            println!("Deleted branch {name}");
+    // Handle rename.
+    if let Some(new_name) = rename {
+        let old_name = name.ok_or_else(|| miette::miette!("branch name required for rename"))?;
+        vcs::refs::rename_branch(repo.store_mut(), old_name, new_name).into_diagnostic()?;
+        println!("Renamed branch {old_name} -> {new_name}");
+        return Ok(());
+    }
+
+    // Handle force-delete.
+    if force_delete {
+        let branch_name = name.ok_or_else(|| miette::miette!("branch name required for -D"))?;
+        vcs::refs::force_delete_branch(repo.store_mut(), branch_name).into_diagnostic()?;
+        println!("Deleted branch {branch_name} (force)");
+        return Ok(());
+    }
+
+    // Handle normal delete (also force-delete if -f is set).
+    if delete {
+        let branch_name = name.ok_or_else(|| miette::miette!("branch name required for delete"))?;
+        if force {
+            vcs::refs::force_delete_branch(repo.store_mut(), branch_name).into_diagnostic()?;
+            println!("Deleted branch {branch_name} (force)");
+        } else {
+            vcs::refs::delete_branch(repo.store_mut(), branch_name).into_diagnostic()?;
+            println!("Deleted branch {branch_name}");
         }
-        (Some(name), false) => {
-            let head_id = vcs::store::resolve_head(repo.store())
-                .into_diagnostic()?
-                .ok_or_else(|| miette::miette!("no commits yet"))?;
-            vcs::refs::create_branch(repo.store_mut(), name, head_id).into_diagnostic()?;
-            println!("Created branch {name} at {}", head_id.short());
-        }
-        (None, _) => {
-            let branches = vcs::refs::list_branches(repo.store()).into_diagnostic()?;
-            let current = match repo.store().get_head().into_diagnostic()? {
-                vcs::HeadState::Branch(name) => Some(name),
-                vcs::HeadState::Detached(_) => None,
+        return Ok(());
+    }
+
+    // Create or list.
+    if let Some(name) = name {
+        let head_id = vcs::store::resolve_head(repo.store())
+            .into_diagnostic()?
+            .ok_or_else(|| miette::miette!("no commits yet"))?;
+        vcs::refs::create_branch(repo.store_mut(), name, head_id).into_diagnostic()?;
+        println!("Created branch {name} at {}", head_id.short());
+    } else {
+        let branches = vcs::refs::list_branches(repo.store()).into_diagnostic()?;
+        let current = match repo.store().get_head().into_diagnostic()? {
+            vcs::HeadState::Branch(name) => Some(name),
+            vcs::HeadState::Detached(_) => None,
+        };
+        for (branch_name, id) in &branches {
+            let marker = if current.as_deref() == Some(branch_name) {
+                "* "
+            } else {
+                "  "
             };
-            for (branch_name, id) in &branches {
-                let marker = if current.as_deref() == Some(branch_name) {
-                    "* "
+            if verbose {
+                let obj = repo.store().get(id).into_diagnostic()?;
+                if let vcs::Object::Commit(c) = obj {
+                    println!("{marker}{branch_name} {} {}", id.short(), c.message);
                 } else {
-                    "  "
-                };
+                    println!("{marker}{branch_name} {}", id.short());
+                }
+            } else {
                 println!("{marker}{branch_name} {}", id.short());
             }
         }
@@ -737,33 +1447,88 @@ fn cmd_branch(name: Option<&str>, delete: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_tag(name: Option<&str>, delete: bool) -> Result<()> {
+/// Options for the `tag` subcommand.
+#[allow(clippy::struct_excessive_bools)]
+struct TagCmdOptions<'a> {
+    name: Option<&'a str>,
+    delete: bool,
+    annotate: bool,
+    message: Option<&'a str>,
+    list: bool,
+    force: bool,
+}
+
+fn cmd_tag(opts: &TagCmdOptions<'_>) -> Result<()> {
+    let TagCmdOptions {
+        name,
+        delete,
+        annotate,
+        message,
+        list,
+        force,
+    } = *opts;
     let mut repo = open_repo()?;
 
-    match (name, delete) {
-        (Some(name), true) => {
-            vcs::refs::delete_tag(repo.store_mut(), name).into_diagnostic()?;
-            println!("Deleted tag {name}");
+    // Explicit list mode.
+    if list || (name.is_none() && !delete) {
+        let tags = vcs::refs::list_tags(repo.store()).into_diagnostic()?;
+        for (tag_name, id) in &tags {
+            println!("{tag_name} {}", id.short());
         }
-        (Some(name), false) => {
-            let head_id = vcs::store::resolve_head(repo.store())
-                .into_diagnostic()?
-                .ok_or_else(|| miette::miette!("no commits yet"))?;
-            vcs::refs::create_tag(repo.store_mut(), name, head_id).into_diagnostic()?;
-            println!("Tagged {} as {name}", head_id.short());
-        }
-        (None, _) => {
-            let tags = vcs::refs::list_tags(repo.store()).into_diagnostic()?;
-            for (tag_name, id) in &tags {
-                println!("{tag_name} {}", id.short());
-            }
-        }
+        return Ok(());
     }
+
+    let tag_name = name.ok_or_else(|| miette::miette!("tag name required"))?;
+
+    if delete {
+        vcs::refs::delete_tag(repo.store_mut(), tag_name).into_diagnostic()?;
+        println!("Deleted tag {tag_name}");
+        return Ok(());
+    }
+
+    let head_id = vcs::store::resolve_head(repo.store())
+        .into_diagnostic()?
+        .ok_or_else(|| miette::miette!("no commits yet"))?;
+
+    // Annotated tag if -a or -m is provided.
+    if annotate || message.is_some() {
+        let msg = message.unwrap_or("");
+        vcs::refs::create_annotated_tag(repo.store_mut(), tag_name, head_id, "anonymous", msg)
+            .into_diagnostic()?;
+        println!("Tagged {} as {tag_name} (annotated)", head_id.short());
+    } else if force {
+        vcs::refs::create_tag_force(repo.store_mut(), tag_name, head_id).into_diagnostic()?;
+        println!("Tagged {} as {tag_name} (force)", head_id.short());
+    } else {
+        vcs::refs::create_tag(repo.store_mut(), tag_name, head_id).into_diagnostic()?;
+        println!("Tagged {} as {tag_name}", head_id.short());
+    }
+
     Ok(())
 }
 
-fn cmd_checkout(target: &str) -> Result<()> {
+fn cmd_checkout(target: &str, create: bool, detach: bool) -> Result<()> {
     let mut repo = open_repo()?;
+
+    if create {
+        // Create a new branch at HEAD and switch to it.
+        let head_id = vcs::store::resolve_head(repo.store())
+            .into_diagnostic()?
+            .ok_or_else(|| miette::miette!("no commits yet"))?;
+        vcs::refs::create_and_checkout_branch(repo.store_mut(), target, head_id)
+            .into_diagnostic()?;
+        println!("Switched to a new branch '{target}'");
+        return Ok(());
+    }
+
+    if detach {
+        let id = vcs::refs::resolve_ref(repo.store(), target)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("cannot resolve '{target}'"))?;
+        vcs::refs::checkout_detached(repo.store_mut(), id).into_diagnostic()?;
+        println!("HEAD is now at {}", id.short());
+        return Ok(());
+    }
 
     // Try branch first.
     let branch_ref = format!("refs/heads/{target}");
@@ -785,9 +1550,56 @@ fn cmd_checkout(target: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_merge(branch: &str, author: &str) -> Result<()> {
+/// Options for the `merge` subcommand.
+#[allow(clippy::struct_excessive_bools)]
+struct MergeCmdOptions<'a> {
+    branch: Option<&'a str>,
+    author: &'a str,
+    no_commit: bool,
+    ff_only: bool,
+    no_ff: bool,
+    squash: bool,
+    abort: bool,
+    message: Option<&'a str>,
+}
+
+fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>) -> Result<()> {
+    let MergeCmdOptions {
+        branch,
+        author,
+        no_commit,
+        ff_only,
+        no_ff,
+        squash,
+        abort,
+        message,
+    } = *cmd_opts;
+
+    if abort {
+        // Abort an in-progress merge. Clear any merge state files.
+        let repo = open_repo()?;
+        let merge_head = repo.store().root().join("MERGE_HEAD");
+        if merge_head.exists() {
+            std::fs::remove_file(&merge_head).into_diagnostic()?;
+        }
+        println!("Merge aborted.");
+        return Ok(());
+    }
+
+    let branch_name = branch.ok_or_else(|| miette::miette!("branch name required for merge"))?;
     let mut repo = open_repo()?;
-    let result = repo.merge(branch, author).into_diagnostic()?;
+
+    let opts = vcs::merge::MergeOptions {
+        no_commit,
+        ff_only,
+        no_ff,
+        squash,
+        message: message.map(ToOwned::to_owned),
+    };
+
+    let result = repo
+        .merge_with_options(branch_name, author, &opts)
+        .into_diagnostic()?;
 
     if result.conflicts.is_empty() {
         println!("Merge successful.");
@@ -806,43 +1618,89 @@ fn cmd_merge(branch: &str, author: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_rebase(onto: &str, author: &str) -> Result<()> {
+fn cmd_rebase(onto: Option<&str>, author: &str, abort: bool, cont: bool) -> Result<()> {
+    if abort {
+        miette::bail!("rebase --abort is not yet implemented");
+    }
+    if cont {
+        miette::bail!("rebase --continue is not yet implemented");
+    }
+
+    let onto_name = onto.ok_or_else(|| miette::miette!("target branch required for rebase"))?;
     let mut repo = open_repo()?;
-    let onto_id = vcs::refs::resolve_ref(repo.store(), onto)
+    let onto_id = vcs::refs::resolve_ref(repo.store(), onto_name)
         .into_diagnostic()
-        .wrap_err_with(|| format!("cannot resolve '{onto}'"))?;
+        .wrap_err_with(|| format!("cannot resolve '{onto_name}'"))?;
     let new_tip = repo.rebase(onto_id, author).into_diagnostic()?;
-    println!("Rebased onto {onto}. New tip: {}", new_tip.short());
+    println!("Rebased onto {onto_name}. New tip: {}", new_tip.short());
     Ok(())
 }
 
-fn cmd_cherry_pick(commit: &str, author: &str) -> Result<()> {
+fn cmd_cherry_pick(
+    commit: Option<&str>,
+    author: &str,
+    no_commit: bool,
+    record_origin: bool,
+    abort: bool,
+) -> Result<()> {
+    if abort {
+        miette::bail!("cherry-pick --abort is not yet implemented");
+    }
+
+    let commit_ref = commit.ok_or_else(|| miette::miette!("commit ID required for cherry-pick"))?;
     let mut repo = open_repo()?;
-    let commit_id = vcs::refs::resolve_ref(repo.store(), commit)
+    let commit_id = vcs::refs::resolve_ref(repo.store(), commit_ref)
         .into_diagnostic()
-        .wrap_err_with(|| format!("cannot resolve '{commit}'"))?;
-    let new_id = repo.cherry_pick(commit_id, author).into_diagnostic()?;
+        .wrap_err_with(|| format!("cannot resolve '{commit_ref}'"))?;
+
+    let opts = vcs::cherry_pick::CherryPickOptions {
+        no_commit,
+        record_origin,
+    };
+
+    let new_id =
+        vcs::cherry_pick::cherry_pick_with_options(repo.store_mut(), commit_id, author, &opts)
+            .into_diagnostic()?;
     println!("Cherry-picked {} -> {}", commit_id.short(), new_id.short());
     Ok(())
 }
 
-fn cmd_reset(target: &str, mode: &str, author: &str) -> Result<()> {
+fn cmd_reset(
+    target: &str,
+    soft: bool,
+    hard: bool,
+    legacy_mode: Option<&str>,
+    author: &str,
+) -> Result<()> {
     let mut repo = open_repo()?;
     let target_id = vcs::refs::resolve_ref(repo.store(), target)
         .into_diagnostic()
         .wrap_err_with(|| format!("cannot resolve '{target}'"))?;
 
-    let reset_mode = match mode {
-        "soft" => vcs::reset::ResetMode::Soft,
-        "mixed" => vcs::reset::ResetMode::Mixed,
-        "hard" => vcs::reset::ResetMode::Hard,
-        _ => miette::bail!("invalid reset mode: {mode}. Use: soft, mixed, hard"),
+    let (reset_mode, mode_label) = if let Some(m) = legacy_mode {
+        // Backward-compatible --mode flag.
+        let rm = match m {
+            "soft" => vcs::reset::ResetMode::Soft,
+            "mixed" => vcs::reset::ResetMode::Mixed,
+            "hard" => vcs::reset::ResetMode::Hard,
+            _ => miette::bail!("invalid reset mode: {m}. Use: soft, mixed, hard"),
+        };
+        (rm, m.to_owned())
+    } else if soft {
+        (vcs::reset::ResetMode::Soft, "soft".to_owned())
+    } else if hard {
+        (vcs::reset::ResetMode::Hard, "hard".to_owned())
+    } else {
+        (vcs::reset::ResetMode::Mixed, "mixed".to_owned())
     };
 
     let outcome = repo
         .reset(target_id, reset_mode, author)
         .into_diagnostic()?;
-    println!("HEAD is now at {} (mode: {mode})", outcome.new_head.short());
+    println!(
+        "HEAD is now at {} (mode: {mode_label})",
+        outcome.new_head.short()
+    );
     Ok(())
 }
 
@@ -893,12 +1751,46 @@ fn cmd_stash(action: StashAction) -> Result<()> {
             vcs::stash::stash_drop(repo.store_mut(), 0).into_diagnostic()?;
             println!("Dropped stash@{{0}}");
         }
+        StashAction::Apply { index } => {
+            let schema_id = vcs::stash::stash_apply(repo.store(), index).into_diagnostic()?;
+            println!("Applied stash@{{{index}}} (schema {})", schema_id.short());
+        }
+        StashAction::Show { index } => {
+            let info = vcs::stash::stash_show(repo.store(), index).into_diagnostic()?;
+            println!("stash@{{{index}}}: {info}");
+        }
+        StashAction::Clear => {
+            vcs::stash::stash_clear(repo.store_mut()).into_diagnostic()?;
+            println!("Cleared all stash entries.");
+        }
     }
     Ok(())
 }
 
-fn cmd_reflog(ref_name: &str, limit: Option<usize>) -> Result<()> {
+fn cmd_reflog(ref_name: &str, limit: Option<usize>, all: bool) -> Result<()> {
     let repo = open_repo()?;
+
+    if all {
+        // Show reflogs for all branches.
+        let branches = vcs::refs::list_branches(repo.store()).into_diagnostic()?;
+        for (branch_name, _) in &branches {
+            let r = format!("refs/heads/{branch_name}");
+            let entries = repo.store().read_reflog(&r, limit).into_diagnostic()?;
+            for (i, entry) in entries.iter().enumerate() {
+                let old = entry
+                    .old_id
+                    .map_or_else(|| "0000000".to_owned(), |id| id.short());
+                println!(
+                    "{r}@{{{i}}} {} -> {} {}",
+                    old,
+                    entry.new_id.short(),
+                    entry.message
+                );
+            }
+        }
+        return Ok(());
+    }
+
     let entries = repo
         .store()
         .read_reflog(ref_name, limit)
@@ -951,7 +1843,11 @@ fn cmd_bisect(good: &str, bad: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_blame(element_type: &str, element_id: &str) -> Result<()> {
+fn cmd_blame(element_type: &str, element_id: &str, reverse: bool) -> Result<()> {
+    if reverse {
+        eprintln!("note: --reverse blame is not yet implemented; falling back to standard blame");
+    }
+
     let repo = open_repo()?;
     let head_id = vcs::store::resolve_head(repo.store())
         .into_diagnostic()?
@@ -998,15 +1894,60 @@ fn cmd_blame(element_type: &str, element_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_gc() -> Result<()> {
+fn cmd_gc(dry_run: bool, _prune: bool) -> Result<()> {
     let mut repo = open_repo()?;
-    let report = repo.gc().into_diagnostic()?;
-    println!(
-        "Reachable objects: {}. Deleted: {}.",
-        report.reachable,
-        report.deleted.len()
-    );
+
+    if dry_run {
+        let opts = vcs::gc::GcOptions { dry_run: true };
+        let report = vcs::gc::gc_with_options(repo.store_mut(), &opts).into_diagnostic()?;
+        println!(
+            "Reachable objects: {}. Would delete: {}.",
+            report.reachable,
+            report.deleted.len()
+        );
+    } else {
+        let report = repo.gc().into_diagnostic()?;
+        println!(
+            "Reachable objects: {}. Deleted: {}.",
+            report.reachable,
+            report.deleted.len()
+        );
+    }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Remote stubs (not yet implemented)
+// ---------------------------------------------------------------------------
+
+fn cmd_remote(_action: RemoteAction) -> Result<()> {
+    miette::bail!(
+        "remote operations are not yet implemented. Schema repositories are currently local-only."
+    )
+}
+
+fn cmd_push(_remote: Option<&str>, _branch: Option<&str>) -> Result<()> {
+    miette::bail!(
+        "remote operations are not yet implemented. Schema repositories are currently local-only."
+    )
+}
+
+fn cmd_pull(_remote: Option<&str>, _branch: Option<&str>) -> Result<()> {
+    miette::bail!(
+        "remote operations are not yet implemented. Schema repositories are currently local-only."
+    )
+}
+
+fn cmd_fetch(_remote: Option<&str>) -> Result<()> {
+    miette::bail!(
+        "remote operations are not yet implemented. Schema repositories are currently local-only."
+    )
+}
+
+fn cmd_clone(_url: &str, _path: Option<&Path>) -> Result<()> {
+    miette::bail!(
+        "remote operations are not yet implemented. Schema repositories are currently local-only."
+    )
 }
 
 fn format_timestamp(ts: u64) -> String {

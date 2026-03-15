@@ -15,7 +15,7 @@ use panproto_schema::{
 use serde::{Deserialize, Serialize};
 
 use crate::error::VcsError;
-use crate::object::CommitObject;
+use crate::object::{CommitObject, TagObject};
 
 /// A content-addressed object identifier: a blake3 hash (32 bytes).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -322,6 +322,16 @@ pub fn hash_migration(
 /// Returns an error if serialization fails.
 pub fn hash_commit(commit: &CommitObject) -> Result<ObjectId, VcsError> {
     let bytes = rmp_serde::to_vec(commit)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
+/// Hash an annotated tag object.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_tag(tag: &TagObject) -> Result<ObjectId, VcsError> {
+    let bytes = rmp_serde::to_vec(tag)?;
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 

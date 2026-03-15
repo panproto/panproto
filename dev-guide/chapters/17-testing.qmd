@@ -10,6 +10,8 @@ panproto uses a layered testing strategy: fast unit tests for individual functio
 | Integration tests | `cargo nextest` | Cross-crate workflows | `cargo nextest run -p panproto-integration` |
 | Property tests | `proptest` | Algebraic invariants | `cargo test -p panproto-mig` (included in unit tests) |
 | TypeScript tests | `pnpm test` | SDK + WASM round-trips | `cd sdk/typescript && pnpm test` |
+| VCS workflow tests | `cargo nextest` | Cross-module VCS workflows | `cargo nextest run -p panproto-vcs --test workflows` |
+| CLI binary tests | `assert_cmd` | CLI argument parsing + output | `cargo nextest run -p panproto-cli --test cli_workflows` |
 | Benchmarks | `divan` | Performance regression | `cargo bench -p panproto-schema` |
 
 ::: {.callout-tip}
@@ -186,6 +188,46 @@ The `bench.yml` workflow runs on every PR against `main`. It:
 ::: {.callout-important}
 Benchmark results are inherently noisy on shared CI runners. A 120% threshold means the regression must be at least 20% worse than baseline to trigger an alert. If you see a spurious alert, re-run the workflow -- true regressions will be consistent.
 :::
+
+## VCS Workflow Tests
+
+The `panproto-vcs` crate has approximately 63 tests organized into 20 groups, covering the full repository lifecycle. Each group targets a specific area:
+
+- **Repo lifecycle**: init, add, commit, status, log, show
+- **Branching**: create, delete, force-delete, rename, list, verbose list
+- **Merging**: fast-forward, three-way, conflict detection, `--no-commit`, `--ff-only`, `--no-ff`, `--squash`, `--abort`
+- **Cherry-pick**: basic apply, `-n` (no-commit), `-x` (record origin), conflict handling
+- **Rebase**: linear replay, conflict stop, empty rebase
+- **Stash**: push, pop, apply, show, list, drop, clear
+- **Reset**: soft, mixed, hard modes
+- **Blame**: vertex, edge, constraint attribution
+- **Bisect**: convergence, single-step, boundary cases
+- **GC**: reachability marking, unreachable deletion, `--dry-run`
+- **Reflog**: entry creation, `--all` across refs
+- **Tags**: lightweight, annotated, force overwrite, delete
+- **Compound workflows**: branch-merge-rebase sequences, stash-across-checkout, amend after merge
+
+Run the full VCS workflow suite:
+
+```bash
+cargo nextest run -p panproto-vcs --test workflows
+```
+
+## CLI Binary Tests
+
+The `panproto-cli` crate includes approximately 40 `assert_cmd`-based tests that exercise the `schema` binary end-to-end. These tests verify:
+
+- **Argument parsing**: correct flags are accepted, unknown flags produce errors
+- **Output formatting**: `--oneline`, `--graph`, `--stat`, `--porcelain`, `--format` produce expected output
+- **Exit codes**: success (0) for clean operations, non-zero for errors and conflicts
+- **Error messages**: user-facing diagnostics include actionable context (e.g., "remote operations are not yet supported")
+- **Remote stubs**: all five remote commands (`remote`, `push`, `pull`, `fetch`, `clone`) exit with an error
+
+Run the CLI test suite:
+
+```bash
+cargo nextest run -p panproto-cli --test cli_workflows
+```
 
 ## Writing Tests for a New Feature
 

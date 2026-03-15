@@ -20,6 +20,22 @@ use std::collections::HashMap;
 
 use crate::auto_mig;
 
+/// Options controlling merge behavior.
+#[derive(Clone, Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct MergeOptions {
+    /// Merge but don't auto-commit; leave result staged.
+    pub no_commit: bool,
+    /// Fail if the merge cannot be resolved as a fast-forward.
+    pub ff_only: bool,
+    /// Create a merge commit even for fast-forward merges.
+    pub no_ff: bool,
+    /// Squash all commits into a single change (no merge commit).
+    pub squash: bool,
+    /// Custom merge commit message.
+    pub message: Option<String>,
+}
+
 /// The result of a three-way merge.
 #[derive(Clone, Debug)]
 pub struct MergeResult {

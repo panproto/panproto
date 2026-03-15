@@ -19,5 +19,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+serde_json = { workspace = true }
+panproto-core = { workspace = true }
+
 [lints]
 workspace = true

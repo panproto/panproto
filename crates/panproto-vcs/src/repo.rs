@@ -168,16 +168,29 @@ impl Repository {
         Ok(commit_id)
     }
 
-    /// Merge a branch into the current branch.
-    ///
-    /// Performs a three-way merge using the merge base as the common
-    /// ancestor. If the merge is clean, auto-commits. If there are
-    /// conflicts, returns them.
+    /// Merge a branch into the current branch with default options.
     ///
     /// # Errors
     ///
     /// Returns an error if HEAD or the branch cannot be resolved.
     pub fn merge(&mut self, branch: &str, author: &str) -> Result<merge::MergeResult, VcsError> {
+        self.merge_with_options(branch, author, &merge::MergeOptions::default())
+    }
+
+    /// Merge a branch into the current branch with options.
+    ///
+    /// Performs a three-way merge using the merge base as the common
+    /// ancestor. Behavior is controlled by [`merge::MergeOptions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if HEAD or the branch cannot be resolved.
+    pub fn merge_with_options(
+        &mut self,
+        branch: &str,
+        author: &str,
+        options: &merge::MergeOptions,
+    ) -> Result<merge::MergeResult, VcsError> {
         let ours_id = store::resolve_head(&self.store)?.ok_or_else(|| VcsError::RefNotFound {
             name: "HEAD".to_owned(),
         })?;
@@ -185,22 +198,29 @@ impl Repository {
 
         // Fast-forward check.
         if dag::is_ancestor(&self.store, ours_id, theirs_id)? {
-            // Theirs is ahead of ours — fast-forward.
-            advance_head(
-                &mut self.store,
-                ours_id,
-                theirs_id,
-                author,
-                &format!("merge {branch}: fast-forward"),
-            )?;
-            let theirs_commit = self.load_commit(theirs_id)?;
-            let theirs_schema = self.load_schema(theirs_commit.schema_id)?;
-            return Ok(merge::MergeResult {
-                merged_schema: theirs_schema,
-                conflicts: Vec::new(),
-                migration_from_ours: panproto_mig::Migration::empty(),
-                migration_from_theirs: panproto_mig::Migration::empty(),
-            });
+            if options.no_ff {
+                // Force a merge commit even though we could fast-forward.
+                // Fall through to three-way merge logic below.
+            } else {
+                // Theirs is ahead of ours — fast-forward.
+                advance_head(
+                    &mut self.store,
+                    ours_id,
+                    theirs_id,
+                    author,
+                    &format!("merge {branch}: fast-forward"),
+                )?;
+                let theirs_commit = self.load_commit(theirs_id)?;
+                let theirs_schema = self.load_schema(theirs_commit.schema_id)?;
+                return Ok(merge::MergeResult {
+                    merged_schema: theirs_schema,
+                    conflicts: Vec::new(),
+                    migration_from_ours: panproto_mig::Migration::empty(),
+                    migration_from_theirs: panproto_mig::Migration::empty(),
+                });
+            }
+        } else if options.ff_only {
+            return Err(VcsError::FastForwardOnly);
         }
 
         // Find merge base.
@@ -217,7 +237,7 @@ impl Repository {
 
         let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
 
-        if result.conflicts.is_empty() {
+        if result.conflicts.is_empty() && !options.no_commit && !options.squash {
             // Auto-commit the merge.
             let merged_schema_id = self
                 .store
@@ -233,6 +253,11 @@ impl Repository {
                 .unwrap_or_default()
                 .as_secs();
 
+            let msg = options
+                .message
+                .clone()
+                .unwrap_or_else(|| format!("merge branch '{branch}'"));
+
             let merge_commit = CommitObject {
                 schema_id: merged_schema_id,
                 parents: vec![ours_id, theirs_id],
@@ -240,7 +265,7 @@ impl Repository {
                 protocol: ours_commit.protocol,
                 author: author.to_owned(),
                 timestamp,
-                message: format!("merge branch '{branch}'"),
+                message: msg,
             };
             let merge_id = self.store.put(&Object::Commit(merge_commit))?;
             advance_head(
@@ -253,6 +278,58 @@ impl Repository {
         }
 
         Ok(result)
+    }
+
+    /// Amend the most recent commit.
+    ///
+    /// Replaces HEAD commit with a new commit that has the same parents
+    /// but the currently staged schema (or the same schema if nothing
+    /// is staged) and the given message.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VcsError::NothingToAmend`] if there are no commits.
+    pub fn amend(&mut self, message: &str, author: &str) -> Result<ObjectId, VcsError> {
+        let head_id = store::resolve_head(&self.store)?.ok_or(VcsError::NothingToAmend)?;
+        let old_commit = self.load_commit(head_id)?;
+
+        // Use staged schema if available, otherwise keep the old one.
+        let index = self.read_index()?;
+        let (schema_id, migration_id) = if let Some(staged) = index.staged {
+            (staged.schema_id, staged.migration_id)
+        } else {
+            (old_commit.schema_id, old_commit.migration_id)
+        };
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let new_commit = CommitObject {
+            schema_id,
+            parents: old_commit.parents,
+            migration_id,
+            protocol: old_commit.protocol,
+            author: author.to_owned(),
+            timestamp,
+            message: message.to_owned(),
+        };
+        let new_id = self.store.put(&Object::Commit(new_commit))?;
+
+        // Replace HEAD.
+        advance_head(
+            &mut self.store,
+            head_id,
+            new_id,
+            author,
+            &format!("commit (amend): {message}"),
+        )?;
+
+        // Clear index.
+        self.write_index(&Index::default())?;
+
+        Ok(new_id)
     }
 
     /// Walk the commit log from HEAD.

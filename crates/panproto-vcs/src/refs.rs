@@ -3,9 +3,12 @@
 //! Convenience functions for creating, deleting, and listing named
 //! references on top of the [`Store`] trait.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use crate::error::VcsError;
 use crate::hash::ObjectId;
-use crate::store::{HeadState, Store};
+use crate::object::{Object, TagObject};
+use crate::store::{HeadState, ReflogEntry, Store};
 
 /// Create a new branch pointing at the given commit.
 ///
@@ -26,14 +29,98 @@ pub fn create_branch(
     store.set_ref(&ref_name, commit_id)
 }
 
-/// Delete a branch.
+/// Delete a branch, checking that it is fully merged into HEAD.
 ///
 /// # Errors
 ///
 /// Returns [`VcsError::RefNotFound`] if the branch does not exist.
+/// Returns [`VcsError::BranchNotMerged`] if the branch is not an
+/// ancestor of the current HEAD.
 pub fn delete_branch(store: &mut dyn Store, name: &str) -> Result<(), VcsError> {
     let ref_name = format!("refs/heads/{name}");
+    let branch_id = store
+        .get_ref(&ref_name)?
+        .ok_or_else(|| VcsError::RefNotFound {
+            name: name.to_owned(),
+        })?;
+
+    // Check if branch is merged into HEAD.
+    if let Ok(Some(head_id)) = crate::store::resolve_head(store) {
+        if head_id != branch_id
+            && !crate::dag::is_ancestor(store, branch_id, head_id).unwrap_or(false)
+        {
+            return Err(VcsError::BranchNotMerged {
+                name: name.to_owned(),
+            });
+        }
+    }
+
     store.delete_ref(&ref_name)
+}
+
+/// Force-delete a branch without checking merge status.
+///
+/// # Errors
+///
+/// Returns [`VcsError::RefNotFound`] if the branch does not exist.
+pub fn force_delete_branch(store: &mut dyn Store, name: &str) -> Result<(), VcsError> {
+    let ref_name = format!("refs/heads/{name}");
+    store.delete_ref(&ref_name)
+}
+
+/// Rename a branch.
+///
+/// # Errors
+///
+/// Returns [`VcsError::RefNotFound`] if the old branch does not exist.
+/// Returns [`VcsError::BranchExists`] if the new name already exists.
+pub fn rename_branch(
+    store: &mut dyn Store,
+    old_name: &str,
+    new_name: &str,
+) -> Result<(), VcsError> {
+    let old_ref = format!("refs/heads/{old_name}");
+    let new_ref = format!("refs/heads/{new_name}");
+
+    let id = store
+        .get_ref(&old_ref)?
+        .ok_or_else(|| VcsError::RefNotFound {
+            name: old_name.to_owned(),
+        })?;
+
+    if store.get_ref(&new_ref)?.is_some() {
+        return Err(VcsError::BranchExists {
+            name: new_name.to_owned(),
+        });
+    }
+
+    store.set_ref(&new_ref, id)?;
+    store.delete_ref(&old_ref)?;
+
+    // Copy reflog entries from old to new.
+    if let Ok(entries) = store.read_reflog(&old_ref, None) {
+        for entry in &entries {
+            store.append_reflog(
+                &new_ref,
+                ReflogEntry {
+                    old_id: entry.old_id,
+                    new_id: entry.new_id,
+                    author: entry.author.clone(),
+                    timestamp: entry.timestamp,
+                    message: format!("renamed from {old_name}: {}", entry.message),
+                },
+            )?;
+        }
+    }
+
+    // If HEAD points at the old branch, update it.
+    if let Ok(HeadState::Branch(current)) = store.get_head() {
+        if current == old_name {
+            store.set_head(HeadState::Branch(new_name.to_owned()))?;
+        }
+    }
+
+    Ok(())
 }
 
 /// List all branches and their commit IDs.
@@ -55,20 +142,71 @@ pub fn list_branches(store: &dyn Store) -> Result<Vec<(String, ObjectId)>, VcsEr
         .collect())
 }
 
-/// Create a tag pointing at the given commit.
+/// Create a lightweight tag pointing at the given commit.
 ///
 /// # Errors
 ///
-/// Returns [`VcsError::BranchExists`] if the tag already exists (reuses
-/// the same error variant for simplicity).
+/// Returns [`VcsError::TagExists`] if the tag already exists.
 pub fn create_tag(store: &mut dyn Store, name: &str, commit_id: ObjectId) -> Result<(), VcsError> {
     let ref_name = format!("refs/tags/{name}");
     if store.get_ref(&ref_name)?.is_some() {
-        return Err(VcsError::BranchExists {
+        return Err(VcsError::TagExists {
             name: name.to_owned(),
         });
     }
     store.set_ref(&ref_name, commit_id)
+}
+
+/// Create a lightweight tag, overwriting if it already exists.
+///
+/// # Errors
+///
+/// Returns an error on I/O failure.
+pub fn create_tag_force(
+    store: &mut dyn Store,
+    name: &str,
+    commit_id: ObjectId,
+) -> Result<(), VcsError> {
+    let ref_name = format!("refs/tags/{name}");
+    store.set_ref(&ref_name, commit_id)
+}
+
+/// Create an annotated tag with a message.
+///
+/// Stores a [`TagObject`] in the object store and points the tag ref at it.
+///
+/// # Errors
+///
+/// Returns [`VcsError::TagExists`] if the tag already exists.
+pub fn create_annotated_tag(
+    store: &mut dyn Store,
+    name: &str,
+    target: ObjectId,
+    tagger: &str,
+    message: &str,
+) -> Result<ObjectId, VcsError> {
+    let ref_name = format!("refs/tags/{name}");
+    if store.get_ref(&ref_name)?.is_some() {
+        return Err(VcsError::TagExists {
+            name: name.to_owned(),
+        });
+    }
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let tag_obj = Object::Tag(TagObject {
+        target,
+        tagger: tagger.to_owned(),
+        timestamp,
+        message: message.to_owned(),
+    });
+
+    let tag_id = store.put(&tag_obj)?;
+    store.set_ref(&ref_name, tag_id)?;
+    Ok(tag_id)
 }
 
 /// Delete a tag.
@@ -124,6 +262,23 @@ pub fn checkout_detached(store: &mut dyn Store, commit_id: ObjectId) -> Result<(
     store.set_head(HeadState::Detached(commit_id))
 }
 
+/// Create a new branch at the given commit and switch to it.
+///
+/// Combines [`create_branch`] and [`checkout_branch`] in a single call,
+/// analogous to `git checkout -b`.
+///
+/// # Errors
+///
+/// Returns [`VcsError::BranchExists`] if the branch already exists.
+pub fn create_and_checkout_branch(
+    store: &mut dyn Store,
+    name: &str,
+    commit_id: ObjectId,
+) -> Result<(), VcsError> {
+    create_branch(store, name, commit_id)?;
+    store.set_head(HeadState::Branch(name.to_owned()))
+}
+
 /// Resolve a ref-like string to an `ObjectId`.
 ///
 /// Tries, in order:
@@ -155,15 +310,28 @@ pub fn resolve_ref(store: &dyn Store, target: &str) -> Result<ObjectId, VcsError
         return Ok(id);
     }
 
-    // Try as a tag.
+    // Try as a tag — peel annotated tags to find the underlying commit.
     let tag_ref = format!("refs/tags/{target}");
     if let Some(id) = store.get_ref(&tag_ref)? {
-        return Ok(id);
+        return Ok(peel_tag(store, id));
     }
 
     Err(VcsError::RefNotFound {
         name: target.to_owned(),
     })
+}
+
+/// Peel an object ID through annotated tag objects to find the
+/// underlying commit or other non-tag object.
+fn peel_tag(store: &dyn Store, mut id: ObjectId) -> ObjectId {
+    // Follow up to 10 tag indirections to prevent infinite loops.
+    for _ in 0..10 {
+        match store.get(&id) {
+            Ok(Object::Tag(tag)) => id = tag.target,
+            _ => return id,
+        }
+    }
+    id
 }
 
 #[cfg(test)]

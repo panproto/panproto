@@ -1,9 +1,10 @@
 //! Content-addressed objects stored in the VCS.
 //!
-//! The object store contains three kinds of objects:
+//! The object store contains four kinds of objects:
 //! - [`Object::Schema`] — a schema snapshot
 //! - [`Object::Migration`] — a morphism between two schemas
 //! - [`Object::Commit`] — a point in the schema evolution DAG
+//! - [`Object::Tag`] — an annotated tag pointing to another object
 
 use panproto_mig::Migration;
 use panproto_schema::Schema;
@@ -29,6 +30,9 @@ pub enum Object {
 
     /// A commit in the schema evolution DAG.
     Commit(CommitObject),
+
+    /// An annotated tag pointing to another object.
+    Tag(TagObject),
 }
 
 impl Object {
@@ -39,6 +43,7 @@ impl Object {
             Self::Schema(_) => "schema",
             Self::Migration { .. } => "migration",
             Self::Commit(_) => "commit",
+            Self::Tag(_) => "tag",
         }
     }
 }
@@ -69,5 +74,25 @@ pub struct CommitObject {
     pub timestamp: u64,
 
     /// Human-readable commit message.
+    pub message: String,
+}
+
+/// An annotated tag object.
+///
+/// Unlike lightweight tags (which are just refs pointing directly at a
+/// commit), annotated tags are stored as objects in the store and carry
+/// metadata: tagger, timestamp, and message.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TagObject {
+    /// Object ID of the tagged object (usually a commit).
+    pub target: ObjectId,
+
+    /// Who created the tag.
+    pub tagger: String,
+
+    /// Unix timestamp in seconds.
+    pub timestamp: u64,
+
+    /// Tag message.
     pub message: String,
 }

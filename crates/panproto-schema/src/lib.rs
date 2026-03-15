@@ -19,6 +19,7 @@ mod error;
 mod normalize;
 mod protocol;
 mod schema;
+pub mod serde_helpers;
 mod validate;
 
 pub use builder::SchemaBuilder;

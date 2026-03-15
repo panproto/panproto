@@ -20,16 +20,20 @@ pub struct Migration {
     /// Maps source vertex IDs to target vertex IDs.
     pub vertex_map: HashMap<String, String>,
     /// Maps source edges to target edges.
+    #[serde(with = "panproto_schema::serde_helpers::map_as_vec")]
     pub edge_map: HashMap<Edge, Edge>,
     /// Maps source hyper-edge IDs to target hyper-edge IDs.
     pub hyper_edge_map: HashMap<String, String>,
     /// Maps (hyper-edge ID, label) pairs to new labels.
+    #[serde(with = "panproto_schema::serde_helpers::map_as_vec")]
     pub label_map: HashMap<(String, String), String>,
     /// Binary contraction resolver: `(src_vertex, tgt_vertex)` -> resolved edge.
+    #[serde(with = "panproto_schema::serde_helpers::map_as_vec")]
     pub resolver: HashMap<(String, String), Edge>,
     /// Hyper-edge contraction resolver: maps `(hyper_edge_id, labels)` to
     /// `(target_hyper_edge_id, label_remap)`.
     #[allow(clippy::type_complexity)]
+    #[serde(with = "panproto_schema::serde_helpers::map_as_vec")]
     pub hyper_resolver: HashMap<(String, Vec<String>), (String, HashMap<String, String>)>,
 }
 

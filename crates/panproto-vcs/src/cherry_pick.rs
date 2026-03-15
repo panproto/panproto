@@ -8,6 +8,15 @@ use crate::merge;
 use crate::object::{CommitObject, Object};
 use crate::store::{self, ReflogEntry, Store};
 
+/// Options for cherry-pick operations.
+#[derive(Clone, Debug, Default)]
+pub struct CherryPickOptions {
+    /// Apply the changes but don't create a commit.
+    pub no_commit: bool,
+    /// Append "(cherry picked from commit ...)" to the message.
+    pub record_origin: bool,
+}
+
 /// Apply a single commit's schema changes to the current HEAD.
 ///
 /// Extracts the migration represented by `commit_id` (the diff between
@@ -136,6 +145,130 @@ pub fn cherry_pick(
     let new_commit_id = store.put(&Object::Commit(new_commit))?;
 
     // Advance HEAD.
+    advance_head(store, head_id, new_commit_id, author, "cherry-pick")?;
+
+    Ok(new_commit_id)
+}
+
+/// Apply a single commit's schema changes with options.
+///
+/// See [`cherry_pick`] for the algorithm. Additional options control
+/// whether to auto-commit and whether to record the source commit.
+///
+/// # Errors
+///
+/// Returns an error if the merge has conflicts.
+pub fn cherry_pick_with_options(
+    store: &mut dyn Store,
+    commit_id: ObjectId,
+    author: &str,
+    options: &CherryPickOptions,
+) -> Result<ObjectId, VcsError> {
+    // Load the commit being cherry-picked.
+    let commit = match store.get(&commit_id)? {
+        Object::Commit(c) => c,
+        other => {
+            return Err(VcsError::WrongObjectType {
+                expected: "commit",
+                found: other.type_name(),
+            });
+        }
+    };
+
+    let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
+    let parent_commit = match store.get(parent_id)? {
+        Object::Commit(c) => c,
+        other => {
+            return Err(VcsError::WrongObjectType {
+                expected: "commit",
+                found: other.type_name(),
+            });
+        }
+    };
+
+    let base_schema = match store.get(&parent_commit.schema_id)? {
+        Object::Schema(s) => *s,
+        other => {
+            return Err(VcsError::WrongObjectType {
+                expected: "schema",
+                found: other.type_name(),
+            });
+        }
+    };
+
+    let theirs_schema = match store.get(&commit.schema_id)? {
+        Object::Schema(s) => *s,
+        other => {
+            return Err(VcsError::WrongObjectType {
+                expected: "schema",
+                found: other.type_name(),
+            });
+        }
+    };
+
+    let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
+        name: "HEAD".to_owned(),
+    })?;
+    let head_commit = match store.get(&head_id)? {
+        Object::Commit(c) => c,
+        other => {
+            return Err(VcsError::WrongObjectType {
+                expected: "commit",
+                found: other.type_name(),
+            });
+        }
+    };
+    let ours_schema = match store.get(&head_commit.schema_id)? {
+        Object::Schema(s) => *s,
+        other => {
+            return Err(VcsError::WrongObjectType {
+                expected: "schema",
+                found: other.type_name(),
+            });
+        }
+    };
+
+    let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
+    if !result.conflicts.is_empty() {
+        return Err(VcsError::MergeConflicts {
+            count: result.conflicts.len(),
+        });
+    }
+
+    let merged_schema_id = store.put(&Object::Schema(Box::new(result.merged_schema)))?;
+
+    if options.no_commit {
+        return Ok(merged_schema_id);
+    }
+
+    let migration_id = store.put(&Object::Migration {
+        src: head_commit.schema_id,
+        tgt: merged_schema_id,
+        mapping: result.migration_from_ours,
+    })?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let mut message = format!("cherry-pick: {}", commit.message);
+    if options.record_origin {
+        use std::fmt::Write as _;
+        let _ = write!(message, "\n\n(cherry picked from commit {commit_id})");
+    }
+
+    let new_commit = CommitObject {
+        schema_id: merged_schema_id,
+        parents: vec![head_id],
+        migration_id: Some(migration_id),
+        protocol: commit.protocol.clone(),
+        author: author.to_owned(),
+        timestamp,
+        message,
+    };
+    let new_commit_id = store.put(&Object::Commit(new_commit))?;
+
     advance_head(store, head_id, new_commit_id, author, "cherry-pick")?;
 
     Ok(new_commit_id)

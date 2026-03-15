@@ -4,6 +4,23 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **panproto-schema**: Fix JSON serialization of `HashMap<Edge, _>` and `HashMap<(String, String), _>` fields — `edges`, `orderings`, `usage_modes`, and `between` now serialize as `Vec<(K, V)>` arrays via `serde_helpers::map_as_vec`, enabling JSON round-trip for schemas with edges (previously broken: `serde_json` cannot use struct keys as JSON object keys)
+- **panproto-mig**: Fix JSON serialization of `Migration` fields `edge_map`, `label_map`, `resolver`, and `hyper_resolver` using the same `map_as_vec` approach — `schema lift` now works with real schemas that have edges
+
+### Added
+
+- **panproto-vcs**: New library functions — `Repository::amend()`, `Repository::merge_with_options()`, `refs::force_delete_branch()`, `refs::rename_branch()`, `refs::create_and_checkout_branch()`, `refs::create_annotated_tag()`, `refs::create_tag_force()`, `stash::stash_apply()`, `stash::stash_show()`, `stash::stash_clear()`, `gc::gc_with_options()`, `cherry_pick::cherry_pick_with_options()`
+- **panproto-vcs**: `Object::Tag(TagObject)` variant for annotated tags; `MergeOptions` struct (no_commit, ff_only, no_ff, squash, message); `CherryPickOptions` (no_commit, record_origin); `GcOptions` (dry_run)
+- **panproto-vcs**: New error variants — `BranchNotMerged`, `OperationInProgress`, `NotImplemented`, `FastForwardOnly`, `NothingToAmend`, `TagExists`; `delete_branch` now checks merge status; `resolve_ref` peels annotated tags
+- **panproto-cli**: Git-parity CLI flags across all subcommands — `init -b`, `add --dry-run/--force`, `commit --amend/--allow-empty`, `status -s/--porcelain`, `log --oneline/--graph/--all/--format/--author/--grep`, `diff --stat/--name-only/--name-status/--staged`, `show --format/--stat`, `branch -D/-m/-v`, `tag -a/-m/-f`, `checkout -b/--detach`, `merge --no-commit/--ff-only/--no-ff/--squash/--abort/-m`, `rebase --abort/--continue`, `cherry-pick -n/-x/--abort`, `reset --soft/--hard` (replaces `--mode`), `stash apply/show/clear`, `reflog --all`, `blame --reverse`, `gc --dry-run/--prune`
+- **panproto-cli**: Remote command stubs (`remote`, `push`, `pull`, `fetch`, `clone`) reserved for future distributed operations
+- **panproto-cli**: Output formatting module (`format.rs`) — `format_commit`, `format_commit_oneline`, `format_diff_stat`, `format_diff_name_only`, `format_diff_name_status`
+- **panproto-schema**: `serde_helpers` module with `map_as_vec` and `map_as_vec_default` for JSON-compatible serialization of complex map keys
+- 93 VCS workflow integration tests covering all VCS operations including merge conflicts, DAG composition, and structural lift
+- 69 CLI binary integration tests (assert_cmd) covering all commands, flags, schema tools (`validate`, `check`, `lift`), and remote stubs
+
 ### Performance
 
 - **panproto-gat**: O(1) theory lookups via precomputed `FxHashMap` index cache (`find_sort`, `find_op`, `find_eq`); eliminates linear scans in `colimit()`, `check_morphism()`, `resolve_theory()`

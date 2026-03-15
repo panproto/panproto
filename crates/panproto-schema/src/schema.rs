@@ -147,6 +147,7 @@ pub struct Schema {
     /// Vertices keyed by their ID.
     pub vertices: HashMap<String, Vertex>,
     /// Edges keyed by the edge itself, value is the edge kind.
+    #[serde(with = "crate::serde_helpers::map_as_vec")]
     pub edges: HashMap<Edge, String>,
     /// Hyper-edges keyed by their ID.
     pub hyper_edges: HashMap<String, HyperEdge>,
@@ -161,7 +162,7 @@ pub struct Schema {
     #[serde(default)]
     pub variants: HashMap<String, Vec<Variant>>,
     /// Edge ordering positions (edge → position index).
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::map_as_vec_default")]
     pub orderings: HashMap<Edge, u32>,
     /// Recursion points (fixpoint markers).
     #[serde(default)]
@@ -170,7 +171,7 @@ pub struct Schema {
     #[serde(default)]
     pub spans: HashMap<String, Span>,
     /// Edge usage modes (default: `Structural` for all).
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::map_as_vec_default")]
     pub usage_modes: HashMap<Edge, UsageMode>,
     /// Whether each vertex uses nominal identity (`true`) or
     /// structural identity (`false`). Absent = structural.
@@ -183,6 +184,7 @@ pub struct Schema {
     /// Incoming edges per vertex ID.
     pub incoming: HashMap<String, SmallVec<Edge, 4>>,
     /// Edges between a specific `(src, tgt)` pair.
+    #[serde(with = "crate::serde_helpers::map_as_vec")]
     pub between: HashMap<(String, String), SmallVec<Edge, 2>>,
 }
 

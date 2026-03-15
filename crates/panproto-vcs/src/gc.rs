@@ -10,6 +10,13 @@ use crate::hash::ObjectId;
 use crate::object::Object;
 use crate::store::Store;
 
+/// Options controlling garbage collection behavior.
+#[derive(Clone, Debug, Default)]
+pub struct GcOptions {
+    /// If true, only report what would be deleted without deleting.
+    pub dry_run: bool,
+}
+
 /// Report from a garbage collection run.
 #[derive(Clone, Debug, Default)]
 pub struct GcReport {
@@ -57,6 +64,9 @@ pub fn mark_reachable(
                 queue.push(tgt);
             }
             Object::Schema(_) => {}
+            Object::Tag(tag) => {
+                queue.push(tag.target);
+            }
         }
     }
 
@@ -113,6 +123,29 @@ pub fn gc(store: &mut dyn Store) -> Result<GcReport, VcsError> {
         reachable: reachable.len(),
         deleted,
     })
+}
+
+/// Run garbage collection with options.
+///
+/// # Errors
+///
+/// Returns an error on I/O failure.
+pub fn gc_with_options(store: &mut dyn Store, options: &GcOptions) -> Result<GcReport, VcsError> {
+    if options.dry_run {
+        let roots = collect_roots(store)?;
+        let reachable = mark_reachable(store, &roots)?;
+        let all_objects = store.list_objects()?;
+        let deleted: Vec<ObjectId> = all_objects
+            .into_iter()
+            .filter(|id| !reachable.contains(id))
+            .collect();
+        Ok(GcReport {
+            reachable: reachable.len(),
+            deleted,
+        })
+    } else {
+        gc(store)
+    }
 }
 
 /// Compute reachability without deleting anything.

@@ -58,6 +58,12 @@ schema init
 schema init my-project
 ```
 
+Choose a different initial branch name:
+
+```bash
+schema init -b develop
+```
+
 ### `schema add`
 
 Stages a schema for the next commit. Loads the schema JSON, computes a structural diff against the current HEAD's schema, auto-derives a migration (the graph morphism mapping surviving vertices and edges), and validates the migration via the existence checker.
@@ -67,6 +73,18 @@ In git, `add` stages file contents for commit. Here it stages a *schema graph* a
 ```bash
 schema add schema.json
 schema add schema.json --migration explicit-migration.json
+```
+
+Preview what would be staged without writing to the index:
+
+```bash
+schema add --dry-run schema.json
+```
+
+Force staging even if validation fails:
+
+```bash
+schema add --force schema.json
 ```
 
 ### `schema commit`
@@ -79,9 +97,27 @@ In git, a commit snapshots the entire working tree. Here a commit snapshots a si
 schema commit -m "add verification status field"
 ```
 
+Replace the most recent commit (reuses the staged schema with a new message):
+
+```bash
+schema commit --amend -m "add verification status field (v2)"
+```
+
 ### `schema status`
 
 Shows the current HEAD (branch name or detached commit ID) and whether anything is staged.
+
+Short format (one line per item):
+
+```bash
+schema status -s
+```
+
+Machine-readable output for scripts:
+
+```bash
+schema status --porcelain
+```
 
 ### `schema log`
 
@@ -94,6 +130,37 @@ schema log
 schema log -n 5
 ```
 
+Compact one-line format:
+
+```bash
+schema log --oneline
+```
+
+Visualize branch topology:
+
+```bash
+schema log --graph
+```
+
+Show all branches, not just the current one:
+
+```bash
+schema log --all
+```
+
+Custom format string (`%H` full hash, `%h` short hash, `%s` subject, `%an` author, `%ad` date):
+
+```bash
+schema log --format "%h %s"
+```
+
+Filter by author or commit message:
+
+```bash
+schema log --author alice
+schema log --grep "fix"
+```
+
 ### `schema diff`
 
 Computes a structural diff between two schema files. Reports added and removed vertices and edges, kind changes, constraint changes, variant changes, ordering changes, and usage mode changes.
@@ -102,6 +169,24 @@ Git's diff operates on lines of text. This diff operates on the schema graph: it
 
 ```bash
 schema diff old-schema.json new-schema.json
+```
+
+Summary statistics (additions, removals, modifications per field):
+
+```bash
+schema diff --stat old-schema.json new-schema.json
+```
+
+List only the names of changed elements:
+
+```bash
+schema diff --name-only old-schema.json new-schema.json
+```
+
+Diff the staged schema against HEAD:
+
+```bash
+schema diff --staged
 ```
 
 ### `schema show`
@@ -115,6 +200,18 @@ schema show main
 schema show v1.0
 ```
 
+Show change summary statistics:
+
+```bash
+schema show --stat main
+```
+
+Custom format string:
+
+```bash
+schema show --format "%h %s" main
+```
+
 ### `schema branch`
 
 Creates, lists, or deletes branches. Branches are lightweight pointers to commit IDs, exactly as in git. With no arguments, lists all branches and marks the current one.
@@ -123,6 +220,24 @@ Creates, lists, or deletes branches. Branches are lightweight pointers to commit
 schema branch
 schema branch feature
 schema branch -d feature
+```
+
+Force-delete a branch even if it is not fully merged:
+
+```bash
+schema branch -D feature
+```
+
+Rename a branch:
+
+```bash
+schema branch -m old-name new-name
+```
+
+List branches with their commit IDs:
+
+```bash
+schema branch -v
 ```
 
 ### `schema tag`
@@ -134,12 +249,36 @@ schema tag v1.0
 schema tag -d v1.0
 ```
 
+Create an annotated tag with a message:
+
+```bash
+schema tag -a v1.0 -m "release"
+```
+
+Overwrite an existing tag:
+
+```bash
+schema tag -f v1.0
+```
+
 ### `schema checkout`
 
 Switches HEAD to the named branch, or detaches HEAD at a specific commit. In git, checkout also updates the working tree; here it updates which schema version HEAD points to.
 
 ```bash
 schema checkout feature
+```
+
+Create a new branch and switch to it in one step:
+
+```bash
+schema checkout -b feature
+```
+
+Detach HEAD at a specific ref without switching branches:
+
+```bash
+schema checkout --detach main
 ```
 
 ### `schema merge`
@@ -152,6 +291,42 @@ Fast-forward merges work as in git: if one side is an ancestor of the other, the
 
 ```bash
 schema merge feature
+```
+
+Merge without auto-committing (leaves the result staged):
+
+```bash
+schema merge --no-commit feature
+```
+
+Only allow fast-forward merges:
+
+```bash
+schema merge --ff-only feature
+```
+
+Force a merge commit even when fast-forward is possible:
+
+```bash
+schema merge --no-ff feature
+```
+
+Squash all changes into a single commit:
+
+```bash
+schema merge --squash feature
+```
+
+Abort a conflicted merge:
+
+```bash
+schema merge --abort
+```
+
+Provide a custom merge commit message:
+
+```bash
+schema merge -m "merge feature into main" feature
 ```
 
 ### `schema rebase`
@@ -172,6 +347,18 @@ Same idea as git cherry-pick, but the "diff" being applied is a schema graph mor
 
 ```bash
 schema cherry-pick abc1234...
+```
+
+Apply without committing (leaves the result staged):
+
+```bash
+schema cherry-pick -n abc1234...
+```
+
+Record the source commit ID in the new commit message:
+
+```bash
+schema cherry-pick -x abc1234...
 ```
 
 ### `schema reset`
@@ -201,6 +388,24 @@ schema stash pop
 schema stash list
 ```
 
+Re-apply a stash without removing it from the stack:
+
+```bash
+schema stash apply
+```
+
+Inspect the contents of the top stash entry:
+
+```bash
+schema stash show
+```
+
+Discard all stash entries:
+
+```bash
+schema stash clear
+```
+
 ### `schema reflog`
 
 Shows the history of mutations to a ref. Every commit, merge, checkout, reset, rebase, and cherry-pick appends an entry recording the old and new ref values. This is the recovery mechanism: if a reset or rebase moves HEAD past a commit you need, the reflog still has the old ID.
@@ -210,6 +415,12 @@ Works identically to git reflog.
 ```bash
 schema reflog
 schema reflog main
+```
+
+Show reflogs for all refs:
+
+```bash
+schema reflog --all
 ```
 
 ### `schema bisect`
@@ -252,3 +463,13 @@ Works like git gc but simpler: there are no packfiles or loose object optimizati
 ```bash
 schema gc
 ```
+
+Preview what would be deleted without removing anything:
+
+```bash
+schema gc --dry-run
+```
+
+### Remote Commands (Planned)
+
+The commands `schema remote`, `schema push`, `schema pull`, `schema fetch`, and `schema clone` are reserved for future distributed operations. Currently they return an error indicating that schema repositories are local-only.

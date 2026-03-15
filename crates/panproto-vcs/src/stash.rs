@@ -142,6 +142,55 @@ pub fn stash_list(store: &dyn Store) -> Result<Vec<StashEntry>, VcsError> {
         .collect())
 }
 
+/// Apply a stash entry without removing it.
+///
+/// Like [`stash_pop`] but preserves the stash entry in the stack.
+///
+/// # Errors
+///
+/// Returns an error if there is no stash at the given index.
+pub fn stash_apply(store: &dyn Store, index: usize) -> Result<ObjectId, VcsError> {
+    let entries = stash_list(store)?;
+    let entry = entries.get(index).ok_or_else(|| VcsError::RefNotFound {
+        name: format!("stash@{{{index}}}"),
+    })?;
+
+    let stash_commit = match store.get(&entry.commit_id)? {
+        Object::Commit(c) => c,
+        other => {
+            return Err(VcsError::WrongObjectType {
+                expected: "commit",
+                found: other.type_name(),
+            });
+        }
+    };
+
+    Ok(stash_commit.schema_id)
+}
+
+/// Show the schema from a stash entry.
+///
+/// Returns the schema ID stored in the stash commit at the given index.
+///
+/// # Errors
+///
+/// Returns an error if the stash index is out of range.
+pub fn stash_show(store: &dyn Store, index: usize) -> Result<ObjectId, VcsError> {
+    stash_apply(store, index)
+}
+
+/// Remove all stash entries.
+///
+/// # Errors
+///
+/// Returns an error on I/O failure.
+pub fn stash_clear(store: &mut dyn Store) -> Result<(), VcsError> {
+    if store.get_ref("refs/stash")?.is_some() {
+        let _ = store.delete_ref("refs/stash");
+    }
+    Ok(())
+}
+
 /// Drop a specific stash entry by index.
 ///
 /// Currently only supports dropping stash@{0} (the most recent).
