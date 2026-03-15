@@ -9,12 +9,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, final
 
 from ._errors import SchemaValidationError
-from ._msgpack import pack_schema_ops
+from ._msgpack import pack_schema_ops, unpack_from_wasm
 from ._wasm import WasmHandle, WasmModule, create_handle
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from ._check import ValidationResult
+    from ._protocol import Protocol
     from ._types import (
         Constraint,
         Edge,
@@ -407,6 +409,12 @@ class SchemaBuilder:
             "hyper_edges": dict(self._hyper_edges),
             "constraints": {k: list(v) for k, v in self._constraints.items()},
             "required": {k: list(v) for k, v in self._required.items()},
+            "variants": {},
+            "orderings": {},
+            "recursion_points": {},
+            "usage_modes": {},
+            "spans": {},
+            "nominal": {},
         }
 
         return BuiltSchema(handle, data, self._wasm)
@@ -509,6 +517,73 @@ class BuiltSchema:
         Sequence[Edge]
         """
         return self._data["edges"]
+
+    # ------------------------------------------------------------------
+    # Check / normalization
+    # ------------------------------------------------------------------
+
+    def normalize(self) -> BuiltSchema:
+        """Normalize this schema by collapsing reference chains.
+
+        Returns
+        -------
+        BuiltSchema
+            A new normalized schema sharing the same data snapshot.
+        """
+        raw_handle = self._wasm.normalize_schema(self._handle.id)
+        handle = create_handle(raw_handle, self._wasm)
+        return BuiltSchema(handle, self._data, self._wasm)
+
+    def validate(self, protocol: Protocol) -> ValidationResult:
+        """Validate this schema against a protocol's rules.
+
+        Parameters
+        ----------
+        protocol : Protocol
+            The protocol to validate against.
+
+        Returns
+        -------
+        ValidationResult
+            The validation result with any issues found.
+        """
+        from panproto._check import ValidationResult
+
+        raw = self._wasm.validate_schema(
+            self._handle.id,
+            protocol.wasm_handle.id,
+        )
+        issues = unpack_from_wasm(raw)
+        return ValidationResult(issues)  # type: ignore[arg-type]
+
+    @classmethod
+    def _from_handle(
+        cls,
+        handle: int,
+        data: SchemaData,
+        _protocol: str,
+        wasm: WasmModule,
+    ) -> BuiltSchema:
+        """Create from a raw WASM handle (used by normalize).
+
+        Parameters
+        ----------
+        handle : int
+            Raw WASM handle integer.
+        data : SchemaData
+            Schema data snapshot.
+        protocol : str
+            Protocol name (unused, already in data).
+        wasm : WasmModule
+            The WASM module.
+
+        Returns
+        -------
+        BuiltSchema
+            A new built schema wrapping the handle.
+        """
+        wasm_handle = create_handle(handle, wasm)
+        return cls(wasm_handle, data, wasm)
 
     # ------------------------------------------------------------------
     # Context manager / cleanup

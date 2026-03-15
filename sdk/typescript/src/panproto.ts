@@ -7,15 +7,18 @@
  * @module
  */
 
-import type { WasmModule, ProtocolSpec, DiffReport } from './types.js';
-import { PanprotoError } from './types.js';
-import { loadWasm, type WasmGlueModule } from './wasm.js';
+import type { WasmModule, ProtocolSpec, DiffReport, FullSchemaDiff, SchemaValidationIssue } from './types.js';
+import { PanprotoError, WasmError } from './types.js';
+import { loadWasm, type WasmGlueModule, createHandle } from './wasm.js';
+import { LensHandle } from './lens.js';
 import {
   Protocol,
   defineProtocol,
   BUILTIN_PROTOCOLS,
+  getProtocolNames,
+  getBuiltinProtocol,
 } from './protocol.js';
-import type { BuiltSchema } from './schema.js';
+import { BuiltSchema } from './schema.js';
 import {
   MigrationBuilder,
   CompiledMigration,
@@ -23,6 +26,10 @@ import {
   composeMigrations,
 } from './migration.js';
 import { unpackFromWasm } from './msgpack.js';
+import { FullDiffReport, ValidationResult } from './check.js';
+import { Instance } from './instance.js';
+import { IoRegistry } from './io.js';
+import { Repository } from './vcs.js';
 
 /**
  * The main entry point for the panproto SDK.
@@ -89,10 +96,18 @@ export class Panproto implements Disposable {
     const cached = this.#protocols.get(name);
     if (cached) return cached;
 
-    // Try built-in protocols
+    // Try hardcoded built-in protocols first (fast path)
     const builtinSpec = BUILTIN_PROTOCOLS.get(name);
     if (builtinSpec) {
       const proto = defineProtocol(builtinSpec, this.#wasm);
+      this.#protocols.set(name, proto);
+      return proto;
+    }
+
+    // Try fetching from WASM (supports all 76 protocols)
+    const wasmSpec = getBuiltinProtocol(name, this.#wasm);
+    if (wasmSpec) {
+      const proto = defineProtocol(wasmSpec, this.#wasm);
       this.#protocols.set(name, proto);
       return proto;
     }
@@ -167,6 +182,32 @@ export class Panproto implements Disposable {
   }
 
   /**
+   * Compose two lenses into a single lens.
+   *
+   * The resulting lens is equivalent to applying `l1` then `l2`.
+   *
+   * @param l1 - First lens (applied first)
+   * @param l2 - Second lens (applied second)
+   * @returns A new LensHandle representing the composition
+   * @throws {@link import('./types.js').WasmError} if composition fails
+   */
+  composeLenses(l1: LensHandle, l2: LensHandle): LensHandle {
+    try {
+      const rawHandle = this.#wasm.exports.compose_lenses(
+        l1._handle.id,
+        l2._handle.id,
+      );
+      const handle = createHandle(rawHandle, this.#wasm);
+      return new LensHandle(handle, this.#wasm);
+    } catch (error) {
+      throw new WasmError(
+        `compose_lenses failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
    * Diff two schemas and produce a compatibility report.
    *
    * @param oldSchema - The old/source schema
@@ -179,6 +220,101 @@ export class Panproto implements Disposable {
       newSchema._handle.id,
     );
     return unpackFromWasm<DiffReport>(resultBytes);
+  }
+
+  /** Diff two schemas using the full panproto-check engine (20+ change categories). */
+  diffFull(oldSchema: BuiltSchema, newSchema: BuiltSchema): FullDiffReport {
+    const bytes = this.#wasm.exports.diff_schemas_full(
+      oldSchema._handle.id,
+      newSchema._handle.id,
+    );
+    const data = unpackFromWasm<FullSchemaDiff>(bytes);
+    return new FullDiffReport(data, bytes, this.#wasm);
+  }
+
+  /** Normalize a schema by collapsing reference chains. Returns a new BuiltSchema. */
+  normalize(schema: BuiltSchema): BuiltSchema {
+    const handle = this.#wasm.exports.normalize_schema(schema._handle.id);
+    // Create a new BuiltSchema from the handle
+    return BuiltSchema._fromHandle(handle, schema.data, schema.protocol, this.#wasm);
+  }
+
+  /** Validate a schema against its protocol's rules. */
+  validateSchema(schema: BuiltSchema, protocol: Protocol): ValidationResult {
+    const bytes = this.#wasm.exports.validate_schema(
+      schema._handle.id,
+      protocol._handle.id,
+    );
+    const issues = unpackFromWasm<SchemaValidationIssue[]>(bytes);
+    return new ValidationResult(issues);
+  }
+
+  /**
+   * Create an I/O protocol registry for parsing and emitting instances.
+   *
+   * The returned registry wraps all 77 built-in protocol codecs and
+   * implements `Disposable` for automatic cleanup.
+   *
+   * @returns A new IoRegistry
+   */
+  io(): IoRegistry {
+    const rawHandle = this.#wasm.exports.register_io_protocols();
+    const handle = createHandle(rawHandle, this.#wasm);
+    return new IoRegistry(handle, this.#wasm);
+  }
+
+  /**
+   * Parse JSON bytes into an Instance.
+   *
+   * Convenience method that wraps `json_to_instance`.
+   *
+   * @param schema - The schema the JSON data conforms to
+   * @param json - JSON bytes or a JSON string
+   * @returns A new Instance
+   */
+  parseJson(schema: BuiltSchema, json: Uint8Array | string): Instance {
+    const jsonBytes = typeof json === 'string'
+      ? new TextEncoder().encode(json)
+      : json;
+    return Instance.fromJson(schema, jsonBytes, this.#wasm);
+  }
+
+  /**
+   * Convert an Instance to JSON bytes.
+   *
+   * Convenience method that wraps `instance_to_json`.
+   *
+   * @param schema - The schema the instance conforms to
+   * @param instance - The instance to convert
+   * @returns JSON bytes
+   */
+  toJson(schema: BuiltSchema, instance: Instance): Uint8Array {
+    return this.#wasm.exports.instance_to_json(
+      schema._handle.id,
+      instance._bytes,
+    );
+  }
+
+  /**
+   * List all built-in protocol names.
+   *
+   * Returns the names of all 76 built-in protocols supported by the
+   * WASM layer.
+   *
+   * @returns Array of protocol name strings
+   */
+  listProtocols(): string[] {
+    return [...getProtocolNames(this.#wasm)];
+  }
+
+  /**
+   * Initialize an in-memory VCS repository.
+   *
+   * @param protocolName - The protocol name for this repository
+   * @returns A disposable VCS Repository
+   */
+  initRepo(protocolName: string): Repository {
+    return Repository.init(protocolName, this.#wasm);
   }
 
   /**

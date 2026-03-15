@@ -23,7 +23,7 @@ from ._errors import WasmError
 
 @final
 class WasmModule:
-    """Wraps a wasmtime Instance exposing the 10 panproto WASM exports.
+    """Wraps a wasmtime Instance exposing the panproto WASM exports.
 
     Parameters
     ----------
@@ -234,6 +234,690 @@ class WasmModule:
             MessagePack-encoded DiffReport.
         """
         result = self._call("diff_schemas", s1, s2)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def diff_schemas_full(self, s1: int, s2: int) -> bytes:
+        """Full diff with 20+ change categories.
+
+        Parameters
+        ----------
+        s1 : int
+            Handle to the old schema.
+        s2 : int
+            Handle to the new schema.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded FullSchemaDiff.
+        """
+        result = self._call("diff_schemas_full", s1, s2)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def classify_diff(self, proto: int, diff_bytes: bytes) -> bytes:
+        """Classify a diff against a protocol.
+
+        Parameters
+        ----------
+        proto : int
+            Handle to the protocol.
+        diff_bytes : bytes
+            MessagePack-encoded diff data.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded CompatReportData.
+        """
+        result = self._call("classify_diff", proto, diff_bytes)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def report_text(self, report_bytes: bytes) -> str:
+        """Render compatibility report as text.
+
+        Parameters
+        ----------
+        report_bytes : bytes
+            MessagePack-encoded report data.
+
+        Returns
+        -------
+        str
+            Human-readable text rendering.
+        """
+        result = self._call("report_text", report_bytes)
+        return str(result)  # type: ignore[arg-type]
+
+    def report_json(self, report_bytes: bytes) -> str:
+        """Render compatibility report as JSON.
+
+        Parameters
+        ----------
+        report_bytes : bytes
+            MessagePack-encoded report data.
+
+        Returns
+        -------
+        str
+            JSON string rendering.
+        """
+        result = self._call("report_json", report_bytes)
+        return str(result)  # type: ignore[arg-type]
+
+    def normalize_schema(self, schema: int) -> int:
+        """Normalize a schema, returning a new handle.
+
+        Parameters
+        ----------
+        schema : int
+            Handle to the schema to normalize.
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the normalized schema.
+        """
+        result = self._call("normalize_schema", schema)
+        return int(result)  # type: ignore[arg-type]
+
+    def validate_schema(self, schema: int, proto: int) -> bytes:
+        """Validate a schema against a protocol.
+
+        Parameters
+        ----------
+        schema : int
+            Handle to the schema.
+        proto : int
+            Handle to the protocol.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded list of SchemaValidationIssue.
+        """
+        result = self._call("validate_schema", schema, proto)
+        return bytes(result)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------
+    # Instance / I/O WASM entry points
+    # ------------------------------------------------------------------
+
+    def register_io_protocols(self) -> int:
+        """Create an I/O protocol registry and return an opaque handle.
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the I/O registry.
+        """
+        result = self._call("register_io_protocols")
+        return int(result)  # type: ignore[arg-type]
+
+    def list_io_protocols(self, registry: int) -> bytes:
+        """List all registered I/O protocol names.
+
+        Parameters
+        ----------
+        registry : int
+            Handle to the I/O registry.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded list of protocol name strings.
+        """
+        result = self._call("list_io_protocols", registry)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def parse_instance(self, registry: int, proto_name: bytes, schema: int, input: bytes) -> bytes:
+        """Parse raw input bytes into an instance using a protocol codec.
+
+        Parameters
+        ----------
+        registry : int
+            Handle to the I/O registry.
+        proto_name : bytes
+            UTF-8 encoded protocol name.
+        schema : int
+            Handle to the target schema.
+        input : bytes
+            Raw input bytes to parse.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded instance data.
+        """
+        result = self._call("parse_instance", registry, proto_name, schema, input)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def emit_instance(self, registry: int, proto_name: bytes, schema: int, instance: bytes) -> bytes:
+        """Emit an instance as raw bytes using a protocol codec.
+
+        Parameters
+        ----------
+        registry : int
+            Handle to the I/O registry.
+        proto_name : bytes
+            UTF-8 encoded protocol name.
+        schema : int
+            Handle to the schema.
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        bytes
+            Raw output bytes in the target protocol format.
+        """
+        result = self._call("emit_instance", registry, proto_name, schema, instance)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def validate_instance(self, schema: int, instance: bytes) -> bytes:
+        """Validate an instance against a schema.
+
+        Parameters
+        ----------
+        schema : int
+            Handle to the schema.
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded list of validation error strings.
+        """
+        result = self._call("validate_instance", schema, instance)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def instance_to_json(self, schema: int, instance: bytes) -> bytes:
+        """Convert an instance to JSON bytes.
+
+        Parameters
+        ----------
+        schema : int
+            Handle to the schema.
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        bytes
+            JSON-encoded representation of the instance.
+        """
+        result = self._call("instance_to_json", schema, instance)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def json_to_instance(self, schema: int, json: bytes) -> bytes:
+        """Convert JSON bytes to an instance.
+
+        Parameters
+        ----------
+        schema : int
+            Handle to the schema.
+        json : bytes
+            JSON-encoded instance data.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded instance data.
+        """
+        result = self._call("json_to_instance", schema, json)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def instance_element_count(self, instance: bytes) -> int:
+        """Return the number of elements in an instance.
+
+        Parameters
+        ----------
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        int
+            The number of elements in the instance.
+        """
+        result = self._call("instance_element_count", instance)
+        return int(result)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------
+    # Lens / Phase 3 WASM entry points
+    # ------------------------------------------------------------------
+
+    def lens_from_combinators(self, schema: int, proto: int, combinators: bytes) -> int:
+        """Build a lens from combinators and return a migration handle.
+
+        Parameters
+        ----------
+        schema : int
+            Handle to the schema.
+        proto : int
+            Handle to the protocol.
+        combinators : bytes
+            MessagePack-encoded list of combinators.
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the compiled lens (migration).
+        """
+        result = self._call("lens_from_combinators", schema, proto, combinators)
+        return int(result)  # type: ignore[arg-type]
+
+    def check_lens_laws(self, migration: int, instance: bytes) -> bytes:
+        """Check both GetPut and PutGet lens laws for an instance.
+
+        Parameters
+        ----------
+        migration : int
+            Handle to the compiled migration/lens.
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded ``{"holds": bool, "violation": str | null}``.
+        """
+        result = self._call("check_lens_laws", migration, instance)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def check_get_put(self, migration: int, instance: bytes) -> bytes:
+        """Check the GetPut lens law for an instance.
+
+        Parameters
+        ----------
+        migration : int
+            Handle to the compiled migration/lens.
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded ``{"holds": bool, "violation": str | null}``.
+        """
+        result = self._call("check_get_put", migration, instance)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def check_put_get(self, migration: int, instance: bytes) -> bytes:
+        """Check the PutGet lens law for an instance.
+
+        Parameters
+        ----------
+        migration : int
+            Handle to the compiled migration/lens.
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded ``{"holds": bool, "violation": str | null}``.
+        """
+        result = self._call("check_put_get", migration, instance)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def invert_migration(self, mapping: bytes, src: int, tgt: int) -> bytes:
+        """Invert a bijective migration.
+
+        Parameters
+        ----------
+        mapping : bytes
+            MessagePack-encoded migration mapping.
+        src : int
+            Handle to the source schema.
+        tgt : int
+            Handle to the target schema.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded inverted MigrationSpec.
+        """
+        result = self._call("invert_migration", mapping, src, tgt)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def compose_lenses(self, l1: int, l2: int) -> int:
+        """Compose two lenses into a single lens.
+
+        Parameters
+        ----------
+        l1 : int
+            Handle to the first lens (applied first).
+        l2 : int
+            Handle to the second lens (applied second).
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the composed lens.
+        """
+        result = self._call("compose_lenses", l1, l2)
+        return int(result)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------
+    # Phase 4: Protocol registry WASM entry points
+    # ------------------------------------------------------------------
+
+    def list_builtin_protocols(self) -> bytes:
+        """List all built-in protocol names.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded list of protocol name strings.
+        """
+        result = self._call("list_builtin_protocols")
+        return bytes(result)  # type: ignore[arg-type]
+
+    def get_builtin_protocol(self, name: bytes) -> bytes:
+        """Get a built-in protocol spec by name.
+
+        Parameters
+        ----------
+        name : bytes
+            UTF-8 encoded protocol name.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded Protocol spec.
+        """
+        result = self._call("get_builtin_protocol", name)
+        return bytes(result)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------
+    # Phase 5: GAT WASM entry points
+    # ------------------------------------------------------------------
+
+    def create_theory(self, spec: bytes) -> int:
+        """Create a theory from a MessagePack spec.
+
+        Parameters
+        ----------
+        spec : bytes
+            MessagePack-encoded Theory spec.
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the theory.
+        """
+        result = self._call("create_theory", spec)
+        return int(result)  # type: ignore[arg-type]
+
+    def colimit_theories(self, t1: int, t2: int, shared: int) -> int:
+        """Compute colimit of two theories over a shared base.
+
+        Parameters
+        ----------
+        t1 : int
+            Handle to the first theory.
+        t2 : int
+            Handle to the second theory.
+        shared : int
+            Handle to the shared base theory.
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the colimit theory.
+        """
+        result = self._call("colimit_theories", t1, t2, shared)
+        return int(result)  # type: ignore[arg-type]
+
+    def check_morphism(self, morphism: bytes, domain: int, codomain: int) -> bytes:
+        """Check morphism validity.
+
+        Parameters
+        ----------
+        morphism : bytes
+            MessagePack-encoded TheoryMorphism.
+        domain : int
+            Handle to the domain theory.
+        codomain : int
+            Handle to the codomain theory.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded check result.
+        """
+        result = self._call("check_morphism", morphism, domain, codomain)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def migrate_model(self, model: bytes, morphism: bytes) -> bytes:
+        """Migrate a model through a morphism.
+
+        Parameters
+        ----------
+        model : bytes
+            MessagePack-encoded model sort interpretations.
+        morphism : bytes
+            MessagePack-encoded TheoryMorphism.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded reindexed sort interpretations.
+        """
+        result = self._call("migrate_model", model, morphism)
+        return bytes(result)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------
+    # Phase 6: VCS WASM entry points
+    # ------------------------------------------------------------------
+
+    def vcs_init(self, protocol_name: bytes) -> int:
+        """Initialize an in-memory VCS repository.
+
+        Parameters
+        ----------
+        protocol_name : bytes
+            UTF-8 encoded protocol name.
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the repository.
+        """
+        result = self._call("vcs_init", protocol_name)
+        return int(result)  # type: ignore[arg-type]
+
+    def vcs_add(self, repo: int, schema: int) -> bytes:
+        """Stage a schema in the repository.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+        schema : int
+            Handle to the schema to stage.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded result with schema object ID.
+        """
+        result = self._call("vcs_add", repo, schema)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_commit(self, repo: int, message: bytes, author: bytes) -> bytes:
+        """Commit the staged schema.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+        message : bytes
+            UTF-8 encoded commit message.
+        author : bytes
+            UTF-8 encoded author name.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded commit result.
+        """
+        result = self._call("vcs_commit", repo, message, author)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_log(self, repo: int, count: int) -> bytes:
+        """Walk the commit log.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+        count : int
+            Maximum number of entries.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded list of log entries.
+        """
+        result = self._call("vcs_log", repo, count)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_status(self, repo: int) -> bytes:
+        """Get repository status.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded status info.
+        """
+        result = self._call("vcs_status", repo)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_diff(self, repo: int) -> bytes:
+        """Get diff information.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded diff result.
+        """
+        result = self._call("vcs_diff", repo)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_branch(self, repo: int, name: bytes) -> bytes:
+        """Create a new branch.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+        name : bytes
+            UTF-8 encoded branch name.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded operation result.
+        """
+        result = self._call("vcs_branch", repo, name)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_checkout(self, repo: int, target: bytes) -> bytes:
+        """Checkout a branch.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+        target : bytes
+            UTF-8 encoded branch name.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded operation result.
+        """
+        result = self._call("vcs_checkout", repo, target)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_merge(self, repo: int, branch: bytes) -> bytes:
+        """Merge a branch.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+        branch : bytes
+            UTF-8 encoded branch name.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded operation result.
+        """
+        result = self._call("vcs_merge", repo, branch)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_stash(self, repo: int) -> bytes:
+        """Stash the current state.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded operation result.
+        """
+        result = self._call("vcs_stash", repo)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_stash_pop(self, repo: int) -> bytes:
+        """Pop the most recent stash entry.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded operation result.
+        """
+        result = self._call("vcs_stash_pop", repo)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def vcs_blame(self, repo: int, vertex: bytes) -> bytes:
+        """Blame a vertex.
+
+        Parameters
+        ----------
+        repo : int
+            Handle to the repository.
+        vertex : bytes
+            UTF-8 encoded vertex ID.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded blame result.
+        """
+        result = self._call("vcs_blame", repo, vertex)
         return bytes(result)  # type: ignore[arg-type]
 
     def free_handle(self, handle: int) -> None:

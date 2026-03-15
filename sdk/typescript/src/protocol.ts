@@ -11,7 +11,7 @@
 import type { WasmModule, ProtocolSpec, EdgeRule } from './types.js';
 import { PanprotoError } from './types.js';
 import { WasmHandle, createHandle } from './wasm.js';
-import { packToWasm } from './msgpack.js';
+import { packToWasm, unpackFromWasm } from './msgpack.js';
 import { SchemaBuilder } from './schema.js';
 
 /**
@@ -39,6 +39,21 @@ export class Protocol implements Disposable {
   /** The full protocol specification. */
   get spec(): ProtocolSpec {
     return this.#spec;
+  }
+
+  /** The edge rules for this protocol. */
+  get edgeRules(): readonly EdgeRule[] {
+    return this.#spec.edgeRules;
+  }
+
+  /** The constraint sorts for this protocol. */
+  get constraintSorts(): readonly string[] {
+    return this.#spec.constraintSorts;
+  }
+
+  /** The object kinds for this protocol. */
+  get objectKinds(): readonly string[] {
+    return this.#spec.objKinds;
   }
 
   /** The WASM handle. Internal use only. */
@@ -205,3 +220,60 @@ export const BUILTIN_PROTOCOLS: ReadonlyMap<string, ProtocolSpec> = new Map([
   ['graphql', GRAPHQL_SPEC],
   ['json-schema', JSON_SCHEMA_SPEC],
 ]);
+
+/** Lazily cached list of all 76 built-in protocol names from WASM. */
+let _protocolNamesCache: readonly string[] | null = null;
+
+/**
+ * Get the list of all built-in protocol names.
+ *
+ * Lazily fetches the full list from WASM on first call and caches it.
+ *
+ * @param wasm - The WASM module
+ * @returns Array of all 76 built-in protocol names
+ */
+export function getProtocolNames(wasm: WasmModule): readonly string[] {
+  if (_protocolNamesCache !== null) return _protocolNamesCache;
+  const bytes = wasm.exports.list_builtin_protocols();
+  _protocolNamesCache = unpackFromWasm<string[]>(bytes);
+  return _protocolNamesCache;
+}
+
+/**
+ * Get a built-in protocol spec by name from WASM.
+ *
+ * This fetches the full protocol definition from the WASM layer,
+ * which includes all 76 protocols (not just the 5 hardcoded ones).
+ *
+ * @param name - The protocol name
+ * @param wasm - The WASM module
+ * @returns The protocol spec, or undefined if not found
+ */
+export function getBuiltinProtocol(name: string, wasm: WasmModule): ProtocolSpec | undefined {
+  try {
+    const nameBytes = new TextEncoder().encode(name);
+    const bytes = wasm.exports.get_builtin_protocol(nameBytes);
+    const wire = unpackFromWasm<{
+      name: string;
+      schema_theory: string;
+      instance_theory: string;
+      edge_rules: { edge_kind: string; src_kinds: string[]; tgt_kinds: string[] }[];
+      obj_kinds: string[];
+      constraint_sorts: string[];
+    }>(bytes);
+    return {
+      name: wire.name,
+      schemaTheory: wire.schema_theory,
+      instanceTheory: wire.instance_theory,
+      edgeRules: wire.edge_rules.map((r) => ({
+        edgeKind: r.edge_kind,
+        srcKinds: r.src_kinds,
+        tgtKinds: r.tgt_kinds,
+      })),
+      objKinds: wire.obj_kinds,
+      constraintSorts: wire.constraint_sorts,
+    };
+  } catch {
+    return undefined;
+  }
+}

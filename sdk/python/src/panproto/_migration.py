@@ -183,6 +183,36 @@ class MigrationBuilder:
             "resolvers": list(self._resolvers),
         }
 
+    def invert(self) -> MigrationSpec:
+        """Invert a bijective migration.
+
+        Serialises the current mapping to MessagePack and calls the
+        ``invert_migration`` WASM entry point.
+
+        Returns
+        -------
+        MigrationSpec
+            The inverted migration specification.
+
+        Raises
+        ------
+        MigrationError
+            If the migration is not bijective or inversion fails.
+        """
+        mapping = _build_wasm_mapping(self._vertex_map, self._edge_map, self._resolvers)
+        mapping_bytes = pack_migration_mapping(mapping)
+
+        try:
+            result_bytes = self._wasm.invert_migration(
+                mapping_bytes,
+                self._src.wasm_handle.id,
+                self._tgt.wasm_handle.id,
+            )
+        except Exception as exc:
+            raise MigrationError(f"Failed to invert migration: {exc}") from exc
+
+        return cast("MigrationSpec", unpack_from_wasm(result_bytes))
+
     def compile(self) -> CompiledMigration:
         """Compile the migration for fast per-record application.
 

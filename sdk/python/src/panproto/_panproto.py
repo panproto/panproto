@@ -9,7 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, cast, final
 
-from ._errors import PanprotoError
+from ._errors import PanprotoError, WasmError
+from ._instance import Instance
+from ._io import IoRegistry
 from ._migration import (
     CompiledMigration,
     MigrationBuilder,
@@ -17,12 +19,15 @@ from ._migration import (
     compose_migrations,
 )
 from ._msgpack import unpack_from_wasm
-from ._protocol import BUILTIN_PROTOCOLS, Protocol, define_protocol
-from ._wasm import WasmModule, load_wasm
+from ._protocol import BUILTIN_PROTOCOLS, Protocol, define_protocol, get_builtin_protocol, get_protocol_names
+from ._wasm import WasmModule, create_handle, load_wasm
 
 if TYPE_CHECKING:
+    from ._check import FullDiffReport, ValidationResult
+    from ._lens import LensHandle
     from ._schema import BuiltSchema
     from ._types import DiffReport, ExistenceReport, ProtocolSpec
+    from ._vcs import VcsRepository
 
 # ---------------------------------------------------------------------------
 # Default WASM binary path
@@ -138,6 +143,13 @@ class Panproto:
             self._protocols[name] = proto
             return proto
 
+        # Try fetching from WASM (supports all 76 protocols)
+        wasm_spec = get_builtin_protocol(name, self._wasm)
+        if wasm_spec is not None:
+            proto = define_protocol(wasm_spec, self._wasm)
+            self._protocols[name] = proto
+            return proto
+
         raise PanprotoError(
             f'Protocol "{name}" not found. Register it with define_protocol() first.'
         )
@@ -243,6 +255,108 @@ class Panproto:
         """
         return compose_migrations(m1, m2, self._wasm)
 
+    def compose_lenses(self, l1: LensHandle, l2: LensHandle) -> LensHandle:
+        """Compose two lenses into a single lens.
+
+        The resulting lens is equivalent to applying *l1* first, then *l2*.
+
+        Parameters
+        ----------
+        l1 : LensHandle
+            First lens (applied first).
+        l2 : LensHandle
+            Second lens (applied second).
+
+        Returns
+        -------
+        LensHandle
+            A new :class:`~._lens.LensHandle` representing the composition.
+
+        Raises
+        ------
+        WasmError
+            If WASM composition fails.
+        """
+        from ._lens import LensHandle as _LensHandle
+
+        try:
+            raw_handle = self._wasm.compose_lenses(
+                l1.wasm_handle.id,
+                l2.wasm_handle.id,
+            )
+        except Exception as exc:
+            raise WasmError(f"compose_lenses failed: {exc}") from exc
+
+        handle = create_handle(raw_handle, self._wasm)
+        return _LensHandle(handle, self._wasm)
+
+    def diff_full(self, old_schema: BuiltSchema, new_schema: BuiltSchema) -> FullDiffReport:
+        """Diff two schemas using the full panproto-check engine.
+
+        Parameters
+        ----------
+        old_schema : BuiltSchema
+            The baseline schema.
+        new_schema : BuiltSchema
+            The updated schema to compare against the baseline.
+
+        Returns
+        -------
+        FullDiffReport
+            A full diff report with 20+ change categories.
+        """
+        from panproto._check import FullDiffReport
+
+        raw = self._wasm.diff_schemas_full(
+            old_schema.wasm_handle.id,
+            new_schema.wasm_handle.id,
+        )
+        data = unpack_from_wasm(raw)
+        return FullDiffReport(data, raw, self._wasm)  # type: ignore[arg-type]
+
+    def normalize(self, schema: BuiltSchema) -> BuiltSchema:
+        """Normalize a schema by collapsing reference chains.
+
+        Parameters
+        ----------
+        schema : BuiltSchema
+            The schema to normalize.
+
+        Returns
+        -------
+        BuiltSchema
+            A new normalized schema.
+        """
+        from ._schema import BuiltSchema as _BuiltSchema
+
+        raw_handle = self._wasm.normalize_schema(schema.wasm_handle.id)
+        handle = create_handle(raw_handle, self._wasm)
+        return _BuiltSchema(handle, schema.data, self._wasm)
+
+    def validate_schema(self, schema: BuiltSchema, protocol: Protocol) -> ValidationResult:
+        """Validate a schema against its protocol's rules.
+
+        Parameters
+        ----------
+        schema : BuiltSchema
+            The schema to validate.
+        protocol : Protocol
+            The protocol to validate against.
+
+        Returns
+        -------
+        ValidationResult
+            The validation result with any issues found.
+        """
+        from panproto._check import ValidationResult
+
+        raw = self._wasm.validate_schema(
+            schema.wasm_handle.id,
+            protocol.wasm_handle.id,
+        )
+        issues = unpack_from_wasm(raw)
+        return ValidationResult(issues)  # type: ignore[arg-type]
+
     def diff(self, old_schema: BuiltSchema, new_schema: BuiltSchema) -> DiffReport:
         """Diff two schemas and produce a compatibility report.
 
@@ -264,6 +378,107 @@ class Panproto:
             new_schema.wasm_handle.id,
         )
         return cast("DiffReport", unpack_from_wasm(result_bytes))
+
+    # ------------------------------------------------------------------
+    # Instance / I/O
+    # ------------------------------------------------------------------
+
+    def io(self) -> IoRegistry:
+        """Create a new I/O protocol registry.
+
+        The returned registry supports parsing and emitting instances
+        across 77 protocol codecs. Use as a context manager to ensure
+        cleanup.
+
+        Returns
+        -------
+        IoRegistry
+            A new I/O registry ready for use.
+
+        Examples
+        --------
+        >>> with pp.io() as io:
+        ...     instance = io.parse("json", schema, raw_bytes)
+        """
+        raw_handle = self._wasm.register_io_protocols()
+        handle = create_handle(raw_handle, self._wasm)
+        return IoRegistry(handle, self._wasm)
+
+    def parse_json(self, schema: BuiltSchema, json_bytes: bytes) -> Instance:
+        """Parse JSON bytes into a schema-conforming instance.
+
+        Convenience wrapper around :meth:`Instance.from_json`.
+
+        Parameters
+        ----------
+        schema : BuiltSchema
+            The target schema.
+        json_bytes : bytes
+            JSON-encoded instance data.
+
+        Returns
+        -------
+        Instance
+            A new instance wrapping the parsed data.
+        """
+        return Instance.from_json(schema, json_bytes, self._wasm)
+
+    def to_json(self, schema: BuiltSchema, instance: Instance) -> bytes:
+        """Convert an instance to JSON bytes.
+
+        Convenience wrapper around :meth:`Instance.to_json`.
+
+        Parameters
+        ----------
+        schema : BuiltSchema
+            The schema the instance conforms to.
+        instance : Instance
+            The instance to convert.
+
+        Returns
+        -------
+        bytes
+            JSON-encoded representation of the instance.
+        """
+        return instance.to_json()
+
+    # ------------------------------------------------------------------
+    # Protocol registry
+    # ------------------------------------------------------------------
+
+    def list_protocols(self) -> list[str]:
+        """List all built-in protocol names.
+
+        Returns the names of all 76 built-in protocols supported by the
+        WASM layer.
+
+        Returns
+        -------
+        list[str]
+            A list of protocol name strings.
+        """
+        return get_protocol_names(self._wasm)
+
+    # ------------------------------------------------------------------
+    # VCS
+    # ------------------------------------------------------------------
+
+    def init_repo(self, protocol_name: str) -> VcsRepository:
+        """Initialize an in-memory VCS repository.
+
+        Parameters
+        ----------
+        protocol_name : str
+            The protocol this repository tracks.
+
+        Returns
+        -------
+        VcsRepository
+            A new VCS repository (context manager).
+        """
+        from ._vcs import VcsRepository as _VcsRepo
+
+        return _VcsRepo.init(protocol_name, self._wasm)
 
     # ------------------------------------------------------------------
     # Context manager / cleanup

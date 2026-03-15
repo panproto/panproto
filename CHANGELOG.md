@@ -20,6 +20,31 @@ All notable changes to panproto will be documented in this file.
 
 ### Added
 
+- **panproto-wasm**: Expand WASM boundary from 10 to 48 `#[wasm_bindgen]` entry points covering the full crate surface
+  - **Check & introspection** (6): `diff_schemas_full` (20+ change categories via `panproto-check`), `classify_diff` (breaking/non-breaking classification), `report_text`/`report_json` (human/machine report rendering), `normalize_schema`, `validate_schema`
+  - **Instance & I/O** (8): `register_io_protocols` (all 76 codecs), `list_io_protocols`, `parse_instance`/`emit_instance` (auto-selects W-type or Functor by protocol), `validate_instance`, `instance_to_json`/`json_to_instance`, `instance_element_count`
+  - **Lens & migration** (6): `lens_from_combinators` (Cambria-style), `check_lens_laws`/`check_get_put`/`check_put_get` (law verification), `invert_migration`, `compose_lenses`
+  - **Protocol registry** (2): `list_builtin_protocols`/`get_builtin_protocol` (all 76 protocol specs on demand)
+  - **GAT operations** (4): `create_theory`, `colimit_theories`, `check_morphism`, `migrate_model`
+  - **VCS operations** (12): `vcs_init`/`vcs_add`/`vcs_commit`/`vcs_log`/`vcs_status`/`vcs_diff`/`vcs_branch`/`vcs_checkout`/`vcs_merge`/`vcs_stash`/`vcs_stash_pop`/`vcs_blame`
+  - New slab resource types: `IoRegistry`, `Theory`, `VcsRepo`; new slab helpers: `with_resource_mut`, `with_three_resources`
+- **@panproto/core** (TypeScript SDK): Massive API expansion aligned with Rust crates
+  - `FullDiffReport` / `CompatReport` with fluent chaining (`diffFull(old, new).classify(proto).toText()`)
+  - `Instance` class with `toJson()`, `validate()`, `fromJson()`, `elementCount`
+  - `IoRegistry` (Disposable) with `parse()`/`emit()` across 76 protocol codecs, `protocols`/`categories` getters
+  - `LensHandle` (Disposable) with `get()`/`put()`/`checkLaws()`/`checkGetPut()`/`checkPutGet()`, `fromCombinators()` variadic factory
+  - `TheoryHandle` + `TheoryBuilder` fluent API, `colimit()`, `checkMorphism()`, `migrateModel()`
+  - `Repository` (Disposable) with full git-like API: `add`/`commit`/`log`/`status`/`diff`/`branch`/`checkout`/`merge`/`stash`/`blame`
+  - All 76 built-in protocols available via WASM-backed lazy loading (up from 5 hardcoded)
+  - `BuiltSchema.normalize()` / `.validate()` convenience methods
+  - `MigrationBuilder.invert()` for bijective migration reversal
+  - `PROTOCOL_CATEGORIES` constant organizing 76 protocols across 10 categories
+  - 101 tests across 10 test files
+- **panproto** (Python SDK): Mirror of TypeScript SDK expansion
+  - `FullDiffReport` / `CompatReport` with `classify()`, `to_text()`, `to_json()`
+  - `Instance`, `IoRegistry`, `LensHandle`, `TheoryHandle`, `TheoryBuilder`, `VcsRepository`
+  - All classes use `@final`, `__slots__`, and context manager protocol
+  - `PROTOCOL_CATEGORIES` matching TypeScript SDK
 - Comprehensive divan benchmarks across all compilation levels: GAT colimit/resolve/morphism at scale (10–500 sorts), instance restrict on deep/wide trees, migration compose chains, lens get/put round-trips
 - Formal correctness proofs for all optimizations in `tutorial/appendices/formal-proofs.qmd`
 - Optimization reference guide in `dev-guide/appendices/optimization-guide.qmd`

@@ -291,3 +291,77 @@ BUILTIN_PROTOCOLS: Mapping[str, ProtocolSpec] = {
     "json-schema": JSON_SCHEMA_SPEC,
 }
 """Registry of built-in protocol specs, keyed by protocol name."""
+
+
+# ---------------------------------------------------------------------------
+# Full protocol registry (lazy loaded from WASM)
+# ---------------------------------------------------------------------------
+
+_protocol_names_cache: list[str] | None = None
+
+
+def get_protocol_names(wasm: WasmModule) -> list[str]:
+    """Get the list of all built-in protocol names.
+
+    Lazily fetches the full list from WASM on first call and caches it.
+
+    Parameters
+    ----------
+    wasm : WasmModule
+        The WASM module.
+
+    Returns
+    -------
+    list[str]
+        All 76 built-in protocol names.
+    """
+    global _protocol_names_cache  # noqa: PLW0603
+    if _protocol_names_cache is not None:
+        return list(_protocol_names_cache)
+    from ._msgpack import unpack_from_wasm
+
+    raw = wasm.list_builtin_protocols()
+    _protocol_names_cache = unpack_from_wasm(raw)
+    return list(_protocol_names_cache)
+
+
+def get_builtin_protocol(name: str, wasm: WasmModule) -> ProtocolSpec | None:
+    """Get a built-in protocol spec by name from WASM.
+
+    This fetches the full protocol definition from the WASM layer,
+    which includes all 76 protocols (not just the 5 hardcoded ones).
+
+    Parameters
+    ----------
+    name : str
+        The protocol name.
+    wasm : WasmModule
+        The WASM module.
+
+    Returns
+    -------
+    ProtocolSpec | None
+        The protocol spec, or ``None`` if the name is not recognized.
+    """
+    from ._msgpack import unpack_from_wasm
+
+    try:
+        raw = wasm.get_builtin_protocol(name.encode())
+        wire = unpack_from_wasm(raw)
+        return ProtocolSpec(
+            name=wire["name"],
+            schema_theory=wire["schema_theory"],
+            instance_theory=wire["instance_theory"],
+            edge_rules=[
+                EdgeRule(
+                    edge_kind=r["edge_kind"],
+                    src_kinds=list(r["src_kinds"]),
+                    tgt_kinds=list(r["tgt_kinds"]),
+                )
+                for r in wire["edge_rules"]
+            ],
+            obj_kinds=list(wire["obj_kinds"]),
+            constraint_sorts=list(wire["constraint_sorts"]),
+        )
+    except Exception:  # noqa: BLE001
+        return None

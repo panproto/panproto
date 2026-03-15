@@ -16,23 +16,53 @@
 //!
 //! ## Entry Points
 //!
-//! Nine `#[wasm_bindgen]` functions cover the full migration lifecycle:
+//! `#[wasm_bindgen]` functions cover the full panproto lifecycle:
 //!
-//! 1. [`define_protocol`] -- register a protocol specification
-//! 2. [`build_schema`] -- build a schema from a protocol handle + ops
-//! 3. [`check_existence`] -- validate a migration mapping
-//! 4. [`compile_migration`] -- compile a migration for fast application
-//! 5. [`lift_record`] -- apply a compiled migration to a record
-//! 6. [`put_record`] -- restore a record from view + complement
-//! 7. [`compose_migrations`] -- compose two compiled migrations
-//! 8. [`diff_schemas`] -- diff two schemas
-//! 9. [`free_handle`] -- release a resource handle
+//! **Core (1-10)**:
+//! [`define_protocol`], [`build_schema`], [`check_existence`],
+//! [`compile_migration`], [`lift_record`], [`get_record`],
+//! [`put_record`], [`compose_migrations`], [`diff_schemas`],
+//! [`free_handle`]
+//!
+//! **Check & Introspection (11-16)**:
+//! [`diff_schemas_full`], [`classify_diff`], [`report_text`],
+//! [`report_json`], [`normalize_schema`], [`validate_schema`]
+//!
+//! **Instance & I/O (17-24)**:
+//! [`register_io_protocols`], [`list_io_protocols`],
+//! [`parse_instance`], [`emit_instance`], [`validate_instance`],
+//! [`instance_to_json`], [`json_to_instance`],
+//! [`instance_element_count`]
+//!
+//! **Lens & Migration (25-30)**:
+//! [`lens_from_combinators`], [`check_lens_laws`],
+//! [`check_get_put`], [`check_put_get`],
+//! [`invert_migration`], [`compose_lenses`]
+//!
+//! **Protocol Registry (31-32)**:
+//! [`list_builtin_protocols`], [`get_builtin_protocol`]
+//!
+//! **GAT Operations (33-36)**:
+//! [`create_theory`], [`colimit_theories`],
+//! [`check_morphism`], [`migrate_model`]
+//!
+//! **VCS Operations (37-48)**:
+//! [`vcs_init`], [`vcs_add`], [`vcs_commit`], [`vcs_log`],
+//! [`vcs_status`], [`vcs_diff`], [`vcs_branch`], [`vcs_checkout`],
+//! [`vcs_merge`], [`vcs_stash`], [`vcs_stash_pop`], [`vcs_blame`]
 
 mod api;
 mod error;
 mod slab;
 
 pub use api::{
-    build_schema, check_existence, compile_migration, compose_migrations, define_protocol,
-    diff_schemas, free_handle, lift_record, put_record,
+    build_schema, check_existence, check_get_put, check_lens_laws, check_morphism, check_put_get,
+    classify_diff, colimit_theories, compile_migration, compose_lenses, compose_migrations,
+    create_theory, define_protocol, diff_schemas, diff_schemas_full, emit_instance, free_handle,
+    get_builtin_protocol, get_record, instance_element_count, instance_to_json, invert_migration,
+    json_to_instance, lens_from_combinators, lift_record, list_builtin_protocols,
+    list_io_protocols, migrate_model, normalize_schema, parse_instance, put_record,
+    register_io_protocols, report_json, report_text, validate_instance, validate_schema, vcs_add,
+    vcs_blame, vcs_branch, vcs_checkout, vcs_commit, vcs_diff, vcs_init, vcs_log, vcs_merge,
+    vcs_stash, vcs_stash_pop, vcs_status,
 };
