@@ -255,10 +255,10 @@ fn parse_object_def(
             // Mark as required if in required list.
             if required_fields.contains(&prop_name.as_str()) {
                 let req_edge = panproto_schema::Edge {
-                    src: object_id.to_string(),
-                    tgt: prop_vertex_id.clone(),
+                    src: object_id.into(),
+                    tgt: prop_vertex_id.as_str().into(),
                     kind: "prop".into(),
-                    name: Some(prop_name.clone()),
+                    name: Some(prop_name.as_str().into()),
                 };
                 builder = builder.required(object_id, vec![req_edge]);
             }
@@ -559,7 +559,7 @@ fn emit_lexicon_def(
             let constraints = vertex_constraints(schema, &vertex.id);
             for c in &constraints {
                 let val = emit_constraint_value(c);
-                obj.insert(c.sort.clone(), val);
+                obj.insert(c.sort.to_string(), val);
             }
 
             Ok(serde_json::Value::Object(obj))

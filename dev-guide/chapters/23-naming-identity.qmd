@@ -1,0 +1,159 @@
+# Naming, Identity, and the Morphism Tower {#sec-naming-identity}
+
+This chapter covers the `panproto-gat` identifier abstraction, the unified naming layer, the morphism tower that cascades theory-level renames into data migrations, and the VCS rename detection heuristic.
+
+For the user-facing introduction to naming, see the [tutorial chapter on naming](@sec-naming).
+
+## The `Ident` Abstraction
+
+**File**: `crates/panproto-gat/src/ident.rs`
+
+The `Ident` type separates stable identity from display name, following `GATlab` [@lynch2024]:
+
+```rust
+pub struct Ident {
+    pub scope: ScopeTag,   // which theory/schema this belongs to
+    pub index: u32,        // positional index within scope
+    pub name: Arc<str>,    // human-readable display name
+}
+```
+
+`PartialEq` and `Hash` use only `(scope, index)`, making comparisons O(1) regardless of name length. Renaming an identifier (via `ident.renamed("new_name")`) does not change its identity, so `HashMap<Ident, _>` entries survive renames without rehashing.
+
+`ScopeTag` is a monotonically increasing `u32` assigned via `ScopeTag::fresh()`. Each `Theory` or `SchemaBuilder` gets a unique scope at construction time. `ScopeTag::LEGACY` (scope 0) is used for deserializing old-format data via `Ident::from_legacy()`.
+
+## The `Name` Type
+
+**File**: `crates/panproto-gat/src/ident.rs`
+
+`Name` wraps `Arc<str>` with a pointer-equality fast path:
+
+```rust
+pub struct Name(pub Arc<str>);
+```
+
+Equality checks use `Arc::ptr_eq` first (single pointer comparison), falling back to string comparison only on pointer mismatch. In the restrict hot path, both sides typically originate from the same schema construction, so the fast path hits frequently.
+
+Key trait implementations:
+- `Deref<Target=str>` and `Borrow<str>`: `HashMap<Name, V>::get("string_literal")` works
+- `From<String>`, `From<&str>`: zero-friction conversion from string types
+- `Default`: empty string
+- `serde::Serialize/Deserialize`: transparent (serializes as a plain string)
+
+**Performance impact on `wtype_restrict`**:
+- `surviving_verts.contains(&node.anchor)`: same hash cost, gains `Arc::ptr_eq` fast path on equality
+- `node.anchor.clone()`: `Arc::clone` (atomic refcount bump) instead of heap allocation
+
+## `NameSite` and `SiteRename`
+
+**File**: `crates/panproto-gat/src/ident.rs`
+
+All 9 naming sites in panproto are unified under the `NameSite` enum:
+
+```rust
+pub enum NameSite {
+    EdgeLabel, VertexId, VertexKind, EdgeKind,
+    Nsid, ConstraintSort, InstanceAnchor,
+    TheoryName, SortName,
+}
+```
+
+`SiteRename { site, old, new }` is a site-qualified rename operation. These are stored in `SchemaMorphism` provenance and `CommitObject` rename metadata.
+
+## `TheoryMorphism.induce_schema_renames()`
+
+**File**: `crates/panproto-gat/src/morphism.rs`
+
+A theory morphism `F: T1 → T2` with `sort_map` and `op_map` induces schema-level renames:
+
+- Each `sort_map` entry where `old ≠ new` becomes a `NameSite::VertexKind` rename
+- Each `op_map` entry where `old ≠ new` becomes a `NameSite::EdgeKind` rename
+
+This is analogous to `GATlab`'s `SimpleTheoryMap`, which maps type and term constructors between theories while preserving structural equivalence.
+
+## `SchemaMorphism`
+
+**File**: `crates/panproto-schema/src/morphism.rs`
+
+An explicit schema morphism (functor F: S → T):
+
+```rust
+pub struct SchemaMorphism {
+    pub name: String,
+    pub src_protocol: String,
+    pub tgt_protocol: String,
+    pub vertex_map: HashMap<Name, Name>,
+    pub edge_map: HashMap<Edge, Edge>,
+    pub renames: Vec<SiteRename>,  // provenance
+}
+```
+
+Composition via `m1.compose(&m2)` chains vertex/edge maps and concatenates renames. This makes the category structure of schema transformations explicit, enabling transitive composition of cross-protocol translations.
+
+## The Cascade Module
+
+**File**: `crates/panproto-mig/src/cascade.rs`
+
+The morphism tower connects three levels:
+
+```
+Theory morphism  ──induce_schema_morphism──→  Schema morphism
+                                                    │
+                                          induce_data_migration
+                                                    │
+                                                    ▼
+                                            CompiledMigration
+```
+
+- `induce_schema_morphism(theory_morph, src_schema)`: Applies sort/op renames to produce a `SchemaMorphism`
+- `induce_data_migration(schema_morph, tgt_schema)`: Lowers to `CompiledMigration` for the restrict pipeline
+- `induce_migration_from_theory(theory_morph, src, tgt)`: Convenience function chaining both
+
+This implements the functorial action from @spivak2012: a schema morphism F induces the pullback functor `Δ_F` on instances.
+
+## New Combinators
+
+**File**: `crates/panproto-lens/src/combinators.rs`
+
+Seven new combinator variants complement the original six:
+
+| Combinator | Site | Lossless? | Notes |
+|-----------|------|-----------|-------|
+| `RenameVertex` | `VertexId` | Yes | Cascades to edges, constraints, variants |
+| `RenameKind` | `VertexKind` | Yes | Fine-grained (single vertex) |
+| `RenameEdgeKind` | `EdgeKind` | Yes | All edges with matching kind |
+| `RenameNsid` | `Nsid` | Yes | Single vertex |
+| `RenameConstraintSort` | `ConstraintSort` | Yes | All constraints |
+| `ApplyTheoryMorphism` | Multiple | Yes | Top of the morphism tower |
+| `Rename` | Any | Yes | Unified dispatcher |
+
+Each combinator has a corresponding `apply_*` function and `build_compiled_migration` arm. All are lossless (empty complement), so the lens laws hold trivially.
+
+## VCS Rename Detection
+
+**File**: `crates/panproto-vcs/src/rename_detect.rs`
+
+### Algorithm
+
+When comparing old and new schemas:
+
+1. Collect removed vertices (in old, not in new) and added vertices (in new, not in old)
+2. For each (removed, added) pair, compute structural similarity score:
+   - Same vertex kind: +0.3
+   - Same outgoing edge names: +0.3
+   - Same incoming edge names: +0.2
+   - Edit distance of names ≤ 3: +0.2
+3. Greedy bipartite matching: take highest-scoring pairs first
+4. Return pairs ≥ threshold (default 0.5)
+
+### Integration
+
+Detected renames are stored in `CommitObject.renames` as `Vec<SiteRename>`. The `schema diff --detect-renames` CLI command exposes rename detection.
+
+## Migration Path: `String` → `Name`
+
+The core types (`Vertex`, `Edge`, `Schema`, `Node`, `CompiledMigration`, `Migration`) use `Name` for all identifier and label fields. `Constraint.value` and `Schema.protocol` remain `String` since they are literal data, not identifiers.
+
+The `SchemaBuilder` API still accepts `&str` parameters, converting to `Name` internally. Protocol parsers required no changes.
+
+**Performance**: Benchmarks show no regression from the `String` → `Name` migration. The `Arc::clone` fast path eliminates heap allocations in the restrict pipeline's inner loop.

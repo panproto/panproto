@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use panproto_gat::Name;
 use panproto_inst::value::Value;
 use panproto_inst::{CompiledMigration, FInstance};
 use panproto_mig::{Migration, compile, lift_functor};
@@ -113,7 +114,7 @@ fn functor_restrict_drops_table() -> Result<(), Box<dyn std::error::Error>> {
 
     // Migration that only keeps "users".
     let compiled = CompiledMigration {
-        surviving_verts: HashSet::from(["users".to_string()]),
+        surviving_verts: HashSet::from([Name::from("users")]),
         surviving_edges: HashSet::new(),
         vertex_remap: HashMap::new(),
         edge_remap: HashMap::new(),
@@ -160,7 +161,7 @@ fn functor_restrict_preserves_rows() -> Result<(), Box<dyn std::error::Error>> {
 
     // Identity migration: keep everything.
     let compiled = CompiledMigration {
-        surviving_verts: HashSet::from(["users".to_string()]),
+        surviving_verts: HashSet::from([Name::from("users")]),
         surviving_edges: HashSet::new(),
         vertex_remap: HashMap::new(),
         edge_remap: HashMap::new(),

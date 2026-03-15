@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use panproto_check::{BreakingChange, classify, diff, report_text};
+use panproto_gat::Name;
 use panproto_protocols::atproto;
 use panproto_schema::{Constraint, Edge, Schema, Vertex};
 use smallvec::SmallVec;
@@ -14,20 +15,20 @@ use smallvec::SmallVec;
 fn make_schema(
     verts: &[(&str, &str)],
     edge_list: &[Edge],
-    constraints: HashMap<String, Vec<Constraint>>,
+    constraints: HashMap<Name, Vec<Constraint>>,
 ) -> Schema {
     let mut vertices = HashMap::new();
     let mut edges = HashMap::new();
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
     for (id, kind) in verts {
         vertices.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
@@ -78,7 +79,7 @@ fn maxlength_tightening_detected() {
         &[("body", "object"), ("body.text", "string")],
         std::slice::from_ref(&edge),
         HashMap::from([(
-            "body.text".into(),
+            Name::from("body.text"),
             vec![Constraint {
                 sort: "maxLength".into(),
                 value: "3000".into(),
@@ -90,7 +91,7 @@ fn maxlength_tightening_detected() {
         &[("body", "object"), ("body.text", "string")],
         std::slice::from_ref(&edge),
         HashMap::from([(
-            "body.text".into(),
+            Name::from("body.text"),
             vec![Constraint {
                 sort: "maxLength".into(),
                 value: "300".into(),
@@ -252,7 +253,7 @@ fn report_text_output_is_informative() {
         &[("body", "object"), ("body.text", "string")],
         std::slice::from_ref(&edge),
         HashMap::from([(
-            "body.text".into(),
+            Name::from("body.text"),
             vec![Constraint {
                 sort: "maxLength".into(),
                 value: "3000".into(),
@@ -264,7 +265,7 @@ fn report_text_output_is_informative() {
         &[("body", "object"), ("body.text", "string")],
         std::slice::from_ref(&edge),
         HashMap::from([(
-            "body.text".into(),
+            Name::from("body.text"),
             vec![Constraint {
                 sort: "maxLength".into(),
                 value: "300".into(),

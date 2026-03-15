@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 # Workspace crates
+panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-inst = { workspace = true }
 panproto-protocols = { workspace = true }

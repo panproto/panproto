@@ -398,7 +398,7 @@ fn emit_kotlin_data_class(
         .map(|(edge, field_vertex)| {
             let field_name = edge.name.as_deref().unwrap_or(&field_vertex.id);
             let type_name = resolve_type(schema, &field_vertex.id)
-                .map(|v| v.id.clone())
+                .map(|v| v.id.to_string())
                 .unwrap_or_else(|| "Any".to_string());
             let is_optional =
                 constraint_value(schema, &field_vertex.id, "optional").is_some_and(|v| v == "true");
@@ -423,7 +423,7 @@ fn emit_kotlin_data_class(
         .outgoing_edges(&vertex.id)
         .iter()
         .filter(|e| e.kind == "implements")
-        .map(|e| e.tgt.clone())
+        .map(|e| e.tgt.to_string())
         .collect();
     let impl_str = if impls.is_empty() {
         String::new()

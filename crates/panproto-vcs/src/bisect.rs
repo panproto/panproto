@@ -124,6 +124,7 @@ mod tests {
                 author: "test".into(),
                 timestamp: i as u64 * 100,
                 message: format!("commit {i}"),
+                renames: vec![],
             };
             let id = store.put(&Object::Commit(commit))?;
             ids.push(id);

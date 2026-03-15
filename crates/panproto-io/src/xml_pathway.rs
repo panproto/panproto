@@ -83,8 +83,8 @@ pub fn parse_xml_bytes(
 
                 let _kind = schema
                     .vertices
-                    .get(&vertex_id)
-                    .map_or_else(|| tag.clone(), |v| v.kind.clone());
+                    .get(vertex_id.as_str())
+                    .map_or_else(|| tag.clone(), |v| v.kind.to_string());
 
                 let mut extra_fields = HashMap::new();
 
@@ -97,7 +97,7 @@ pub fn parse_xml_bytes(
 
                 let node = Node {
                     id: node_id,
-                    anchor: vertex_id.clone(),
+                    anchor: panproto_gat::Name::from(vertex_id.as_str()),
                     value: None,
                     discriminator: None,
                     extra_fields,
@@ -140,7 +140,7 @@ pub fn parse_xml_bytes(
 
                 let node = Node {
                     id: node_id,
-                    anchor: vertex_id.clone(),
+                    anchor: panproto_gat::Name::from(vertex_id.as_str()),
                     value: None,
                     discriminator: None,
                     extra_fields,
@@ -199,7 +199,7 @@ pub fn parse_xml_bytes(
         state.arcs,
         Vec::new(),
         root_id,
-        root_vertex,
+        panproto_gat::Name::from(root_vertex),
     ))
 }
 
@@ -290,14 +290,14 @@ fn find_child_vertex(schema: &Schema, parent_vertex: &str, tag: &str) -> Option<
     // First try matching edge name.
     for edge in edges {
         if edge.name.as_deref() == Some(tag) {
-            return Some(edge.tgt.clone());
+            return Some(edge.tgt.to_string());
         }
     }
     // Then try matching target vertex kind.
     for edge in edges {
         if let Some(v) = schema.vertices.get(&edge.tgt) {
             if v.kind == tag {
-                return Some(edge.tgt.clone());
+                return Some(edge.tgt.to_string());
             }
         }
     }
@@ -315,7 +315,7 @@ fn find_root_by_tag(schema: &Schema, tag: &str) -> Option<String> {
         .vertices
         .values()
         .find(|v| v.kind == tag && schema.incoming_edges(&v.id).is_empty())
-        .map(|v| v.id.clone())
+        .map(|v| v.id.to_string())
 }
 
 /// Find or construct a schema edge between parent and child vertices.
@@ -326,10 +326,10 @@ fn find_schema_edge(schema: &Schema, parent: &str, child: &str, tag: &str) -> Ed
     }
     // Fallback: construct a synthetic edge.
     Edge {
-        src: parent.to_string(),
-        tgt: child.to_string(),
-        kind: "contains".to_string(),
-        name: Some(tag.to_string()),
+        src: parent.into(),
+        tgt: child.into(),
+        kind: "contains".into(),
+        name: Some(tag.to_string().into()),
     }
 }
 

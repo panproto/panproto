@@ -27,6 +27,18 @@ pub enum LensError {
     #[error("field not found: {0}")]
     FieldNotFound(String),
 
+    /// A combinator references an NSID on a vertex that has no NSID.
+    #[error("no NSID on vertex: {0}")]
+    NsidNotFound(String),
+
+    /// A combinator references a constraint sort that does not exist.
+    #[error("constraint sort not found: {0}")]
+    ConstraintSortNotFound(String),
+
+    /// A combinator references an edge kind that does not exist.
+    #[error("edge kind not found: {0}")]
+    EdgeKindNotFound(String),
+
     /// Type coercion between incompatible kinds.
     #[error("cannot coerce from {from} to {to}")]
     IncompatibleCoercion {

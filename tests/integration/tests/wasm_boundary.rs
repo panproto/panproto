@@ -193,13 +193,14 @@ fn large_instance_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> 
         let anchor = format!("field_{i}");
         nodes.insert(
             i,
-            Node::new(i, &anchor).with_value(FieldPresence::Present(Value::Int(i64::from(i)))),
+            Node::new(i, anchor.as_str())
+                .with_value(FieldPresence::Present(Value::Int(i64::from(i)))),
         );
         let edge = Edge {
             src: "root".into(),
-            tgt: anchor,
+            tgt: anchor.into(),
             kind: "prop".into(),
-            name: Some(format!("f{i}")),
+            name: Some(format!("f{i}").into()),
         };
         arcs.push((0, i, edge));
     }

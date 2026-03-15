@@ -248,12 +248,12 @@ pub fn emit_ucca(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if !layer_constraints.is_empty() {
                     let mut attrs = serde_json::Map::new();
                     for c in &layer_constraints {
-                        attrs.insert(c.sort.clone(), serde_json::json!(c.value));
+                        attrs.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                     layer_obj.insert("attrs".into(), serde_json::Value::Object(attrs));
                 }
 
-                layers.insert(layer.id.clone(), serde_json::Value::Object(layer_obj));
+                layers.insert(layer.id.to_string(), serde_json::Value::Object(layer_obj));
 
                 // Find nodes contained by this layer.
                 let node_children = children_by_edge(schema, &layer.id, "contains");
@@ -294,7 +294,7 @@ fn emit_node(
     if !node_constraints.is_empty() {
         let mut attrs = serde_json::Map::new();
         for c in &node_constraints {
-            attrs.insert(c.sort.clone(), serde_json::json!(c.value));
+            attrs.insert(c.sort.to_string(), serde_json::json!(c.value));
         }
         node_obj.insert("attrs".into(), serde_json::Value::Object(attrs));
     }
@@ -334,7 +334,7 @@ fn emit_node(
         node_obj.insert("implicit".into(), serde_json::Value::Array(arr));
     }
 
-    nodes.insert(node.id.clone(), serde_json::Value::Object(node_obj));
+    nodes.insert(node.id.to_string(), serde_json::Value::Object(node_obj));
 }
 
 #[allow(clippy::too_many_lines)]

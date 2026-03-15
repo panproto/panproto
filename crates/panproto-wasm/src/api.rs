@@ -2047,6 +2047,7 @@ fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schema::Protocol
 /// is not available (e.g., when a bare `Resource::Migration` handle is
 /// used instead of `Resource::MigrationWithSchemas`).
 fn build_minimal_schema(compiled: &CompiledMigration) -> panproto_core::schema::Schema {
+    use panproto_core::gat::Name;
     use panproto_core::schema::{Edge, Schema, Vertex};
     use smallvec::SmallVec;
 
@@ -2056,16 +2057,16 @@ fn build_minimal_schema(compiled: &CompiledMigration) -> panproto_core::schema::
             v.clone(),
             Vertex {
                 id: v.clone(),
-                kind: "unknown".to_string(),
+                kind: "unknown".into(),
                 nsid: None,
             },
         );
     }
 
     let mut edges = HashMap::new();
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
     for e in &compiled.surviving_edges {
         edges.insert(e.clone(), e.kind.clone());
@@ -2196,12 +2197,12 @@ fn compute_diff(
 
     for id in new.vertices.keys() {
         if !old.vertices.contains_key(id) {
-            diff.added_vertices.push(id.clone());
+            diff.added_vertices.push(id.to_string());
         }
     }
     for id in old.vertices.keys() {
         if !new.vertices.contains_key(id) {
-            diff.removed_vertices.push(id.clone());
+            diff.removed_vertices.push(id.to_string());
         }
     }
 
@@ -2209,9 +2210,9 @@ fn compute_diff(
         if let Some(old_v) = old.vertices.get(id) {
             if old_v.kind != new_v.kind {
                 diff.kind_changes.push(KindChange {
-                    vertex: id.clone(),
-                    old_kind: old_v.kind.clone(),
-                    new_kind: new_v.kind.clone(),
+                    vertex: id.to_string(),
+                    old_kind: old_v.kind.to_string(),
+                    new_kind: new_v.kind.to_string(),
                 });
             }
         }
@@ -2220,20 +2221,20 @@ fn compute_diff(
     for edge in new.edges.keys() {
         if !old.edges.contains_key(edge) {
             diff.added_edges.push(EdgeDiff {
-                src: edge.src.clone(),
-                tgt: edge.tgt.clone(),
-                kind: edge.kind.clone(),
-                name: edge.name.clone(),
+                src: edge.src.to_string(),
+                tgt: edge.tgt.to_string(),
+                kind: edge.kind.to_string(),
+                name: edge.name.as_ref().map(ToString::to_string),
             });
         }
     }
     for edge in old.edges.keys() {
         if !new.edges.contains_key(edge) {
             diff.removed_edges.push(EdgeDiff {
-                src: edge.src.clone(),
-                tgt: edge.tgt.clone(),
-                kind: edge.kind.clone(),
-                name: edge.name.clone(),
+                src: edge.src.to_string(),
+                tgt: edge.tgt.to_string(),
+                kind: edge.kind.to_string(),
+                name: edge.name.as_ref().map(ToString::to_string),
             });
         }
     }

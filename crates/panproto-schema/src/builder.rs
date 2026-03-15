@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
@@ -27,13 +28,13 @@ use crate::schema::{Constraint, Edge, HyperEdge, Schema, Vertex};
 /// ```
 pub struct SchemaBuilder {
     protocol: Protocol,
-    vertices: HashMap<String, Vertex>,
+    vertices: HashMap<Name, Vertex>,
     edges: Vec<Edge>,
-    hyper_edges: HashMap<String, HyperEdge>,
-    constraints: HashMap<String, Vec<Constraint>>,
-    required: HashMap<String, Vec<Edge>>,
-    nsids: HashMap<String, String>,
-    edge_set: FxHashSet<(String, String, String, Option<String>)>,
+    hyper_edges: HashMap<Name, HyperEdge>,
+    constraints: HashMap<Name, Vec<Constraint>>,
+    required: HashMap<Name, Vec<Edge>>,
+    nsids: HashMap<Name, Name>,
+    edge_set: FxHashSet<(Name, Name, Name, Option<Name>)>,
 }
 
 impl SchemaBuilder {
@@ -74,16 +75,16 @@ impl SchemaBuilder {
         }
 
         let vertex = Vertex {
-            id: id.to_owned(),
-            kind: kind.to_owned(),
-            nsid: nsid.map(str::to_owned),
+            id: Name::from(id),
+            kind: Name::from(kind),
+            nsid: nsid.map(Name::from),
         };
 
         if let Some(nsid_val) = nsid {
-            self.nsids.insert(id.to_owned(), nsid_val.to_owned());
+            self.nsids.insert(Name::from(id), Name::from(nsid_val));
         }
 
-        self.vertices.insert(id.to_owned(), vertex);
+        self.vertices.insert(Name::from(id), vertex);
         Ok(self)
     }
 
@@ -117,18 +118,22 @@ impl SchemaBuilder {
         // Validate against edge rules (if any rules are defined).
         if let Some(rule) = self.protocol.find_edge_rule(kind) {
             // Check source kind constraint.
-            if !rule.src_kinds.is_empty() && !rule.src_kinds.iter().any(|k| k == &src_vertex.kind) {
+            if !rule.src_kinds.is_empty()
+                && !rule.src_kinds.iter().any(|k| k == src_vertex.kind.as_ref())
+            {
                 return Err(SchemaError::InvalidEdgeSource {
                     kind: kind.to_owned(),
-                    src_kind: src_vertex.kind.clone(),
+                    src_kind: src_vertex.kind.to_string(),
                     permitted: rule.src_kinds.join(", "),
                 });
             }
             // Check target kind constraint.
-            if !rule.tgt_kinds.is_empty() && !rule.tgt_kinds.iter().any(|k| k == &tgt_vertex.kind) {
+            if !rule.tgt_kinds.is_empty()
+                && !rule.tgt_kinds.iter().any(|k| k == tgt_vertex.kind.as_ref())
+            {
                 return Err(SchemaError::InvalidEdgeTarget {
                     kind: kind.to_owned(),
-                    tgt_kind: tgt_vertex.kind.clone(),
+                    tgt_kind: tgt_vertex.kind.to_string(),
                     permitted: rule.tgt_kinds.join(", "),
                 });
             }
@@ -138,10 +143,10 @@ impl SchemaBuilder {
         }
 
         let edge_key = (
-            src.to_owned(),
-            tgt.to_owned(),
-            kind.to_owned(),
-            name.map(str::to_owned),
+            Name::from(src),
+            Name::from(tgt),
+            Name::from(kind),
+            name.map(Name::from),
         );
         if !self.edge_set.insert(edge_key) {
             return Err(SchemaError::DuplicateEdge {
@@ -152,10 +157,10 @@ impl SchemaBuilder {
         }
 
         let edge = Edge {
-            src: src.to_owned(),
-            tgt: tgt.to_owned(),
-            kind: kind.to_owned(),
-            name: name.map(str::to_owned),
+            src: Name::from(src),
+            tgt: Name::from(tgt),
+            kind: Name::from(kind),
+            name: name.map(Name::from),
         };
         self.edges.push(edge);
         Ok(self)
@@ -181,20 +186,25 @@ impl SchemaBuilder {
 
         // Validate all vertices in signature exist.
         for (label, vertex_id) in &sig {
-            if !self.vertices.contains_key(vertex_id) {
+            if !self.vertices.contains_key(vertex_id.as_str()) {
                 return Err(SchemaError::VertexNotFound(format!(
                     "{vertex_id} (in hyper-edge {id}, label {label})"
                 )));
             }
         }
 
+        let name_sig: HashMap<Name, Name> = sig
+            .into_iter()
+            .map(|(k, v)| (Name::from(k), Name::from(v)))
+            .collect();
+
         let hyper_edge = HyperEdge {
-            id: id.to_owned(),
-            kind: kind.to_owned(),
-            signature: sig,
-            parent_label: parent.to_owned(),
+            id: Name::from(id),
+            kind: Name::from(kind),
+            signature: name_sig,
+            parent_label: Name::from(parent),
         };
-        self.hyper_edges.insert(id.to_owned(), hyper_edge);
+        self.hyper_edges.insert(Name::from(id), hyper_edge);
         Ok(self)
     }
 
@@ -205,10 +215,10 @@ impl SchemaBuilder {
     #[must_use]
     pub fn constraint(mut self, vertex: &str, sort: &str, value: &str) -> Self {
         self.constraints
-            .entry(vertex.to_owned())
+            .entry(Name::from(vertex))
             .or_default()
             .push(Constraint {
-                sort: sort.to_owned(),
+                sort: Name::from(sort),
                 value: value.to_owned(),
             });
         self
@@ -218,7 +228,7 @@ impl SchemaBuilder {
     #[must_use]
     pub fn required(mut self, vertex: &str, edges: Vec<Edge>) -> Self {
         self.required
-            .entry(vertex.to_owned())
+            .entry(Name::from(vertex))
             .or_default()
             .extend(edges);
         self
@@ -236,10 +246,10 @@ impl SchemaBuilder {
         }
 
         // Build edge map.
-        let mut edge_map: HashMap<Edge, String> = HashMap::with_capacity(self.edges.len());
-        let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-        let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-        let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+        let mut edge_map: HashMap<Edge, Name> = HashMap::with_capacity(self.edges.len());
+        let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+        let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
         for edge in &self.edges {
             edge_map.insert(edge.clone(), edge.kind.clone());
@@ -357,7 +367,7 @@ mod tests {
         assert_eq!(schema.outgoing_edges("post").len(), 1);
         assert_eq!(schema.incoming_edges("post:body").len(), 1);
         assert_eq!(
-            schema.nsids.get("post").map(String::as_str),
+            schema.nsids.get("post").map(AsRef::as_ref),
             Some("app.bsky.feed.post")
         );
         assert_eq!(

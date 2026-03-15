@@ -88,21 +88,22 @@ pub fn compile(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use panproto_gat::Name;
     use panproto_schema::{Edge, Vertex};
 
     fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         let mut vert_map = HashMap::new();
         let mut edge_map = HashMap::new();
-        let mut outgoing: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-        let mut incoming: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-        let mut between: HashMap<(String, String), smallvec::SmallVec<Edge, 2>> = HashMap::new();
+        let mut outgoing: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+        let mut between: HashMap<(Name, Name), smallvec::SmallVec<Edge, 2>> = HashMap::new();
 
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
                     nsid: None,
                 },
             );

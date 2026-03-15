@@ -154,6 +154,22 @@ When you migrate data from schema v1 to schema v2, the migration is mathematical
 
 This is the fundamental guarantee that makes panproto migrations principled: because the restrict operation is functorial, composing two migrations and restricting is the same as restricting twice [@spivak2012]. There are no "migration bugs" that arise from order-of-operations issues.
 
+### Inducing Schema Renames
+
+Theory morphisms induce schema-level renames via `induce_schema_renames()`. Sort-map entries where `old ≠ new` become `NameSite::VertexKind` renames (since sorts map to vertex kinds at the schema level), and op-map entries where `old ≠ new` become `NameSite::EdgeKind` renames. This is the top of the _morphism tower_ described in @sec-naming-identity.
+
+## Identity and Naming
+
+The `ident` module provides three types that separate identity from display name:
+
+- **`ScopeTag`**: An opaque scope tag distinguishing different naming contexts. Generated via `ScopeTag::fresh()`.
+- **`Ident`**: A first-class identifier where equality uses `(scope, index)` only, not the display name. Follows `GATlab` [@lynch2024].
+- **`Name`**: An interned string handle (`Arc<str>`) with a pointer-equality fast path. Drop-in replacement for `String` in hot-path types.
+
+The `NameSite` enum enumerates the nine naming sites (edge labels, vertex IDs, vertex kinds, edge kinds, NSIDs, constraint sorts, instance anchors, theory names, sort names). `SiteRename` is a site-qualified rename operation used in schema morphism provenance and VCS commit metadata.
+
+See @sec-naming-identity for the full contributor guide.
+
 ## Colimits
 
 The `colimit` function computes the pushout of two theories over a shared base theory. This is how panproto composes protocol fragments modularly.

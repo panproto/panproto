@@ -16,6 +16,7 @@
 
 mod builder;
 mod error;
+mod morphism;
 mod normalize;
 mod protocol;
 mod schema;
@@ -24,6 +25,7 @@ mod validate;
 
 pub use builder::SchemaBuilder;
 pub use error::{SchemaError, ValidationError};
+pub use morphism::SchemaMorphism;
 pub use normalize::normalize;
 pub use protocol::{EdgeRule, Protocol};
 pub use schema::{

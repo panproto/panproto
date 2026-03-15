@@ -66,7 +66,7 @@ impl InstanceParser for HtmlCodec {
             root_id,
             Node {
                 id: root_id,
-                anchor: root_anchor.clone(),
+                anchor: root_anchor.as_str().into(),
                 value: None,
                 discriminator: None,
                 extra_fields: HashMap::new(),
@@ -95,7 +95,7 @@ impl InstanceParser for HtmlCodec {
             arcs,
             Vec::new(),
             root_id,
-            root_anchor,
+            panproto_gat::Name::from(root_anchor),
         ))
     }
 
@@ -168,7 +168,7 @@ fn walk_tl_node(
 
             let kind = schema
                 .vertices
-                .get(&anchor)
+                .get(anchor.as_str())
                 .map_or("element", |v| v.kind.as_str())
                 .to_string();
 
@@ -184,9 +184,9 @@ fn walk_tl_node(
                 node_id,
                 Node {
                     id: node_id,
-                    anchor: anchor.clone(),
+                    anchor: anchor.as_str().into(),
                     value: None,
-                    discriminator: Some(kind),
+                    discriminator: Some(panproto_gat::Name::from(kind.as_str())),
                     extra_fields,
                     position: None,
                     annotations: HashMap::new(),
@@ -194,10 +194,10 @@ fn walk_tl_node(
             );
 
             let edge = Edge {
-                src: parent_anchor.to_string(),
-                tgt: anchor.clone(),
-                kind: "contains".to_string(),
-                name: Some(tag_name),
+                src: panproto_gat::Name::from(parent_anchor),
+                tgt: anchor.as_str().into(),
+                kind: "contains".into(),
+                name: Some(panproto_gat::Name::from(tag_name.as_str())),
             };
             arcs.push((parent_id, node_id, edge));
 
@@ -220,7 +220,7 @@ fn walk_tl_node(
                     node_id,
                     Node {
                         id: node_id,
-                        anchor: anchor.clone(),
+                        anchor: anchor.as_str().into(),
                         value: Some(FieldPresence::Present(Value::Str(content))),
                         discriminator: None,
                         extra_fields: HashMap::new(),
@@ -230,10 +230,10 @@ fn walk_tl_node(
                 );
 
                 let edge = Edge {
-                    src: parent_anchor.to_string(),
-                    tgt: anchor,
-                    kind: "contains".to_string(),
-                    name: Some("text".to_string()),
+                    src: panproto_gat::Name::from(parent_anchor),
+                    tgt: panproto_gat::Name::from(anchor.as_str()),
+                    kind: "contains".into(),
+                    name: Some(panproto_gat::Name::from("text")),
                 };
                 arcs.push((parent_id, node_id, edge));
             }
@@ -247,14 +247,14 @@ fn find_root_vertex(schema: &Schema) -> Option<String> {
         .vertices
         .values()
         .find(|v| schema.incoming_edges(&v.id).is_empty())
-        .map(|v| v.id.clone())
+        .map(|v| v.id.to_string())
 }
 
 fn find_child_anchor(schema: &Schema, parent: &str, tag: &str) -> Option<String> {
     let edges = schema.outgoing_edges(parent);
     for edge in edges {
         if edge.name.as_deref() == Some(tag) {
-            return Some(edge.tgt.clone());
+            return Some(edge.tgt.to_string());
         }
     }
     None

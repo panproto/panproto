@@ -146,6 +146,7 @@ mod tests {
     use super::*;
     use crate::MemStore;
     use crate::object::CommitObject;
+    use panproto_gat::Name;
     use panproto_schema::{Schema, Vertex};
     use std::collections::HashMap;
 
@@ -153,10 +154,10 @@ mod tests {
         let mut vert_map = HashMap::new();
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
                     nsid: None,
                 },
             );
@@ -194,6 +195,7 @@ mod tests {
             author: "alice".into(),
             timestamp: 100,
             message: "initial".into(),
+            renames: vec![],
         };
         let commit_id = store.put(&Object::Commit(commit))?;
 
@@ -218,6 +220,7 @@ mod tests {
             author: "alice".into(),
             timestamp: 100,
             message: "initial".into(),
+            renames: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
 
@@ -232,6 +235,7 @@ mod tests {
             author: "bob".into(),
             timestamp: 200,
             message: "add b".into(),
+            renames: vec![],
         };
         let c1_id = store.put(&Object::Commit(c1))?;
 
@@ -255,6 +259,7 @@ mod tests {
             author: "alice".into(),
             timestamp: 100,
             message: "initial".into(),
+            renames: vec![],
         };
         let commit_id = store.put(&Object::Commit(commit))?;
 

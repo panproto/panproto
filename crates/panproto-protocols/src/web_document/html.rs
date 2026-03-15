@@ -153,10 +153,10 @@ pub fn emit_html_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
                 for c in vertex_constraints(schema, &attr_v.id) {
                     match c.sort.as_str() {
                         "required" | "deprecated" | "global" | "boolean-attr" => {
-                            single_attr.insert(c.sort.clone(), serde_json::json!(true));
+                            single_attr.insert(c.sort.to_string(), serde_json::json!(true));
                         }
                         _ => {
-                            single_attr.insert(c.sort.clone(), serde_json::json!(c.value));
+                            single_attr.insert(c.sort.to_string(), serde_json::json!(c.value));
                         }
                     }
                 }
@@ -183,7 +183,7 @@ pub fn emit_html_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
             }
         }
 
-        elements.insert(root.id.clone(), serde_json::Value::Object(obj));
+        elements.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "elements": elements }))

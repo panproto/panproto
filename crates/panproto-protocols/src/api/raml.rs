@@ -209,7 +209,7 @@ pub fn emit_raml_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
             );
         } else {
             let obj = emit_raml_type(schema, &root.id);
-            types.insert(root.id.clone(), obj);
+            types.insert(root.id.to_string(), obj);
         }
     }
 
@@ -236,9 +236,9 @@ fn emit_raml_type(schema: &Schema, vertex_id: &str) -> serde_json::Value {
 
     for c in vertex_constraints(schema, vertex_id) {
         if let Ok(n) = c.value.parse::<i64>() {
-            obj.insert(c.sort.clone(), serde_json::json!(n));
+            obj.insert(c.sort.to_string(), serde_json::json!(n));
         } else {
-            obj.insert(c.sort.clone(), serde_json::json!(c.value));
+            obj.insert(c.sort.to_string(), serde_json::json!(c.value));
         }
     }
 

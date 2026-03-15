@@ -4,6 +4,7 @@
 //! `MessagePack` representation. Canonical forms sort all map entries by key
 //! (using [`BTreeMap`]) and exclude derived/precomputed fields.
 
+use panproto_gat::Name;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
@@ -102,9 +103,9 @@ struct CanonicalVertex {
 impl From<&Vertex> for CanonicalVertex {
     fn from(v: &Vertex) -> Self {
         Self {
-            id: v.id.clone(),
-            kind: v.kind.clone(),
-            nsid: v.nsid.clone(),
+            id: v.id.to_string(),
+            kind: v.kind.to_string(),
+            nsid: v.nsid.as_ref().map(Name::to_string),
         }
     }
 }
@@ -120,14 +121,14 @@ struct CanonicalHyperEdge {
 impl From<&HyperEdge> for CanonicalHyperEdge {
     fn from(he: &HyperEdge) -> Self {
         Self {
-            id: he.id.clone(),
-            kind: he.kind.clone(),
+            id: he.id.to_string(),
+            kind: he.kind.to_string(),
             signature: he
                 .signature
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
-            parent_label: he.parent_label.clone(),
+            parent_label: he.parent_label.to_string(),
         }
     }
 }
@@ -158,7 +159,7 @@ impl From<&Schema> for CanonicalSchema {
             .map(|(k, v)| {
                 let mut sorted = v.clone();
                 sorted.sort();
-                (k.clone(), sorted)
+                (k.to_string(), sorted)
             })
             .collect();
         // Remove empty constraint lists.
@@ -170,7 +171,7 @@ impl From<&Schema> for CanonicalSchema {
             .map(|(k, v)| {
                 let mut sorted = v.clone();
                 sorted.sort();
-                (k.clone(), sorted)
+                (k.to_string(), sorted)
             })
             .collect();
         required.retain(|_, v| !v.is_empty());
@@ -180,47 +181,47 @@ impl From<&Schema> for CanonicalSchema {
             vertices: s
                 .vertices
                 .iter()
-                .map(|(k, v)| (k.clone(), CanonicalVertex::from(v)))
+                .map(|(k, v)| (k.to_string(), CanonicalVertex::from(v)))
                 .collect(),
             edges: s
                 .edges
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| (k.clone(), v.to_string()))
                 .collect(),
             hyper_edges: s
                 .hyper_edges
                 .iter()
-                .map(|(k, v)| (k.clone(), CanonicalHyperEdge::from(v)))
+                .map(|(k, v)| (k.to_string(), CanonicalHyperEdge::from(v)))
                 .collect(),
             constraints,
             required,
             nsids: s
                 .nsids
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
             variants: s
                 .variants
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| (k.to_string(), v.clone()))
                 .collect(),
             orderings: s.orderings.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             recursion_points: s
                 .recursion_points
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| (k.to_string(), v.clone()))
                 .collect(),
             spans: s
                 .spans
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| (k.to_string(), v.clone()))
                 .collect(),
             usage_modes: s
                 .usage_modes
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
-            nominal: s.nominal.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            nominal: s.nominal.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
         }
     }
 }
@@ -275,9 +276,11 @@ pub fn hash_migration(
         .hyper_resolver
         .iter()
         .map(|((he_id, _labels), (tgt_he, remap))| {
-            let sorted_remap: BTreeMap<String, String> =
-                remap.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-            (he_id.clone(), (tgt_he.clone(), sorted_remap))
+            let sorted_remap: BTreeMap<String, String> = remap
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            (he_id.to_string(), (tgt_he.to_string(), sorted_remap))
         })
         .collect();
 
@@ -287,7 +290,7 @@ pub fn hash_migration(
         vertex_map: migration
             .vertex_map
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect(),
         edge_map: migration
             .edge_map
@@ -297,17 +300,17 @@ pub fn hash_migration(
         hyper_edge_map: migration
             .hyper_edge_map
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect(),
         label_map: migration
             .label_map
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|((k1, k2), v)| ((k1.to_string(), k2.to_string()), v.to_string()))
             .collect(),
         resolver: migration
             .resolver
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|((k1, k2), v)| ((k1.to_string(), k2.to_string()), v.clone()))
             .collect(),
         hyper_resolver,
     };
@@ -345,16 +348,16 @@ mod tests {
     fn make_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         let mut vert_map = HashMap::new();
         let mut edge_map = HashMap::new();
-        let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-        let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-        let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+        let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+        let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
                     nsid: None,
                 },
             );
@@ -464,6 +467,7 @@ mod tests {
             author: "test-author".into(),
             timestamp: 1_234_567_890,
             message: "initial commit".into(),
+            renames: vec![],
         };
         let h1 = hash_commit(&commit)?;
         let h2 = hash_commit(&commit)?;

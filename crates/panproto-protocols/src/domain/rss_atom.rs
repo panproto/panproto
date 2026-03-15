@@ -148,7 +148,7 @@ pub fn emit_rss_atom_schema(schema: &Schema) -> Result<serde_json::Value, Protoc
             obj.insert("items".into(), serde_json::Value::Array(arr));
         }
 
-        types.insert(root.id.clone(), serde_json::Value::Object(obj));
+        types.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "types": types }))

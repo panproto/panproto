@@ -312,7 +312,7 @@ pub fn emit_laf_graf(schema: &Schema) -> Result<serde_json::Value, ProtocolError
         if !constraints.is_empty() {
             let mut cs = serde_json::Map::new();
             for c in &constraints {
-                cs.insert(c.sort.clone(), serde_json::json!(c.value));
+                cs.insert(c.sort.to_string(), serde_json::json!(c.value));
             }
             obj.insert("constraints".into(), serde_json::Value::Object(cs));
         }
@@ -323,7 +323,7 @@ pub fn emit_laf_graf(schema: &Schema) -> Result<serde_json::Value, ProtocolError
                 if let Some((_edge, child)) = region_edges.first() {
                     obj.insert("region".into(), serde_json::json!(child.id));
                 }
-                nodes.insert(root.id.clone(), serde_json::Value::Object(obj));
+                nodes.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "region" => {
                 let anchor_edges = children_by_edge(schema, &root.id, "region-anchor");
@@ -334,10 +334,10 @@ pub fn emit_laf_graf(schema: &Schema) -> Result<serde_json::Value, ProtocolError
                         .collect();
                     obj.insert("anchors".into(), serde_json::Value::Array(arr));
                 }
-                regions.insert(root.id.clone(), serde_json::Value::Object(obj));
+                regions.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "anchor" => {
-                anchors.insert(root.id.clone(), serde_json::Value::Object(obj));
+                anchors.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "edge" => {
                 let links = children_by_edge(schema, &root.id, "edge-link");
@@ -353,7 +353,7 @@ pub fn emit_laf_graf(schema: &Schema) -> Result<serde_json::Value, ProtocolError
                         _ => {}
                     }
                 }
-                edges.insert(root.id.clone(), serde_json::Value::Object(obj));
+                edges.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "annotation" => {
                 // `annotates-node`: recover the annotated node/edge-vertex.
@@ -386,7 +386,7 @@ pub fn emit_laf_graf(schema: &Schema) -> Result<serde_json::Value, ProtocolError
                         obj.insert("features".into(), serde_json::Value::Object(features));
                     }
                 }
-                annotations.insert(root.id.clone(), serde_json::Value::Object(obj));
+                annotations.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "feature-structure" => {
                 let mut features = serde_json::Map::new();
@@ -409,7 +409,7 @@ pub fn emit_laf_graf(schema: &Schema) -> Result<serde_json::Value, ProtocolError
                 if !features.is_empty() {
                     obj.insert("features".into(), serde_json::Value::Object(features));
                 }
-                feature_structures.insert(root.id.clone(), serde_json::Value::Object(obj));
+                feature_structures.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             _ => {}
         }

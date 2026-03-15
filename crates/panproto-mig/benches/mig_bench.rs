@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use divan::Bencher;
+use panproto_gat::Name;
 use panproto_inst::Value;
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{CompiledMigration, Node, WInstance};
@@ -29,16 +30,16 @@ fn make_edge(src: &str, tgt: &str, name: &str) -> Edge {
 fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
     let mut vert_map = HashMap::new();
     let mut edge_map = HashMap::new();
-    let mut outgoing: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), smallvec::SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), smallvec::SmallVec<Edge, 2>> = HashMap::new();
 
     for (id, kind) in vertices {
         vert_map.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
@@ -82,7 +83,7 @@ fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
 
 /// Build a linear chain schema: root -> v1 -> v2 -> ... -> vN
 fn chain_schema(n: usize) -> (Schema, Vec<Edge>) {
-    let mut vert_strs: Vec<String> = vec!["root".into()];
+    let mut vert_strs: Vec<String> = vec!["root".to_owned()];
     let mut edges = Vec::new();
 
     for i in 0..n {
@@ -130,14 +131,14 @@ fn chain_instance(n: usize, edges: &[Edge]) -> WInstance {
         })
         .collect();
 
-    WInstance::new(nodes, arcs, vec![], 0, "root".into())
+    WInstance::new(nodes, arcs, vec![], 0, Name::from("root"))
 }
 
 fn identity_compiled(n: usize, edges: &[Edge]) -> CompiledMigration {
-    let mut surviving_verts = HashSet::new();
+    let mut surviving_verts: HashSet<Name> = HashSet::new();
     surviving_verts.insert("root".into());
     for i in 0..n {
-        surviving_verts.insert(format!("v{i}"));
+        surviving_verts.insert(Name::from(format!("v{i}")));
     }
 
     CompiledMigration {
@@ -151,10 +152,10 @@ fn identity_compiled(n: usize, edges: &[Edge]) -> CompiledMigration {
 }
 
 fn projection_compiled(n: usize, keep: usize, edges: &[Edge]) -> CompiledMigration {
-    let mut surviving_verts = HashSet::new();
+    let mut surviving_verts: HashSet<Name> = HashSet::new();
     surviving_verts.insert("root".into());
     for i in 0..keep.min(n) {
-        surviving_verts.insert(format!("v{i}"));
+        surviving_verts.insert(Name::from(format!("v{i}")));
     }
 
     let surviving_edges: HashSet<Edge> = edges.iter().take(keep).cloned().collect();
@@ -169,10 +170,10 @@ fn projection_compiled(n: usize, keep: usize, edges: &[Edge]) -> CompiledMigrati
     }
 }
 
-fn chain_vertex_ids(n: usize) -> Vec<String> {
-    let mut ids = vec!["root".into()];
+fn chain_vertex_ids(n: usize) -> Vec<Name> {
+    let mut ids: Vec<Name> = vec!["root".into()];
     for i in 0..n {
-        ids.push(format!("v{i}"));
+        ids.push(Name::from(format!("v{i}")));
     }
     ids
 }
@@ -299,11 +300,11 @@ fn compose_with_renaming(bencher: Bencher, n: usize) {
     let m1 = Migration::identity(&vertex_ids, &edges);
 
     // Second migration: rename each vertex v{i} -> r{i}
-    let mut vertex_map = HashMap::new();
-    vertex_map.insert("root".to_string(), "root".to_string());
+    let mut vertex_map: HashMap<Name, Name> = HashMap::new();
+    vertex_map.insert("root".into(), "root".into());
     let mut edge_map = HashMap::new();
     for i in 0..n {
-        vertex_map.insert(format!("v{i}"), format!("r{i}"));
+        vertex_map.insert(Name::from(format!("v{i}")), Name::from(format!("r{i}")));
     }
     for edge in &edges {
         let new_src = vertex_map

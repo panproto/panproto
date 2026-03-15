@@ -28,6 +28,7 @@
 // Allow concrete HashMap/HashSet in public API signatures per ENGINEERING.md spec.
 #![allow(clippy::implicit_hasher)]
 
+pub mod cascade;
 pub mod compile;
 pub mod compose;
 pub mod error;
@@ -36,6 +37,7 @@ pub mod invert;
 pub mod lift;
 pub mod migration;
 
+pub use cascade::{induce_data_migration, induce_migration_from_theory, induce_schema_morphism};
 pub use compile::compile;
 pub use compose::compose;
 pub use error::{ComposeError, ExistenceError, InvertError, LiftError, MigError};

@@ -368,7 +368,7 @@ pub fn emit_naf(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                     if !elem_constraints.is_empty() {
                         let mut attrs = serde_json::Map::new();
                         for c in &elem_constraints {
-                            attrs.insert(c.sort.clone(), serde_json::json!(c.value));
+                            attrs.insert(c.sort.to_string(), serde_json::json!(c.value));
                         }
                         elem_obj.insert("attrs".into(), serde_json::Value::Object(attrs));
                     }
@@ -426,7 +426,7 @@ pub fn emit_naf(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                                 let mut ext_obj = serde_json::Map::new();
                                 let ext_constraints = vertex_constraints(schema, &child.id);
                                 for c in &ext_constraints {
-                                    ext_obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                                    ext_obj.insert(c.sort.to_string(), serde_json::json!(c.value));
                                 }
                                 serde_json::Value::Object(ext_obj)
                             })
@@ -454,7 +454,7 @@ pub fn emit_naf(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                         elem_obj.insert("children".into(), serde_json::Value::Array(arr));
                     }
 
-                    elements.insert(elem.id.clone(), serde_json::Value::Object(elem_obj));
+                    elements.insert(elem.id.to_string(), serde_json::Value::Object(elem_obj));
                 }
 
                 if !elements.is_empty() {
@@ -462,7 +462,7 @@ pub fn emit_naf(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 }
 
                 let _layer_name = edge.name.as_deref().unwrap_or(&layer.id);
-                layers.insert(layer.id.clone(), serde_json::Value::Object(layer_obj));
+                layers.insert(layer.id.to_string(), serde_json::Value::Object(layer_obj));
             }
         }
     }

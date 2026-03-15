@@ -140,7 +140,7 @@ pub fn emit_markdown_schema(schema: &Schema) -> Result<serde_json::Value, Protoc
             obj.insert("properties".into(), serde_json::Value::Object(props_obj));
         }
 
-        nodes.insert(root.id.clone(), serde_json::Value::Object(obj));
+        nodes.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "nodes": nodes }))

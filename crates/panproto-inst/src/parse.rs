@@ -67,7 +67,7 @@ pub fn parse_json(
         state.arcs,
         Vec::new(),
         root_id,
-        root_vertex.to_string(),
+        panproto_gat::Name::from(root_vertex),
     ))
 }
 
@@ -115,7 +115,7 @@ fn parse_object(
 
     // Check for discriminator ($type field)
     if let Some(serde_json::Value::String(disc)) = map.get("$type") {
-        node.discriminator = Some(disc.clone());
+        node.discriminator = Some(panproto_gat::Name::from(disc.as_str()));
     }
 
     // Get outgoing edges from schema for this vertex
@@ -125,7 +125,7 @@ fn parse_object(
     let mut handled_fields = std::collections::HashSet::new();
 
     for edge in &outgoing {
-        let field_name = edge.name.as_deref().unwrap_or(&edge.tgt);
+        let field_name = edge.name.as_deref().unwrap_or(&*edge.tgt);
         handled_fields.insert(field_name.to_string());
 
         if let Some(field_val) = map.get(field_name) {
@@ -270,13 +270,13 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
 
     // Add discriminator if present
     if let Some(ref disc) = node.discriminator {
-        map.insert("$type".to_string(), json!(disc));
+        map.insert("$type".to_string(), json!(&**disc));
     }
 
     // Add children as properties
     for &(parent, child, ref edge) in &instance.arcs {
         if parent == node_id {
-            let field_name = edge.name.as_deref().unwrap_or(&edge.tgt);
+            let field_name = edge.name.as_deref().unwrap_or(&*edge.tgt);
             map.insert(
                 field_name.to_string(),
                 node_to_json(schema, instance, child),
@@ -447,8 +447,15 @@ mod tests {
         let result = parse_json(&schema, "post:body", &json_val);
         assert!(result.is_ok(), "parse failed: {result:?}");
 
-        let inst = result
-            .unwrap_or_else(|_| WInstance::new(HashMap::new(), vec![], vec![], 0, String::new()));
+        let inst = result.unwrap_or_else(|_| {
+            WInstance::new(
+                HashMap::new(),
+                vec![],
+                vec![],
+                0,
+                panproto_gat::Name::default(),
+            )
+        });
         assert_eq!(inst.node_count(), 3);
         assert_eq!(inst.arc_count(), 2);
     }
@@ -463,8 +470,15 @@ mod tests {
 
         let inst = parse_json(&schema, "post:body", &json_val);
         assert!(inst.is_ok());
-        let inst = inst
-            .unwrap_or_else(|_| WInstance::new(HashMap::new(), vec![], vec![], 0, String::new()));
+        let inst = inst.unwrap_or_else(|_| {
+            WInstance::new(
+                HashMap::new(),
+                vec![],
+                vec![],
+                0,
+                panproto_gat::Name::default(),
+            )
+        });
 
         let output = to_json(&schema, &inst);
         assert!(output.is_object());

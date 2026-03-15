@@ -44,6 +44,7 @@ book:
         - chapters/15-cli.qmd
         - chapters/21-vcs-engine.qmd
         - chapters/22-building-blocks.qmd
+        - chapters/23-naming-identity.qmd
     - part: "Contributing Process"
       chapters:
         - chapters/16-conventions.qmd

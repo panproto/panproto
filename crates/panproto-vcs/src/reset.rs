@@ -121,6 +121,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "c0".into(),
+            renames: vec![],
         }))?;
         let c1_id = store.put(&Object::Commit(CommitObject {
             schema_id: ObjectId::from_bytes([1; 32]),
@@ -130,6 +131,7 @@ mod tests {
             author: "test".into(),
             timestamp: 200,
             message: "c1".into(),
+            renames: vec![],
         }))?;
 
         store.set_ref("refs/heads/main", c1_id)?;
@@ -154,6 +156,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "c0".into(),
+            renames: vec![],
         }))?;
 
         store.set_ref("refs/heads/main", c0_id)?;
@@ -175,6 +178,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "c0".into(),
+            renames: vec![],
         }))?;
 
         store.set_ref("refs/heads/main", c0_id)?;
@@ -196,6 +200,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "c0".into(),
+            renames: vec![],
         }))?;
 
         store.set_ref("refs/heads/main", c0_id)?;

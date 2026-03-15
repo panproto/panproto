@@ -17,6 +17,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
@@ -33,17 +34,17 @@ use crate::metadata::Node;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CompiledMigration {
     /// Vertices that survive the migration.
-    pub surviving_verts: HashSet<String>,
+    pub surviving_verts: HashSet<Name>,
     /// Edges that survive the migration.
     pub surviving_edges: HashSet<Edge>,
     /// Vertex remapping: source vertex ID to target vertex ID.
-    pub vertex_remap: HashMap<String, String>,
+    pub vertex_remap: HashMap<Name, Name>,
     /// Edge remapping: source edge to target edge.
     pub edge_remap: HashMap<Edge, Edge>,
     /// Binary contraction resolver: (`src_anchor`, `tgt_anchor`) to resolved edge.
-    pub resolver: HashMap<(String, String), Edge>,
+    pub resolver: HashMap<(Name, Name), Edge>,
     /// Hyper-edge contraction resolver.
-    pub hyper_resolver: HashMap<String, (String, HashMap<String, String>)>,
+    pub hyper_resolver: HashMap<Name, (Name, HashMap<Name, Name>)>,
 }
 
 /// A W-type instance: tree-shaped data conforming to a schema.
@@ -62,7 +63,7 @@ pub struct WInstance {
     /// Root node ID.
     pub root: u32,
     /// Schema vertex that the root node is anchored to.
-    pub schema_root: String,
+    pub schema_root: Name,
     /// Precomputed parent map: `child_id` -> `parent_id`.
     pub parent_map: HashMap<u32, u32>,
     /// Precomputed children map: `parent_id` -> child IDs.
@@ -77,7 +78,7 @@ impl WInstance {
         arcs: Vec<(u32, u32, Edge)>,
         fans: Vec<Fan>,
         root: u32,
-        schema_root: String,
+        schema_root: Name,
     ) -> Self {
         let mut parent_map = HashMap::with_capacity(arcs.len());
         let mut children_map: HashMap<u32, SmallVec<u32, 4>> = HashMap::new();
@@ -138,7 +139,7 @@ impl WInstance {
 
 /// Keep nodes whose anchor vertex is in the surviving vertex set.
 #[must_use]
-pub fn anchor_surviving(instance: &WInstance, surviving_verts: &HashSet<String>) -> HashSet<u32> {
+pub fn anchor_surviving(instance: &WInstance, surviving_verts: &HashSet<Name>) -> HashSet<u32> {
     instance
         .nodes
         .iter()
@@ -246,7 +247,7 @@ pub fn ancestor_contraction(instance: &WInstance, surviving: &HashSet<u32>) -> H
 /// a resolver entry.
 pub fn resolve_edge(
     tgt_schema: &Schema,
-    resolver: &HashMap<(String, String), Edge>,
+    resolver: &HashMap<(Name, Name), Edge>,
     src_v: &str,
     tgt_v: &str,
 ) -> Result<Edge, RestrictError> {
@@ -308,17 +309,18 @@ pub fn reconstruct_fans(
             continue;
         }
 
-        if let Some((new_he_id, label_map)) = migration.hyper_resolver.get(&fan.hyper_edge_id) {
+        if let Some((new_he_id, label_map)) =
+            migration.hyper_resolver.get(fan.hyper_edge_id.as_str())
+        {
             let mut new_children = HashMap::new();
             for (old_label, &node_id) in &surviving_children {
                 let new_label = label_map
-                    .get(old_label)
-                    .cloned()
-                    .unwrap_or_else(|| old_label.clone());
+                    .get(old_label.as_str())
+                    .map_or_else(|| old_label.clone(), std::string::ToString::to_string);
                 new_children.insert(new_label, node_id);
             }
             result.push(Fan {
-                hyper_edge_id: new_he_id.clone(),
+                hyper_edge_id: new_he_id.to_string(),
                 parent: fan.parent,
                 children: new_children,
             });
@@ -470,7 +472,7 @@ mod tests {
     /// Helper: build a simple 3-node instance (object with two string children).
     fn three_node_instance() -> WInstance {
         let mut nodes = HashMap::new();
-        nodes.insert(0, Node::new(0, "post:body"));
+        nodes.insert(0, Node::new(0, panproto_gat::Name::from("post:body")));
         nodes.insert(
             1,
             Node::new(1, "post:body.text")
@@ -505,15 +507,21 @@ mod tests {
             ),
         ];
 
-        WInstance::new(nodes, arcs, vec![], 0, "post:body".into())
+        WInstance::new(
+            nodes,
+            arcs,
+            vec![],
+            0,
+            panproto_gat::Name::from("post:body"),
+        )
     }
 
     #[test]
     fn anchor_surviving_keeps_matching_nodes() {
         let inst = three_node_instance();
-        let surviving_verts: HashSet<String> = ["post:body", "post:body.text"]
+        let surviving_verts: HashSet<Name> = ["post:body", "post:body.text"]
             .iter()
-            .map(|&s| s.into())
+            .map(|&s| Name::from(s))
             .collect();
 
         let result = anchor_surviving(&inst, &surviving_verts);
@@ -560,7 +568,7 @@ mod tests {
             kind: "prop".into(),
             name: Some("x".into()),
         };
-        between.insert(("a".to_string(), "b".to_string()), smallvec![edge.clone()]);
+        between.insert((Name::from("a"), Name::from("b")), smallvec![edge.clone()]);
 
         let schema = Schema {
             protocol: "test".into(),
@@ -615,7 +623,7 @@ mod tests {
             name: Some("resolved".into()),
         };
         let mut resolver = HashMap::new();
-        resolver.insert(("a".to_string(), "b".to_string()), resolved_edge.clone());
+        resolver.insert((Name::from("a"), Name::from("b")), resolved_edge.clone());
 
         let result = resolve_edge(&schema, &resolver, "a", "b");
         assert!(result.is_ok());

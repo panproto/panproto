@@ -196,7 +196,7 @@ pub fn emit_paula_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolE
                 for c in vertex_constraints(schema, &child.id) {
                     match c.sort.as_str() {
                         "namespace" | "layer" | "start" | "end" | "begin-time" | "end-time" => {
-                            field.insert(c.sort.clone(), serde_json::json!(c.value));
+                            field.insert(c.sort.to_string(), serde_json::json!(c.value));
                         }
                         _ => {}
                     }
@@ -215,7 +215,7 @@ pub fn emit_paula_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolE
             obj.insert("items".into(), serde_json::Value::Array(arr));
         }
 
-        types.insert(root.id.clone(), serde_json::Value::Object(obj));
+        types.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "types": types }))

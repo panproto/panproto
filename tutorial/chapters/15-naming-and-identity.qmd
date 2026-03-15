@@ -1,0 +1,114 @@
+# Solving Naming {#sec-naming}
+
+One of the two famously hard problems in computer science is naming things. In distributed systems and protocol ecosystems, naming is arguably *the* hard problem: different systems name the same concepts differently, and getting everyone to agree has never worked.
+
+panproto makes the naming problem disappear as a category. Instead of requiring consensus on names, it formalizes the *relationships between names* as bidirectional, composable, verifiable transformations.
+
+## The naming problem
+
+Consider a simple concept: the short text handle a person uses online. ATProto calls it `handle`. Mastodon calls it `acct`. Twitter called it `screen_name`. ActivityPub uses `preferredUsername`. Your internal API says `username`.
+
+They all mean the same thing. But every integration between these systems requires writing adapter code that maps one name to another. Multiply this by dozens of fields across dozens of protocols, and you get the single largest source of integration bugs in software.
+
+Every previous attempt to solve this tries to get everyone to agree on names---standards bodies, shared ontologies, canonical schemas. They all fail because:
+
+1. **Names carry context.** ATProto calls it `handle` because of how identity works in their protocol. The name encodes a design decision.
+2. **Names evolve.** Your v1 API said `text`. Your v2 says `body`. Your v3 will say `content`. Each rename made sense at the time.
+3. **Agreement doesn't scale.** Getting two teams to agree is hard. Getting an ecosystem to agree is impossible.
+
+## Where names live in panproto {#sec-naming-sites}
+
+Names appear at nine different sites in the panproto system:
+
+| Site | Example | Description |
+|------|---------|-------------|
+| Edge label | `"text"` → `"body"` | Field/property names |
+| Vertex ID | `"post:body.text"` | Structural identifiers |
+| Vertex kind | `"string"`, `"object"` | Type classification |
+| Edge kind | `"prop"`, `"field-of"` | Relationship types |
+| NSID | `"app.bsky.feed.post"` | Namespace identifiers |
+| Constraint sort | `"maxLength"` | Validation property names |
+| Instance anchor | `"post:body.text"` | Data→schema references |
+| Theory name | `"ThATProtoSchema"` | GAT theory identifiers |
+| Sort name | `"Vertex"`, `"Node"` | GAT sort identifiers |
+
+: The nine naming sites in panproto. {#tbl-naming-sites}
+
+All nine sites are transformable through the same algebra of rename combinators. A single `Rename { site, old, new }` combinator works across all of them.
+
+## Identity vs. name
+
+panproto separates *identity* (which element is this?) from *name* (what do we call it?). This follows the `GATlab` design [@lynch2024], where an identifier consists of:
+
+- A **scope tag** (which theory or schema this element belongs to)
+- A **positional index** (which element within that scope)
+- A **display name** (the human-readable label)
+
+Equality and hashing use only the scope and index. Renaming changes the display name without changing identity. A `HashMap<Ident, _>` entry survives a rename without rehashing.
+
+This is analogous to how git's content-addressing (SHA) doesn't care about filenames: you can rename a file and git tracks the same content. In panproto, you can rename a vertex and the system tracks the same structural element.
+
+## The rename combinators
+
+panproto provides rename combinators for each naming site:
+
+- **`RenameField { old, new }`**: Rename an edge label. The original combinator from @sec-lenses. Lossless: the complement is empty.
+- **`RenameVertex { old_id, new_id }`**: Rename a vertex ID. Cascades to all edges, constraints, required sets, variants, and hyper-edges that reference the vertex.
+- **`RenameKind { vertex_id, new_kind }`**: Change a single vertex's kind. Fine-grained alternative to `CoerceType`.
+- **`RenameEdgeKind { old_kind, new_kind }`**: Change the kind of all edges matching the old kind. Useful for translating between protocol conventions (e.g., `"prop"` to `"field-of"`).
+- **`RenameNsid { vertex_id, new_nsid }`**: Change the namespace identifier on a vertex.
+- **`RenameConstraintSort { old_sort, new_sort }`**: Translate validation vocabulary (e.g., `"maxLength"` to `"max-length"`).
+- **`Rename { site, old, new }`**: Unified combinator that dispatches to the appropriate specific rename based on the `NameSite`.
+
+All rename combinators are lossless---the complement is empty, and the `GetPut` and `PutGet` lens laws hold.
+
+## The morphism tower {#sec-morphism-tower}
+
+The most powerful feature is the **morphism tower**: theory morphisms automatically cascade into schema morphisms and data migrations.
+
+A theory morphism `F: T1 → T2` maps sorts and operations:
+
+```
+sort_map:  Vertex → Node,    Edge → Arrow
+op_map:    src → source,     tgt → target
+```
+
+When applied as a combinator (`ApplyTheoryMorphism`), this single morphism:
+
+1. Renames vertex kinds via `sort_map` (every `"Vertex"` becomes `"Node"`)
+2. Renames edge kinds via `op_map` (every `"src"` edge becomes `"source"`)
+3. Produces a `SchemaMorphism` recording all the renames
+4. Lowers to a `CompiledMigration` for the restrict pipeline
+
+This is the functorial action from @spivak2012: a schema morphism induces a data migration functor `Δ_F` (pullback along the morphism).
+
+### Composing morphisms
+
+Morphisms compose transitively. If you know how ATProto names map to JSON Schema names, and JSON Schema names map to Protobuf names, you get ATProto→Protobuf for free:
+
+```
+ATProto → JSON Schema → Protobuf
+         (compose)
+ATProto ─────────────→ Protobuf
+```
+
+The intermediate step is eliminated algebraically. Only the net rename effect is computed.
+
+## Rename detection in VCS {#sec-rename-detection}
+
+The schematic VCS (@sec-version-control) can heuristically detect renames between schema versions. When a vertex disappears from an old schema and a structurally similar vertex appears in a new schema, the system computes a confidence score based on:
+
+- Same vertex kind (+0.3)
+- Same outgoing edge set (+0.3)
+- Same incoming edge set (+0.2)
+- Edit distance of names ≤ 3 (+0.2)
+
+High-confidence renames (above a configurable threshold) are automatically incorporated into the migration rather than being treated as separate delete-and-add operations. The `schema diff --detect-renames` command shows detected renames with their confidence scores.
+
+## The naming problem, solved
+
+panproto solves naming by making consensus unnecessary. Every protocol uses its own vocabulary. Every version of your API renames whatever it wants. Every team calls things whatever makes sense in their context.
+
+The system tracks the *morphisms*---the structure-preserving maps---between all of them. Lenses compose transitively. The round-trip laws guarantee no information loss. And the morphism tower means a single theory-level rename propagates automatically through schemas, migrations, and instance data.
+
+The naming problem is not solved by agreement. It is solved by making agreement unnecessary.

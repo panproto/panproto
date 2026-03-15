@@ -129,7 +129,7 @@ pub fn emit_docx_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
         obj.insert("kind".into(), serde_json::json!(root.kind));
 
         for c in vertex_constraints(schema, &root.id) {
-            obj.insert(c.sort.clone(), serde_json::json!(c.value));
+            obj.insert(c.sort.to_string(), serde_json::json!(c.value));
         }
 
         let props = children_by_edge(schema, &root.id, "prop");
@@ -140,7 +140,7 @@ pub fn emit_docx_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
                 let mut child_obj = serde_json::Map::new();
                 child_obj.insert("kind".into(), serde_json::json!(child.kind));
                 for c in vertex_constraints(schema, &child.id) {
-                    child_obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                    child_obj.insert(c.sort.to_string(), serde_json::json!(c.value));
                 }
                 children.insert(child_name.to_string(), serde_json::Value::Object(child_obj));
             }
@@ -156,7 +156,7 @@ pub fn emit_docx_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
             obj.insert("items".into(), serde_json::Value::Array(arr));
         }
 
-        elements.insert(root.id.clone(), serde_json::Value::Object(obj));
+        elements.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "elements": elements }))

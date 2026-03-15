@@ -260,7 +260,7 @@ pub fn emit_brat(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                         obj.insert("type".into(), serde_json::json!(name));
                     }
                 }
-                textbounds.insert(root.id.clone(), serde_json::Value::Object(obj));
+                textbounds.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "relation" => {
                 for c in &constraints {
@@ -277,7 +277,7 @@ pub fn emit_brat(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                     }
                     obj.insert("args".into(), serde_json::Value::Object(args));
                 }
-                relations.insert(root.id.clone(), serde_json::Value::Object(obj));
+                relations.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "event" => {
                 for c in &constraints {
@@ -298,7 +298,7 @@ pub fn emit_brat(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if !args.is_empty() {
                     obj.insert("args".into(), serde_json::Value::Object(args));
                 }
-                events.insert(root.id.clone(), serde_json::Value::Object(obj));
+                events.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "attribute" => {
                 for c in &constraints {
@@ -316,7 +316,7 @@ pub fn emit_brat(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if let Some((_edge, child)) = targets.first() {
                     obj.insert("target".into(), serde_json::json!(child.id));
                 }
-                attributes.insert(root.id.clone(), serde_json::Value::Object(obj));
+                attributes.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "normalization" => {
                 for c in &constraints {
@@ -334,7 +334,7 @@ pub fn emit_brat(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if let Some((_edge, child)) = targets.first() {
                     obj.insert("target".into(), serde_json::json!(child.id));
                 }
-                normalizations.insert(root.id.clone(), serde_json::Value::Object(obj));
+                normalizations.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "note" => {
                 for c in &constraints {
@@ -347,7 +347,7 @@ pub fn emit_brat(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if let Some((_edge, child)) = targets.first() {
                     obj.insert("target".into(), serde_json::json!(child.id));
                 }
-                notes.insert(root.id.clone(), serde_json::Value::Object(obj));
+                notes.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "equivalence" => {
                 let members = children_by_edge(schema, &root.id, "equiv-member");

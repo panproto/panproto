@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::eq::Term;
 use crate::error::GatError;
+use crate::ident::{NameSite, SiteRename};
 use crate::theory::Theory;
 
 /// A structure-preserving map between two theories.
@@ -46,6 +47,36 @@ impl TheoryMorphism {
     #[must_use]
     pub fn apply_to_term(&self, term: &Term) -> Term {
         term.rename_ops(&self.op_map)
+    }
+
+    /// Induce site-qualified renames from this theory morphism.
+    ///
+    /// Sort-map entries where `old ≠ new` become [`NameSite::VertexKind`]
+    /// renames (since sorts map to vertex kinds at the schema level).
+    /// Op-map entries where `old ≠ new` become [`NameSite::EdgeKind`]
+    /// renames (since operations map to edge kinds).
+    #[must_use]
+    pub fn induce_schema_renames(&self) -> Vec<SiteRename> {
+        let mut renames = Vec::new();
+        for (old_sort, new_sort) in &self.sort_map {
+            if old_sort != new_sort {
+                renames.push(SiteRename::new(
+                    NameSite::VertexKind,
+                    Arc::clone(old_sort),
+                    Arc::clone(new_sort),
+                ));
+            }
+        }
+        for (old_op, new_op) in &self.op_map {
+            if old_op != new_op {
+                renames.push(SiteRename::new(
+                    NameSite::EdgeKind,
+                    Arc::clone(old_op),
+                    Arc::clone(new_op),
+                ));
+            }
+        }
+        renames
     }
 }
 

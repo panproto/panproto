@@ -332,6 +332,7 @@ mod tests {
                 author: "test".into(),
                 timestamp: i as u64 * 100,
                 message: format!("commit {i}"),
+                renames: vec![],
             };
             let id = store.put(&Object::Commit(commit))?;
             ids.push(id);
@@ -359,6 +360,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "c0".into(),
+            renames: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -370,6 +372,7 @@ mod tests {
             author: "test".into(),
             timestamp: 200,
             message: "c1".into(),
+            renames: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -381,6 +384,7 @@ mod tests {
             author: "test".into(),
             timestamp: 300,
             message: "c2".into(),
+            renames: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -392,6 +396,7 @@ mod tests {
             author: "test".into(),
             timestamp: 400,
             message: "c3".into(),
+            renames: vec![],
         };
         let id3 = store.put(&Object::Commit(c3))?;
 
@@ -432,6 +437,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "orphan1".into(),
+            renames: vec![],
         };
         let c2 = CommitObject {
             schema_id: ObjectId::from_bytes([2; 32]),
@@ -441,6 +447,7 @@ mod tests {
             author: "test".into(),
             timestamp: 200,
             message: "orphan2".into(),
+            renames: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
         let id2 = store.put(&Object::Commit(c2))?;
@@ -545,6 +552,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "c0".into(),
+            renames: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -556,6 +564,7 @@ mod tests {
             author: "test".into(),
             timestamp: 200,
             message: "c1".into(),
+            renames: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -567,6 +576,7 @@ mod tests {
             author: "test".into(),
             timestamp: 300,
             message: "c2".into(),
+            renames: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -579,6 +589,7 @@ mod tests {
             author: "test".into(),
             timestamp: 400,
             message: "c3".into(),
+            renames: vec![],
         };
         let id3 = store.put(&Object::Commit(c3))?;
 
@@ -591,6 +602,7 @@ mod tests {
             author: "test".into(),
             timestamp: 500,
             message: "c4".into(),
+            renames: vec![],
         };
         let id4 = store.put(&Object::Commit(c4))?;
 

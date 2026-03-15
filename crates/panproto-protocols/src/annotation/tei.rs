@@ -949,7 +949,7 @@ fn emit_constrained_map(
         match c.sort.as_str() {
             "xml-id" | "type" | "subtype" | "lang" | "n" | "value" | "rend" | "resp" | "when"
             | "who" | "scheme" | "corresp" | "wit" => {
-                obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                obj.insert(c.sort.to_string(), serde_json::json!(c.value));
             }
             _ => {}
         }

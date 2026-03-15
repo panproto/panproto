@@ -471,7 +471,7 @@ fn emit_ts_field_list(schema: &Schema, parent_id: &str, w: &mut IndentWriter) {
         let is_readonly =
             constraint_value(schema, &field_vertex.id, "readonly").is_some_and(|v| v == "true");
         let type_name = resolve_type(schema, &field_vertex.id)
-            .map(|v| v.id.clone())
+            .map(|v| v.id.to_string())
             .unwrap_or_else(|| "any".to_string());
         let readonly_prefix = if is_readonly { "readonly " } else { "" };
         let opt = if is_optional { "?" } else { "" };
@@ -484,7 +484,7 @@ fn implements_clause(schema: &Schema, vertex_id: &str) -> Vec<String> {
         .outgoing_edges(vertex_id)
         .iter()
         .filter(|e| e.kind == "implements")
-        .map(|e| e.tgt.clone())
+        .map(|e| e.tgt.to_string())
         .collect();
     impls.sort();
     impls

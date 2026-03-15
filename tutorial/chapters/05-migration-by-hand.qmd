@@ -250,6 +250,8 @@ Adding a field is the simplest possible migration. Let's briefly sketch what hap
 
 Suppose v2 renames `text` to `body`. The vertex map still sends `Text ↦ Text` (the type hasn't changed), but the edge map sends `text ↦ body`. During edge resolution (step 4), the engine relabels the `body` edge back to `text`, producing a record that uses the old field name. The data is untouched; only the label changes.
 
+Renaming is a lossless operation---the complement is empty, and the round-trip laws hold trivially. panproto supports renaming not just edge labels (`RenameField`) but also vertex IDs (`RenameVertex`), vertex kinds (`RenameKind`), edge kinds (`RenameEdgeKind`), namespace identifiers (`RenameNsid`), and constraint sorts (`RenameConstraintSort`). See @sec-naming for the full story on how naming works across the system.
+
 ### Restructuring: Extracting a Nested Object
 
 Suppose v1 has a flat post with `text`, `createdAt`, and `authorName`. v2 extracts `authorName` into a nested `author` object with a `name` field. The vertex map sends v1's `AuthorName` to v2's `Name` (inside the `Author` object). The edge map sends v1's `authorName` to the *composed path* `author.name`.

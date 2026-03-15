@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -17,11 +18,11 @@ use smallvec::SmallVec;
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Vertex {
     /// Unique vertex identifier within the schema.
-    pub id: String,
+    pub id: Name,
     /// The vertex kind (e.g., `"record"`, `"object"`, `"string"`).
-    pub kind: String,
+    pub kind: Name,
     /// Optional namespace identifier (e.g., `"app.bsky.feed.post"`).
-    pub nsid: Option<String>,
+    pub nsid: Option<Name>,
 }
 
 /// A binary edge between two vertices.
@@ -32,13 +33,13 @@ pub struct Vertex {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Edge {
     /// Source vertex ID.
-    pub src: String,
+    pub src: Name,
     /// Target vertex ID.
-    pub tgt: String,
+    pub tgt: Name,
     /// Edge kind (e.g., `"prop"`, `"record-schema"`).
-    pub kind: String,
+    pub kind: Name,
     /// Optional edge label (e.g., a property name like `"text"`).
-    pub name: Option<String>,
+    pub name: Option<Name>,
 }
 
 /// A hyper-edge (present only when the schema theory includes `ThHypergraph`).
@@ -47,13 +48,13 @@ pub struct Edge {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HyperEdge {
     /// Unique hyper-edge identifier.
-    pub id: String,
+    pub id: Name,
     /// Hyper-edge kind.
-    pub kind: String,
+    pub kind: Name,
     /// Maps label names to vertex IDs.
-    pub signature: HashMap<String, String>,
+    pub signature: HashMap<Name, Name>,
     /// The label that identifies the parent vertex.
-    pub parent_label: String,
+    pub parent_label: Name,
 }
 
 /// A constraint on a vertex.
@@ -63,7 +64,7 @@ pub struct HyperEdge {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Constraint {
     /// The constraint sort (e.g., `"maxLength"`, `"format"`).
-    pub sort: String,
+    pub sort: Name,
     /// The constraint value (e.g., `"3000"`, `"at-uri"`).
     pub value: String,
 }
@@ -75,11 +76,11 @@ pub struct Constraint {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Variant {
     /// Unique variant identifier.
-    pub id: String,
+    pub id: Name,
     /// The parent coproduct vertex this variant belongs to.
-    pub parent_vertex: String,
+    pub parent_vertex: Name,
     /// Optional discriminant tag.
-    pub tag: Option<String>,
+    pub tag: Option<Name>,
 }
 
 /// An ordering annotation on an edge.
@@ -101,9 +102,9 @@ pub struct Ordering {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RecursionPoint {
     /// The fixpoint marker vertex ID.
-    pub mu_id: String,
+    pub mu_id: Name,
     /// The target vertex this unfolds to.
-    pub target_vertex: String,
+    pub target_vertex: Name,
 }
 
 /// A span connecting two vertices through a common source.
@@ -113,11 +114,11 @@ pub struct RecursionPoint {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Span {
     /// Unique span identifier.
-    pub id: String,
+    pub id: Name,
     /// Left vertex of the span.
-    pub left: String,
+    pub left: Name,
     /// Right vertex of the span.
-    pub right: String,
+    pub right: Name,
 }
 
 /// Use-counting mode for an edge.
@@ -145,47 +146,47 @@ pub struct Schema {
     /// The protocol this schema belongs to.
     pub protocol: String,
     /// Vertices keyed by their ID.
-    pub vertices: HashMap<String, Vertex>,
+    pub vertices: HashMap<Name, Vertex>,
     /// Edges keyed by the edge itself, value is the edge kind.
     #[serde(with = "crate::serde_helpers::map_as_vec")]
-    pub edges: HashMap<Edge, String>,
+    pub edges: HashMap<Edge, Name>,
     /// Hyper-edges keyed by their ID.
-    pub hyper_edges: HashMap<String, HyperEdge>,
+    pub hyper_edges: HashMap<Name, HyperEdge>,
     /// Constraints per vertex ID.
-    pub constraints: HashMap<String, Vec<Constraint>>,
+    pub constraints: HashMap<Name, Vec<Constraint>>,
     /// Required edges per vertex ID.
-    pub required: HashMap<String, Vec<Edge>>,
+    pub required: HashMap<Name, Vec<Edge>>,
     /// NSID mapping: vertex ID to NSID string.
-    pub nsids: HashMap<String, String>,
+    pub nsids: HashMap<Name, Name>,
 
     /// Coproduct variants per union vertex ID.
     #[serde(default)]
-    pub variants: HashMap<String, Vec<Variant>>,
+    pub variants: HashMap<Name, Vec<Variant>>,
     /// Edge ordering positions (edge → position index).
     #[serde(default, with = "crate::serde_helpers::map_as_vec_default")]
     pub orderings: HashMap<Edge, u32>,
     /// Recursion points (fixpoint markers).
     #[serde(default)]
-    pub recursion_points: HashMap<String, RecursionPoint>,
+    pub recursion_points: HashMap<Name, RecursionPoint>,
     /// Spans connecting pairs of vertices.
     #[serde(default)]
-    pub spans: HashMap<String, Span>,
+    pub spans: HashMap<Name, Span>,
     /// Edge usage modes (default: `Structural` for all).
     #[serde(default, with = "crate::serde_helpers::map_as_vec_default")]
     pub usage_modes: HashMap<Edge, UsageMode>,
     /// Whether each vertex uses nominal identity (`true`) or
     /// structural identity (`false`). Absent = structural.
     #[serde(default)]
-    pub nominal: HashMap<String, bool>,
+    pub nominal: HashMap<Name, bool>,
 
     // -- precomputed indices --
     /// Outgoing edges per vertex ID.
-    pub outgoing: HashMap<String, SmallVec<Edge, 4>>,
+    pub outgoing: HashMap<Name, SmallVec<Edge, 4>>,
     /// Incoming edges per vertex ID.
-    pub incoming: HashMap<String, SmallVec<Edge, 4>>,
+    pub incoming: HashMap<Name, SmallVec<Edge, 4>>,
     /// Edges between a specific `(src, tgt)` pair.
     #[serde(with = "crate::serde_helpers::map_as_vec")]
-    pub between: HashMap<(String, String), SmallVec<Edge, 2>>,
+    pub between: HashMap<(Name, Name), SmallVec<Edge, 2>>,
 }
 
 impl Schema {
@@ -212,7 +213,7 @@ impl Schema {
     #[inline]
     pub fn edges_between(&self, src: &str, tgt: &str) -> &[Edge] {
         self.between
-            .get(&(src.to_owned(), tgt.to_owned()))
+            .get(&(Name::from(src), Name::from(tgt)))
             .map_or(&[], SmallVec::as_slice)
     }
 

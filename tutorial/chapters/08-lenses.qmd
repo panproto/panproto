@@ -156,6 +156,24 @@ The design follows @litt2022's Cambria system, adapted to panproto's categorical
 | `hoistField(path)` | Move a nested field up one level | Move back down |
 | `coerceType(field, from, to)` | Convert value (e.g., string → int) | Convert back |
 
+: Original combinators. All are lossless except `removeField`. {#tbl-original-combinators}
+
+In addition to these, panproto provides **naming combinators** that operate on the nine naming sites described in @sec-naming:
+
+| Combinator | What it renames | Cascades? |
+|------------|----------------|-----------|
+| `renameVertex(old, new)` | Vertex ID | Yes — edges, constraints, variants, hyper-edges |
+| `renameKind(vertex, kind)` | Single vertex's kind | No |
+| `renameEdgeKind(old, new)` | All edges with matching kind | No |
+| `renameNsid(vertex, nsid)` | Namespace identifier | No |
+| `renameConstraintSort(old, new)` | Constraint sort name | No |
+| `applyTheoryMorphism(sortMap, opMap)` | Vertex kinds + edge kinds | Yes — via theory morphism |
+| `rename(site, old, new)` | Any naming site | Depends on site |
+
+: Naming combinators. All are lossless (empty complement). {#tbl-naming-combinators}
+
+The `applyTheoryMorphism` combinator is the "top of the morphism tower" described in @sec-morphism-tower: a single theory morphism cascades into vertex kind and edge kind renames automatically.
+
 Each combinator handles its own complement. `removeField` stores the removed value in the complement. `addField` stores nothing (the default is known). `renameField` stores nothing (the mapping is invertible). `wrapInObject` stores the wrapper structure. And so on.
 
 ### Composition

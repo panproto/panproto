@@ -54,7 +54,7 @@ fn check_anchors(schema: &Schema, instance: &WInstance, errors: &mut Vec<Validat
         if !schema.has_vertex(&node.anchor) {
             errors.push(ValidationError::InvalidAnchor {
                 node_id: id,
-                anchor: node.anchor.clone(),
+                anchor: node.anchor.to_string(),
             });
         }
     }
@@ -158,7 +158,7 @@ fn check_parent_map(instance: &WInstance, errors: &mut Vec<ValidationError>) {
 fn check_fans(schema: &Schema, instance: &WInstance, errors: &mut Vec<ValidationError>) {
     for fan in &instance.fans {
         // Check hyper-edge exists in schema
-        if !schema.hyper_edges.contains_key(&fan.hyper_edge_id) {
+        if !schema.hyper_edges.contains_key(fan.hyper_edge_id.as_str()) {
             errors.push(ValidationError::InvalidFan {
                 hyper_edge_id: fan.hyper_edge_id.clone(),
                 detail: "hyper-edge not in schema".to_string(),
@@ -297,7 +297,7 @@ mod tests {
             ),
         ];
 
-        WInstance::new(nodes, arcs, vec![], 0, "obj".into())
+        WInstance::new(nodes, arcs, vec![], 0, panproto_gat::Name::from("obj"))
     }
 
     #[test]
@@ -314,7 +314,7 @@ mod tests {
         let mut inst = valid_3_node_instance();
         // Corrupt an anchor
         if let Some(node) = inst.nodes.get_mut(&1) {
-            node.anchor = "nonexistent".to_string();
+            node.anchor = panproto_gat::Name::from("nonexistent");
         }
         let errors = validate_wtype(&schema, &inst);
         assert!(
@@ -363,7 +363,7 @@ mod tests {
             },
         )];
 
-        let inst = WInstance::new(nodes, arcs, vec![], 0, "obj".into());
+        let inst = WInstance::new(nodes, arcs, vec![], 0, panproto_gat::Name::from("obj"));
         let errors = validate_wtype(&schema, &inst);
         assert!(
             errors

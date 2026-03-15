@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use panproto_gat::Name;
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{CompiledMigration, Node, Value, WInstance};
 use panproto_mig::lift_wtype;
@@ -154,9 +155,9 @@ fn thread_view_post_schema() -> Schema {
     ];
 
     let mut edges = HashMap::new();
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
     for e in &edges_list {
         edges.insert(e.clone(), e.kind.clone());
@@ -346,7 +347,7 @@ fn projection_drops_replies_and_parent() -> Result<(), Box<dyn std::error::Error
 
     // Build a target schema that keeps only tvp, tvp.post, tvp.post.text,
     // tvp.post.createdAt. Drops replies, parent, and all descendants.
-    let surviving_verts: HashSet<String> = HashSet::from([
+    let surviving_verts: HashSet<Name> = HashSet::from([
         "tvp".into(),
         "tvp.post".into(),
         "tvp.post.text".into(),
@@ -375,20 +376,20 @@ fn projection_drops_replies_and_parent() -> Result<(), Box<dyn std::error::Error
     ]);
 
     // Build a target schema with only the surviving elements.
-    let tgt_vertices: HashMap<String, Vertex> = full_schema
+    let tgt_vertices: HashMap<Name, Vertex> = full_schema
         .vertices
         .into_iter()
         .filter(|(k, _)| surviving_verts.contains(k))
         .collect();
 
-    let tgt_edges: HashMap<Edge, String> = surviving_edges
+    let tgt_edges: HashMap<Edge, Name> = surviving_edges
         .iter()
         .map(|e| (e.clone(), e.kind.clone()))
         .collect();
 
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
     for e in &surviving_edges {
         outgoing.entry(e.src.clone()).or_default().push(e.clone());
         incoming.entry(e.tgt.clone()).or_default().push(e.clone());

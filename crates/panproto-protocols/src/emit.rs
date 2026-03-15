@@ -18,7 +18,7 @@ pub fn find_roots<'a>(schema: &'a Schema, structural_edge_kinds: &[&str]) -> Vec
             let incoming = schema.incoming_edges(&v.id);
             !incoming
                 .iter()
-                .any(|e| structural_edge_kinds.contains(&e.kind.as_str()))
+                .any(|e| structural_edge_kinds.contains(&&*e.kind))
         })
         .collect();
     roots.sort_by(|a, b| a.id.cmp(&b.id));

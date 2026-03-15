@@ -157,6 +157,24 @@ Each combinator has a precise effect on the schema and a defined impact on the c
 
 **`Compose`** enables sequential composition of two combinators within the enum itself, providing a recursive structure for complex transformations.
 
+### Naming Combinators
+
+In addition to the six original combinators, seven naming combinators operate on the nine naming sites described in @sec-naming-identity:
+
+| Combinator | Site | Effect |
+|---|---|---|
+| `RenameVertex` | `VertexId` | Rename vertex ID, cascading to all edges, constraints, variants |
+| `RenameKind` | `VertexKind` | Change a single vertex's kind |
+| `RenameEdgeKind` | `EdgeKind` | Rename edge kind across all matching edges |
+| `RenameNsid` | `Nsid` | Change the NSID on a specific vertex |
+| `RenameConstraintSort` | `ConstraintSort` | Rename constraint sort across all constraints |
+| `ApplyTheoryMorphism` | Multiple | Apply theory-level sort/op renames (morphism tower) |
+| `Rename` | Any | Unified dispatcher for any `NameSite` |
+
+All naming combinators are lossless (empty complement). `RenameVertex` is the most complex: it cascades to edges, constraints, required sets, variants, recursion points, spans, hyper-edges, and nominal markers. `ApplyTheoryMorphism` uses `TheoryMorphism::induce_schema_renames()` to cascade sort renames to vertex kinds and op renames to edge kinds.
+
+In `build_compiled_migration`, `RenameVertex` and `Rename { site: VertexId, .. }` produce `vertex_remap` and `edge_remap` entries. All other naming combinators produce no structural migration impact---they change schema metadata only.
+
 ### Building a Lens from Combinators
 
 The `from_combinators` function takes a source schema and a slice of combinators, applies each in sequence, and produces a fully compiled `Lens`:

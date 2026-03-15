@@ -129,7 +129,7 @@ pub fn emit_vcard_ical_schema(schema: &Schema) -> Result<serde_json::Value, Prot
                     if c.sort == "required" {
                         single_prop.insert("required".into(), serde_json::json!(true));
                     } else {
-                        single_prop.insert(c.sort.clone(), serde_json::json!(c.value));
+                        single_prop.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                 }
                 props_obj.insert(name.to_string(), serde_json::Value::Object(single_prop));
@@ -137,7 +137,7 @@ pub fn emit_vcard_ical_schema(schema: &Schema) -> Result<serde_json::Value, Prot
             obj.insert("properties".into(), serde_json::Value::Object(props_obj));
         }
 
-        types.insert(root.id.clone(), serde_json::Value::Object(obj));
+        types.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "types": types }))

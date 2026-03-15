@@ -59,16 +59,19 @@ mod tests {
     fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         let mut vert_map = HashMap::new();
         let mut edge_map = HashMap::new();
-        let mut outgoing: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-        let mut incoming: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-        let mut between: HashMap<(String, String), smallvec::SmallVec<Edge, 2>> = HashMap::new();
+        let mut outgoing: HashMap<panproto_gat::Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<panproto_gat::Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+        let mut between: HashMap<
+            (panproto_gat::Name, panproto_gat::Name),
+            smallvec::SmallVec<Edge, 2>,
+        > = HashMap::new();
 
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                panproto_gat::Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: panproto_gat::Name::from(*id),
+                    kind: panproto_gat::Name::from(*kind),
                     nsid: None,
                 },
             );
@@ -149,7 +152,7 @@ mod tests {
         );
 
         let arcs = vec![(0, 1, edge_text.clone()), (0, 2, edge_time.clone())];
-        let instance = WInstance::new(nodes, arcs, vec![], 0, "body".into());
+        let instance = WInstance::new(nodes, arcs, vec![], 0, panproto_gat::Name::from("body"));
 
         // Identity compiled migration
         let compiled = CompiledMigration {
@@ -215,7 +218,7 @@ mod tests {
         );
 
         let arcs = vec![(0, 1, edge_text.clone()), (0, 2, edge_time)];
-        let instance = WInstance::new(nodes, arcs, vec![], 0, "body".into());
+        let instance = WInstance::new(nodes, arcs, vec![], 0, panproto_gat::Name::from("body"));
 
         // Migration that drops body.createdAt
         let compiled = CompiledMigration {
@@ -303,7 +306,7 @@ mod tests {
             (1, 3, edge_container_leaf2),
             (0, 4, edge_root_leaf3.clone()),
         ];
-        let instance = WInstance::new(nodes, arcs, vec![], 0, "root".into());
+        let instance = WInstance::new(nodes, arcs, vec![], 0, panproto_gat::Name::from("root"));
 
         // Migration: drop "container", keep root and leaf3 only.
         let compiled = CompiledMigration {

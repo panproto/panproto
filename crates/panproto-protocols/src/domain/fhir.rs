@@ -153,7 +153,7 @@ pub fn emit_fhir_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
         let mut elem = serde_json::Map::new();
         elem.insert("type".into(), serde_json::json!(child.kind));
         for c in vertex_constraints(schema, &child.id) {
-            elem.insert(c.sort.clone(), serde_json::json!(c.value));
+            elem.insert(c.sort.to_string(), serde_json::json!(c.value));
         }
         elements.insert(name.to_string(), serde_json::Value::Object(elem));
     }
