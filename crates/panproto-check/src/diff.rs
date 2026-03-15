@@ -190,17 +190,17 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
     let mut result = SchemaDiff::default();
 
     // --- Vertices ---
-    let old_verts: FxHashSet<&String> = old.vertices.keys().collect();
-    let new_verts: FxHashSet<&String> = new.vertices.keys().collect();
+    let old_verts: FxHashSet<&panproto_gat::Name> = old.vertices.keys().collect();
+    let new_verts: FxHashSet<&panproto_gat::Name> = new.vertices.keys().collect();
 
     for v in &new_verts {
         if !old_verts.contains(*v) {
-            result.added_vertices.push((*v).clone());
+            result.added_vertices.push(v.to_string());
         }
     }
     for v in &old_verts {
         if !new_verts.contains(*v) {
-            result.removed_vertices.push((*v).clone());
+            result.removed_vertices.push(v.to_string());
         }
     }
     result.added_vertices.sort();
@@ -211,9 +211,9 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
         if let (Some(old_v), Some(new_v)) = (old.vertices.get(*v), new.vertices.get(*v)) {
             if old_v.kind != new_v.kind {
                 result.kind_changes.push(KindChange {
-                    vertex_id: (*v).clone(),
-                    old_kind: old_v.kind.clone(),
-                    new_kind: new_v.kind.clone(),
+                    vertex_id: v.to_string(),
+                    old_kind: old_v.kind.to_string(),
+                    new_kind: new_v.kind.to_string(),
                 });
             }
         }
@@ -240,7 +240,7 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
     result.removed_edges.sort();
 
     // --- Constraints ---
-    let all_constraint_vids: FxHashSet<&String> = old
+    let all_constraint_vids: FxHashSet<&panproto_gat::Name> = old
         .constraints
         .keys()
         .chain(new.constraints.keys())
@@ -252,7 +252,7 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
 
         let cdiff = diff_constraints(&old_cs, &new_cs);
         if !cdiff.added.is_empty() || !cdiff.removed.is_empty() || !cdiff.changed.is_empty() {
-            result.modified_constraints.insert(vid.clone(), cdiff);
+            result.modified_constraints.insert(vid.to_string(), cdiff);
         }
     }
 
@@ -355,17 +355,17 @@ fn diff_constraints(old: &[Constraint], new: &[Constraint]) -> ConstraintDiff {
 
 /// Diff hyper-edges: additions, removals, and modifications.
 fn diff_hyper_edges(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
-    let old_ids: FxHashSet<&String> = old.hyper_edges.keys().collect();
-    let new_ids: FxHashSet<&String> = new.hyper_edges.keys().collect();
+    let old_ids: FxHashSet<&panproto_gat::Name> = old.hyper_edges.keys().collect();
+    let new_ids: FxHashSet<&panproto_gat::Name> = new.hyper_edges.keys().collect();
 
     for id in &new_ids {
         if !old_ids.contains(*id) {
-            result.added_hyper_edges.push((*id).clone());
+            result.added_hyper_edges.push(id.to_string());
         }
     }
     for id in &old_ids {
         if !new_ids.contains(*id) {
-            result.removed_hyper_edges.push((*id).clone());
+            result.removed_hyper_edges.push(id.to_string());
         }
     }
     result.added_hyper_edges.sort();
@@ -383,13 +383,16 @@ fn diff_hyper_edges(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
         let kind_change = if old_he.kind == new_he.kind {
             None
         } else {
-            Some((old_he.kind.clone(), new_he.kind.clone()))
+            Some((old_he.kind.to_string(), new_he.kind.to_string()))
         };
 
         let parent_label_change = if old_he.parent_label == new_he.parent_label {
             None
         } else {
-            Some((old_he.parent_label.clone(), new_he.parent_label.clone()))
+            Some((
+                old_he.parent_label.to_string(),
+                new_he.parent_label.to_string(),
+            ))
         };
 
         let mut sig_added = HashMap::new();
@@ -399,22 +402,25 @@ fn diff_hyper_edges(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
         for (label, new_vid) in &new_he.signature {
             match old_he.signature.get(label) {
                 Some(old_vid) if old_vid != new_vid => {
-                    sig_changed.insert(label.clone(), (old_vid.clone(), new_vid.clone()));
+                    sig_changed.insert(
+                        label.to_string(),
+                        (old_vid.to_string(), new_vid.to_string()),
+                    );
                 }
                 None => {
-                    sig_added.insert(label.clone(), new_vid.clone());
+                    sig_added.insert(label.to_string(), new_vid.to_string());
                 }
                 _ => {}
             }
         }
         for (label, old_vid) in &old_he.signature {
             if !new_he.signature.contains_key(label) {
-                sig_removed.insert(label.clone(), old_vid.clone());
+                sig_removed.insert(label.to_string(), old_vid.to_string());
             }
         }
 
         result.modified_hyper_edges.push(HyperEdgeChange {
-            id: (*id).clone(),
+            id: id.to_string(),
             kind_change,
             signature_added: sig_added,
             signature_removed: sig_removed,
@@ -427,7 +433,8 @@ fn diff_hyper_edges(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
 
 /// Diff required-edge maps.
 fn diff_required(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
-    let all_vids: FxHashSet<&String> = old.required.keys().chain(new.required.keys()).collect();
+    let all_vids: FxHashSet<&panproto_gat::Name> =
+        old.required.keys().chain(new.required.keys()).collect();
 
     for vid in all_vids {
         let old_edges: FxHashSet<&Edge> = old
@@ -451,10 +458,10 @@ fn diff_required(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
             .collect();
 
         if !added.is_empty() {
-            result.added_required.insert(vid.clone(), added);
+            result.added_required.insert(vid.to_string(), added);
         }
         if !removed.is_empty() {
-            result.removed_required.insert(vid.clone(), removed);
+            result.removed_required.insert(vid.to_string(), removed);
         }
     }
 }
@@ -464,19 +471,23 @@ fn diff_nsids(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
     for (vid, new_nsid) in &new.nsids {
         match old.nsids.get(vid) {
             Some(old_nsid) if old_nsid != new_nsid => {
-                result
-                    .changed_nsids
-                    .push((vid.clone(), old_nsid.clone(), new_nsid.clone()));
+                result.changed_nsids.push((
+                    vid.to_string(),
+                    old_nsid.to_string(),
+                    new_nsid.to_string(),
+                ));
             }
             None => {
-                result.added_nsids.insert(vid.clone(), new_nsid.clone());
+                result
+                    .added_nsids
+                    .insert(vid.to_string(), new_nsid.to_string());
             }
             _ => {}
         }
     }
     for vid in old.nsids.keys() {
         if !new.nsids.contains_key(vid) {
-            result.removed_nsids.push(vid.clone());
+            result.removed_nsids.push(vid.to_string());
         }
     }
     result.removed_nsids.sort();
@@ -508,8 +519,8 @@ fn diff_variants(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
                     result.modified_variants.push(VariantChange {
                         id: vid.to_string(),
                         parent_vertex: parent.to_string(),
-                        old_tag: old_v.tag.clone(),
-                        new_tag: new_v.tag.clone(),
+                        old_tag: old_v.tag.as_ref().map(ToString::to_string),
+                        new_tag: new_v.tag.as_ref().map(ToString::to_string),
                     });
                 }
             }
@@ -538,9 +549,9 @@ fn diff_recursion_points(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
             Some(old_rp) => {
                 if old_rp.target_vertex != new_rp.target_vertex {
                     result.modified_recursion_points.push(RecursionPointChange {
-                        mu_id: id.clone(),
-                        old_target: old_rp.target_vertex.clone(),
-                        new_target: new_rp.target_vertex.clone(),
+                        mu_id: id.to_string(),
+                        old_target: old_rp.target_vertex.to_string(),
+                        new_target: new_rp.target_vertex.to_string(),
                     });
                 }
             }
@@ -558,17 +569,17 @@ fn diff_recursion_points(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
 
 /// Diff spans: additions, removals, and left/right changes.
 fn diff_spans(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
-    let old_ids: FxHashSet<&String> = old.spans.keys().collect();
-    let new_ids: FxHashSet<&String> = new.spans.keys().collect();
+    let old_ids: FxHashSet<&panproto_gat::Name> = old.spans.keys().collect();
+    let new_ids: FxHashSet<&panproto_gat::Name> = new.spans.keys().collect();
 
     for id in &new_ids {
         if !old_ids.contains(*id) {
-            result.added_spans.push((*id).clone());
+            result.added_spans.push(id.to_string());
         }
     }
     for id in &old_ids {
         if !new_ids.contains(*id) {
-            result.removed_spans.push((*id).clone());
+            result.removed_spans.push(id.to_string());
         }
     }
     result.added_spans.sort();
@@ -585,16 +596,16 @@ fn diff_spans(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
         let left_change = if old_span.left == new_span.left {
             None
         } else {
-            Some((old_span.left.clone(), new_span.left.clone()))
+            Some((old_span.left.to_string(), new_span.left.to_string()))
         };
         let right_change = if old_span.right == new_span.right {
             None
         } else {
-            Some((old_span.right.clone(), new_span.right.clone()))
+            Some((old_span.right.to_string(), new_span.right.to_string()))
         };
 
         result.modified_spans.push(SpanChange {
-            id: (*id).clone(),
+            id: id.to_string(),
             left_change,
             right_change,
         });
@@ -604,13 +615,16 @@ fn diff_spans(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
 
 /// Diff nominal flags.
 fn diff_nominal(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
-    let all_vids: FxHashSet<&String> = old.nominal.keys().chain(new.nominal.keys()).collect();
+    let all_vids: FxHashSet<&panproto_gat::Name> =
+        old.nominal.keys().chain(new.nominal.keys()).collect();
 
     for vid in all_vids {
         let old_val = old.nominal.get(vid).copied().unwrap_or(false);
         let new_val = new.nominal.get(vid).copied().unwrap_or(false);
         if old_val != new_val {
-            result.nominal_changes.push((vid.clone(), old_val, new_val));
+            result
+                .nominal_changes
+                .push((vid.to_string(), old_val, new_val));
         }
     }
     result.nominal_changes.sort_by(|a, b| a.0.cmp(&b.0));
@@ -652,6 +666,7 @@ impl SchemaDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use panproto_gat::Name;
     use panproto_schema::{HyperEdge, RecursionPoint, Span, Variant, Vertex};
     use smallvec::SmallVec;
     use std::collections::HashMap;
@@ -660,20 +675,20 @@ mod tests {
     fn test_schema(
         vertices: &[(&str, &str)],
         edges: &[Edge],
-        constraints: HashMap<String, Vec<Constraint>>,
+        constraints: HashMap<Name, Vec<Constraint>>,
     ) -> Schema {
         let mut vert_map = HashMap::new();
         let mut edge_map = HashMap::new();
-        let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-        let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-        let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+        let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+        let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
                     nsid: None,
                 },
             );
@@ -757,14 +772,14 @@ mod tests {
     #[test]
     fn diff_constraint_changed() {
         let old_constraints = HashMap::from([(
-            "x".to_string(),
+            Name::from("x"),
             vec![Constraint {
                 sort: "maxLength".into(),
                 value: "3000".into(),
             }],
         )]);
         let new_constraints = HashMap::from([(
-            "x".to_string(),
+            Name::from("x"),
             vec![Constraint {
                 sort: "maxLength".into(),
                 value: "300".into(),

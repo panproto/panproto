@@ -469,7 +469,7 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
         |schema: &Schema, vid: &str| -> serde_json::Map<String, serde_json::Value> {
             let mut m = serde_json::Map::new();
             for c in vertex_constraints(schema, vid) {
-                m.insert(c.sort.clone(), serde_json::json!(c.value));
+                m.insert(c.sort.to_string(), serde_json::json!(c.value));
             }
             m
         };
@@ -498,7 +498,7 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                         obj.insert("items".into(), serde_json::Value::Object(items_map));
                     }
                 }
-                lexicons.insert(v.id.clone(), serde_json::Value::Object(obj));
+                lexicons.insert(v.id.to_string(), serde_json::Value::Object(obj));
             }
             "template" => {
                 let mut obj = named_constraints(schema, &v.id);
@@ -535,7 +535,7 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                         .collect();
                     obj.insert("constraints".into(), serde_json::Value::Array(tc_arr));
                 }
-                templates.insert(v.id.clone(), serde_json::Value::Object(obj));
+                templates.insert(v.id.to_string(), serde_json::Value::Object(obj));
             }
             "filled-template" => {
                 let mut obj = named_constraints(schema, &v.id);
@@ -560,11 +560,11 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                         serde_json::Value::Object(fillers_map),
                     );
                 }
-                filled_templates.insert(v.id.clone(), serde_json::Value::Object(obj));
+                filled_templates.insert(v.id.to_string(), serde_json::Value::Object(obj));
             }
             "item-template" => {
                 let obj = named_constraints(schema, &v.id);
-                item_templates.insert(v.id.clone(), serde_json::Value::Object(obj));
+                item_templates.insert(v.id.to_string(), serde_json::Value::Object(obj));
             }
             "item" => {
                 let mut obj = serde_json::Map::new();
@@ -597,7 +597,7 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if !srel_arr.is_empty() {
                     obj.insert("span_relations".into(), serde_json::Value::Array(srel_arr));
                 }
-                items.insert(v.id.clone(), serde_json::Value::Object(obj));
+                items.insert(v.id.to_string(), serde_json::Value::Object(obj));
             }
             "experiment-list" => {
                 let mut obj = named_constraints(schema, &v.id);
@@ -608,10 +608,10 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if !refs.is_empty() {
                     obj.insert("item_refs".into(), serde_json::Value::Array(refs));
                 }
-                experiment_lists.insert(v.id.clone(), serde_json::Value::Object(obj));
+                experiment_lists.insert(v.id.to_string(), serde_json::Value::Object(obj));
             }
             "participant" => {
-                participants.insert(v.id.clone(), serde_json::json!({}));
+                participants.insert(v.id.to_string(), serde_json::json!({}));
             }
             "judgment" => {
                 let mut obj = named_constraints(schema, &v.id);
@@ -619,7 +619,7 @@ pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if let Some((_, item_v)) = jof_edges.first() {
                     obj.insert("item_id".into(), serde_json::json!(item_v.id));
                 }
-                judgments.insert(v.id.clone(), serde_json::Value::Object(obj));
+                judgments.insert(v.id.to_string(), serde_json::Value::Object(obj));
             }
             // Structural sub-vertices emitted as part of their parents; skip.
             _ => {}

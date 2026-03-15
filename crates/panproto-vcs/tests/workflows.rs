@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use panproto_schema::{Constraint, Edge, Schema, Vertex};
 use panproto_vcs::dag;
 use panproto_vcs::merge::{MergeConflict, MergeOptions, Side};
@@ -22,10 +23,10 @@ fn make_schema(vertices: &[(&str, &str)]) -> Schema {
     let mut vert_map = HashMap::new();
     for (id, kind) in vertices {
         vert_map.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
@@ -54,12 +55,12 @@ fn make_schema_with_edges(vertices: &[(&str, &str)], edges: &[(&str, &str, &str)
     let mut s = make_schema(vertices);
     for (src, tgt, kind) in edges {
         let edge = Edge {
-            src: src.to_string(),
-            tgt: tgt.to_string(),
-            kind: kind.to_string(),
+            src: (*src).into(),
+            tgt: (*tgt).into(),
+            kind: Name::from(*kind),
             name: None,
         };
-        s.edges.insert(edge, kind.to_string());
+        s.edges.insert(edge, Name::from(*kind));
     }
     s
 }
@@ -74,22 +75,22 @@ fn make_schema_with_named_edges(
     let mut s = make_schema(vertices);
     for (src, tgt, kind, name) in edges {
         let edge = Edge {
-            src: src.to_string(),
-            tgt: tgt.to_string(),
-            kind: kind.to_string(),
-            name: Some(name.to_string()),
+            src: (*src).into(),
+            tgt: (*tgt).into(),
+            kind: Name::from(*kind),
+            name: Some(Name::from(*name)),
         };
-        s.edges.insert(edge.clone(), kind.to_string());
+        s.edges.insert(edge.clone(), Name::from(*kind));
         s.outgoing
-            .entry(src.to_string())
+            .entry(Name::from(*src))
             .or_default()
             .push(edge.clone());
         s.incoming
-            .entry(tgt.to_string())
+            .entry(Name::from(*tgt))
             .or_default()
             .push(edge.clone());
         s.between
-            .entry((src.to_string(), tgt.to_string()))
+            .entry((Name::from(*src), Name::from(*tgt)))
             .or_default()
             .push(edge);
     }
@@ -103,10 +104,10 @@ fn make_schema_with_constraints(
     let mut s = make_schema(vertices);
     for (vid, sort, value) in constraints {
         s.constraints
-            .entry(vid.to_string())
+            .entry(Name::from(*vid))
             .or_default()
             .push(Constraint {
-                sort: sort.to_string(),
+                sort: Name::from(*sort),
                 value: value.to_string(),
             });
     }
@@ -999,7 +1000,7 @@ fn conflict_both_modified_nsid() -> Result<(), Box<dyn std::error::Error>> {
     let mut s_base = make_schema(&[("a", "object")]);
     s_base
         .nsids
-        .insert("a".to_string(), "com.example.base".to_string());
+        .insert(Name::from("a"), Name::from("com.example.base"));
     repo.add(&s_base)?;
     let c1 = repo.commit("init", "alice")?;
 
@@ -1008,7 +1009,7 @@ fn conflict_both_modified_nsid() -> Result<(), Box<dyn std::error::Error>> {
     refs::checkout_branch(repo.store_mut(), "feature")?;
     let mut sf = make_schema(&[("a", "object")]);
     sf.nsids
-        .insert("a".to_string(), "com.example.feature".to_string());
+        .insert(Name::from("a"), Name::from("com.example.feature"));
     repo.add(&sf)?;
     repo.commit("change nsid to feature", "bob")?;
 
@@ -1016,7 +1017,7 @@ fn conflict_both_modified_nsid() -> Result<(), Box<dyn std::error::Error>> {
     refs::checkout_branch(repo.store_mut(), "main")?;
     let mut sm = make_schema(&[("a", "object")]);
     sm.nsids
-        .insert("a".to_string(), "com.example.main".to_string());
+        .insert(Name::from("a"), Name::from("com.example.main"));
     repo.add(&sm)?;
     repo.commit("change nsid to main", "alice")?;
 
@@ -2391,12 +2392,12 @@ fn dag_compose_path_two_steps() -> Result<(), Box<dyn std::error::Error>> {
     // to their c2 counterparts (identity, since names didn't change).
     assert_eq!(
         composed.vertex_map.get("root"),
-        Some(&"root".to_string()),
+        Some(&Name::from("root")),
         "root vertex should survive composition"
     );
     assert_eq!(
         composed.vertex_map.get("root.name"),
-        Some(&"root.name".to_string()),
+        Some(&Name::from("root.name")),
         "root.name vertex should survive composition"
     );
     // c0 didn't have root.email or root.role, so they shouldn't appear in
@@ -2483,10 +2484,10 @@ fn dag_compose_path_three_steps() -> Result<(), Box<dyn std::error::Error>> {
     let composed = dag::compose_path(repo.store(), &path)?;
 
     // root and root.name survive all three steps.
-    assert_eq!(composed.vertex_map.get("root"), Some(&"root".to_string()));
+    assert_eq!(composed.vertex_map.get("root"), Some(&Name::from("root")));
     assert_eq!(
         composed.vertex_map.get("root.name"),
-        Some(&"root.name".to_string())
+        Some(&Name::from("root.name"))
     );
     // root.email was added in c1 then dropped in c3 — since it was never in c0,
     // it shouldn't appear in the composed migration's domain at all.
@@ -2547,10 +2548,10 @@ fn dag_find_path_then_compose() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(path[2], c2);
 
     let composed = dag::compose_path(repo.store(), &path)?;
-    assert_eq!(composed.vertex_map.get("root"), Some(&"root".to_string()));
+    assert_eq!(composed.vertex_map.get("root"), Some(&Name::from("root")));
     assert_eq!(
         composed.vertex_map.get("root.x"),
-        Some(&"root.x".to_string())
+        Some(&Name::from("root.x"))
     );
     // y and z are new, not in c0's domain.
     assert!(!composed.vertex_map.contains_key("root.y"));
@@ -2602,10 +2603,10 @@ fn dag_compose_path_single_step() -> Result<(), Box<dyn std::error::Error>> {
     let composed = dag::compose_path(repo.store(), &path)?;
 
     // Single step: composed should be identical to the c0->c1 migration.
-    assert_eq!(composed.vertex_map.get("root"), Some(&"root".to_string()));
+    assert_eq!(composed.vertex_map.get("root"), Some(&Name::from("root")));
     assert_eq!(
         composed.vertex_map.get("root.a"),
-        Some(&"root.a".to_string())
+        Some(&Name::from("root.a"))
     );
     assert!(
         !composed.vertex_map.contains_key("root.b"),

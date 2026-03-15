@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use panproto_gat::{Operation, Sort, Theory};
+use panproto_gat::{Name, Operation, Sort, Theory};
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{CompiledMigration, Node, Value, WInstance};
 use panproto_mig::{Migration, compile, lift_wtype};
@@ -194,19 +194,19 @@ fn custom_protocol_build_instance_and_lift() -> Result<(), Box<dyn std::error::E
         ("logging.level", "key"),
     ] {
         vertices.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
     }
 
     let mut edges_map = HashMap::new();
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
     for e in &all_edges {
         edges_map.insert(e.clone(), e.kind.clone());
         outgoing.entry(e.src.clone()).or_default().push(e.clone());
@@ -267,7 +267,7 @@ fn custom_protocol_build_instance_and_lift() -> Result<(), Box<dyn std::error::E
     assert_eq!(instance.node_count(), 6);
 
     // Build an identity migration and lift.
-    let surviving_verts: HashSet<String> = schema.vertices.keys().cloned().collect();
+    let surviving_verts = schema.vertices.keys().cloned().collect();
     let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
 
     let compiled = CompiledMigration {
@@ -343,19 +343,19 @@ fn custom_protocol_projection_migration() -> Result<(), Box<dyn std::error::Erro
         ("logging.level", "key"),
     ] {
         src_vertices.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
     }
 
     let mut src_edges = HashMap::new();
-    let mut out: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut inc: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut btw: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut out: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut inc: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut btw: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
     for e in &all_edges {
         src_edges.insert(e.clone(), e.kind.clone());
         out.entry(e.src.clone()).or_default().push(e.clone());
@@ -394,19 +394,19 @@ fn custom_protocol_projection_migration() -> Result<(), Box<dyn std::error::Erro
         ("database.port", "key"),
     ] {
         tgt_vertices.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
     }
 
     let mut tgt_edge_map = HashMap::new();
-    let mut tout: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut tinc: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut tbtw: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut tout: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut tinc: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut tbtw: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
     for e in &tgt_edges_list {
         tgt_edge_map.insert(e.clone(), e.kind.clone());
         tout.entry(e.src.clone()).or_default().push(e.clone());

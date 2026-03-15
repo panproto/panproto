@@ -557,7 +557,7 @@ pub fn emit_decomp(schema: &Schema) -> Result<serde_json::Value, ProtocolError> 
         .find(|v| v.kind == "corpus")
         .ok_or_else(|| ProtocolError::Emit("no corpus vertex found".into()))?;
 
-    let corpus_id = corpus.id.clone();
+    let corpus_id = corpus.id.to_string();
     let mut documents_map = serde_json::Map::new();
 
     for (_doc_edge, doc_vertex) in children_by_edge(schema, &corpus_id, "contains") {
@@ -621,8 +621,8 @@ fn emit_sentence(schema: &Schema, sent_vid: &str) -> serde_json::Value {
                     let arg_key = arg_vid.rsplit('.').next().unwrap_or(arg_vid.as_str());
                     let edge_key = dep_edge
                         .name
-                        .clone()
-                        .unwrap_or_else(|| format!("{pred_key}$${arg_key}"));
+                        .as_ref()
+                        .map_or_else(|| format!("{pred_key}$${arg_key}"), ToString::to_string);
 
                     // Protoroles: prop children of pred scoped to this arg.
                     let mut protoroles_map = serde_json::Map::new();
@@ -745,7 +745,7 @@ fn emit_annotation(schema: &Schema, vertex_id: &str) -> serde_json::Value {
     for c in vertex_constraints(schema, vertex_id) {
         if c.sort == "value" || c.sort == "confidence" {
             if let Ok(f) = c.value.parse::<f64>() {
-                ann.insert(c.sort.clone(), serde_json::json!(f));
+                ann.insert(c.sort.to_string(), serde_json::json!(f));
             }
         }
     }
@@ -1026,7 +1026,7 @@ mod tests {
         let tok2 = format!("{sent_vid}.tok_2");
         assert!(schema.has_vertex(&tok1), "missing tok_1");
         assert!(schema.has_vertex(&tok2), "missing tok_2");
-        assert_eq!(schema.vertices[&tok1].kind, "token");
+        assert_eq!(schema.vertices[tok1.as_str()].kind, "token");
         assert_eq!(
             constraint_value(&schema, &tok1, "form"),
             Some("The"),
@@ -1041,7 +1041,7 @@ mod tests {
         // ── Predicate ───────────────────────────────────────────────────
         let pred_vid = format!("{sent_vid}.pred-1-1");
         assert!(schema.has_vertex(&pred_vid), "missing predicate");
-        assert_eq!(schema.vertices[&pred_vid].kind, "predicate");
+        assert_eq!(schema.vertices[pred_vid.as_str()].kind, "predicate");
         assert_eq!(
             constraint_value(&schema, &pred_vid, "frompredpatt"),
             Some("true")
@@ -1050,7 +1050,7 @@ mod tests {
         // ── Argument ────────────────────────────────────────────────────
         let arg_vid = format!("{sent_vid}.arg-1-1");
         assert!(schema.has_vertex(&arg_vid), "missing argument");
-        assert_eq!(schema.vertices[&arg_vid].kind, "argument");
+        assert_eq!(schema.vertices[arg_vid.as_str()].kind, "argument");
 
         // ── sem-dep edge ────────────────────────────────────────────────
         let dep_count = schema
@@ -1066,7 +1066,7 @@ mod tests {
             schema.has_vertex(&factual_vid),
             "missing factuality.factual"
         );
-        assert_eq!(schema.vertices[&factual_vid].kind, "float");
+        assert_eq!(schema.vertices[factual_vid.as_str()].kind, "float");
         assert_eq!(
             constraint_value(&schema, &factual_vid, "value"),
             Some("0.9")

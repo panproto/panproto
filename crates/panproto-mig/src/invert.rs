@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
 use rustc_hash::FxHashSet;
 
@@ -35,7 +36,7 @@ pub fn invert(
     tgt: &Schema,
 ) -> Result<Migration, InvertError> {
     // Check vertex map bijectivity.
-    let mut seen_targets: FxHashSet<String> = FxHashSet::default();
+    let mut seen_targets: FxHashSet<Name> = FxHashSet::default();
     for tgt_v in migration.vertex_map.values() {
         if !seen_targets.insert(tgt_v.clone()) {
             return Err(InvertError::NotBijective {
@@ -49,7 +50,7 @@ pub fn invert(
         .vertices
         .keys()
         .filter(|v| !seen_targets.contains(*v))
-        .cloned()
+        .map(std::string::ToString::to_string)
         .collect();
     if !dropped.is_empty() {
         return Err(InvertError::DroppedVertices { dropped });
@@ -75,7 +76,7 @@ pub fn invert(
     }
 
     // Build the inverse migration by swapping keys and values.
-    let inv_vertex_map: HashMap<String, String> = migration
+    let inv_vertex_map: HashMap<Name, Name> = migration
         .vertex_map
         .iter()
         .map(|(s, t)| (t.clone(), s.clone()))
@@ -87,7 +88,7 @@ pub fn invert(
         .map(|(s, t)| (t.clone(), s.clone()))
         .collect();
 
-    let inv_hyper_edge_map: HashMap<String, String> = migration
+    let inv_hyper_edge_map: HashMap<Name, Name> = migration
         .hyper_edge_map
         .iter()
         .map(|(s, t)| (t.clone(), s.clone()))
@@ -141,12 +142,12 @@ pub fn invert(
             .cloned()
             .unwrap_or_else(|| tgt_he_id.clone());
         // Invert label_remap
-        let inv_label_remap: HashMap<String, String> = label_remap
+        let inv_label_remap: HashMap<Name, Name> = label_remap
             .iter()
             .map(|(k, v)| (v.clone(), k.clone()))
             .collect();
         // Remap labels through the forward mapping to get the target-side labels
-        let inv_labels: Vec<String> = labels
+        let inv_labels: Vec<Name> = labels
             .iter()
             .map(|l| {
                 migration
@@ -178,16 +179,16 @@ mod tests {
     fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         let mut vert_map = HashMap::new();
         let mut edge_map = HashMap::new();
-        let mut outgoing: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-        let mut incoming: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-        let mut between: HashMap<(String, String), smallvec::SmallVec<Edge, 2>> = HashMap::new();
+        let mut outgoing: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+        let mut between: HashMap<(Name, Name), smallvec::SmallVec<Edge, 2>> = HashMap::new();
 
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
                     nsid: None,
                 },
             );
@@ -231,7 +232,6 @@ mod tests {
 
     #[test]
     fn bijective_migration_inverts() {
-        // Test 8a: bijective migration inverts successfully.
         let edge = Edge {
             src: "a".into(),
             tgt: "b".into(),
@@ -255,7 +255,10 @@ mod tests {
         );
 
         let mig = Migration {
-            vertex_map: HashMap::from([("a".into(), "A".into()), ("b".into(), "B".into())]),
+            vertex_map: HashMap::from([
+                (Name::from("a"), Name::from("A")),
+                (Name::from("b"), Name::from("B")),
+            ]),
             edge_map: HashMap::from([(edge.clone(), inv_edge.clone())]),
             hyper_edge_map: HashMap::new(),
             label_map: HashMap::new(),
@@ -266,14 +269,13 @@ mod tests {
         let result = invert(&mig, &src, &tgt);
         assert!(result.is_ok(), "bijective migration should invert");
         let inv = result.unwrap_or_else(|_| panic!("invert should succeed"));
-        assert_eq!(inv.vertex_map.get("A"), Some(&"a".to_string()));
-        assert_eq!(inv.vertex_map.get("B"), Some(&"b".to_string()));
+        assert_eq!(inv.vertex_map.get("A"), Some(&Name::from("a")));
+        assert_eq!(inv.vertex_map.get("B"), Some(&Name::from("b")));
         assert_eq!(inv.edge_map.get(&inv_edge), Some(&edge));
     }
 
     #[test]
     fn non_bijective_does_not_invert() {
-        // Test 8b: non-bijective migration (projection) does not invert.
         let edge = Edge {
             src: "a".into(),
             tgt: "b".into(),
@@ -289,8 +291,8 @@ mod tests {
         // Non-injective: two source vertices map to the same target.
         let mig_non_inj = Migration {
             vertex_map: HashMap::from([
-                ("a".into(), "a".into()),
-                ("b".into(), "a".into()), // two sources map to "a"
+                (Name::from("a"), Name::from("a")),
+                (Name::from("b"), Name::from("a")),
             ]),
             edge_map: HashMap::new(),
             hyper_edge_map: HashMap::new(),

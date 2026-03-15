@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use panproto_gat::Name;
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{CompiledMigration, Node, Value, WInstance};
 use panproto_mig::lift_wtype;
@@ -57,9 +58,9 @@ fn simple_schema() -> Schema {
 
     let edges_list = vec![edge_text, edge_time];
     let mut edges = HashMap::new();
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
     for e in &edges_list {
         edges.insert(e.clone(), e.kind.clone());
@@ -132,7 +133,7 @@ fn simple_projection_throughput() -> Result<(), Box<dyn std::error::Error>> {
     let instance = simple_instance();
 
     // Identity migration: keep all vertices and edges.
-    let surviving_verts: HashSet<String> = schema.vertices.keys().cloned().collect();
+    let surviving_verts = schema.vertices.keys().cloned().collect();
     let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
 
     let compiled = CompiledMigration {

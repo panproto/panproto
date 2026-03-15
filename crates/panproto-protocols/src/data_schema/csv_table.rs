@@ -209,7 +209,7 @@ pub fn emit_table_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolE
                         |_| serde_json::Value::String(c.value.clone()),
                         |n| serde_json::json!(n),
                     );
-                    constraints_obj.insert(c.sort.clone(), val);
+                    constraints_obj.insert(c.sort.to_string(), val);
                 }
                 "pattern" => {
                     constraints_obj

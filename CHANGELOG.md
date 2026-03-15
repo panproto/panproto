@@ -4,6 +4,38 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added — First-Class Names
+
+- **panproto-gat**: `Ident` type separating stable identity (`(ScopeTag, index)`) from display name (`Arc<str>`), following GATlab (Lynch et al., 2024); `Name` type (`Arc<str>` wrapper with `Arc::ptr_eq` fast path on equality, `Deref<str>`, `Borrow<str>`, transparent serde); `NameSite` enum for the 9 naming sites; `SiteRename` for site-qualified rename operations
+- **panproto-gat**: `TheoryMorphism::induce_schema_renames()` — sort-map entries become `VertexKind` renames, op-map entries become `EdgeKind` renames (top of the morphism tower)
+- **panproto-lens**: 7 new combinators — `RenameVertex` (cascades to edges, constraints, variants, hyper-edges, recursion points, spans, nominal markers), `RenameKind` (single vertex), `RenameEdgeKind` (all matching edges), `RenameNsid`, `RenameConstraintSort`, `ApplyTheoryMorphism` (cascades theory morphism to vertex/edge kind renames), `Rename { site, old, new }` (unified dispatcher for any `NameSite`)
+- **panproto-lens**: 3 new error variants — `NsidNotFound`, `ConstraintSortNotFound`, `EdgeKindNotFound`
+- **panproto-schema**: `SchemaMorphism` type — explicit schema morphism (functor F: S → T) with vertex/edge maps, rename provenance, composition, and lowering to `CompiledMigration`
+- **panproto-mig**: `cascade` module — `induce_schema_morphism` (theory → schema level), `induce_data_migration` (schema → instance level, Spivak's Δ_F), `induce_migration_from_theory` (convenience chaining both)
+- **panproto-vcs**: `rename_detect` module — `detect_vertex_renames` and `detect_edge_renames` with structural similarity scoring (kind +0.3, outgoing edges +0.3, incoming edges +0.2, edit distance +0.2) and greedy bipartite matching
+- **panproto-vcs**: `CommitObject.renames: Vec<SiteRename>` field for storing detected/declared renames per commit (backward-compatible via `serde(default)`)
+- Tutorial chapter 15: "Solving Naming" — naming problem, 9 naming sites, identity vs name, rename combinators, morphism tower, VCS rename detection (new Part VI "Names & Identity")
+- Dev-guide chapter 23: "Naming, Identity, and the Morphism Tower" — `Ident`/`Name` internals, `NameSite`/`SiteRename`, cascade module, new combinator implementation details, rename detection algorithm
+- Tutorial updates: Ch. 5 (expanded renaming section), Ch. 8 (naming combinators table), Ch. 13 (rename detection with `--detect-renames`)
+- Dev-guide updates: Ch. 6 (Ident/Name section + `induce_schema_renames`), Ch. 10 (naming combinators), Ch. 15 (`--detect-renames` flag), Ch. 21 (rename detection module)
+
+### Changed — `String` → `Name` Migration
+
+- **panproto-schema**: All identifier and label fields in `Vertex`, `Edge`, `HyperEdge`, `Constraint.sort`, `Variant`, `RecursionPoint`, `Span` changed from `String` to `Name`; all `HashMap<String, _>` keys in `Schema` changed to `HashMap<Name, _>`; `SchemaBuilder` API unchanged (still accepts `&str`, converts internally)
+- **panproto-inst**: `Node.anchor`, `Node.discriminator`, `WInstance.schema_root` changed from `String`/`Option<String>` to `Name`/`Option<Name>`; `CompiledMigration` fields (`surviving_verts`, `vertex_remap`, `resolver`) changed from `String`-based to `Name`-based
+- **panproto-mig**: `Migration` fields (`vertex_map`, `label_map`, `resolver`) changed from `String`-based to `Name`-based
+- **panproto-protocols**: All 48 protocol emit functions updated for `Name` field access (`.to_string()` where string output required)
+- **panproto-check**: `SchemaDiff` and `BreakingChange` types updated for `Name` fields
+- **panproto-vcs**: All modules updated for `Name` types in schema/migration construction
+- **panproto-wasm**: WASM boundary updated for `Name`-typed schema fields
+- **panproto-cli**: Updated for `Name` types in diff display and schema construction
+
+### Performance
+
+- **panproto-inst**: `wtype_restrict` hot path gains `Arc::ptr_eq` fast path on vertex anchor equality checks (common case: both sides from same schema construction)
+- **panproto-inst**: `node.anchor.clone()` is now `Arc::clone` (atomic refcount bump) instead of heap string allocation
+- **panproto-schema**: All `HashMap<Name, _>` lookups accept `&str` keys via `Borrow<str>` — zero conversion cost at lookup sites
+
 ### Fixed
 
 - **panproto-schema**: Fix JSON serialization of `HashMap<Edge, _>` and `HashMap<(String, String), _>` fields — `edges`, `orderings`, `usage_modes`, and `between` now serialize as `Vec<(K, V)>` arrays via `serde_helpers::map_as_vec`, enabling JSON round-trip for schemas with edges (previously broken: `serde_json` cannot use struct keys as JSON object keys)

@@ -130,9 +130,9 @@ fn check_edge_map(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<Exis
         }
         if !tgt.edges.contains_key(tgt_edge) {
             errors.push(ExistenceError::EdgeMissing {
-                src: tgt_edge.src.clone(),
-                tgt: tgt_edge.tgt.clone(),
-                kind: tgt_edge.kind.clone(),
+                src: tgt_edge.src.to_string(),
+                tgt: tgt_edge.tgt.to_string(),
+                kind: tgt_edge.kind.to_string(),
             });
         }
     }
@@ -154,8 +154,8 @@ fn check_kind_consistency(
         if let (Some(sv), Some(tv)) = (src_vertex, tgt_vertex) {
             if sv.kind != tv.kind {
                 errors.push(ExistenceError::KindInconsistency {
-                    kind: sv.kind.clone(),
-                    targets: vec![sv.kind.clone(), tv.kind.clone()],
+                    kind: sv.kind.to_string(),
+                    targets: vec![sv.kind.to_string(), tv.kind.to_string()],
                 });
             }
         }
@@ -183,8 +183,8 @@ fn check_constraint_compatibility(
                 if let Some(src_c) = src_cs.iter().find(|c| c.sort == tgt_c.sort) {
                     if is_constraint_tightened(&src_c.sort, &src_c.value, &tgt_c.value) {
                         errors.push(ExistenceError::ConstraintTightened {
-                            vertex: tgt_id.clone(),
-                            sort: tgt_c.sort.clone(),
+                            vertex: tgt_id.to_string(),
+                            sort: tgt_c.sort.to_string(),
                             src_val: src_c.value.clone(),
                             tgt_val: tgt_c.value.clone(),
                         });
@@ -202,7 +202,7 @@ fn check_constraint_compatibility(
                 .map_or_else(FxHashSet::default, |edges| edges.iter().collect());
 
             for req_edge in required_edges {
-                // Check if this required edge has a preimage in the source
+                // Check if this required edge has a preimage in the migration
                 let has_preimage = migration.edge_map.values().any(|e| e == req_edge)
                     || src_required.iter().any(|&se| {
                         migration
@@ -213,11 +213,11 @@ fn check_constraint_compatibility(
 
                 if !has_preimage {
                     errors.push(ExistenceError::RequiredFieldMissing {
-                        vertex: tgt_id.clone(),
-                        field: req_edge
-                            .name
-                            .clone()
-                            .unwrap_or_else(|| format!("{} -> {}", req_edge.src, req_edge.tgt)),
+                        vertex: tgt_id.to_string(),
+                        field: req_edge.name.as_ref().map_or_else(
+                            || format!("{} -> {}", req_edge.src, req_edge.tgt),
+                            std::string::ToString::to_string,
+                        ),
                     });
                 }
             }
@@ -286,8 +286,8 @@ fn check_signature_coherence(
                     if let Some(mapped) = migration.vertex_map.get(src_vertex_id) {
                         if mapped != tgt_vertex_id {
                             errors.push(ExistenceError::SignatureCoherence {
-                                hyper_edge: tgt_he_id.clone(),
-                                label: label.clone(),
+                                hyper_edge: tgt_he_id.to_string(),
+                                label: label.to_string(),
                             });
                         }
                     }
@@ -305,7 +305,7 @@ fn check_signature_coherence(
 fn check_simultaneity(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<ExistenceError> {
     let mut errors = Vec::new();
 
-    let surviving_verts: FxHashSet<&String> = migration.vertex_map.values().collect();
+    let surviving_verts: FxHashSet<&str> = migration.vertex_map.values().map(|n| &**n).collect();
 
     // Verify that source hyper-edge vertices exist in the source schema.
     for src_he_id in migration.hyper_edge_map.keys() {
@@ -325,10 +325,10 @@ fn check_simultaneity(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<
     for tgt_he_id in migration.hyper_edge_map.values() {
         if let Some(he) = tgt.hyper_edges.get(tgt_he_id) {
             for (label, vertex_id) in &he.signature {
-                if !surviving_verts.contains(vertex_id) {
+                if !surviving_verts.contains(&**vertex_id) {
                     errors.push(ExistenceError::Simultaneity {
-                        hyper_edge: tgt_he_id.clone(),
-                        missing_label: label.clone(),
+                        hyper_edge: tgt_he_id.to_string(),
+                        missing_label: label.to_string(),
                     });
                 }
             }
@@ -342,14 +342,14 @@ fn check_simultaneity(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<
 /// disconnected from the root after migration.
 fn check_reachability(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<ExistenceError> {
     let mut errors = Vec::new();
-    let surviving: FxHashSet<&String> = migration.vertex_map.values().collect();
+    let surviving: FxHashSet<&str> = migration.vertex_map.values().map(|n| &**n).collect();
 
     // For each surviving vertex, check reachability in both schemas.
     for (src_id, tgt_id) in &migration.vertex_map {
         // Verify the target vertex exists in the target schema.
         if !tgt.has_vertex(tgt_id) {
             errors.push(ExistenceError::ReachabilityRisk {
-                vertex: tgt_id.clone(),
+                vertex: tgt_id.to_string(),
                 reason: format!("target vertex {tgt_id} does not exist in the target schema"),
             });
             continue;
@@ -361,13 +361,13 @@ fn check_reachability(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<
         let has_surviving_parent = src
             .incoming_edges(src_id)
             .iter()
-            .any(|e| migration.vertex_map.contains_key(&e.src) && surviving.contains(&e.src));
+            .any(|e| migration.vertex_map.contains_key(&e.src) && surviving.contains(&*e.src));
 
         // Root vertices or vertices with surviving parents are fine.
         let is_root_like = src.incoming_edges(src_id).is_empty();
         if !is_root_like && !has_surviving_parent {
             errors.push(ExistenceError::ReachabilityRisk {
-                vertex: tgt_id.clone(),
+                vertex: tgt_id.to_string(),
                 reason: format!("no surviving parent for vertex {src_id} in source schema"),
             });
         }
@@ -391,10 +391,10 @@ fn check_variant_preservation(
         if let Some(tgt_parent) = migration.vertex_map.get(parent_id) {
             let tgt_variants = tgt.variants.get(tgt_parent).cloned().unwrap_or_default();
             let tgt_variant_ids: std::collections::HashSet<&str> =
-                tgt_variants.iter().map(|v| v.id.as_str()).collect();
+                tgt_variants.iter().map(|v| &*v.id).collect();
 
             for v in src_variants {
-                if !tgt_variant_ids.contains(v.id.as_str()) {
+                if !tgt_variant_ids.contains(&*v.id) {
                     errors.push(ExistenceError::WellFormedness {
                         message: format!(
                             "variant '{}' of coproduct '{}' was dropped (type error for existing data)",
@@ -495,6 +495,7 @@ fn check_linearity(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<Exi
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use panproto_gat::Name;
     use panproto_schema::{Constraint, Vertex};
 
     /// Helper: build a minimal protocol for testing.
@@ -514,16 +515,16 @@ mod tests {
     fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         let mut vert_map = HashMap::new();
         let mut edge_map = HashMap::new();
-        let mut outgoing: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-        let mut incoming: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-        let mut between: HashMap<(String, String), smallvec::SmallVec<Edge, 2>> = HashMap::new();
+        let mut outgoing: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+        let mut between: HashMap<(Name, Name), smallvec::SmallVec<Edge, 2>> = HashMap::new();
 
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
                     nsid: None,
                 },
             );
@@ -581,7 +582,7 @@ mod tests {
             std::slice::from_ref(&edge),
         );
         src.constraints.insert(
-            "body.text".into(),
+            Name::from("body.text"),
             vec![Constraint {
                 sort: "maxLength".into(),
                 value: "3000".into(),
@@ -593,7 +594,7 @@ mod tests {
             std::slice::from_ref(&edge),
         );
         tgt.constraints.insert(
-            "body.text".into(),
+            Name::from("body.text"),
             vec![Constraint {
                 sort: "maxLength".into(),
                 value: "300".into(),
@@ -602,8 +603,8 @@ mod tests {
 
         let mig = Migration {
             vertex_map: HashMap::from([
-                ("body".into(), "body".into()),
-                ("body.text".into(), "body.text".into()),
+                (Name::from("body"), Name::from("body")),
+                (Name::from("body.text"), Name::from("body.text")),
             ]),
             edge_map: HashMap::from([(edge.clone(), edge)]),
             hyper_edge_map: HashMap::new(),
@@ -648,8 +649,8 @@ mod tests {
 
         let mig = Migration {
             vertex_map: HashMap::from([
-                ("body".into(), "body".into()),
-                ("body.text".into(), "body.text".into()),
+                (Name::from("body"), Name::from("body")),
+                (Name::from("body.text"), Name::from("body.text")),
             ]),
             edge_map: HashMap::new(),
             hyper_edge_map: HashMap::new(),
@@ -687,10 +688,10 @@ mod tests {
             &[("body", "object"), ("body.name", "string")],
             std::slice::from_ref(&name_edge),
         );
-        tgt.required.insert("body".into(), vec![name_edge]);
+        tgt.required.insert(Name::from("body"), vec![name_edge]);
 
         let mig = Migration {
-            vertex_map: HashMap::from([("body".into(), "body".into())]),
+            vertex_map: HashMap::from([(Name::from("body"), Name::from("body"))]),
             edge_map: HashMap::new(),
             hyper_edge_map: HashMap::new(),
             label_map: HashMap::new(),

@@ -205,6 +205,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "initial".into(),
+            renames: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
 
@@ -216,6 +217,7 @@ mod tests {
             author: "test".into(),
             timestamp: 200,
             message: "second".into(),
+            renames: vec![],
         };
         let c1_id = store.put(&Object::Commit(c1))?;
 
@@ -240,6 +242,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "initial".into(),
+            renames: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;
@@ -254,6 +257,7 @@ mod tests {
             author: "test".into(),
             timestamp: 300,
             message: "orphan".into(),
+            renames: vec![],
         };
         let orphan_id = store.put(&Object::Commit(orphan))?;
 
@@ -283,6 +287,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "initial".into(),
+            renames: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;

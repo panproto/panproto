@@ -244,7 +244,7 @@ pub fn emit_folia(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
         if !cs.is_empty() {
             let mut constraints = serde_json::Map::new();
             for c in &cs {
-                constraints.insert(c.sort.clone(), serde_json::json!(c.value));
+                constraints.insert(c.sort.to_string(), serde_json::json!(c.value));
             }
             obj.insert("constraints".into(), serde_json::Value::Object(constraints));
         }
@@ -261,7 +261,7 @@ pub fn emit_folia(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 if !fc.is_empty() {
                     let mut fcs = serde_json::Map::new();
                     for c in &fc {
-                        fcs.insert(c.sort.clone(), serde_json::json!(c.value));
+                        fcs.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                     field.insert("constraints".into(), serde_json::Value::Object(fcs));
                 }
@@ -308,7 +308,7 @@ pub fn emit_folia(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
             obj.insert("dep-dependent".into(), serde_json::Value::Array(arr));
         }
 
-        types.insert(root.id.clone(), serde_json::Value::Object(obj));
+        types.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "types": types }))

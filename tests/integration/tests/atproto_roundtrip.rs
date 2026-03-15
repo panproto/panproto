@@ -81,7 +81,7 @@ fn parse_json_then_identity_lift_then_serialize() -> Result<(), Box<dyn std::err
     );
 
     // Build an identity compiled migration.
-    let surviving_verts: HashSet<String> = schema.vertices.keys().cloned().collect();
+    let surviving_verts = schema.vertices.keys().cloned().collect();
     let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
 
     let compiled = CompiledMigration {

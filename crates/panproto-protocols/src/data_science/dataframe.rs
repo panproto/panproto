@@ -216,7 +216,7 @@ pub fn emit_dataframe_schema(schema: &Schema) -> Result<serde_json::Value, Proto
                         |_| serde_json::Value::String(c.value.clone()),
                         |n| serde_json::json!(n),
                     );
-                    checks.insert(c.sort.clone(), val);
+                    checks.insert(c.sort.to_string(), val);
                 }
                 "isin" => {
                     let vals: Vec<serde_json::Value> = c

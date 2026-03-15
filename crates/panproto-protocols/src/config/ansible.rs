@@ -139,7 +139,7 @@ pub fn emit_ansible_schema(schema: &Schema) -> Result<serde_json::Value, Protoco
                     if c.sort == "required" {
                         param.insert("required".into(), serde_json::json!(true));
                     } else {
-                        param.insert(c.sort.clone(), serde_json::json!(c.value));
+                        param.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                 }
                 params.insert(name.to_string(), serde_json::Value::Object(param));
@@ -147,7 +147,7 @@ pub fn emit_ansible_schema(schema: &Schema) -> Result<serde_json::Value, Protoco
             obj.insert("parameters".into(), serde_json::Value::Object(params));
         }
 
-        modules.insert(root.id.clone(), serde_json::Value::Object(obj));
+        modules.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "modules": modules }))

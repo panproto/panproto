@@ -213,16 +213,16 @@ pub fn emit_nif_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolErr
             let mut item_arr: Vec<serde_json::Value> = Vec::new();
 
             for (edge, child) in &props {
-                let edge_name = edge.name.as_deref().unwrap_or(&child.id);
+                let edge_name = edge.name.as_deref().unwrap_or(&*child.id);
                 // If the edge name equals the child kind it was recorded as an
                 // item (repeated by kind); otherwise it is a named field.
-                if edge_name == child.kind {
+                if edge_name == &*child.kind {
                     item_arr.push(serde_json::json!(edge_name));
                 } else {
                     let mut field = serde_json::Map::new();
                     field.insert("type".into(), serde_json::json!(child.kind));
                     for c in vertex_constraints(schema, &child.id) {
-                        field.insert(c.sort.clone(), serde_json::json!(c.value));
+                        field.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                     fields.insert(edge_name.to_string(), serde_json::Value::Object(field));
                 }
@@ -246,7 +246,7 @@ pub fn emit_nif_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolErr
             obj.insert("reference-context".into(), serde_json::Value::Array(refs));
         }
 
-        types.insert(root.id.clone(), serde_json::Value::Object(obj));
+        types.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "types": types }))

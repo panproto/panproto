@@ -286,7 +286,7 @@ fn emit_go_struct(
     for (edge, field_vertex) in &fields {
         let field_name = edge.name.as_deref().unwrap_or(&field_vertex.id);
         let type_name = resolve_type(schema, &field_vertex.id)
-            .map(|v| v.id.clone())
+            .map(|v| v.id.to_string())
             .unwrap_or_else(|| "string".to_string());
 
         let json_tag = constraint_value(schema, &field_vertex.id, "json_tag");

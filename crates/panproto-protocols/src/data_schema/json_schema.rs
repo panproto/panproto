@@ -392,9 +392,9 @@ fn emit_json_schema_vertex(
             }
             "minLength" | "maxLength" | "minimum" | "maximum" => {
                 if let Ok(n) = c.value.parse::<i64>() {
-                    obj.insert(c.sort.clone(), serde_json::json!(n));
+                    obj.insert(c.sort.to_string(), serde_json::json!(n));
                 } else {
-                    obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                    obj.insert(c.sort.to_string(), serde_json::json!(c.value));
                 }
             }
             "enum" => {
@@ -414,7 +414,7 @@ fn emit_json_schema_vertex(
                 }
             }
             _ => {
-                obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                obj.insert(c.sort.to_string(), serde_json::json!(c.value));
             }
         }
     }

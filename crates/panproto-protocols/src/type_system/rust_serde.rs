@@ -337,7 +337,7 @@ fn emit_rust_struct(
     for (edge, field_vertex) in &fields {
         let field_name = edge.name.as_deref().unwrap_or(&field_vertex.id);
         let type_name = resolve_type(schema, &field_vertex.id)
-            .map(|v| v.id.clone())
+            .map(|v| v.id.to_string())
             .unwrap_or_else(|| "String".to_string());
         let is_optional =
             constraint_value(schema, &field_vertex.id, "optional").is_some_and(|v| v == "true");

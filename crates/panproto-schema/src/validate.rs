@@ -26,8 +26,8 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
         for (id, vertex) in &schema.vertices {
             if !protocol.is_known_vertex_kind(&vertex.kind) {
                 errors.push(ValidationError::InvalidVertexKind {
-                    vertex: id.clone(),
-                    kind: vertex.kind.clone(),
+                    vertex: id.to_string(),
+                    kind: vertex.kind.to_string(),
                 });
             }
         }
@@ -39,12 +39,12 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
             // Check source kind.
             if let Some(src_vertex) = schema.vertices.get(&edge.src) {
                 if !rule.src_kinds.is_empty()
-                    && !rule.src_kinds.iter().any(|k| k == &src_vertex.kind)
+                    && !rule.src_kinds.iter().any(|k| k == src_vertex.kind.as_ref())
                 {
                     errors.push(ValidationError::InvalidEdge {
-                        src: edge.src.clone(),
-                        tgt: edge.tgt.clone(),
-                        kind: edge.kind.clone(),
+                        src: edge.src.to_string(),
+                        tgt: edge.tgt.to_string(),
+                        kind: edge.kind.to_string(),
                         reason: format!(
                             "source kind '{}' not in permitted: {:?}",
                             src_vertex.kind, rule.src_kinds
@@ -55,12 +55,12 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
             // Check target kind.
             if let Some(tgt_vertex) = schema.vertices.get(&edge.tgt) {
                 if !rule.tgt_kinds.is_empty()
-                    && !rule.tgt_kinds.iter().any(|k| k == &tgt_vertex.kind)
+                    && !rule.tgt_kinds.iter().any(|k| k == tgt_vertex.kind.as_ref())
                 {
                     errors.push(ValidationError::InvalidEdge {
-                        src: edge.src.clone(),
-                        tgt: edge.tgt.clone(),
-                        kind: edge.kind.clone(),
+                        src: edge.src.to_string(),
+                        tgt: edge.tgt.to_string(),
+                        kind: edge.kind.to_string(),
                         reason: format!(
                             "target kind '{}' not in permitted: {:?}",
                             tgt_vertex.kind, rule.tgt_kinds
@@ -70,9 +70,9 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
             }
         } else if !protocol.edge_rules.is_empty() {
             errors.push(ValidationError::InvalidEdge {
-                src: edge.src.clone(),
-                tgt: edge.tgt.clone(),
-                kind: edge.kind.clone(),
+                src: edge.src.to_string(),
+                tgt: edge.tgt.to_string(),
+                kind: edge.kind.to_string(),
                 reason: format!("unknown edge kind '{}'", edge.kind),
             });
         }
@@ -85,11 +85,11 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
                 if !protocol
                     .constraint_sorts
                     .iter()
-                    .any(|s| s == &constraint.sort)
+                    .any(|s| s == constraint.sort.as_ref())
                 {
                     errors.push(ValidationError::InvalidConstraintSort {
-                        vertex: vertex_id.clone(),
-                        sort: constraint.sort.clone(),
+                        vertex: vertex_id.to_string(),
+                        sort: constraint.sort.to_string(),
                     });
                 }
             }
@@ -103,7 +103,7 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
                 || !schema.vertices.contains_key(&req_edge.tgt)
             {
                 errors.push(ValidationError::DanglingRequiredEdge {
-                    vertex: vertex_id.clone(),
+                    vertex: vertex_id.to_string(),
                     edge: format!("{} -> {} ({})", req_edge.src, req_edge.tgt, req_edge.kind),
                 });
             }

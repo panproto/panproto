@@ -1767,6 +1767,7 @@ fn cli_lift_bad_migration_fails() {
 // lift_wtype + to_json) directly through the Rust API, bypassing the
 // JSON serialization limitation for schemas with edges.
 
+use panproto_core::gat::Name;
 use panproto_core::inst;
 use panproto_core::mig;
 use panproto_core::schema::{Edge, Schema, Vertex};
@@ -1781,38 +1782,38 @@ fn make_lift_schema(
     let mut vert_map = HashMap::new();
     for (id, kind) in vertices {
         vert_map.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
     }
 
     let mut edge_map = HashMap::new();
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
     for (src, tgt, kind, name) in edges {
         let edge = Edge {
-            src: src.to_string(),
-            tgt: tgt.to_string(),
-            kind: kind.to_string(),
-            name: Some(name.to_string()),
+            src: (*src).into(),
+            tgt: (*tgt).into(),
+            kind: (*kind).into(),
+            name: Some((*name).into()),
         };
-        edge_map.insert(edge.clone(), kind.to_string());
+        edge_map.insert(edge.clone(), Name::from(*kind));
         outgoing
-            .entry(src.to_string())
+            .entry(Name::from(*src))
             .or_default()
             .push(edge.clone());
         incoming
-            .entry(tgt.to_string())
+            .entry(Name::from(*tgt))
             .or_default()
             .push(edge.clone());
         between
-            .entry((src.to_string(), tgt.to_string()))
+            .entry((Name::from(*src), Name::from(*tgt)))
             .or_default()
             .push(edge);
     }
@@ -1844,7 +1845,7 @@ fn make_migration(
     mig::Migration {
         vertex_map: vertex_map
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (Name::from(*k), Name::from(*v)))
             .collect(),
         edge_map: edge_map_entries.iter().cloned().collect(),
         hyper_edge_map: HashMap::new(),

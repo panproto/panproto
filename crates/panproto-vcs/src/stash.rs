@@ -60,6 +60,7 @@ pub fn stash_push(
         author: author.to_owned(),
         timestamp,
         message: msg.clone(),
+        renames: vec![],
     };
     let stash_id = store.put(&Object::Commit(stash_commit))?;
 
@@ -228,6 +229,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "initial".into(),
+            renames: vec![],
         };
         let head_id = store.put(&Object::Commit(head_commit))?;
         store.set_ref("refs/heads/main", head_id)?;
@@ -263,6 +265,7 @@ mod tests {
             author: "test".into(),
             timestamp: 100,
             message: "initial".into(),
+            renames: vec![],
         };
         let head_id = store.put(&Object::Commit(head_commit))?;
         store.set_ref("refs/heads/main", head_id)?;

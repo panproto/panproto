@@ -46,6 +46,9 @@ book:
         - chapters/12-format-conversion.qmd
         - chapters/13-version-control.qmd
         - chapters/14-building-blocks.qmd
+    - part: "Names & Identity"
+      chapters:
+        - chapters/15-naming-and-identity.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-category-theory-cheatsheet.qmd

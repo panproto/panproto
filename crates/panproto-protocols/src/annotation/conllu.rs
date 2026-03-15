@@ -397,7 +397,7 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
                     let b_n = b_head.parse::<f64>().unwrap_or(0.0);
                     a_n.partial_cmp(&b_n).unwrap_or(std::cmp::Ordering::Equal)
                 });
-                enhanced_map.insert(token_vertex.id.clone(), edeps);
+                enhanced_map.insert(token_vertex.id.to_string(), edeps);
             }
         }
 
@@ -483,7 +483,7 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
 
             // DEPS — enhanced dependencies.
             let deps: String = enhanced_map
-                .get(&token_vertex.id)
+                .get(token_vertex.id.as_str())
                 .map_or_else(|| "_".to_string(), |v| v.join("|"));
 
             // MISC from misc constraint.

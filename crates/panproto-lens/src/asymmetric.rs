@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use panproto_inst::{Fan, Node, WInstance, wtype_restrict};
 use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
@@ -189,8 +190,8 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         .map(|fan| {
             let mut restored_fan = fan.clone();
             // Un-remap the hyper-edge ID if needed
-            if let Some(original_he) = reverse_remap.get(&fan.hyper_edge_id) {
-                restored_fan.hyper_edge_id.clone_from(original_he);
+            if let Some(original_he) = reverse_remap.get(fan.hyper_edge_id.as_str()) {
+                restored_fan.hyper_edge_id = original_he.to_string();
             }
             restored_fan
         })
@@ -212,12 +213,13 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         .get(&view.schema_root)
         .cloned()
         .unwrap_or_else(|| view.schema_root.clone());
+    // schema_root is Name, which WInstance::new accepts via Into<Name>
 
     Ok(WInstance::new(nodes, arcs, fans, view.root, schema_root))
 }
 
 /// Build a reverse mapping from target vertex IDs back to source vertex IDs.
-fn build_reverse_remap(forward: &HashMap<String, String>) -> HashMap<String, String> {
+fn build_reverse_remap(forward: &HashMap<Name, Name>) -> HashMap<Name, Name> {
     forward
         .iter()
         .map(|(k, v)| (v.clone(), k.clone()))

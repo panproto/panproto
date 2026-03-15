@@ -238,7 +238,7 @@ pub fn emit_concrete_schema(schema: &Schema) -> Result<serde_json::Value, Protoc
                 let mut field = serde_json::Map::new();
                 field.insert("type".into(), serde_json::json!(child.kind));
                 for c in vertex_constraints(schema, &child.id) {
-                    field.insert(c.sort.clone(), serde_json::json!(c.value));
+                    field.insert(c.sort.to_string(), serde_json::json!(c.value));
                 }
                 fields.insert(name.to_string(), serde_json::Value::Object(field));
             }
@@ -268,7 +268,7 @@ pub fn emit_concrete_schema(schema: &Schema) -> Result<serde_json::Value, Protoc
         emit_ref_edges(schema, &root.id, "parse-child", "parse_children", &mut obj);
         emit_ref_edges(schema, &root.id, "graph-dep", "graph_deps", &mut obj);
 
-        types.insert(root.id.clone(), serde_json::Value::Object(obj));
+        types.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "types": types }))

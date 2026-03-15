@@ -51,7 +51,7 @@ fn find_root_vertex(schema: &Schema) -> Option<String> {
         .vertices
         .values()
         .find(|v| schema.incoming_edges(&v.id).is_empty())
-        .map(|v| v.id.clone())
+        .map(|v| v.id.to_string())
 }
 
 impl InstanceParser for JsonCodec {

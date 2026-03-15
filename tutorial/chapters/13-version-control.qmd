@@ -189,6 +189,14 @@ Diff the staged schema against HEAD:
 schema diff --staged
 ```
 
+Detect likely renames between schema versions (see @sec-rename-detection):
+
+```bash
+schema diff --detect-renames old-schema.json new-schema.json
+```
+
+This uses structural similarity heuristics to identify vertices and edge labels that were renamed rather than deleted and re-added. Detected renames are shown with confidence scores and can be incorporated into the migration automatically.
+
 ### `schema show`
 
 Inspects any object in the store by ref name or object ID. For commits, shows the schema ID, parent IDs, migration ID, protocol, author, and message. For schemas, shows vertex and edge counts. For migrations, shows the vertex and edge mapping counts.

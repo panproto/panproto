@@ -10,6 +10,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use panproto_gat::Name;
 use panproto_inst::{
     CompiledMigration, FInstance, Fan, FieldPresence, Node, Value, WInstance, anchor_surviving,
     functor_restrict, parse_json, reachable_from_root, reconstruct_fans, to_json, validate_wtype,
@@ -138,7 +139,7 @@ fn test_3_node_validate_and_round_trip() {
         ),
     ];
 
-    let inst = WInstance::new(nodes, arcs, vec![], 0, "obj".into());
+    let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("obj"));
 
     // Validate
     let errors = validate_wtype(&schema, &inst);
@@ -153,8 +154,8 @@ fn test_3_node_validate_and_round_trip() {
     // Parse back
     let parsed = parse_json(&schema, "obj", &json_out);
     assert!(parsed.is_ok(), "parse failed: {parsed:?}");
-    let parsed =
-        parsed.unwrap_or_else(|_| WInstance::new(HashMap::new(), vec![], vec![], 0, String::new()));
+    let parsed = parsed
+        .unwrap_or_else(|_| WInstance::new(HashMap::new(), vec![], vec![], 0, Name::default()));
 
     // Verify round-trip fidelity
     assert_eq!(parsed.node_count(), 3, "expected 3 nodes after round-trip");
@@ -192,10 +193,10 @@ fn thread_view_post_schema() -> (Schema, Schema) {
     let mut vertices = HashMap::new();
     for (id, kind) in &verts {
         vertices.insert(
-            (*id).to_string(),
+            Name::from(*id),
             Vertex {
-                id: (*id).to_string(),
-                kind: (*kind).to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
@@ -220,9 +221,9 @@ fn thread_view_post_schema() -> (Schema, Schema) {
     ];
 
     let mut edges = HashMap::new();
-    let mut outgoing: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), smallvec::SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), smallvec::SmallVec<Edge, 2>> = HashMap::new();
 
     for &(src, tgt, kind, name) in &edge_defs {
         let edge = Edge {
@@ -260,9 +261,9 @@ fn thread_view_post_schema() -> (Schema, Schema) {
     };
 
     // Target schema: only post, body, text survive
-    let tgt_verts: HashMap<String, Vertex> = ["post", "body", "text"]
+    let tgt_verts: HashMap<Name, Vertex> = ["post", "body", "text"]
         .iter()
-        .filter_map(|id| vertices.get(*id).map(|v| ((*id).to_string(), v.clone())))
+        .filter_map(|id| vertices.get(*id).map(|v| (Name::from(*id), v.clone())))
         .collect();
 
     let tgt_edges_list: Vec<Edge> = [
@@ -279,9 +280,9 @@ fn thread_view_post_schema() -> (Schema, Schema) {
     .collect();
 
     let mut tgt_edges = HashMap::new();
-    let mut tgt_outgoing: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut tgt_incoming: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut tgt_between: HashMap<(String, String), smallvec::SmallVec<Edge, 2>> = HashMap::new();
+    let mut tgt_outgoing: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut tgt_incoming: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut tgt_between: HashMap<(Name, Name), smallvec::SmallVec<Edge, 2>> = HashMap::new();
 
     for edge in &tgt_edges_list {
         tgt_edges.insert(edge.clone(), edge.kind.clone());
@@ -464,13 +465,13 @@ fn test_recursive_schema_restrict_drops_to_3_nodes() {
         ),
     ];
 
-    let inst = WInstance::new(nodes, arcs, vec![], 0, "post".into());
+    let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("post"));
     assert_eq!(inst.node_count(), 11, "should start with 11 nodes");
 
     // Migration: only post, body, text survive
-    let surviving_verts: HashSet<String> = ["post", "body", "text"]
+    let surviving_verts: HashSet<Name> = ["post", "body", "text"]
         .iter()
-        .map(|s| (*s).to_string())
+        .map(|s| Name::from(*s))
         .collect();
 
     // Step 1: anchor surviving
@@ -504,8 +505,8 @@ fn test_recursive_schema_restrict_drops_to_3_nodes() {
 
     let result = wtype_restrict(&inst, &src_schema, &tgt_schema, &migration);
     assert!(result.is_ok(), "restrict failed: {result:?}");
-    let restricted =
-        result.unwrap_or_else(|_| WInstance::new(HashMap::new(), vec![], vec![], 0, String::new()));
+    let restricted = result
+        .unwrap_or_else(|_| WInstance::new(HashMap::new(), vec![], vec![], 0, Name::default()));
     assert_eq!(
         restricted.node_count(),
         3,
@@ -522,9 +523,9 @@ fn test_fan_reconstruction_4_to_3() {
     let mut vertices = HashMap::new();
     for id in ["table", "col1", "col2", "col3", "col4"] {
         vertices.insert(
-            id.to_string(),
+            Name::from(id),
             Vertex {
-                id: id.to_string(),
+                id: Name::from(id),
                 kind: "node".into(),
                 nsid: None,
             },
@@ -672,7 +673,7 @@ fn test_functor_restrict_precomposition() {
 
     // Migration: drop "posts", keep "users" only
     let migration = CompiledMigration {
-        surviving_verts: HashSet::from(["users".to_string()]),
+        surviving_verts: HashSet::from([Name::from("users")]),
         surviving_edges: HashSet::new(),
         vertex_remap: HashMap::new(),
         edge_remap: HashMap::new(),

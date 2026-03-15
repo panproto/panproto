@@ -257,7 +257,7 @@ pub fn emit_uima_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
 
         // Emit constraints.
         for c in vertex_constraints(schema, &root.id) {
-            obj.insert(c.sort.clone(), serde_json::json!(c.value));
+            obj.insert(c.sort.to_string(), serde_json::json!(c.value));
         }
 
         // Emit extends edges (type → parent).
@@ -275,7 +275,7 @@ pub fn emit_uima_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
                 let mut feat = serde_json::Map::new();
                 feat.insert("type".into(), serde_json::json!(child.kind));
                 for c in vertex_constraints(schema, &child.id) {
-                    feat.insert(c.sort.clone(), serde_json::json!(c.value));
+                    feat.insert(c.sort.to_string(), serde_json::json!(c.value));
                 }
                 feats.insert(feat_name.to_string(), serde_json::Value::Object(feat));
             }
@@ -304,7 +304,7 @@ pub fn emit_uima_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolEr
             obj.insert("contains".into(), serde_json::Value::Array(ids));
         }
 
-        types.insert(root.id.clone(), serde_json::Value::Object(obj));
+        types.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "types": types }))

@@ -6,6 +6,7 @@
 //! - [`Object::Commit`] — a point in the schema evolution DAG
 //! - [`Object::Tag`] — an annotated tag pointing to another object
 
+use panproto_gat::SiteRename;
 use panproto_mig::Migration;
 use panproto_schema::Schema;
 use serde::{Deserialize, Serialize};
@@ -75,6 +76,10 @@ pub struct CommitObject {
 
     /// Human-readable commit message.
     pub message: String,
+
+    /// Renames detected or declared for this commit's migration.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub renames: Vec<SiteRename>,
 }
 
 /// An annotated tag object.

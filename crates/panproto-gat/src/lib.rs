@@ -19,6 +19,7 @@
 mod colimit;
 mod eq;
 mod error;
+mod ident;
 mod model;
 mod morphism;
 mod op;
@@ -28,6 +29,7 @@ mod theory;
 pub use colimit::colimit;
 pub use eq::{Equation, Term};
 pub use error::GatError;
+pub use ident::{Ident, Name, NameSite, ScopeTag, SiteRename};
 pub use model::{Model, ModelValue, migrate_model};
 pub use morphism::{TheoryMorphism, check_morphism};
 pub use op::Operation;

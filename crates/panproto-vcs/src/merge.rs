@@ -11,6 +11,7 @@
 //! reported and the base value is retained in the merged schema.
 
 use panproto_check::diff::{self, SchemaDiff};
+use panproto_gat::Name;
 use panproto_mig::Migration;
 use panproto_schema::{Constraint, Edge, Schema, Span, UsageMode, Variant, Vertex};
 use rustc_hash::FxHashSet;
@@ -312,6 +313,7 @@ pub enum Side {
 /// The merge is **commutative**: swapping ours and theirs produces an
 /// identical `merged_schema` (with `Side` labels swapped in conflicts).
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeResult {
     let diff_ours = diff::diff(base, ours);
     let diff_theirs = diff::diff(base, theirs);
@@ -328,26 +330,57 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         merge_constraints(base, ours, theirs, &diff_ours, &diff_theirs, &mut conflicts);
 
     // -- Hyper-edges --
+    // Convert String IDs from diff to Name for lookup.
+    let ours_added_he: Vec<Name> = diff_ours
+        .added_hyper_edges
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_removed_he: Vec<Name> = diff_ours
+        .removed_hyper_edges
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_modified_he: Vec<Name> = diff_ours
+        .modified_hyper_edges
+        .iter()
+        .map(|c| Name::from(c.id.as_str()))
+        .collect();
+    let theirs_added_he: Vec<Name> = diff_theirs
+        .added_hyper_edges
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_removed_he: Vec<Name> = diff_theirs
+        .removed_hyper_edges
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_modified_he: Vec<Name> = diff_theirs
+        .modified_hyper_edges
+        .iter()
+        .map(|c| Name::from(c.id.as_str()))
+        .collect();
     let hyper_edges = merge_keyed_eq(
         &base.hyper_edges,
         &ours.hyper_edges,
         &theirs.hyper_edges,
-        &fxset_from_iter(diff_ours.added_hyper_edges.iter()),
-        &fxset_from_iter(diff_ours.removed_hyper_edges.iter()),
-        &fxset_from_iter(diff_ours.modified_hyper_edges.iter().map(|c| &c.id)),
-        &fxset_from_iter(diff_theirs.added_hyper_edges.iter()),
-        &fxset_from_iter(diff_theirs.removed_hyper_edges.iter()),
-        &fxset_from_iter(diff_theirs.modified_hyper_edges.iter().map(|c| &c.id)),
+        &fxset_name_from_iter(ours_added_he.iter()),
+        &fxset_name_from_iter(ours_removed_he.iter()),
+        &fxset_name_from_iter(ours_modified_he.iter()),
+        &fxset_name_from_iter(theirs_added_he.iter()),
+        &fxset_name_from_iter(theirs_removed_he.iter()),
+        &fxset_name_from_iter(theirs_modified_he.iter()),
         &mut conflicts,
         |k, case| match case {
             ConflictCase::BothAddedDifferently => MergeConflict::BothAddedHyperEdgeDifferently {
-                hyper_edge_id: k.clone(),
+                hyper_edge_id: k.to_string(),
             },
             ConflictCase::BothModifiedDifferently => MergeConflict::BothModifiedHyperEdge {
-                hyper_edge_id: k.clone(),
+                hyper_edge_id: k.to_string(),
             },
             ConflictCase::DeleteModify(side) => MergeConflict::DeleteModifyHyperEdge {
-                hyper_edge_id: k.clone(),
+                hyper_edge_id: k.to_string(),
                 deleted_by: side,
             },
         },
@@ -380,9 +413,9 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     let nominal = merge_nominal(base, ours, theirs, &diff_ours, &diff_theirs, &mut conflicts);
 
     // Rebuild precomputed indices.
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
     for edge in edges.keys() {
         outgoing
@@ -444,28 +477,28 @@ enum ConflictCase {
     DeleteModify(Side),
 }
 
-/// Generic pushout merge for `HashMap<String, V>` where values support `PartialEq`.
+/// Generic pushout merge for `HashMap<K, V>` where values support `PartialEq`.
 ///
 /// Given sets of added/removed/modified keys from each diff, applies the
 /// nine-case pushout rule.
 #[allow(clippy::too_many_arguments)]
-fn merge_keyed_eq<V: Clone + PartialEq>(
-    base: &HashMap<String, V>,
-    ours: &HashMap<String, V>,
-    theirs: &HashMap<String, V>,
-    ours_added: &FxHashSet<&String>,
-    ours_removed: &FxHashSet<&String>,
-    ours_modified: &FxHashSet<&String>,
-    theirs_added: &FxHashSet<&String>,
-    theirs_removed: &FxHashSet<&String>,
-    theirs_modified: &FxHashSet<&String>,
+fn merge_keyed_eq<K: Clone + Eq + std::hash::Hash, V: Clone + PartialEq>(
+    base: &HashMap<K, V>,
+    ours: &HashMap<K, V>,
+    theirs: &HashMap<K, V>,
+    ours_added: &FxHashSet<&K>,
+    ours_removed: &FxHashSet<&K>,
+    ours_modified: &FxHashSet<&K>,
+    theirs_added: &FxHashSet<&K>,
+    theirs_removed: &FxHashSet<&K>,
+    theirs_modified: &FxHashSet<&K>,
     conflicts: &mut Vec<MergeConflict>,
-    make_conflict: impl Fn(&String, ConflictCase) -> MergeConflict,
-) -> HashMap<String, V> {
-    let mut result: HashMap<String, V> = HashMap::new();
+    make_conflict: impl Fn(&K, ConflictCase) -> MergeConflict,
+) -> HashMap<K, V> {
+    let mut result: HashMap<K, V> = HashMap::new();
 
     // All keys across all three schemas.
-    let all_keys: FxHashSet<&String> = base
+    let all_keys: FxHashSet<&K> = base
         .keys()
         .chain(ours.keys())
         .chain(theirs.keys())
@@ -589,7 +622,7 @@ const fn element_fate(
     Fate::Unchanged
 }
 
-fn fxset_from_iter<'a, I: Iterator<Item = &'a String>>(iter: I) -> FxHashSet<&'a String> {
+fn fxset_name_from_iter<'a, I: Iterator<Item = &'a Name>>(iter: I) -> FxHashSet<&'a Name> {
     iter.collect()
 }
 
@@ -605,8 +638,8 @@ fn merge_vertices(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
-) -> HashMap<String, Vertex> {
-    let mut result: HashMap<String, Vertex> = HashMap::new();
+) -> HashMap<Name, Vertex> {
+    let mut result: HashMap<Name, Vertex> = HashMap::new();
 
     let ours_added: FxHashSet<&str> = diff_ours
         .added_vertices
@@ -652,7 +685,7 @@ fn merge_vertices(
             // Ours removed, theirs modified → conflict.
             (true, false, _, true) => {
                 conflicts.push(MergeConflict::DeleteModifyVertex {
-                    vertex_id: vid.clone(),
+                    vertex_id: vid.to_string(),
                     deleted_by: Side::Ours,
                 });
                 result.insert(vid.clone(), base_v.clone());
@@ -660,7 +693,7 @@ fn merge_vertices(
             // Theirs removed, ours modified → conflict.
             (false, true, true, _) => {
                 conflicts.push(MergeConflict::DeleteModifyVertex {
-                    vertex_id: vid.clone(),
+                    vertex_id: vid.to_string(),
                     deleted_by: Side::Theirs,
                 });
                 result.insert(vid.clone(), base_v.clone());
@@ -673,9 +706,9 @@ fn merge_vertices(
                     result.insert(vid.clone(), ours_v.clone());
                 } else {
                     conflicts.push(MergeConflict::BothModifiedVertex {
-                        vertex_id: vid.clone(),
-                        ours_kind: ours_v.kind.clone(),
-                        theirs_kind: theirs_v.kind.clone(),
+                        vertex_id: vid.to_string(),
+                        ours_kind: ours_v.kind.to_string(),
+                        theirs_kind: theirs_v.kind.to_string(),
                     });
                     result.insert(vid.clone(), base_v.clone());
                 }
@@ -697,29 +730,31 @@ fn merge_vertices(
 
     // Process vertices added by ours.
     for vid in &diff_ours.added_vertices {
+        let vid_name = Name::from(vid.as_str());
         if theirs_added.contains(vid.as_str()) {
             // Both added — check if identical.
-            let ours_v = &ours.vertices[vid];
-            let theirs_v = &theirs.vertices[vid];
+            let ours_v = &ours.vertices[vid.as_str()];
+            let theirs_v = &theirs.vertices[vid.as_str()];
             if ours_v == theirs_v {
-                result.insert(vid.clone(), ours_v.clone());
+                result.insert(vid_name, ours_v.clone());
             } else {
                 conflicts.push(MergeConflict::BothAddedVertexDifferently {
                     vertex_id: vid.clone(),
-                    ours_kind: ours_v.kind.clone(),
-                    theirs_kind: theirs_v.kind.clone(),
+                    ours_kind: ours_v.kind.to_string(),
+                    theirs_kind: theirs_v.kind.to_string(),
                 });
                 // No base value; don't include.
             }
         } else {
-            result.insert(vid.clone(), ours.vertices[vid].clone());
+            result.insert(vid_name, ours.vertices[vid.as_str()].clone());
         }
     }
 
     // Process vertices added by theirs only.
     for vid in &diff_theirs.added_vertices {
         if !ours_added.contains(vid.as_str()) {
-            result.insert(vid.clone(), theirs.vertices[vid].clone());
+            let vid_name = Name::from(vid.as_str());
+            result.insert(vid_name, theirs.vertices[vid.as_str()].clone());
         }
     }
 
@@ -733,8 +768,8 @@ fn merge_edges(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     _conflicts: &mut Vec<MergeConflict>,
-) -> HashMap<Edge, String> {
-    let mut result: HashMap<Edge, String> = HashMap::new();
+) -> HashMap<Edge, Name> {
+    let mut result: HashMap<Edge, Name> = HashMap::new();
 
     let ours_removed: FxHashSet<&Edge> = diff_ours.removed_edges.iter().collect();
     let theirs_removed: FxHashSet<&Edge> = diff_theirs.removed_edges.iter().collect();
@@ -776,10 +811,10 @@ fn merge_constraints(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
-) -> HashMap<String, Vec<Constraint>> {
-    let mut result: HashMap<String, Vec<Constraint>> = HashMap::new();
+) -> HashMap<Name, Vec<Constraint>> {
+    let mut result: HashMap<Name, Vec<Constraint>> = HashMap::new();
 
-    let all_vids: FxHashSet<&String> = base
+    let all_vids: FxHashSet<&Name> = base
         .constraints
         .keys()
         .chain(ours.constraints.keys())
@@ -791,8 +826,9 @@ fn merge_constraints(
         let ours_cs = ours.constraints.get(vid).cloned().unwrap_or_default();
         let theirs_cs = theirs.constraints.get(vid).cloned().unwrap_or_default();
 
-        let ours_cdiff = diff_ours.modified_constraints.get(vid);
-        let theirs_cdiff = diff_theirs.modified_constraints.get(vid);
+        let vid_str = vid.to_string();
+        let ours_cdiff = diff_ours.modified_constraints.get(&vid_str);
+        let theirs_cdiff = diff_theirs.modified_constraints.get(&vid_str);
 
         match (ours_cdiff, theirs_cdiff) {
             (None, None) => {
@@ -815,8 +851,9 @@ fn merge_constraints(
             }
             (Some(od), Some(td)) => {
                 // Both changed — merge per-sort.
-                let merged_cs =
-                    merge_constraint_sorts(vid, &base_cs, &ours_cs, &theirs_cs, od, td, conflicts);
+                let merged_cs = merge_constraint_sorts(
+                    &vid_str, &base_cs, &ours_cs, &theirs_cs, od, td, conflicts,
+                );
                 if !merged_cs.is_empty() {
                     result.insert(vid.clone(), merged_cs);
                 }
@@ -993,8 +1030,8 @@ fn merge_required(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
-) -> HashMap<String, Vec<Edge>> {
-    let all_vids: FxHashSet<&String> = base
+) -> HashMap<Name, Vec<Edge>> {
+    let all_vids: FxHashSet<&Name> = base
         .required
         .keys()
         .chain(ours.required.keys())
@@ -1008,10 +1045,11 @@ fn merge_required(
         let ours_val = ours.required.get(vid);
         let theirs_val = theirs.required.get(vid);
 
-        let o_changed = diff_ours.added_required.contains_key(vid)
-            || diff_ours.removed_required.contains_key(vid);
-        let t_changed = diff_theirs.added_required.contains_key(vid)
-            || diff_theirs.removed_required.contains_key(vid);
+        let vid_str = vid.to_string();
+        let o_changed = diff_ours.added_required.contains_key(&vid_str)
+            || diff_ours.removed_required.contains_key(&vid_str);
+        let t_changed = diff_theirs.added_required.contains_key(&vid_str)
+            || diff_theirs.removed_required.contains_key(&vid_str);
 
         let merged_val = match (o_changed, t_changed) {
             (false, false) => base_val.cloned(),
@@ -1022,7 +1060,7 @@ fn merge_required(
                     ours_val.cloned()
                 } else {
                     conflicts.push(MergeConflict::BothModifiedRequired {
-                        vertex_id: vid.clone(),
+                        vertex_id: vid.to_string(),
                     });
                     base_val.cloned()
                 }
@@ -1047,7 +1085,7 @@ fn merge_variants(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
-) -> HashMap<String, Vec<Variant>> {
+) -> HashMap<Name, Vec<Variant>> {
     // Flatten to (parent, id) → Variant for each.
     let base_flat = flatten_variants(&base.variants);
     let ours_flat = flatten_variants(&ours.variants);
@@ -1129,8 +1167,8 @@ fn merge_variants(
                     conflicts.push(MergeConflict::BothModifiedVariant {
                         variant_id: key.1.to_string(),
                         parent_vertex: key.0.to_string(),
-                        ours_tag: ov.and_then(|v| v.tag.clone()),
-                        theirs_tag: tv.and_then(|v| v.tag.clone()),
+                        ours_tag: ov.and_then(|v| v.tag.as_ref().map(Name::to_string)),
+                        theirs_tag: tv.and_then(|v| v.tag.as_ref().map(Name::to_string)),
                     });
                     if let Some(v) = base_flat.get(&key) {
                         merged_flat.insert(key, v);
@@ -1167,17 +1205,17 @@ fn merge_variants(
     }
 
     // Unflatten.
-    let mut result: HashMap<String, Vec<Variant>> = HashMap::new();
+    let mut result: HashMap<Name, Vec<Variant>> = HashMap::new();
     for ((parent, _), variant) in merged_flat {
         result
-            .entry(parent.to_string())
+            .entry(Name::from(parent))
             .or_default()
             .push((*variant).clone());
     }
     result
 }
 
-fn flatten_variants(variants: &HashMap<String, Vec<Variant>>) -> HashMap<(&str, &str), &Variant> {
+fn flatten_variants(variants: &HashMap<Name, Vec<Variant>>) -> HashMap<(&str, &str), &Variant> {
     let mut flat: HashMap<(&str, &str), &Variant> = HashMap::new();
     for (parent, vs) in variants {
         for v in vs {
@@ -1253,7 +1291,7 @@ fn merge_recursion_points(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
-) -> HashMap<String, panproto_schema::RecursionPoint> {
+) -> HashMap<Name, panproto_schema::RecursionPoint> {
     let ours_added: FxHashSet<&str> = diff_ours
         .added_recursion_points
         .iter()
@@ -1319,15 +1357,17 @@ fn merge_recursion_points(
                 let ours_rp = ours.recursion_points.get(k);
                 let theirs_rp = theirs.recursion_points.get(k);
                 MergeConflict::BothModifiedRecursionPoint {
-                    mu_id: k.clone(),
-                    ours_target: ours_rp.map(|r| r.target_vertex.clone()).unwrap_or_default(),
+                    mu_id: k.to_string(),
+                    ours_target: ours_rp
+                        .map(|r| r.target_vertex.to_string())
+                        .unwrap_or_default(),
                     theirs_target: theirs_rp
-                        .map(|r| r.target_vertex.clone())
+                        .map(|r| r.target_vertex.to_string())
                         .unwrap_or_default(),
                 }
             }
             ConflictCase::DeleteModify(side) => MergeConflict::DeleteModifyRecursionPoint {
-                mu_id: k.clone(),
+                mu_id: k.to_string(),
                 deleted_by: side,
             },
         },
@@ -1403,36 +1443,58 @@ fn merge_spans(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
-) -> HashMap<String, Span> {
-    let ours_added: FxHashSet<&String> = fxset_from_iter(diff_ours.added_spans.iter());
-    let ours_removed: FxHashSet<&String> = fxset_from_iter(diff_ours.removed_spans.iter());
-    let ours_modified: FxHashSet<&String> =
-        fxset_from_iter(diff_ours.modified_spans.iter().map(|s| &s.id));
-    let theirs_added: FxHashSet<&String> = fxset_from_iter(diff_theirs.added_spans.iter());
-    let theirs_removed: FxHashSet<&String> = fxset_from_iter(diff_theirs.removed_spans.iter());
-    let theirs_modified: FxHashSet<&String> =
-        fxset_from_iter(diff_theirs.modified_spans.iter().map(|s| &s.id));
+) -> HashMap<Name, Span> {
+    let ours_added_names: Vec<Name> = diff_ours
+        .added_spans
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_removed_names: Vec<Name> = diff_ours
+        .removed_spans
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_modified_names: Vec<Name> = diff_ours
+        .modified_spans
+        .iter()
+        .map(|s| Name::from(s.id.as_str()))
+        .collect();
+    let theirs_added_names: Vec<Name> = diff_theirs
+        .added_spans
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_removed_names: Vec<Name> = diff_theirs
+        .removed_spans
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_modified_names: Vec<Name> = diff_theirs
+        .modified_spans
+        .iter()
+        .map(|s| Name::from(s.id.as_str()))
+        .collect();
 
     merge_keyed_eq(
         &base.spans,
         &ours.spans,
         &theirs.spans,
-        &ours_added,
-        &ours_removed,
-        &ours_modified,
-        &theirs_added,
-        &theirs_removed,
-        &theirs_modified,
+        &fxset_name_from_iter(ours_added_names.iter()),
+        &fxset_name_from_iter(ours_removed_names.iter()),
+        &fxset_name_from_iter(ours_modified_names.iter()),
+        &fxset_name_from_iter(theirs_added_names.iter()),
+        &fxset_name_from_iter(theirs_removed_names.iter()),
+        &fxset_name_from_iter(theirs_modified_names.iter()),
         conflicts,
         |k, case| match case {
-            ConflictCase::BothAddedDifferently => {
-                MergeConflict::BothAddedSpanDifferently { span_id: k.clone() }
-            }
-            ConflictCase::BothModifiedDifferently => {
-                MergeConflict::BothModifiedSpan { span_id: k.clone() }
-            }
+            ConflictCase::BothAddedDifferently => MergeConflict::BothAddedSpanDifferently {
+                span_id: k.to_string(),
+            },
+            ConflictCase::BothModifiedDifferently => MergeConflict::BothModifiedSpan {
+                span_id: k.to_string(),
+            },
             ConflictCase::DeleteModify(side) => MergeConflict::DeleteModifySpan {
-                span_id: k.clone(),
+                span_id: k.to_string(),
                 deleted_by: side,
             },
         },
@@ -1446,7 +1508,7 @@ fn merge_nominal(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
-) -> HashMap<String, bool> {
+) -> HashMap<Name, bool> {
     let ours_changed: FxHashSet<&str> = diff_ours
         .nominal_changes
         .iter()
@@ -1458,7 +1520,7 @@ fn merge_nominal(
         .map(|(v, _, _)| v.as_str())
         .collect();
 
-    let all_vids: FxHashSet<&String> = base
+    let all_vids: FxHashSet<&Name> = base
         .nominal
         .keys()
         .chain(ours.nominal.keys())
@@ -1484,7 +1546,7 @@ fn merge_nominal(
                     ours_val
                 } else {
                     conflicts.push(MergeConflict::BothModifiedNominal {
-                        vertex_id: vid.clone(),
+                        vertex_id: vid.to_string(),
                         ours_value: ours_val.unwrap_or(false),
                         theirs_value: theirs_val.unwrap_or(false),
                     });
@@ -1509,7 +1571,7 @@ fn merge_nsids(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
-) -> HashMap<String, String> {
+) -> HashMap<Name, Name> {
     let ours_changed: FxHashSet<&str> = diff_ours
         .changed_nsids
         .iter()
@@ -1531,7 +1593,7 @@ fn merge_nsids(
         .map(String::as_str)
         .collect();
 
-    let all_vids: FxHashSet<&String> = base
+    let all_vids: FxHashSet<&Name> = base
         .nsids
         .keys()
         .chain(ours.nsids.keys())
@@ -1542,12 +1604,13 @@ fn merge_nsids(
 
     for vid in all_vids {
         let in_base = base.nsids.contains_key(vid);
-        let o_a = ours_added.contains(vid.as_str());
-        let o_r = ours_removed.contains(vid.as_str());
-        let o_m = ours_changed.contains(vid.as_str());
-        let t_a = theirs_added.contains(vid.as_str());
-        let t_r = theirs_removed.contains(vid.as_str());
-        let t_m = theirs_changed.contains(vid.as_str());
+        let vid_s = vid.as_str();
+        let o_a = ours_added.contains(vid_s);
+        let o_r = ours_removed.contains(vid_s);
+        let o_m = ours_changed.contains(vid_s);
+        let t_a = theirs_added.contains(vid_s);
+        let t_r = theirs_removed.contains(vid_s);
+        let t_m = theirs_changed.contains(vid_s);
 
         let o_fate = if o_a {
             Fate::Added
@@ -1598,9 +1661,9 @@ fn merge_nsids(
                     }
                 } else {
                     conflicts.push(MergeConflict::BothModifiedNsid {
-                        vertex_id: vid.clone(),
-                        ours_nsid: ov.cloned().unwrap_or_default(),
-                        theirs_nsid: tv.cloned().unwrap_or_default(),
+                        vertex_id: vid.to_string(),
+                        ours_nsid: ov.map(Name::to_string).unwrap_or_default(),
+                        theirs_nsid: tv.map(Name::to_string).unwrap_or_default(),
                     });
                     if let Some(v) = base.nsids.get(vid) {
                         result.insert(vid.clone(), v.clone());
@@ -1609,7 +1672,7 @@ fn merge_nsids(
             }
             (Fate::Removed, Fate::Modified | Fate::Added) => {
                 conflicts.push(MergeConflict::DeleteModifyNsid {
-                    vertex_id: vid.clone(),
+                    vertex_id: vid.to_string(),
                     deleted_by: Side::Ours,
                 });
                 if let Some(v) = base.nsids.get(vid) {
@@ -1618,7 +1681,7 @@ fn merge_nsids(
             }
             (Fate::Modified | Fate::Added, Fate::Removed) => {
                 conflicts.push(MergeConflict::DeleteModifyNsid {
-                    vertex_id: vid.clone(),
+                    vertex_id: vid.to_string(),
                     deleted_by: Side::Theirs,
                 });
                 if let Some(v) = base.nsids.get(vid) {
@@ -1652,10 +1715,10 @@ mod tests {
 
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
                     nsid: None,
                 },
             );

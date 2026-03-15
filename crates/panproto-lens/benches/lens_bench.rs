@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use divan::Bencher;
+use panproto_gat::Name;
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::{CompiledMigration, Node, WInstance};
 use panproto_lens::{Lens, get, put};
@@ -28,16 +29,16 @@ fn make_edge(src: &str, tgt: &str, name: &str) -> Edge {
 fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
     let mut vert_map = HashMap::new();
     let mut edge_map = HashMap::new();
-    let mut outgoing: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), smallvec::SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), smallvec::SmallVec<Edge, 2>> = HashMap::new();
 
     for (id, kind) in vertices {
         vert_map.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
@@ -118,12 +119,12 @@ fn wide_instance(n: usize, edges: &[Edge]) -> WInstance {
         })
         .collect();
 
-    WInstance::new(nodes, arcs, vec![], 0, "root".into())
+    WInstance::new(nodes, arcs, vec![], 0, Name::from("root"))
 }
 
 /// Build an identity lens for the given schema.
 fn identity_lens(schema: &Schema) -> Lens {
-    let surviving_verts: HashSet<String> = schema.vertices.keys().cloned().collect();
+    let surviving_verts = schema.vertices.keys().cloned().collect();
     let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
 
     let compiled = CompiledMigration {
@@ -144,10 +145,10 @@ fn identity_lens(schema: &Schema) -> Lens {
 
 /// Build a projection lens that keeps only the first `keep` fields.
 fn projection_lens(schema: &Schema, edges: &[Edge], total: usize, keep: usize) -> Lens {
-    let mut surviving_verts: HashSet<String> = HashSet::new();
+    let mut surviving_verts: HashSet<Name> = HashSet::new();
     surviving_verts.insert("root".into());
     for i in 0..keep.min(total) {
-        surviving_verts.insert(format!("field{i}"));
+        surviving_verts.insert(Name::from(format!("field{i}")));
     }
 
     let surviving_edges: HashSet<Edge> = edges.iter().take(keep).cloned().collect();

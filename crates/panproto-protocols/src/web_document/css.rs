@@ -158,13 +158,13 @@ pub fn emit_css_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolErr
             match c.sort.as_str() {
                 "inherited" | "animatable" => {
                     if let Ok(b) = c.value.parse::<bool>() {
-                        obj.insert(c.sort.clone(), serde_json::json!(b));
+                        obj.insert(c.sort.to_string(), serde_json::json!(b));
                     } else {
-                        obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                        obj.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                 }
                 _ => {
-                    obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                    obj.insert(c.sort.to_string(), serde_json::json!(c.value));
                 }
             }
         }
@@ -187,7 +187,7 @@ pub fn emit_css_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolErr
             obj.insert("sub-properties".into(), serde_json::Value::Array(subs));
         }
 
-        properties.insert(root.id.clone(), serde_json::Value::Object(obj));
+        properties.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "properties": properties }))

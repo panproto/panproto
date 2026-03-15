@@ -247,17 +247,17 @@ pub fn emit_iso_space(schema: &Schema) -> Result<serde_json::Value, ProtocolErro
                 if !constraints.is_empty() {
                     let mut cs = serde_json::Map::new();
                     for c in &constraints {
-                        cs.insert(c.sort.clone(), serde_json::json!(c.value));
+                        cs.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                     obj.insert("constraints".into(), serde_json::Value::Object(cs));
                 }
-                entities.insert(root.id.clone(), serde_json::Value::Object(obj));
+                entities.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "motion" => {
                 if !constraints.is_empty() {
                     let mut cs = serde_json::Map::new();
                     for c in &constraints {
-                        cs.insert(c.sort.clone(), serde_json::json!(c.value));
+                        cs.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                     obj.insert("constraints".into(), serde_json::Value::Object(cs));
                 }
@@ -277,25 +277,25 @@ pub fn emit_iso_space(schema: &Schema) -> Result<serde_json::Value, ProtocolErro
                 if let Some((_edge, child)) = paths.first() {
                     obj.insert("path".into(), serde_json::json!(child.id));
                 }
-                motions.insert(root.id.clone(), serde_json::Value::Object(obj));
+                motions.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "spatial-signal" | "motion-signal" => {
                 obj.insert("kind".into(), serde_json::json!(root.kind));
                 if !constraints.is_empty() {
                     let mut cs = serde_json::Map::new();
                     for c in &constraints {
-                        cs.insert(c.sort.clone(), serde_json::json!(c.value));
+                        cs.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                     obj.insert("constraints".into(), serde_json::Value::Object(cs));
                 }
-                signals.insert(root.id.clone(), serde_json::Value::Object(obj));
+                signals.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "spatial-relation" | "q-s-link" | "o-link" | "m-link" | "measure-link" | "metalink" => {
                 obj.insert("kind".into(), serde_json::json!(root.kind));
                 if !constraints.is_empty() {
                     let mut cs = serde_json::Map::new();
                     for c in &constraints {
-                        cs.insert(c.sort.clone(), serde_json::json!(c.value));
+                        cs.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                     obj.insert("constraints".into(), serde_json::Value::Object(cs));
                 }
@@ -311,7 +311,7 @@ pub fn emit_iso_space(schema: &Schema) -> Result<serde_json::Value, ProtocolErro
                 if let Some((_edge, child)) = triggers.first() {
                     obj.insert("trigger".into(), serde_json::json!(child.id));
                 }
-                relations.insert(root.id.clone(), serde_json::Value::Object(obj));
+                relations.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             _ => {}
         }

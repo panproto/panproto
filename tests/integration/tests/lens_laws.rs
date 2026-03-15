@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{CompiledMigration, Node, Value, WInstance};
 use panproto_lens::{Lens, check_laws, get, put};
@@ -16,16 +17,16 @@ use smallvec::SmallVec;
 fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
     let mut vertices = HashMap::new();
     let mut edges = HashMap::new();
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
     for (id, kind) in verts {
         vertices.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );

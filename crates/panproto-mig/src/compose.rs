@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use rustc_hash::FxHashMap;
 
 use crate::error::ComposeError;
@@ -85,17 +86,11 @@ pub fn compose(m1: &Migration, m2: &Migration) -> Result<Migration, ComposeError
     }
 
     // Precompute inverse maps for O(1) lookups instead of O(n) scans.
-    let he_inverse: FxHashMap<&str, &str> = m1
-        .hyper_edge_map
-        .iter()
-        .map(|(k, v)| (v.as_str(), k.as_str()))
-        .collect();
+    let he_inverse: FxHashMap<&str, &Name> =
+        m1.hyper_edge_map.iter().map(|(k, v)| (&**v, k)).collect();
 
-    let vertex_inverse: FxHashMap<&str, &str> = m1
-        .vertex_map
-        .iter()
-        .map(|(k, v)| (v.as_str(), k.as_str()))
-        .collect();
+    let vertex_inverse: FxHashMap<&str, &Name> =
+        m1.vertex_map.iter().map(|(k, v)| (&**v, k)).collect();
 
     // Compose hyper_resolvers using precomputed inverse maps.
     let mut hyper_resolver = HashMap::new();
@@ -106,14 +101,14 @@ pub fn compose(m1: &Migration, m2: &Migration) -> Result<Migration, ComposeError
     // For m2's hyper_resolver entries, remap through inverse maps.
     for ((he_id, labels), (tgt_he, label_remap)) in &m2.hyper_resolver {
         let src_he_id = he_inverse
-            .get(he_id.as_str())
-            .map_or_else(|| he_id.clone(), |k| (*k).to_owned());
-        let remapped_labels: Vec<String> = labels
+            .get(&**he_id)
+            .map_or_else(|| he_id.clone(), |k| (*k).clone());
+        let remapped_labels: Vec<Name> = labels
             .iter()
             .map(|l| {
                 vertex_inverse
-                    .get(l.as_str())
-                    .map_or_else(|| l.clone(), |k| (*k).to_owned())
+                    .get(&**l)
+                    .map_or_else(|| l.clone(), |k| (*k).clone())
             })
             .collect();
         let key = (src_he_id, remapped_labels);
@@ -148,15 +143,18 @@ mod tests {
             name: Some("x".into()),
         };
 
-        let id_mig = Migration::identity(&["a".into(), "b".into()], std::slice::from_ref(&edge));
+        let id_mig = Migration::identity(
+            &[Name::from("a"), Name::from("b")],
+            std::slice::from_ref(&edge),
+        );
 
         let composed = compose(&id_mig, &id_mig);
         assert!(composed.is_ok());
         let c = composed.unwrap_or_else(|_| panic!("compose should succeed"));
 
         // Composed identity should map each vertex/edge to itself.
-        assert_eq!(c.vertex_map.get("a"), Some(&"a".to_string()));
-        assert_eq!(c.vertex_map.get("b"), Some(&"b".to_string()));
+        assert_eq!(c.vertex_map.get("a"), Some(&Name::from("a")));
+        assert_eq!(c.vertex_map.get("b"), Some(&Name::from("b")));
         assert_eq!(c.edge_map.get(&edge), Some(&edge));
     }
 }

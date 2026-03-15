@@ -5,6 +5,7 @@
 //! This handles the common cases of additions, removals, and constraint
 //! changes. Renames and edge contractions require manual migration files.
 
+use panproto_gat::Name;
 use std::collections::HashMap;
 
 use panproto_check::diff::SchemaDiff;
@@ -38,7 +39,7 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
     let removed_edges: FxHashSet<&Edge> = diff.removed_edges.iter().collect();
 
     // Vertex map: identity for surviving vertices.
-    let vertex_map: HashMap<String, String> = old
+    let vertex_map: HashMap<Name, Name> = old
         .vertices
         .keys()
         .filter(|id| !removed_verts.contains(id.as_str()))
@@ -73,7 +74,7 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
     }
 
     // Hyper-edge map: identity for surviving hyper-edges.
-    let hyper_edge_map: HashMap<String, String> = old
+    let hyper_edge_map: HashMap<Name, Name> = old
         .hyper_edges
         .keys()
         .filter(|id| new.hyper_edges.contains_key(*id))
@@ -82,7 +83,7 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
 
     // Label map: identity for labels within surviving hyper-edges whose
     // target vertices survive.
-    let mut label_map: HashMap<(String, String), String> = HashMap::new();
+    let mut label_map: HashMap<(Name, Name), Name> = HashMap::new();
     for (he_id, old_he) in &old.hyper_edges {
         if let Some(new_he) = new.hyper_edges.get(he_id) {
             for (label, vertex_id) in &old_he.signature {
@@ -116,10 +117,10 @@ fn find_matching_edge(schema: &Schema, src: &str, tgt: &str, name: Option<&str>)
 }
 
 /// Find a label in a hyper-edge that points to the given vertex.
-fn find_label_for_vertex(he: &panproto_schema::HyperEdge, vertex_id: &str) -> Option<String> {
+fn find_label_for_vertex(he: &panproto_schema::HyperEdge, vertex_id: &str) -> Option<Name> {
     he.signature
         .iter()
-        .find(|(_, v)| *v == vertex_id)
+        .find(|(_, v)| **v == *vertex_id)
         .map(|(label, _)| label.clone())
 }
 
@@ -135,10 +136,10 @@ mod tests {
 
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
                     nsid: None,
                 },
             );

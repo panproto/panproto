@@ -181,17 +181,17 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
     for e in &diff.removed_edges {
         if protocol.find_edge_rule(&e.kind).is_some() {
             breaking.push(BreakingChange::RemovedEdge {
-                src: e.src.clone(),
-                tgt: e.tgt.clone(),
-                kind: e.kind.clone(),
-                name: e.name.clone(),
+                src: e.src.to_string(),
+                tgt: e.tgt.to_string(),
+                kind: e.kind.to_string(),
+                name: e.name.as_ref().map(ToString::to_string),
             });
         } else {
             non_breaking.push(NonBreakingChange::AddedEdge {
-                src: e.src.clone(),
-                tgt: e.tgt.clone(),
-                kind: e.kind.clone(),
-                name: e.name.clone(),
+                src: e.src.to_string(),
+                tgt: e.tgt.to_string(),
+                kind: e.kind.to_string(),
+                name: e.name.as_ref().map(ToString::to_string),
             });
         }
     }
@@ -199,10 +199,10 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
     // Added edges are non-breaking.
     for e in &diff.added_edges {
         non_breaking.push(NonBreakingChange::AddedEdge {
-            src: e.src.clone(),
-            tgt: e.tgt.clone(),
-            kind: e.kind.clone(),
-            name: e.name.clone(),
+            src: e.src.to_string(),
+            tgt: e.tgt.to_string(),
+            kind: e.kind.to_string(),
+            name: e.name.as_ref().map(ToString::to_string),
         });
     }
 
@@ -222,10 +222,14 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         // New constraints on existing vertices are breaking
         // (only for recognized sorts).
         for c in &cdiff.added {
-            if protocol.constraint_sorts.iter().any(|s| s == &c.sort) {
+            if protocol
+                .constraint_sorts
+                .iter()
+                .any(|s| s == c.sort.as_str())
+            {
                 breaking.push(BreakingChange::ConstraintAdded {
                     vertex_id: vid.clone(),
-                    sort: c.sort.clone(),
+                    sort: c.sort.to_string(),
                     value: c.value.clone(),
                 });
             }
@@ -234,10 +238,14 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         // Removed constraints are non-breaking (relaxation)
         // (only for recognized sorts).
         for c in &cdiff.removed {
-            if protocol.constraint_sorts.iter().any(|s| s == &c.sort) {
+            if protocol
+                .constraint_sorts
+                .iter()
+                .any(|s| s == c.sort.as_str())
+            {
                 non_breaking.push(NonBreakingChange::ConstraintRemoved {
                     vertex_id: vid.clone(),
-                    sort: c.sort.clone(),
+                    sort: c.sort.to_string(),
                 });
             }
         }
@@ -254,8 +262,8 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
     // --- Variant changes ---
     for v in &diff.removed_variants {
         breaking.push(BreakingChange::RemovedVariant {
-            vertex_id: v.parent_vertex.clone(),
-            variant_id: v.id.clone(),
+            vertex_id: v.parent_vertex.to_string(),
+            variant_id: v.id.to_string(),
         });
     }
 
@@ -269,7 +277,7 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
     // --- Recursion point changes ---
     for rp in &diff.removed_recursion_points {
         breaking.push(BreakingChange::RecursionBroken {
-            mu_id: rp.mu_id.clone(),
+            mu_id: rp.mu_id.to_string(),
         });
     }
 

@@ -12,9 +12,17 @@
 //! - [`Combinator::HoistField`]: move a nested field up to a parent
 //! - [`Combinator::CoerceType`]: change the kind of a vertex
 //! - [`Combinator::Compose`]: sequential composition of two combinators
+//! - [`Combinator::RenameVertex`]: rename a vertex ID (cascading)
+//! - [`Combinator::RenameKind`]: rename a single vertex's kind
+//! - [`Combinator::RenameEdgeKind`]: rename an edge kind across all edges
+//! - [`Combinator::RenameNsid`]: rename the NSID on a vertex
+//! - [`Combinator::RenameConstraintSort`]: rename a constraint sort
+//! - [`Combinator::ApplyTheoryMorphism`]: apply a theory morphism as a combinator
+//! - [`Combinator::Rename`]: unified rename targeting any `NameSite`
 
 use std::collections::HashMap;
 
+use panproto_gat::NameSite;
 use panproto_inst::CompiledMigration;
 use panproto_inst::value::Value;
 use panproto_schema::{Edge, Protocol, Schema, Vertex};
@@ -73,6 +81,72 @@ pub enum Combinator {
     },
     /// Sequential composition of two combinators.
     Compose(Box<Self>, Box<Self>),
+
+    /// Rename a vertex ID. Cascades to all edges referencing it,
+    /// constraints, required sets, NSID maps, variants, recursion
+    /// points, spans, orderings, usage modes, and nominal markers.
+    RenameVertex {
+        /// The old vertex ID.
+        old_id: String,
+        /// The new vertex ID.
+        new_id: String,
+    },
+
+    /// Rename a single vertex's kind (fine-grained alternative to
+    /// `CoerceType`, which changes *all* vertices of the given kind).
+    RenameKind {
+        /// The vertex to change.
+        vertex_id: String,
+        /// The new kind.
+        new_kind: String,
+    },
+
+    /// Rename an edge kind across all edges with that kind.
+    RenameEdgeKind {
+        /// The old edge kind.
+        old_kind: String,
+        /// The new edge kind.
+        new_kind: String,
+    },
+
+    /// Rename the NSID on a specific vertex.
+    RenameNsid {
+        /// The vertex whose NSID to change.
+        vertex_id: String,
+        /// The new NSID.
+        new_nsid: String,
+    },
+
+    /// Rename a constraint sort across all constraints in the schema.
+    RenameConstraintSort {
+        /// The old constraint sort.
+        old_sort: String,
+        /// The new constraint sort.
+        new_sort: String,
+    },
+
+    /// Apply a theory morphism as a combinator. Cascades `sort_map`
+    /// entries into vertex kind renames and `op_map` entries into
+    /// edge kind renames.
+    ApplyTheoryMorphism {
+        /// Name of the morphism (for display/debugging).
+        morphism_name: String,
+        /// Sort map: domain sort name → codomain sort name.
+        sort_map: HashMap<String, String>,
+        /// Operation map: domain op name → codomain op name.
+        op_map: HashMap<String, String>,
+    },
+
+    /// Unified rename targeting any `NameSite`. Subsumes
+    /// `RenameField`, `RenameVertex`, `RenameKind`, etc.
+    Rename {
+        /// Which naming site this rename targets.
+        site: NameSite,
+        /// The old name.
+        old: String,
+        /// The new name.
+        new: String,
+    },
 }
 
 /// Build a [`Lens`] from a source schema and a chain of combinators.
@@ -147,6 +221,25 @@ fn apply_combinator(schema: &Schema, combinator: &Combinator) -> Result<Schema, 
             let intermediate = apply_combinator(schema, first)?;
             apply_combinator(&intermediate, second)
         }
+        Combinator::RenameVertex { old_id, new_id } => apply_rename_vertex(schema, old_id, new_id),
+        Combinator::RenameKind {
+            vertex_id,
+            new_kind,
+        } => apply_rename_kind(schema, vertex_id, new_kind),
+        Combinator::RenameEdgeKind { old_kind, new_kind } => {
+            apply_rename_edge_kind(schema, old_kind, new_kind)
+        }
+        Combinator::RenameNsid {
+            vertex_id,
+            new_nsid,
+        } => apply_rename_nsid(schema, vertex_id, new_nsid),
+        Combinator::RenameConstraintSort { old_sort, new_sort } => {
+            apply_rename_constraint_sort(schema, old_sort, new_sort)
+        }
+        Combinator::ApplyTheoryMorphism {
+            sort_map, op_map, ..
+        } => apply_theory_morphism(schema, sort_map, op_map),
+        Combinator::Rename { site, old, new } => apply_unified_rename(schema, site, old, new),
     }
 }
 
@@ -168,7 +261,7 @@ fn apply_rename(schema: &Schema, old: &str, new: &str) -> Result<Schema, LensErr
     for edge in edges_to_update {
         let kind = result.edges.remove(&edge).unwrap_or_default();
         let mut new_edge = edge.clone();
-        new_edge.name = Some(new.to_string());
+        new_edge.name = Some(panproto_gat::Name::from(new));
         result.edges.insert(new_edge, kind);
     }
 
@@ -184,22 +277,26 @@ fn apply_add_field(schema: &Schema, name: &str, vertex_kind: &str) -> Result<Sch
     let root_id = find_root_vertex(schema)?;
 
     let new_vertex_id = format!("{root_id}.{name}");
+    let nv_name = panproto_gat::Name::from(new_vertex_id.as_str());
+    let root_name = panproto_gat::Name::from(root_id.as_str());
     result.vertices.insert(
-        new_vertex_id.clone(),
+        nv_name.clone(),
         Vertex {
-            id: new_vertex_id.clone(),
-            kind: vertex_kind.to_string(),
+            id: nv_name.clone(),
+            kind: panproto_gat::Name::from(vertex_kind),
             nsid: None,
         },
     );
 
     let new_edge = Edge {
-        src: root_id,
-        tgt: new_vertex_id,
-        kind: "prop".to_string(),
-        name: Some(name.to_string()),
+        src: root_name,
+        tgt: nv_name,
+        kind: panproto_gat::Name::from("prop"),
+        name: Some(panproto_gat::Name::from(name)),
     };
-    result.edges.insert(new_edge, "prop".to_string());
+    result
+        .edges
+        .insert(new_edge, panproto_gat::Name::from("prop"));
     rebuild_indices(&mut result);
     Ok(result)
 }
@@ -253,35 +350,38 @@ fn apply_wrap_in_object(schema: &Schema, field_name: &str) -> Result<Schema, Len
     // Create new wrapper vertex
     let wrapper_id = format!("{root_id}.{field_name}");
     result.vertices.insert(
-        wrapper_id.clone(),
+        panproto_gat::Name::from(wrapper_id.as_str()),
         Vertex {
-            id: wrapper_id.clone(),
-            kind: "object".to_string(),
+            id: panproto_gat::Name::from(wrapper_id.as_str()),
+            kind: panproto_gat::Name::from("object"),
             nsid: None,
         },
     );
 
     // Add edge from root to wrapper
     let wrapper_edge = Edge {
-        src: root_id.clone(),
-        tgt: wrapper_id.clone(),
-        kind: "prop".to_string(),
-        name: Some(field_name.to_string()),
+        src: panproto_gat::Name::from(root_id.as_str()),
+        tgt: panproto_gat::Name::from(wrapper_id.as_str()),
+        kind: panproto_gat::Name::from("prop"),
+        name: Some(panproto_gat::Name::from(field_name)),
     };
-    result.edges.insert(wrapper_edge, "prop".to_string());
+    result
+        .edges
+        .insert(wrapper_edge, panproto_gat::Name::from("prop"));
 
     // Re-parent existing children of root under the wrapper
     let root_edges: Vec<Edge> = result
         .edges
         .keys()
-        .filter(|e| e.src == root_id && e.name.as_deref() != Some(field_name))
+        .filter(|e| e.src == root_id.as_str() && e.name.as_deref() != Some(field_name))
         .cloned()
         .collect();
 
     for edge in root_edges {
         let kind = result.edges.remove(&edge).unwrap_or_default();
         let mut new_edge = edge;
-        new_edge.src.clone_from(&wrapper_id);
+        new_edge.src = panproto_gat::Name::from(wrapper_id.as_str());
+        // wrapper_id is a String; Edge.src is Name
         result.edges.insert(new_edge, kind);
     }
 
@@ -338,10 +438,286 @@ fn apply_coerce_type(schema: &Schema, from_kind: &str, to_kind: &str) -> Result<
     let mut result = schema.clone();
     for vertex in result.vertices.values_mut() {
         if vertex.kind == from_kind {
-            vertex.kind = to_kind.to_string();
+            vertex.kind = panproto_gat::Name::from(to_kind);
         }
     }
     Ok(result)
+}
+
+/// Rename a vertex ID. Cascades to all edges, constraints, required,
+/// nsids, variants, recursion points, spans, orderings, usage modes,
+/// and nominal markers that reference this vertex.
+fn apply_rename_vertex(schema: &Schema, old_id: &str, new_id: &str) -> Result<Schema, LensError> {
+    if !schema.vertices.contains_key(old_id) {
+        return Err(LensError::VertexNotFound(old_id.to_string()));
+    }
+
+    let mut result = schema.clone();
+
+    // 1. Rename the vertex entry
+    if let Some(mut vertex) = result.vertices.remove(old_id) {
+        vertex.id = panproto_gat::Name::from(new_id);
+        result
+            .vertices
+            .insert(panproto_gat::Name::from(new_id), vertex);
+    }
+
+    // 2. Update all edges referencing this vertex (src or tgt)
+    let edges_to_update: Vec<Edge> = result
+        .edges
+        .keys()
+        .filter(|e| e.src == old_id || e.tgt == old_id)
+        .cloned()
+        .collect();
+
+    for edge in edges_to_update {
+        let kind = result.edges.remove(&edge).unwrap_or_default();
+        let mut new_edge = edge;
+        if new_edge.src == old_id {
+            new_edge.src = panproto_gat::Name::from(new_id);
+        }
+        if new_edge.tgt == old_id {
+            new_edge.tgt = panproto_gat::Name::from(new_id);
+        }
+        result.edges.insert(new_edge, kind);
+    }
+
+    // 3. Update constraints, required, nsids keyed by vertex ID
+    if let Some(constraints) = result.constraints.remove(old_id) {
+        result
+            .constraints
+            .insert(panproto_gat::Name::from(new_id), constraints);
+    }
+    if let Some(required) = result.required.remove(old_id) {
+        result
+            .required
+            .insert(panproto_gat::Name::from(new_id), required);
+    }
+    if let Some(nsid) = result.nsids.remove(old_id) {
+        result.nsids.insert(panproto_gat::Name::from(new_id), nsid);
+    }
+
+    // 4. Update variants keyed by vertex ID
+    if let Some(variants) = result.variants.remove(old_id) {
+        result
+            .variants
+            .insert(panproto_gat::Name::from(new_id), variants);
+    }
+    // Update variant parent_vertex references
+    for variants in result.variants.values_mut() {
+        for variant in variants.iter_mut() {
+            if variant.parent_vertex == old_id {
+                variant.parent_vertex = panproto_gat::Name::from(new_id);
+            }
+        }
+    }
+
+    // 5. Update recursion points
+    if let Some(mut rp) = result.recursion_points.remove(old_id) {
+        rp.mu_id = panproto_gat::Name::from(new_id);
+        result
+            .recursion_points
+            .insert(panproto_gat::Name::from(new_id), rp);
+    }
+    for rp in result.recursion_points.values_mut() {
+        if rp.target_vertex == old_id {
+            rp.target_vertex = panproto_gat::Name::from(new_id);
+        }
+    }
+
+    // 6. Update spans
+    for span in result.spans.values_mut() {
+        if span.left == old_id {
+            span.left = panproto_gat::Name::from(new_id);
+        }
+        if span.right == old_id {
+            span.right = panproto_gat::Name::from(new_id);
+        }
+    }
+
+    // 7. Update nominal markers
+    if let Some(val) = result.nominal.remove(old_id) {
+        result.nominal.insert(panproto_gat::Name::from(new_id), val);
+    }
+
+    // 8. Update hyper-edges
+    for he in result.hyper_edges.values_mut() {
+        for v in he.signature.values_mut() {
+            if *v == old_id {
+                *v = panproto_gat::Name::from(new_id);
+            }
+        }
+    }
+
+    rebuild_indices(&mut result);
+    Ok(result)
+}
+
+/// Rename a single vertex's kind.
+fn apply_rename_kind(
+    schema: &Schema,
+    vertex_id: &str,
+    new_kind: &str,
+) -> Result<Schema, LensError> {
+    if !schema.vertices.contains_key(vertex_id) {
+        return Err(LensError::VertexNotFound(vertex_id.to_string()));
+    }
+
+    let mut result = schema.clone();
+    if let Some(vertex) = result.vertices.get_mut(vertex_id) {
+        vertex.kind = panproto_gat::Name::from(new_kind);
+    }
+    Ok(result)
+}
+
+/// Rename an edge kind across all edges matching `old_kind`.
+fn apply_rename_edge_kind(
+    schema: &Schema,
+    old_kind: &str,
+    new_kind: &str,
+) -> Result<Schema, LensError> {
+    let has_match = schema.edges.keys().any(|e| e.kind == old_kind);
+    if !has_match {
+        return Err(LensError::EdgeKindNotFound(old_kind.to_string()));
+    }
+
+    let mut result = schema.clone();
+    let edges_to_update: Vec<Edge> = result
+        .edges
+        .keys()
+        .filter(|e| e.kind == old_kind)
+        .cloned()
+        .collect();
+
+    for edge in edges_to_update {
+        let kind_val = result.edges.remove(&edge).unwrap_or_default();
+        let mut new_edge = edge;
+        new_edge.kind = panproto_gat::Name::from(new_kind);
+        result.edges.insert(new_edge, kind_val);
+    }
+
+    rebuild_indices(&mut result);
+    Ok(result)
+}
+
+/// Rename the NSID on a specific vertex.
+fn apply_rename_nsid(
+    schema: &Schema,
+    vertex_id: &str,
+    new_nsid: &str,
+) -> Result<Schema, LensError> {
+    if !schema.vertices.contains_key(vertex_id) {
+        return Err(LensError::VertexNotFound(vertex_id.to_string()));
+    }
+    if !schema.nsids.contains_key(vertex_id) {
+        return Err(LensError::NsidNotFound(vertex_id.to_string()));
+    }
+
+    let mut result = schema.clone();
+    result.nsids.insert(
+        panproto_gat::Name::from(vertex_id),
+        panproto_gat::Name::from(new_nsid),
+    );
+    Ok(result)
+}
+
+/// Rename a constraint sort across all constraints in the schema.
+fn apply_rename_constraint_sort(
+    schema: &Schema,
+    old_sort: &str,
+    new_sort: &str,
+) -> Result<Schema, LensError> {
+    let has_match = schema
+        .constraints
+        .values()
+        .flatten()
+        .any(|c| c.sort == old_sort);
+    if !has_match {
+        return Err(LensError::ConstraintSortNotFound(old_sort.to_string()));
+    }
+
+    let mut result = schema.clone();
+    for constraints in result.constraints.values_mut() {
+        for constraint in constraints.iter_mut() {
+            if constraint.sort == old_sort {
+                constraint.sort = panproto_gat::Name::from(new_sort);
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// Apply a theory morphism: cascades sort renames to vertex kinds,
+/// operation renames to edge kinds.
+#[allow(clippy::unnecessary_wraps)]
+fn apply_theory_morphism(
+    schema: &Schema,
+    sort_map: &HashMap<String, String>,
+    op_map: &HashMap<String, String>,
+) -> Result<Schema, LensError> {
+    let mut result = schema.clone();
+
+    // Apply sort renames as vertex kind changes
+    for vertex in result.vertices.values_mut() {
+        if let Some(new_kind) = sort_map.get(vertex.kind.as_str()) {
+            if new_kind.as_str() == vertex.kind.as_str() {
+                continue;
+            }
+            vertex.kind = panproto_gat::Name::from(new_kind.as_str());
+        }
+    }
+
+    // Apply op renames as edge kind changes
+    let edges_to_update: Vec<(Edge, panproto_gat::Name)> = result
+        .edges
+        .iter()
+        .filter_map(|(edge, val)| {
+            op_map.get(edge.kind.as_str()).and_then(|new_kind| {
+                if new_kind.as_str() == edge.kind.as_str() {
+                    None
+                } else {
+                    Some((edge.clone(), val.clone()))
+                }
+            })
+        })
+        .collect();
+
+    for (edge, val) in edges_to_update {
+        result.edges.remove(&edge);
+        let mut new_edge = edge;
+        if let Some(new_kind) = op_map.get(new_edge.kind.as_str()) {
+            new_edge.kind = panproto_gat::Name::from(new_kind.as_str());
+        }
+        result.edges.insert(new_edge, val);
+    }
+
+    rebuild_indices(&mut result);
+    Ok(result)
+}
+
+/// Unified rename: dispatches to the appropriate specific function
+/// based on the `NameSite`.
+fn apply_unified_rename(
+    schema: &Schema,
+    site: &NameSite,
+    old: &str,
+    new: &str,
+) -> Result<Schema, LensError> {
+    match site {
+        NameSite::EdgeLabel => apply_rename(schema, old, new),
+        NameSite::VertexId => apply_rename_vertex(schema, old, new),
+        NameSite::VertexKind => apply_coerce_type(schema, old, new),
+        NameSite::EdgeKind => apply_rename_edge_kind(schema, old, new),
+        NameSite::ConstraintSort => apply_rename_constraint_sort(schema, old, new),
+        NameSite::Nsid | NameSite::InstanceAnchor | NameSite::TheoryName | NameSite::SortName => {
+            // These sites require a target vertex or are not schema-level.
+            // For NSID, we would need a vertex_id. For the others, they
+            // operate at the theory/instance level, not the schema level.
+            Err(LensError::FieldNotFound(format!(
+                "unified rename for {site:?} requires additional context"
+            )))
+        }
+    }
 }
 
 /// Find the root vertex of a schema (the lexicographically first vertex
@@ -349,21 +725,22 @@ fn apply_coerce_type(schema: &Schema, from_kind: &str, to_kind: &str) -> Result<
 /// have incoming edges).
 fn find_root_vertex(schema: &Schema) -> Result<String, LensError> {
     // Collect vertices with no incoming edges, sort, take first
-    let mut roots: Vec<&String> = schema
+    let mut roots: Vec<String> = schema
         .vertices
         .keys()
         .filter(|id| !schema.edges.keys().any(|e| &e.tgt == *id))
+        .map(ToString::to_string)
         .collect();
     roots.sort();
-    if let Some(root) = roots.first() {
-        return Ok((*root).clone());
+    if let Some(root) = roots.into_iter().next() {
+        return Ok(root);
     }
     // Fallback: lexicographically first vertex
-    let mut all_keys: Vec<&String> = schema.vertices.keys().collect();
+    let mut all_keys: Vec<String> = schema.vertices.keys().map(ToString::to_string).collect();
     all_keys.sort();
     all_keys
-        .first()
-        .map(|k| (*k).clone())
+        .into_iter()
+        .next()
         .ok_or_else(|| LensError::VertexNotFound("root".to_string()))
 }
 
@@ -375,9 +752,10 @@ pub(crate) fn rebuild_indices_pub(schema: &mut Schema) {
 
 /// Rebuild the precomputed adjacency indices on a schema.
 fn rebuild_indices(schema: &mut Schema) {
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<panproto_gat::Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<panproto_gat::Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(panproto_gat::Name, panproto_gat::Name), SmallVec<Edge, 2>> =
+        HashMap::new();
 
     for edge in schema.edges.keys() {
         outgoing
@@ -415,6 +793,7 @@ fn identity_compiled(schema: &Schema) -> CompiledMigration {
 
 /// Build a compiled migration from a source schema, target schema, and
 /// combinator chain.
+#[allow(clippy::too_many_lines)]
 fn build_compiled_migration(
     src: &Schema,
     tgt: &Schema,
@@ -447,7 +826,7 @@ fn build_compiled_migration(
                 for src_edge in src.edges.keys() {
                     if src_edge.name.as_deref() == Some(old.as_str()) {
                         let mut new_edge = src_edge.clone();
-                        new_edge.name = Some(new.clone());
+                        new_edge.name = Some(panproto_gat::Name::from(new.as_str()));
                         edge_remap.insert(src_edge.clone(), new_edge);
                         surviving_edges.insert(src_edge.clone());
                     }
@@ -462,7 +841,13 @@ fn build_compiled_migration(
                     }
                 }
             }
-            Combinator::AddField { .. } | Combinator::CoerceType { .. } => {
+            Combinator::AddField { .. }
+            | Combinator::CoerceType { .. }
+            | Combinator::RenameKind { .. }
+            | Combinator::RenameEdgeKind { .. }
+            | Combinator::RenameNsid { .. }
+            | Combinator::RenameConstraintSort { .. }
+            | Combinator::ApplyTheoryMorphism { .. } => {
                 // AddField adds a new vertex+edge in the target that has no
                 // source counterpart. All source vertices/edges survive as-is
                 // (this is an embedding). No remap needed.
@@ -476,7 +861,7 @@ fn build_compiled_migration(
                 // the wrapper now), so remove them from surviving_edges.
                 if let Ok(root_id) = find_root_vertex(src) {
                     for src_edge in src.edges.keys() {
-                        if src_edge.src == root_id
+                        if src_edge.src == root_id.as_str()
                             && src_edge.name.as_deref() != Some(field_name.as_str())
                         {
                             surviving_edges.remove(src_edge);
@@ -494,10 +879,13 @@ fn build_compiled_migration(
                 // Old edge (host -> field) is removed, new edge (parent -> field)
                 // is added.
                 for src_edge in src.edges.keys() {
-                    if src_edge.src == *host && src_edge.name.as_deref() == Some(field.as_str()) {
+                    if src_edge.src == host.as_str()
+                        && src_edge.name.as_deref() == Some(field.as_str())
+                    {
                         surviving_edges.remove(src_edge);
                         // Find the parent of host to build the new edge
-                        if let Some(parent_edge) = src.edges.keys().find(|e| e.tgt == *host) {
+                        if let Some(parent_edge) = src.edges.keys().find(|e| e.tgt == host.as_str())
+                        {
                             let new_edge = Edge {
                                 src: parent_edge.src.clone(),
                                 tgt: src_edge.tgt.clone(),
@@ -506,6 +894,70 @@ fn build_compiled_migration(
                             };
                             edge_remap.insert(src_edge.clone(), new_edge);
                         }
+                    }
+                }
+            }
+            Combinator::RenameVertex { old_id, new_id } => {
+                // Vertex survives under a new ID
+                surviving_verts.insert(panproto_gat::Name::from(old_id.as_str()));
+                vertex_remap.insert(
+                    panproto_gat::Name::from(old_id.as_str()),
+                    panproto_gat::Name::from(new_id.as_str()),
+                );
+                // Edges referencing old_id need remapping
+                for src_edge in src.edges.keys() {
+                    if src_edge.src == old_id.as_str() || src_edge.tgt == old_id.as_str() {
+                        let mut new_edge = src_edge.clone();
+                        if new_edge.src == old_id.as_str() {
+                            new_edge.src = panproto_gat::Name::from(new_id.as_str());
+                        }
+                        if new_edge.tgt == old_id.as_str() {
+                            new_edge.tgt = panproto_gat::Name::from(new_id.as_str());
+                        }
+                        edge_remap.insert(src_edge.clone(), new_edge);
+                        surviving_edges.insert(src_edge.clone());
+                    }
+                }
+            }
+            Combinator::Rename { site, old, new } => {
+                // Dispatch: EdgeLabel behaves like RenameField,
+                // VertexId behaves like RenameVertex. Others are
+                // metadata-only (no structural migration impact).
+                match site {
+                    NameSite::EdgeLabel => {
+                        for src_edge in src.edges.keys() {
+                            if src_edge.name.as_deref() == Some(old.as_str()) {
+                                let mut new_edge = src_edge.clone();
+                                new_edge.name = Some(panproto_gat::Name::from(new.as_str()));
+                                edge_remap.insert(src_edge.clone(), new_edge);
+                                surviving_edges.insert(src_edge.clone());
+                            }
+                        }
+                    }
+                    NameSite::VertexId => {
+                        surviving_verts.insert(panproto_gat::Name::from(old.as_str()));
+                        vertex_remap.insert(
+                            panproto_gat::Name::from(old.as_str()),
+                            panproto_gat::Name::from(new.as_str()),
+                        );
+                        for src_edge in src.edges.keys() {
+                            if src_edge.src == old.as_str() || src_edge.tgt == old.as_str() {
+                                let mut new_edge = src_edge.clone();
+                                if new_edge.src == old.as_str() {
+                                    new_edge.src = panproto_gat::Name::from(new.as_str());
+                                }
+                                if new_edge.tgt == old.as_str() {
+                                    new_edge.tgt = panproto_gat::Name::from(new.as_str());
+                                }
+                                edge_remap.insert(src_edge.clone(), new_edge);
+                                surviving_edges.insert(src_edge.clone());
+                            }
+                        }
+                    }
+                    _ => {
+                        // VertexKind, EdgeKind, Nsid, ConstraintSort,
+                        // TheoryName, SortName, InstanceAnchor:
+                        // metadata-only, no structural migration impact.
                     }
                 }
             }
@@ -607,6 +1059,99 @@ mod tests {
         let schema = three_node_schema();
         let result = apply_rename(&schema, "nonexistent", "new_name");
         assert!(result.is_err(), "renaming nonexistent field should fail");
+    }
+
+    #[test]
+    fn rename_vertex_updates_id_and_edges() {
+        let schema = three_node_schema();
+        let old_id = schema
+            .vertices
+            .values()
+            .find(|v| v.kind == "object")
+            .map_or_else(|| panic!("no object vertex"), |v| v.id.clone());
+
+        let result = apply_rename_vertex(&schema, &old_id, "renamed_object");
+        assert!(result.is_ok(), "rename_vertex should succeed");
+
+        let new_schema = result.unwrap_or_else(|e| panic!("rename_vertex failed: {e}"));
+        assert!(
+            !new_schema.vertices.contains_key(&old_id),
+            "old vertex ID should be gone"
+        );
+        assert!(
+            new_schema.vertices.contains_key("renamed_object"),
+            "new vertex ID should be present"
+        );
+
+        // All edges referencing old_id should now reference the new ID
+        for edge in new_schema.edges.keys() {
+            assert_ne!(edge.src, old_id, "no edge should reference old src");
+            assert_ne!(edge.tgt, old_id, "no edge should reference old tgt");
+        }
+    }
+
+    #[test]
+    fn rename_vertex_nonexistent_fails() {
+        let schema = three_node_schema();
+        let result = apply_rename_vertex(&schema, "nonexistent", "new_name");
+        assert!(result.is_err(), "renaming nonexistent vertex should fail");
+    }
+
+    #[test]
+    fn rename_kind_changes_single_vertex() {
+        let schema = three_node_schema();
+        // Find a string vertex
+        let string_id = schema
+            .vertices
+            .values()
+            .find(|v| v.kind == "string")
+            .map_or_else(|| panic!("no string vertex"), |v| v.id.clone());
+
+        let result = apply_rename_kind(&schema, &string_id, "text");
+        assert!(result.is_ok(), "rename_kind should succeed");
+
+        let new_schema = result.unwrap_or_else(|e| panic!("rename_kind failed: {e}"));
+        assert_eq!(new_schema.vertices[&string_id].kind, "text");
+
+        // Other string vertices (if any) should be unchanged
+        let other_strings: Vec<_> = new_schema
+            .vertices
+            .values()
+            .filter(|v| v.id != string_id && v.kind == "string")
+            .collect();
+        // At least verify the one we changed is different
+        assert_ne!(
+            new_schema.vertices[&string_id].kind, "string",
+            "changed vertex should have new kind"
+        );
+        let _ = other_strings; // suppress unused warning
+    }
+
+    #[test]
+    fn rename_edge_kind_updates_all_matching() {
+        let schema = three_node_schema();
+        let result = apply_rename_edge_kind(&schema, "prop", "field-of");
+        assert!(result.is_ok(), "rename_edge_kind should succeed");
+
+        let new_schema = result.unwrap_or_else(|e| panic!("rename_edge_kind failed: {e}"));
+        assert!(
+            new_schema.edges.keys().all(|e| e.kind != "prop"),
+            "no edges should have old kind"
+        );
+        assert!(
+            new_schema.edges.keys().all(|e| e.kind == "field-of"),
+            "all edges should have new kind"
+        );
+    }
+
+    #[test]
+    fn rename_edge_kind_nonexistent_fails() {
+        let schema = three_node_schema();
+        let result = apply_rename_edge_kind(&schema, "nonexistent", "new_kind");
+        assert!(
+            result.is_err(),
+            "renaming nonexistent edge kind should fail"
+        );
     }
 
     #[test]

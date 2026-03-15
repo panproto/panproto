@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
 
 use crate::value::{FieldPresence, Value};
@@ -19,11 +20,11 @@ pub struct Node {
     /// Unique numeric identifier within the instance.
     pub id: u32,
     /// The schema vertex this node is anchored to.
-    pub anchor: String,
+    pub anchor: Name,
     /// The node's value, if it is a leaf.
     pub value: Option<FieldPresence>,
     /// Discriminator for union-typed vertices (e.g., `"$type"` value).
-    pub discriminator: Option<String>,
+    pub discriminator: Option<Name>,
     /// Extra fields preserved for round-trip fidelity.
     pub extra_fields: HashMap<String, Value>,
     /// Position in an ordered collection (if any).
@@ -37,7 +38,7 @@ pub struct Node {
 impl Node {
     /// Create a new node with the given id and anchor vertex.
     #[must_use]
-    pub fn new(id: u32, anchor: impl Into<String>) -> Self {
+    pub fn new(id: u32, anchor: impl Into<Name>) -> Self {
         Self {
             id,
             anchor: anchor.into(),
@@ -58,7 +59,7 @@ impl Node {
 
     /// Set the node's discriminator.
     #[must_use]
-    pub fn with_discriminator(mut self, disc: impl Into<String>) -> Self {
+    pub fn with_discriminator(mut self, disc: impl Into<Name>) -> Self {
         self.discriminator = Some(disc.into());
         self
     }

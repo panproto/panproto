@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
@@ -40,8 +41,8 @@ pub fn normalize(schema: &Schema) -> Schema {
 }
 
 /// Build a map from ref vertex IDs to their outgoing edge targets.
-fn build_ref_targets(schema: &Schema) -> FxHashMap<String, (String, Edge)> {
-    let mut ref_targets: FxHashMap<String, (String, Edge)> = FxHashMap::default();
+fn build_ref_targets(schema: &Schema) -> FxHashMap<Name, (Name, Edge)> {
+    let mut ref_targets: FxHashMap<Name, (Name, Edge)> = FxHashMap::default();
     for (id, vertex) in &schema.vertices {
         if vertex.kind == REF_KIND {
             if let Some(edges) = schema.outgoing.get(id) {
@@ -57,11 +58,8 @@ fn build_ref_targets(schema: &Schema) -> FxHashMap<String, (String, Edge)> {
 /// Follow a ref chain to find the ultimate non-ref target.
 ///
 /// Returns `None` if the chain contains a cycle.
-fn resolve_ref_chain(
-    start: &str,
-    ref_targets: &FxHashMap<String, (String, Edge)>,
-) -> Option<String> {
-    let mut current = start.to_owned();
+fn resolve_ref_chain(start: &Name, ref_targets: &FxHashMap<Name, (Name, Edge)>) -> Option<Name> {
+    let mut current = start.clone();
     let mut visited = FxHashSet::default();
     loop {
         if !visited.insert(current.clone()) {
@@ -79,10 +77,10 @@ fn resolve_ref_chain(
 /// and the set of ref vertex IDs that were consumed.
 fn collapse_edges(
     schema: &Schema,
-    ref_targets: &FxHashMap<String, (String, Edge)>,
-) -> (Vec<Edge>, FxHashSet<String>) {
+    ref_targets: &FxHashMap<Name, (Name, Edge)>,
+) -> (Vec<Edge>, FxHashSet<Name>) {
     let mut new_edges: Vec<Edge> = Vec::new();
-    let mut used_refs: FxHashSet<String> = FxHashSet::default();
+    let mut used_refs: FxHashSet<Name> = FxHashSet::default();
 
     for edge in schema.edges.keys() {
         let src_vertex = schema.vertices.get(&edge.src);
@@ -120,8 +118,8 @@ fn collapse_edges(
 }
 
 /// Rebuild the schema from the collapsed edges, removing consumed ref vertices.
-fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<String>) -> Schema {
-    let new_vertices: HashMap<String, Vertex> = schema
+fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Name>) -> Schema {
+    let new_vertices: HashMap<Name, Vertex> = schema
         .vertices
         .iter()
         .filter(|(id, v)| v.kind != REF_KIND || !used_refs.contains(*id))
@@ -129,9 +127,9 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Str
         .collect();
 
     let mut edge_map = HashMap::with_capacity(new_edges.len());
-    let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
     for edge in new_edges {
         edge_map.insert(edge.clone(), edge.kind.clone());

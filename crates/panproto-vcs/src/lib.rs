@@ -39,6 +39,7 @@ pub mod merge;
 pub mod object;
 pub mod rebase;
 pub mod refs;
+pub mod rename_detect;
 pub mod repo;
 pub mod reset;
 pub mod stash;

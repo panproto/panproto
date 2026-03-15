@@ -297,20 +297,20 @@ pub fn emit_timeml(schema: &Schema) -> Result<serde_json::Value, ProtocolError> 
         if !constraints.is_empty() {
             let mut cs = serde_json::Map::new();
             for c in &constraints {
-                cs.insert(c.sort.clone(), serde_json::json!(c.value));
+                cs.insert(c.sort.to_string(), serde_json::json!(c.value));
             }
             obj.insert("constraints".into(), serde_json::Value::Object(cs));
         }
 
         match root.kind.as_str() {
             "event" => {
-                events.insert(root.id.clone(), serde_json::Value::Object(obj));
+                events.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "timex3" => {
-                timex3s.insert(root.id.clone(), serde_json::Value::Object(obj));
+                timex3s.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "signal" => {
-                signals.insert(root.id.clone(), serde_json::Value::Object(obj));
+                signals.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "tlink" => {
                 let sources = children_by_edge(schema, &root.id, "source");
@@ -332,7 +332,7 @@ pub fn emit_timeml(schema: &Schema) -> Result<serde_json::Value, ProtocolError> 
                         }
                     }
                 }
-                tlinks.insert(root.id.clone(), serde_json::Value::Object(obj));
+                tlinks.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "slink" => {
                 let sources = children_by_edge(schema, &root.id, "source");
@@ -353,7 +353,7 @@ pub fn emit_timeml(schema: &Schema) -> Result<serde_json::Value, ProtocolError> 
                         }
                     }
                 }
-                slinks.insert(root.id.clone(), serde_json::Value::Object(obj));
+                slinks.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "alink" => {
                 let sources = children_by_edge(schema, &root.id, "source");
@@ -374,14 +374,14 @@ pub fn emit_timeml(schema: &Schema) -> Result<serde_json::Value, ProtocolError> 
                         }
                     }
                 }
-                alinks.insert(root.id.clone(), serde_json::Value::Object(obj));
+                alinks.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             "makeinstance" => {
                 let event_edges = children_by_edge(schema, &root.id, "event-instance");
                 if let Some((_edge, child)) = event_edges.first() {
                     obj.insert("event".into(), serde_json::json!(child.id));
                 }
-                makeinstances.insert(root.id.clone(), serde_json::Value::Object(obj));
+                makeinstances.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }
             _ => {}
         }

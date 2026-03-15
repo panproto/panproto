@@ -25,6 +25,7 @@ crates/panproto-vcs/src/
   bisect.rs        — binary search for breaking commit
   blame.rs         — schema element attribution
   auto_mig.rs      — derive Migration from SchemaDiff
+  rename_detect.rs — heuristic rename detection between versions
   status.rs        — HEAD vs index vs working file
   repo.rs          — Repository orchestration (porcelain)
   gc.rs            — garbage collection
@@ -115,6 +116,31 @@ Given schemas base, ours, theirs, the merge computes the categorical pushout:
 4. No tie-breaking — the merge is commutative: `merge(base, A, B) == merge(base, B, A)`
 5. Rebuild precomputed indices
 6. Derive migrations from ours→merged and theirs→merged via `auto_mig::derive_migration`
+
+## Rename Detection
+
+The `rename_detect` module provides heuristic rename detection between schema versions. When `auto_mig::derive_migration` encounters a vertex that was removed in the old schema and a structurally similar vertex was added in the new schema, the rename detector can identify this as a rename rather than a delete-and-add.
+
+### Algorithm
+
+For vertex rename detection (`detect_vertex_renames`):
+
+1. Collect removed vertices (in old, not in new) and added vertices (in new, not in old)
+2. For each (removed, added) pair, compute structural similarity:
+   - Same vertex kind: +0.3
+   - Same outgoing edge names: +0.3
+   - Same incoming edge names: +0.2
+   - Edit distance of vertex ID names ≤ 3: +0.2
+3. Greedy bipartite matching: take highest-scoring pairs first
+4. Return pairs ≥ threshold
+
+For edge label rename detection (`detect_edge_renames`), the algorithm compares removed and added edges between the same surviving vertex pair, scoring by name edit distance normalized to string length.
+
+### CommitObject Integration
+
+Detected renames are stored in `CommitObject.renames` as `Vec<SiteRename>`. This field is `#[serde(default, skip_serializing_if = "Vec::is_empty")]`, so old commits without renames deserialize correctly.
+
+See @sec-naming-identity for the full naming and identity architecture.
 
 ## Related Work and Differentiation
 

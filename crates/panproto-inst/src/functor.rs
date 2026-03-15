@@ -102,11 +102,11 @@ pub fn functor_restrict(
             .vertex_remap
             .iter()
             .filter(|(_, v)| *v == tgt_vertex)
-            .map(|(k, _)| k.as_str())
+            .map(|(k, _)| &**k)
             .collect();
 
         let sources = if src_vertices.is_empty() {
-            vec![tgt_vertex.as_str()]
+            vec![&**tgt_vertex]
         } else {
             src_vertices
         };
@@ -118,7 +118,7 @@ pub fn functor_restrict(
             }
         }
         if !combined_rows.is_empty() {
-            new_tables.insert(tgt_vertex.clone(), combined_rows);
+            new_tables.insert(tgt_vertex.to_string(), combined_rows);
         }
     }
 
@@ -173,12 +173,9 @@ pub fn functor_extend(
     for (src_vertex, rows) in &instance.tables {
         let tgt_vertex = migration
             .vertex_remap
-            .get(src_vertex)
-            .cloned()
-            .unwrap_or_else(|| src_vertex.clone());
-        let entry = new_tables
-            .entry(tgt_vertex.clone())
-            .or_insert_with(Vec::new);
+            .get(src_vertex.as_str())
+            .map_or_else(|| src_vertex.clone(), std::string::ToString::to_string);
+        let entry = new_tables.entry(tgt_vertex).or_insert_with(Vec::new);
         let offset = entry.len();
         row_offsets.insert(src_vertex.clone(), offset);
         entry.extend(rows.iter().cloned());
@@ -202,7 +199,7 @@ pub fn functor_extend(
     // populated by the source instance.
     for tgt_vertex in &migration.surviving_verts {
         new_tables
-            .entry(tgt_vertex.clone())
+            .entry(tgt_vertex.to_string())
             .or_insert_with(Vec::new);
     }
 
@@ -221,8 +218,8 @@ pub fn functor_extend(
         );
 
         if let Some(new_edge) = resolved_edge {
-            let src_offset = row_offsets.get(&edge.src).copied().unwrap_or(0);
-            let tgt_offset = row_offsets.get(&edge.tgt).copied().unwrap_or(0);
+            let src_offset = row_offsets.get(&*edge.src).copied().unwrap_or(0);
+            let tgt_offset = row_offsets.get(&*edge.tgt).copied().unwrap_or(0);
             let offset_pairs: Vec<(usize, usize)> = pairs
                 .iter()
                 .map(|(s, t)| (s + src_offset, t + tgt_offset))
@@ -282,7 +279,7 @@ mod tests {
 
         // Migration that only keeps "users"
         let migration = CompiledMigration {
-            surviving_verts: HashSet::from(["users".to_string()]),
+            surviving_verts: HashSet::from([panproto_gat::Name::from("users")]),
             surviving_edges: HashSet::new(),
             vertex_remap: HashMap::new(),
             edge_remap: HashMap::new(),

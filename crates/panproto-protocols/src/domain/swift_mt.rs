@@ -134,7 +134,7 @@ pub fn emit_swift_mt_schema(schema: &Schema) -> Result<serde_json::Value, Protoc
                         if c.sort == "required" {
                             fobj.insert("required".into(), serde_json::json!(true));
                         } else {
-                            fobj.insert(c.sort.clone(), serde_json::json!(c.value));
+                            fobj.insert(c.sort.to_string(), serde_json::json!(c.value));
                         }
                     }
                     fields_obj.insert(fname.to_string(), serde_json::Value::Object(fobj));
@@ -148,7 +148,7 @@ pub fn emit_swift_mt_schema(schema: &Schema) -> Result<serde_json::Value, Protoc
         }
 
         msg_obj.insert("blocks".into(), serde_json::Value::Object(blocks_obj));
-        messages.insert(root.id.clone(), serde_json::Value::Object(msg_obj));
+        messages.insert(root.id.to_string(), serde_json::Value::Object(msg_obj));
     }
 
     Ok(serde_json::json!({ "messages": messages }))

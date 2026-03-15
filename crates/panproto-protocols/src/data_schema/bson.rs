@@ -188,9 +188,9 @@ fn emit_bson_vertex(
 
     for c in vertex_constraints(schema, &vertex.id) {
         if let Ok(n) = c.value.parse::<i64>() {
-            obj.insert(c.sort.clone(), serde_json::json!(n));
+            obj.insert(c.sort.to_string(), serde_json::json!(n));
         } else {
-            obj.insert(c.sort.clone(), serde_json::json!(c.value));
+            obj.insert(c.sort.to_string(), serde_json::json!(c.value));
         }
     }
 

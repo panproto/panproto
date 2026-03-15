@@ -603,7 +603,7 @@ fn resolve_graphql_type_expr(schema: &Schema, field_vertex: &panproto_schema::Ve
             }
             .to_string()
         },
-        |type_vertex| type_vertex.id.clone(),
+        |type_vertex| type_vertex.id.to_string(),
     );
 
     let is_list = constraint_value(schema, &field_vertex.id, "list").is_some_and(|v| v == "true");

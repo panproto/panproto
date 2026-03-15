@@ -64,7 +64,7 @@ impl InstanceParser for MarkdownCodec {
             root_id,
             Node {
                 id: root_id,
-                anchor: root_anchor.clone(),
+                anchor: root_anchor.as_str().into(),
                 value: None,
                 discriminator: None,
                 extra_fields: HashMap::new(),
@@ -91,9 +91,9 @@ impl InstanceParser for MarkdownCodec {
                         node_id,
                         Node {
                             id: node_id,
-                            anchor: anchor.clone(),
+                            anchor: anchor.as_str().into(),
                             value: None,
-                            discriminator: Some(kind.clone()),
+                            discriminator: Some(panproto_gat::Name::from(kind.as_str())),
                             extra_fields: HashMap::new(),
                             position: None,
                             annotations: HashMap::new(),
@@ -101,10 +101,10 @@ impl InstanceParser for MarkdownCodec {
                     );
 
                     let edge = Edge {
-                        src: parent.1.clone(),
-                        tgt: anchor.clone(),
-                        kind: "contains".to_string(),
-                        name: Some(kind),
+                        src: panproto_gat::Name::from(parent.1.as_str()),
+                        tgt: anchor.as_str().into(),
+                        kind: "contains".into(),
+                        name: Some(panproto_gat::Name::from(kind.as_str())),
                     };
                     arcs.push((parent.0, node_id, edge));
                     element_stack.push((node_id, anchor));
@@ -127,7 +127,7 @@ impl InstanceParser for MarkdownCodec {
                         node_id,
                         Node {
                             id: node_id,
-                            anchor: anchor.clone(),
+                            anchor: anchor.as_str().into(),
                             value: Some(FieldPresence::Present(Value::Str(text.to_string()))),
                             discriminator: None,
                             extra_fields: HashMap::new(),
@@ -137,10 +137,10 @@ impl InstanceParser for MarkdownCodec {
                     );
 
                     let edge = Edge {
-                        src: parent.1.clone(),
-                        tgt: anchor,
-                        kind: "contains".to_string(),
-                        name: Some("text".to_string()),
+                        src: panproto_gat::Name::from(parent.1.as_str()),
+                        tgt: panproto_gat::Name::from(anchor.as_str()),
+                        kind: "contains".into(),
+                        name: Some(panproto_gat::Name::from("text")),
                     };
                     arcs.push((parent.0, node_id, edge));
                 }
@@ -153,7 +153,7 @@ impl InstanceParser for MarkdownCodec {
             arcs,
             Vec::new(),
             root_id,
-            root_anchor,
+            panproto_gat::Name::from(root_anchor),
         ))
     }
 
@@ -289,7 +289,7 @@ fn find_root_vertex(schema: &Schema) -> Option<String> {
         .vertices
         .values()
         .find(|v| schema.incoming_edges(&v.id).is_empty())
-        .map(|v| v.id.clone())
+        .map(|v| v.id.to_string())
 }
 
 #[cfg(test)]

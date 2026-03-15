@@ -61,6 +61,7 @@ pub struct Lens {
 pub(crate) mod tests {
     use std::collections::HashMap;
 
+    use panproto_gat::Name;
     use panproto_inst::value::{FieldPresence, Value};
     use panproto_inst::{CompiledMigration, Node, WInstance};
     use panproto_schema::{Edge, Schema, Vertex};
@@ -73,79 +74,79 @@ pub(crate) mod tests {
     pub fn three_node_schema() -> Schema {
         let mut vertices = HashMap::new();
         vertices.insert(
-            "post:body".to_string(),
+            Name::from("post:body"),
             Vertex {
-                id: "post:body".to_string(),
-                kind: "object".to_string(),
+                id: "post:body".into(),
+                kind: "object".into(),
                 nsid: None,
             },
         );
         vertices.insert(
-            "post:body.text".to_string(),
+            Name::from("post:body.text"),
             Vertex {
-                id: "post:body.text".to_string(),
-                kind: "string".to_string(),
+                id: "post:body.text".into(),
+                kind: "string".into(),
                 nsid: None,
             },
         );
         vertices.insert(
-            "post:body.createdAt".to_string(),
+            Name::from("post:body.createdAt"),
             Vertex {
-                id: "post:body.createdAt".to_string(),
-                kind: "string".to_string(),
+                id: "post:body.createdAt".into(),
+                kind: "string".into(),
                 nsid: None,
             },
         );
 
         let edge_text = Edge {
-            src: "post:body".to_string(),
-            tgt: "post:body.text".to_string(),
-            kind: "prop".to_string(),
-            name: Some("text".to_string()),
+            src: "post:body".into(),
+            tgt: "post:body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
         };
         let edge_created = Edge {
-            src: "post:body".to_string(),
-            tgt: "post:body.createdAt".to_string(),
-            kind: "prop".to_string(),
-            name: Some("createdAt".to_string()),
+            src: "post:body".into(),
+            tgt: "post:body.createdAt".into(),
+            kind: "prop".into(),
+            name: Some("createdAt".into()),
         };
 
         let mut edges = HashMap::new();
-        edges.insert(edge_text.clone(), "prop".to_string());
-        edges.insert(edge_created.clone(), "prop".to_string());
+        edges.insert(edge_text.clone(), Name::from("prop"));
+        edges.insert(edge_created.clone(), Name::from("prop"));
 
-        let mut outgoing: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
+        let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
         outgoing
-            .entry("post:body".to_string())
+            .entry("post:body".into())
             .or_default()
             .push(edge_text.clone());
         outgoing
-            .entry("post:body".to_string())
+            .entry("post:body".into())
             .or_default()
             .push(edge_created.clone());
 
-        let mut incoming: HashMap<String, SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
         incoming
-            .entry("post:body.text".to_string())
+            .entry("post:body.text".into())
             .or_default()
             .push(edge_text.clone());
         incoming
-            .entry("post:body.createdAt".to_string())
+            .entry("post:body.createdAt".into())
             .or_default()
             .push(edge_created.clone());
 
-        let mut between: HashMap<(String, String), SmallVec<Edge, 2>> = HashMap::new();
+        let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
         between
-            .entry(("post:body".to_string(), "post:body.text".to_string()))
+            .entry((Name::from("post:body"), Name::from("post:body.text")))
             .or_default()
             .push(edge_text);
         between
-            .entry(("post:body".to_string(), "post:body.createdAt".to_string()))
+            .entry((Name::from("post:body"), Name::from("post:body.createdAt")))
             .or_default()
             .push(edge_created);
 
         Schema {
-            protocol: "test".to_string(),
+            protocol: "test".into(),
             vertices,
             edges,
             hyper_edges: HashMap::new(),
@@ -202,7 +203,7 @@ pub(crate) mod tests {
             ),
         ];
 
-        WInstance::new(nodes, arcs, vec![], 0, "post:body".into())
+        WInstance::new(nodes, arcs, vec![], 0, Name::from("post:body"))
     }
 
     /// Build an identity lens for the given schema.
@@ -248,7 +249,7 @@ pub(crate) mod tests {
         // Rebuild indices
         crate::combinators::rebuild_indices_pub(&mut tgt_schema);
 
-        let mut surviving_verts: std::collections::HashSet<String> =
+        let mut surviving_verts: std::collections::HashSet<Name> =
             schema.vertices.keys().cloned().collect();
         let mut surviving_edges: std::collections::HashSet<Edge> =
             schema.edges.keys().cloned().collect();

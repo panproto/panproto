@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use divan::Bencher;
+use panproto_gat::Name;
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::{
     CompiledMigration, FInstance, Node, WInstance, functor_extend, functor_restrict, parse_json,
@@ -30,16 +31,16 @@ fn make_edge(src: &str, tgt: &str, name: &str) -> Edge {
 fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
     let mut vert_map = HashMap::new();
     let mut edge_map = HashMap::new();
-    let mut outgoing: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<String, smallvec::SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(String, String), smallvec::SmallVec<Edge, 2>> = HashMap::new();
+    let mut outgoing: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, smallvec::SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), smallvec::SmallVec<Edge, 2>> = HashMap::new();
 
     for (id, kind) in vertices {
         vert_map.insert(
-            id.to_string(),
+            Name::from(*id),
             Vertex {
-                id: id.to_string(),
-                kind: kind.to_string(),
+                id: Name::from(*id),
+                kind: Name::from(*kind),
                 nsid: None,
             },
         );
@@ -83,7 +84,7 @@ fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
 
 /// Build a deep tree schema: root -> v0 -> v1 -> ... -> v(n-1)
 fn deep_tree_schema(depth: usize) -> (Schema, Vec<Edge>) {
-    let mut vert_strs: Vec<String> = vec!["root".into()];
+    let mut vert_strs: Vec<String> = vec!["root".to_owned()];
     let mut edges = Vec::new();
 
     for i in 0..depth {
@@ -109,7 +110,7 @@ fn deep_tree_schema(depth: usize) -> (Schema, Vec<Edge>) {
 
 /// Build a wide tree schema: root with `width` children
 fn wide_tree_schema(width: usize) -> (Schema, Vec<Edge>) {
-    let mut vert_strs: Vec<String> = vec!["root".into()];
+    let mut vert_strs: Vec<String> = vec!["root".to_owned()];
     let mut edges = Vec::new();
 
     for i in 0..width {
@@ -154,7 +155,7 @@ fn deep_tree_instance(depth: usize, edges: &[Edge]) -> WInstance {
         })
         .collect();
 
-    WInstance::new(nodes, arcs, vec![], 0, "root".into())
+    WInstance::new(nodes, arcs, vec![], 0, Name::from("root"))
 }
 
 /// Build a `WInstance` for a wide tree.
@@ -179,10 +180,10 @@ fn wide_tree_instance(width: usize, edges: &[Edge]) -> WInstance {
         })
         .collect();
 
-    WInstance::new(nodes, arcs, vec![], 0, "root".into())
+    WInstance::new(nodes, arcs, vec![], 0, Name::from("root"))
 }
 
-fn identity_compiled(vertices: &[String], edges: &[Edge]) -> CompiledMigration {
+fn identity_compiled(vertices: &[Name], edges: &[Edge]) -> CompiledMigration {
     CompiledMigration {
         surviving_verts: vertices.iter().cloned().collect(),
         surviving_edges: edges.iter().cloned().collect(),
@@ -300,9 +301,9 @@ fn wtype_restrict_deep_tree(bencher: Bencher, depth: usize) {
     let (schema, edges) = deep_tree_schema(depth);
     let instance = deep_tree_instance(depth, &edges);
 
-    let mut verts: Vec<String> = vec!["root".into()];
+    let mut verts: Vec<Name> = vec!["root".into()];
     for i in 0..depth {
-        verts.push(format!("v{i}"));
+        verts.push(Name::from(format!("v{i}")));
     }
     let compiled = identity_compiled(&verts, &edges);
 
@@ -318,9 +319,9 @@ fn wtype_restrict_wide_tree(bencher: Bencher, width: usize) {
     let (schema, edges) = wide_tree_schema(width);
     let instance = wide_tree_instance(width, &edges);
 
-    let mut verts: Vec<String> = vec!["root".into()];
+    let mut verts: Vec<Name> = vec!["root".into()];
     for i in 0..width {
-        verts.push(format!("child{i}"));
+        verts.push(Name::from(format!("child{i}")));
     }
     let compiled = identity_compiled(&verts, &edges);
 
@@ -338,10 +339,10 @@ fn wtype_restrict_contraction(bencher: Bencher, depth: usize) {
     let instance = deep_tree_instance(depth, &edges);
 
     let keep = 2.min(depth);
-    let mut surviving_verts = HashSet::new();
+    let mut surviving_verts: HashSet<Name> = HashSet::new();
     surviving_verts.insert("root".into());
     for i in 0..keep {
-        surviving_verts.insert(format!("v{i}"));
+        surviving_verts.insert(Name::from(format!("v{i}")));
     }
 
     let surviving_edges: HashSet<Edge> = edges.iter().take(keep).cloned().collect();
@@ -426,7 +427,7 @@ fn functor_restrict_n_tables(bencher: Bencher, n: usize) {
     }
 
     // Identity migration keeping all tables
-    let surviving_verts: HashSet<String> = (0..n).map(|i| format!("t{i}")).collect();
+    let surviving_verts: HashSet<Name> = (0..n).map(|i| Name::from(format!("t{i}"))).collect();
     let compiled = CompiledMigration {
         surviving_verts,
         surviving_edges: HashSet::new(),
@@ -458,7 +459,7 @@ fn functor_extend_n_tables(bencher: Bencher, n: usize) {
     }
 
     // Identity migration (no remap, all survive)
-    let surviving_verts: HashSet<String> = (0..n).map(|i| format!("t{i}")).collect();
+    let surviving_verts: HashSet<Name> = (0..n).map(|i| Name::from(format!("t{i}"))).collect();
     let compiled = CompiledMigration {
         surviving_verts,
         surviving_edges: HashSet::new(),

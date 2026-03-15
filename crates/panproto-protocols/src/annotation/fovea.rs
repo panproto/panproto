@@ -707,7 +707,7 @@ pub fn emit_fovea(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
 
         // Collect all constraints for this vertex.
         for c in vertex_constraints(schema, &v.id) {
-            obj.insert(c.sort.clone(), serde_json::json!(c.value));
+            obj.insert(c.sort.to_string(), serde_json::json!(c.value));
         }
 
         match v.kind.as_str() {
@@ -739,7 +739,7 @@ pub fn emit_fovea(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                     let mut child_obj = serde_json::Map::new();
                     child_obj.insert("id".into(), serde_json::json!(child.id));
                     for c in vertex_constraints(schema, &child.id) {
-                        child_obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                        child_obj.insert(c.sort.to_string(), serde_json::json!(c.value));
                     }
                     match child.kind.as_str() {
                         "entity-type" => et_arr.push(serde_json::Value::Object(child_obj)),
@@ -862,7 +862,7 @@ pub fn emit_fovea(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                     .map(|(_, bb_v)| {
                         let mut bb_obj = serde_json::Map::new();
                         for c in vertex_constraints(schema, &bb_v.id) {
-                            bb_obj.insert(c.sort.clone(), serde_json::json!(c.value));
+                            bb_obj.insert(c.sort.to_string(), serde_json::json!(c.value));
                         }
                         serde_json::Value::Object(bb_obj)
                     })

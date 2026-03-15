@@ -199,7 +199,7 @@ pub fn emit_amr_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolErr
 
         // Emit constraints.
         for c in vertex_constraints(schema, &vertex.id) {
-            obj.insert(c.sort.clone(), serde_json::json!(c.value));
+            obj.insert(c.sort.to_string(), serde_json::json!(c.value));
         }
 
         // Emit relation edges.
@@ -223,7 +223,7 @@ pub fn emit_amr_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolErr
             }
         }
 
-        types.insert(vertex.id.clone(), serde_json::Value::Object(obj));
+        types.insert(vertex.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "types": types }))

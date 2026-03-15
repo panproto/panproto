@@ -153,7 +153,7 @@ pub fn emit_geojson_schema(schema: &Schema) -> Result<serde_json::Value, Protoco
             obj.insert("properties".into(), serde_json::Value::Object(props_obj));
         }
 
-        feature_types.insert(root.id.clone(), serde_json::Value::Object(obj));
+        feature_types.insert(root.id.to_string(), serde_json::Value::Object(obj));
     }
 
     Ok(serde_json::json!({ "featureTypes": feature_types }))

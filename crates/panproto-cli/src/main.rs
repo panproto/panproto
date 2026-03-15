@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
 use miette::{Context, IntoDiagnostic, Result};
 use panproto_core::{
-    gat::Theory,
+    gat::{Name, Theory},
     inst,
     mig::{self, Migration},
     protocols,
@@ -906,9 +906,9 @@ fn cmd_lift(
         .wrap_err("failed to compile migration")?;
 
     let root_vertex = {
-        let domain_vertices: std::collections::BTreeSet<&String> =
+        let domain_vertices: std::collections::BTreeSet<&Name> =
             migration.vertex_map.keys().collect();
-        let targets: std::collections::HashSet<&String> = migration
+        let targets: std::collections::HashSet<&Name> = migration
             .edge_map
             .keys()
             .map(|e| &e.tgt)
@@ -1245,11 +1245,17 @@ fn print_diff(
     println!("{total} change(s) detected:\n");
 
     for v in &schema_diff.added_vertices {
-        let kind = new_schema.vertices.get(v).map_or("?", |vtx| &vtx.kind);
+        let kind = new_schema
+            .vertices
+            .get(v.as_str())
+            .map_or("?", |vtx| &vtx.kind);
         println!("  + vertex {v} ({kind})");
     }
     for v in &schema_diff.removed_vertices {
-        let kind = old_schema.vertices.get(v).map_or("?", |vtx| &vtx.kind);
+        let kind = old_schema
+            .vertices
+            .get(v.as_str())
+            .map_or("?", |vtx| &vtx.kind);
         println!("  - vertex {v} ({kind})");
     }
     for kc in &schema_diff.kind_changes {
@@ -1865,10 +1871,10 @@ fn cmd_blame(element_type: &str, element_id: &str, reverse: bool) -> Result<()> 
             }
             let sub_parts: Vec<&str> = parts[1].split(':').collect();
             let edge = panproto_core::schema::Edge {
-                src: parts[0].to_owned(),
-                tgt: sub_parts[0].to_owned(),
-                kind: sub_parts.get(1).unwrap_or(&"prop").to_string(),
-                name: sub_parts.get(2).map(ToString::to_string),
+                src: Name::from(parts[0]),
+                tgt: Name::from(sub_parts[0]),
+                kind: Name::from(*sub_parts.get(1).unwrap_or(&"prop")),
+                name: sub_parts.get(2).map(|s| Name::from(*s)),
             };
             vcs::blame::blame_edge(repo.store(), head_id, &edge).into_diagnostic()?
         }

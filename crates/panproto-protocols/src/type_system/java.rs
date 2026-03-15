@@ -397,7 +397,7 @@ fn emit_java_record(
         .map(|(edge, field_vertex)| {
             let field_name = edge.name.as_deref().unwrap_or(&field_vertex.id);
             let type_name = resolve_type(schema, &field_vertex.id)
-                .map(|v| v.id.clone())
+                .map(|v| v.id.to_string())
                 .unwrap_or_else(|| "Object".to_string());
             format!("{type_name} {field_name}")
         })
@@ -420,7 +420,7 @@ fn emit_java_class(
         .outgoing_edges(&vertex.id)
         .iter()
         .filter(|e| e.kind == "implements")
-        .map(|e| e.tgt.clone())
+        .map(|e| e.tgt.to_string())
         .collect();
     let impl_str = if impls.is_empty() {
         String::new()
@@ -433,7 +433,7 @@ fn emit_java_class(
     for (edge, field_vertex) in &fields {
         let field_name = edge.name.as_deref().unwrap_or(&field_vertex.id);
         let type_name = resolve_type(schema, &field_vertex.id)
-            .map(|v| v.id.clone())
+            .map(|v| v.id.to_string())
             .unwrap_or_else(|| "Object".to_string());
         w.line(&format!("private {type_name} {field_name};"));
     }

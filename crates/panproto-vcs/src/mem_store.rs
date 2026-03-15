@@ -146,12 +146,13 @@ mod tests {
     use std::collections::HashMap;
 
     fn test_schema() -> Schema {
+        use panproto_gat::Name;
         let mut vertices = HashMap::new();
         vertices.insert(
-            "root".to_string(),
+            Name::from("root"),
             Vertex {
-                id: "root".to_string(),
-                kind: "object".to_string(),
+                id: Name::from("root"),
+                kind: Name::from("object"),
                 nsid: None,
             },
         );

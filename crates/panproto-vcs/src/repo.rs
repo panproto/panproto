@@ -137,6 +137,7 @@ impl Repository {
             author: author.to_owned(),
             timestamp,
             message: message.to_owned(),
+            renames: vec![],
         };
         let commit_id = self.store.put(&Object::Commit(commit))?;
 
@@ -266,6 +267,7 @@ impl Repository {
                 author: author.to_owned(),
                 timestamp,
                 message: msg,
+                renames: vec![],
             };
             let merge_id = self.store.put(&Object::Commit(merge_commit))?;
             advance_head(
@@ -314,6 +316,7 @@ impl Repository {
             author: author.to_owned(),
             timestamp,
             message: message.to_owned(),
+            renames: vec![],
         };
         let new_id = self.store.put(&Object::Commit(new_commit))?;
 
@@ -448,6 +451,7 @@ impl Repository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use panproto_gat::Name;
     use panproto_schema::Vertex;
     use std::collections::HashMap;
 
@@ -455,10 +459,10 @@ mod tests {
         let mut vert_map = HashMap::new();
         for (id, kind) in vertices {
             vert_map.insert(
-                id.to_string(),
+                Name::from(*id),
                 Vertex {
-                    id: id.to_string(),
-                    kind: kind.to_string(),
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
                     nsid: None,
                 },
             );
