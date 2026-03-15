@@ -71,6 +71,84 @@ pub enum WasmError {
         /// Description of the compose error.
         reason: String,
     },
+
+    /// Schema normalization failed.
+    NormalizeFailed {
+        /// Description of the normalization error.
+        reason: String,
+    },
+
+    /// Schema validation failed.
+    ValidationFailed {
+        /// Description of the validation error.
+        reason: String,
+    },
+
+    /// Diff classification failed.
+    ClassifyFailed {
+        /// Description of the classification error.
+        reason: String,
+    },
+
+    /// Instance parsing failed.
+    ParseFailed {
+        /// Description of the parse error.
+        reason: String,
+    },
+
+    /// Instance emission failed.
+    EmitFailed {
+        /// Description of the emit error.
+        reason: String,
+    },
+
+    /// I/O registry error.
+    IoRegistryError {
+        /// Description of the registry error.
+        reason: String,
+    },
+
+    /// Lens construction from combinators failed.
+    LensConstructionFailed {
+        /// Description of the lens construction error.
+        reason: String,
+    },
+
+    /// Lens law check failed.
+    LawCheckFailed {
+        /// Description of the law check failure.
+        reason: String,
+    },
+
+    /// Migration inversion failed.
+    InvertFailed {
+        /// Description of the inversion error.
+        reason: String,
+    },
+
+    /// GAT theory operation failed.
+    TheoryError {
+        /// Description of the theory error.
+        reason: String,
+    },
+
+    /// GAT colimit computation failed.
+    ColimitFailed {
+        /// Description of the colimit error.
+        reason: String,
+    },
+
+    /// GAT morphism check failed.
+    MorphismCheckFailed {
+        /// Description of the morphism check error.
+        reason: String,
+    },
+
+    /// VCS operation failed.
+    VcsError {
+        /// Description of the VCS error.
+        reason: String,
+    },
 }
 
 impl fmt::Display for WasmError {
@@ -91,6 +169,23 @@ impl fmt::Display for WasmError {
             Self::LiftFailed { reason } => write!(f, "lift error: {reason}"),
             Self::PutFailed { reason } => write!(f, "put error: {reason}"),
             Self::ComposeFailed { reason } => write!(f, "compose error: {reason}"),
+            Self::NormalizeFailed { reason } => write!(f, "normalize error: {reason}"),
+            Self::ValidationFailed { reason } => write!(f, "validation error: {reason}"),
+            Self::ClassifyFailed { reason } => write!(f, "classify error: {reason}"),
+            Self::ParseFailed { reason } => write!(f, "parse error: {reason}"),
+            Self::EmitFailed { reason } => write!(f, "emit error: {reason}"),
+            Self::IoRegistryError { reason } => write!(f, "io registry error: {reason}"),
+            Self::LensConstructionFailed { reason } => {
+                write!(f, "lens construction error: {reason}")
+            }
+            Self::LawCheckFailed { reason } => write!(f, "law check error: {reason}"),
+            Self::InvertFailed { reason } => write!(f, "invert error: {reason}"),
+            Self::TheoryError { reason } => write!(f, "theory error: {reason}"),
+            Self::ColimitFailed { reason } => write!(f, "colimit error: {reason}"),
+            Self::MorphismCheckFailed { reason } => {
+                write!(f, "morphism check error: {reason}")
+            }
+            Self::VcsError { reason } => write!(f, "vcs error: {reason}"),
         }
     }
 }

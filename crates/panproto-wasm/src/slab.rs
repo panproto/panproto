@@ -7,8 +7,11 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
+use panproto_core::gat::Theory;
 use panproto_core::inst::CompiledMigration;
+use panproto_core::io::ProtocolRegistry;
 use panproto_core::schema::{Protocol, Schema};
+use panproto_core::vcs::MemStore;
 use wasm_bindgen::JsError;
 
 use crate::error::WasmError;
@@ -35,6 +38,12 @@ pub enum Resource {
         /// The target schema (post-migration).
         tgt_schema: Arc<Schema>,
     },
+    /// An I/O protocol registry with all 77 protocol codecs.
+    IoRegistry(Box<ProtocolRegistry>),
+    /// A GAT theory.
+    Theory(Box<Theory>),
+    /// A VCS in-memory repository.
+    VcsRepo(Box<MemStore>),
 }
 
 thread_local! {
@@ -99,6 +108,50 @@ pub fn with_two_resources<T>(
             .and_then(Option::as_ref)
             .ok_or(WasmError::InvalidHandle { handle: h2 })?;
         f(r1, r2).map_err(Into::into)
+    })
+}
+
+/// Access a resource by handle mutably, returning an error if the handle
+/// is invalid or the slot is empty.
+pub fn with_resource_mut<T>(
+    handle: u32,
+    f: impl FnOnce(&mut Resource) -> Result<T, WasmError>,
+) -> Result<T, JsError> {
+    SLAB.with_borrow_mut(|slab| {
+        let idx = handle as usize;
+        let resource = slab
+            .get_mut(idx)
+            .and_then(Option::as_mut)
+            .ok_or(WasmError::InvalidHandle { handle })?;
+        f(resource).map_err(Into::into)
+    })
+}
+
+/// Access three resources by handle simultaneously.
+///
+/// # Errors
+///
+/// Returns `JsError` if any handle is invalid or freed.
+pub fn with_three_resources<T>(
+    h1: u32,
+    h2: u32,
+    h3: u32,
+    f: impl FnOnce(&Resource, &Resource, &Resource) -> Result<T, WasmError>,
+) -> Result<T, JsError> {
+    SLAB.with_borrow(|slab| {
+        let r1 = slab
+            .get(h1 as usize)
+            .and_then(Option::as_ref)
+            .ok_or(WasmError::InvalidHandle { handle: h1 })?;
+        let r2 = slab
+            .get(h2 as usize)
+            .and_then(Option::as_ref)
+            .ok_or(WasmError::InvalidHandle { handle: h2 })?;
+        let r3 = slab
+            .get(h3 as usize)
+            .and_then(Option::as_ref)
+            .ok_or(WasmError::InvalidHandle { handle: h3 })?;
+        f(r1, r2, r3).map_err(Into::into)
     })
 }
 
@@ -188,14 +241,68 @@ pub const fn as_migration(resource: &Resource) -> Result<&CompiledMigration, Was
     }
 }
 
-/// Return a human-readable name for a resource variant.
+/// Extract a `ProtocolRegistry` reference from a resource, or return
+/// a type mismatch error.
+pub fn as_io_registry(resource: &Resource) -> Result<&ProtocolRegistry, WasmError> {
+    match resource {
+        Resource::IoRegistry(r) => Ok(r),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "IoRegistry",
+            actual: resource_type_name(resource),
+        }),
+    }
+}
+
+/// Extract a `Theory` reference from a resource, or return a type
+/// mismatch error.
+pub fn as_theory(resource: &Resource) -> Result<&Theory, WasmError> {
+    match resource {
+        Resource::Theory(t) => Ok(t),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "Theory",
+            actual: resource_type_name(resource),
+        }),
+    }
+}
+
+/// Extract a mutable `MemStore` reference from a `VcsRepo` resource.
+pub fn as_vcs_repo_mut(resource: &mut Resource) -> Result<&mut MemStore, WasmError> {
+    match resource {
+        Resource::VcsRepo(s) => Ok(s),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "VcsRepo",
+            actual: resource_type_name_ref(resource),
+        }),
+    }
+}
+
+/// Extract an immutable `MemStore` reference from a `VcsRepo` resource.
+pub fn as_vcs_repo(resource: &Resource) -> Result<&MemStore, WasmError> {
+    match resource {
+        Resource::VcsRepo(s) => Ok(s.as_ref()),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "VcsRepo",
+            actual: resource_type_name(resource),
+        }),
+    }
+}
+
+/// Return a human-readable name for a resource variant (const version).
 const fn resource_type_name(resource: &Resource) -> &'static str {
     match resource {
         Resource::Protocol(_) => "Protocol",
         Resource::Schema(_) => "Schema",
         Resource::Migration(_) => "Migration",
         Resource::MigrationWithSchemas { .. } => "MigrationWithSchemas",
+        Resource::IoRegistry(_) => "IoRegistry",
+        Resource::Theory(_) => "Theory",
+        Resource::VcsRepo(_) => "VcsRepo",
     }
+}
+
+/// Return a human-readable name for a mutable resource variant.
+const fn resource_type_name_ref(resource: &Resource) -> &'static str {
+    resource_type_name(resource)
 }
 
 #[cfg(test)]

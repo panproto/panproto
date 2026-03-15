@@ -24,12 +24,18 @@ MessagePack-ready mapping before sending to WASM.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, cast, final
+
+from ._errors import WasmError
+from ._msgpack import pack_to_wasm, unpack_from_wasm
+from ._wasm import WasmHandle, WasmModule, create_handle
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from ._types import JsonValue
+    from ._protocol import Protocol
+    from ._schema import BuiltSchema
+    from ._types import GetResult, JsonValue, LawCheckResult, LiftResult
 
 __all__ = [
     "AddField",
@@ -38,6 +44,7 @@ __all__ = [
     "Combinator",
     "Compose",
     "HoistField",
+    "LensHandle",
     "RemoveField",
     # Combinator dataclasses
     "RenameField",
@@ -47,6 +54,7 @@ __all__ = [
     # Serialisation
     "combinator_to_wire",
     "compose",
+    "from_combinators",
     "hoist_field",
     "pipeline",
     "remove_field",
@@ -414,3 +422,261 @@ def combinator_to_wire(c: Combinator) -> Mapping[str, JsonValue]:
                     combinator_to_wire(second),
                 ]
             }
+
+
+# ---------------------------------------------------------------------------
+# LensHandle
+# ---------------------------------------------------------------------------
+
+
+@final
+class LensHandle:
+    """Disposable handle to a WASM-side lens (migration) resource.
+
+    Wraps a migration handle created via :func:`from_combinators` or
+    ``compose_lenses``.  Provides ``get``, ``put``, and law-checking
+    operations.
+
+    Implements the context-manager protocol for automatic cleanup.
+
+    Parameters
+    ----------
+    handle : WasmHandle
+        The WASM handle returned by ``lens_from_combinators`` or
+        ``compose_lenses``.
+    wasm : WasmModule
+        The owning WASM module.
+
+    Examples
+    --------
+    >>> with from_combinators(schema, protocol, wasm, rename_field("a", "b")) as lens:
+    ...     result = lens.check_laws(instance_bytes)
+    ...     print(result.holds)
+    """
+
+    __slots__ = ("_handle", "_wasm")
+
+    def __init__(self, handle: WasmHandle, wasm: WasmModule) -> None:
+        self._handle: WasmHandle = handle
+        self._wasm: WasmModule = wasm
+
+    @property
+    def wasm_handle(self) -> WasmHandle:
+        """The underlying WASM handle (internal use only)."""
+        return self._handle
+
+    def get(self, record: bytes) -> GetResult:
+        """Forward projection: extract view and complement from a record.
+
+        Parameters
+        ----------
+        record : bytes
+            MessagePack-encoded input record.
+
+        Returns
+        -------
+        GetResult
+            A dict with ``"view"`` and ``"complement"`` keys.
+
+        Raises
+        ------
+        WasmError
+            If the WASM call fails.
+        """
+        try:
+            output_bytes = self._wasm.get_record(self._handle.id, record)
+        except Exception as exc:
+            raise WasmError(f"get_record failed: {exc}") from exc
+
+        raw = unpack_from_wasm(output_bytes)
+        result = cast("Mapping[str, bytes | None]", raw)
+        complement_raw = result.get("complement", b"")
+        complement = (
+            bytes(complement_raw)  # type: ignore[arg-type]
+            if not isinstance(complement_raw, bytes)
+            else complement_raw
+        )
+        return {"view": result.get("view"), "complement": complement}
+
+    def put(self, view: bytes, complement: bytes) -> LiftResult:
+        """Backward put: restore a full record from view and complement.
+
+        Parameters
+        ----------
+        view : bytes
+            MessagePack-encoded (possibly modified) projected view.
+        complement : bytes
+            Opaque complement bytes from a prior :meth:`get` call.
+
+        Returns
+        -------
+        LiftResult
+            A dict with a ``"data"`` key containing the restored record.
+
+        Raises
+        ------
+        WasmError
+            If the WASM call fails.
+        """
+        try:
+            output_bytes = self._wasm.put_record(self._handle.id, view, complement)
+        except Exception as exc:
+            raise WasmError(f"put_record failed: {exc}") from exc
+        data = unpack_from_wasm(output_bytes)
+        return {"data": data}
+
+    def check_laws(self, instance: bytes) -> LawCheckResult:
+        """Check both GetPut and PutGet lens laws for an instance.
+
+        Parameters
+        ----------
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        LawCheckResult
+            Whether both laws hold and any violation message.
+
+        Raises
+        ------
+        WasmError
+            If the WASM call fails.
+        """
+        from ._types import LawCheckResult as _LawCheckResult
+
+        try:
+            result_bytes = self._wasm.check_lens_laws(self._handle.id, instance)
+        except Exception as exc:
+            raise WasmError(f"check_lens_laws failed: {exc}") from exc
+        raw = cast("Mapping[str, bool | str | None]", unpack_from_wasm(result_bytes))
+        return _LawCheckResult(
+            holds=bool(raw["holds"]),
+            violation=cast("str | None", raw.get("violation")),
+        )
+
+    def check_get_put(self, instance: bytes) -> LawCheckResult:
+        """Check the GetPut lens law for an instance.
+
+        Parameters
+        ----------
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        LawCheckResult
+            Whether the law holds and any violation message.
+
+        Raises
+        ------
+        WasmError
+            If the WASM call fails.
+        """
+        from ._types import LawCheckResult as _LawCheckResult
+
+        try:
+            result_bytes = self._wasm.check_get_put(self._handle.id, instance)
+        except Exception as exc:
+            raise WasmError(f"check_get_put failed: {exc}") from exc
+        raw = cast("Mapping[str, bool | str | None]", unpack_from_wasm(result_bytes))
+        return _LawCheckResult(
+            holds=bool(raw["holds"]),
+            violation=cast("str | None", raw.get("violation")),
+        )
+
+    def check_put_get(self, instance: bytes) -> LawCheckResult:
+        """Check the PutGet lens law for an instance.
+
+        Parameters
+        ----------
+        instance : bytes
+            MessagePack-encoded instance data.
+
+        Returns
+        -------
+        LawCheckResult
+            Whether the law holds and any violation message.
+
+        Raises
+        ------
+        WasmError
+            If the WASM call fails.
+        """
+        from ._types import LawCheckResult as _LawCheckResult
+
+        try:
+            result_bytes = self._wasm.check_put_get(self._handle.id, instance)
+        except Exception as exc:
+            raise WasmError(f"check_put_get failed: {exc}") from exc
+        raw = cast("Mapping[str, bool | str | None]", unpack_from_wasm(result_bytes))
+        return _LawCheckResult(
+            holds=bool(raw["holds"]),
+            violation=cast("str | None", raw.get("violation")),
+        )
+
+    def close(self) -> None:
+        """Release the underlying WASM resource.
+
+        Safe to call multiple times; subsequent calls are no-ops.
+        """
+        self._handle.close()
+
+    def __enter__(self) -> LensHandle:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+
+# ---------------------------------------------------------------------------
+# from_combinators factory
+# ---------------------------------------------------------------------------
+
+
+def from_combinators(
+    schema: BuiltSchema,
+    protocol: Protocol,
+    wasm: WasmModule,
+    *combinators: Combinator,
+) -> LensHandle:
+    """Build a lens from combinators.
+
+    Serialises the combinators to MessagePack and calls the
+    ``lens_from_combinators`` WASM entry point.
+
+    Parameters
+    ----------
+    schema : BuiltSchema
+        The schema to build the lens against.
+    protocol : Protocol
+        The protocol defining the schema theory.
+    wasm : WasmModule
+        The WASM module.
+    *combinators : Combinator
+        One or more combinators to compose into a lens.
+
+    Returns
+    -------
+    LensHandle
+        A handle wrapping the WASM migration resource.
+
+    Raises
+    ------
+    WasmError
+        If the WASM call fails.
+    """
+    wire_combs = [combinator_to_wire(c) for c in combinators]
+    comb_bytes = pack_to_wasm(wire_combs)
+
+    try:
+        raw_handle = wasm.lens_from_combinators(
+            schema.wasm_handle.id,
+            protocol.wasm_handle.id,
+            comb_bytes,
+        )
+    except Exception as exc:
+        raise WasmError(f"lens_from_combinators failed: {exc}") from exc
+
+    handle = create_handle(raw_handle, wasm)
+    return LensHandle(handle, wasm)

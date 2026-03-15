@@ -16,11 +16,14 @@ import type {
   VertexOptions,
   EdgeOptions,
   SchemaData,
+  SchemaValidationIssue,
 } from './types.js';
 import { SchemaValidationError } from './types.js';
 import { WasmHandle, createHandle } from './wasm.js';
 import type { SchemaOp } from './msgpack.js';
-import { packSchemaOps } from './msgpack.js';
+import { packSchemaOps, unpackFromWasm } from './msgpack.js';
+import type { Protocol } from './protocol.js';
+import { ValidationResult } from './check.js';
 
 /**
  * Immutable fluent builder for constructing schemas.
@@ -368,6 +371,33 @@ export class BuiltSchema implements Disposable {
   /** All edges in the schema. */
   get edges(): readonly Edge[] {
     return this.#data.edges;
+  }
+
+  /** @internal Create from raw handle (used by normalize). */
+  static _fromHandle(
+    handle: number,
+    data: SchemaData,
+    _protocol: string,
+    wasm: WasmModule,
+  ): BuiltSchema {
+    const wasmHandle = createHandle(handle, wasm);
+    return new BuiltSchema(wasmHandle, data, wasm);
+  }
+
+  /** Normalize this schema by collapsing reference chains. Returns a new BuiltSchema. */
+  normalize(): BuiltSchema {
+    const handle = this.#wasm.exports.normalize_schema(this.#handle.id);
+    return BuiltSchema._fromHandle(handle, this.#data, this.#data.protocol, this.#wasm);
+  }
+
+  /** Validate this schema against a protocol's rules. */
+  validate(protocol: Protocol): ValidationResult {
+    const bytes = this.#wasm.exports.validate_schema(
+      this.#handle.id,
+      protocol._handle.id,
+    );
+    const issues = unpackFromWasm<SchemaValidationIssue[]>(bytes);
+    return new ValidationResult(issues);
   }
 
   /** Release the WASM-side schema resource. */

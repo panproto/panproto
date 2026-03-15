@@ -33,6 +33,47 @@ export interface WasmGlueModule {
   compose_migrations: WasmExports['compose_migrations'];
   diff_schemas: WasmExports['diff_schemas'];
   free_handle: WasmExports['free_handle'];
+  diff_schemas_full: WasmExports['diff_schemas_full'];
+  classify_diff: WasmExports['classify_diff'];
+  report_text: WasmExports['report_text'];
+  report_json: WasmExports['report_json'];
+  normalize_schema: WasmExports['normalize_schema'];
+  validate_schema: WasmExports['validate_schema'];
+  register_io_protocols: WasmExports['register_io_protocols'];
+  list_io_protocols: WasmExports['list_io_protocols'];
+  parse_instance: WasmExports['parse_instance'];
+  emit_instance: WasmExports['emit_instance'];
+  validate_instance: WasmExports['validate_instance'];
+  instance_to_json: WasmExports['instance_to_json'];
+  json_to_instance: WasmExports['json_to_instance'];
+  instance_element_count: WasmExports['instance_element_count'];
+  lens_from_combinators: WasmExports['lens_from_combinators'];
+  check_lens_laws: WasmExports['check_lens_laws'];
+  check_get_put: WasmExports['check_get_put'];
+  check_put_get: WasmExports['check_put_get'];
+  invert_migration: WasmExports['invert_migration'];
+  compose_lenses: WasmExports['compose_lenses'];
+  // Phase 4: Protocol registry
+  list_builtin_protocols: WasmExports['list_builtin_protocols'];
+  get_builtin_protocol: WasmExports['get_builtin_protocol'];
+  // Phase 5: GAT operations
+  create_theory: WasmExports['create_theory'];
+  colimit_theories: WasmExports['colimit_theories'];
+  check_morphism: WasmExports['check_morphism'];
+  migrate_model: WasmExports['migrate_model'];
+  // Phase 6: VCS operations
+  vcs_init: WasmExports['vcs_init'];
+  vcs_add: WasmExports['vcs_add'];
+  vcs_commit: WasmExports['vcs_commit'];
+  vcs_log: WasmExports['vcs_log'];
+  vcs_status: WasmExports['vcs_status'];
+  vcs_diff: WasmExports['vcs_diff'];
+  vcs_branch: WasmExports['vcs_branch'];
+  vcs_checkout: WasmExports['vcs_checkout'];
+  vcs_merge: WasmExports['vcs_merge'];
+  vcs_stash: WasmExports['vcs_stash'];
+  vcs_stash_pop: WasmExports['vcs_stash_pop'];
+  vcs_blame: WasmExports['vcs_blame'];
 }
 
 /**
@@ -73,6 +114,47 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       compose_migrations: glue.compose_migrations,
       diff_schemas: glue.diff_schemas,
       free_handle: glue.free_handle,
+      diff_schemas_full: glue.diff_schemas_full,
+      classify_diff: glue.classify_diff,
+      report_text: glue.report_text,
+      report_json: glue.report_json,
+      normalize_schema: glue.normalize_schema,
+      validate_schema: glue.validate_schema,
+      register_io_protocols: glue.register_io_protocols,
+      list_io_protocols: glue.list_io_protocols,
+      parse_instance: glue.parse_instance,
+      emit_instance: glue.emit_instance,
+      validate_instance: glue.validate_instance,
+      instance_to_json: glue.instance_to_json,
+      json_to_instance: glue.json_to_instance,
+      instance_element_count: glue.instance_element_count,
+      lens_from_combinators: glue.lens_from_combinators,
+      check_lens_laws: glue.check_lens_laws,
+      check_get_put: glue.check_get_put,
+      check_put_get: glue.check_put_get,
+      invert_migration: glue.invert_migration,
+      compose_lenses: glue.compose_lenses,
+      // Phase 4
+      list_builtin_protocols: glue.list_builtin_protocols,
+      get_builtin_protocol: glue.get_builtin_protocol,
+      // Phase 5
+      create_theory: glue.create_theory,
+      colimit_theories: glue.colimit_theories,
+      check_morphism: glue.check_morphism,
+      migrate_model: glue.migrate_model,
+      // Phase 6
+      vcs_init: glue.vcs_init,
+      vcs_add: glue.vcs_add,
+      vcs_commit: glue.vcs_commit,
+      vcs_log: glue.vcs_log,
+      vcs_status: glue.vcs_status,
+      vcs_diff: glue.vcs_diff,
+      vcs_branch: glue.vcs_branch,
+      vcs_checkout: glue.vcs_checkout,
+      vcs_merge: glue.vcs_merge,
+      vcs_stash: glue.vcs_stash,
+      vcs_stash_pop: glue.vcs_stash_pop,
+      vcs_blame: glue.vcs_blame,
     };
 
     const memory: WebAssembly.Memory = initOutput.memory;

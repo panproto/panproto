@@ -16,7 +16,7 @@ boundary.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict, final
 
 # ---------------------------------------------------------------------------
 # Recursive JSON-value type (PEP 695)
@@ -435,6 +435,257 @@ class MigrationMapping(TypedDict):
 
 
 # ---------------------------------------------------------------------------
+# Full Diff / Compatibility (panproto-check)
+# ---------------------------------------------------------------------------
+
+
+class KindChange(TypedDict):
+    """A kind change on a vertex.
+
+    Attributes
+    ----------
+    vertex_id : str
+        The vertex whose kind changed.
+    old_kind : str
+        The previous kind.
+    new_kind : str
+        The new kind.
+    """
+
+    vertex_id: str
+    old_kind: str
+    new_kind: str
+
+
+class ConstraintChange(TypedDict):
+    """A constraint change on a vertex.
+
+    Attributes
+    ----------
+    sort : str
+        The constraint sort that changed.
+    old_value : str
+        The previous constraint value.
+    new_value : str
+        The new constraint value.
+    """
+
+    sort: str
+    old_value: str
+    new_value: str
+
+
+class ConstraintDiff(TypedDict):
+    """Constraint diff for a single vertex.
+
+    Attributes
+    ----------
+    added : list[Constraint]
+        Constraints that were added.
+    removed : list[Constraint]
+        Constraints that were removed.
+    changed : list[ConstraintChange]
+        Constraints whose values changed.
+    """
+
+    added: list[Constraint]
+    removed: list[Constraint]
+    changed: list[ConstraintChange]
+
+
+class FullSchemaDiff(TypedDict):
+    """Full schema diff with 20+ change categories.
+
+    Attributes
+    ----------
+    added_vertices : list[str]
+        Vertex IDs added in the new schema.
+    removed_vertices : list[str]
+        Vertex IDs removed from the old schema.
+    kind_changes : list[KindChange]
+        Vertices whose kind changed.
+    added_edges : list[Edge]
+        Edges added in the new schema.
+    removed_edges : list[Edge]
+        Edges removed from the old schema.
+    modified_constraints : dict[str, ConstraintDiff]
+        Per-vertex constraint diffs.
+    added_hyper_edges : list[str]
+        Hyperedge IDs added.
+    removed_hyper_edges : list[str]
+        Hyperedge IDs removed.
+    added_required : dict[str, list[Edge]]
+        Required edges added per vertex.
+    removed_required : dict[str, list[Edge]]
+        Required edges removed per vertex.
+    added_nsids : dict[str, str]
+        Vertex ID to NSID mappings added.
+    removed_nsids : list[str]
+        NSIDs removed.
+    added_variants : list[Variant]
+        Variants added.
+    removed_variants : list[Variant]
+        Variants removed.
+    added_recursion_points : list[RecursionPoint]
+        Recursion points added.
+    removed_recursion_points : list[RecursionPoint]
+        Recursion points removed.
+    added_spans : list[str]
+        Span IDs added.
+    removed_spans : list[str]
+        Span IDs removed.
+    nominal_changes : list[tuple[str, bool, bool]]
+        Nominal identity changes: ``(vertex_id, old_nominal, new_nominal)``.
+    """
+
+    added_vertices: list[str]
+    removed_vertices: list[str]
+    kind_changes: list[KindChange]
+    added_edges: list[Edge]
+    removed_edges: list[Edge]
+    modified_constraints: dict[str, ConstraintDiff]
+    added_hyper_edges: list[str]
+    removed_hyper_edges: list[str]
+    modified_hyper_edges: list[dict[str, str | list[str]]]
+    added_required: dict[str, list[Edge]]
+    removed_required: dict[str, list[Edge]]
+    added_nsids: dict[str, str]
+    removed_nsids: list[str]
+    changed_nsids: list[tuple[str, str, str]]
+    added_variants: list[Variant]
+    removed_variants: list[Variant]
+    modified_variants: list[dict[str, str]]
+    order_changes: list[tuple[Edge, int | None, int | None]]
+    added_recursion_points: list[RecursionPoint]
+    removed_recursion_points: list[RecursionPoint]
+    modified_recursion_points: list[dict[str, str]]
+    usage_mode_changes: list[tuple[Edge, str, str]]
+    added_spans: list[str]
+    removed_spans: list[str]
+    modified_spans: list[dict[str, str]]
+    nominal_changes: list[tuple[str, bool, bool]]
+
+
+@final
+class InstanceValidationResult:
+    """Result of validating an instance against a schema.
+
+    Attributes
+    ----------
+    is_valid : bool
+        Whether the instance passes validation.
+    errors : list[str]
+        List of validation error messages (empty when valid).
+    """
+
+    __slots__ = ("_errors", "_is_valid")
+
+    def __init__(self, is_valid: bool, errors: list[str]) -> None:
+        self._is_valid: bool = is_valid
+        self._errors: list[str] = errors
+
+    @property
+    def is_valid(self) -> bool:
+        """Whether the instance passes validation."""
+        return self._is_valid
+
+    @property
+    def errors(self) -> list[str]:
+        """List of validation error messages."""
+        return list(self._errors)
+
+    def __repr__(self) -> str:
+        return f"InstanceValidationResult(is_valid={self._is_valid!r}, errors={self._errors!r})"
+
+
+@final
+class LawCheckResult:
+    """Result of checking a lens law (GetPut, PutGet, or both).
+
+    Attributes
+    ----------
+    holds : bool
+        Whether the lens law holds for the tested instance.
+    violation : str | None
+        Human-readable description of the violation, or ``None`` if the
+        law holds.
+    """
+
+    __slots__ = ("_holds", "_violation")
+
+    def __init__(self, holds: bool, violation: str | None) -> None:
+        self._holds: bool = holds
+        self._violation: str | None = violation
+
+    @property
+    def holds(self) -> bool:
+        """Whether the lens law holds."""
+        return self._holds
+
+    @property
+    def violation(self) -> str | None:
+        """Human-readable violation message, or ``None`` if the law holds."""
+        return self._violation
+
+    def __repr__(self) -> str:
+        return f"LawCheckResult(holds={self._holds!r}, violation={self._violation!r})"
+
+
+class BreakingChange(TypedDict):
+    """A breaking change detected by the compatibility checker.
+
+    Attributes
+    ----------
+    type : str
+        The type of breaking change.
+    """
+
+    type: str
+
+
+class NonBreakingChange(TypedDict):
+    """A non-breaking change detected by the compatibility checker.
+
+    Attributes
+    ----------
+    type : str
+        The type of non-breaking change.
+    """
+
+    type: str
+
+
+class CompatReportData(TypedDict):
+    """Compatibility report data.
+
+    Attributes
+    ----------
+    breaking : list[BreakingChange]
+        List of breaking changes.
+    non_breaking : list[NonBreakingChange]
+        List of non-breaking changes.
+    compatible : bool
+        Whether the changes are fully compatible.
+    """
+
+    breaking: list[BreakingChange]
+    non_breaking: list[NonBreakingChange]
+    compatible: bool
+
+
+class SchemaValidationIssue(TypedDict):
+    """A schema validation error.
+
+    Attributes
+    ----------
+    type : str
+        The type of validation issue.
+    """
+
+    type: str
+
+
+# ---------------------------------------------------------------------------
 # Migration types
 # ---------------------------------------------------------------------------
 
@@ -546,6 +797,175 @@ class ExistenceError(TypedDict):
     kind: ExistenceErrorKind
     message: str
     detail: NotRequired[dict[str, str] | None]
+
+
+# ---------------------------------------------------------------------------
+# GAT types
+# ---------------------------------------------------------------------------
+
+
+class GatSortParam(TypedDict):
+    """A parameter of a dependent sort.
+
+    Attributes
+    ----------
+    name : str
+        The parameter name.
+    sort : str
+        The sort this parameter ranges over.
+    """
+
+    name: str
+    sort: str
+
+
+class GatSort(TypedDict):
+    """A sort declaration in a GAT.
+
+    Attributes
+    ----------
+    name : str
+        The sort name.
+    params : list[GatSortParam]
+        Parameters (empty for simple sorts).
+    """
+
+    name: str
+    params: list[GatSortParam]
+
+
+class GatOperation(TypedDict):
+    """A GAT operation (term constructor).
+
+    Attributes
+    ----------
+    name : str
+        The operation name.
+    inputs : list[tuple[str, str]]
+        Typed inputs as ``(param_name, sort_name)`` pairs.
+    output : str
+        The output sort name.
+    """
+
+    name: str
+    inputs: list[tuple[str, str]]
+    output: str
+
+
+class TheoryMorphism(TypedDict):
+    """A theory morphism (structure-preserving map between theories).
+
+    Attributes
+    ----------
+    name : str
+        A human-readable name.
+    domain : str
+        The domain theory name.
+    codomain : str
+        The codomain theory name.
+    sort_map : dict[str, str]
+        Domain sort names to codomain sort names.
+    op_map : dict[str, str]
+        Domain operation names to codomain operation names.
+    """
+
+    name: str
+    domain: str
+    codomain: str
+    sort_map: dict[str, str]
+    op_map: dict[str, str]
+
+
+class MorphismCheckResult(TypedDict):
+    """Result of checking a morphism.
+
+    Attributes
+    ----------
+    valid : bool
+        Whether the morphism is valid.
+    error : str | None
+        Error message if not valid.
+    """
+
+    valid: bool
+    error: str | None
+
+
+# ---------------------------------------------------------------------------
+# VCS types
+# ---------------------------------------------------------------------------
+
+
+class VcsLogEntry(TypedDict):
+    """A commit log entry.
+
+    Attributes
+    ----------
+    message : str
+        The commit message.
+    author : str
+        The commit author.
+    timestamp : int
+        Unix timestamp.
+    protocol : str
+        Protocol name.
+    """
+
+    message: str
+    author: str
+    timestamp: int
+    protocol: str
+
+
+class VcsStatus(TypedDict):
+    """Repository status.
+
+    Attributes
+    ----------
+    branch : str | None
+        Current branch name, or ``None`` if detached.
+    head_commit : str | None
+        HEAD commit ID as a hex string, or ``None`` if no commits.
+    """
+
+    branch: str | None
+    head_commit: str | None
+
+
+class VcsOpResult(TypedDict):
+    """VCS operation result.
+
+    Attributes
+    ----------
+    success : bool
+        Whether the operation succeeded.
+    message : str
+        Human-readable result message.
+    """
+
+    success: bool
+    message: str
+
+
+class VcsBlameResult(TypedDict):
+    """Blame result with commit info.
+
+    Attributes
+    ----------
+    commit_id : str
+        The commit ID that introduced the element.
+    author : str
+        The commit author.
+    timestamp : int
+        Unix timestamp.
+    message : str
+        The commit message.
+    """
+
+    commit_id: str
+    author: str
+    timestamp: int
+    message: str
 
 
 class ExistenceReport(TypedDict):

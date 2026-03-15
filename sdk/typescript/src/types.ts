@@ -210,10 +210,195 @@ export interface ExistenceReport {
 }
 
 // ---------------------------------------------------------------------------
+// Full Diff / Compatibility (panproto-check)
+// ---------------------------------------------------------------------------
+
+/** A kind change on a vertex. */
+export interface KindChange {
+  readonly vertexId: string;
+  readonly oldKind: string;
+  readonly newKind: string;
+}
+
+/** A constraint change on a vertex. */
+export interface ConstraintChange {
+  readonly sort: string;
+  readonly oldValue: string;
+  readonly newValue: string;
+}
+
+/** Constraint diff for a single vertex. */
+export interface ConstraintDiff {
+  readonly added: readonly Constraint[];
+  readonly removed: readonly Constraint[];
+  readonly changed: readonly ConstraintChange[];
+}
+
+/** Full schema diff with 20+ change categories. */
+export interface FullSchemaDiff {
+  readonly added_vertices: readonly string[];
+  readonly removed_vertices: readonly string[];
+  readonly kind_changes: readonly KindChange[];
+  readonly added_edges: readonly Edge[];
+  readonly removed_edges: readonly Edge[];
+  readonly modified_constraints: Readonly<Record<string, ConstraintDiff>>;
+  readonly added_hyper_edges: readonly string[];
+  readonly removed_hyper_edges: readonly string[];
+  readonly modified_hyper_edges: readonly Record<string, unknown>[];
+  readonly added_required: Readonly<Record<string, readonly Edge[]>>;
+  readonly removed_required: Readonly<Record<string, readonly Edge[]>>;
+  readonly added_nsids: Readonly<Record<string, string>>;
+  readonly removed_nsids: readonly string[];
+  readonly changed_nsids: readonly [string, string, string][];
+  readonly added_variants: readonly Variant[];
+  readonly removed_variants: readonly Variant[];
+  readonly modified_variants: readonly Record<string, unknown>[];
+  readonly order_changes: readonly [Edge, number | null, number | null][];
+  readonly added_recursion_points: readonly RecursionPoint[];
+  readonly removed_recursion_points: readonly RecursionPoint[];
+  readonly modified_recursion_points: readonly Record<string, unknown>[];
+  readonly usage_mode_changes: readonly [Edge, UsageMode, UsageMode][];
+  readonly added_spans: readonly string[];
+  readonly removed_spans: readonly string[];
+  readonly modified_spans: readonly Record<string, unknown>[];
+  readonly nominal_changes: readonly [string, boolean, boolean][];
+}
+
+/** A breaking change detected by the compatibility checker. */
+export interface BreakingChange {
+  readonly type: string;
+  readonly details: Record<string, unknown>;
+}
+
+/** A non-breaking change detected by the compatibility checker. */
+export interface NonBreakingChange {
+  readonly type: string;
+  readonly details: Record<string, unknown>;
+}
+
+/** Compatibility report from classifying a schema diff. */
+export interface CompatReportData {
+  readonly breaking: readonly BreakingChange[];
+  readonly non_breaking: readonly NonBreakingChange[];
+  readonly compatible: boolean;
+}
+
+/** A schema validation error. */
+export interface SchemaValidationIssue {
+  readonly type: string;
+  readonly [key: string]: unknown;
+}
+
+// ---------------------------------------------------------------------------
 // WASM module interface
 // ---------------------------------------------------------------------------
 
-/** The raw WASM module interface (10 entry points). */
+// ---------------------------------------------------------------------------
+// GAT types
+// ---------------------------------------------------------------------------
+
+/** A parameter of a dependent sort. */
+export interface SortParam {
+  readonly name: string;
+  readonly sort: string;
+}
+
+/** A sort declaration in a GAT. */
+export interface Sort {
+  readonly name: string;
+  readonly params: readonly SortParam[];
+}
+
+/** A GAT operation (term constructor). */
+export interface GatOperation {
+  readonly name: string;
+  readonly inputs: readonly [string, string][];
+  readonly output: string;
+}
+
+/** A term in a GAT expression. */
+export type Term =
+  | { readonly Var: string }
+  | { readonly App: { readonly op: string; readonly args: readonly Term[] } };
+
+/** An equation (axiom) in a GAT. */
+export interface Equation {
+  readonly name: string;
+  readonly lhs: Term;
+  readonly rhs: Term;
+}
+
+/** A theory specification. */
+export interface TheorySpec {
+  readonly name: string;
+  readonly extends: readonly string[];
+  readonly sorts: readonly Sort[];
+  readonly ops: readonly GatOperation[];
+  readonly eqs: readonly Equation[];
+}
+
+/** A theory morphism (structure-preserving map between theories). */
+export interface TheoryMorphism {
+  readonly name: string;
+  readonly domain: string;
+  readonly codomain: string;
+  readonly sort_map: Readonly<Record<string, string>>;
+  readonly op_map: Readonly<Record<string, string>>;
+}
+
+/** Result of checking a morphism. */
+export interface MorphismCheckResult {
+  readonly valid: boolean;
+  readonly error: string | null;
+}
+
+/** Branded handle for a theory resource. */
+export interface TheoryHandle extends Handle {
+  readonly __kind: 'theory';
+}
+
+// ---------------------------------------------------------------------------
+// VCS types
+// ---------------------------------------------------------------------------
+
+/** Branded handle for a VCS repository resource. */
+export interface VcsRepoHandle extends Handle {
+  readonly __kind: 'vcs-repo';
+}
+
+/** A VCS commit log entry. */
+export interface VcsLogEntry {
+  readonly message: string;
+  readonly author: string;
+  readonly timestamp: number;
+  readonly protocol: string;
+}
+
+/** VCS repository status. */
+export interface VcsStatus {
+  readonly branch: string | null;
+  readonly head_commit: string | null;
+}
+
+/** VCS operation result. */
+export interface VcsOpResult {
+  readonly success: boolean;
+  readonly message: string;
+}
+
+/** VCS blame result. */
+export interface VcsBlameResult {
+  readonly commit_id: string;
+  readonly author: string;
+  readonly timestamp: number;
+  readonly message: string;
+}
+
+// ---------------------------------------------------------------------------
+// WASM module interface
+// ---------------------------------------------------------------------------
+
+/** The raw WASM module interface. */
 export interface WasmExports {
   define_protocol(spec: Uint8Array): number;
   build_schema(proto: number, ops: Uint8Array): number;
@@ -225,12 +410,72 @@ export interface WasmExports {
   compose_migrations(m1: number, m2: number): number;
   diff_schemas(s1: number, s2: number): Uint8Array;
   free_handle(handle: number): void;
+  diff_schemas_full(s1: number, s2: number): Uint8Array;
+  classify_diff(proto: number, diff_bytes: Uint8Array): Uint8Array;
+  report_text(report_bytes: Uint8Array): string;
+  report_json(report_bytes: Uint8Array): string;
+  normalize_schema(schema: number): number;
+  validate_schema(schema: number, proto: number): Uint8Array;
+  register_io_protocols(): number;
+  list_io_protocols(registry: number): Uint8Array;
+  parse_instance(registry: number, proto_name: Uint8Array, schema: number, input: Uint8Array): Uint8Array;
+  emit_instance(registry: number, proto_name: Uint8Array, schema: number, instance: Uint8Array): Uint8Array;
+  validate_instance(schema: number, instance: Uint8Array): Uint8Array;
+  instance_to_json(schema: number, instance: Uint8Array): Uint8Array;
+  json_to_instance(schema: number, json: Uint8Array): Uint8Array;
+  instance_element_count(instance: Uint8Array): number;
+  lens_from_combinators(schema: number, proto: number, combinators: Uint8Array): number;
+  check_lens_laws(migration: number, instance: Uint8Array): Uint8Array;
+  check_get_put(migration: number, instance: Uint8Array): Uint8Array;
+  check_put_get(migration: number, instance: Uint8Array): Uint8Array;
+  invert_migration(mapping: Uint8Array, src: number, tgt: number): Uint8Array;
+  compose_lenses(l1: number, l2: number): number;
+  // Phase 4: Protocol registry
+  list_builtin_protocols(): Uint8Array;
+  get_builtin_protocol(name: Uint8Array): Uint8Array;
+  // Phase 5: GAT operations
+  create_theory(spec: Uint8Array): number;
+  colimit_theories(t1: number, t2: number, shared: number): number;
+  check_morphism(morphism: Uint8Array, domain: number, codomain: number): Uint8Array;
+  migrate_model(model: Uint8Array, morphism: Uint8Array): Uint8Array;
+  // Phase 6: VCS operations
+  vcs_init(protocol_name: Uint8Array): number;
+  vcs_add(repo: number, schema: number): Uint8Array;
+  vcs_commit(repo: number, message: Uint8Array, author: Uint8Array): Uint8Array;
+  vcs_log(repo: number, count: number): Uint8Array;
+  vcs_status(repo: number): Uint8Array;
+  vcs_diff(repo: number): Uint8Array;
+  vcs_branch(repo: number, name: Uint8Array): Uint8Array;
+  vcs_checkout(repo: number, target: Uint8Array): Uint8Array;
+  vcs_merge(repo: number, branch: Uint8Array): Uint8Array;
+  vcs_stash(repo: number): Uint8Array;
+  vcs_stash_pop(repo: number): Uint8Array;
+  vcs_blame(repo: number, vertex: Uint8Array): Uint8Array;
+}
+
+/** Result of checking a lens law (GetPut or PutGet). */
+export interface LawCheckResult {
+  readonly holds: boolean;
+  readonly violation: string | null;
 }
 
 /** WASM module wrapper including exports and memory. */
 export interface WasmModule {
   readonly exports: WasmExports;
   readonly memory: WebAssembly.Memory;
+}
+
+// ---------------------------------------------------------------------------
+// Instance types
+// ---------------------------------------------------------------------------
+
+/** Instance shape discriminator. */
+export type InstanceShape = 'wtype' | 'functor' | 'graph';
+
+/** Validation result for an instance. */
+export interface InstanceValidationResult {
+  readonly isValid: boolean;
+  readonly errors: readonly string[];
 }
 
 // ---------------------------------------------------------------------------

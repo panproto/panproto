@@ -32,6 +32,8 @@ export {
   GRAPHQL_SPEC,
   JSON_SCHEMA_SPEC,
   BUILTIN_PROTOCOLS,
+  getProtocolNames,
+  getBuiltinProtocol,
 } from './protocol.js';
 
 // Schema
@@ -50,6 +52,8 @@ export {
   coerceType,
   compose,
   pipeline,
+  LensHandle,
+  fromCombinators,
 } from './lens.js';
 export type {
   Combinator,
@@ -62,8 +66,28 @@ export type {
   ComposeCombinator,
 } from './lens.js';
 
+// Instance
+export { Instance } from './instance.js';
+
+// I/O
+export { IoRegistry, PROTOCOL_CATEGORIES } from './io.js';
+
+// Check / Breaking-change analysis
+export { FullDiffReport, CompatReport, ValidationResult } from './check.js';
+export type {
+  FullSchemaDiff,
+  CompatReportData,
+  BreakingChange,
+  NonBreakingChange,
+  ConstraintChange,
+  ConstraintDiff,
+  KindChange,
+  SchemaValidationIssue,
+} from './types.js';
+
 // Types
 export type {
+  LawCheckResult,
   ProtocolSpec,
   EdgeRule,
   Vertex,
@@ -87,6 +111,37 @@ export type {
   ExistenceError,
   WasmModule,
   WasmExports,
+  InstanceShape,
+  InstanceValidationResult,
+} from './types.js';
+
+// GAT
+export {
+  TheoryHandle,
+  TheoryBuilder,
+  createTheory,
+  colimit,
+  checkMorphism,
+  migrateModel,
+} from './gat.js';
+export type {
+  TheorySpec,
+  TheoryMorphism,
+  Sort,
+  SortParam,
+  GatOperation,
+  Equation,
+  Term,
+  MorphismCheckResult,
+} from './types.js';
+
+// VCS
+export { Repository } from './vcs.js';
+export type {
+  VcsLogEntry,
+  VcsStatus,
+  VcsOpResult,
+  VcsBlameResult,
 } from './types.js';
 
 // WASM

@@ -134,6 +134,52 @@ export class MigrationBuilder {
   }
 
   /**
+   * Invert a bijective migration.
+   *
+   * Serializes the current mapping to MessagePack and calls the
+   * `invert_migration` WASM entry point. Returns a new MigrationSpec
+   * representing the inverted migration.
+   *
+   * @returns The inverted migration specification
+   * @throws {@link MigrationError} if the migration is not bijective or inversion fails
+   */
+  invert(): MigrationSpec {
+    const edgeMap = new Map(
+      this.#edgeMap.map(([src, tgt]) => [
+        { src: src.src, tgt: src.tgt, kind: src.kind, name: src.name ?? null },
+        { src: tgt.src, tgt: tgt.tgt, kind: tgt.kind, name: tgt.name ?? null },
+      ] as const),
+    );
+    const resolver = new Map(
+      this.#resolvers.map(([[s, t], e]) => [
+        [s, t] as const,
+        { src: e.src, tgt: e.tgt, kind: e.kind, name: e.name ?? null },
+      ] as const),
+    );
+    const mapping = packMigrationMapping({
+      vertex_map: Object.fromEntries(this.#vertexMap),
+      edge_map: edgeMap,
+      hyper_edge_map: {},
+      label_map: new Map(),
+      resolver,
+    });
+
+    try {
+      const resultBytes = this.#wasm.exports.invert_migration(
+        mapping,
+        this.#src._handle.id,
+        this.#tgt._handle.id,
+      );
+      return unpackFromWasm<MigrationSpec>(resultBytes);
+    } catch (error) {
+      throw new MigrationError(
+        `Failed to invert migration: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
    * Compile the migration for fast per-record application.
    *
    * Sends the migration specification to WASM for compilation.
