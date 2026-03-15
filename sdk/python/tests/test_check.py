@@ -27,16 +27,23 @@ class TestFullDiffReport:
             "modified_constraints": {},
             "added_hyper_edges": [],
             "removed_hyper_edges": [],
+            "modified_hyper_edges": [],
             "added_required": {},
             "removed_required": {},
             "added_nsids": {},
             "removed_nsids": [],
+            "changed_nsids": {},
             "added_variants": [],
             "removed_variants": [],
+            "modified_variants": [],
+            "order_changes": [],
             "added_recursion_points": [],
             "removed_recursion_points": [],
+            "modified_recursion_points": [],
+            "usage_mode_changes": [],
             "added_spans": [],
             "removed_spans": [],
+            "modified_spans": [],
             "nominal_changes": [],
         }
         defaults.update(overrides)
@@ -111,7 +118,7 @@ class TestCompatReport:
             non_breaking=[],
             compatible=True,
         )
-        report = CompatReport(data, wasm)
+        report = CompatReport(data, b"\x90", wasm)
         assert report.is_compatible is True
         assert report.is_breaking is False
         assert report.is_backward_compatible is True
@@ -125,7 +132,7 @@ class TestCompatReport:
             non_breaking=[],
             compatible=False,
         )
-        report = CompatReport(data, wasm)
+        report = CompatReport(data, b"\x90", wasm)
         assert report.is_compatible is False
         assert report.is_breaking is True
         assert report.is_backward_compatible is False
@@ -140,7 +147,7 @@ class TestCompatReport:
             non_breaking=[],
             compatible=False,
         )
-        report = CompatReport(data, wasm)
+        report = CompatReport(data, b"\x90", wasm)
         assert len(report.breaking_changes) == 2
         assert report.breaking_changes[0]["type"] == "vertex-removed"
         assert report.breaking_changes[1]["type"] == "kind-changed"
@@ -154,7 +161,7 @@ class TestCompatReport:
             non_breaking=[nbc],
             compatible=True,
         )
-        report = CompatReport(data, wasm)
+        report = CompatReport(data, b"\x90", wasm)
         assert len(report.non_breaking_changes) == 1
         assert report.non_breaking_changes[0]["type"] == "vertex-added"
 
@@ -166,7 +173,7 @@ class TestCompatReport:
             non_breaking=[],
             compatible=True,
         )
-        report = CompatReport(data, wasm)
+        report = CompatReport(data, b"\x90", wasm)
         assert report.data is data
 
 

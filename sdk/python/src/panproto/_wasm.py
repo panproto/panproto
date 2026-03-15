@@ -958,7 +958,7 @@ class WasmHandle:
     ...     use(h.id)
     """
 
-    __slots__ = ("_disposed", "_finalizer", "_handle", "_wasm")
+    __slots__ = ("__weakref__", "_disposed", "_finalizer", "_handle", "_wasm")
 
     def __init__(self, handle: int, wasm: WasmModule) -> None:
         self._handle: int = handle
