@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-15
+
 ### Added — First-Class Names
 
 - **panproto-gat**: `Ident` type separating stable identity (`(ScopeTag, index)`) from display name (`Arc<str>`), following GATlab (Lynch et al., 2024); `Name` type (`Arc<str>` wrapper with `Arc::ptr_eq` fast path on equality, `Deref<str>`, `Borrow<str>`, transparent serde); `NameSite` enum for the 9 naming sites; `SiteRename` for site-qualified rename operations
