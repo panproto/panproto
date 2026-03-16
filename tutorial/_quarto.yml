@@ -49,6 +49,7 @@ book:
     - part: "Names & Identity"
       chapters:
         - chapters/15-naming-and-identity.qmd
+        - chapters/16-names-in-practice.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-category-theory-cheatsheet.qmd
