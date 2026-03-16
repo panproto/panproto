@@ -49,7 +49,7 @@ clap = { version = "4.5.60", features = ["derive"] }
 proptest = "1.10.0"
 
 # SIMD-accelerated parsing
-simd-json = "0.14"
+simd-json = "0.17"
 memchr = "2.7"
 
 # Hashing
