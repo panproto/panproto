@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-16
+
 ### Added — Automatic Morphisms and the Adjoint Triple
 
 - **panproto-mig**: `hom_search` module — automatic schema morphism discovery via backtracking CSP with MRV heuristic and forward checking. `find_morphisms(src, tgt, opts)` enumerates all valid schema morphisms; `find_best_morphism` returns the highest-quality one. Supports monic/epic/iso constraints and pre-assigned initial mappings. Quality scoring by name similarity + edge name preservation.
