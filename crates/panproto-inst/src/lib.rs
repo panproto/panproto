@@ -31,6 +31,8 @@ pub mod instance;
 pub mod metadata;
 /// JSON parsing for W-type instances.
 pub mod parse;
+/// Right Kan extension (Pi_F) for instances.
+pub mod pi;
 /// Validation of W-type instances against schemas.
 pub mod validate;
 /// Value types and field presence.
@@ -46,9 +48,10 @@ pub use ginstance::{GInstance, graph_restrict};
 pub use instance::Instance;
 pub use metadata::Node;
 pub use parse::{parse_json, to_json};
+pub use pi::{functor_pi, wtype_pi};
 pub use validate::validate_wtype;
 pub use value::{FieldPresence, Value};
 pub use wtype::{
     CompiledMigration, WInstance, ancestor_contraction, anchor_surviving, reachable_from_root,
-    reconstruct_fans, resolve_edge, wtype_restrict,
+    reconstruct_fans, resolve_edge, wtype_extend, wtype_restrict,
 };

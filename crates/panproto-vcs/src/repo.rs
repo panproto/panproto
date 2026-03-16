@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use panproto_check::diff;
+use panproto_mig::hom_search::{SearchOptions, find_best_morphism, morphism_to_migration};
 use panproto_schema::Schema;
 
 use crate::auto_mig;
@@ -85,7 +86,24 @@ impl Repository {
                     });
                 }
 
-                let migration = auto_mig::derive_migration(&head_schema, schema, &schema_diff);
+                let mut migration = auto_mig::derive_migration(&head_schema, schema, &schema_diff);
+
+                // If the auto-derived migration maps very few vertices
+                // (less than half of old schema vertices), try
+                // `find_best_morphism` as a fallback.
+                let old_vertex_count = head_schema.vertex_count();
+                if old_vertex_count > 0 && migration.vertex_map.len() * 2 < old_vertex_count {
+                    let opts = SearchOptions::default();
+                    if let Some(best) = find_best_morphism(&head_schema, schema, &opts) {
+                        if best.vertex_map.len() > migration.vertex_map.len() {
+                            let mut hom_mig = morphism_to_migration(&best);
+                            hom_mig.hyper_edge_map = migration.hyper_edge_map;
+                            hom_mig.label_map = migration.label_map;
+                            migration = hom_mig;
+                        }
+                    }
+                }
+
                 let mig_src_id = hash::hash_schema(&head_schema)?;
                 let migration_id = self.store.put(&Object::Migration {
                     src: mig_src_id,

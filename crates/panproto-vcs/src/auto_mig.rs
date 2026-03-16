@@ -3,15 +3,24 @@
 //! Given an old schema, a new schema, and their structural diff, derives
 //! a [`Migration`] that maps surviving vertices and edges via identity.
 //! This handles the common cases of additions, removals, and constraint
-//! changes. Renames and edge contractions require manual migration files.
+//! changes.
+//!
+//! When potential renames are detected (vertices removed in old and added
+//! in new), the module uses `panproto_mig::hom_search::find_best_morphism`
+//! to discover a higher-quality migration that accounts for renamed elements.
+//! Detected renames from [`crate::rename_detect`] are used as initial
+//! assignments to guide the homomorphism search.
 
 use panproto_gat::Name;
 use std::collections::HashMap;
 
 use panproto_check::diff::SchemaDiff;
 use panproto_mig::Migration;
+use panproto_mig::hom_search::{SearchOptions, find_best_morphism, morphism_to_migration};
 use panproto_schema::{Edge, Schema};
 use rustc_hash::FxHashSet;
+
+use crate::rename_detect;
 
 /// Derive a migration from a [`SchemaDiff`] between two schemas.
 ///
@@ -97,13 +106,66 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
         }
     }
 
-    Migration {
+    let identity_mig = Migration {
         vertex_map,
         edge_map,
         hyper_edge_map,
         label_map,
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+    };
+
+    // If there are both removed and added vertices (potential renames),
+    // try to find a better migration via homomorphism search.
+    if !diff.removed_vertices.is_empty() && !diff.added_vertices.is_empty() {
+        if let Some(enhanced) = try_hom_search_enhancement(old, new, &identity_mig) {
+            return enhanced;
+        }
+    }
+
+    identity_mig
+}
+
+/// Attempt to find a better migration via homomorphism search with
+/// rename detection providing initial assignments.
+///
+/// Returns `Some(migration)` if a higher-quality migration is found,
+/// `None` otherwise.
+fn try_hom_search_enhancement(
+    old: &Schema,
+    new: &Schema,
+    identity_mig: &Migration,
+) -> Option<Migration> {
+    // Use detected renames as initial assignments for the search.
+    let renames = rename_detect::detect_vertex_renames(old, new, 0.3);
+    let mut initial: HashMap<Name, Name> = HashMap::new();
+    for detected in &renames {
+        initial.insert(
+            Name::from(detected.rename.old.as_ref()),
+            Name::from(detected.rename.new.as_ref()),
+        );
+    }
+
+    let opts = SearchOptions {
+        initial,
+        ..SearchOptions::default()
+    };
+
+    let best = find_best_morphism(old, new, &opts)?;
+
+    // Only use the morphism-based migration if it maps more vertices
+    // than the identity-based one.
+    if best.vertex_map.len() > identity_mig.vertex_map.len() {
+        let mut hom_mig = morphism_to_migration(&best);
+        // Preserve hyper-edge and label maps from the identity migration
+        // since the homomorphism search does not cover those.
+        hom_mig
+            .hyper_edge_map
+            .clone_from(&identity_mig.hyper_edge_map);
+        hom_mig.label_map.clone_from(&identity_mig.label_map);
+        Some(hom_mig)
+    } else {
+        None
     }
 }
 

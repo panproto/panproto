@@ -46,6 +46,61 @@ pub fn lift_functor(
     Ok(result)
 }
 
+/// Apply a compiled migration as a left Kan extension (`Sigma_F`) to a W-type instance.
+///
+/// Delegates to [`panproto_inst::wtype_extend`], which pushes nodes forward
+/// along the migration morphism, remapping anchors and edges.
+///
+/// # Errors
+///
+/// Returns `LiftError::Restrict` if the underlying extend operation fails.
+pub fn lift_wtype_sigma(
+    compiled: &CompiledMigration,
+    tgt_schema: &Schema,
+    instance: &WInstance,
+) -> Result<WInstance, LiftError> {
+    let result = panproto_inst::wtype_extend(instance, tgt_schema, compiled)?;
+    Ok(result)
+}
+
+/// Apply a compiled migration as a right Kan extension (`Pi_F`) to a W-type instance.
+///
+/// Delegates to [`panproto_inst::wtype_pi`], which computes the product
+/// over fibers. Multi-element fibers produce subtree Cartesian products
+/// bounded by `max_product_nodes`.
+///
+/// # Errors
+///
+/// Returns `LiftError::Restrict` if the underlying pi operation fails
+/// (e.g., product size exceeded for multi-element fibers).
+pub fn lift_wtype_pi(
+    compiled: &CompiledMigration,
+    tgt_schema: &Schema,
+    instance: &WInstance,
+    max_product_nodes: usize,
+) -> Result<WInstance, LiftError> {
+    let result = panproto_inst::wtype_pi(instance, tgt_schema, compiled, max_product_nodes)?;
+    Ok(result)
+}
+
+/// Apply a compiled migration as a right Kan extension (`Pi_F`) to a functor instance.
+///
+/// Delegates to [`panproto_inst::functor_pi`], which computes Cartesian
+/// products over fibers.
+///
+/// # Errors
+///
+/// Returns `LiftError::Restrict` if the underlying pi operation fails
+/// (e.g., product size exceeded).
+pub fn lift_functor_pi(
+    compiled: &CompiledMigration,
+    instance: &FInstance,
+    max_product_size: usize,
+) -> Result<FInstance, LiftError> {
+    let result = panproto_inst::functor_pi(instance, compiled, max_product_size)?;
+    Ok(result)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {

@@ -126,10 +126,10 @@ The threshold is configurable precisely because different projects have differen
 
 ### Rename detection and VCS blame
 
-When a rename is detected and incorporated into a migration, the VCS commit records it. This means `prot blame` can trace a field's name backward through history:
+When a rename is detected and incorporated into a migration, the VCS commit records it. This means `schema blame` can trace a field's name backward through history:
 
 ```
-$ prot blame --element-type edge body
+$ schema blame --element-type edge body
 Commit  Author         Date        Field name
 abc123  alice          2025-03-01  body  (renamed from text)
 def456  initial        2025-01-15  text  (created)
@@ -175,16 +175,16 @@ The rename detection heuristic can bridge this gap: if the structural confidence
 
 Every rename detected and confirmed becomes part of the VCS history (Chapter 13). The commit graph records not just *what* changed but *how* it corresponds to the previous version. This means:
 
-- `prot log` shows renames as explicit events in the commit history.
-- `prot blame` traces field names backward through renames, following the morphism chain.
-- `prot bisect` can find the commit that introduced a specific rename.
-- `prot merge` can compose renames from two branches (if branch A renamed `text → body` and branch B renamed `text → content`, the merge detects a conflict: two renames of the same source).
+- `schema log` shows renames as explicit events in the commit history.
+- `schema blame` traces field names backward through renames, following the morphism chain.
+- `schema bisect` can find the commit that introduced a specific rename.
+- `schema merge` can compose renames from two branches (if branch A renamed `text → body` and branch B renamed `text → content`, the merge detects a conflict: two renames of the same source).
 
 ### Self-description and meta-naming
 
 The GAT-of-GATs property (Chapter 11) means that theory names and sort names are themselves nameable elements. The system can rename its own vocabulary using the same combinators it uses for data. A theory morphism that renames the sort `Vertex` to `Node` is applied with the same `Rename` combinator used to rename a field from `text` to `body`.
 
-This is not a theoretical curiosity. When panproto registers a new protocol, the protocol definition maps the protocol's native vocabulary to panproto's internal sorts. ATProto's lexicon documentation says "record type." panproto's internal sort is `Vertex` with kind `record`. The mapping between "record type" (ATProto documentation) and `Vertex/record` (panproto internals) is a naming operation at the theory level, tracked by the same morphism machinery.
+When panproto registers a new protocol, the protocol definition maps the protocol's native vocabulary to panproto's internal sorts. ATProto's lexicon documentation says "record type." panproto's internal sort is `Vertex` with kind `record`. The mapping between "record type" (ATProto documentation) and `Vertex/record` (panproto internals) is a naming operation at the theory level, tracked by the same morphism machinery.
 
 
 ## The naming problem, restated

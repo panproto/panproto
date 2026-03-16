@@ -22,6 +22,7 @@ smallvec = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+panproto-inst = { workspace = true }
 proptest = { workspace = true }
 tempfile = "3"
 

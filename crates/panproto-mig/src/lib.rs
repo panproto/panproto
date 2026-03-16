@@ -29,19 +29,28 @@
 #![allow(clippy::implicit_hasher)]
 
 pub mod cascade;
+pub mod chase;
 pub mod compile;
 pub mod compose;
 pub mod error;
 pub mod existence;
+pub mod hom_search;
 pub mod invert;
 pub mod lift;
 pub mod migration;
+pub mod overlap;
 
 pub use cascade::{induce_data_migration, induce_migration_from_theory, induce_schema_morphism};
+pub use chase::{
+    ChaseError, EmbeddedDependency, chase_functor, dependencies_from_schema,
+    dependencies_from_theory,
+};
 pub use compile::compile;
 pub use compose::compose;
 pub use error::{ComposeError, ExistenceError, InvertError, LiftError, MigError};
 pub use existence::{ExistenceReport, check_existence};
+pub use hom_search::{FoundMorphism, SearchOptions, find_best_morphism, find_morphisms};
 pub use invert::invert;
-pub use lift::{lift_functor, lift_wtype};
+pub use lift::{lift_functor, lift_functor_pi, lift_wtype, lift_wtype_pi, lift_wtype_sigma};
 pub use migration::Migration;
+pub use overlap::discover_overlap;
