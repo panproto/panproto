@@ -133,7 +133,7 @@ This is exactly the shape of a JSON document, an ATProto record, or a GraphQL re
 4. **Edge resolution**: relabel branches according to the migration's edge map, resolving ambiguities where necessary.
 5. **Fan reconstruction**: rebuild the branching structure of the tree to maintain wellfoundedness.
 
-We will walk through this pipeline concretely in [Chapter 7](07-lifting-data.qmd). For now, the key point is that this pipeline is *derived* from the theory pair. The engine knows it needs to do tree surgery (rather than precomposition) because the instance theory is ThWType rather than ThFunctor.
+We will walk through this pipeline concretely in [Chapter 7](07-lifting-data.qmd). For now, what matters is that this pipeline is *derived* from the theory pair. The engine knows it needs to do tree surgery (rather than precomposition) because the instance theory is ThWType rather than ThFunctor.
 
 ### Flat Instances: Depth-1 Trees {#sec-flat-instances}
 

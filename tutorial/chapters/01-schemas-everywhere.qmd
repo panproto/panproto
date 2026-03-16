@@ -414,7 +414,7 @@ The same blog post entity, expressed through panproto's API:
 ```
 
 The builder API mirrors the structure we saw in the Lexicon JSON above, but you
-get type checking, autocompletion, and—crucially—the ability to compose schemas
+get type checking, autocompletion, and the ability to compose schemas
 programmatically. You're not concatenating JSON strings; you're building a typed
 data structure.
 
@@ -516,8 +516,8 @@ operations are well-defined on a schema, and they explain why single-protocol
 tools can't easily generalize.
 
 But first, take a moment to appreciate the view from here: nine different schema
-languages, nine different communities, nine different ecosystems—all describing
-the same blog post, all using the same structural pattern. And these nine are a
+languages from nine different communities, all describing
+the same blog post with the same structural pattern. And these nine are a
 sample: panproto's full coverage spans 76 protocols, from serialization formats
 like MessagePack and CBOR to interface definition languages like Thrift and
 WSDL to domain-specific schema systems like FHIR and JSON-LD. The fact that a

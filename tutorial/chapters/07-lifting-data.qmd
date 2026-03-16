@@ -4,7 +4,7 @@ The previous chapter established *when* a migration exists. This chapter is abou
 
 There are two flavors of restriction, corresponding to the two kinds of schema that panproto supports. **W-type restrict** handles tree-structured data (JSON, CBOR, protocol buffers) by walking a five-step pipeline over the instance tree. **Functor restrict** handles tabular data (SQL) by precomposition along a schema morphism. Both are grounded in the same categorical idea—pulling data back along a map—but the concrete algorithms differ because trees and tables have different structure.
 
-We will spend most of our time on the W-type pipeline, since it is the more intricate of the two and the one that handles the recursive, nested data formats that dominate modern protocol design.
+We will spend most of our time on the W-type pipeline, since it is the more involved of the two and the one that handles the recursive, nested data formats common in protocol design.
 
 
 ## A worked example: `threadViewPost`

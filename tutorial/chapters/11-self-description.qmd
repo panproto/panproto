@@ -89,7 +89,7 @@ There is an appealing sense in which panproto is *closed*. The only code that ca
 
 This is the sense in which panproto is universal. It is not universal because it supports every protocol (it does not, yet). It is universal because the mechanism for adding a new protocol is the same mechanism that the existing protocols use, and that mechanism is itself described within the system.
 
-The GAT engine is small, fixed, and mathematically well-founded. Everything built on top of it inherits those properties. This is the architectural bet at the heart of panproto: a small, principled foundation can support an open-ended space of schema languages, because the foundation is expressive enough to describe itself.
+The GAT engine is small, fixed, and mathematically well-founded. Everything built on top of it inherits those properties. This is panproto's architectural bet: a small, principled foundation can support an open-ended space of schema languages, because the foundation is expressive enough to describe itself.
 
 ### Further Reading
 

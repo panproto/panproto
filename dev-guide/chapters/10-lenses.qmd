@@ -249,7 +249,7 @@ Lenses and breaking change detection (Chapter 11) are complementary:
 - A `RenameField` combinator produces an empty complement. The breaking change detector will see the rename as a vertex removal + vertex addition, classifying the removal as breaking. To avoid this, use the migration engine's rename support instead.
 - A `CoerceType` combinator may or may not be breaking depending on the kinds involved. The breaking change detector classifies all kind changes as breaking, which aligns with the conservative interpretation.
 
-This interplay means you can use `panproto-check` to validate whether a lens is necessary: if the compatibility report says "fully compatible," a lens is unnecessary (a migration suffices). If it says "breaking," a lens with complement tracking is the appropriate tool.
+In practice, you can use `panproto-check` to decide whether a lens is necessary: if the compatibility report says "fully compatible," a migration suffices. If it says "breaking," a lens with complement tracking is the appropriate tool.
 
 ## Error Handling
 

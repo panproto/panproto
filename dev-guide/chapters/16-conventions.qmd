@@ -147,7 +147,7 @@ pub fn edge(self, src: &str, tgt: &str, kind: &str, name: Option<&str>)
 - **Modules**: snake_case, matching the domain concept (`schema`, `migration`, `existence`)
 - **Types**: PascalCase, with `Builder` suffix for builders and `Error` suffix for errors
 - **Functions**: snake_case, with `check_` prefix for validation functions and `cmd_` prefix for CLI handlers
-- **TypeScript**: camelCase for functions and variables, PascalCase for classes and interfaces, matching the JS ecosystem conventions
+- **TypeScript**: camelCase for functions and variables, PascalCase for classes and interfaces, matching standard JS conventions
 
 ## Dependency Policy
 

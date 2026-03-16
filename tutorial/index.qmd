@@ -2,7 +2,7 @@
 
 You maintain three services. One speaks Protobuf. One uses JSON Schema for validation. The third talks to Bluesky's AT Protocol. Each time you change a schema, the same question arises: *what happens to existing data?*
 
-Each ecosystem answers with its own bespoke tooling---Buf for Protobuf, Atlas for SQL, ad-hoc scripts for everything else. But the underlying problem is the same every time. You have a source schema, a target schema, and data that needs to move from one to the other. The only thing that varies across these systems is what "schema" and "data" mean.
+Each community answers with its own bespoke tooling---Buf for Protobuf, Atlas for SQL, ad-hoc scripts for everything else. But the underlying problem is the same every time. You have a source schema, a target schema, and data that needs to move from one to the other. The only thing that varies across these systems is what "schema" and "data" mean.
 
 **panproto** is a universal schema migration engine that takes this observation seriously. Instead of hardcoding a particular schema language, it parameterizes over the *theory* that defines what schemas look like and the *theory* that defines what data looks like. Everything else---migration validation, data transformation, bidirectional lenses, breaking change detection---is derived from those two theories by the engine.
 

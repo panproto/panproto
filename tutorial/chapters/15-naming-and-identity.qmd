@@ -8,7 +8,7 @@ Previous attempts to address this have tried to get everyone to agree on names--
 
 1. **Names carry context.** ATProto calls it `handle` because of how identity works in their protocol. The name encodes a design decision, not just a label.
 2. **Names evolve.** Your v1 API said `text`. Your v2 says `body`. Your v3 will say `content`. Each rename made sense at the time.
-3. **Agreement doesn't scale.** Getting two teams to agree is difficult. Getting an ecosystem to agree is, historically, impossible.
+3. **Agreement doesn't scale.** Getting two teams to agree is difficult. Getting an entire community to agree is, historically, impossible.
 
 panproto takes a different approach. Instead of requiring consensus on names, it formalizes the *relationships between names* as structure-preserving maps---the same morphisms used for data migration throughout this tutorial. Two protocols can call the same concept by different names, and the system tracks how those names correspond through bidirectional, composable, verifiable transformations.
 

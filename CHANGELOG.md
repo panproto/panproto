@@ -166,7 +166,7 @@ All notable changes to panproto will be documented in this file.
 
 ### Documentation
 
-- Tutorial: chapters 13 (Schematic Version Control) and 14 (Building-Block Landscape)
+- Tutorial: chapters 13 (Schematic Version Control) and 14 (Building-Block Catalog)
 - Dev-guide: chapters 21 (VCS Engine with comprehensive related work) and 22 (Building-Block Theories with type-checking proofs)
 - Updated merge documentation to reflect pushout semantics (no tie-breaking, commutativity guarantee)
 - Updated protocol counts (54 → 76), theory groups (5 → 6), per-group counts

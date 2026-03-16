@@ -1,4 +1,4 @@
-# The Building-Block Landscape {#sec-building-blocks}
+# The Building-Block Catalog {#sec-building-blocks}
 
 panproto's 76 protocol definitions are composed from 27 building-block theories via colimit. Each building block captures a structural distinction that affects migration correctness: whether collections are ordered, whether types form coproducts, whether references are recursive, whether edges are linear. This chapter catalogs all 27 and explains when each is needed.
 

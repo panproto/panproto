@@ -31,8 +31,8 @@ The [panproto Tutorial](https://panproto.github.io/tutorial/) and this Developer
 The tutorial explains *what* a theory morphism does; this guide explains *how* `colimit()` computes the pushout. The tutorial shows *how* to run a migration; this guide shows *how* the surviving-set computation and W-type restrict pipeline are implemented.
 
 ```{mermaid}
-%%| label: fig-docs-landscape
-%%| fig-cap: "Documentation landscape for panproto"
+%%| label: fig-docs-overview
+%%| fig-cap: "Documentation structure for panproto"
 flowchart LR
     A["panproto Tutorial<br>(panproto.github.io/tutorial/)"] -->|"teaches users"| U["Users"]
     B["Developer Guide<br>(this book)"] -->|"teaches contributors"| C["Contributors"]
@@ -76,22 +76,24 @@ Here is a recommended reading order depending on your goal:
 This guide is a reference, not a novel. Read the onboarding chapters linearly, then use the table of contents and the source code map (Appendix B) to jump to whatever you need.
 :::
 
-## The crate landscape at a glance
+## The crate map at a glance
 
-panproto is a Cargo workspace with 10 crates, a TypeScript SDK, an integration test suite, and CI/CD workflows:
+panproto is a Cargo workspace with 12 crates, TypeScript and Python SDKs, an integration test suite, and CI/CD workflows:
 
 | Crate | Role |
 |---|---|
 | `panproto-gat` | GAT engine: sorts, operations, equations, morphisms, colimits, models |
-| `panproto-schema` | Schema representation: vertices, edges, hyper-edges, constraints |
-| `panproto-inst` | W-type and functor instances: the data layer |
-| `panproto-mig` | Migration engine: compile, restrict, lift, compose, invert |
-| `panproto-lens` | Bidirectional lenses: symmetric, asymmetric, combinators, law checking |
+| `panproto-schema` | Schema representation: vertices, edges, hyper-edges, constraints, colimits |
+| `panproto-inst` | W-type and functor instances, restrict/extend/pi operations |
+| `panproto-mig` | Migration engine: compile, lift, compose, invert, homomorphism search, chase |
+| `panproto-lens` | Bidirectional lenses: asymmetric, combinators, law checking |
 | `panproto-check` | Breaking-change detection: diff, classify, report |
-| `panproto-protocols` | Built-in protocols: AT Protocol, Protobuf, GraphQL, JSON Schema, SQL |
-| `panproto-core` | Re-exports and shared types |
+| `panproto-protocols` | Built-in protocol definitions for 76 formats |
+| `panproto-io` | Instance-level parse/emit across all protocols |
+| `panproto-vcs` | Schematic version control: content-addressed store, merge, rebase, blame |
+| `panproto-core` | Re-export facade for all sub-crates |
 | `panproto-wasm` | WASM boundary: slab allocator, MessagePack serialization, JS API |
-| `panproto-cli` | CLI binary |
+| `panproto-cli` | CLI binary (`schema` command) |
 
 Chapter 5 covers how these crates depend on each other and how data flows through the system.
 

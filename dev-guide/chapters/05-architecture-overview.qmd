@@ -125,7 +125,7 @@ panproto uses MessagePack (via `rmp-serde`) as its primary serialization format 
 
 - **Deterministic serialization**: MessagePack's canonical form guarantees that structurally identical objects produce byte-identical output, which is essential for content-addressed storage and migration hash verification.
 - **Compact binary representation**: schemas with hundreds of vertices serialize to kilobytes rather than tens of kilobytes.
-- **Wide ecosystem support**: MessagePack libraries exist for every language panproto targets.
+- **Wide library support**: MessagePack libraries exist for every language panproto targets.
 
 JSON is still used as the human-facing format for CLI output and the `parse_json`/`to_json` round-trip in `panproto-inst`.
 

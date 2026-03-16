@@ -338,7 +338,7 @@ Group E (multigraphs with constraint and metadata layers, e.g. XML/XSD, HTML).
 The taxonomy extends uniformly to all 76 protocols; see
 @sec-protocol-catalog for the complete catalog with theory group assignments.
 
-This taxonomy explains a pattern you've probably noticed in the ecosystem:
+This taxonomy explains a pattern you've probably noticed:
 schema tools tend to be protocol-specific. **Buf** is excellent for Protobuf.
 **Atlas** is excellent for SQL. **GraphQL Code Generator** is excellent for
 GraphQL. But none of them generalize across protocols.

@@ -8,7 +8,7 @@ id: sec-theories
 The previous chapter ended with a promissory note: we'd find a precise way to
 describe graph structures so that panproto can parameterize over them. This
 chapter delivers on that promise by introducing **Generalized Algebraic
-Theories** (GATs)—the mathematical framework at the heart of panproto's design.
+Theories** (GATs), the mathematical framework underlying panproto's design.
 
 GATs might sound intimidating, but the core idea is one you already use every
 day. If you've ever written a TypeScript interface and then implemented it with
@@ -53,9 +53,9 @@ functions that satisfy the theory's requirements.
 
 This analogy is more than pedagogical. The relationship between interfaces and
 implementations is a special case of the relationship between theories and
-models—one where the "sorts" are types, the "operations" are methods, and the
+models: the "sorts" are types, the "operations" are methods, and the
 "equations" are whatever contracts the documentation promises but the type
-system can't enforce. GATs make that last part—the equations—first-class.
+system can't enforce. GATs make the equations first-class.
 
 
 ## Theory of a Monoid: The Simplest Nontrivial Example
@@ -103,7 +103,7 @@ A **model** of this theory assigns concrete meaning:
   Associativity holds. Identity holds: `true && b = b` and `b && true = b`.
 
 Three completely different models, all satisfying the same theory. The theory
-captures what they have in common—the *shape* of monoid-ness—without committing
+captures what they have in common (the *shape* of monoid-ness) without committing
 to any particular implementation.
 
 ### Monoid Theory in panproto's Rust Implementation
@@ -171,7 +171,7 @@ to parameters shortly):
 ```
 
 A `Sort` has a name and a list of parameters. For the graph theory, we'd have
-two sorts—`Vertex` and `Edge`—each with an empty parameter list. The parameter
+two sorts (`Vertex` and `Edge`), each with an empty parameter list. The parameter
 list becomes important when we introduce dependent sorts later in this chapter.
 
 ### Operations in Rust
@@ -266,7 +266,7 @@ vertex-indexed family. GATs let us express this directly.
 
 ### SortParam in Rust
 
-panproto-gat represents sort parameters—the mechanism for dependent sorts—with
+panproto-gat represents sort parameters (the mechanism for dependent sorts) with
 a dedicated type:
 
 ```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=12 end-line=18}
@@ -328,14 +328,14 @@ the same for theories.
 ## The GAT-EAT Equivalence
 
 There's a subtlety worth addressing. GATs with dependent sorts are expressive,
-but they're also complex—implementing a full dependent type checker is a
-significant engineering effort. panproto avoids this by leveraging a classical
+but they're also complex. Implementing a full dependent type checker is a
+significant engineering effort. panproto avoids this by using a classical
 result from categorical logic: under suitable conditions, GATs are equivalent to
 **Essentially Algebraic Theories** (EATs).
 
 The key reference here is [@adamek1994], which establishes the theory of locally
 presentable categories. In this framework, the categories of models of GATs and
-EATs coincide for a broad class of theories—precisely the class that arises in
+EATs coincide for a broad class of theories, precisely the class that arises in
 practice for schema descriptions. The practical consequence: panproto can
 implement dependent sorts using *partial operations* (operations that are only
 defined when a condition holds) rather than a full dependent type system.
@@ -489,7 +489,7 @@ The theory is the parameter. Change the theory, and you get a different schema
 language—but the same algorithms.
 
 
-## The Category Theory Landscape
+## Category Theory Background
 
 For readers who want to go deeper, here's how the references connect.
 
@@ -513,8 +513,8 @@ algebraic theories can't capture that.
 
 [@adamek1994] provided the theoretical bridge between GATs and EATs through
 the theory of locally presentable categories. This result is what lets panproto
-implement dependent sorts without a full dependent type checker—a crucial
-engineering simplification.
+implement dependent sorts without a full dependent type checker, which is
+the engineering simplification that makes panproto practical.
 
 @lynch2024 demonstrated that this entire framework can be implemented
 practically in a computational system (GATlab, in Julia). panproto adapts
