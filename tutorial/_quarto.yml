@@ -15,7 +15,7 @@ book:
   repo-actions: [edit, issue]
   # Source lives in panproto/panproto repo at tutorial/.
   # Built HTML is pushed to panproto/tutorial repo for GitHub Pages.
-  site-url: "https://panproto.github.io/tutorial/"
+  site-url: "https://panproto.dev/tutorial/"
   sidebar:
     style: floating
     collapse-level: 2

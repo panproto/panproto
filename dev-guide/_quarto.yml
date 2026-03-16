@@ -13,7 +13,7 @@ book:
   repo-url: "https://github.com/panproto/panproto"
   repo-subdir: dev-guide
   repo-actions: [edit, issue]
-  site-url: "https://panproto.github.io/dev-guide/"
+  site-url: "https://panproto.dev/dev-guide/"
   sidebar:
     style: floating
     collapse-level: 2
