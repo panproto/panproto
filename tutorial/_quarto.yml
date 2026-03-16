@@ -50,6 +50,9 @@ book:
       chapters:
         - chapters/15-naming-and-identity.qmd
         - chapters/16-names-in-practice.qmd
+    - part: "Automation"
+      chapters:
+        - chapters/17-automatic-migration.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-category-theory-cheatsheet.qmd

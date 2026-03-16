@@ -15,6 +15,7 @@
 //! - **[`validate`]**: Post-hoc validation of a schema against a protocol.
 
 mod builder;
+mod colimit;
 mod error;
 mod morphism;
 mod normalize;
@@ -24,6 +25,7 @@ pub mod serde_helpers;
 mod validate;
 
 pub use builder::SchemaBuilder;
+pub use colimit::{SchemaOverlap, schema_pushout};
 pub use error::{SchemaError, ValidationError};
 pub use morphism::SchemaMorphism;
 pub use normalize::normalize;

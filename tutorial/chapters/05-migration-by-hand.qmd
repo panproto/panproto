@@ -317,6 +317,10 @@ See @sec-format-conversion for a comprehensive treatment of cross-format
 conversion.
 
 
+## Or, skip all that {#sec-auto-mig-teaser}
+
+Everything in this chapter---vertex maps, edge maps, resolvers---can be computed automatically. panproto's homomorphism search (@sec-auto-migration) finds the best migration between two schemas without manual specification. For the common case of adding or removing fields, `schema add` in the VCS derives migrations automatically. For complex structural changes and cross-protocol translation, the full machinery is in @sec-auto-migration.
+
 ## Summary
 
 - A **migration** is a structure-preserving map (vertex map + edge map) from an old schema to a new schema.

@@ -64,6 +64,27 @@ pub enum RestrictError {
         /// Details about the failure.
         detail: String,
     },
+
+    /// Cartesian product exceeded the configured size limit.
+    #[error("product size {actual} exceeds limit {limit} for vertex {vertex}")]
+    ProductSizeExceeded {
+        /// The target vertex whose fiber product is too large.
+        vertex: String,
+        /// The actual product size.
+        actual: usize,
+        /// The configured limit.
+        limit: usize,
+    },
+
+    /// Multi-element fiber encountered where only single-element fibers
+    /// are supported (e.g., W-type right Kan extension).
+    #[error("multi-element fiber for vertex {vertex}: {count} source vertices")]
+    MultiElementFiber {
+        /// The target vertex with multiple preimages.
+        vertex: String,
+        /// Number of source vertices in the fiber.
+        count: usize,
+    },
 }
 
 /// Errors from JSON parsing.

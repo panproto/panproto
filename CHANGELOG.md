@@ -4,6 +4,20 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added — Automatic Morphisms and the Adjoint Triple
+
+- **panproto-mig**: `hom_search` module — automatic schema morphism discovery via backtracking CSP with MRV heuristic and forward checking. `find_morphisms(src, tgt, opts)` enumerates all valid schema morphisms; `find_best_morphism` returns the highest-quality one. Supports monic/epic/iso constraints and pre-assigned initial mappings. Quality scoring by name similarity + edge name preservation.
+- **panproto-mig**: `overlap` module — automatic overlap discovery between two schemas via injective homomorphism search. `discover_overlap(left, right)` returns the largest shared sub-schema as a `SchemaOverlap`.
+- **panproto-mig**: `chase` module — chase algorithm for enforcing embedded dependencies on functor instances. `chase_functor(instance, deps, max_iter)` iterates until fixpoint. `dependencies_from_schema` placeholder for future GAT equation translation.
+- **panproto-inst**: `wtype_extend` — left Kan extension (Σ_F) for W-type instances. Pushes tree data forward along a migration, remapping anchors and edges.
+- **panproto-inst**: `pi` module — right Kan extension (Π_F). `functor_pi` computes product over fibers for relational instances (with configurable size limit). `wtype_pi` handles injective migrations for W-type instances.
+- **panproto-schema**: `colimit` module — schema-level pushout. `schema_pushout(left, right, overlap)` computes the minimal schema containing both inputs with shared elements merged, plus morphisms from each side into the pushout.
+- **panproto-mig**: `lift_wtype_sigma`, `lift_wtype_pi`, `lift_functor_pi` — lift functions for the new adjoint functors
+- Tutorial chapter 17: "Automatic Migration Discovery" — homomorphism search, adjoint triple, schema pushout, overlap discovery, chase algorithm (new Part "Automation")
+- Dev-guide chapter 24: "Automatic Morphisms and the Adjoint Triple" — algorithm details, CSP reduction, performance characteristics
+- Tutorial Ch. 7 updated: Σ_F/Π_F section now references implementations instead of "future work"
+- Tutorial Ch. 5 updated: "Or, skip all that" section linking to automatic migration
+
 ## [0.4.0] - 2026-03-15
 
 ### Added — First-Class Names

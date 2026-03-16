@@ -1700,6 +1700,39 @@ fn merge_nsids(
     result
 }
 
+/// Integrate two schemas via pushout with automatic overlap discovery.
+///
+/// Unlike [`three_way_merge`], this is a two-way operation: it finds
+/// shared structure between `left` and `right` via
+/// [`panproto_mig::discover_overlap`], then computes the categorical
+/// pushout via [`panproto_schema::schema_pushout`].
+///
+/// Returns the integrated schema together with morphisms embedding each
+/// input into the result.
+///
+/// # Errors
+///
+/// Returns [`crate::VcsError::NotImplemented`] if the underlying pushout fails
+/// (e.g., overlap references nonexistent vertices).
+pub fn integrate_schemas(
+    left: &Schema,
+    right: &Schema,
+) -> Result<
+    (
+        Schema,
+        panproto_schema::SchemaMorphism,
+        panproto_schema::SchemaMorphism,
+    ),
+    crate::VcsError,
+> {
+    let overlap = panproto_mig::discover_overlap(left, right);
+    panproto_schema::schema_pushout(left, right, &overlap).map_err(|e| {
+        crate::VcsError::NotImplemented {
+            feature: format!("schema pushout failed: {e}"),
+        }
+    })
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================

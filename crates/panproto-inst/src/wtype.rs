@@ -464,6 +464,112 @@ pub fn wtype_restrict(
     ))
 }
 
+// ---------------------------------------------------------------------------
+// Left Kan extension (Σ_F) for W-type instances
+// ---------------------------------------------------------------------------
+
+/// Left Kan extension (`Sigma_F`) for W-type instances.
+///
+/// Pushes a W-type instance forward along a migration morphism.
+/// Unlike [`wtype_restrict`] (which drops unmapped nodes), extend
+/// maps all source nodes into the target schema, remapping anchors
+/// and edges according to the compiled migration.
+///
+/// # Errors
+///
+/// Returns [`RestrictError`] if edge resolution fails or the root
+/// cannot be mapped.
+pub fn wtype_extend(
+    instance: &WInstance,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+) -> Result<WInstance, RestrictError> {
+    // Check root can be mapped
+    let root_node = instance
+        .nodes
+        .get(&instance.root)
+        .ok_or(RestrictError::RootPruned)?;
+
+    let root_anchor = &root_node.anchor;
+    if !migration.surviving_verts.contains(root_anchor)
+        && !migration.vertex_remap.contains_key(root_anchor)
+    {
+        return Err(RestrictError::RootPruned);
+    }
+
+    // Build new nodes: remap anchors where applicable
+    let mut new_nodes: HashMap<u32, Node> = HashMap::with_capacity(instance.nodes.len());
+    for (&id, node) in &instance.nodes {
+        let mut new_node = node.clone();
+        if let Some(remapped) = migration.vertex_remap.get(&node.anchor) {
+            new_node.anchor.clone_from(remapped);
+        } else if !migration.surviving_verts.contains(&node.anchor) {
+            // Node's anchor has no remap and doesn't survive — skip it
+            continue;
+        }
+        new_nodes.insert(id, new_node);
+    }
+
+    // Build new arcs: remap edges where applicable
+    let mut new_arcs: Vec<(u32, u32, Edge)> = Vec::with_capacity(instance.arcs.len());
+    for &(parent, child, ref edge) in &instance.arcs {
+        // Both endpoints must be in the new node set
+        if !new_nodes.contains_key(&parent) || !new_nodes.contains_key(&child) {
+            continue;
+        }
+
+        if let Some(new_edge) = migration.edge_remap.get(edge) {
+            new_arcs.push((parent, child, new_edge.clone()));
+        } else if migration.surviving_edges.contains(edge) {
+            // Edge survives unchanged, but anchors may have been remapped.
+            // Rebuild the edge with the remapped src/tgt vertex names.
+            let parent_anchor = &new_nodes[&parent].anchor;
+            let child_anchor = &new_nodes[&child].anchor;
+            if edge.src == *parent_anchor && edge.tgt == *child_anchor {
+                new_arcs.push((parent, child, edge.clone()));
+            } else {
+                // Anchors were remapped; resolve the edge in the target schema
+                let resolved =
+                    resolve_edge(tgt_schema, &migration.resolver, parent_anchor, child_anchor)?;
+                new_arcs.push((parent, child, resolved));
+            }
+        } else {
+            // Edge not in surviving_edges or edge_remap — try to resolve
+            // from remapped anchors
+            let parent_anchor = &new_nodes[&parent].anchor;
+            let child_anchor = &new_nodes[&child].anchor;
+            let resolved =
+                resolve_edge(tgt_schema, &migration.resolver, parent_anchor, child_anchor)?;
+            new_arcs.push((parent, child, resolved));
+        }
+    }
+
+    // Handle fans similarly to restrict's reconstruct_fans
+    let surviving_ids: FxHashSet<u32> = new_nodes.keys().copied().collect();
+    let empty_ancestors = FxHashMap::default();
+    let new_fans = reconstruct_fans(
+        instance,
+        &surviving_ids,
+        &empty_ancestors,
+        migration,
+        tgt_schema,
+    )?;
+
+    let new_schema_root = migration
+        .vertex_remap
+        .get(&instance.schema_root)
+        .cloned()
+        .unwrap_or_else(|| instance.schema_root.clone());
+
+    Ok(WInstance::new(
+        new_nodes,
+        new_arcs,
+        new_fans,
+        instance.root,
+        new_schema_root,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,5 +734,234 @@ mod tests {
         let result = resolve_edge(&schema, &resolver, "a", "b");
         assert!(result.is_ok());
         assert_eq!(result.ok(), Some(resolved_edge));
+    }
+
+    // --- wtype_extend tests ---
+
+    #[allow(clippy::unwrap_used)]
+    fn make_test_schema(vertices: &[&str], edges: &[Edge]) -> Schema {
+        use smallvec::smallvec;
+        let mut between = HashMap::new();
+        for edge in edges {
+            between
+                .entry((Name::from(&*edge.src), Name::from(&*edge.tgt)))
+                .or_insert_with(|| smallvec![])
+                .push(edge.clone());
+        }
+        Schema {
+            protocol: "test".into(),
+            vertices: vertices
+                .iter()
+                .map(|&v| {
+                    (
+                        Name::from(v),
+                        panproto_schema::Vertex {
+                            id: Name::from(v),
+                            kind: Name::from("object"),
+                            nsid: None,
+                        },
+                    )
+                })
+                .collect(),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between,
+        }
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn extend_identity_migration() {
+        let inst = three_node_instance();
+        let edge_text = Edge {
+            src: "post:body".into(),
+            tgt: "post:body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+        let edge_time = Edge {
+            src: "post:body".into(),
+            tgt: "post:body.createdAt".into(),
+            kind: "prop".into(),
+            name: Some("createdAt".into()),
+        };
+        let surviving_edges = HashSet::from([edge_text.clone(), edge_time.clone()]);
+        let schema = make_test_schema(
+            &["post:body", "post:body.text", "post:body.createdAt"],
+            &[edge_text, edge_time],
+        );
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([
+                Name::from("post:body"),
+                Name::from("post:body.text"),
+                Name::from("post:body.createdAt"),
+            ]),
+            surviving_edges,
+            vertex_remap: HashMap::new(),
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+        };
+        let result = wtype_extend(&inst, &schema, &migration).unwrap();
+        assert_eq!(result.node_count(), 3);
+        assert_eq!(result.arc_count(), 2);
+        assert_eq!(result.schema_root, Name::from("post:body"));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn extend_with_vertex_remap() {
+        let inst = three_node_instance();
+        let tgt_edge_text = Edge {
+            src: "article:body".into(),
+            tgt: "article:body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+        let tgt_edge_time = Edge {
+            src: "article:body".into(),
+            tgt: "article:body.createdAt".into(),
+            kind: "prop".into(),
+            name: Some("createdAt".into()),
+        };
+        let tgt_schema = make_test_schema(
+            &[
+                "article:body",
+                "article:body.text",
+                "article:body.createdAt",
+            ],
+            &[tgt_edge_text, tgt_edge_time],
+        );
+        let mut vertex_remap = HashMap::new();
+        vertex_remap.insert(Name::from("post:body"), Name::from("article:body"));
+        vertex_remap.insert(
+            Name::from("post:body.text"),
+            Name::from("article:body.text"),
+        );
+        vertex_remap.insert(
+            Name::from("post:body.createdAt"),
+            Name::from("article:body.createdAt"),
+        );
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([
+                Name::from("article:body"),
+                Name::from("article:body.text"),
+                Name::from("article:body.createdAt"),
+            ]),
+            surviving_edges: HashSet::new(),
+            vertex_remap,
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+        };
+        let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
+        assert_eq!(result.node_count(), 3);
+        assert_eq!(result.arc_count(), 2);
+        assert_eq!(result.schema_root, Name::from("article:body"));
+        assert_eq!(result.nodes[&0].anchor, Name::from("article:body"));
+        assert_eq!(result.nodes[&1].anchor, Name::from("article:body.text"));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn extend_with_edge_remap() {
+        let inst = three_node_instance();
+        let src_edge_text = Edge {
+            src: "post:body".into(),
+            tgt: "post:body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+        let new_edge_text = Edge {
+            src: "post:body".into(),
+            tgt: "post:body.text".into(),
+            kind: "prop".into(),
+            name: Some("content".into()),
+        };
+        let edge_time = Edge {
+            src: "post:body".into(),
+            tgt: "post:body.createdAt".into(),
+            kind: "prop".into(),
+            name: Some("createdAt".into()),
+        };
+        let surviving_edges = HashSet::from([edge_time.clone()]);
+        let tgt_schema = make_test_schema(
+            &["post:body", "post:body.text", "post:body.createdAt"],
+            &[new_edge_text.clone(), edge_time],
+        );
+        let mut edge_remap = HashMap::new();
+        edge_remap.insert(src_edge_text, new_edge_text);
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([
+                Name::from("post:body"),
+                Name::from("post:body.text"),
+                Name::from("post:body.createdAt"),
+            ]),
+            surviving_edges,
+            vertex_remap: HashMap::new(),
+            edge_remap,
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+        };
+        let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
+        assert_eq!(result.arc_count(), 2);
+        // Check that the remapped edge is used
+        let text_arc = result.arcs.iter().find(|a| a.1 == 1).unwrap();
+        assert_eq!(text_arc.2.name.as_deref(), Some("content"));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn extend_preserves_structure() {
+        let inst = three_node_instance();
+        let edge_text = Edge {
+            src: "post:body".into(),
+            tgt: "post:body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+        let edge_time = Edge {
+            src: "post:body".into(),
+            tgt: "post:body.createdAt".into(),
+            kind: "prop".into(),
+            name: Some("createdAt".into()),
+        };
+        let surviving_edges = HashSet::from([edge_text.clone(), edge_time.clone()]);
+        let schema = make_test_schema(
+            &["post:body", "post:body.text", "post:body.createdAt"],
+            &[edge_text, edge_time],
+        );
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([
+                Name::from("post:body"),
+                Name::from("post:body.text"),
+                Name::from("post:body.createdAt"),
+            ]),
+            surviving_edges,
+            vertex_remap: HashMap::new(),
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+        };
+        let result = wtype_extend(&inst, &schema, &migration).unwrap();
+        // Verify parent/children maps are correctly rebuilt
+        assert_eq!(result.parent(1), Some(0));
+        assert_eq!(result.parent(2), Some(0));
+        assert!(result.children(0).contains(&1));
+        assert!(result.children(0).contains(&2));
+        // Verify values are preserved
+        assert!(result.nodes[&1].has_value());
+        assert!(result.nodes[&2].has_value());
     }
 }

@@ -363,12 +363,16 @@ $$\Sigma_F \dashv \Delta_F \dashv \Pi_F$$
 
 The left adjoint $\Sigma_F$ (pushforward, or left Kan extension) computes the "best approximation" of an $S_1$-instance as an $S_2$-instance by taking colimits. In SQL terms, this is roughly `UNION` across fibers. The right adjoint $\Pi_F$ (right Kan extension) computes the "most conservative approximation" by taking limits—roughly `JOIN` across fibers [@maclane1998, Ch. X].
 
-Both adjoints are computationally more expensive than $\Delta_F$ and are outside panproto's current scope. The key point is that $\Delta_F$ alone gives us everything we need for the forward direction of a migration: projecting existing data onto a new schema.
+panproto implements all three functors. $\Delta_F$ is the primary tool for schema migration (lossless, reversible via lenses). $\Sigma_F$ and $\Pi_F$ are available for advanced use cases: cross-protocol data integration, schema merging, and algebraic data integration patterns. See @sec-adjoint-triple for details and worked examples.
 
 :::{.callout-note}
-## Why not $\Sigma_F$?
+## When to use which functor
 
-The pushforward $\Sigma_F$ would let us *add* data to an instance (e.g., populate a new required column with default values). This is sometimes called "data migration" in the database literature. panproto deliberately limits itself to $\Delta_F$ because restriction is lossless and reversible (via the complement—see @sec-lenses), while $\Sigma_F$ requires inventing data and is generally not reversible. When panproto needs to populate defaults, it does so through the lens complement mechanism rather than through $\Sigma_F$.
+**$\Delta_F$ (restrict)**: The default choice. Lossless with complement, reversible via lenses. Use for schema version migration.
+
+**$\Sigma_F$ (extend/pushforward)**: Pushes data forward, merging sources that map to the same target. Not reversible. Use when you need to consolidate data from multiple schema sources.
+
+**$\Pi_F$ (product)**: Computes the most conservative instance via products over fibers. Can produce large outputs. Use when you need data provably consistent across all sources.
 :::
 
 

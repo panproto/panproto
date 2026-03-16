@@ -1,0 +1,166 @@
+# Automatic Morphisms and the Adjoint Triple {#sec-auto-morphisms}
+
+This chapter covers the automatic homomorphism search, the full adjoint triple (Σ_F ⊣ Δ_F ⊣ Π_F), schema-level pushouts, overlap discovery, and the chase algorithm.
+
+For the user-facing introduction, see the [tutorial chapter on automatic migration](@sec-auto-migration).
+
+## Homomorphism Search
+
+**File**: `crates/panproto-mig/src/hom_search.rs`
+
+### CSP Reduction
+
+The C-set homomorphism problem reduces to a constraint satisfaction problem:
+
+- **Variables**: one per source vertex
+- **Domains**: target vertices with compatible kind
+- **Constraints**: naturality squares (edge-preserving)
+
+### Algorithm
+
+Backtracking search with forward checking:
+
+1. **Variable ordering**: MRV heuristic — assign vertices with smallest domains first
+2. **Value selection**: try each domain value
+3. **Forward check**: after assignment, verify all unassigned neighbors still have valid domain values via `has_compatible_edge`
+4. **Edge compatibility**: requires matching edge kind between mapped vertex pairs; edge names are allowed to differ (name differences only affect quality scoring)
+5. **Edge map derivation**: once all vertices are assigned, the edge map is determined by finding compatible edges between each pair of mapped vertices, preferring name-matching edges
+
+### Search Options
+
+| Option | Effect |
+|--------|--------|
+| `monic` | Injective vertex map (tracks `used_targets` set) |
+| `epic` | Surjective vertex map (checked at base case) |
+| `iso` | Bijective (monic + epic) |
+| `max_results` | Early termination bound |
+| `initial` | Pre-assigned mappings (domain restricted to singletons) |
+
+### Quality Scoring
+
+`compute_quality` produces a score in [0.0, 1.0]:
+- 50% weight: average name similarity (1 - edit_distance / max_length) across vertex pairs
+- 50% weight: fraction of edges where source and target have the same label name
+
+### Performance
+
+Schemas have O(10-100) vertices. The backtracking search with MRV and forward checking handles this scale easily. Worst case is exponential in the number of vertices with identical kinds, but the edge constraints prune aggressively.
+
+## Σ_F: Left Kan Extension
+
+**Files**: `crates/panproto-inst/src/wtype.rs` (`wtype_extend`), `crates/panproto-inst/src/functor.rs` (`functor_extend`)
+
+### W-Type Σ_F
+
+`wtype_extend` maps all source nodes into the target schema:
+1. Remap node anchors via `vertex_remap`
+2. Remap arc edges via `edge_remap`
+3. Rebuild tree indices
+
+Unlike `wtype_restrict`, extend keeps all mappable nodes rather than dropping unmapped ones.
+
+### Functor Σ_F
+
+`functor_extend` (pre-existing) handles the relational case:
+1. Copy tables forward via `vertex_remap`
+2. Compute coproduct (disjoint union) when multiple sources map to one target
+3. Fill missing columns with `Value::Null`
+4. Offset FK row indices for concatenated tables
+
+### Adjunction Law
+
+For any migration F: `hom(Σ_F(I), J) ≅ hom(I, Δ_F(J))`
+
+## Π_F: Right Kan Extension
+
+**File**: `crates/panproto-inst/src/pi.rs`
+
+### Functor Π_F
+
+`functor_pi` computes the product over fibers:
+1. Build fiber map: for each target vertex, collect source vertices mapping to it
+2. Single-element fibers: copy table directly
+3. Multi-element fibers: Cartesian product of rows with column union
+4. Size gate: reject products exceeding `max_product_size`
+
+### W-Type Π_F
+
+`wtype_pi` currently only handles injective migrations (single-element fibers). Multi-element fiber products for trees require Cartesian products of subtrees, which is deferred to a future release.
+
+### Adjunction Law
+
+For any migration F: `hom(Δ_F(I), J) ≅ hom(I, Π_F(J))`
+
+## Schema Pushout
+
+**File**: `crates/panproto-schema/src/colimit.rs`
+
+### `SchemaOverlap`
+
+Specifies which elements of two schemas are identified:
+```rust
+pub struct SchemaOverlap {
+    pub vertex_pairs: Vec<(Name, Name)>,
+    pub edge_pairs: Vec<(Edge, Edge)>,
+}
+```
+
+### `schema_pushout` Algorithm
+
+1. Merged vertices: all left vertices + non-overlapping right vertices (overlapping right vertices merge with their left counterpart)
+2. Merged edges: all left edges + right edges with remapped vertex references
+3. Constraint/metadata union for overlapping vertices
+4. Build morphisms: left→pushout (identity for left vertices), right→pushout (identity or remapped for right vertices)
+5. Rebuild adjacency indices
+
+### Universal Property
+
+For any schema C with morphisms from both left and right that agree on the overlap, there exists a unique morphism from the pushout to C.
+
+## Overlap Discovery
+
+**File**: `crates/panproto-mig/src/overlap.rs`
+
+Uses `find_best_morphism` with `monic: true` in both directions (left→right and right→left), taking whichever produces more vertex pairs. The vertex map entries from the best morphism define the overlap pairs.
+
+## Chase Algorithm
+
+**File**: `crates/panproto-mig/src/chase.rs`
+
+### Embedded Dependencies
+
+```rust
+pub struct EmbeddedDependency {
+    pub pattern_vertex: Name,
+    pub pattern_values: HashMap<String, Value>,
+    pub consequence_vertex: Name,
+    pub consequence_values: HashMap<String, Value>,
+}
+```
+
+### Algorithm
+
+1. Clone instance
+2. For each iteration (up to `max_iterations`):
+   a. For each dependency, find pattern matches without consequences
+   b. Add missing consequence rows
+   c. If nothing changed, return fixpoint
+3. If limit reached, return `ChaseError::NonTermination`
+
+### Termination
+
+Guaranteed for acyclic dependencies (no dependency's consequence can trigger itself). For cyclic dependencies, the iteration bound prevents infinite loops. panproto's equational theories are purely algebraic, so termination is guaranteed for all standard schema theories.
+
+### Future: Path Equation Translation
+
+`dependencies_from_schema` is currently a placeholder. Future work will translate GAT equations (e.g., `src(id(v)) = v`) into instance-level embedded dependencies that the chase can enforce.
+
+## Lift Function Summary
+
+| Function | Direction | Instance Type | Module |
+|----------|-----------|---------------|--------|
+| `lift_wtype` | Δ_F (restrict) | W-type | `lift.rs` |
+| `lift_functor` | Δ_F (restrict) | Functor | `lift.rs` |
+| `lift_wtype_sigma` | Σ_F (extend) | W-type | `lift.rs` |
+| `lift_functor_pi` | Π_F (product) | Functor | `lift.rs` |
+| `lift_wtype_pi` | Π_F (product) | W-type | `lift.rs` |

@@ -182,6 +182,10 @@ enum Command {
         /// Diff the staged schema against HEAD.
         #[arg(long, alias = "cached")]
         staged: bool,
+
+        /// Detect likely renames between schemas.
+        #[arg(long)]
+        detect_renames: bool,
     },
 
     /// Inspect a commit, schema, or migration object.
@@ -426,6 +430,45 @@ enum Command {
 
         /// Path to the record JSON file.
         record: PathBuf,
+
+        /// Migration direction: restrict (default, `Delta_F`), sigma (`Sigma_F`), or pi (`Pi_F`).
+        #[arg(long, default_value = "restrict")]
+        direction: String,
+
+        /// Instance type: wtype (default) or functor.
+        #[arg(long, default_value = "wtype")]
+        instance_type: String,
+    },
+
+    /// Integrate two schemas by computing their pushout.
+    Integrate {
+        /// Path to the left schema JSON file.
+        left: PathBuf,
+        /// Path to the right schema JSON file.
+        right: PathBuf,
+        /// Automatically discover the overlap between schemas.
+        #[arg(long)]
+        auto_overlap: bool,
+        /// Output the integrated schema as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Automatically discover a migration between two schemas.
+    AutoMigrate {
+        /// Path to the old/source schema JSON file.
+        old: PathBuf,
+
+        /// Path to the new/target schema JSON file.
+        new: PathBuf,
+
+        /// Require injective (one-to-one) vertex mapping.
+        #[arg(long)]
+        monic: bool,
+
+        /// Output the migration as JSON.
+        #[arg(long)]
+        json: bool,
     },
 
     /// Garbage collect unreachable objects.
@@ -544,14 +587,11 @@ fn main() -> Result<()> {
 fn dispatch(command: Command, verbose: bool) -> Result<()> {
     match command {
         // Schema tools.
-        Command::Validate { protocol, schema } => cmd_validate(&protocol, &schema, verbose),
-        Command::Check { src, tgt, mapping } => cmd_check(&src, &tgt, &mapping, verbose),
-        Command::Lift {
-            migration,
-            src_schema,
-            tgt_schema,
-            record,
-        } => cmd_lift(&migration, &src_schema, &tgt_schema, &record, verbose),
+        command @ (Command::Validate { .. }
+        | Command::Check { .. }
+        | Command::Lift { .. }
+        | Command::Integrate { .. }
+        | Command::AutoMigrate { .. }) => dispatch_schema_commands(command, verbose),
 
         // Core VCS commands.
         Command::Init {
@@ -598,6 +638,7 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             name_only,
             name_status,
             staged,
+            detect_renames,
         } => cmd_diff(
             old.as_deref(),
             new.as_deref(),
@@ -607,6 +648,7 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
                 name_status,
                 staged,
                 verbose,
+                detect_renames,
             },
         ),
         Command::Show {
@@ -635,6 +677,43 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
         | Command::Pull { .. }
         | Command::Fetch { .. }
         | Command::Clone { .. }) => dispatch_history_commands(command),
+    }
+}
+
+/// Dispatch schema tool commands (validate, check, lift, auto-migrate).
+fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
+    match command {
+        Command::Validate { protocol, schema } => cmd_validate(&protocol, &schema, verbose),
+        Command::Check { src, tgt, mapping } => cmd_check(&src, &tgt, &mapping, verbose),
+        Command::Lift {
+            migration,
+            src_schema,
+            tgt_schema,
+            record,
+            direction,
+            instance_type,
+        } => cmd_lift(
+            &migration,
+            &src_schema,
+            &tgt_schema,
+            &record,
+            &direction,
+            &instance_type,
+            verbose,
+        ),
+        Command::Integrate {
+            left,
+            right,
+            auto_overlap,
+            json,
+        } => cmd_integrate(&left, &right, auto_overlap, json, verbose),
+        Command::AutoMigrate {
+            old,
+            new,
+            monic,
+            json,
+        } => cmd_auto_migrate(&old, &new, monic, json, verbose),
+        _ => unreachable!(),
     }
 }
 
@@ -886,6 +965,8 @@ fn cmd_lift(
     src_schema_path: &Path,
     tgt_schema_path: &Path,
     record_path: &Path,
+    direction: &str,
+    instance_type: &str,
     verbose: bool,
 ) -> Result<()> {
     let migration: Migration = load_json(migration_path)?;
@@ -893,7 +974,7 @@ fn cmd_lift(
 
     if verbose {
         eprintln!(
-            "Lifting record through migration ({} vertex mappings)",
+            "Lifting record through migration ({} vertex mappings, direction: {direction}, instance_type: {instance_type})",
             migration.vertex_map.len()
         );
     }
@@ -904,6 +985,14 @@ fn cmd_lift(
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration)
         .into_diagnostic()
         .wrap_err("failed to compile migration")?;
+
+    match instance_type {
+        "functor" => {
+            return cmd_lift_functor(&compiled, &record_json, direction);
+        }
+        "wtype" => {}
+        other => miette::bail!("unknown instance type: {other:?}. Use: wtype or functor"),
+    }
 
     let root_vertex = {
         let domain_vertices: std::collections::BTreeSet<&Name> =
@@ -934,9 +1023,18 @@ fn cmd_lift(
         );
     }
 
-    let lifted = mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance)
-        .into_diagnostic()
-        .wrap_err("lift operation failed")?;
+    let lifted = match direction {
+        "restrict" => mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance)
+            .into_diagnostic()
+            .wrap_err("lift (restrict / `Delta_F`) operation failed")?,
+        "sigma" => mig::lift_wtype_sigma(&compiled, &tgt_schema, &instance)
+            .into_diagnostic()
+            .wrap_err("lift (`Sigma_F`) operation failed")?,
+        "pi" => mig::lift_wtype_pi(&compiled, &tgt_schema, &instance, 10_000)
+            .into_diagnostic()
+            .wrap_err("lift (`Pi_F`) operation failed")?,
+        other => miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi"),
+    };
 
     let output = inst::to_json(&tgt_schema, &lifted);
     let pretty = serde_json::to_string_pretty(&output)
@@ -944,6 +1042,174 @@ fn cmd_lift(
         .wrap_err("failed to serialize output")?;
 
     println!("{pretty}");
+    Ok(())
+}
+
+fn cmd_lift_functor(
+    compiled: &inst::CompiledMigration,
+    record_json: &serde_json::Value,
+    direction: &str,
+) -> Result<()> {
+    let instance: inst::FInstance = serde_json::from_value(record_json.clone())
+        .into_diagnostic()
+        .wrap_err("failed to parse record as functor instance")?;
+
+    let lifted = match direction {
+        "restrict" => mig::lift_functor(compiled, &instance)
+            .into_diagnostic()
+            .wrap_err("lift functor (restrict / `Delta_F`) operation failed")?,
+        "sigma" => inst::functor_extend(&instance, compiled)
+            .into_diagnostic()
+            .wrap_err("lift functor (`Sigma_F`) operation failed")?,
+        "pi" => mig::lift_functor_pi(compiled, &instance, 10_000)
+            .into_diagnostic()
+            .wrap_err("lift functor (`Pi_F`) operation failed")?,
+        other => miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi"),
+    };
+
+    let output = serde_json::to_string_pretty(&lifted)
+        .into_diagnostic()
+        .wrap_err("failed to serialize output")?;
+    println!("{output}");
+    Ok(())
+}
+
+fn cmd_auto_migrate(
+    old_path: &Path,
+    new_path: &Path,
+    monic: bool,
+    json: bool,
+    verbose: bool,
+) -> Result<()> {
+    let old_schema: Schema = load_json(old_path)?;
+    let new_schema: Schema = load_json(new_path)?;
+
+    if verbose {
+        eprintln!(
+            "Searching for morphism: {} vertices -> {} vertices{}",
+            old_schema.vertex_count(),
+            new_schema.vertex_count(),
+            if monic { " (monic)" } else { "" }
+        );
+    }
+
+    let opts = mig::SearchOptions {
+        monic,
+        ..mig::SearchOptions::default()
+    };
+
+    let best = mig::find_best_morphism(&old_schema, &new_schema, &opts);
+    let Some(found) = best else {
+        miette::bail!("no valid morphism found between the two schemas");
+    };
+
+    if json {
+        let migration = mig::hom_search::morphism_to_migration(&found);
+        let output = serde_json::to_string_pretty(&migration)
+            .into_diagnostic()
+            .wrap_err("failed to serialize migration")?;
+        println!("{output}");
+    } else {
+        println!("Found morphism (quality: {:.3}):\n", found.quality);
+        println!("Vertex map:");
+        let mut vertex_entries: Vec<_> = found.vertex_map.iter().collect();
+        vertex_entries.sort_by_key(|(k, _)| k.as_str());
+        for (src, tgt) in &vertex_entries {
+            println!("  {src} -> {tgt}");
+        }
+        if !found.edge_map.is_empty() {
+            println!("\nEdge map:");
+            for (src_e, tgt_e) in &found.edge_map {
+                let src_label = src_e.name.as_deref().unwrap_or("");
+                let tgt_label = tgt_e.name.as_deref().unwrap_or("");
+                println!(
+                    "  {}->{} ({}) {src_label} -> {}->{} ({}) {tgt_label}",
+                    src_e.src, src_e.tgt, src_e.kind, tgt_e.src, tgt_e.tgt, tgt_e.kind
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_integrate(
+    left_path: &Path,
+    right_path: &Path,
+    auto_overlap: bool,
+    json: bool,
+    verbose: bool,
+) -> Result<()> {
+    use panproto_core::schema::{SchemaOverlap, schema_pushout};
+
+    let left: Schema = load_json(left_path)?;
+    let right: Schema = load_json(right_path)?;
+
+    if verbose {
+        eprintln!(
+            "Integrating schemas: {} vertices / {} edges vs {} vertices / {} edges",
+            left.vertex_count(),
+            left.edge_count(),
+            right.vertex_count(),
+            right.edge_count()
+        );
+    }
+
+    let overlap = if auto_overlap {
+        let o = mig::discover_overlap(&left, &right);
+        if verbose {
+            eprintln!(
+                "Discovered overlap: {} vertex pairs, {} edge pairs",
+                o.vertex_pairs.len(),
+                o.edge_pairs.len()
+            );
+        }
+        o
+    } else {
+        SchemaOverlap::default()
+    };
+
+    let (pushout, left_morphism, right_morphism) = schema_pushout(&left, &right, &overlap)
+        .into_diagnostic()
+        .wrap_err("schema pushout failed")?;
+
+    if json {
+        let output = serde_json::to_string_pretty(&pushout)
+            .into_diagnostic()
+            .wrap_err("failed to serialize pushout schema")?;
+        println!("{output}");
+    } else {
+        println!(
+            "Integrated schema: {} vertices, {} edges",
+            pushout.vertex_count(),
+            pushout.edge_count()
+        );
+        println!(
+            "  Left input:  {} vertices, {} edges",
+            left.vertex_count(),
+            left.edge_count()
+        );
+        println!(
+            "  Right input: {} vertices, {} edges",
+            right.vertex_count(),
+            right.edge_count()
+        );
+
+        println!("\nLeft morphism (left -> pushout):");
+        let mut left_entries: Vec<_> = left_morphism.vertex_map.iter().collect();
+        left_entries.sort_by_key(|(k, _)| k.as_str());
+        for (src, tgt) in &left_entries {
+            println!("  {src} -> {tgt}");
+        }
+
+        println!("\nRight morphism (right -> pushout):");
+        let mut right_entries: Vec<_> = right_morphism.vertex_map.iter().collect();
+        right_entries.sort_by_key(|(k, _)| k.as_str());
+        for (src, tgt) in &right_entries {
+            println!("  {src} -> {tgt}");
+        }
+    }
+
     Ok(())
 }
 
@@ -1116,6 +1382,7 @@ struct DiffOptions {
     name_status: bool,
     staged: bool,
     verbose: bool,
+    detect_renames: bool,
 }
 
 fn cmd_diff(old_path: Option<&Path>, new_path: Option<&Path>, opts: &DiffOptions) -> Result<()> {
@@ -1125,6 +1392,7 @@ fn cmd_diff(old_path: Option<&Path>, new_path: Option<&Path>, opts: &DiffOptions
         name_status,
         staged,
         verbose,
+        detect_renames,
     } = *opts;
     if staged {
         // Diff staged schema vs HEAD.
@@ -1168,6 +1436,9 @@ fn cmd_diff(old_path: Option<&Path>, new_path: Option<&Path>, opts: &DiffOptions
             name_only,
             name_status,
         );
+        if detect_renames {
+            print_detected_renames(&old_schema, &new_schema);
+        }
         return Ok(());
     }
 
@@ -1198,7 +1469,35 @@ fn cmd_diff(old_path: Option<&Path>, new_path: Option<&Path>, opts: &DiffOptions
         name_only,
         name_status,
     );
+    if detect_renames {
+        print_detected_renames(&old_schema, &new_schema);
+    }
     Ok(())
+}
+
+/// Print detected vertex and edge renames between two schemas.
+fn print_detected_renames(old_schema: &Schema, new_schema: &Schema) {
+    let vertex_renames = vcs::rename_detect::detect_vertex_renames(old_schema, new_schema, 0.3);
+    let edge_renames = vcs::rename_detect::detect_edge_renames(old_schema, new_schema, 0.3);
+
+    if vertex_renames.is_empty() && edge_renames.is_empty() {
+        println!("\nNo renames detected.");
+        return;
+    }
+
+    println!("\nDetected renames:");
+    for r in &vertex_renames {
+        println!(
+            "  vertex {} -> {} (confidence: {:.2})",
+            r.rename.old, r.rename.new, r.confidence
+        );
+    }
+    for r in &edge_renames {
+        println!(
+            "  edge {} -> {} (confidence: {:.2})",
+            r.rename.old, r.rename.new, r.confidence
+        );
+    }
 }
 
 fn print_diff(
