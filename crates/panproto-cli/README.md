@@ -18,13 +18,31 @@ cargo install panproto-cli
 # Validate a schema against a protocol
 schema validate --protocol atproto schema.json
 
-# Diff two schemas
+# Diff two schemas (use --theory for sort/op/equation-level diff)
 schema diff old.json new.json
+schema diff --theory old.json new.json
+
+# Check a migration (use --typecheck for GAT-level validation)
+schema check --src old.json --tgt new.json --mapping mig.json
+schema check --src old.json --tgt new.json --mapping mig.json --typecheck
+
+# Type-check a migration at the GAT level
+schema typecheck --src old.json --tgt new.json --migration mig.json
+
+# Verify a schema satisfies its protocol theory's equations
+schema verify --protocol atproto schema.json
+
+# Generate minimal test data from a protocol theory
+schema scaffold --protocol atproto schema.json --depth 3
+
+# Simplify a schema by merging equivalent elements
+schema normalize --protocol atproto schema.json --identify "A=B,C=D"
 
 # Initialize a schema repository and commit
 schema init
 schema add schema.json
 schema commit -m "initial schema"
+schema commit -m "initial schema" --skip-verify  # bypass GAT checks
 
 # Branch, evolve, merge
 schema branch feature
@@ -33,6 +51,7 @@ schema add schema-v2.json
 schema commit -m "add field"
 schema checkout main
 schema merge feature
+schema merge feature --verbose  # show pullback overlap details
 
 # Lift a record through a migration
 schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json record.json
@@ -42,20 +61,24 @@ schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json rec
 
 | Command | Description |
 |---------|-------------|
-| `validate` | Validate a schema file against a protocol |
-| `check` | Check existence conditions for a migration |
-| `diff` | Diff two schemas and report structural changes |
+| `validate` | Validate a schema file against a protocol (also type-checks the protocol theory) |
+| `check` | Check existence conditions for a migration (`--typecheck` to also GAT-validate the morphism) |
+| `diff` | Diff two schemas and report structural changes (`--theory` to show sort/op/equation-level diff) |
 | `lift` | Apply a migration to a record |
+| `scaffold` | Generate minimal test data from a protocol theory via free model construction |
+| `normalize` | Simplify a schema by merging equivalent elements via quotient |
+| `typecheck` | Type-check a migration between two schemas at the GAT level |
+| `verify` | Verify a schema satisfies its protocol theory's equations by model checking |
 | `init` | Initialize a `.panproto/` repository |
 | `add` | Stage a schema for the next commit |
-| `commit` | Commit staged changes |
+| `commit` | Commit staged changes (`--skip-verify` to bypass GAT equation verification) |
 | `status` | Show working state |
 | `log` | Walk commit history |
 | `show` | Inspect an object |
 | `branch` | Create, list, or delete branches |
 | `tag` | Create, list, or delete tags |
 | `checkout` | Switch branch or detach HEAD |
-| `merge` | Three-way schema merge |
+| `merge` | Three-way schema merge (`--verbose` to show pullback overlap detection details) |
 | `rebase` | Replay commits onto another branch |
 | `cherry-pick` | Apply a single commit's migration |
 | `reset` | Move HEAD / unstage / restore |

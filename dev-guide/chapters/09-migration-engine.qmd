@@ -189,6 +189,47 @@ If any condition fails, `invert` returns an `InvertError` identifying the specif
 Inversion requires bijectivity. A migration that drops vertices or contracts edges is not invertible. Use the lens system (Chapter 10) when you need round-trip transformations for non-bijective mappings.
 :::
 
+## Type-Checked Migration Derivation
+
+When the VCS `schema add` command auto-derives a migration from a schema diff, the derived migration undergoes GAT-level validation before it is staged. This validation is performed by the `gat_validate` module in `panproto-vcs`, which checks two properties of the derived migration:
+
+### Migration Structure Validation
+
+The `validate_migration` function inspects the derived migration's vertex and edge maps for structural coherence:
+
+- **Non-empty vertex map**: a migration that maps zero vertices is flagged with a warning (it may indicate the diff algorithm failed to match vertices across schema versions).
+- **Edge endpoint coherence**: for each mapped edge `(old_edge -> new_edge)`, the function verifies that the new edge's source and target vertices are in the vertex map's image. If an edge maps to endpoints that are not themselves mapped, the migration may be inconsistent.
+
+These checks produce warnings (stored in `GatDiagnostics::migration_warnings`) rather than hard errors, because some legitimate migrations intentionally drop vertices while retaining edges to surviving neighbors.
+
+### Theory Equation Validation
+
+The `validate_theory_equations` function runs `typecheck_theory` on the protocol's schema theory. This catches malformed equations that could arise from theory composition or inheritance. The `validate_schema_equations` function goes further: it builds a model from the schema and runs `check_model_with_options` to verify that the schema satisfies the protocol theory's equations.
+
+If either check finds errors, the staging pipeline marks the migration as `ValidationStatus::Invalid` and populates the `gat_diagnostics` field of the staged schema. The subsequent `schema commit` will be blocked unless `--skip-verify` is passed.
+
+### Integration with auto_mig
+
+The `auto_mig::derive_migration` function produces a `Migration` struct from a schema diff. The VCS `Repository::add` method calls this function, then immediately runs GAT validation on the result:
+
+```
+schema diff → auto_mig::derive_migration → gat_validate::validate_migration → stage
+```
+
+If the auto-derived migration maps very few vertices (less than half of the old schema's vertices), the pipeline falls back to `find_best_morphism` from `panproto-mig`'s homomorphism search, which uses a more expensive but more thorough algorithm to find the best vertex correspondence.
+
+## Natural Transformation Coherence in compose_path
+
+When the VCS merge algorithm composes migration paths through different branch histories, it must verify that the composed path is coherent -- that is, that the natural transformation between the composed morphisms satisfies the naturality condition.
+
+The `check_natural_transformation` function from `panproto-gat` is used at two points in the merge pipeline:
+
+1. **Three-way merge verification**: after computing the merged schema, the merge algorithm constructs natural transformations from the "ours" and "theirs" migration morphisms to the merge result. These transformations must be natural (commute with all operations) for the merge to be semantically correct.
+
+2. **Rebase coherence**: when rebasing a chain of commits onto a new base, each replayed commit's migration is composed with the base migration. The `vertical_compose` function chains the natural transformations, and `check_natural_transformation` validates each composed result.
+
+The merge result struct includes a `pullback_overlap` field that reports the pullback of the two branch theories over the merge base theory. Non-empty overlap indicates shared structure that both branches modified, which requires careful reconciliation. The pullback computation uses the `pullback` function from `panproto-gat`.
+
 ## Relationship to Category Theory
 
 The migration pipeline implements the categorical notion of a *graph morphism* between C-sets (copresheaf instances) over a schema theory [@spivak2012]. Existence checking validates the naturality conditions of this morphism---the requirement that the mapping commutes with the schema's operations. Compilation pre-evaluates the action on objects. Lifting is the functorial action on instances (the pushforward along the schema morphism).

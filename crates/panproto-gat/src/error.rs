@@ -79,4 +79,112 @@ pub enum GatError {
     /// Model interpretation error.
     #[error("model error: {0}")]
     ModelError(String),
+
+    // --- Type-checking errors ---
+    /// A variable was not found in the typing context.
+    #[error("unbound variable: {0}")]
+    UnboundVariable(String),
+
+    /// An operation was applied to the wrong number of arguments.
+    #[error("arity mismatch for operation {op}: expected {expected} args, got {got}")]
+    TermArityMismatch {
+        /// The operation name.
+        op: String,
+        /// Expected number of arguments.
+        expected: usize,
+        /// Actual number of arguments.
+        got: usize,
+    },
+
+    /// An argument's sort doesn't match the operation's expected input sort.
+    #[error("type mismatch for {op} argument {arg_index}: expected {expected}, got {got}")]
+    ArgTypeMismatch {
+        /// The operation name.
+        op: String,
+        /// Zero-based argument index.
+        arg_index: usize,
+        /// Expected sort name.
+        expected: String,
+        /// Actual sort name.
+        got: String,
+    },
+
+    /// The two sides of an equation have different sorts.
+    #[error("equation {equation} sides have different sorts: lhs={lhs_sort}, rhs={rhs_sort}")]
+    EquationSortMismatch {
+        /// The equation name.
+        equation: String,
+        /// Sort of the left-hand side.
+        lhs_sort: String,
+        /// Sort of the right-hand side.
+        rhs_sort: String,
+    },
+
+    /// A variable is used at conflicting sorts across an equation.
+    #[error("variable {var} used at conflicting sorts: {sort1} and {sort2}")]
+    ConflictingVarSort {
+        /// The variable name.
+        var: String,
+        /// First inferred sort.
+        sort1: String,
+        /// Second (conflicting) inferred sort.
+        sort2: String,
+    },
+
+    // --- Natural transformation errors ---
+    /// Source and target morphisms of a natural transformation have different domains.
+    #[error(
+        "natural transformation domain mismatch: {source_morphism} and {target_morphism} have different domains"
+    )]
+    NatTransDomainMismatch {
+        /// Source morphism name.
+        source_morphism: String,
+        /// Target morphism name.
+        target_morphism: String,
+    },
+
+    /// A natural transformation is missing a component for a sort.
+    #[error("missing natural transformation component for sort: {0}")]
+    MissingNatTransComponent(String),
+
+    /// A natural transformation component is invalid.
+    #[error("invalid natural transformation component for sort {sort}: {detail}")]
+    NatTransComponentInvalid {
+        /// The sort name.
+        sort: String,
+        /// Details about the invalidity.
+        detail: String,
+    },
+
+    /// The naturality condition is violated for an operation.
+    #[error("naturality violated for operation {op}")]
+    NaturalityViolation {
+        /// The operation where naturality fails.
+        op: String,
+        /// LHS of the naturality square.
+        lhs: String,
+        /// RHS of the naturality square.
+        rhs: String,
+    },
+
+    /// Natural transformation composition mismatch.
+    #[error("cannot compose: alpha target {alpha_target} != beta source {beta_source}")]
+    NatTransComposeMismatch {
+        /// Target morphism of first nat trans.
+        alpha_target: String,
+        /// Source morphism of second nat trans.
+        beta_source: String,
+    },
+
+    // --- Quotient errors ---
+    /// Identified elements are incompatible for quotienting.
+    #[error("cannot identify {name_a} and {name_b}: {detail}")]
+    QuotientIncompatible {
+        /// First element name.
+        name_a: String,
+        /// Second element name.
+        name_b: String,
+        /// Reason for incompatibility.
+        detail: String,
+    },
 }

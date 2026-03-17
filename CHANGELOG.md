@@ -4,6 +4,60 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added — GAT Engine Completeness
+
+- **panproto-gat**: `typecheck` module — `typecheck_term`, `typecheck_equation`, `typecheck_theory`, `infer_var_sorts` for recursive type-checking of GAT terms and equations with sort inference from operation application sites
+- **panproto-gat**: `check_model` module — `check_model`, `check_model_with_options` for verifying that a model satisfies a theory's equations by enumerating variable assignments over carrier sets (with configurable `max_assignments` bound)
+- **panproto-gat**: `pullback` module — `pullback()` computes the categorical pullback (intersection) of two theories over a common codomain, returning projection morphisms; used in merge overlap detection
+- **panproto-gat**: `nat_transform` module — `NaturalTransformation`, `check_natural_transformation`, `vertical_compose`, `horizontal_compose` for constructing and validating morphisms between theory morphisms
+- **panproto-gat**: `free_model` module — `free_model()` constructs the initial model of a theory by enumerating closed terms up to configurable depth, then quotienting by equations via union-find
+- **panproto-gat**: `quotient` module — `quotient()` simplifies a theory by identifying sorts/operations, with transitive closure, arity/signature compatibility checks, and equation deduplication
+- **panproto-gat**: New error variants for type-checking, natural transformations, and quotient operations
+
+### Added — Acset Parameterization
+
+- **panproto-inst**: `AcsetOps` trait unifying `WInstance`, `FInstance`, and `GInstance` with `restrict`, `extend`, `element_count`, `shape_name` methods
+- **panproto-inst**: `GInstance` graph-shaped instances with `graph_restrict` and `graph_extend` operations
+- **panproto-inst**: `Instance` enum updated to dispatch restrict/extend via `AcsetOps` trait for all three shapes
+
+### Added — VCS Integration
+
+- **panproto-vcs**: `gat_validate` module — `validate_migration` checks vertex/edge map structural coherence against source and target schemas; `validate_theory_equations` type-checks theory equations; `validate_schema_equations` runs bounded model checking
+- **panproto-vcs**: `GatDiagnostics` struct stored in `StagedSchema` during `add` — carries type errors, equation errors, and migration warnings through the staging pipeline
+- **panproto-vcs**: `CommitOptions` with `skip_verify` flag — `commit_with_options` blocks commits when GAT diagnostics have errors unless `skip_verify` is set
+- **panproto-vcs**: Pullback-enhanced merge — `three_way_merge` computes `PullbackOverlap` to detect shared substructure between branches, suppressing false-positive conflicts on independently-added vertices that share common origin
+- **panproto-vcs**: `compose_path_with_coherence` — composition drift detection comparing the sequentially composed migration against a directly derived end-to-end migration via `auto_mig::derive_migration`, with natural transformation naturality checking when sort maps agree
+
+### Added — CLI Commands
+
+- **panproto-cli**: `schema scaffold` — generate minimal test data from a protocol theory using free model construction (`--depth`, `--max-terms`, `--json`)
+- **panproto-cli**: `schema normalize` — simplify a schema by merging equivalent elements via theory quotient (`--identify A=B`, `--json`)
+- **panproto-cli**: `schema typecheck` — type-check a migration between two schemas at the GAT level (`--src`, `--tgt`, `--migration`)
+- **panproto-cli**: `schema verify` — verify that a schema satisfies its protocol theory's equations (`--max-assignments`)
+
+### Changed — CLI Enhancements
+
+- **panproto-cli**: `schema validate` now also type-checks protocol theory equations
+- **panproto-cli**: `schema check --typecheck` flag for GAT-level migration morphism validation
+- **panproto-cli**: `schema commit --skip-verify` flag to bypass GAT equation verification
+- **panproto-cli**: `schema merge --verbose` flag shows pullback-based overlap detection details
+- **panproto-cli**: `schema diff --theory` flag shows theory-level diff (sorts and operations)
+
+### Documentation
+
+- Tutorial chapter 3 updated: machine-checked equations section
+- Tutorial chapter 13 updated: type-checking during add, `--skip-verify`, pullback-enhanced merge
+- Tutorial chapter 14 updated: equations verified at commit time
+- Tutorial chapter 17 updated: GAT-validated auto-migration
+- Tutorial chapter 18 (new): "Testing with Generated Data" — `schema scaffold` walkthrough
+- Tutorial chapter 19 (new): "Simplifying Schemas" — `schema normalize` walkthrough
+- Dev guide chapter 6 updated: type-checking, model checking, pullbacks, natural transformations, free models, quotient theories
+- Dev guide chapter 8 updated: `AcsetOps` trait section
+- Dev guide chapter 9 updated: type-checked migration derivation, natural transformation coherence
+- Dev guide chapter 15 updated: all new commands and flags
+- Dev guide chapter 25 (new): "Type-Checking Pipeline" — flow from GAT to VCS to CLI
+- README updates: safety guarantees section, new API tables (panproto-gat, panproto-vcs, panproto-cli)
+
 ## [0.5.1] - 2026-03-17
 
 ### Fixed

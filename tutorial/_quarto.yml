@@ -53,6 +53,8 @@ book:
     - part: "Automation"
       chapters:
         - chapters/17-automatic-migration.qmd
+        - chapters/18-testing-with-generated-data.qmd
+        - chapters/19-simplifying-schemas.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-category-theory-cheatsheet.qmd

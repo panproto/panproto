@@ -66,6 +66,79 @@ enum Command {
         /// Path to the migration mapping JSON file.
         #[arg(long)]
         mapping: PathBuf,
+
+        /// Also type-check the migration morphism at the GAT level.
+        #[arg(long)]
+        typecheck: bool,
+    },
+
+    /// Generate minimal test data from a protocol theory using free model construction.
+    Scaffold {
+        /// The protocol name (e.g., "atproto").
+        #[arg(long)]
+        protocol: String,
+
+        /// Path to the schema JSON file.
+        schema: PathBuf,
+
+        /// Maximum term generation depth (default: 3).
+        #[arg(long, default_value = "3")]
+        depth: usize,
+
+        /// Maximum terms per sort (default: 1000).
+        #[arg(long, default_value = "1000")]
+        max_terms: usize,
+
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Simplify a schema by merging equivalent elements.
+    Normalize {
+        /// The protocol name (e.g., "atproto").
+        #[arg(long)]
+        protocol: String,
+
+        /// Path to the schema JSON file.
+        schema: PathBuf,
+
+        /// Pairs of elements to identify, as "A=B".
+        #[arg(long = "identify", value_delimiter = ',')]
+        identifications: Vec<String>,
+
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Type-check a migration between two schemas at the GAT level.
+    Typecheck {
+        /// Path to the source schema JSON file.
+        #[arg(long)]
+        src: PathBuf,
+
+        /// Path to the target schema JSON file.
+        #[arg(long)]
+        tgt: PathBuf,
+
+        /// Path to the migration mapping JSON file.
+        #[arg(long)]
+        migration: PathBuf,
+    },
+
+    /// Verify that a schema satisfies its protocol theory's equations.
+    Verify {
+        /// The protocol name (e.g., "atproto").
+        #[arg(long)]
+        protocol: String,
+
+        /// Path to the schema JSON file.
+        schema: PathBuf,
+
+        /// Maximum assignments to check per equation (default: 10000).
+        #[arg(long, default_value = "10000")]
+        max_assignments: usize,
     },
 
     // -- VCS commands --
@@ -111,6 +184,10 @@ enum Command {
         /// Allow creating a commit with no changes.
         #[arg(long)]
         allow_empty: bool,
+
+        /// Skip GAT equation verification.
+        #[arg(long)]
+        skip_verify: bool,
     },
 
     /// Show repository status.
@@ -186,6 +263,10 @@ enum Command {
         /// Detect likely renames between schemas.
         #[arg(long)]
         detect_renames: bool,
+
+        /// Show theory-level diff (sorts, operations, equations).
+        #[arg(long)]
+        theory: bool,
     },
 
     /// Inspect a commit, schema, or migration object.
@@ -304,6 +385,10 @@ enum Command {
         /// Custom merge commit message.
         #[arg(short = 'm', long)]
         message: Option<String>,
+
+        /// Show pullback-based overlap detection details.
+        #[arg(short = 'v', long)]
+        verbose: bool,
     },
 
     /// Replay current branch onto another.
@@ -591,7 +676,11 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
         | Command::Check { .. }
         | Command::Lift { .. }
         | Command::Integrate { .. }
-        | Command::AutoMigrate { .. }) => dispatch_schema_commands(command, verbose),
+        | Command::AutoMigrate { .. }
+        | Command::Scaffold { .. }
+        | Command::Normalize { .. }
+        | Command::Typecheck { .. }
+        | Command::Verify { .. }) => dispatch_schema_commands(command, verbose),
 
         // Core VCS commands.
         Command::Init {
@@ -608,7 +697,8 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             author,
             amend,
             allow_empty,
-        } => cmd_commit(&message, &author, amend, allow_empty),
+            skip_verify,
+        } => cmd_commit(&message, &author, amend, allow_empty, skip_verify),
         Command::Status {
             short,
             porcelain,
@@ -639,6 +729,7 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             name_status,
             staged,
             detect_renames,
+            theory,
         } => cmd_diff(
             old.as_deref(),
             new.as_deref(),
@@ -649,6 +740,7 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
                 staged,
                 verbose,
                 detect_renames,
+                theory,
             },
         ),
         Command::Show {
@@ -680,11 +772,39 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
     }
 }
 
-/// Dispatch schema tool commands (validate, check, lift, auto-migrate).
+/// Dispatch schema tool commands (validate, check, lift, auto-migrate, scaffold, etc.).
 fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
     match command {
         Command::Validate { protocol, schema } => cmd_validate(&protocol, &schema, verbose),
-        Command::Check { src, tgt, mapping } => cmd_check(&src, &tgt, &mapping, verbose),
+        Command::Check {
+            src,
+            tgt,
+            mapping,
+            typecheck,
+        } => cmd_check(&src, &tgt, &mapping, verbose, typecheck),
+        Command::Scaffold {
+            protocol,
+            schema,
+            depth,
+            max_terms,
+            json,
+        } => cmd_scaffold(&protocol, &schema, depth, max_terms, json, verbose),
+        Command::Normalize {
+            protocol,
+            schema,
+            identifications,
+            json,
+        } => cmd_normalize(&protocol, &schema, &identifications, json, verbose),
+        Command::Typecheck {
+            src,
+            tgt,
+            migration,
+        } => cmd_typecheck(&src, &tgt, &migration, verbose),
+        Command::Verify {
+            protocol,
+            schema,
+            max_assignments,
+        } => cmd_verify(&protocol, &schema, max_assignments, verbose),
         Command::Lift {
             migration,
             src_schema,
@@ -766,6 +886,7 @@ fn dispatch_branch_commands(command: Command) -> Result<()> {
             squash,
             abort,
             message,
+            verbose,
         } => cmd_merge(&MergeCmdOptions {
             branch: branch.as_deref(),
             author: &author,
@@ -775,6 +896,7 @@ fn dispatch_branch_commands(command: Command) -> Result<()> {
             squash,
             abort,
             message: message.as_deref(),
+            verbose,
         }),
         _ => unreachable!(),
     }
@@ -898,19 +1020,45 @@ fn cmd_validate(protocol_name: &str, schema_path: &Path, verbose: bool) -> Resul
 
     let errors = panproto_core::schema::validate(&schema, &protocol);
 
-    if errors.is_empty() {
-        println!("Schema is valid.");
-        Ok(())
-    } else {
+    if !errors.is_empty() {
         println!("Validation found {} error(s):", errors.len());
         for (i, err) in errors.iter().enumerate() {
             println!("  {}. {err}", i + 1);
         }
         miette::bail!("schema validation failed with {} error(s)", errors.len());
     }
+
+    // Also type-check the protocol's theory equations.
+    let theory_registry = build_theory_registry(protocol_name)?;
+    let mut type_errors = Vec::new();
+    for (name, theory) in &theory_registry {
+        let diag = vcs::gat_validate::validate_theory_equations(theory);
+        if diag.has_errors() {
+            for e in diag.all_errors() {
+                type_errors.push(format!("theory '{name}': {e}"));
+            }
+        }
+    }
+
+    if type_errors.is_empty() {
+        println!("Schema is valid. Theory type-check: OK.");
+    } else {
+        println!("Schema is valid but theory type-check found issues:");
+        for e in &type_errors {
+            println!("  {e}");
+        }
+    }
+
+    Ok(())
 }
 
-fn cmd_check(src_path: &Path, tgt_path: &Path, mapping_path: &Path, verbose: bool) -> Result<()> {
+fn cmd_check(
+    src_path: &Path,
+    tgt_path: &Path,
+    mapping_path: &Path,
+    verbose: bool,
+    typecheck: bool,
+) -> Result<()> {
     let src_schema: Schema = load_json(src_path)?;
     let tgt_schema: Schema = load_json(tgt_path)?;
     let migration: Migration = load_json(mapping_path)?;
@@ -940,6 +1088,24 @@ fn cmd_check(src_path: &Path, tgt_path: &Path, mapping_path: &Path, verbose: boo
         println!("Migration check found {} error(s):", report.errors.len());
         for (i, err) in report.errors.iter().enumerate() {
             println!("  {}. {err}", i + 1);
+        }
+    }
+
+    // GAT-level type-checking of the migration morphism.
+    if typecheck {
+        let diag = vcs::gat_validate::validate_migration(&src_schema, &tgt_schema, &migration);
+        if diag.is_clean() && diag.migration_warnings.is_empty() {
+            println!("Migration type-check: OK");
+        } else {
+            for w in &diag.migration_warnings {
+                println!("  warning: {w}");
+            }
+            for e in &diag.all_errors() {
+                println!("  error: {e}");
+            }
+            if diag.has_errors() {
+                miette::bail!("migration type-check failed");
+            }
         }
     }
 
@@ -1213,6 +1379,476 @@ fn cmd_integrate(
     Ok(())
 }
 
+fn cmd_scaffold(
+    protocol_name: &str,
+    schema_path: &Path,
+    depth: usize,
+    max_terms: usize,
+    json: bool,
+    verbose: bool,
+) -> Result<()> {
+    let schema: Schema = load_json(schema_path)?;
+    let theory_registry = build_theory_registry(protocol_name)?;
+
+    if verbose {
+        eprintln!(
+            "Scaffolding test data for schema ({} vertices, {} edges), depth={depth}, max_terms={max_terms}",
+            schema.vertex_count(),
+            schema.edge_count(),
+        );
+    }
+
+    let config = panproto_core::gat::FreeModelConfig {
+        max_depth: depth,
+        max_terms_per_sort: max_terms,
+    };
+
+    // Build a model seeded from the schema's actual structure.
+    // Map schema vertex IDs as carrier elements for "Vertex"-like sorts,
+    // and schema edges as carrier elements for "Edge"-like sorts.
+    let vertex_ids: Vec<String> = schema.vertices.keys().map(ToString::to_string).collect();
+    let edge_strs: Vec<String> = schema
+        .edges
+        .keys()
+        .map(|e| {
+            let label = e.name.as_deref().unwrap_or("");
+            format!("{}→{} {label}", e.src, e.tgt)
+        })
+        .collect();
+
+    for (name, theory) in &theory_registry {
+        // Build a free model from the theory to get the abstract structure.
+        let model = panproto_core::gat::free_model(theory, &config)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("free model construction failed for theory '{name}'"))?;
+
+        if json {
+            // Merge free model carriers with schema elements for richer output.
+            let mut carriers: HashMap<String, Vec<String>> = HashMap::new();
+
+            for (sort, values) in &model.sort_interp {
+                let mut sort_values: Vec<String> =
+                    values.iter().map(|v| format!("{v:?}")).collect();
+
+                // Augment with schema data when the sort name suggests vertices/edges.
+                let sort_lower = sort.to_lowercase();
+                if sort_lower.contains("vertex")
+                    || sort_lower.contains("node")
+                    || sort_lower.contains("object")
+                {
+                    for vid in &vertex_ids {
+                        sort_values.push(format!("Str(\"{vid}\")"));
+                    }
+                } else if sort_lower.contains("edge")
+                    || sort_lower.contains("arrow")
+                    || sort_lower.contains("morphism")
+                {
+                    for estr in &edge_strs {
+                        sort_values.push(format!("Str(\"{estr}\")"));
+                    }
+                }
+
+                carriers.insert(sort.clone(), sort_values);
+            }
+
+            let output = serde_json::to_string_pretty(&carriers)
+                .into_diagnostic()
+                .wrap_err("failed to serialize scaffold")?;
+            println!("{output}");
+        } else {
+            println!("Theory '{name}':");
+            println!(
+                "  schema: {} vertices, {} edges",
+                vertex_ids.len(),
+                edge_strs.len()
+            );
+            for (sort, values) in &model.sort_interp {
+                println!("  sort '{sort}': {} element(s)", values.len());
+                if verbose {
+                    for (i, v) in values.iter().enumerate() {
+                        println!("    [{i}] {v:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_normalize(
+    protocol_name: &str,
+    schema_path: &Path,
+    identifications: &[String],
+    json: bool,
+    verbose: bool,
+) -> Result<()> {
+    let schema: Schema = load_json(schema_path)?;
+    let theory_registry = build_theory_registry(protocol_name)?;
+
+    if verbose {
+        eprintln!(
+            "Normalizing schema ({} vertices, {} edges)",
+            schema.vertex_count(),
+            schema.edge_count(),
+        );
+    }
+
+    // Validate that identified elements exist in the schema.
+    // Parse identifications: each is "A=B".
+    let mut ident_pairs: Vec<(std::sync::Arc<str>, std::sync::Arc<str>)> = Vec::new();
+    for ident in identifications {
+        let parts: Vec<&str> = ident.split('=').collect();
+        if parts.len() != 2 {
+            miette::bail!("invalid identification '{ident}': expected 'A=B' format");
+        }
+        ident_pairs.push((parts[0].into(), parts[1].into()));
+    }
+
+    if ident_pairs.is_empty() {
+        miette::bail!("at least one --identify pair is required (e.g., --identify A=B)");
+    }
+
+    // Warn if identified names don't appear in the schema as vertices.
+    for (a, b) in &ident_pairs {
+        if !schema.vertices.contains_key(a.as_ref())
+            && !schema
+                .edges
+                .keys()
+                .any(|e| e.name.as_deref() == Some(a.as_ref()))
+        {
+            eprintln!("warning: '{a}' not found as a vertex or edge name in schema");
+        }
+        if !schema.vertices.contains_key(b.as_ref())
+            && !schema
+                .edges
+                .keys()
+                .any(|e| e.name.as_deref() == Some(b.as_ref()))
+        {
+            eprintln!("warning: '{b}' not found as a vertex or edge name in schema");
+        }
+    }
+
+    for (name, theory) in &theory_registry {
+        match panproto_core::gat::quotient(theory, &ident_pairs) {
+            Ok(simplified) => {
+                if json {
+                    let info = serde_json::json!({
+                        "theory": name,
+                        "original_sorts": theory.sorts.len(),
+                        "original_ops": theory.ops.len(),
+                        "simplified_sorts": simplified.sorts.len(),
+                        "simplified_ops": simplified.ops.len(),
+                        "sorts": simplified.sorts.iter().map(|s| s.name.to_string()).collect::<Vec<_>>(),
+                        "operations": simplified.ops.iter().map(|o| o.name.to_string()).collect::<Vec<_>>(),
+                    });
+                    let output = serde_json::to_string_pretty(&info)
+                        .into_diagnostic()
+                        .wrap_err("failed to serialize")?;
+                    println!("{output}");
+                } else {
+                    println!("Theory '{name}':");
+                    println!(
+                        "  {} sorts -> {} sorts",
+                        theory.sorts.len(),
+                        simplified.sorts.len()
+                    );
+                    println!(
+                        "  {} operations -> {} operations",
+                        theory.ops.len(),
+                        simplified.ops.len()
+                    );
+                    if verbose {
+                        println!("  Remaining sorts:");
+                        for sort in simplified.sorts {
+                            println!("    {}", sort.name);
+                        }
+                        println!("  Remaining operations:");
+                        for op in simplified.ops {
+                            println!("    {}", op.name);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("error: cannot normalize theory '{name}': {e}");
+                println!("  hint: check that the identified elements have compatible arities");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_typecheck(
+    src_path: &Path,
+    tgt_path: &Path,
+    migration_path: &Path,
+    verbose: bool,
+) -> Result<()> {
+    let src_schema: Schema = load_json(src_path)?;
+    let tgt_schema: Schema = load_json(tgt_path)?;
+    let migration: Migration = load_json(migration_path)?;
+
+    if verbose {
+        eprintln!(
+            "Type-checking migration: {} vertex mappings, {} edge mappings",
+            migration.vertex_map.len(),
+            migration.edge_map.len()
+        );
+    }
+
+    // Run GAT-level validation.
+    let diag = vcs::gat_validate::validate_migration(&src_schema, &tgt_schema, &migration);
+
+    // Also type-check any protocol theories.
+    let protocol_name = &src_schema.protocol;
+    let theory_diag = build_theory_registry(protocol_name).map_or_else(
+        |_| Vec::new(),
+        |registry| {
+            let mut errors = Vec::new();
+            for (name, theory) in &registry {
+                let td = vcs::gat_validate::validate_theory_equations(theory);
+                for e in td.all_errors() {
+                    errors.push(format!("theory '{name}': {e}"));
+                }
+            }
+            errors
+        },
+    );
+
+    let mut has_errors = false;
+
+    if !diag.migration_warnings.is_empty() {
+        println!("Migration warnings:");
+        for w in &diag.migration_warnings {
+            println!("  warning: {w}");
+        }
+    }
+
+    if diag.has_errors() {
+        has_errors = true;
+        println!("Migration errors:");
+        for e in &diag.all_errors() {
+            println!("  error: {e}");
+        }
+    }
+
+    if !theory_diag.is_empty() {
+        has_errors = true;
+        println!("Theory type-check errors:");
+        for e in &theory_diag {
+            println!("  error: {e}");
+        }
+    }
+
+    if has_errors {
+        miette::bail!("type-check failed");
+    }
+
+    println!("Type-check passed.");
+    Ok(())
+}
+
+/// Build a model from a schema for a given theory.
+///
+/// Maps vertex-like sorts to schema vertex IDs and edge-like sorts to
+/// schema edge representations. Other sorts get a small free model carrier.
+fn build_schema_model(
+    schema: &Schema,
+    name: &str,
+    theory: &panproto_core::gat::Theory,
+) -> panproto_core::gat::Model {
+    use panproto_core::gat::{GatError, ModelValue};
+
+    let mut model = panproto_core::gat::Model::new(name);
+    for sort in &theory.sorts {
+        let sort_lower = sort.name.to_lowercase();
+        let carrier: Vec<ModelValue> = if sort_lower.contains("vertex")
+            || sort_lower.contains("node")
+            || sort_lower.contains("object")
+        {
+            schema
+                .vertices
+                .keys()
+                .map(|k| ModelValue::Str(k.to_string()))
+                .collect()
+        } else if sort_lower.contains("edge")
+            || sort_lower.contains("arrow")
+            || sort_lower.contains("morphism")
+        {
+            schema
+                .edges
+                .keys()
+                .map(|e| {
+                    let label = e.name.as_deref().unwrap_or("");
+                    ModelValue::Str(format!("{}→{} {label}", e.src, e.tgt))
+                })
+                .collect()
+        } else {
+            let config = panproto_core::gat::FreeModelConfig {
+                max_depth: 2,
+                max_terms_per_sort: 100,
+            };
+            panproto_core::gat::free_model(theory, &config).map_or_else(
+                |_| Vec::new(),
+                |fm| {
+                    fm.sort_interp
+                        .get(&sort.name.to_string())
+                        .cloned()
+                        .unwrap_or_default()
+                },
+            )
+        };
+        model.add_sort(sort.name.to_string(), carrier);
+    }
+    for op in &theory.ops {
+        let op_name = op.name.to_string();
+        let arity = op.arity();
+        model.add_op(op_name.clone(), move |args: &[ModelValue]| {
+            if args.len() != arity {
+                return Err(GatError::ModelError(format!(
+                    "operation '{op_name}' expects {arity} args, got {}",
+                    args.len()
+                )));
+            }
+            let arg_strs: Vec<&str> = args
+                .iter()
+                .map(|a| match a {
+                    ModelValue::Str(s) => s.as_str(),
+                    _ => "?",
+                })
+                .collect();
+            Ok(ModelValue::Str(format!(
+                "{op_name}({})",
+                arg_strs.join(", ")
+            )))
+        });
+    }
+    model
+}
+
+fn cmd_verify(
+    protocol_name: &str,
+    schema_path: &Path,
+    max_assignments: usize,
+    verbose: bool,
+) -> Result<()> {
+    let schema: Schema = load_json(schema_path)?;
+    let theory_registry = build_theory_registry(protocol_name)?;
+
+    if verbose {
+        eprintln!(
+            "Verifying schema ({} vertices, {} edges) against {} theories (max_assignments={max_assignments})",
+            schema.vertex_count(),
+            schema.edge_count(),
+            theory_registry.len()
+        );
+    }
+
+    let options = panproto_core::gat::CheckModelOptions { max_assignments };
+    let mut total_violations = 0;
+
+    for (name, theory) in &theory_registry {
+        if let Err(e) = panproto_core::gat::typecheck_theory(theory) {
+            println!("error: theory '{name}' has type errors, skipping equation check\n  --> {e}");
+            continue;
+        }
+
+        let model = build_schema_model(&schema, name, theory);
+
+        match panproto_core::gat::check_model_with_options(&model, theory, &options) {
+            Ok(violations) => {
+                if violations.is_empty() {
+                    println!("Theory '{name}': all equations satisfied.");
+                } else {
+                    total_violations += violations.len();
+                    println!(
+                        "Theory '{name}': {} equation violation(s):",
+                        violations.len()
+                    );
+                    for v in &violations {
+                        let assignment_str: String = v
+                            .assignment
+                            .iter()
+                            .map(|(var, val)| format!("{var}={val:?}"))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        println!(
+                            "  equation '{}' violated when {}: LHS={:?}, RHS={:?}",
+                            v.equation, assignment_str, v.lhs_value, v.rhs_value
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                println!("Theory '{name}': equation check incomplete: {e}");
+            }
+        }
+    }
+
+    if total_violations > 0 {
+        miette::bail!("verification failed with {total_violations} equation violation(s)");
+    }
+
+    println!("Verification passed.");
+    Ok(())
+}
+
+/// Print a theory-level diff between two schemas (sorts/operations at the GAT level).
+fn print_theory_diff(old_schema: &Schema, new_schema: &Schema) {
+    type EdgeKey = (String, String, Option<String>);
+
+    // Treat vertex IDs as sorts and edges as operations.
+    let old_sorts: std::collections::BTreeSet<&str> =
+        old_schema.vertices.keys().map(Name::as_str).collect();
+    let new_sorts: std::collections::BTreeSet<&str> =
+        new_schema.vertices.keys().map(Name::as_str).collect();
+
+    let added_sorts: Vec<&&str> = new_sorts.difference(&old_sorts).collect();
+    let removed_sorts: Vec<&&str> = old_sorts.difference(&new_sorts).collect();
+
+    let edge_key = |e: &panproto_core::schema::Edge| -> EdgeKey {
+        (
+            e.src.to_string(),
+            e.tgt.to_string(),
+            e.name.as_ref().map(ToString::to_string),
+        )
+    };
+    let old_edges: std::collections::BTreeSet<EdgeKey> =
+        old_schema.edges.keys().map(edge_key).collect();
+    let new_edges: std::collections::BTreeSet<EdgeKey> =
+        new_schema.edges.keys().map(edge_key).collect();
+
+    let added_ops: Vec<&EdgeKey> = new_edges.difference(&old_edges).collect();
+    let removed_ops: Vec<&EdgeKey> = old_edges.difference(&new_edges).collect();
+
+    if added_sorts.is_empty()
+        && removed_sorts.is_empty()
+        && added_ops.is_empty()
+        && removed_ops.is_empty()
+    {
+        println!("\nTheory diff: no changes.");
+        return;
+    }
+
+    println!("\nTheory-level diff:");
+    for s in &added_sorts {
+        println!("  + sort {s}");
+    }
+    for s in &removed_sorts {
+        println!("  - sort {s}");
+    }
+    for (src, tgt, name) in &added_ops {
+        let label = name.as_deref().unwrap_or("");
+        println!("  + op {src} -> {tgt} {label}");
+    }
+    for (src, tgt, name) in &removed_ops {
+        let label = name.as_deref().unwrap_or("");
+        println!("  - op {src} -> {tgt} {label}");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // VCS commands
 // ---------------------------------------------------------------------------
@@ -1254,7 +1890,13 @@ fn cmd_add(schema_path: &Path, dry_run: bool, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_commit(message: &str, author: &str, amend: bool, allow_empty: bool) -> Result<()> {
+fn cmd_commit(
+    message: &str,
+    author: &str,
+    amend: bool,
+    allow_empty: bool,
+    skip_verify: bool,
+) -> Result<()> {
     let mut repo = open_repo()?;
     let _ = allow_empty; // placeholder for future use
 
@@ -1265,8 +1907,9 @@ fn cmd_commit(message: &str, author: &str, amend: bool, allow_empty: bool) -> Re
             .wrap_err("failed to amend commit")?;
         println!("[{}] (amended) {message}", commit_id.short());
     } else {
+        let opts = vcs::CommitOptions { skip_verify };
         let commit_id = repo
-            .commit(message, author)
+            .commit_with_options(message, author, &opts)
             .into_diagnostic()
             .wrap_err("failed to commit")?;
         println!("[{}] {message}", commit_id.short());
@@ -1383,6 +2026,7 @@ struct DiffOptions {
     staged: bool,
     verbose: bool,
     detect_renames: bool,
+    theory: bool,
 }
 
 fn cmd_diff(old_path: Option<&Path>, new_path: Option<&Path>, opts: &DiffOptions) -> Result<()> {
@@ -1393,6 +2037,7 @@ fn cmd_diff(old_path: Option<&Path>, new_path: Option<&Path>, opts: &DiffOptions
         staged,
         verbose,
         detect_renames,
+        theory,
     } = *opts;
     if staged {
         // Diff staged schema vs HEAD.
@@ -1439,6 +2084,9 @@ fn cmd_diff(old_path: Option<&Path>, new_path: Option<&Path>, opts: &DiffOptions
         if detect_renames {
             print_detected_renames(&old_schema, &new_schema);
         }
+        if theory {
+            print_theory_diff(&old_schema, &new_schema);
+        }
         return Ok(());
     }
 
@@ -1471,6 +2119,9 @@ fn cmd_diff(old_path: Option<&Path>, new_path: Option<&Path>, opts: &DiffOptions
     );
     if detect_renames {
         print_detected_renames(&old_schema, &new_schema);
+    }
+    if theory {
+        print_theory_diff(&old_schema, &new_schema);
     }
     Ok(())
 }
@@ -1866,6 +2517,7 @@ struct MergeCmdOptions<'a> {
     squash: bool,
     abort: bool,
     message: Option<&'a str>,
+    verbose: bool,
 }
 
 fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>) -> Result<()> {
@@ -1878,6 +2530,7 @@ fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>) -> Result<()> {
         squash,
         abort,
         message,
+        verbose: _verbose,
     } = *cmd_opts;
 
     if abort {
@@ -1920,6 +2573,31 @@ fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>) -> Result<()> {
         }
         miette::bail!("merge failed with {} conflict(s)", result.conflicts.len());
     }
+
+    if cmd_opts.verbose {
+        if let Some(ref overlap) = result.pullback_overlap {
+            println!("\nPullback overlap detection:");
+            if overlap.shared_vertices.is_empty() {
+                println!("  No shared vertices detected.");
+            } else {
+                println!("  {} shared vertex(es):", overlap.shared_vertices.len());
+                let mut sorted: Vec<_> = overlap.shared_vertices.iter().collect();
+                sorted.sort();
+                for v in sorted {
+                    println!("    {v}");
+                }
+            }
+            if !overlap.shared_edges.is_empty() {
+                println!("  {} shared edge(s):", overlap.shared_edges.len());
+                let mut sorted: Vec<_> = overlap.shared_edges.iter().collect();
+                sorted.sort();
+                for (src, tgt) in sorted {
+                    println!("    {src} -> {tgt}");
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

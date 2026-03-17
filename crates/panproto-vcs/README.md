@@ -25,13 +25,15 @@ Schemas are content-addressed objects (blake3) stored in a commit DAG, with bran
 | `BisectState` / `BisectStep` | Binary search for breaking commits |
 | `BlameEntry` | Which commit introduced a schema element |
 | `GcReport` | Garbage collection results |
+| `GatDiagnostics` | Type errors, equation violations, and migration warnings from GAT validation |
+| `CommitOptions` | Commit configuration including `skip_verify` to bypass GAT equation checks |
 
 ## Modules
 
 | Module | Description |
 |--------|-------------|
 | `hash` | Canonical serialization + blake3 content addressing |
-| `dag` | Merge base, path finding, log walk, compose path |
+| `dag` | Merge base, path finding, log walk, compose path, `compose_path_with_coherence` |
 | `merge` | Three-way schema merge + conflict detection |
 | `refs` | Branches, tags, resolve_ref |
 | `auto_mig` | Derive Migration from SchemaDiff |
@@ -43,7 +45,17 @@ Schemas are content-addressed objects (blake3) stored in a commit DAG, with bran
 | `bisect` | Binary search for breaking commit |
 | `blame` | Schema element attribution |
 | `gc` | Mark-sweep garbage collection |
+| `gat_validate` | GAT-level validation: type-checked migrations, theory equation verification, schema model checking |
 | `repo` | Repository orchestration (porcelain) |
+
+## Safety
+
+The VCS pipeline integrates GAT-level validation at two points:
+
+- **On commit:** auto-derived migrations are validated as well-formed theory morphisms via `gat_validate::validate_migration`. The protocol theory's equations are type-checked via `gat_validate::validate_theory_equations`, and the schema model is verified against those equations via `gat_validate::validate_schema_equations`. Pass `skip_verify` in `CommitOptions` to bypass these checks.
+- **On merge:** pullback-enhanced overlap detection uses `panproto_gat::pullback` to identify structural overlap between the two branch heads and the merge base. This produces fewer false conflicts than name-based matching alone, because two sorts or operations that share a common image under their protocol morphisms are recognized as the same element regardless of local naming.
+
+The `compose_path_with_coherence` function composes a chain of migrations along a commit path and verifies that intermediate morphisms are coherent, returning both the composed migration and any coherence warnings.
 
 ## Example
 

@@ -95,7 +95,7 @@ Each protocol opts into additional theories (ThOrder, ThCoproduct, etc.) by comp
 
 ## Equations as Structural Invariants
 
-Only 6 of the 27 theories have equations. Each has been type-checked against the theory's sort declarations.
+Only 6 of the 27 theories have equations. Each has been type-checked against the theory's sort declarations. As of v0.6, this type-checking is not just a one-time manual audit---it happens automatically at commit time. When you `schema commit` a theory that includes any of these building blocks, panproto verifies that every equation is well-sorted in the composed theory. If a colimit introduces a sort mismatch (for example, by identifying two sorts that break an equation's typing), the commit is rejected with a diagnostic pointing to the offending equation.
 
 **ThRecursion**: `unfold(fold(v)) = v`
 

@@ -224,6 +224,78 @@ Steps 2 and 4 are optional in production (the pipeline is designed to preserve v
 The `panproto-io` crate provides format-specific parsers for all 77 supported protocols. The generic `parse_json`/`to_json` functions in this crate remain useful as the foundation for `panproto-io`'s JSON pathway and for direct JSON manipulation in tests and tooling.
 :::
 
+## The AcsetOps Trait
+
+The `AcsetOps` trait provides a unified interface for attributed C-set operations across all three instance shapes: `WInstance`, `FInstance`, and `GInstance`. This trait is what allows generic code to operate on any instance shape without knowing the concrete representation.
+
+### Trait Definition
+
+```rust
+pub trait AcsetOps: Clone + std::fmt::Debug {
+    fn restrict(
+        &self,
+        src_schema: &Schema,
+        tgt_schema: &Schema,
+        migration: &CompiledMigration,
+    ) -> Result<Self, RestrictError>;
+
+    fn extend(
+        &self,
+        tgt_schema: &Schema,
+        migration: &CompiledMigration,
+    ) -> Result<Self, RestrictError>;
+
+    fn element_count(&self) -> usize;
+
+    fn shape_name(&self) -> &'static str;
+}
+```
+
+The four methods cover the core operations:
+
+- **`restrict`**: the pullback functor (Delta_F) -- project an instance along a compiled migration from a source schema to a target schema. Each shape delegates to its specialized restrict implementation (`wtype_restrict`, `functor_restrict`, `graph_restrict`).
+- **`extend`**: the left Kan extension (Sigma_F) -- push an instance forward along a migration. This is the adjoint of restrict.
+- **`element_count`**: returns the number of top-level elements (nodes for W-type and graph instances, tables for functor instances).
+- **`shape_name`**: returns a static string identifying the shape (`"wtype"`, `"functor"`, or `"graph"`).
+
+### Implementations
+
+Each instance shape implements `AcsetOps` by delegating to its specialized functions:
+
+| Shape | `restrict` delegates to | `extend` delegates to | `element_count` returns |
+|---|---|---|---|
+| `WInstance` | `wtype_restrict` | `wtype_extend` | `node_count()` |
+| `FInstance` | `functor_restrict` | `functor_extend` | `table_count()` |
+| `GInstance` | `graph_restrict` | `graph_extend` | `node_count()` |
+
+: AcsetOps delegation by instance shape. {#tbl-acset-delegation}
+
+Note that `FInstance::restrict` and `GInstance::restrict` do not use the `src_schema` and `tgt_schema` parameters -- their restrict operations depend only on the compiled migration. The schema parameters are required by `WInstance::restrict` for the ancestor contraction and fan reconstruction steps. The trait uses the most general signature to accommodate all shapes.
+
+### The Instance Enum
+
+The `Instance` enum wraps the three shapes into a single type for contexts where the shape is not known at compile time:
+
+```rust
+pub enum Instance {
+    WType(WInstance),
+    Functor(FInstance),
+    Graph(GInstance),
+}
+```
+
+`Instance` dispatches `restrict`, `extend`, `element_count`, and `shape_name` to the inner type's `AcsetOps` implementation. This is the type used by the CLI's `schema lift` command and by the VCS layer when storing instances in the object store.
+
+### GInstance: Graph-Shaped Instances
+
+The `GInstance` type was introduced alongside `AcsetOps` to handle the most general instance shape: a directed graph of nodes and edges with no distinguished root and cycles allowed. Both `WInstance` (trees) and `FInstance` (tables) are special cases of `GInstance`.
+
+`GInstance` is the natural instance theory for knowledge graphs (RDF, OWL, JSON-LD), property graphs (Neo4j), and dependency graphs. Its `graph_restrict` operation is simpler than the 5-step W-type pipeline: it keeps nodes whose anchor survives the migration (remapping the anchor) and keeps edges whose endpoints both survive and whose schema edge survives or has a remap entry.
+
+::: {.callout-tip}
+Use `GInstance` when your protocol's data is inherently graph-shaped -- when there is no natural root node and cycles are expected. For tree-structured data (JSON, XML), use `WInstance`. For tabular data (SQL, CSV), use `FInstance`. The `AcsetOps` trait ensures that the migration engine works identically regardless of which shape you choose.
+:::
+
 ## Design Rationale
 
 ### Why Separate Node IDs from Anchors

@@ -68,6 +68,8 @@ schema init -b develop
 
 Stages a schema for the next commit. Loads the schema JSON, computes a structural diff against the current HEAD's schema, auto-derives a migration (the graph morphism mapping surviving vertices and edges), and validates the migration via the existence checker.
 
+As of v0.6, `schema add` also **type-checks all equations** in the schema's theory and **verifies** that the auto-derived migration preserves them. If the theory contains an equation where the sorts don't match, or if the migration would violate an equation, staging fails with a diagnostic error. This means invalid schemas are caught *before* they enter the repository, not after.
+
 In git, `add` stages file contents for commit. Here it stages a *schema graph* and simultaneously computes and validates the *migration morphism* that transforms the old schema into the new one. If the diff involves vertex renames or edge contractions that cannot be auto-derived, you can supply an explicit migration file with `--migration`.
 
 ```bash
@@ -96,6 +98,14 @@ In git, a commit snapshots the entire working tree. Here a commit snapshots a si
 ```bash
 schema commit -m "add verification status field"
 ```
+
+Equation verification runs again at commit time as a final safety check. If you need to bypass verification (for example, when working with an experimental theory that has known issues), use the `--skip-verify` flag:
+
+```bash
+schema commit --skip-verify -m "experimental: partial theory"
+```
+
+This skips equation type-checking and allows the commit to proceed even if equations are malformed. Use it sparingly---commits created with `--skip-verify` may cause issues during later merges or migrations.
 
 Replace the most recent commit (reuses the staged schema with a new message):
 
@@ -296,6 +306,14 @@ Merges a branch into the current branch. Finds the merge base (lowest common anc
 This is where panproto diverges most from git. Git's merge operates on lines of text and produces conflict markers when the same lines were edited. panproto's merge computes the categorical pushout of the two divergent schemas over their common base. For every schema element — vertices, edges, constraints, hyper-edges, variants, orderings, recursion points, usage modes, NSIDs, required edges, spans, and nominal flags — the merge classifies each side's change as unchanged, added, removed, or modified. One-sided changes are accepted; identical changes from both sides are deduplicated; incompatible changes produce typed conflicts. There is no "ours wins" tie-breaking: when both sides modify the same element differently, the base value is retained and the conflict is reported. Conflict types include `BothModifiedVertex`, `BothModifiedConstraint`, `DeleteModifyVertex`, `BothAddedVertexDifferently`, `BothModifiedOrdering`, `BothModifiedUsageMode`, `BothModifiedRecursionPoint`, `BothModifiedVariant`, and others for every schema field. If there are no conflicts, the merge is auto-committed. If there are, the conflicts are reported with their structural types. The merge is commutative: swapping the two branches produces an identical result.
 
 Fast-forward merges work as in git: if one side is an ancestor of the other, the ref is simply moved forward.
+
+As of v0.6, the merge algorithm uses **pullback-based overlap detection** to identify shared structure between the two divergent schemas. The pullback computes the largest sub-schema that both sides agree on, which gives a more precise merge base than the commit-DAG ancestor alone. To see the overlap computation in action, use `--verbose`:
+
+```bash
+schema merge --verbose feature
+```
+
+The verbose output shows which vertices and edges were identified as shared (via the pullback), which were unique to each side, and how conflicts were classified.
 
 ```bash
 schema merge feature
