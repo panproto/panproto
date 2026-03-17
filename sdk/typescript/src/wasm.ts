@@ -46,6 +46,10 @@ export interface WasmGlueModule {
   validate_instance: WasmExports['validate_instance'];
   instance_to_json: WasmExports['instance_to_json'];
   json_to_instance: WasmExports['json_to_instance'];
+  json_to_instance_with_root: WasmExports['json_to_instance_with_root'];
+  lift_json: WasmExports['lift_json'];
+  get_json: WasmExports['get_json'];
+  put_json: WasmExports['put_json'];
   instance_element_count: WasmExports['instance_element_count'];
   lens_from_combinators: WasmExports['lens_from_combinators'];
   check_lens_laws: WasmExports['check_lens_laws'];
@@ -127,6 +131,10 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       validate_instance: glue.validate_instance,
       instance_to_json: glue.instance_to_json,
       json_to_instance: glue.json_to_instance,
+      json_to_instance_with_root: glue.json_to_instance_with_root,
+      lift_json: glue.lift_json,
+      get_json: glue.get_json,
+      put_json: glue.put_json,
       instance_element_count: glue.instance_element_count,
       lens_from_combinators: glue.lens_from_combinators,
       check_lens_laws: glue.check_lens_laws,
