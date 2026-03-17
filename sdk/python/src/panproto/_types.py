@@ -432,6 +432,7 @@ class MigrationMapping(TypedDict):
     hyper_edge_map: dict[str, str]
     label_map: list[tuple[tuple[str, str], str]]
     resolver: list[tuple[list[str], EdgeWire]]
+    hyper_resolver: list[object]
 
 
 # ---------------------------------------------------------------------------

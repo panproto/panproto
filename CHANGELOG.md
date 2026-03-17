@@ -4,6 +4,21 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-03-17
+
+### Fixed
+
+- **panproto-inst**: Fix `wtype_restrict` dropping renamed vertices during lift. Source vertex anchors were checked against the target `surviving_verts` set without remapping first, so a vertex mapped via `vertex_remap` (e.g. `post:text → post:content`) was silently pruned and its value lost. The anchor is now remapped to its target name before membership check.
+- **panproto-check**: Fix `classify` copy-paste bug where removed edges without a matching protocol edge rule were incorrectly classified as `NonBreakingChange::AddedEdge` instead of `NonBreakingChange::RemovedEdge`. Added the missing `RemovedEdge` variant to `NonBreakingChange`.
+- **panproto-wasm**: Fix `packMigrationMapping` in TypeScript SDK: JS `Map` objects with non-string keys (used for `edge_map`, `label_map`, `resolver`) were encoding as empty objects via msgpack. Now explicitly converted to `Array.from(map.entries())` to produce the `Vec<(K, V)>` format expected by Rust's `map_as_vec` serde helper.
+- **panproto-wasm**: Fix WASM initialization in playground: the provider no longer overrides the glue module's `default` export with a no-op, allowing proper wasm-bindgen initialization.
+
+### Added
+
+- **panproto-wasm**: `lift_json`, `get_json`, `put_json` entry points that accept JSON bytes and return JSON bytes, handling all `WInstance` conversion internally. Eliminates msgpack round-trip issues at the JS/WASM boundary.
+- **panproto-wasm**: `json_to_instance_with_root` entry point with explicit root vertex parameter and auto-detection fallback (prefers `object`-kind vertices, then `record`-kind).
+- **@panproto/core**: `_wasm` getter on `CompiledMigration` for direct WASM module access. `_rawBytes` field on `LiftResult` for raw instance byte access. Instance-aware `lift`/`get`/`put` (detect `_bytes` field).
+
 ## [0.5.0] - 2026-03-16
 
 ### Added — Automatic Morphisms and the Adjoint Triple
