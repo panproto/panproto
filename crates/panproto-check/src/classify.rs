@@ -148,6 +148,19 @@ pub enum NonBreakingChange {
         /// The constraint sort.
         sort: String,
     },
+
+    /// An edge was removed but its kind is not governed by any protocol
+    /// edge rule, so it is considered non-breaking.
+    RemovedEdge {
+        /// Source vertex ID.
+        src: String,
+        /// Target vertex ID.
+        tgt: String,
+        /// Edge kind.
+        kind: String,
+        /// Edge name, if present.
+        name: Option<String>,
+    },
 }
 
 /// Classify a [`SchemaDiff`] into breaking and non-breaking changes.
@@ -187,7 +200,7 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
                 name: e.name.as_ref().map(ToString::to_string),
             });
         } else {
-            non_breaking.push(NonBreakingChange::AddedEdge {
+            non_breaking.push(NonBreakingChange::RemovedEdge {
                 src: e.src.to_string(),
                 tgt: e.tgt.to_string(),
                 kind: e.kind.to_string(),
@@ -505,5 +518,60 @@ mod tests {
 
         let report = classify(&diff, &test_protocol());
         assert!(!report.compatible, "kind change should be breaking");
+    }
+
+    #[test]
+    fn classify_removed_non_governed_edge_as_non_breaking() {
+        // An edge whose kind has no protocol rule is non-breaking when removed.
+        let diff = SchemaDiff {
+            removed_edges: vec![Edge {
+                src: "body".into(),
+                tgt: "body.note".into(),
+                kind: "annotation".into(), // not governed by test_protocol
+                name: Some("note".into()),
+            }],
+            ..SchemaDiff::default()
+        };
+
+        let report = classify(&diff, &test_protocol());
+        assert!(
+            report.compatible,
+            "removing a non-governed edge should be non-breaking"
+        );
+        assert_eq!(report.non_breaking.len(), 1);
+        assert!(
+            report
+                .non_breaking
+                .iter()
+                .any(|nb| matches!(nb, NonBreakingChange::RemovedEdge { kind, .. } if kind == "annotation")),
+            "should produce RemovedEdge, not AddedEdge"
+        );
+    }
+
+    #[test]
+    fn classify_removed_governed_edge_as_breaking() {
+        // An edge whose kind IS governed by a protocol rule is breaking.
+        let diff = SchemaDiff {
+            removed_edges: vec![Edge {
+                src: "body".into(),
+                tgt: "body.text".into(),
+                kind: "prop".into(), // governed by test_protocol
+                name: Some("text".into()),
+            }],
+            ..SchemaDiff::default()
+        };
+
+        let report = classify(&diff, &test_protocol());
+        assert!(
+            !report.compatible,
+            "removing a governed edge should be breaking"
+        );
+        assert_eq!(report.breaking.len(), 1);
+        assert!(
+            report
+                .breaking
+                .iter()
+                .any(|b| matches!(b, BreakingChange::RemovedEdge { kind, .. } if kind == "prop"))
+        );
     }
 }

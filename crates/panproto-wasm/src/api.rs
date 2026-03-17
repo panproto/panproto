@@ -402,11 +402,7 @@ pub fn put_record(migration: u32, view: &[u8], complement: &[u8]) -> Result<Vec<
 ///
 /// Returns `JsError` if parsing, lifting, or serialization fails.
 #[wasm_bindgen]
-pub fn lift_json(
-    migration: u32,
-    json_bytes: &[u8],
-    root_vertex: &str,
-) -> Result<Vec<u8>, JsError> {
+pub fn lift_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<Vec<u8>, JsError> {
     let json_value: serde_json::Value =
         serde_json::from_slice(json_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: e.to_string(),
@@ -416,10 +412,11 @@ pub fn lift_json(
         let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
 
         let src_root = find_root(root_vertex, &src_schema)?;
-        let instance =
-            inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| WasmError::ParseFailed {
+        let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
+            WasmError::ParseFailed {
                 reason: e.to_string(),
-            })?;
+            }
+        })?;
 
         let lifted =
             mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance).map_err(|e| {
@@ -446,29 +443,31 @@ pub fn lift_json(
 ///
 /// Returns `JsError` if parsing, get, or serialization fails.
 #[wasm_bindgen]
-pub fn get_json(
-    migration: u32,
-    json_bytes: &[u8],
-    root_vertex: &str,
-) -> Result<Vec<u8>, JsError> {
+pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<Vec<u8>, JsError> {
+    #[derive(Serialize)]
+    struct GetJsonResult {
+        view: serde_json::Value,
+        complement: Vec<u8>,
+    }
+
     let json_value: serde_json::Value =
         serde_json::from_slice(json_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: e.to_string(),
         })?;
 
-    let (compiled, src_schema, tgt_schema) = slab::with_resource(migration, |r| {
-        extract_migration_owned(r)
-    })?;
+    let (compiled, src_schema, tgt_schema) =
+        slab::with_resource(migration, extract_migration_owned)?;
 
     let src_root = find_root(root_vertex, &src_schema)?;
-    let instance =
-        inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| WasmError::ParseFailed {
+    let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
+        WasmError::ParseFailed {
             reason: e.to_string(),
-        })?;
+        }
+    })?;
 
     let lens_obj = lens::Lens {
         compiled,
-        src_schema: src_schema.clone(),
+        src_schema,
         tgt_schema: tgt_schema.clone(),
     };
 
@@ -482,12 +481,6 @@ pub fn get_json(
         rmp_serde::to_vec(&complement).map_err(|e| WasmError::SerializationFailed {
             reason: format!("complement: {e}"),
         })?;
-
-    #[derive(Serialize)]
-    struct GetJsonResult {
-        view: serde_json::Value,
-        complement: Vec<u8>,
-    }
 
     let result = GetJsonResult {
         view: view_json,
@@ -528,10 +521,11 @@ pub fn put_json(
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
 
         let tgt_root = find_root(root_vertex, &tgt_schema)?;
-        let view_instance =
-            inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| WasmError::ParseFailed {
+        let view_instance = inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| {
+            WasmError::ParseFailed {
                 reason: e.to_string(),
-            })?;
+            }
+        })?;
 
         let lens_obj = lens::Lens {
             compiled,
