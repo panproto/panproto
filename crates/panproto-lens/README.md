@@ -1,8 +1,11 @@
 # panproto-lens
 
+[![crates.io](https://img.shields.io/crates/v/panproto-lens.svg)](https://crates.io/crates/panproto-lens)
+[![docs.rs](https://docs.rs/panproto-lens/badge.svg)](https://docs.rs/panproto-lens)
+
 [Bidirectional lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) combinators for panproto.
 
-Every schema migration is a lens with a `get` direction (restrict, projecting data forward) and a `put` direction (restore from [complement](https://en.wikipedia.org/wiki/View_(database)#Updating_views), bringing modifications back). The lens laws -- GetPut and PutGet -- guarantee round-trip fidelity (see [Diskin et al., 2011](https://doi.org/10.1016/j.tcs.2010.12.039)). This crate also provides [Cambria](https://www.inkandswitch.com/cambria/)-style atomic combinators for building lenses declaratively.
+Every schema migration is a lens with a `get` direction (restrict, projecting data forward) and a `put` direction (restore from [complement](https://en.wikipedia.org/wiki/View_(database)#Updating_views), bringing modifications back). The lens laws (GetPut and PutGet) guarantee round-trip fidelity (see [Diskin et al., 2011](https://doi.org/10.1016/j.tcs.2010.12.039)). This crate also provides [Cambria](https://www.inkandswitch.com/cambria/)-style atomic combinators for building lenses declaratively, including a full set of rename combinators that cascade across all schema elements.
 
 ## API
 
@@ -12,7 +15,12 @@ Every schema migration is a lens with a `get` direction (restrict, projecting da
 | `get` | Forward direction: project an instance to a view, producing a complement |
 | `put` | Backward direction: restore source from a modified view and complement |
 | `Complement` | Data discarded by `get`, needed by `put` to reconstruct the source |
-| `Combinator` | [Cambria](https://www.inkandswitch.com/cambria/)-style atomic schema transformation (rename, add, remove, etc.) |
+| `Combinator` | Cambria-style atomic schema transformation |
+| `RenameField` / `AddField` / `RemoveField` | Field-level transformations |
+| `WrapInObject` / `HoistField` / `CoerceType` | Structural transformations |
+| `RenameVertex` / `RenameKind` / `RenameEdgeKind` | Name-level transformations with cascade |
+| `RenameNsid` / `RenameConstraintSort` | Protocol-specific rename combinators |
+| `ApplyTheoryMorphism` | Cascade a theory morphism to vertex/edge kind renames |
 | `from_combinators` | Build a lens from a chain of combinators |
 | `compose` | Compose two lenses sequentially |
 | `SymmetricLens` | Symmetric (bidirectional) lens variant |

@@ -1,8 +1,10 @@
 # panproto-cli
 
+[![crates.io](https://img.shields.io/crates/v/panproto-cli.svg)](https://crates.io/crates/panproto-cli)
+
 Command-line interface for panproto. The binary is called `schema`.
 
-Provides subcommands for schema validation, migration checking, breaking change detection, record lifting, and schematic version control (init, commit, branch, merge, rebase, cherry-pick, bisect, blame, and more).
+Provides subcommands for schema validation, migration checking, breaking change detection, record lifting, and schematic version control.
 
 ## Installation
 

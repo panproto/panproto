@@ -1,8 +1,11 @@
 # panproto-vcs
 
+[![crates.io](https://img.shields.io/crates/v/panproto-vcs.svg)](https://crates.io/crates/panproto-vcs)
+[![docs.rs](https://docs.rs/panproto-vcs/badge.svg)](https://docs.rs/panproto-vcs)
+
 Schematic version control for panproto.
 
-Schemas are content-addressed objects stored in a commit DAG, with branches, three-way structural merge, and data lifting through history. The CLI binary is `schema`.
+Schemas are content-addressed objects (blake3) stored in a commit DAG, with branches, three-way structural merge via categorical pushout, rename detection, and data lifting through history. The CLI binary is `schema`.
 
 ## API
 
@@ -18,8 +21,7 @@ Schemas are content-addressed objects stored in a commit DAG, with branches, thr
 | `HeadState` | Branch or detached HEAD |
 | `ReflogEntry` | Audit trail entry for ref mutations |
 | `Index` | Staging area for the next commit |
-| `Instance` | Unified enum wrapping WInstance/FInstance/GInstance |
-| `MergeResult` | Three-way merge output with conflicts |
+| `MergeResult` | Three-way merge output with typed conflict detection |
 | `BisectState` / `BisectStep` | Binary search for breaking commits |
 | `BlameEntry` | Which commit introduced a schema element |
 | `GcReport` | Garbage collection results |
@@ -33,6 +35,7 @@ Schemas are content-addressed objects stored in a commit DAG, with branches, thr
 | `merge` | Three-way schema merge + conflict detection |
 | `refs` | Branches, tags, resolve_ref |
 | `auto_mig` | Derive Migration from SchemaDiff |
+| `rename_detect` | Structural similarity scoring for vertex/edge renames |
 | `rebase` | Replay commits onto a new base |
 | `cherry_pick` | Apply a single commit's migration |
 | `reset` | Soft/mixed/hard HEAD reset |

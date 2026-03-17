@@ -1,23 +1,26 @@
 # panproto-io
 
+[![crates.io](https://img.shields.io/crates/v/panproto-io.svg)](https://crates.io/crates/panproto-io)
+[![docs.rs](https://docs.rs/panproto-io/badge.svg)](https://docs.rs/panproto-io)
+
 Instance-level [presentation functors](https://ncatlab.org/nlab/show/functor) for panproto.
 
-This crate provides SIMD-accelerated parse/emit operations connecting raw format bytes to panproto's instance models ([`WInstance`](https://docs.rs/panproto-inst/latest/panproto_inst/struct.WInstance.html) and [`FInstance`](https://docs.rs/panproto-inst/latest/panproto_inst/struct.FInstance.html)), completing the [functorial data migration](https://ncatlab.org/nlab/show/data+migration) pipeline. Together with `panproto-protocols` (schema presentations), `panproto-mig` (migration compilation), and `panproto-inst` (restriction/lifting), this enables end-to-end format-to-format migration with mathematical compositionality guarantees.
+This crate provides parse/emit operations connecting raw format bytes to panproto's instance models (`WInstance`, `FInstance`, `GInstance`), completing the functorial data migration pipeline. Together with `panproto-protocols` (schema presentations), `panproto-mig` (migration compilation), and `panproto-inst` (restriction/lifting), this enables end-to-end format-to-format migration with mathematical compositionality guarantees.
 
 ## API
 
 | Item | Description |
 |------|-------------|
-| `InstanceParser` | Trait for parsing raw bytes into `WInstance`/`FInstance` |
-| `InstanceEmitter` | Trait for emitting `WInstance`/`FInstance` to raw bytes |
+| `InstanceParser` | Trait for parsing raw bytes into instances |
+| `InstanceEmitter` | Trait for emitting instances to raw bytes |
 | `NativeRepr` | Which instance model a protocol uses (`WType`, `Functor`, `Either`) |
 | `ProtocolRegistry` | Runtime dispatch by protocol name |
 | `default_registry()` | Pre-built registry with all 76 protocol codecs |
-| `JsonCodec` | Generic SIMD JSON codec via [`simd-json`](https://crates.io/crates/simd-json) |
-| `XmlCodec` | Generic zero-copy XML codec via [`quick-xml`](https://crates.io/crates/quick-xml) |
-| `TabularCodec` | Generic delimited-text codec via [`memchr`](https://crates.io/crates/memchr) |
-| `HtmlCodec` | SIMD HTML codec via [`tl`](https://crates.io/crates/tl) |
-| `MarkdownCodec` | Markdown codec via [`pulldown-cmark`](https://crates.io/crates/pulldown-cmark) |
+| `JsonCodec` | Generic JSON codec via `simd-json` |
+| `XmlCodec` | Generic zero-copy XML codec via `quick-xml` |
+| `TabularCodec` | Generic delimited-text codec via `memchr` |
+| `HtmlCodec` | HTML codec via `tl` |
+| `MarkdownCodec` | Markdown codec via `pulldown-cmark` |
 | `ConlluCodec` | CoNLL-U codec with sentence/token table extraction |
 | `ParseInstanceError` / `EmitInstanceError` | Error types |
 
@@ -27,18 +30,11 @@ This crate provides SIMD-accelerated parse/emit operations connecting raw format
 use panproto_io::default_registry;
 
 let registry = default_registry();
-
-// Parse raw HTML into a WInstance
 let instance = registry.parse_wtype("html", &schema, &html_bytes)?;
-
-// Emit back to raw bytes
 let emitted = registry.emit_wtype("html", &schema, &instance)?;
-
-// Parse CoNLL-U into an FInstance (tabular)
-let conllu = registry.parse_functor("conllu", &schema, &conllu_bytes)?;
 ```
 
-## Protocol Coverage (76 codecs)
+## Protocol coverage (76 codecs)
 
 | Category | Count | Pathway |
 |----------|-------|---------|

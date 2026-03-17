@@ -1,12 +1,19 @@
 # panproto
 
+[![CI](https://github.com/panproto/panproto/actions/workflows/ci.yml/badge.svg)](https://github.com/panproto/panproto/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/panproto-core.svg)](https://crates.io/crates/panproto-core)
+[![npm](https://img.shields.io/npm/v/@panproto/core)](https://www.npmjs.com/package/@panproto/core)
+[![PyPI](https://img.shields.io/pypi/v/panproto)](https://pypi.org/project/panproto/)
+[![docs.rs](https://docs.rs/panproto-core/badge.svg)](https://docs.rs/panproto-core)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A universal schema migration engine built on [Generalized Algebraic Theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory) (GATs).
 
-panproto treats every schema language — [ATProto Lexicons](https://atproto.com/specs/lexicon), SQL DDL, [Protocol Buffers](https://protobuf.dev/), [GraphQL](https://graphql.org/), [JSON Schema](https://json-schema.org/) — as a model of a common mathematical structure. Migrations become [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format.
+panproto treats every schema language,[ATProto Lexicons](https://atproto.com/specs/lexicon), SQL DDL, [Protocol Buffers](https://protobuf.dev/), [GraphQL](https://graphql.org/), [JSON Schema](https://json-schema.org/), and [71 others](https://panproto.dev/tutorial/appendices/D-protocol-catalog.html),as a model of a common mathematical structure. Migrations become [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format.
 
 ## Key idea
 
-A **protocol** is a pair of GATs: one describing the shape of schemas, one describing the shape of instances. Adding support for a new schema language means defining two new theories — no engine code changes required.
+A **protocol** is a pair of GATs: one describing the shape of schemas, one describing the shape of instances. Adding support for a new schema language means defining two new theories. No engine code changes required.
 
 ```
 Level 0  GAT engine (sorts, operations, equations, morphisms, colimits)
@@ -19,22 +26,25 @@ Level 3  Concrete instances as models of schemas
 
 | Crate | Description |
 |-------|-------------|
-| `panproto-gat` | GAT engine: sorts, operations, equations, theory morphisms, colimits |
-| `panproto-schema` | Schema representation with protocol-aware builder and adjacency indices |
-| `panproto-inst` | [W-type](https://ncatlab.org/nlab/show/W-type) and set-valued functor instances with restrict/extend pipelines |
-| `panproto-mig` | Migration engine: theory-derived existence checks, compilation, lift, compose, invert |
-| `panproto-lens` | Bidirectional lenses with [Cambria](https://www.inkandswitch.com/cambria/)-style combinators and law verification |
-| `panproto-check` | Breaking change detection via structural diffing and protocol-aware classification |
-| `panproto-protocols` | Built-in protocol definitions (76 protocols including ATProto, SQL, Protobuf, GraphQL, JSON Schema) |
-| `panproto-io` | Instance-level parse/emit codecs across all protocols (JSON, XML, tabular, web documents) |
-| `panproto-vcs` | Schematic version control: content-addressed object store, commit DAG, pushout-based merge |
-| `panproto-core` | Re-export facade |
-| `panproto-wasm` | [WASM](https://webassembly.org/) bindings with handle-based slab allocator and [MessagePack](https://msgpack.org/) boundary |
-| `panproto-cli` | CLI (`schema`): validate, check, diff, lift, and git-style version control |
+| [`panproto-gat`](crates/panproto-gat) | GAT engine: sorts, operations, equations, theory morphisms, colimits |
+| [`panproto-schema`](crates/panproto-schema) | Schema representation with protocol-aware builder and adjacency indices |
+| [`panproto-inst`](crates/panproto-inst) | [W-type](https://ncatlab.org/nlab/show/W-type), set-valued functor, and graph instances with restrict/extend/Kan extension pipelines |
+| [`panproto-mig`](crates/panproto-mig) | Migration engine: existence checks, compilation, lift, compose, invert, automatic morphism discovery |
+| [`panproto-lens`](crates/panproto-lens) | Bidirectional lenses with [Cambria](https://www.inkandswitch.com/cambria/)-style combinators and law verification |
+| [`panproto-check`](crates/panproto-check) | Breaking change detection via structural diffing and protocol-aware classification |
+| [`panproto-protocols`](crates/panproto-protocols) | 76 built-in protocol definitions composed from 27 building-block theories |
+| [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs (JSON, XML, tabular, web documents) |
+| [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge |
+| [`panproto-core`](crates/panproto-core) | Re-export facade |
+| [`panproto-wasm`](crates/panproto-wasm) | WASM bindings with handle-based slab allocator and MessagePack boundary |
+| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, and git-style version control |
 
-### TypeScript SDK
+### SDKs
 
-The `@panproto/core` package in `sdk/typescript/` provides a high-level TypeScript API over the WASM module, with async initialization, fluent schema builders, and `Symbol.dispose` resource management.
+| Package | Install |
+|---------|---------|
+| [`@panproto/core`](sdk/typescript) | `npm install @panproto/core` |
+| [`panproto`](sdk/python) | `pip install panproto` |
 
 ## Quick start
 
@@ -43,7 +53,6 @@ The `@panproto/core` package in `sdk/typescript/` provides a high-level TypeScri
 ```rust
 use panproto_core::*;
 
-// Build a schema using the ATProto protocol
 let proto = panproto_protocols::atproto::protocol();
 let schema = schema::SchemaBuilder::new(&proto)
     .vertex("post", "record", Some("app.bsky.feed.post"))?
@@ -67,13 +76,31 @@ const p = await Panproto.init();
 const proto = p.protocol('atproto');
 
 const schema = proto.schema()
-  .vertex('post', 'record', 'app.bsky.feed.post')
+  .vertex('post', 'record', { nsid: 'app.bsky.feed.post' })
   .vertex('post:body', 'object')
   .vertex('post:body.text', 'string')
   .edge('post', 'post:body', 'record-schema')
-  .edge('post:body', 'post:body.text', 'prop', 'text')
+  .edge('post:body', 'post:body.text', 'prop', { name: 'text' })
   .constraint('post:body.text', 'maxLength', '3000')
   .build();
+```
+
+### Python
+
+```python
+import panproto
+
+pp = panproto.Panproto.load()
+proto = pp.protocol("atproto")
+
+schema = (proto.schema()
+    .vertex("post", "record", nsid="app.bsky.feed.post")
+    .vertex("post:body", "object")
+    .vertex("post:body.text", "string")
+    .edge("post", "post:body", "record-schema")
+    .edge("post:body", "post:body.text", "prop", name="text")
+    .constraint("post:body.text", "maxLength", "3000")
+    .build())
 ```
 
 ### CLI
@@ -113,22 +140,32 @@ cargo nextest run --workspace
 wasm-pack build crates/panproto-wasm --target web
 
 # TypeScript SDK
-cd sdk/typescript && pnpm install && pnpm build && pnpm test
+cd sdk/typescript && pnpm install && pnpm build
+
+# Python SDK
+cd sdk/python && pip install -e .
 ```
 
 ## Architecture
 
-panproto implements a three-level architecture rooted in category theory:
+panproto implements a four-level architecture rooted in category theory. The GAT engine (Level 0) is the only component implemented directly in Rust. Everything above it (protocols, schemas, instances) is data interpreted by the engine.
 
 [**W-type**](https://ncatlab.org/nlab/show/W-type) **instances** (tree-structured data like JSON/ATProto records) use a 5-step restrict pipeline: anchor surviving nodes, compute reachability from root, contract ancestors, resolve edges, and reconstruct fans.
 
-**[Set-valued functor](https://ncatlab.org/nlab/show/functor) instances** (relational data like SQL tables) use [precomposition](https://ncatlab.org/nlab/show/precomposition) (&#916;<sub>F</sub>) for restrict and [left Kan extension](https://ncatlab.org/nlab/show/Kan+extension) (&#931;<sub>F</sub>) for extend.
+**[Set-valued functor](https://ncatlab.org/nlab/show/functor) instances** (relational data like SQL tables) use [precomposition](https://ncatlab.org/nlab/show/precomposition) (&#916;<sub>F</sub>) for restrict and [left Kan extension](https://ncatlab.org/nlab/show/Kan+extension) (&#931;<sub>F</sub>) for extend. Right Kan extension (&#928;<sub>F</sub>) computes products over fibers.
 
-**[Bidirectional lenses](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29)** provide `get` (restrict + complement capture) and `put` (restore from complement) directions, with six [Cambria](https://www.inkandswitch.com/cambria/)-style combinators: `RenameField`, `AddField`, `RemoveField`, `WrapInObject`, `HoistField`, `CoerceType`. The `GetPut` and `PutGet` laws are verified at test time.
+**[Bidirectional lenses](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29)** provide `get` (restrict + complement capture) and `put` (restore from complement) directions, with seven [Cambria](https://www.inkandswitch.com/cambria/)-style combinators. The `GetPut` and `PutGet` laws are verified at test time.
 
-**Schematic version control** (`panproto-vcs`) provides git-style operations — commit, branch, merge, rebase, cherry-pick, bisect, blame — operating on schema graphs rather than text. Merges are computed as categorical pushouts with typed conflict detection across all schema fields. There is no heuristic tie-breaking; the merge is commutative.
+**Schematic version control** (`panproto-vcs`) provides git-style operations (commit, branch, merge, rebase, cherry-pick, bisect, blame) operating on schema graphs rather than text. Merges are computed as categorical pushouts. There is no heuristic tie-breaking; the merge is commutative.
 
-**Theory-derived existence conditions** determine migration validity by inspecting the schema and instance [theory](https://ncatlab.org/nlab/show/generalized+algebraic+theory) sorts at runtime, rather than hardcoding checks per protocol.
+**Automatic migration discovery** finds schema morphisms via backtracking CSP with MRV heuristic, discovers overlaps between schemas, and computes schema-level pushouts for merging disparate formats.
+
+## Documentation
+
+- [Tutorial](https://panproto.dev/tutorial/): 17-chapter guide from first schema to automatic migration
+- [Dev Guide](https://panproto.dev/dev-guide/): internals, algorithms, and architecture
+- [API Reference (docs.rs)](https://docs.rs/panproto-core)
+- Interactive Playground (coming soon): runs entirely in your browser via WebAssembly
 
 ## License
 

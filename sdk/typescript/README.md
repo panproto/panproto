@@ -1,16 +1,19 @@
 # @panproto/core
 
-TypeScript SDK for panproto -- protocol-aware schema migration via [generalized algebraic theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory).
+[![npm](https://img.shields.io/npm/v/@panproto/core)](https://www.npmjs.com/package/@panproto/core)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-This package wraps the panproto [WASM](https://webassembly.org/) module, providing a typed, ergonomic API for defining protocols, building schemas, computing migrations, and applying [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29)-based transformations from JavaScript and TypeScript.
+TypeScript SDK for panproto. Protocol-aware schema migration via [generalized algebraic theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory).
+
+This package wraps the panproto WASM module, providing a typed, ergonomic API for defining protocols, building schemas, computing migrations, and applying lens-based transformations from JavaScript and TypeScript.
+
+Requires Node.js >= 20.
 
 ## Installation
 
 ```sh
 npm install @panproto/core
 ```
-
-Requires Node.js >= 20.
 
 ## Usage
 
@@ -32,10 +35,14 @@ const diff = panproto.diff(oldSchema, newSchema);
 
 // Compile and apply a migration
 const migration = panproto.migration(srcSchema, tgtSchema)
-  .mapVertex('old_id', 'new_id')
+  .map('old_id', 'new_id')
   .compile();
 
 const lifted = migration.lift(record);
+
+// Bidirectional lens
+const { view, complement } = migration.get(record);
+const restored = migration.put(modifiedView, complement);
 ```
 
 ## API
@@ -47,23 +54,46 @@ const lifted = migration.lift(record);
 | `Panproto` | Main entry point; call `Panproto.init()` to load the WASM module |
 | `Protocol` | Protocol handle with schema builder factory |
 | `SchemaBuilder` / `BuiltSchema` | Fluent schema construction |
-| `MigrationBuilder` / `CompiledMigration` | Migration construction and compilation |
+| `MigrationBuilder` / `CompiledMigration` | Migration construction, compilation, and application |
+| `Instance` | Instance wrapper with JSON conversion and validation |
+| `IoRegistry` | Protocol-aware parse/emit for all 76 formats |
+| `Repository` | Schematic version control (init, commit, branch, merge) |
 
-### Lens Combinators
+### Lens combinators
 
 | Export | Description |
 |--------|-------------|
 | `renameField` / `addField` / `removeField` | Field-level transformations |
 | `wrapInObject` / `hoistField` / `coerceType` | Structural transformations |
-| `compose` / `pipeline` | [Cambria](https://www.inkandswitch.com/cambria/)-style combinator composition |
+| `compose` / `pipeline` | Cambria-style combinator composition |
 
-### Built-in Protocol Specs
+### Breaking change analysis
+
+| Export | Description |
+|--------|-------------|
+| `FullDiffReport` | Comprehensive structural diff between two schemas |
+| `CompatReport` | Protocol-aware classification into breaking/non-breaking |
+| `ValidationResult` | Schema validation against protocol rules |
+
+### GAT engine
+
+| Export | Description |
+|--------|-------------|
+| `TheoryHandle` / `TheoryBuilder` | Theory construction |
+| `createTheory` / `colimit` | Build and compose theories |
+| `checkMorphism` / `migrateModel` | Morphism validation and model transport |
+
+### Built-in protocol specs
 
 `ATPROTO_SPEC`, `SQL_SPEC`, `PROTOBUF_SPEC`, `GRAPHQL_SPEC`, `JSON_SCHEMA_SPEC`, `BUILTIN_PROTOCOLS`
 
-### Error Classes
+### Error classes
 
 `PanprotoError`, `WasmError`, `SchemaValidationError`, `MigrationError`, `ExistenceCheckError`
+
+## Documentation
+
+[panproto.dev](https://panproto.dev)
 
 ## License
 
