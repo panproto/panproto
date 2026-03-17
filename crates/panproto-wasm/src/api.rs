@@ -1058,40 +1058,33 @@ pub fn instance_element_count(instance_bytes: &[u8]) -> Result<u32, JsError> {
 // Phase 3: Lens & migration enhancements
 // ---------------------------------------------------------------------------
 
-/// Build a lens from a sequence of Cambria-style combinators.
+/// Auto-generate a protolens chain between two schemas.
 ///
-/// The `combinators` bytes are `MessagePack`-encoded `Vec<Combinator>`.
-/// Returns a handle to the compiled lens (stored as `MigrationWithSchemas`).
+/// Returns a handle to the `ProtolensChain` resource.
 ///
 /// # Errors
 ///
-/// Returns `JsError` if the schema/protocol handle is invalid,
-/// deserialization fails, or lens construction fails.
+/// Returns `JsError` if schema handles are invalid, no morphism is
+/// found, or protolens generation fails.
 #[wasm_bindgen]
-pub fn lens_from_combinators(
-    schema_handle: u32,
-    proto: u32,
-    combinators: &[u8],
-) -> Result<u32, JsError> {
-    let schema = slab::with_resource(schema_handle, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol = slab::with_resource(proto, |r| Ok(slab::as_protocol(r)?.clone()))?;
+pub fn auto_generate_protolens(schema1: u32, schema2: u32) -> Result<u32, JsError> {
+    let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
 
-    let combinator_list: Vec<lens::Combinator> =
-        rmp_serde::from_slice(combinators).map_err(|e| WasmError::DeserializationFailed {
-            reason: e.to_string(),
-        })?;
+    // Extract protocol from schema name and look it up
+    let protocol =
+        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
 
-    let lens_obj = lens::from_combinators(&schema, &combinator_list, &protocol).map_err(|e| {
+    let config = lens::AutoLensConfig::default();
+    let result = lens::auto_generate(&src, &tgt, &protocol, &config).map_err(|e| {
         WasmError::LensConstructionFailed {
             reason: e.to_string(),
         }
     })?;
 
-    Ok(slab::alloc(Resource::MigrationWithSchemas {
-        compiled: lens_obj.compiled,
-        src_schema: std::sync::Arc::new(lens_obj.src_schema),
-        tgt_schema: std::sync::Arc::new(lens_obj.tgt_schema),
-    }))
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
+        result.chain,
+    ))))
 }
 
 /// Check both `GetPut` and `PutGet` lens laws on a test instance.
@@ -1286,6 +1279,327 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
         compiled: composed.compiled,
         src_schema: std::sync::Arc::new(composed.src_schema),
         tgt_schema: std::sync::Arc::new(composed.tgt_schema),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9: Protolens operations
+// ---------------------------------------------------------------------------
+
+/// Instantiate a protolens chain at a specific schema.
+///
+/// Returns a handle to the resulting compiled lens (stored as
+/// `MigrationWithSchemas`).
+///
+/// # Errors
+///
+/// Returns `JsError` if handles are invalid or instantiation fails.
+#[wasm_bindgen]
+pub fn instantiate_protolens(chain: u32, schema: u32) -> Result<u32, JsError> {
+    let chain_val = slab::with_resource(chain, |r| Ok(slab::as_protolens_chain(r)?.clone()))?;
+    let schema_val = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
+
+    let protocol = lookup_builtin_protocol(&schema_val.protocol)
+        .unwrap_or_else(|| default_protocol(&schema_val.protocol));
+
+    let lens_obj = chain_val.instantiate(&schema_val, &protocol).map_err(|e| {
+        WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    Ok(slab::alloc(Resource::MigrationWithSchemas {
+        compiled: lens_obj.compiled,
+        src_schema: std::sync::Arc::new(lens_obj.src_schema),
+        tgt_schema: std::sync::Arc::new(lens_obj.tgt_schema),
+    }))
+}
+
+/// Get the complement spec for a protolens chain at a schema.
+///
+/// Returns `MessagePack`-encoded [`ComplementSpec`](panproto_core::lens::ComplementSpec).
+///
+/// # Errors
+///
+/// Returns `JsError` if handles are invalid or serialization fails.
+#[wasm_bindgen]
+pub fn protolens_complement_spec(chain: u32, schema: u32) -> Result<Vec<u8>, JsError> {
+    let result = slab::with_two_resources(chain, schema, |r1, r2| {
+        let chain_val = slab::as_protolens_chain(r1)?;
+        let schema_val = slab::as_schema(r2)?;
+        Ok(lens::chain_complement_spec(chain_val, schema_val))
+    })?;
+
+    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Build a protolens chain from a diff spec.
+///
+/// The `diff_bytes` are `MessagePack`-encoded [`DiffSpec`](panproto_core::lens::DiffSpec).
+/// Returns a handle to the `ProtolensChain` resource.
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization fails, handles are invalid,
+/// or diff-to-protolens conversion fails.
+#[wasm_bindgen]
+pub fn protolens_from_diff(diff_bytes: &[u8], schema1: u32, schema2: u32) -> Result<u32, JsError> {
+    let diff: lens::DiffSpec =
+        rmp_serde::from_slice(diff_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let (src, tgt) = slab::with_two_resources(schema1, schema2, |r1, r2| {
+        let s1 = slab::as_schema(r1)?;
+        let s2 = slab::as_schema(r2)?;
+        Ok((s1.clone(), s2.clone()))
+    })?;
+
+    let chain = lens::diff_to_protolens(&diff, &src, &tgt).map_err(|e| {
+        WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(chain))))
+}
+
+/// Compose two protolens chains.
+///
+/// Returns a handle to the composed `ProtolensChain`.
+///
+/// # Errors
+///
+/// Returns `JsError` if either handle is invalid.
+#[wasm_bindgen]
+pub fn protolens_compose(chain1: u32, chain2: u32) -> Result<u32, JsError> {
+    let (c1, c2) = slab::with_two_resources(chain1, chain2, |r1, r2| {
+        let ch1 = slab::as_protolens_chain(r1)?;
+        let ch2 = slab::as_protolens_chain(r2)?;
+        Ok((ch1.clone(), ch2.clone()))
+    })?;
+
+    let mut combined_steps = c1.steps;
+    combined_steps.extend(c2.steps);
+
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
+        lens::ProtolensChain::new(combined_steps),
+    ))))
+}
+
+/// Serialize a protolens chain to JSON.
+///
+/// Returns JSON bytes describing each step in the chain (name,
+/// source/target endofunctor names, complement type, lossless flag).
+///
+/// # Errors
+///
+/// Returns `JsError` if the handle is invalid or serialization fails.
+#[wasm_bindgen]
+pub fn protolens_chain_to_json(chain: u32) -> Result<Vec<u8>, JsError> {
+    let steps = slab::with_resource(chain, |r| {
+        let chain_val = slab::as_protolens_chain(r)?;
+        Ok(chain_val
+            .steps
+            .iter()
+            .map(|step| ProtolensStepInfo {
+                name: step.name.to_string(),
+                source_endofunctor: step.source.name.to_string(),
+                target_endofunctor: step.target.name.to_string(),
+                lossless: step.is_lossless(),
+            })
+            .collect::<Vec<_>>())
+    })?;
+
+    serde_json::to_vec(&steps).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Factorize a theory morphism into elementary endofunctors.
+///
+/// The `morphism_bytes` are `MessagePack`-encoded [`TheoryMorphism`](panproto_core::gat::TheoryMorphism).
+/// `theory1` and `theory2` are handles to the domain and codomain theories.
+///
+/// Returns `MessagePack`-encoded result with the factorization steps
+/// (each step's name and transform description).
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization fails, handles are invalid,
+/// or factorization fails.
+#[wasm_bindgen]
+pub fn factorize_morphism(
+    morphism_bytes: &[u8],
+    theory1: u32,
+    theory2: u32,
+) -> Result<Vec<u8>, JsError> {
+    let morphism: gat::TheoryMorphism =
+        rmp_serde::from_slice(morphism_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let (domain, codomain) = slab::with_two_resources(theory1, theory2, |r1, r2| {
+        let t1 = slab::as_theory(r1)?;
+        let t2 = slab::as_theory(r2)?;
+        Ok((t1.clone(), t2.clone()))
+    })?;
+
+    let factorization =
+        gat::factorize(&morphism, &domain, &codomain).map_err(|e| WasmError::TheoryError {
+            reason: e.to_string(),
+        })?;
+
+    let steps: Vec<FactorizationStepInfo> = factorization
+        .steps
+        .iter()
+        .map(|ef| FactorizationStepInfo {
+            name: ef.name.to_string(),
+            transform: format!("{:?}", ef.transform),
+        })
+        .collect();
+
+    rmp_serde::to_vec(&steps).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Auto-generate a symmetric lens from two schemas.
+///
+/// Returns a handle to the `SymmetricLens` resource.
+///
+/// # Errors
+///
+/// Returns `JsError` if schema handles are invalid or symmetric lens
+/// generation fails.
+#[wasm_bindgen]
+pub fn symmetric_lens_from_schemas(schema1: u32, schema2: u32) -> Result<u32, JsError> {
+    let (left, right) = slab::with_two_resources(schema1, schema2, |r1, r2| {
+        let s1 = slab::as_schema(r1)?;
+        let s2 = slab::as_schema(r2)?;
+        Ok((s1.clone(), s2.clone()))
+    })?;
+
+    let protocol =
+        lookup_builtin_protocol(&left.protocol).unwrap_or_else(|| default_protocol(&left.protocol));
+    let config = lens::AutoLensConfig::default();
+
+    let sym =
+        lens::SymmetricLens::auto_symmetric(&left, &right, &protocol, &config).map_err(|e| {
+            WasmError::LensConstructionFailed {
+                reason: e.to_string(),
+            }
+        })?;
+
+    Ok(slab::alloc(Resource::SymmetricLensHandle(Box::new(sym))))
+}
+
+/// Sync data through a symmetric lens.
+///
+/// The `view` and `complement` bytes are `MessagePack`-encoded
+/// [`WInstance`] and [`Complement`] respectively.
+/// `direction` is `0` for left-to-right, `1` for right-to-left.
+///
+/// Returns `MessagePack`-encoded synced `WInstance`.
+///
+/// # Errors
+///
+/// Returns `JsError` if handles are invalid, deserialization fails,
+/// or synchronization fails.
+#[wasm_bindgen]
+pub fn symmetric_lens_sync(
+    sym_lens: u32,
+    view: &[u8],
+    complement: &[u8],
+    direction: u8,
+) -> Result<Vec<u8>, JsError> {
+    let view_instance: inst::WInstance =
+        rmp_serde::from_slice(view).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("view: {e}"),
+        })?;
+
+    let comp: lens::Complement =
+        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("complement: {e}"),
+        })?;
+
+    let (result_view, _result_complement) = slab::with_resource(sym_lens, |r| {
+        let sym = slab::as_symmetric_lens(r)?;
+        match direction {
+            0 => sym.sync_left_to_right(&view_instance, &comp).map_err(|e| {
+                WasmError::LensConstructionFailed {
+                    reason: e.to_string(),
+                }
+            }),
+            1 => sym.sync_right_to_left(&view_instance, &comp).map_err(|e| {
+                WasmError::LensConstructionFailed {
+                    reason: e.to_string(),
+                }
+            }),
+            _ => Err(WasmError::LensConstructionFailed {
+                reason: format!("invalid direction: {direction}, expected 0 or 1"),
+            }),
+        }
+    })?;
+
+    rmp_serde::to_vec(&result_view).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Apply a single protolens step to a schema.
+///
+/// The `protolens_bytes` are `MessagePack`-encoded protolens step
+/// description with fields `name`, `source`, `target`, and
+/// `complement_constructor`.
+///
+/// Returns a handle to the resulting compiled lens (stored as
+/// `MigrationWithSchemas`).
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization fails, the schema handle is
+/// invalid, or instantiation fails.
+#[wasm_bindgen]
+pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, JsError> {
+    // Deserialize a single-step protolens chain spec.
+    let chain: lens::ProtolensChain = {
+        let step: ProtolensStepSpec = rmp_serde::from_slice(protolens_bytes).map_err(|e| {
+            WasmError::DeserializationFailed {
+                reason: e.to_string(),
+            }
+        })?;
+        build_chain_from_step_spec(&step)?
+    };
+
+    let schema_val = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let protocol = lookup_builtin_protocol(&schema_val.protocol)
+        .unwrap_or_else(|| default_protocol(&schema_val.protocol));
+
+    let lens_obj = chain.instantiate(&schema_val, &protocol).map_err(|e| {
+        WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    Ok(slab::alloc(Resource::MigrationWithSchemas {
+        compiled: lens_obj.compiled,
+        src_schema: std::sync::Arc::new(lens_obj.src_schema),
+        tgt_schema: std::sync::Arc::new(lens_obj.tgt_schema),
     }))
 }
 
@@ -1935,6 +2249,84 @@ struct VcsBlameResult {
     message: String,
 }
 
+/// Info about a single protolens step, for JSON serialization.
+#[derive(Debug, Serialize)]
+struct ProtolensStepInfo {
+    name: String,
+    source_endofunctor: String,
+    target_endofunctor: String,
+    lossless: bool,
+}
+
+/// Info about a factorization step, for msgpack serialization.
+#[derive(Debug, Serialize)]
+struct FactorizationStepInfo {
+    name: String,
+    transform: String,
+}
+
+/// Spec for a single protolens step, deserialized from msgpack.
+#[derive(Debug, Deserialize)]
+struct ProtolensStepSpec {
+    /// The type of step: `add_sort`, `drop_sort`, `rename_sort`,
+    /// `add_op`, `drop_op`, `rename_op`.
+    step_type: String,
+    /// Primary argument (sort/op name, or old name for renames).
+    name: String,
+    /// Secondary argument (new name for renames, kind for adds).
+    #[serde(default)]
+    target: String,
+    /// Third argument (vertex kind for `add_sort`).
+    #[serde(default)]
+    kind: String,
+}
+
+/// Build a `ProtolensChain` from a serialized step spec.
+fn build_chain_from_step_spec(spec: &ProtolensStepSpec) -> Result<lens::ProtolensChain, JsError> {
+    use panproto_core::gat::Name;
+    use panproto_core::inst::value::Value;
+
+    let protolens = match spec.step_type.as_str() {
+        "add_sort" => lens::protolens::elementary::add_sort(
+            Name::from(spec.name.as_str()),
+            Name::from(if spec.kind.is_empty() {
+                spec.name.as_str()
+            } else {
+                spec.kind.as_str()
+            }),
+            Value::Null,
+        ),
+        "drop_sort" => lens::protolens::elementary::drop_sort(Name::from(spec.name.as_str())),
+        "rename_sort" => lens::protolens::elementary::rename_sort(
+            Name::from(spec.name.as_str()),
+            Name::from(spec.target.as_str()),
+        ),
+        "add_op" => lens::protolens::elementary::add_op(
+            Name::from(spec.name.as_str()),
+            Name::from(spec.name.as_str()),
+            Name::from(spec.target.as_str()),
+            Name::from(if spec.kind.is_empty() {
+                spec.name.as_str()
+            } else {
+                spec.kind.as_str()
+            }),
+        ),
+        "drop_op" => lens::protolens::elementary::drop_op(Name::from(spec.name.as_str())),
+        "rename_op" => lens::protolens::elementary::rename_op(
+            Name::from(spec.name.as_str()),
+            Name::from(spec.target.as_str()),
+        ),
+        other => {
+            return Err(WasmError::LensConstructionFailed {
+                reason: format!("unknown step type: {other}"),
+            }
+            .into());
+        }
+    };
+
+    Ok(lens::ProtolensChain::new(vec![protolens]))
+}
+
 /// A serializable version of `schema::ValidationError` for crossing
 /// the WASM boundary.
 #[derive(Debug, Serialize, Deserialize)]
@@ -2368,6 +2760,22 @@ fn compose_compiled(c1: &CompiledMigration, c2: &CompiledMigration) -> CompiledM
         edge_remap,
         resolver,
         hyper_resolver: c2.hyper_resolver.clone(),
+    }
+}
+
+/// Build a default protocol spec with the given name.
+///
+/// Used as a fallback when the schema's protocol name does not match any
+/// built-in protocol.
+fn default_protocol(name: &str) -> panproto_core::schema::Protocol {
+    panproto_core::schema::Protocol {
+        name: name.into(),
+        schema_theory: "ThGraph".into(),
+        instance_theory: "ThWType".into(),
+        edge_rules: vec![],
+        obj_kinds: vec!["object".into(), "string".into(), "record".into()],
+        constraint_sorts: vec![],
+        ..panproto_core::schema::Protocol::default()
     }
 }
 

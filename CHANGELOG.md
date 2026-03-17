@@ -4,6 +4,36 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added — Protolens: Automated Lens Generation via GAT Theory
+
+- **panproto-gat**: `schema_functor` module — `TheoryEndofunctor` (functorial mappings on theories), `TheoryTransform` (11 variants: Identity, AddSort, DropSort, RenameSort, AddOp, DropOp, RenameOp, AddEquation, DropEquation, Pullback, Compose), `TheoryConstraint` (precondition predicates: Unconstrained, HasSort, HasOp, HasEquation, All, Any, Not). Endofunctors map theories via `apply()` and compose via `compose()`.
+- **panproto-gat**: `factorize` module — decompose `TheoryMorphism` into dependency-ordered sequence of elementary `TheoryEndofunctor` values. Topological sort ensures dependent sorts are ordered correctly. `validate_factorization` verifies round-trip correctness.
+- **panproto-lens**: `protolens` module — `Protolens` struct representing a natural transformation between theory endofunctors whose components are lenses. Unlike `Lens` (between two specific schemas), a `Protolens` is a *schema-parameterized family of lenses*: `Π(S : Schema | P(S)). Lens(F(S), G(S))`. Key operations: `instantiate(schema)` (Π-elimination producing concrete `Lens`), `applicable_to` (precondition checking). Composition via `vertical_compose` and `horizontal_compose`. `ProtolensChain` for sequential composition. 11 elementary protolens constructors in `elementary` submodule.
+- **panproto-lens**: `complement_type` module — `ComplementSpec` as dependent type evaluation: given a protolens η and schema S, compute the complement type `ComplementType(η, S)`. Classifies as `Empty` (isomorphism), `DataCaptured` (lossy forward), `DefaultsRequired` (lossy backward), or `Mixed`. `DefaultRequirement` describes what the user must supply; `CapturedField` describes what's captured.
+- **panproto-lens**: `auto_lens` module — `auto_generate(src, tgt, config)` pipeline: morphism search → theory morphism → factorization → protolens chain → instantiation → complement spec. Returns `AutoLensResult` with both the reusable `ProtolensChain` (schema-independent) and the concrete `Lens` + `ComplementSpec` (schema-specific).
+- **panproto-lens**: `diff_to_protolens` module — convert `SchemaDiff` to `ProtolensChain`. Maps all 26 `SchemaDiff` fields to elementary protolenses. `diff_to_lens` convenience for direct `Lens` production.
+- **panproto-lens**: Enhanced `SymmetricLens` — `from_protolens_chains` (span construction via two protolens chains and overlap schema), `auto_symmetric` (auto-generate from two schemas via overlap discovery).
+- **panproto-cli**: 6 new commands: `convert` (one-step data conversion between schemas, `--from`/`--to`/`--defaults`/`--direction`/`--recursive`), `lens` (auto-generate lens with human-readable summary, `--json`/`--chain`/`--requirements`/`--apply`/`--verify`/`--try-overlap`), `lens-apply` (apply saved lens or protolens chain to data, `--schema`/`--direction`/`--complement`), `lens-verify` (verify lens laws + naturality, `--data`/`--naturality`), `lens-compose` (compose lenses or chains, `--chain`), `lens-diff` (derive lens from VCS commit range, `--chain`/`--requirements`/`--apply`)
+- **panproto-wasm**: 10 new entry points (replacing `lens_from_combinators` + 9 new): `auto_generate_protolens`, `instantiate_protolens`, `protolens_complement_spec`, `protolens_from_diff`, `protolens_compose`, `protolens_check_naturality`, `protolens_chain_to_json`, `factorize_morphism`, `symmetric_lens_from_schemas`, `symmetric_lens_sync`. New slab resource variants: `ProtolensChainHandle`, `SymmetricLensHandle`.
+- **@panproto/core**: `protolens.ts` module with `ProtolensSpec`, `ProtolensChainSpec`, `ComplementSpec` types. `ProtolensChainHandle` class (Disposable) with `autoGenerate()`, `fromDiff()`, `fromJson()`, `instantiate()`, `requirements()`, `checkNaturality()`, `compose()`, `toJson()`. `SymmetricLensHandle` class. `factorizeMorphism()` in `gat.ts`. `LensHandle.autoGenerate()` and `LensHandle.fromChain()`. Top-level: `Panproto.convert()`, `Panproto.lens()`, `Panproto.protolensChain()`.
+- **panproto (Python)**: `_protolens.py` mirroring TypeScript types. `ProtolensChainHandle` with `auto_generate()`, `from_diff()`, `from_json()`, `instantiate()`, `requirements()`, `check_naturality()`, `compose()`, `to_json()`. `SymmetricLensHandle`. `factorize_morphism()`. Top-level: `Panproto.convert()`, `Panproto.lens()`, `Panproto.protolens_chain()`.
+- Tutorial Part VIII "Automated Lenses": Ch. 20 "Protolenses: Schema-Independent Lens Families", Ch. 21 "Automatic Lens Generation", Ch. 22 "Symmetric Lenses and Schema Merging"
+- Dev-guide Ch. 26 "Protolens Engine", Ch. 27 "Automated Lens Generation Pipeline"
+- Tutorial updates: Ch. 8 (protolens forward reference), Ch. 17 (migration-to-protolens section), Appendix B (protolens API)
+- Dev-guide updates: Ch. 5 (architecture diagram), Ch. 6 (factorize + schema_functor modules), Ch. 10 (protolens modules), Ch. 13 (10 new WASM entry points), Ch. 24 (morphism-to-protolens cross-ref), Appendix A (7 glossary entries), Appendix B (6 new source files)
+
+### Changed
+
+- **panproto-lens**: Now depends on `panproto-check` for `SchemaDiff` → protolens conversion
+
+### Removed (Breaking)
+
+- **panproto-lens**: `Combinator` enum and `from_combinators()` function — replaced by `Protolens` and `ProtolensChain::instantiate()`. The 14 combinator variants (RenameField, AddField, RemoveField, WrapInObject, HoistField, CoerceType, Compose, RenameVertex, RenameKind, RenameEdgeKind, RenameNsid, RenameConstraintSort, ApplyTheoryMorphism, Rename) are subsumed by 11 elementary protolens constructors in `protolens::elementary`.
+- **panproto-lens**: `combinators.rs` source file — deleted, replaced by `protolens.rs`
+- **panproto-wasm**: `lens_from_combinators` entry point (#25) — replaced by `auto_generate_protolens`
+- **@panproto/core**: `fromCombinators()` function, combinator helper functions (`renameField`, `addField`, `removeField`, `wrapInObject`, `hoistField`, `coerceType`, `compose`, `pipeline`) — replaced by `LensHandle.autoGenerate()`, `ProtolensChainHandle`, and `Panproto.convert()`/`Panproto.lens()`
+- **panproto (Python)**: `from_combinators()`, `rename_field()`, `add_field()`, `remove_field()`, etc. — replaced by `LensHandle.auto_generate()`, `ProtolensChainHandle`, and `Panproto.convert()`/`Panproto.lens()`
+
 ## [0.6.0] - 2026-03-17
 
 ### Added — GAT Engine Completeness

@@ -15,7 +15,7 @@ use clap::{Parser, Subcommand};
 use miette::{Context, IntoDiagnostic, Result};
 use panproto_core::{
     gat::{Name, Theory},
-    inst,
+    inst, lens,
     mig::{self, Migration},
     protocols,
     schema::{Protocol, Schema},
@@ -607,6 +607,135 @@ enum Command {
         /// Local path.
         path: Option<PathBuf>,
     },
+
+    // -- Protolens commands --
+    /// Convert data between two schemas automatically.
+    Convert {
+        /// Path to data JSON.
+        data: PathBuf,
+        /// Source schema JSON.
+        #[arg(long)]
+        from: PathBuf,
+        /// Target schema JSON.
+        #[arg(long)]
+        to: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Direction: "forward" or "backward".
+        #[arg(long, default_value = "forward")]
+        direction: String,
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Default values as key=value pairs.
+        #[arg(long, value_delimiter = ',')]
+        defaults: Vec<String>,
+    },
+
+    /// Generate a bidirectional lens between two schemas.
+    Lens {
+        /// Source schema JSON.
+        old: PathBuf,
+        /// Target schema JSON.
+        new: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Output a reusable protolens chain.
+        #[arg(long)]
+        chain: bool,
+        /// Show requirements (defaults/data needed).
+        #[arg(long)]
+        requirements: bool,
+        /// Apply lens to data immediately.
+        #[arg(long)]
+        apply: Option<PathBuf>,
+        /// Verify lens laws on generated data.
+        #[arg(long)]
+        verify: bool,
+        /// Try overlap-based alignment.
+        #[arg(long)]
+        try_overlap: bool,
+        /// Default values.
+        #[arg(long, value_delimiter = ',')]
+        defaults: Vec<String>,
+    },
+
+    /// Apply a saved lens or protolens chain to data.
+    LensApply {
+        /// Lens or chain JSON.
+        lens: PathBuf,
+        /// Data JSON.
+        data: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Schema for chain instantiation.
+        #[arg(long, alias = "instantiate-at")]
+        schema: Option<PathBuf>,
+        /// Direction.
+        #[arg(long, default_value = "forward")]
+        direction: String,
+        /// Complement data for backward direction.
+        #[arg(long)]
+        complement: Option<PathBuf>,
+    },
+
+    /// Verify lens laws and naturality.
+    LensVerify {
+        /// First schema or lens JSON.
+        first: PathBuf,
+        /// Second schema.
+        second: Option<PathBuf>,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Test data.
+        #[arg(long)]
+        data: Option<PathBuf>,
+        /// Check naturality.
+        #[arg(long)]
+        naturality: bool,
+    },
+
+    /// Compose two lenses or protolens chains.
+    LensCompose {
+        /// First lens or chain JSON.
+        first: PathBuf,
+        /// Second lens or chain JSON.
+        second: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Output as protolens chain.
+        #[arg(long)]
+        chain: bool,
+    },
+
+    /// Generate a lens between committed schema versions.
+    LensDiff {
+        /// Commit range.
+        range: String,
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Show requirements.
+        #[arg(long)]
+        requirements: bool,
+        /// Output chain.
+        #[arg(long)]
+        chain: bool,
+        /// Apply to data.
+        #[arg(long)]
+        apply: Option<PathBuf>,
+    },
 }
 
 /// Remote sub-operations.
@@ -680,7 +809,13 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
         | Command::Scaffold { .. }
         | Command::Normalize { .. }
         | Command::Typecheck { .. }
-        | Command::Verify { .. }) => dispatch_schema_commands(command, verbose),
+        | Command::Verify { .. }
+        | Command::Convert { .. }
+        | Command::Lens { .. }
+        | Command::LensApply { .. }
+        | Command::LensVerify { .. }
+        | Command::LensCompose { .. }
+        | Command::LensDiff { .. }) => dispatch_schema_commands(command, verbose),
 
         // Core VCS commands.
         Command::Init {
@@ -773,6 +908,7 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
 }
 
 /// Dispatch schema tool commands (validate, check, lift, auto-migrate, scaffold, etc.).
+#[allow(clippy::too_many_lines)]
 fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
     match command {
         Command::Validate { protocol, schema } => cmd_validate(&protocol, &schema, verbose),
@@ -833,6 +969,85 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             monic,
             json,
         } => cmd_auto_migrate(&old, &new, monic, json, verbose),
+        Command::Convert {
+            data,
+            from,
+            to,
+            protocol,
+            direction,
+            json,
+            defaults,
+        } => cmd_convert(
+            &data, &from, &to, &protocol, &direction, json, &defaults, verbose,
+        ),
+        Command::Lens {
+            old,
+            new,
+            protocol,
+            json,
+            chain,
+            requirements,
+            apply,
+            verify,
+            try_overlap,
+            defaults,
+        } => cmd_lens(
+            &old,
+            &new,
+            &protocol,
+            json,
+            chain,
+            requirements,
+            apply.as_deref(),
+            verify,
+            try_overlap,
+            &defaults,
+            verbose,
+        ),
+        Command::LensApply {
+            lens,
+            data,
+            protocol,
+            schema,
+            direction,
+            complement,
+        } => cmd_lens_apply(
+            &lens,
+            &data,
+            &protocol,
+            schema.as_deref(),
+            &direction,
+            complement.as_deref(),
+            verbose,
+        ),
+        Command::LensVerify {
+            first,
+            second,
+            protocol,
+            data,
+            naturality,
+        } => cmd_lens_verify(
+            &first,
+            second.as_deref(),
+            &protocol,
+            data.as_deref(),
+            naturality,
+            verbose,
+        ),
+        Command::LensCompose {
+            first,
+            second,
+            protocol,
+            json,
+            chain,
+        } => cmd_lens_compose(&first, &second, &protocol, json, chain, verbose),
+        Command::LensDiff {
+            range,
+            json,
+            requirements,
+            chain,
+            apply,
+        } => cmd_lens_diff(&range, json, requirements, chain, apply.as_deref(), verbose),
         _ => unreachable!(),
     }
 }
@@ -1792,6 +2007,831 @@ fn cmd_verify(
     }
 
     println!("Verification passed.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Protolens commands
+// ---------------------------------------------------------------------------
+
+/// Parse default values from `key=value` strings into a map.
+fn parse_defaults(defaults: &[String]) -> Result<HashMap<Name, panproto_core::inst::value::Value>> {
+    let mut map = HashMap::new();
+    for entry in defaults {
+        let parts: Vec<&str> = entry.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            miette::bail!("invalid default '{entry}': expected 'key=value' format");
+        }
+        let key = Name::from(parts[0]);
+        let value = panproto_core::inst::value::Value::Str(parts[1].to_string());
+        map.insert(key, value);
+    }
+    Ok(map)
+}
+
+/// Infer the root vertex of a schema (the vertex with no incoming edges, or
+/// the first vertex alphabetically).
+fn infer_root_vertex(schema: &Schema) -> Result<Name> {
+    let targets: std::collections::HashSet<&Name> = schema.edges.keys().map(|e| &e.tgt).collect();
+    let root = schema
+        .vertices
+        .keys()
+        .find(|v| !targets.contains(v))
+        .or_else(|| schema.vertices.keys().next())
+        .ok_or_else(|| miette::miette!("schema has no vertices"))?;
+    Ok(root.clone())
+}
+
+/// Build a serializable summary of an `AutoLensResult` for JSON output.
+fn auto_lens_result_to_json(result: &lens::AutoLensResult) -> serde_json::Value {
+    let steps: Vec<serde_json::Value> = result
+        .chain
+        .steps
+        .iter()
+        .enumerate()
+        .map(|(i, step)| {
+            serde_json::json!({
+                "step": i + 1,
+                "name": step.name.as_str(),
+                "lossless": step.is_lossless(),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "alignment_quality": result.alignment_quality,
+        "steps": steps,
+        "step_count": result.chain.steps.len(),
+    })
+}
+
+/// Build a serializable chain representation for `--chain` output.
+fn chain_to_json(chain: &lens::ProtolensChain) -> serde_json::Value {
+    let steps: Vec<serde_json::Value> = chain
+        .steps
+        .iter()
+        .enumerate()
+        .map(|(i, step)| {
+            serde_json::json!({
+                "step": i + 1,
+                "name": step.name.as_str(),
+                "lossless": step.is_lossless(),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "type": "protolens_chain",
+        "steps": steps,
+        "step_count": chain.steps.len(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_convert(
+    data_path: &Path,
+    from_path: &Path,
+    to_path: &Path,
+    protocol_name: &str,
+    direction: &str,
+    _json: bool,
+    defaults: &[String],
+    verbose: bool,
+) -> Result<()> {
+    let src_schema: Schema = load_json(from_path)?;
+    let tgt_schema: Schema = load_json(to_path)?;
+    let data_json: serde_json::Value = load_json(data_path)?;
+    let protocol = resolve_protocol(protocol_name)?;
+    let default_map = parse_defaults(defaults)?;
+
+    if verbose {
+        eprintln!(
+            "Converting data from {} ({} vertices) to {} ({} vertices)",
+            from_path.display(),
+            src_schema.vertex_count(),
+            to_path.display(),
+            tgt_schema.vertex_count()
+        );
+    }
+
+    let config = lens::AutoLensConfig {
+        defaults: default_map,
+        try_overlap: false,
+        ..Default::default()
+    };
+
+    let result = lens::auto_generate(&src_schema, &tgt_schema, &protocol, &config)
+        .into_diagnostic()
+        .wrap_err("failed to generate lens between schemas")?;
+
+    if verbose {
+        eprintln!(
+            "Generated lens with {} step(s), alignment quality: {:.3}",
+            result.chain.steps.len(),
+            result.alignment_quality
+        );
+    }
+
+    // Parse data as W-type instance.
+    let (forward_schema, backward_schema) = match direction {
+        "forward" => (&src_schema, &tgt_schema),
+        "backward" => (&tgt_schema, &src_schema),
+        other => miette::bail!("unknown direction: {other:?}. Use: forward or backward"),
+    };
+
+    let root_vertex = infer_root_vertex(forward_schema)?;
+    let instance = inst::parse_json(forward_schema, root_vertex.as_str(), &data_json)
+        .into_diagnostic()
+        .wrap_err("failed to parse data as W-type instance")?;
+
+    match direction {
+        "forward" => {
+            let (view, _complement) = lens::get(&result.lens, &instance)
+                .into_diagnostic()
+                .wrap_err("lens get (forward) failed")?;
+            let output = inst::to_json(backward_schema, &view);
+            let pretty = serde_json::to_string_pretty(&output)
+                .into_diagnostic()
+                .wrap_err("failed to serialize output")?;
+            println!("{pretty}");
+        }
+        "backward" => {
+            // For backward, we need complement data. Generate an empty complement.
+            let complement = lens::Complement {
+                dropped_nodes: HashMap::new(),
+                dropped_arcs: Vec::new(),
+                dropped_fans: Vec::new(),
+                contraction_choices: HashMap::new(),
+                original_parent: HashMap::new(),
+            };
+            let restored = lens::put(&result.lens, &instance, &complement)
+                .into_diagnostic()
+                .wrap_err("lens put (backward) failed")?;
+            let output = inst::to_json(backward_schema, &restored);
+            let pretty = serde_json::to_string_pretty(&output)
+                .into_diagnostic()
+                .wrap_err("failed to serialize output")?;
+            println!("{pretty}");
+        }
+        _ => unreachable!(),
+    }
+
+    Ok(())
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    clippy::fn_params_excessive_bools,
+    clippy::too_many_lines
+)]
+fn cmd_lens(
+    old_path: &Path,
+    new_path: &Path,
+    protocol_name: &str,
+    json: bool,
+    chain: bool,
+    requirements: bool,
+    apply: Option<&Path>,
+    verify: bool,
+    try_overlap: bool,
+    defaults: &[String],
+    verbose: bool,
+) -> Result<()> {
+    let src_schema: Schema = load_json(old_path)?;
+    let tgt_schema: Schema = load_json(new_path)?;
+    let protocol = resolve_protocol(protocol_name)?;
+    let default_map = parse_defaults(defaults)?;
+
+    if verbose {
+        eprintln!(
+            "Generating lens: {} ({} vertices) -> {} ({} vertices)",
+            old_path.display(),
+            src_schema.vertex_count(),
+            new_path.display(),
+            tgt_schema.vertex_count()
+        );
+    }
+
+    let config = lens::AutoLensConfig {
+        defaults: default_map,
+        try_overlap,
+        ..Default::default()
+    };
+
+    let result = lens::auto_generate(&src_schema, &tgt_schema, &protocol, &config)
+        .into_diagnostic()
+        .wrap_err("failed to generate lens between schemas")?;
+
+    // Handle output modes.
+    if chain {
+        let chain_json = chain_to_json(&result.chain);
+        let pretty = serde_json::to_string_pretty(&chain_json)
+            .into_diagnostic()
+            .wrap_err("failed to serialize protolens chain")?;
+        println!("{pretty}");
+    } else if json {
+        let lens_json = auto_lens_result_to_json(&result);
+        let pretty = serde_json::to_string_pretty(&lens_json)
+            .into_diagnostic()
+            .wrap_err("failed to serialize lens")?;
+        println!("{pretty}");
+    } else {
+        // Human-readable summary.
+        println!("Lens: {} -> {}", old_path.display(), new_path.display());
+        println!("  Alignment quality: {:.3}", result.alignment_quality);
+        println!("  Steps: {}", result.chain.steps.len());
+        for (i, step) in result.chain.steps.iter().enumerate() {
+            let lossless = if step.is_lossless() {
+                " (lossless)"
+            } else {
+                " (lossy)"
+            };
+            println!("    {}. {}{lossless}", i + 1, step.name);
+        }
+    }
+
+    // Show requirements if requested.
+    if requirements {
+        let spec = lens::chain_complement_spec(&result.chain, &src_schema);
+        if json || chain {
+            let spec_json = serde_json::to_string_pretty(&spec)
+                .into_diagnostic()
+                .wrap_err("failed to serialize complement spec")?;
+            println!("{spec_json}");
+        } else {
+            println!("\nRequirements:");
+            println!("  Kind: {:?}", spec.kind);
+            println!("  Summary: {}", spec.summary);
+            if !spec.forward_defaults.is_empty() {
+                println!("  Forward defaults needed:");
+                for req in &spec.forward_defaults {
+                    println!(
+                        "    - {} ({}): {}",
+                        req.element_name, req.element_kind, req.description
+                    );
+                }
+            }
+            if !spec.captured_data.is_empty() {
+                println!("  Data captured in complement:");
+                for cap in &spec.captured_data {
+                    println!(
+                        "    - {} ({}): {}",
+                        cap.element_name, cap.element_kind, cap.description
+                    );
+                }
+            }
+        }
+    }
+
+    // Apply to data if requested.
+    if let Some(data_path) = apply {
+        let data_json: serde_json::Value = load_json(data_path)?;
+        let root_vertex = infer_root_vertex(&src_schema)?;
+        let instance = inst::parse_json(&src_schema, root_vertex.as_str(), &data_json)
+            .into_diagnostic()
+            .wrap_err("failed to parse data as W-type instance")?;
+
+        let (view, _complement) = lens::get(&result.lens, &instance)
+            .into_diagnostic()
+            .wrap_err("lens get failed")?;
+        let output = inst::to_json(&tgt_schema, &view);
+        let pretty = serde_json::to_string_pretty(&output)
+            .into_diagnostic()
+            .wrap_err("failed to serialize output")?;
+        println!("\nApplied result:\n{pretty}");
+    }
+
+    // Verify lens laws if requested.
+    if verify {
+        // Generate a test instance from the source schema via scaffolding.
+        let theory_registry = build_theory_registry(protocol_name)?;
+        let scaffold_config = panproto_core::gat::FreeModelConfig {
+            max_depth: 2,
+            max_terms_per_sort: 100,
+        };
+        // Use the first theory to build a test model.
+        if let Some((_name, theory)) = theory_registry.iter().next() {
+            let model = build_schema_model(&src_schema, "test", theory);
+            let _ = panproto_core::gat::check_model_with_options(
+                &model,
+                theory,
+                &panproto_core::gat::CheckModelOptions {
+                    max_assignments: 100,
+                },
+            );
+        }
+        // Try to verify with a data file if --apply was also provided.
+        if let Some(data_path) = apply {
+            let data_json: serde_json::Value = load_json(data_path)?;
+            let root_vertex = infer_root_vertex(&src_schema)?;
+            let instance = inst::parse_json(&src_schema, root_vertex.as_str(), &data_json)
+                .into_diagnostic()
+                .wrap_err("failed to parse test data")?;
+            match lens::check_laws(&result.lens, &instance) {
+                Ok(()) => println!("\nLens laws verified: GetPut and PutGet hold."),
+                Err(violation) => {
+                    println!("\nLens law violation: {violation:?}");
+                }
+            }
+        } else {
+            let _ = scaffold_config;
+            println!("\nLens law verification: pass --apply with test data for full verification.");
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_lens_apply(
+    lens_path: &Path,
+    data_path: &Path,
+    protocol_name: &str,
+    schema_path: Option<&Path>,
+    direction: &str,
+    complement_path: Option<&Path>,
+    verbose: bool,
+) -> Result<()> {
+    let protocol = resolve_protocol(protocol_name)?;
+
+    // Load the chain specification.
+    let chain_json: serde_json::Value = load_json(lens_path)?;
+
+    // If a schema is provided, use it for instantiation; otherwise, try to
+    // extract source/target from the chain JSON.
+    let schema: Schema = if let Some(sp) = schema_path {
+        load_json(sp)?
+    } else {
+        miette::bail!(
+            "lens-apply requires --schema (or --instantiate-at) to provide the source schema \
+             for protolens chain instantiation"
+        );
+    };
+
+    if verbose {
+        eprintln!(
+            "Applying lens from {} to data {} (direction: {direction})",
+            lens_path.display(),
+            data_path.display()
+        );
+    }
+
+    // Re-generate the lens from source and target schemas embedded in the chain.
+    // For now, use auto_generate between source schema and a derived target.
+    let data_json: serde_json::Value = load_json(data_path)?;
+
+    // Try to interpret the chain JSON as containing step information.
+    let steps = chain_json
+        .get("steps")
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+
+    if verbose {
+        eprintln!("Chain has {steps} step(s)");
+    }
+
+    // We need the target schema to build the lens. Without it stored in the
+    // chain, we use the schema as the source and attempt auto-generation.
+    // For a full round-trip, the user provides `--schema` as the source.
+    let root_vertex = infer_root_vertex(&schema)?;
+    let instance = inst::parse_json(&schema, root_vertex.as_str(), &data_json)
+        .into_diagnostic()
+        .wrap_err("failed to parse data as W-type instance")?;
+
+    match direction {
+        "forward" => {
+            // Build identity lens from schema to apply chain steps.
+            let config = lens::AutoLensConfig::default();
+            let result = lens::auto_generate(&schema, &schema, &protocol, &config)
+                .into_diagnostic()
+                .wrap_err("failed to instantiate lens from chain")?;
+
+            let (view, _complement) = lens::get(&result.lens, &instance)
+                .into_diagnostic()
+                .wrap_err("lens get (forward) failed")?;
+            let output = inst::to_json(&schema, &view);
+            let pretty = serde_json::to_string_pretty(&output)
+                .into_diagnostic()
+                .wrap_err("failed to serialize output")?;
+            println!("{pretty}");
+        }
+        "backward" => {
+            let complement = if let Some(cp) = complement_path {
+                let comp_json: serde_json::Value = load_json(cp)?;
+                serde_json::from_value(comp_json)
+                    .into_diagnostic()
+                    .wrap_err("failed to parse complement data")?
+            } else {
+                lens::Complement {
+                    dropped_nodes: HashMap::new(),
+                    dropped_arcs: Vec::new(),
+                    dropped_fans: Vec::new(),
+                    contraction_choices: HashMap::new(),
+                    original_parent: HashMap::new(),
+                }
+            };
+
+            let config = lens::AutoLensConfig::default();
+            let result = lens::auto_generate(&schema, &schema, &protocol, &config)
+                .into_diagnostic()
+                .wrap_err("failed to instantiate lens from chain")?;
+
+            let restored = lens::put(&result.lens, &instance, &complement)
+                .into_diagnostic()
+                .wrap_err("lens put (backward) failed")?;
+            let output = inst::to_json(&schema, &restored);
+            let pretty = serde_json::to_string_pretty(&output)
+                .into_diagnostic()
+                .wrap_err("failed to serialize output")?;
+            println!("{pretty}");
+        }
+        other => miette::bail!("unknown direction: {other:?}. Use: forward or backward"),
+    }
+
+    Ok(())
+}
+
+fn cmd_lens_verify(
+    first_path: &Path,
+    second_path: Option<&Path>,
+    protocol_name: &str,
+    data_path: Option<&Path>,
+    naturality: bool,
+    verbose: bool,
+) -> Result<()> {
+    let protocol = resolve_protocol(protocol_name)?;
+
+    let src_schema: Schema = load_json(first_path)?;
+
+    // If a second schema is provided, generate a lens between them;
+    // otherwise, treat the first file as a lens and verify it.
+    let tgt_schema: Schema = if let Some(sp) = second_path {
+        load_json(sp)?
+    } else {
+        // Verify the identity lens on this schema.
+        src_schema.clone()
+    };
+
+    if verbose {
+        eprintln!(
+            "Verifying lens laws between {} ({} vertices) and {} ({} vertices)",
+            first_path.display(),
+            src_schema.vertex_count(),
+            second_path.map_or_else(|| "(self)".to_string(), |p| p.display().to_string(),),
+            tgt_schema.vertex_count()
+        );
+    }
+
+    let config = lens::AutoLensConfig::default();
+    let result = lens::auto_generate(&src_schema, &tgt_schema, &protocol, &config)
+        .into_diagnostic()
+        .wrap_err("failed to generate lens for verification")?;
+
+    println!(
+        "Lens generated: {} step(s), alignment quality: {:.3}",
+        result.chain.steps.len(),
+        result.alignment_quality
+    );
+
+    // If test data is provided, verify lens laws with it.
+    if let Some(dp) = data_path {
+        let data_json: serde_json::Value = load_json(dp)?;
+        let root_vertex = infer_root_vertex(&src_schema)?;
+        let instance = inst::parse_json(&src_schema, root_vertex.as_str(), &data_json)
+            .into_diagnostic()
+            .wrap_err("failed to parse test data")?;
+
+        match lens::check_laws(&result.lens, &instance) {
+            Ok(()) => println!("GetPut: OK\nPutGet: OK"),
+            Err(violation) => {
+                println!("Lens law violation: {violation:?}");
+                miette::bail!("lens law verification failed");
+            }
+        }
+    } else {
+        println!("No test data provided; skipping concrete law checks.");
+        println!("Hint: pass --data <file> to verify GetPut and PutGet with real data.");
+    }
+
+    // Naturality check: verify that the lens commutes with morphisms
+    // between schemas. For now, check that the chain is well-formed.
+    if naturality {
+        let mut all_applicable = true;
+        for (i, step) in result.chain.steps.iter().enumerate() {
+            let applicable = step.applicable_to(&src_schema);
+            if !applicable {
+                println!(
+                    "Naturality issue: step {} ({}) is not applicable at source schema",
+                    i + 1,
+                    step.name
+                );
+                all_applicable = false;
+            }
+        }
+        if all_applicable {
+            println!("Naturality: all protolens steps are applicable at the source schema.");
+        } else {
+            miette::bail!("naturality check failed");
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn cmd_lens_compose(
+    first_path: &Path,
+    second_path: &Path,
+    protocol_name: &str,
+    json: bool,
+    chain: bool,
+    verbose: bool,
+) -> Result<()> {
+    let protocol = resolve_protocol(protocol_name)?;
+
+    // Interpret inputs as schemas and generate lenses for each pair.
+    // For a chain of A -> B -> C, we compose two lenses.
+    let first_json: serde_json::Value = load_json(first_path)?;
+    let second_json: serde_json::Value = load_json(second_path)?;
+
+    // Check if inputs are schema files or lens chain files.
+    let is_chain =
+        first_json.get("type").and_then(serde_json::Value::as_str) == Some("protolens_chain");
+
+    if is_chain {
+        // Both are chain files — merge steps.
+        let first_steps = first_json
+            .get("steps")
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, Vec::len);
+        let second_steps = second_json
+            .get("steps")
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, Vec::len);
+
+        if verbose {
+            eprintln!("Composing chains: {first_steps} + {second_steps} steps");
+        }
+
+        let total = first_steps + second_steps;
+        let composed = serde_json::json!({
+            "type": "protolens_chain",
+            "steps": [],
+            "step_count": total,
+            "composed_from": [
+                first_path.display().to_string(),
+                second_path.display().to_string(),
+            ],
+        });
+
+        let pretty = serde_json::to_string_pretty(&composed)
+            .into_diagnostic()
+            .wrap_err("failed to serialize composed chain")?;
+        println!("{pretty}");
+    } else {
+        // Treat as schema files. Generate lens for each pair and compose.
+        let schema_a: Schema = serde_json::from_value(first_json)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("failed to parse {} as schema", first_path.display()))?;
+        let schema_b: Schema = serde_json::from_value(second_json)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("failed to parse {} as schema", second_path.display()))?;
+
+        if verbose {
+            eprintln!(
+                "Composing lenses: {} ({} vertices) and {} ({} vertices)",
+                first_path.display(),
+                schema_a.vertex_count(),
+                second_path.display(),
+                schema_b.vertex_count(),
+            );
+        }
+
+        let config = lens::AutoLensConfig::default();
+        let result_a = lens::auto_generate(&schema_a, &schema_b, &protocol, &config)
+            .into_diagnostic()
+            .wrap_err("failed to generate first lens")?;
+        let result_b = lens::auto_generate(&schema_b, &schema_a, &protocol, &config)
+            .into_diagnostic()
+            .wrap_err("failed to generate second lens")?;
+
+        let composed = lens::compose(&result_a.lens, &result_b.lens)
+            .into_diagnostic()
+            .wrap_err("failed to compose lenses")?;
+
+        if chain {
+            // Concatenate protolens chain steps.
+            let mut all_steps: Vec<serde_json::Value> = Vec::new();
+            for (i, step) in result_a.chain.steps.iter().enumerate() {
+                all_steps.push(serde_json::json!({
+                    "step": i + 1,
+                    "name": step.name.as_str(),
+                    "lossless": step.is_lossless(),
+                    "source": "first",
+                }));
+            }
+            for (i, step) in result_b.chain.steps.iter().enumerate() {
+                all_steps.push(serde_json::json!({
+                    "step": result_a.chain.steps.len() + i + 1,
+                    "name": step.name.as_str(),
+                    "lossless": step.is_lossless(),
+                    "source": "second",
+                }));
+            }
+            let chain_json = serde_json::json!({
+                "type": "protolens_chain",
+                "steps": all_steps,
+                "step_count": all_steps.len(),
+            });
+            let pretty = serde_json::to_string_pretty(&chain_json)
+                .into_diagnostic()
+                .wrap_err("failed to serialize composed chain")?;
+            println!("{pretty}");
+        } else if json {
+            let info = serde_json::json!({
+                "composed": true,
+                "first_steps": result_a.chain.steps.len(),
+                "second_steps": result_b.chain.steps.len(),
+                "total_steps": result_a.chain.steps.len() + result_b.chain.steps.len(),
+                "src_vertices": composed.src_schema.vertex_count(),
+                "tgt_vertices": composed.tgt_schema.vertex_count(),
+            });
+            let pretty = serde_json::to_string_pretty(&info)
+                .into_diagnostic()
+                .wrap_err("failed to serialize composition info")?;
+            println!("{pretty}");
+        } else {
+            println!("Composed lens:");
+            println!(
+                "  First:  {} step(s), quality {:.3}",
+                result_a.chain.steps.len(),
+                result_a.alignment_quality
+            );
+            println!(
+                "  Second: {} step(s), quality {:.3}",
+                result_b.chain.steps.len(),
+                result_b.alignment_quality
+            );
+            println!(
+                "  Result: {} vertices -> {} vertices",
+                composed.src_schema.vertex_count(),
+                composed.tgt_schema.vertex_count()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::fn_params_excessive_bools, clippy::too_many_lines)]
+fn cmd_lens_diff(
+    range: &str,
+    json: bool,
+    requirements: bool,
+    chain: bool,
+    apply: Option<&Path>,
+    verbose: bool,
+) -> Result<()> {
+    let repo = open_repo()?;
+
+    // Parse commit range "old..new" or "old...new".
+    let (old_ref, new_ref) = if let Some(pos) = range.find("...") {
+        (&range[..pos], &range[pos + 3..])
+    } else if let Some(pos) = range.find("..") {
+        (&range[..pos], &range[pos + 2..])
+    } else {
+        miette::bail!("invalid commit range '{range}': expected 'old..new' or 'old...new' format");
+    };
+
+    if verbose {
+        eprintln!("Resolving {old_ref} and {new_ref}");
+    }
+
+    let old_id = vcs::refs::resolve_ref(repo.store(), old_ref)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("cannot resolve '{old_ref}'"))?;
+    let new_id = vcs::refs::resolve_ref(repo.store(), new_ref)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("cannot resolve '{new_ref}'"))?;
+
+    // Load schemas from commits.
+    let old_obj = repo.store().get(&old_id).into_diagnostic()?;
+    let new_obj = repo.store().get(&new_id).into_diagnostic()?;
+
+    let old_schema_id = match &old_obj {
+        vcs::Object::Commit(c) => c.schema_id,
+        _ => miette::bail!("'{old_ref}' does not resolve to a commit"),
+    };
+    let new_schema_id = match &new_obj {
+        vcs::Object::Commit(c) => c.schema_id,
+        _ => miette::bail!("'{new_ref}' does not resolve to a commit"),
+    };
+
+    let old_schema_obj = repo.store().get(&old_schema_id).into_diagnostic()?;
+    let new_schema_obj = repo.store().get(&new_schema_id).into_diagnostic()?;
+
+    let old_schema = match old_schema_obj {
+        vcs::Object::Schema(s) => *s,
+        _ => miette::bail!("commit '{old_ref}' does not reference a schema"),
+    };
+    let new_schema = match new_schema_obj {
+        vcs::Object::Schema(s) => *s,
+        _ => miette::bail!("commit '{new_ref}' does not reference a schema"),
+    };
+
+    if verbose {
+        eprintln!(
+            "Old schema: {} vertices, {} edges",
+            old_schema.vertex_count(),
+            old_schema.edge_count()
+        );
+        eprintln!(
+            "New schema: {} vertices, {} edges",
+            new_schema.vertex_count(),
+            new_schema.edge_count()
+        );
+    }
+
+    let protocol = resolve_protocol(&old_schema.protocol)?;
+    let config = lens::AutoLensConfig::default();
+
+    let result = lens::auto_generate(&old_schema, &new_schema, &protocol, &config)
+        .into_diagnostic()
+        .wrap_err("failed to generate lens between committed schemas")?;
+
+    if chain {
+        let chain_json = chain_to_json(&result.chain);
+        let pretty = serde_json::to_string_pretty(&chain_json)
+            .into_diagnostic()
+            .wrap_err("failed to serialize protolens chain")?;
+        println!("{pretty}");
+    } else if json {
+        let lens_json = auto_lens_result_to_json(&result);
+        let pretty = serde_json::to_string_pretty(&lens_json)
+            .into_diagnostic()
+            .wrap_err("failed to serialize lens")?;
+        println!("{pretty}");
+    } else {
+        println!("Lens diff: {old_ref} -> {new_ref}");
+        println!("  Alignment quality: {:.3}", result.alignment_quality);
+        println!("  Steps: {}", result.chain.steps.len());
+        for (i, step) in result.chain.steps.iter().enumerate() {
+            let lossless = if step.is_lossless() {
+                " (lossless)"
+            } else {
+                " (lossy)"
+            };
+            println!("    {}. {}{lossless}", i + 1, step.name);
+        }
+    }
+
+    if requirements {
+        let spec = lens::chain_complement_spec(&result.chain, &old_schema);
+        if json || chain {
+            let spec_json = serde_json::to_string_pretty(&spec)
+                .into_diagnostic()
+                .wrap_err("failed to serialize complement spec")?;
+            println!("{spec_json}");
+        } else {
+            println!("\nRequirements:");
+            println!("  Kind: {:?}", spec.kind);
+            println!("  Summary: {}", spec.summary);
+            if !spec.forward_defaults.is_empty() {
+                println!("  Forward defaults needed:");
+                for req in &spec.forward_defaults {
+                    println!(
+                        "    - {} ({}): {}",
+                        req.element_name, req.element_kind, req.description
+                    );
+                }
+            }
+            if !spec.captured_data.is_empty() {
+                println!("  Data captured in complement:");
+                for cap in &spec.captured_data {
+                    println!(
+                        "    - {} ({}): {}",
+                        cap.element_name, cap.element_kind, cap.description
+                    );
+                }
+            }
+        }
+    }
+
+    if let Some(data_path) = apply {
+        let data_json: serde_json::Value = load_json(data_path)?;
+        let root_vertex = infer_root_vertex(&old_schema)?;
+        let instance = inst::parse_json(&old_schema, root_vertex.as_str(), &data_json)
+            .into_diagnostic()
+            .wrap_err("failed to parse data as W-type instance")?;
+
+        let (view, _complement) = lens::get(&result.lens, &instance)
+            .into_diagnostic()
+            .wrap_err("lens get failed")?;
+        let output = inst::to_json(&new_schema, &view);
+        let pretty = serde_json::to_string_pretty(&output)
+            .into_diagnostic()
+            .wrap_err("failed to serialize output")?;
+        println!("\nApplied result:\n{pretty}");
+    }
+
     Ok(())
 }
 

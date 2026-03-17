@@ -25,6 +25,7 @@ mod check_model;
 mod colimit;
 mod eq;
 mod error;
+mod factorize;
 mod free_model;
 mod ident;
 mod model;
@@ -33,6 +34,7 @@ mod nat_transform;
 mod op;
 mod pullback;
 mod quotient;
+mod schema_functor;
 mod sort;
 mod theory;
 mod typecheck;
@@ -41,6 +43,8 @@ pub use check_model::{
     CheckModelOptions, EquationViolation, check_model, check_model_with_options,
 };
 pub use colimit::colimit;
+pub use factorize::{Factorization, factorize, validate_factorization};
+
 pub use eq::{Equation, Term};
 pub use error::GatError;
 pub use free_model::{FreeModelConfig, free_model};
@@ -53,6 +57,7 @@ pub use nat_transform::{
 pub use op::Operation;
 pub use pullback::{PullbackResult, pullback};
 pub use quotient::quotient;
+pub use schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
 pub use sort::{Sort, SortParam};
 pub use theory::{Theory, resolve_theory};
 pub use typecheck::{

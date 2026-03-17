@@ -10,7 +10,8 @@
 import type { WasmModule, ProtocolSpec, DiffReport, FullSchemaDiff, SchemaValidationIssue } from './types.js';
 import { PanprotoError, WasmError } from './types.js';
 import { loadWasm, type WasmGlueModule, createHandle } from './wasm.js';
-import { LensHandle } from './lens.js';
+import { LensHandle, ProtolensChainHandle } from './lens.js';
+import { packToWasm, unpackFromWasm } from './msgpack.js';
 import {
   Protocol,
   defineProtocol,
@@ -25,7 +26,6 @@ import {
   checkExistence,
   composeMigrations,
 } from './migration.js';
-import { unpackFromWasm } from './msgpack.js';
 import { FullDiffReport, ValidationResult } from './check.js';
 import { Instance } from './instance.js';
 import { IoRegistry } from './io.js';
@@ -315,6 +315,59 @@ export class Panproto implements Disposable {
    */
   initRepo(protocolName: string): Repository {
     return Repository.init(protocolName, this.#wasm);
+  }
+
+  /**
+   * Convert data from one schema to another using an auto-generated lens.
+   *
+   * This is a convenience method that generates a protolens, applies the
+   * forward projection, and disposes the lens automatically.
+   *
+   * @param data - The input data (Uint8Array of MessagePack, or a plain object)
+   * @param opts - Conversion options specifying source and target schemas
+   * @returns The converted data
+   * @throws {@link WasmError} if lens generation or conversion fails
+   */
+  async convert(data: Uint8Array | object, opts: {
+    from: BuiltSchema;
+    to: BuiltSchema;
+    defaults?: Record<string, unknown>;
+  }): Promise<unknown> {
+    const lens = LensHandle.autoGenerate(opts.from, opts.to, this.#wasm);
+    try {
+      const input = data instanceof Uint8Array ? data : packToWasm(data);
+      const result = lens.get(input);
+      return result.view;
+    } finally {
+      lens[Symbol.dispose]();
+    }
+  }
+
+  /**
+   * Create an auto-generated lens between two schemas.
+   *
+   * @param from - The source schema
+   * @param to - The target schema
+   * @returns A LensHandle for the generated lens
+   * @throws {@link WasmError} if lens generation fails
+   */
+  lens(from: BuiltSchema, to: BuiltSchema): LensHandle {
+    return LensHandle.autoGenerate(from, to, this.#wasm);
+  }
+
+  /**
+   * Create a protolens chain between two schemas.
+   *
+   * The returned chain is schema-independent and can be instantiated
+   * against different concrete schemas.
+   *
+   * @param from - The source schema
+   * @param to - The target schema
+   * @returns A ProtolensChainHandle for the generated chain
+   * @throws {@link WasmError} if chain generation fails
+   */
+  protolensChain(from: BuiltSchema, to: BuiltSchema): ProtolensChainHandle {
+    return ProtolensChainHandle.autoGenerate(from, to, this.#wasm);
   }
 
   /**

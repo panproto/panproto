@@ -10,6 +10,7 @@ use std::sync::Arc;
 use panproto_core::gat::Theory;
 use panproto_core::inst::CompiledMigration;
 use panproto_core::io::ProtocolRegistry;
+use panproto_core::lens::{ProtolensChain, SymmetricLens};
 use panproto_core::schema::{Protocol, Schema};
 use panproto_core::vcs::MemStore;
 use wasm_bindgen::JsError;
@@ -44,6 +45,10 @@ pub enum Resource {
     Theory(Box<Theory>),
     /// A VCS in-memory repository.
     VcsRepo(Box<MemStore>),
+    /// A protolens chain (reusable, schema-independent).
+    ProtolensChain(Box<ProtolensChain>),
+    /// A symmetric lens.
+    SymmetricLensHandle(Box<SymmetricLens>),
 }
 
 thread_local! {
@@ -287,6 +292,30 @@ pub fn as_vcs_repo(resource: &Resource) -> Result<&MemStore, WasmError> {
     }
 }
 
+/// Extract a `ProtolensChain` reference from a resource, or return a
+/// type mismatch error.
+pub fn as_protolens_chain(resource: &Resource) -> Result<&ProtolensChain, WasmError> {
+    match resource {
+        Resource::ProtolensChain(c) => Ok(c),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "ProtolensChain",
+            actual: resource_type_name(resource),
+        }),
+    }
+}
+
+/// Extract a `SymmetricLens` reference from a resource, or return a
+/// type mismatch error.
+pub fn as_symmetric_lens(resource: &Resource) -> Result<&SymmetricLens, WasmError> {
+    match resource {
+        Resource::SymmetricLensHandle(s) => Ok(s),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "SymmetricLens",
+            actual: resource_type_name(resource),
+        }),
+    }
+}
+
 /// Return a human-readable name for a resource variant (const version).
 const fn resource_type_name(resource: &Resource) -> &'static str {
     match resource {
@@ -297,6 +326,8 @@ const fn resource_type_name(resource: &Resource) -> &'static str {
         Resource::IoRegistry(_) => "IoRegistry",
         Resource::Theory(_) => "Theory",
         Resource::VcsRepo(_) => "VcsRepo",
+        Resource::ProtolensChain(_) => "ProtolensChain",
+        Resource::SymmetricLensHandle(_) => "SymmetricLens",
     }
 }
 

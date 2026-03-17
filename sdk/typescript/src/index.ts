@@ -42,29 +42,24 @@ export { SchemaBuilder, BuiltSchema } from './schema.js';
 // Migration
 export { MigrationBuilder, CompiledMigration } from './migration.js';
 
-// Lens / Combinators
+// Lens / Protolens
 export {
-  renameField,
-  addField,
-  removeField,
-  wrapInObject,
-  hoistField,
-  coerceType,
-  compose,
-  pipeline,
   LensHandle,
-  fromCombinators,
+  ProtolensChainHandle,
+  SymmetricLensHandle,
 } from './lens.js';
+
+// Protolens types
 export type {
-  Combinator,
-  RenameFieldCombinator,
-  AddFieldCombinator,
-  RemoveFieldCombinator,
-  WrapInObjectCombinator,
-  HoistFieldCombinator,
-  CoerceTypeCombinator,
-  ComposeCombinator,
-} from './lens.js';
+  SchemaTransform,
+  ProtolensSpec,
+  ProtolensChainSpec,
+  ComplementSpec,
+  DefaultRequirement,
+  CapturedField,
+  ElementaryStep,
+  NaturalityResult,
+} from './protolens.js';
 
 // Instance
 export { Instance } from './instance.js';
@@ -123,6 +118,7 @@ export {
   colimit,
   checkMorphism,
   migrateModel,
+  factorizeMorphism,
 } from './gat.js';
 export type {
   TheorySpec,

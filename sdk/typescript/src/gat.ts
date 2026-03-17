@@ -19,6 +19,7 @@ import type {
 import { PanprotoError, WasmError } from './types.js';
 import { WasmHandle, createHandle } from './wasm.js';
 import { packToWasm, unpackFromWasm } from './msgpack.js';
+import type { ElementaryStep } from './protolens.js';
 
 /**
  * A disposable handle to a WASM-side Theory resource.
@@ -224,4 +225,35 @@ export function migrateModel(
   const morphBytes = packToWasm(morphism);
   const resultBytes = wasm.exports.migrate_model(modelBytes, morphBytes);
   return unpackFromWasm<Record<string, unknown[]>>(resultBytes);
+}
+
+/**
+ * Factorize a morphism into elementary steps.
+ *
+ * Decomposes a theory morphism into a sequence of elementary schema
+ * transformations (renames, additions, removals, etc.) suitable for
+ * constructing protolens chains.
+ *
+ * @param morphismBytes - MessagePack-encoded morphism data
+ * @param domain - Handle to the domain theory
+ * @param codomain - Handle to the codomain theory
+ * @param wasm - The WASM module
+ * @returns A sequence of elementary steps
+ * @throws {@link WasmError} if factorization fails
+ */
+export function factorizeMorphism(
+  morphismBytes: Uint8Array,
+  domain: TheoryHandle,
+  codomain: TheoryHandle,
+  wasm: WasmModule,
+): ElementaryStep[] {
+  try {
+    const bytes = wasm.exports.factorize_morphism(morphismBytes, domain._handle.id, codomain._handle.id);
+    return unpackFromWasm<ElementaryStep[]>(bytes);
+  } catch (error) {
+    throw new WasmError(
+      `factorize_morphism failed: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
 }

@@ -457,6 +457,16 @@ export interface WasmExports {
   vcs_stash(repo: number): Uint8Array;
   vcs_stash_pop(repo: number): Uint8Array;
   vcs_blame(repo: number, vertex: Uint8Array): Uint8Array;
+  // Phase 10: Protolens operations
+  auto_generate_protolens(schema1: number, schema2: number): number;
+  instantiate_protolens(chain: number, schema: number): number;
+  protolens_complement_spec(chain: number, schema: number): Uint8Array;
+  protolens_compose(chain1: number, chain2: number): number;
+  protolens_chain_to_json(chain: number): Uint8Array;
+  symmetric_lens_from_schemas(schema1: number, schema2: number): number;
+  symmetric_lens_sync(lens: number, view: Uint8Array, complement: Uint8Array, direction: number): Uint8Array;
+  factorize_morphism(morphism: Uint8Array, domain: number, codomain: number): Uint8Array;
+  apply_protolens_step(step: Uint8Array, schema: number, instance: Uint8Array): Uint8Array;
 }
 
 /** Result of checking a lens law (GetPut or PutGet). */

@@ -1,0 +1,592 @@
+use std::sync::Arc;
+
+use rustc_hash::FxHashSet;
+
+use crate::eq::{Equation, Term};
+use crate::error::GatError;
+use crate::morphism::TheoryMorphism;
+use crate::op::Operation;
+use crate::sort::{Sort, SortParam};
+use crate::theory::Theory;
+
+/// A predicate on theories — the precondition for applying a transform.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TheoryConstraint {
+    /// Any theory satisfies this.
+    Unconstrained,
+    /// Theory must have a sort with this name.
+    HasSort(Arc<str>),
+    /// Theory must have an operation with this name.
+    HasOp(Arc<str>),
+    /// Theory must have an equation with this name.
+    HasEquation(Arc<str>),
+    /// Conjunction.
+    All(Vec<Self>),
+    /// Disjunction.
+    Any(Vec<Self>),
+    /// Negation.
+    Not(Box<Self>),
+}
+
+/// How a theory endofunctor transforms a theory.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TheoryTransform {
+    /// Identity: T ↦ T
+    Identity,
+    /// Add a sort: T ↦ T + {sort}
+    AddSort(Sort),
+    /// Drop a sort and all dependent ops/equations.
+    DropSort(Arc<str>),
+    /// Rename a sort.
+    RenameSort {
+        /// The old sort name.
+        old: Arc<str>,
+        /// The new sort name.
+        new: Arc<str>,
+    },
+    /// Add an operation.
+    AddOp(Operation),
+    /// Drop an operation and dependent equations.
+    DropOp(Arc<str>),
+    /// Rename an operation.
+    RenameOp {
+        /// The old operation name.
+        old: Arc<str>,
+        /// The new operation name.
+        new: Arc<str>,
+    },
+    /// Add an equation.
+    AddEquation(Equation),
+    /// Drop an equation.
+    DropEquation(Arc<str>),
+    /// Pullback along a theory morphism.
+    Pullback(TheoryMorphism),
+    /// Sequential composition: T ↦ G(F(T))
+    Compose(Box<Self>, Box<Self>),
+}
+
+/// A theory endofunctor: maps theories to theories.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TheoryEndofunctor {
+    /// Human-readable name.
+    pub name: Arc<str>,
+    /// Precondition.
+    pub precondition: TheoryConstraint,
+    /// The transformation.
+    pub transform: TheoryTransform,
+}
+
+impl TheoryConstraint {
+    /// Check if a theory satisfies this constraint.
+    #[must_use]
+    pub fn satisfied_by(&self, theory: &Theory) -> bool {
+        match self {
+            Self::Unconstrained => true,
+            Self::HasSort(name) => theory.has_sort(name),
+            Self::HasOp(name) => theory.has_op(name),
+            Self::HasEquation(name) => theory.find_eq(name).is_some(),
+            Self::All(cs) => cs.iter().all(|c| c.satisfied_by(theory)),
+            Self::Any(cs) => cs.iter().any(|c| c.satisfied_by(theory)),
+            Self::Not(c) => !c.satisfied_by(theory),
+        }
+    }
+}
+
+/// Drop a sort from a theory, cascading to dependent ops and equations.
+fn apply_drop_sort(theory: &Theory, name: &Arc<str>) -> Theory {
+    let sorts: Vec<_> = theory
+        .sorts
+        .iter()
+        .filter(|s| s.name != *name)
+        .cloned()
+        .collect();
+    let ops: Vec<_> = theory
+        .ops
+        .iter()
+        .filter(|o| o.output != *name && o.inputs.iter().all(|(_, s)| s != name))
+        .cloned()
+        .collect();
+    let eqs = filter_eqs_by_remaining_ops(&theory.eqs, &ops);
+    Theory::new(Arc::clone(&theory.name), sorts, ops, eqs)
+}
+
+/// Rename a sort throughout a theory (sort defs, sort param refs, op signatures).
+fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory {
+    let sorts: Vec<_> = theory
+        .sorts
+        .iter()
+        .map(|s| {
+            if s.name == *old {
+                Sort {
+                    name: Arc::clone(new),
+                    params: s.params.clone(),
+                }
+            } else {
+                let params = s
+                    .params
+                    .iter()
+                    .map(|p| {
+                        if p.sort == *old {
+                            SortParam {
+                                name: Arc::clone(&p.name),
+                                sort: Arc::clone(new),
+                            }
+                        } else {
+                            p.clone()
+                        }
+                    })
+                    .collect();
+                Sort {
+                    name: Arc::clone(&s.name),
+                    params,
+                }
+            }
+        })
+        .collect();
+    let ops: Vec<_> = theory
+        .ops
+        .iter()
+        .map(|o| {
+            let inputs = o
+                .inputs
+                .iter()
+                .map(|(n, s)| {
+                    (
+                        Arc::clone(n),
+                        if s == old {
+                            Arc::clone(new)
+                        } else {
+                            Arc::clone(s)
+                        },
+                    )
+                })
+                .collect();
+            let output = if o.output == *old {
+                Arc::clone(new)
+            } else {
+                Arc::clone(&o.output)
+            };
+            Operation {
+                name: Arc::clone(&o.name),
+                inputs,
+                output,
+            }
+        })
+        .collect();
+    Theory::new(Arc::clone(&theory.name), sorts, ops, theory.eqs.clone())
+}
+
+/// Drop an operation from a theory, cascading to dependent equations.
+fn apply_drop_op(theory: &Theory, name: &Arc<str>) -> Theory {
+    let ops: Vec<_> = theory
+        .ops
+        .iter()
+        .filter(|o| o.name != *name)
+        .cloned()
+        .collect();
+    let eqs = filter_eqs_by_remaining_ops(&theory.eqs, &ops);
+    Theory::new(Arc::clone(&theory.name), theory.sorts.clone(), ops, eqs)
+}
+
+/// Rename an operation throughout a theory (op defs and equation terms).
+fn apply_rename_op(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory {
+    let ops: Vec<_> = theory
+        .ops
+        .iter()
+        .map(|o| {
+            if o.name == *old {
+                Operation {
+                    name: Arc::clone(new),
+                    inputs: o.inputs.clone(),
+                    output: Arc::clone(&o.output),
+                }
+            } else {
+                o.clone()
+            }
+        })
+        .collect();
+    let mut op_map = std::collections::HashMap::new();
+    op_map.insert(Arc::clone(old), Arc::clone(new));
+    let eqs: Vec<_> = theory.eqs.iter().map(|eq| eq.rename_ops(&op_map)).collect();
+    Theory::new(Arc::clone(&theory.name), theory.sorts.clone(), ops, eqs)
+}
+
+/// Apply a pullback (sort/op renaming) from a theory morphism.
+fn apply_pullback(theory: &Theory, morphism: &TheoryMorphism) -> Theory {
+    let mut result = theory.clone();
+    for (old, new) in &morphism.sort_map {
+        if old != new {
+            result = apply_rename_sort(&result, old, new);
+        }
+    }
+    for (old, new) in &morphism.op_map {
+        if old != new {
+            result = apply_rename_op(&result, old, new);
+        }
+    }
+    result
+}
+
+/// Filter equations, keeping only those whose ops are all in the remaining ops list.
+fn filter_eqs_by_remaining_ops(eqs: &[Equation], ops: &[Operation]) -> Vec<Equation> {
+    let remaining_op_names: FxHashSet<Arc<str>> = ops.iter().map(|o| Arc::clone(&o.name)).collect();
+    eqs.iter()
+        .filter(|eq| {
+            let ops_used = collect_ops_in_equation(eq);
+            ops_used.iter().all(|op| remaining_op_names.contains(op))
+        })
+        .cloned()
+        .collect()
+}
+
+impl TheoryTransform {
+    /// Apply this transform to a theory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GatError::FactorizationError`] if the transform cannot be applied.
+    pub fn apply(&self, theory: &Theory) -> Result<Theory, GatError> {
+        match self {
+            Self::Identity => Ok(theory.clone()),
+            Self::AddSort(sort) => {
+                let mut sorts = theory.sorts.clone();
+                sorts.push(sort.clone());
+                Ok(Theory::new(
+                    Arc::clone(&theory.name),
+                    sorts,
+                    theory.ops.clone(),
+                    theory.eqs.clone(),
+                ))
+            }
+            Self::DropSort(name) => Ok(apply_drop_sort(theory, name)),
+            Self::RenameSort { old, new } => Ok(apply_rename_sort(theory, old, new)),
+            Self::AddOp(op) => {
+                let mut ops = theory.ops.clone();
+                ops.push(op.clone());
+                Ok(Theory::new(
+                    Arc::clone(&theory.name),
+                    theory.sorts.clone(),
+                    ops,
+                    theory.eqs.clone(),
+                ))
+            }
+            Self::DropOp(name) => Ok(apply_drop_op(theory, name)),
+            Self::RenameOp { old, new } => Ok(apply_rename_op(theory, old, new)),
+            Self::AddEquation(eq) => {
+                let mut eqs = theory.eqs.clone();
+                eqs.push(eq.clone());
+                Ok(Theory::new(
+                    Arc::clone(&theory.name),
+                    theory.sorts.clone(),
+                    theory.ops.clone(),
+                    eqs,
+                ))
+            }
+            Self::DropEquation(name) => {
+                let eqs: Vec<_> = theory
+                    .eqs
+                    .iter()
+                    .filter(|eq| eq.name != *name)
+                    .cloned()
+                    .collect();
+                Ok(Theory::new(
+                    Arc::clone(&theory.name),
+                    theory.sorts.clone(),
+                    theory.ops.clone(),
+                    eqs,
+                ))
+            }
+            Self::Pullback(morphism) => Ok(apply_pullback(theory, morphism)),
+            Self::Compose(first, second) => {
+                let intermediate = first.apply(theory)?;
+                second.apply(&intermediate)
+            }
+        }
+    }
+}
+
+impl TheoryEndofunctor {
+    /// Check if this functor can act on the given theory.
+    #[must_use]
+    pub fn applicable_to(&self, theory: &Theory) -> bool {
+        self.precondition.satisfied_by(theory)
+    }
+
+    /// Apply this functor to a theory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GatError::FactorizationError`] if the precondition is not
+    /// satisfied or if the transform fails.
+    pub fn apply(&self, theory: &Theory) -> Result<Theory, GatError> {
+        if !self.applicable_to(theory) {
+            return Err(GatError::FactorizationError(format!(
+                "endofunctor '{}' precondition not satisfied",
+                self.name
+            )));
+        }
+        self.transform.apply(theory)
+    }
+
+    /// Compose with another endofunctor: self then other (G ∘ F).
+    #[must_use]
+    pub fn compose(&self, other: &Self) -> Self {
+        Self {
+            name: Arc::from(format!("{}.{}", other.name, self.name)),
+            precondition: TheoryConstraint::All(vec![
+                self.precondition.clone(),
+                // The second functor's precondition applies to the result
+                // of the first, which we can't fully check statically.
+                // We'll check dynamically at apply time.
+                TheoryConstraint::Unconstrained,
+            ]),
+            transform: TheoryTransform::Compose(
+                Box::new(self.transform.clone()),
+                Box::new(other.transform.clone()),
+            ),
+        }
+    }
+}
+
+/// Collect all operation names used in an equation.
+fn collect_ops_in_equation(eq: &Equation) -> Vec<Arc<str>> {
+    let mut ops = Vec::new();
+    collect_ops_in_term(&eq.lhs, &mut ops);
+    collect_ops_in_term(&eq.rhs, &mut ops);
+    ops
+}
+
+fn collect_ops_in_term(term: &Term, ops: &mut Vec<Arc<str>>) {
+    match term {
+        Term::Var(_) => {}
+        Term::App { op, args } => {
+            ops.push(Arc::clone(op));
+            for arg in args {
+                collect_ops_in_term(arg, ops);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    fn graph_theory() -> Theory {
+        Theory::new(
+            "ThGraph",
+            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+            vec![
+                Operation::unary("src", "e", "Edge", "Vertex"),
+                Operation::unary("tgt", "e", "Edge", "Vertex"),
+            ],
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn constraint_unconstrained() {
+        assert!(TheoryConstraint::Unconstrained.satisfied_by(&graph_theory()));
+    }
+
+    #[test]
+    fn constraint_has_sort() {
+        let t = graph_theory();
+        assert!(TheoryConstraint::HasSort(Arc::from("Vertex")).satisfied_by(&t));
+        assert!(!TheoryConstraint::HasSort(Arc::from("Foo")).satisfied_by(&t));
+    }
+
+    #[test]
+    fn constraint_has_op() {
+        let t = graph_theory();
+        assert!(TheoryConstraint::HasOp(Arc::from("src")).satisfied_by(&t));
+        assert!(!TheoryConstraint::HasOp(Arc::from("bar")).satisfied_by(&t));
+    }
+
+    #[test]
+    fn constraint_all() {
+        let t = graph_theory();
+        let c = TheoryConstraint::All(vec![
+            TheoryConstraint::HasSort(Arc::from("Vertex")),
+            TheoryConstraint::HasSort(Arc::from("Edge")),
+        ]);
+        assert!(c.satisfied_by(&t));
+        let c2 = TheoryConstraint::All(vec![
+            TheoryConstraint::HasSort(Arc::from("Vertex")),
+            TheoryConstraint::HasSort(Arc::from("Missing")),
+        ]);
+        assert!(!c2.satisfied_by(&t));
+    }
+
+    #[test]
+    fn constraint_not() {
+        let t = graph_theory();
+        assert!(
+            TheoryConstraint::Not(Box::new(TheoryConstraint::HasSort(Arc::from("Foo"))))
+                .satisfied_by(&t)
+        );
+    }
+
+    #[test]
+    fn transform_identity() {
+        let t = graph_theory();
+        let result = TheoryTransform::Identity.apply(&t).unwrap();
+        assert_eq!(result.sorts.len(), t.sorts.len());
+        assert_eq!(result.ops.len(), t.ops.len());
+    }
+
+    #[test]
+    fn transform_add_sort() {
+        let t = graph_theory();
+        let result = TheoryTransform::AddSort(Sort::simple("Label"))
+            .apply(&t)
+            .unwrap();
+        assert_eq!(result.sorts.len(), 3);
+        assert!(result.has_sort("Label"));
+    }
+
+    #[test]
+    fn transform_drop_sort() {
+        let t = graph_theory();
+        let result = TheoryTransform::DropSort(Arc::from("Edge"))
+            .apply(&t)
+            .unwrap();
+        assert_eq!(result.sorts.len(), 1);
+        assert!(result.has_sort("Vertex"));
+        // Ops referencing Edge should be dropped too
+        assert_eq!(result.ops.len(), 0);
+    }
+
+    #[test]
+    fn transform_rename_sort() {
+        let t = graph_theory();
+        let result = TheoryTransform::RenameSort {
+            old: Arc::from("Vertex"),
+            new: Arc::from("Node"),
+        }
+        .apply(&t)
+        .unwrap();
+        assert!(result.has_sort("Node"));
+        assert!(!result.has_sort("Vertex"));
+        // Ops should reference the renamed sort
+        let src = result.find_op("src").unwrap();
+        assert_eq!(&*src.output, "Node");
+    }
+
+    #[test]
+    fn transform_add_op() {
+        let t = graph_theory();
+        let result = TheoryTransform::AddOp(Operation::unary("label", "e", "Edge", "Vertex"))
+            .apply(&t)
+            .unwrap();
+        assert_eq!(result.ops.len(), 3);
+        assert!(result.has_op("label"));
+    }
+
+    #[test]
+    fn transform_drop_op() {
+        let t = graph_theory();
+        let result = TheoryTransform::DropOp(Arc::from("src")).apply(&t).unwrap();
+        assert_eq!(result.ops.len(), 1);
+        assert!(!result.has_op("src"));
+        assert!(result.has_op("tgt"));
+    }
+
+    #[test]
+    fn transform_rename_op() {
+        let t = graph_theory();
+        let result = TheoryTransform::RenameOp {
+            old: Arc::from("src"),
+            new: Arc::from("source"),
+        }
+        .apply(&t)
+        .unwrap();
+        assert!(result.has_op("source"));
+        assert!(!result.has_op("src"));
+    }
+
+    #[test]
+    fn transform_compose() {
+        let t = graph_theory();
+        let composed = TheoryTransform::Compose(
+            Box::new(TheoryTransform::AddSort(Sort::simple("Label"))),
+            Box::new(TheoryTransform::RenameSort {
+                old: Arc::from("Vertex"),
+                new: Arc::from("Node"),
+            }),
+        );
+        let result = composed.apply(&t).unwrap();
+        assert!(result.has_sort("Label"));
+        assert!(result.has_sort("Node"));
+        assert!(!result.has_sort("Vertex"));
+    }
+
+    #[test]
+    fn endofunctor_applicable() {
+        let t = graph_theory();
+        let f = TheoryEndofunctor {
+            name: Arc::from("add_label"),
+            precondition: TheoryConstraint::HasSort(Arc::from("Vertex")),
+            transform: TheoryTransform::AddSort(Sort::simple("Label")),
+        };
+        assert!(f.applicable_to(&t));
+        let result = f.apply(&t).unwrap();
+        assert!(result.has_sort("Label"));
+    }
+
+    #[test]
+    fn endofunctor_not_applicable() {
+        let t = graph_theory();
+        let f = TheoryEndofunctor {
+            name: Arc::from("needs_foo"),
+            precondition: TheoryConstraint::HasSort(Arc::from("Foo")),
+            transform: TheoryTransform::Identity,
+        };
+        assert!(!f.applicable_to(&t));
+        assert!(f.apply(&t).is_err());
+    }
+
+    #[test]
+    fn endofunctor_compose() {
+        let f1 = TheoryEndofunctor {
+            name: Arc::from("add_label"),
+            precondition: TheoryConstraint::Unconstrained,
+            transform: TheoryTransform::AddSort(Sort::simple("Label")),
+        };
+        let f2 = TheoryEndofunctor {
+            name: Arc::from("rename_vertex"),
+            precondition: TheoryConstraint::HasSort(Arc::from("Vertex")),
+            transform: TheoryTransform::RenameSort {
+                old: Arc::from("Vertex"),
+                new: Arc::from("Node"),
+            },
+        };
+        let composed = f1.compose(&f2);
+        let t = graph_theory();
+        let result = composed.apply(&t).unwrap();
+        assert!(result.has_sort("Label"));
+        assert!(result.has_sort("Node"));
+    }
+
+    #[test]
+    fn drop_sort_cascades_to_equations() {
+        let t = Theory::new(
+            "T",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![
+                Operation::unary("f", "x", "A", "B"),
+                Operation::nullary("a0", "A"),
+            ],
+            vec![Equation::new(
+                "law",
+                Term::app("f", vec![Term::constant("a0")]),
+                Term::app("f", vec![Term::constant("a0")]),
+            )],
+        );
+        let result = TheoryTransform::DropSort(Arc::from("A")).apply(&t).unwrap();
+        assert_eq!(result.sorts.len(), 1);
+        assert_eq!(result.ops.len(), 0); // f and a0 reference A
+        assert_eq!(result.eqs.len(), 0); // law uses f which was dropped
+    }
+}

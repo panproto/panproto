@@ -35,7 +35,7 @@
 //! [`instance_element_count`]
 //!
 //! **Lens & Migration (25-30)**:
-//! [`lens_from_combinators`], [`check_lens_laws`],
+//! [`auto_generate_protolens`], [`check_lens_laws`],
 //! [`check_get_put`], [`check_put_get`],
 //! [`invert_migration`], [`compose_lenses`]
 //!
@@ -50,19 +50,29 @@
 //! [`vcs_init`], [`vcs_add`], [`vcs_commit`], [`vcs_log`],
 //! [`vcs_status`], [`vcs_diff`], [`vcs_branch`], [`vcs_checkout`],
 //! [`vcs_merge`], [`vcs_stash`], [`vcs_stash_pop`], [`vcs_blame`]
+//!
+//! **Protolens Operations (49-57)**:
+//! [`instantiate_protolens`], [`protolens_complement_spec`],
+//! [`protolens_from_diff`], [`protolens_compose`],
+//! [`protolens_chain_to_json`], [`factorize_morphism`],
+//! [`symmetric_lens_from_schemas`], [`symmetric_lens_sync`],
+//! [`apply_protolens_step`]
 
 mod api;
 mod error;
 mod slab;
 
 pub use api::{
-    build_schema, check_existence, check_get_put, check_lens_laws, check_morphism, check_put_get,
-    classify_diff, colimit_theories, compile_migration, compose_lenses, compose_migrations,
-    create_theory, define_protocol, diff_schemas, diff_schemas_full, emit_instance, free_handle,
-    get_builtin_protocol, get_record, instance_element_count, instance_to_json, invert_migration,
-    json_to_instance, lens_from_combinators, lift_record, list_builtin_protocols,
-    list_io_protocols, migrate_model, normalize_schema, parse_instance, put_record,
-    register_io_protocols, report_json, report_text, validate_instance, validate_schema, vcs_add,
-    vcs_blame, vcs_branch, vcs_checkout, vcs_commit, vcs_diff, vcs_init, vcs_log, vcs_merge,
-    vcs_stash, vcs_stash_pop, vcs_status,
+    apply_protolens_step, auto_generate_protolens, build_schema, check_existence, check_get_put,
+    check_lens_laws, check_morphism, check_put_get, classify_diff, colimit_theories,
+    compile_migration, compose_lenses, compose_migrations, create_theory, define_protocol,
+    diff_schemas, diff_schemas_full, emit_instance, factorize_morphism, free_handle,
+    get_builtin_protocol, get_record, instance_element_count, instance_to_json,
+    instantiate_protolens, invert_migration, json_to_instance, lift_record, list_builtin_protocols,
+    list_io_protocols, migrate_model, normalize_schema, parse_instance, protolens_chain_to_json,
+    protolens_complement_spec, protolens_compose, protolens_from_diff, put_record,
+    register_io_protocols, report_json, report_text, symmetric_lens_from_schemas,
+    symmetric_lens_sync, validate_instance, validate_schema, vcs_add, vcs_blame, vcs_branch,
+    vcs_checkout, vcs_commit, vcs_diff, vcs_init, vcs_log, vcs_merge, vcs_stash, vcs_stash_pop,
+    vcs_status,
 };
