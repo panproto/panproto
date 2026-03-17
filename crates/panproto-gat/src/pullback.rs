@@ -285,7 +285,6 @@ pub fn pullback(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::eq::Term;
@@ -294,7 +293,7 @@ mod tests {
     /// Test 1: Pullback of identical identity morphisms yields a theory
     /// isomorphic to the original.
     #[test]
-    fn pullback_identity_morphisms() {
+    fn pullback_identity_morphisms() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "ThGraph",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
@@ -323,7 +322,7 @@ mod tests {
         );
         let id2 = TheoryMorphism::new("id2", "ThGraph", "ThGraph", id_sort_map, id_op_map);
 
-        let result = pullback(&theory, &theory, &id1, &id2).unwrap();
+        let result = pullback(&theory, &theory, &id1, &id2)?;
 
         // The pullback should have the same number of sorts and ops.
         assert_eq!(result.theory.sorts.len(), 2);
@@ -338,11 +337,12 @@ mod tests {
         // Projections should validate.
         assert!(check_morphism(&result.proj1, &result.theory, &theory).is_ok());
         assert!(check_morphism(&result.proj2, &result.theory, &theory).is_ok());
+        Ok(())
     }
 
     /// Test 2: Pullback of disjoint images yields an empty theory.
     #[test]
-    fn pullback_disjoint_images() {
+    fn pullback_disjoint_images() -> Result<(), Box<dyn std::error::Error>> {
         let t1 = Theory::new("T1", vec![Sort::simple("A")], Vec::new(), Vec::new());
         let t2 = Theory::new("T2", vec![Sort::simple("B")], Vec::new(), Vec::new());
 
@@ -362,11 +362,12 @@ mod tests {
             HashMap::new(),
         );
 
-        let result = pullback(&t1, &t2, &m1, &m2).unwrap();
+        let result = pullback(&t1, &t2, &m1, &m2)?;
 
         assert_eq!(result.theory.sorts.len(), 0);
         assert_eq!(result.theory.ops.len(), 0);
         assert_eq!(result.theory.eqs.len(), 0);
+        Ok(())
     }
 
     /// Test 3: Pullback recovering a shared Vertex sort.
@@ -374,7 +375,7 @@ mod tests {
     /// Two graph-like theories both map their Vertex sort to the same
     /// codomain sort, so the pullback contains a Vertex sort.
     #[test]
-    fn pullback_shared_vertex_sort() {
+    fn pullback_shared_vertex_sort() -> Result<(), Box<dyn std::error::Error>> {
         let t1 = Theory::new(
             "T1",
             vec![Sort::simple("V1"), Sort::simple("E1")],
@@ -409,7 +410,7 @@ mod tests {
             HashMap::from([(Arc::from("src2"), Arc::from("src"))]),
         );
 
-        let result = pullback(&t1, &t2, &m1, &m2).unwrap();
+        let result = pullback(&t1, &t2, &m1, &m2)?;
 
         // Both V1 and V2 map to Vertex, E1 and F2 map to Edge.
         // So pullback has sorts: V1=V2, E1=F2.
@@ -424,6 +425,7 @@ mod tests {
         // Projections validate.
         assert!(check_morphism(&result.proj1, &result.theory, &t1).is_ok());
         assert!(check_morphism(&result.proj2, &result.theory, &t2).is_ok());
+        Ok(())
     }
 
     /// Test 4: Projection morphisms validate via `check_morphism`.
@@ -431,7 +433,7 @@ mod tests {
     /// Uses a richer theory (monoid with equation) to ensure projections
     /// are well-formed.
     #[test]
-    fn projection_morphisms_validate() {
+    fn projection_morphisms_validate() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "Monoid",
             vec![Sort::simple("Carrier")],
@@ -462,15 +464,16 @@ mod tests {
         let id1 = TheoryMorphism::new("id1", "Monoid", "Monoid", sort_map.clone(), op_map.clone());
         let id2 = TheoryMorphism::new("id2", "Monoid", "Monoid", sort_map, op_map);
 
-        let result = pullback(&theory, &theory, &id1, &id2).unwrap();
+        let result = pullback(&theory, &theory, &id1, &id2)?;
 
         assert_eq!(result.theory.sorts.len(), 1);
         assert_eq!(result.theory.ops.len(), 2);
         assert_eq!(result.theory.eqs.len(), 1);
 
         // Both projections must pass validation.
-        check_morphism(&result.proj1, &result.theory, &theory).unwrap();
-        check_morphism(&result.proj2, &result.theory, &theory).unwrap();
+        check_morphism(&result.proj1, &result.theory, &theory)?;
+        check_morphism(&result.proj2, &result.theory, &theory)?;
+        Ok(())
     }
 
     /// Test 5: Equation pairing.
@@ -478,7 +481,7 @@ mod tests {
     /// Two theories with equations that map to the same codomain equation
     /// should produce a paired equation in the pullback.
     #[test]
-    fn equation_pairing() {
+    fn equation_pairing() -> Result<(), Box<dyn std::error::Error>> {
         let t1 = Theory::new(
             "T1",
             vec![Sort::simple("S")],
@@ -516,7 +519,7 @@ mod tests {
             HashMap::from([(Arc::from("g"), Arc::from("h"))]),
         );
 
-        let result = pullback(&t1, &t2, &m1, &m2).unwrap();
+        let result = pullback(&t1, &t2, &m1, &m2)?;
 
         // Should have one paired sort, one paired op, one paired equation.
         assert_eq!(result.theory.sorts.len(), 1);
@@ -527,14 +530,15 @@ mod tests {
         assert!(result.theory.find_eq("idem1=idem2").is_some());
 
         // Projections validate.
-        check_morphism(&result.proj1, &result.theory, &t1).unwrap();
-        check_morphism(&result.proj2, &result.theory, &t2).unwrap();
+        check_morphism(&result.proj1, &result.theory, &t1)?;
+        check_morphism(&result.proj2, &result.theory, &t2)?;
+        Ok(())
     }
 
     /// When sorts have the same name on both sides, the pullback sort
     /// keeps the original name (not "X=X").
     #[test]
-    fn same_name_sorts_not_duplicated() {
+    fn same_name_sorts_not_duplicated() -> Result<(), Box<dyn std::error::Error>> {
         let t1 = Theory::new("T1", vec![Sort::simple("Vertex")], Vec::new(), Vec::new());
         let t2 = Theory::new("T2", vec![Sort::simple("Vertex")], Vec::new(), Vec::new());
 
@@ -553,11 +557,12 @@ mod tests {
             HashMap::new(),
         );
 
-        let result = pullback(&t1, &t2, &m1, &m2).unwrap();
+        let result = pullback(&t1, &t2, &m1, &m2)?;
 
         assert_eq!(result.theory.sorts.len(), 1);
         assert!(result.theory.find_sort("Vertex").is_some());
         // Should NOT be named "Vertex=Vertex".
         assert!(result.theory.find_sort("Vertex=Vertex").is_none());
+        Ok(())
     }
 }

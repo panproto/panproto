@@ -200,7 +200,6 @@ fn increment_indices(indices: &mut [usize], var_carriers: &[(Arc<str>, &[ModelVa
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::eq::Equation;
@@ -258,7 +257,7 @@ mod tests {
 
     fn valid_z5_model() -> Model {
         let mut model = Model::new("Monoid");
-        model.add_sort("Carrier", (0..5).map(|i| ModelValue::Int(i)).collect());
+        model.add_sort("Carrier", (0..5).map(ModelValue::Int).collect());
         model.add_op("mul", |args: &[ModelValue]| match (&args[0], &args[1]) {
             (ModelValue::Int(a), ModelValue::Int(b)) => Ok(ModelValue::Int((a + b) % 5)),
             _ => Err(GatError::ModelError("expected Int".into())),
@@ -268,24 +267,25 @@ mod tests {
     }
 
     #[test]
-    fn valid_model_passes() {
+    fn valid_model_passes() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
         let model = valid_z5_model();
-        let violations = check_model(&model, &theory).unwrap();
+        let violations = check_model(&model, &theory)?;
         assert!(
             violations.is_empty(),
             "expected no violations, got {violations:?}"
         );
+        Ok(())
     }
 
     #[test]
-    fn broken_identity_detected() {
+    fn broken_identity_detected() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
         let mut model = valid_z5_model();
         // Break right identity: unit() returns 1 instead of 0.
         model.add_op("unit", |_: &[ModelValue]| Ok(ModelValue::Int(1)));
 
-        let violations = check_model(&model, &theory).unwrap();
+        let violations = check_model(&model, &theory)?;
         assert!(!violations.is_empty(), "expected violations");
 
         // At least one violation should be for right_id or left_id.
@@ -293,10 +293,11 @@ mod tests {
             .iter()
             .any(|v| v.equation.as_ref() == "left_id" || v.equation.as_ref() == "right_id");
         assert!(has_identity_violation);
+        Ok(())
     }
 
     #[test]
-    fn broken_associativity_detected() {
+    fn broken_associativity_detected() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
         let mut model = Model::new("Monoid");
         model.add_sort(
@@ -310,13 +311,14 @@ mod tests {
         });
         model.add_op("unit", |_: &[ModelValue]| Ok(ModelValue::Int(0)));
 
-        let violations = check_model(&model, &theory).unwrap();
+        let violations = check_model(&model, &theory)?;
         let has_assoc = violations.iter().any(|v| v.equation.as_ref() == "assoc");
         assert!(has_assoc, "expected associativity violation");
+        Ok(())
     }
 
     #[test]
-    fn empty_carrier_passes() {
+    fn empty_carrier_passes() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
         let mut model = Model::new("Monoid");
         model.add_sort("Carrier", vec![]);
@@ -329,12 +331,13 @@ mod tests {
         // left_id and right_id have variables, so 0 assignments for those.
         // But unit() = unit() would be checked if it existed.
         // assoc also has variables so 0 assignments.
-        let violations = check_model(&model, &theory).unwrap();
+        let violations = check_model(&model, &theory)?;
         assert!(violations.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn constants_only_equation() {
+    fn constants_only_equation() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "T",
             vec![Sort::simple("S")],
@@ -351,14 +354,15 @@ mod tests {
         model.add_sort("S", vec![ModelValue::Int(0)]);
         model.add_op("a", |_: &[ModelValue]| Ok(ModelValue::Int(0)));
         model.add_op("b", |_: &[ModelValue]| Ok(ModelValue::Int(0)));
-        let violations = check_model(&model, &theory).unwrap();
+        let violations = check_model(&model, &theory)?;
         assert!(violations.is_empty());
 
         // Model where a() = 0, b() = 1: fails.
         model.add_op("b", |_: &[ModelValue]| Ok(ModelValue::Int(1)));
-        let violations = check_model(&model, &theory).unwrap();
+        let violations = check_model(&model, &theory)?;
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].equation.as_ref(), "a_eq_b");
+        Ok(())
     }
 
     #[test]
@@ -366,7 +370,7 @@ mod tests {
         let theory = monoid_theory();
         let mut model = Model::new("Monoid");
         // Large carrier set: 100 elements, assoc has 3 variables -> 1M assignments.
-        model.add_sort("Carrier", (0..100).map(|i| ModelValue::Int(i)).collect());
+        model.add_sort("Carrier", (0..100).map(ModelValue::Int).collect());
         model.add_op("mul", |args: &[ModelValue]| match (&args[0], &args[1]) {
             (ModelValue::Int(a), ModelValue::Int(b)) => Ok(ModelValue::Int(a + b)),
             _ => Err(GatError::ModelError("expected Int".into())),

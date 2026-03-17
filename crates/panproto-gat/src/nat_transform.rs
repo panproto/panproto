@@ -263,7 +263,6 @@ pub fn horizontal_compose(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::morphism::TheoryMorphism;
@@ -327,18 +326,22 @@ mod tests {
     }
 
     #[test]
-    fn vertical_compose_identities_yields_identity() {
+    fn vertical_compose_identities_yields_identity() -> Result<(), Box<dyn std::error::Error>> {
         let theory = two_sort_theory();
         let alpha = identity_nat_trans(&theory, "id", "id", "alpha");
         let beta = identity_nat_trans(&theory, "id", "id", "beta");
 
-        let composed = vertical_compose(&alpha, &beta, &theory).unwrap();
+        let composed = vertical_compose(&alpha, &beta, &theory)?;
 
         // Each component should be Var("x") since id[x := id] = id.
         for sort in &theory.sorts {
-            let comp = composed.components.get(&sort.name).unwrap();
+            let comp = composed
+                .components
+                .get(&sort.name)
+                .ok_or("missing component for sort")?;
             assert_eq!(comp, &Term::var("x"));
         }
+        Ok(())
     }
 
     #[test]

@@ -1033,12 +1033,13 @@ mod tests {
         );
 
         // No structural coherence warnings: "a" exists in target schema.
-        let structural_warnings: Vec<_> = result
-            .coherence_warnings
-            .iter()
-            .filter(|w| w.contains("does not exist in target schema"))
-            .collect();
-        assert!(structural_warnings.is_empty());
+        assert!(
+            !result
+                .coherence_warnings
+                .iter()
+                .any(|w| w.contains("does not exist in target schema")),
+            "expected no structural coherence warnings"
+        );
         Ok(())
     }
 
@@ -1303,36 +1304,12 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn coherence_detects_actual_composition_drift() -> Result<(), Box<dyn std::error::Error>> {
-        // Build a 3-commit path where the composed migration maps a
-        // vertex to a DIFFERENT target than the direct migration would.
-        //
-        // s0: {a, b, c}   s1: {a, b, c}   s2: {a, b, c}
-        //
-        // mig01: a->a, b->c, c->b   (swap b and c)
-        // mig12: a->a, b->c, c->b   (swap again)
-        // Composed: a->a, b->b, c->c (double swap = identity on b,c)
-        //
-        // Direct (derive_migration from {a,b,c} to {a,b,c}):
-        //   {a->a, b->b, c->c} — identity.
-        //
-        // Both agree (identity). Still no drift. We need DIFFERENT schemas.
-        //
-        // s0: {a, b, c}    s1: {a, x, y}    s2: {a, y, z}
-        //
-        // mig01: a->a, b->x, c->y
-        // mig12: a->a, x->y, y->z
-        // Composed: a->a, b->y, c->z
-        //
-        // Direct from {a,b,c} to {a,y,z}: a->a (b,c removed; y,z added)
-        //   hom_search sees {a,b,c} → {a,y,z} with 3 vertices each
-        //   and might find b->y, c->z or b->z, c->y.
-        //
-        // To GUARANTEE drift, use 4 vertices where mapping is ambiguous:
-        // s0: {a, b, c, d}  s2: {a, b, c, d}
-        // but composed maps b->c, c->d, d->b (cyclic permutation)
-        // while direct maps b->b, c->c, d->d (identity)
+    /// Helper: build a 3-commit cyclic-permutation path for drift detection.
+    ///
+    /// Returns `(store, [id0, id1, id2])` where the composed migration
+    /// produces a cyclic permutation (b->c, c->d, d->b) while the direct
+    /// migration would be identity.
+    fn build_cyclic_drift_path() -> Result<(MemStore, [ObjectId; 3]), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
 
         let s0 = make_test_schema(&["a", "b", "c", "d"]);
@@ -1343,7 +1320,6 @@ mod tests {
         let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
         let s2_id = store.put(&Object::Schema(Box::new(s2)))?;
 
-        // mig01: a->a, b->p, c->q, d->r
         let mig01 = Migration {
             vertex_map: HashMap::from([
                 (Name::from("a"), Name::from("a")),
@@ -1363,8 +1339,6 @@ mod tests {
             mapping: mig01,
         })?;
 
-        // mig12: a->a, p->c, q->d, r->b  (cyclic permutation via intermediate)
-        // Composed: a->a, b->c, c->d, d->b (rotation by 1)
         let mig12 = Migration {
             vertex_map: HashMap::from([
                 (Name::from("a"), Name::from("a")),
@@ -1419,6 +1393,16 @@ mod tests {
             renames: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
+
+        Ok((store, [id0, id1, id2]))
+    }
+
+    #[test]
+    fn coherence_detects_actual_composition_drift() -> Result<(), Box<dyn std::error::Error>> {
+        // Build a 3-commit path where the composed migration produces a
+        // cyclic permutation (b->c, c->d, d->b) while the direct
+        // migration would be identity, guaranteeing drift detection.
+        let (store, [id0, id1, id2]) = build_cyclic_drift_path()?;
 
         let result = compose_path_with_coherence(&store, &[id0, id1, id2])?;
 

@@ -5,8 +5,6 @@
 //! from `panproto_gat`, `panproto_vcs`, `panproto_mig`, `panproto_schema`,
 //! `panproto_check`, and `panproto_inst`.
 
-#![allow(clippy::unwrap_used)]
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -175,19 +173,28 @@ fn full_add_commit_cycle_with_gat_validation() -> Result<(), Box<dyn std::error:
     let index = repo.add(&s1)?;
     assert!(index.has_staged());
     // First commit has no migration, so diagnostics should be None.
-    let staged = index.staged.as_ref().unwrap();
+    let staged = index
+        .staged
+        .as_ref()
+        .ok_or("index should have staged schema")?;
     assert!(staged.gat_diagnostics.is_none());
     let c1 = repo.commit("initial", "alice")?;
 
     // Second commit: add a vertex, triggering a migration + GAT validation.
     let s2 = make_schema(&[("a", "object"), ("b", "string")]);
     let index2 = repo.add(&s2)?;
-    let staged2 = index2.staged.as_ref().unwrap();
+    let staged2 = index2
+        .staged
+        .as_ref()
+        .ok_or("index2 should have staged schema")?;
     // Migration should be auto-derived.
     assert!(staged2.auto_derived);
     // GAT diagnostics should be present (migration was generated).
     assert!(staged2.gat_diagnostics.is_some());
-    let diag = staged2.gat_diagnostics.as_ref().unwrap();
+    let diag = staged2
+        .gat_diagnostics
+        .as_ref()
+        .ok_or("staged2 should have GAT diagnostics")?;
     // For simple vertex additions, diagnostics should be clean.
     assert!(
         diag.is_clean(),
@@ -258,7 +265,9 @@ fn commit_blocked_by_equation_violation_then_skip_verify() -> Result<(), Box<dyn
     std::fs::write(&index_path, &json)?;
 
     // Attempt to commit: should fail due to GAT equation errors.
-    let err = repo.commit("should fail", "alice").unwrap_err();
+    let Err(err) = repo.commit("should fail", "alice") else {
+        panic!("commit should fail due to GAT equation errors");
+    };
     assert!(
         matches!(&err, VcsError::ValidationFailed { reasons } if reasons.iter().any(|r| r.contains("equation violation"))),
         "expected ValidationFailed with equation violation, got: {err:?}"
@@ -562,7 +571,7 @@ fn typecheck_theory_in_vcs_pipeline() {
 // ===========================================================================
 
 #[test]
-fn free_model_check_model_roundtrip() {
+fn free_model_check_model_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
     // Define a monoid theory with associativity and identity equations.
     let theory = monoid_theory();
 
@@ -571,7 +580,7 @@ fn free_model_check_model_roundtrip() {
         max_depth: 3,
         max_terms_per_sort: 1000,
     };
-    let free = free_model(&theory, &config).unwrap();
+    let free = free_model(&theory, &config)?;
 
     // The free model should have at least one element in Carrier
     // (the term `unit()`).
@@ -587,7 +596,7 @@ fn free_model_check_model_roundtrip() {
     assert!(has_unit, "free model should contain unit()");
 
     // The free model's operations should be well-defined.
-    let unit_result = free.eval("unit", &[]).unwrap();
+    let unit_result = free.eval("unit", &[])?;
     assert!(matches!(unit_result, ModelValue::Str(_)));
 
     // Build a concrete model that satisfies monoid equations: (Z_5, +, 0).
@@ -600,7 +609,7 @@ fn free_model_check_model_roundtrip() {
     z5.add_op("unit", |_: &[ModelValue]| Ok(ModelValue::Int(0)));
 
     // check_model on the valid model should produce zero violations.
-    let violations = check_model(&z5, &theory).unwrap();
+    let violations = check_model(&z5, &theory)?;
     assert!(
         violations.is_empty(),
         "Z_5 model should satisfy all monoid equations, got {violations:?}"
@@ -608,7 +617,7 @@ fn free_model_check_model_roundtrip() {
 
     // Break the model: wrong identity element.
     z5.add_op("unit", |_: &[ModelValue]| Ok(ModelValue::Int(1)));
-    let violations = check_model(&z5, &theory).unwrap();
+    let violations = check_model(&z5, &theory)?;
     assert!(
         !violations.is_empty(),
         "broken model should have violations"
@@ -622,6 +631,7 @@ fn free_model_check_model_roundtrip() {
         "expected identity law violation, got: {:?}",
         violations.iter().map(|v| &*v.equation).collect::<Vec<_>>()
     );
+    Ok(())
 }
 
 // ===========================================================================
@@ -629,7 +639,7 @@ fn free_model_check_model_roundtrip() {
 // ===========================================================================
 
 #[test]
-fn quotient_then_pullback_then_typecheck() {
+fn quotient_then_pullback_then_typecheck() -> Result<(), Box<dyn std::error::Error>> {
     // Define two theories that share common sorts.
     // Theory 1: has sorts A, B and an operation f: A -> B.
     let t1 = Theory::new(
@@ -673,7 +683,7 @@ fn quotient_then_pullback_then_typecheck() {
     );
 
     // Compute pullback: should find A as a shared sort.
-    let pb = pullback(&t1, &t2, &m1, &m2).unwrap();
+    let pb = pullback(&t1, &t2, &m1, &m2)?;
 
     // The pullback should have at least sort A (shared through X).
     assert!(
@@ -692,7 +702,7 @@ fn quotient_then_pullback_then_typecheck() {
     assert!(check_morphism(&pb.proj2, &pb.theory, &t2).is_ok());
 
     // Now quotient T1 by identifying A and B (they become one sort).
-    let q = quotient(&t1, &[(Arc::from("A"), Arc::from("B"))]).unwrap();
+    let q = quotient(&t1, &[(Arc::from("A"), Arc::from("B"))])?;
     assert_eq!(
         q.sorts.len(),
         1,
@@ -700,7 +710,7 @@ fn quotient_then_pullback_then_typecheck() {
     );
     assert!(q.find_sort("A").is_some());
     // f should now be A -> A.
-    let f_op = q.find_op("f").unwrap();
+    let f_op = q.find_op("f").ok_or("op f not found in quotient")?;
     assert_eq!(&*f_op.output, "A");
     assert_eq!(&*f_op.inputs[0].1, "A");
 
@@ -725,6 +735,7 @@ fn quotient_then_pullback_then_typecheck() {
         typecheck_theory(&q_with_eq).is_ok(),
         "quotient theory with idempotence equation should typecheck"
     );
+    Ok(())
 }
 
 // ===========================================================================
@@ -732,7 +743,7 @@ fn quotient_then_pullback_then_typecheck() {
 // ===========================================================================
 
 #[test]
-fn natural_transformation_vertical_horizontal_compose() {
+fn natural_transformation_vertical_horizontal_compose() -> Result<(), Box<dyn std::error::Error>> {
     // Define a small category-like theory with Ob and Mor sorts.
     let cat_theory = Theory::new(
         "Cat",
@@ -766,12 +777,15 @@ fn natural_transformation_vertical_horizontal_compose() {
     );
 
     // Vertical composition: beta . alpha : F => H.
-    let vert = vertical_compose(&alpha, &beta, &cat_theory).unwrap();
+    let vert = vertical_compose(&alpha, &beta, &cat_theory)?;
     assert_eq!(&*vert.source, "F");
     assert_eq!(&*vert.target, "H");
     // Each component should still be Var("x") since id . id = id.
     for sort in &cat_theory.sorts {
-        let comp = vert.components.get(&sort.name).unwrap();
+        let comp = vert
+            .components
+            .get(&sort.name)
+            .ok_or("missing vertical compose component")?;
         assert_eq!(
             comp,
             &Term::var("x"),
@@ -785,11 +799,14 @@ fn natural_transformation_vertical_horizontal_compose() {
     let beta2 = identity_nat_trans(&cat_theory, "H", "K", "beta2");
     // For horizontal compose: need morphisms G and H where codomain(G) = domain(H).
     // Since all morphisms are Cat -> Cat identities, this works.
-    let horiz = horizontal_compose(&alpha2, &beta2, &id_f, &id_g, &id_h, &cat_theory).unwrap();
+    let horiz = horizontal_compose(&alpha2, &beta2, &id_f, &id_g, &id_h, &cat_theory)?;
 
     // Horizontal composition of identity transformations should have identity components.
     for sort in &cat_theory.sorts {
-        let comp = horiz.components.get(&sort.name).unwrap();
+        let comp = horiz
+            .components
+            .get(&sort.name)
+            .ok_or("missing horizontal compose component")?;
         assert_eq!(
             comp,
             &Term::var("x"),
@@ -800,6 +817,7 @@ fn natural_transformation_vertical_horizontal_compose() {
     // Verify the composed nat trans has the expected source and target.
     assert_eq!(&*horiz.source, "H.F");
     assert_eq!(&*horiz.target, "K.G");
+    Ok(())
 }
 
 // ===========================================================================
@@ -807,7 +825,7 @@ fn natural_transformation_vertical_horizontal_compose() {
 // ===========================================================================
 
 #[test]
-fn acset_restrict_extend_across_all_shapes() {
+fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::Error>> {
     use std::collections::HashSet;
 
     // Build source and target schemas.
@@ -836,7 +854,7 @@ fn acset_restrict_extend_across_all_shapes() {
     assert_eq!(AcsetOps::shape_name(&w), "wtype");
 
     // Extend: remap vertices.
-    let w_ext = AcsetOps::extend(&w, &tgt_schema, &compiled).unwrap();
+    let w_ext = AcsetOps::extend(&w, &tgt_schema, &compiled)?;
     assert_eq!(AcsetOps::element_count(&w_ext), 2);
     // After extend, nodes should have been remapped to "human".
 
@@ -848,12 +866,12 @@ fn acset_restrict_extend_across_all_shapes() {
     assert_eq!(AcsetOps::shape_name(&f), "functor");
 
     // Restrict: keep only surviving tables.
-    let f_res = AcsetOps::restrict(&f, &src_schema, &tgt_schema, &compiled).unwrap();
+    let f_res = AcsetOps::restrict(&f, &src_schema, &tgt_schema, &compiled)?;
     // After restrict, the "person" table should be remapped to "human".
     assert_eq!(AcsetOps::shape_name(&f_res), "functor");
 
     // Extend.
-    let f_ext = AcsetOps::extend(&f, &tgt_schema, &compiled).unwrap();
+    let f_ext = AcsetOps::extend(&f, &tgt_schema, &compiled)?;
     assert_eq!(AcsetOps::shape_name(&f_ext), "functor");
 
     // --- GInstance ---
@@ -866,7 +884,7 @@ fn acset_restrict_extend_across_all_shapes() {
     assert_eq!(AcsetOps::shape_name(&g), "graph");
 
     // Restrict: remap vertices.
-    let g_res = AcsetOps::restrict(&g, &src_schema, &tgt_schema, &compiled).unwrap();
+    let g_res = AcsetOps::restrict(&g, &src_schema, &tgt_schema, &compiled)?;
     assert_eq!(AcsetOps::element_count(&g_res), 2);
     // Nodes should be remapped to "human".
     for node in g_res.nodes.values() {
@@ -874,11 +892,12 @@ fn acset_restrict_extend_across_all_shapes() {
     }
 
     // Extend.
-    let g_ext = AcsetOps::extend(&g, &tgt_schema, &compiled).unwrap();
+    let g_ext = AcsetOps::extend(&g, &tgt_schema, &compiled)?;
     assert_eq!(AcsetOps::element_count(&g_ext), 2);
     for node in g_ext.nodes.values() {
         assert_eq!(&*node.anchor, "human");
     }
+    Ok(())
 }
 
 // ===========================================================================
@@ -951,7 +970,7 @@ fn vcs_add_commit_merge_rebase_with_gat_checks() -> Result<(), Box<dyn std::erro
     );
 
     // Now test rebase: create another branch and rebase it.
-    let head_id = store::resolve_head(repo.store())?.unwrap();
+    let head_id = store::resolve_head(repo.store())?.ok_or("HEAD should exist")?;
     refs::create_branch(repo.store_mut(), "rebase-test", head_id)?;
     refs::checkout_branch(repo.store_mut(), "rebase-test")?;
     let s4 = make_schema(&[
@@ -981,7 +1000,8 @@ fn vcs_add_commit_merge_rebase_with_gat_checks() -> Result<(), Box<dyn std::erro
     let _rebase_result = repo.rebase(c5, "charlie")?;
 
     // After rebase, HEAD should be a new commit (not c4).
-    let post_rebase_head = store::resolve_head(repo.store())?.unwrap();
+    let post_rebase_head =
+        store::resolve_head(repo.store())?.ok_or("HEAD should exist after rebase")?;
     assert_ne!(post_rebase_head, c4, "rebased commit should have new ID");
 
     // Verify the log reflects the rebased history.

@@ -690,7 +690,9 @@ mod tests {
         repo.write_index(&index)?;
 
         // Default commit should be blocked.
-        let err = repo.commit("should fail", "alice").unwrap_err();
+        let Err(err) = repo.commit("should fail", "alice") else {
+            panic!("commit should fail when validation status is invalid");
+        };
         assert!(
             matches!(&err, VcsError::ValidationFailed { reasons } if !reasons.is_empty()),
             "expected ValidationFailed, got: {err:?}"
@@ -742,7 +744,9 @@ mod tests {
         repo.write_index(&index)?;
 
         // Should still be blocked because gat_diagnostics has errors.
-        let err = repo.commit("should fail", "alice").unwrap_err();
+        let Err(err) = repo.commit("should fail", "alice") else {
+            panic!("commit should fail when GAT diagnostics has equation errors");
+        };
         assert!(
             matches!(&err, VcsError::ValidationFailed { reasons } if reasons.iter().any(|r| r.contains("equation violation"))),
             "expected ValidationFailed with equation violation, got: {err:?}"

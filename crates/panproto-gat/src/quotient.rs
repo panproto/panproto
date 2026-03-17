@@ -314,7 +314,6 @@ pub fn quotient(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::eq::Term;
@@ -334,44 +333,47 @@ mod tests {
     }
 
     #[test]
-    fn empty_identifications_returns_isomorphic() {
+    fn empty_identifications_returns_isomorphic() -> Result<(), Box<dyn std::error::Error>> {
         let t = two_sort_theory();
-        let q = quotient(&t, &[]).unwrap();
+        let q = quotient(&t, &[])?;
         assert_eq!(q.sorts.len(), t.sorts.len());
         assert_eq!(q.ops.len(), t.ops.len());
         assert_eq!(q.eqs.len(), t.eqs.len());
         assert_eq!(&*q.name, &*t.name);
+        Ok(())
     }
 
     #[test]
-    fn merge_two_sorts() {
+    fn merge_two_sorts() -> Result<(), Box<dyn std::error::Error>> {
         let t = two_sort_theory();
         let ids = vec![(Arc::from("A"), Arc::from("B"))];
-        let q = quotient(&t, &ids).unwrap();
+        let q = quotient(&t, &ids)?;
         assert_eq!(q.sorts.len(), 1);
         assert!(q.find_sort("A").is_some());
         assert!(q.find_sort("B").is_none());
         assert_eq!(q.ops.len(), 2);
-        let g = q.find_op("g").unwrap();
+        let g = q.find_op("g").ok_or("op g not found")?;
         assert_eq!(&*g.output, "A");
         assert_eq!(&*g.inputs[0].1, "A");
+        Ok(())
     }
 
     #[test]
-    fn merge_two_ops() {
+    fn merge_two_ops() -> Result<(), Box<dyn std::error::Error>> {
         let s = Sort::simple("S");
         let op_f = Operation::unary("f", "x", "S", "S");
         let op_g = Operation::unary("g", "x", "S", "S");
         let t = Theory::new("T", vec![s], vec![op_f, op_g], vec![]);
         let ids = vec![(Arc::from("f"), Arc::from("g"))];
-        let q = quotient(&t, &ids).unwrap();
+        let q = quotient(&t, &ids)?;
         assert_eq!(q.ops.len(), 1);
         assert!(q.find_op("f").is_some());
         assert!(q.find_op("g").is_none());
+        Ok(())
     }
 
     #[test]
-    fn transitive_closure() {
+    fn transitive_closure() -> Result<(), Box<dyn std::error::Error>> {
         let s_a = Sort::simple("A");
         let s_b = Sort::simple("B");
         let s_c = Sort::simple("C");
@@ -380,9 +382,10 @@ mod tests {
             (Arc::from("A"), Arc::from("B")),
             (Arc::from("B"), Arc::from("C")),
         ];
-        let q = quotient(&t, &ids).unwrap();
+        let q = quotient(&t, &ids)?;
         assert_eq!(q.sorts.len(), 1);
         assert!(q.find_sort("A").is_some());
+        Ok(())
     }
 
     #[test]
@@ -420,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn equations_renamed_and_deduplicated() {
+    fn equations_renamed_and_deduplicated() -> Result<(), Box<dyn std::error::Error>> {
         let s = Sort::simple("S");
         let op_f = Operation::unary("f", "x", "S", "S");
         let op_g = Operation::unary("g", "x", "S", "S");
@@ -428,13 +431,14 @@ mod tests {
         let eq2 = Equation::new("eq_g", Term::app("g", vec![Term::var("x")]), Term::var("x"));
         let t = Theory::new("T", vec![s], vec![op_f, op_g], vec![eq1, eq2]);
         let ids = vec![(Arc::from("f"), Arc::from("g"))];
-        let q = quotient(&t, &ids).unwrap();
+        let q = quotient(&t, &ids)?;
         assert_eq!(q.eqs.len(), 1);
         assert_eq!(&*q.eqs[0].name, "eq_f");
+        Ok(())
     }
 
     #[test]
-    fn mixed_sort_and_op_identifications() {
+    fn mixed_sort_and_op_identifications() -> Result<(), Box<dyn std::error::Error>> {
         let s_a = Sort::simple("A");
         let s_b = Sort::simple("B");
         let op_f = Operation::unary("f", "x", "A", "A");
@@ -444,23 +448,25 @@ mod tests {
             (Arc::from("A"), Arc::from("B")),
             (Arc::from("f"), Arc::from("g")),
         ];
-        let q = quotient(&t, &ids).unwrap();
+        let q = quotient(&t, &ids)?;
         assert_eq!(q.sorts.len(), 1);
         assert_eq!(q.ops.len(), 1);
         assert!(q.find_sort("A").is_some());
         assert!(q.find_op("f").is_some());
+        Ok(())
     }
 
     #[test]
-    fn sort_params_renamed_in_dependent_sorts() {
+    fn sort_params_renamed_in_dependent_sorts() -> Result<(), Box<dyn std::error::Error>> {
         let s_a = Sort::simple("A");
         let s_b = Sort::simple("B");
         let s_dep = Sort::dependent("D", vec![SortParam::new("x", "B")]);
         let t = Theory::new("T", vec![s_a, s_b, s_dep], vec![], vec![]);
         let ids = vec![(Arc::from("A"), Arc::from("B"))];
-        let q = quotient(&t, &ids).unwrap();
+        let q = quotient(&t, &ids)?;
         assert_eq!(q.sorts.len(), 2);
-        let d = q.find_sort("D").unwrap();
+        let d = q.find_sort("D").ok_or("sort D not found")?;
         assert_eq!(&*d.params[0].sort, "A");
+        Ok(())
     }
 }

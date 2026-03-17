@@ -529,11 +529,11 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     // Compute pullback overlap (best-effort; falls back silently on error).
     let pullback_overlap = compute_pullback_overlap(base, ours, theirs, &diff_ours, &diff_theirs);
 
+    let schemas = MergeSchemas { base, ours, theirs };
+
     // -- Vertices --
     let vertices = merge_vertices(
-        base,
-        ours,
-        theirs,
+        &schemas,
         &diff_ours,
         &diff_theirs,
         &mut conflicts,
@@ -849,16 +849,23 @@ fn fxset_name_from_iter<'a, I: Iterator<Item = &'a Name>>(iter: I) -> FxHashSet<
 // Per-field merge implementations
 // ===========================================================================
 
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+/// Bundles the three schemas involved in a three-way merge so that
+/// per-field merge helpers need fewer parameters.
+struct MergeSchemas<'a> {
+    base: &'a Schema,
+    ours: &'a Schema,
+    theirs: &'a Schema,
+}
+
+#[allow(clippy::too_many_lines)]
 fn merge_vertices(
-    base: &Schema,
-    ours: &Schema,
-    theirs: &Schema,
+    schemas: &MergeSchemas<'_>,
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
     pullback_overlap: Option<&PullbackOverlap>,
 ) -> HashMap<Name, Vertex> {
+    let (base, ours, theirs) = (schemas.base, schemas.ours, schemas.theirs);
     let mut result: HashMap<Name, Vertex> = HashMap::new();
 
     let ours_added: FxHashSet<&str> = diff_ours
@@ -2529,8 +2536,9 @@ mod tests {
         let diff_theirs = diff::diff(&base, &theirs);
 
         let overlap = compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
-        assert!(overlap.is_some(), "pullback overlap should succeed");
-        let overlap = overlap.unwrap();
+        let Some(overlap) = overlap else {
+            panic!("pullback overlap should succeed");
+        };
 
         // "a" is a surviving base vertex, so it should be shared.
         assert!(
@@ -2550,8 +2558,9 @@ mod tests {
         let diff_theirs = diff::diff(&base, &theirs);
 
         let overlap = compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
-        assert!(overlap.is_some());
-        let overlap = overlap.unwrap();
+        let Some(overlap) = overlap else {
+            panic!("pullback overlap should succeed");
+        };
 
         assert!(
             overlap.shared_vertices.is_empty(),
@@ -2571,17 +2580,27 @@ mod tests {
             kind: Name::from("prop"),
             name: Some(Name::from("link")),
         };
-        let base = make_schema(&[("a", "object"), ("b", "string")], &[edge_ab.clone()]);
+        let base = make_schema(
+            &[("a", "object"), ("b", "string")],
+            std::slice::from_ref(&edge_ab),
+        );
         // Both sides keep the base edge.
-        let ours = make_schema(&[("a", "object"), ("b", "string")], &[edge_ab.clone()]);
-        let theirs = make_schema(&[("a", "object"), ("b", "string")], &[edge_ab.clone()]);
+        let ours = make_schema(
+            &[("a", "object"), ("b", "string")],
+            std::slice::from_ref(&edge_ab),
+        );
+        let theirs = make_schema(
+            &[("a", "object"), ("b", "string")],
+            std::slice::from_ref(&edge_ab),
+        );
 
         let diff_ours = diff::diff(&base, &ours);
         let diff_theirs = diff::diff(&base, &theirs);
 
         let overlap = compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
-        assert!(overlap.is_some());
-        let overlap = overlap.unwrap();
+        let Some(overlap) = overlap else {
+            panic!("pullback overlap should succeed");
+        };
 
         assert!(overlap.shared_vertices.contains("a"));
         assert!(overlap.shared_vertices.contains("b"));
@@ -2615,14 +2634,12 @@ mod tests {
         ));
 
         // But the pullback overlap should still have "a" as shared.
-        assert!(result.pullback_overlap.is_some());
+        let Some(ref overlap) = result.pullback_overlap else {
+            panic!("pullback overlap should be present");
+        };
         assert!(
-            result
-                .pullback_overlap
-                .as_ref()
-                .unwrap()
-                .shared_vertices
-                .contains("a")
+            overlap.shared_vertices.contains("a"),
+            "base vertex 'a' should be shared"
         );
     }
 
@@ -2635,14 +2652,12 @@ mod tests {
 
         let result = three_way_merge(&base, &ours, &theirs);
         assert!(result.conflicts.is_empty());
-        assert!(result.pullback_overlap.is_some());
+        let Some(ref overlap) = result.pullback_overlap else {
+            panic!("pullback overlap should be present");
+        };
         assert!(
-            result
-                .pullback_overlap
-                .as_ref()
-                .unwrap()
-                .shared_vertices
-                .contains("a")
+            overlap.shared_vertices.contains("a"),
+            "base vertex 'a' should be shared"
         );
     }
 
@@ -2660,7 +2675,7 @@ mod tests {
         };
 
         // Base has "a" with an edge to "b".
-        let base = make_schema(&[("a", "object"), ("b", "string")], &[edge_ab.clone()]);
+        let _base = make_schema(&[("a", "object"), ("b", "string")], &[edge_ab]);
 
         // Both sides remove "b" and re-add it with a different kind,
         // but keep the edge. This simulates a kind change tracked by
@@ -2693,8 +2708,9 @@ mod tests {
         let diff_theirs = diff::diff(&base, &theirs);
 
         let overlap = compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
-        assert!(overlap.is_some());
-        let overlap = overlap.unwrap();
+        let Some(overlap) = overlap else {
+            panic!("pullback overlap should succeed");
+        };
 
         // "a" survives on both sides.
         assert!(overlap.shared_vertices.contains("a"));

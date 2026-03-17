@@ -403,7 +403,6 @@ impl UnionFind {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::eq::Equation;
@@ -412,38 +411,41 @@ mod tests {
     use crate::theory::Theory;
 
     #[test]
-    fn free_model_of_pointed_set() {
+    fn free_model_of_pointed_set() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "PointedSet",
             vec![Sort::simple("Carrier")],
             vec![Operation::nullary("unit", "Carrier")],
             vec![],
         );
-        let model = free_model(&theory, &FreeModelConfig::default()).unwrap();
+        let model = free_model(&theory, &FreeModelConfig::default())?;
         assert_eq!(model.sort_interp["Carrier"].len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn free_model_empty_theory() {
+    fn free_model_empty_theory() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new("Empty", vec![Sort::simple("S")], vec![], vec![]);
-        let model = free_model(&theory, &FreeModelConfig::default()).unwrap();
+        let model = free_model(&theory, &FreeModelConfig::default())?;
         assert!(model.sort_interp["S"].is_empty());
+        Ok(())
     }
 
     #[test]
-    fn free_model_two_constants() {
+    fn free_model_two_constants() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "TwoPoints",
             vec![Sort::simple("S")],
             vec![Operation::nullary("a", "S"), Operation::nullary("b", "S")],
             vec![],
         );
-        let model = free_model(&theory, &FreeModelConfig::default()).unwrap();
+        let model = free_model(&theory, &FreeModelConfig::default())?;
         assert_eq!(model.sort_interp["S"].len(), 2);
+        Ok(())
     }
 
     #[test]
-    fn free_model_equation_collapses_constants() {
+    fn free_model_equation_collapses_constants() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "CollapsedPoints",
             vec![Sort::simple("S")],
@@ -454,12 +456,13 @@ mod tests {
                 Term::constant("b"),
             )],
         );
-        let model = free_model(&theory, &FreeModelConfig::default()).unwrap();
+        let model = free_model(&theory, &FreeModelConfig::default())?;
         assert_eq!(model.sort_interp["S"].len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn free_model_monoid_identity_collapses() {
+    fn free_model_monoid_identity_collapses() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "Monoid",
             vec![Sort::simple("Carrier")],
@@ -491,12 +494,13 @@ mod tests {
             max_depth: 1,
             max_terms_per_sort: 100,
         };
-        let model = free_model(&theory, &config).unwrap();
+        let model = free_model(&theory, &config)?;
         assert_eq!(model.sort_interp["Carrier"].len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn free_model_graph_theory() {
+    fn free_model_graph_theory() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "Graph",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
@@ -506,9 +510,10 @@ mod tests {
             ],
             vec![],
         );
-        let model = free_model(&theory, &FreeModelConfig::default()).unwrap();
+        let model = free_model(&theory, &FreeModelConfig::default())?;
         assert!(model.sort_interp["Vertex"].is_empty());
         assert!(model.sort_interp["Edge"].is_empty());
+        Ok(())
     }
 
     #[test]
@@ -531,15 +536,16 @@ mod tests {
     }
 
     #[test]
-    fn free_model_operations_work() {
+    fn free_model_operations_work() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "PointedSet",
             vec![Sort::simple("Carrier")],
             vec![Operation::nullary("unit", "Carrier")],
             vec![],
         );
-        let model = free_model(&theory, &FreeModelConfig::default()).unwrap();
-        let result = model.eval("unit", &[]).unwrap();
+        let model = free_model(&theory, &FreeModelConfig::default())?;
+        let result = model.eval("unit", &[])?;
         assert!(matches!(result, ModelValue::Str(_)));
+        Ok(())
     }
 }

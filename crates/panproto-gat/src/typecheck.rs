@@ -160,7 +160,6 @@ pub fn typecheck_theory(theory: &Theory) -> Result<(), GatError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::eq::Term;
@@ -230,12 +229,13 @@ mod tests {
     }
 
     #[test]
-    fn typecheck_variable() {
+    fn typecheck_variable() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
         let mut ctx = VarContext::default();
         ctx.insert(Arc::from("x"), Arc::from("Carrier"));
-        let sort = typecheck_term(&Term::var("x"), &ctx, &theory).unwrap();
+        let sort = typecheck_term(&Term::var("x"), &ctx, &theory)?;
         assert_eq!(&*sort, "Carrier");
+        Ok(())
     }
 
     #[test]
@@ -247,15 +247,16 @@ mod tests {
     }
 
     #[test]
-    fn typecheck_constant() {
+    fn typecheck_constant() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
         let ctx = VarContext::default();
-        let sort = typecheck_term(&Term::constant("unit"), &ctx, &theory).unwrap();
+        let sort = typecheck_term(&Term::constant("unit"), &ctx, &theory)?;
         assert_eq!(&*sort, "Carrier");
+        Ok(())
     }
 
     #[test]
-    fn typecheck_binary_op() {
+    fn typecheck_binary_op() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
         let mut ctx = VarContext::default();
         ctx.insert(Arc::from("a"), Arc::from("Carrier"));
@@ -264,9 +265,9 @@ mod tests {
             &Term::app("mul", vec![Term::var("a"), Term::var("b")]),
             &ctx,
             &theory,
-        )
-        .unwrap();
+        )?;
         assert_eq!(&*sort, "Carrier");
+        Ok(())
     }
 
     #[test]
@@ -289,13 +290,14 @@ mod tests {
     }
 
     #[test]
-    fn typecheck_nested_term() {
+    fn typecheck_nested_term() -> Result<(), Box<dyn std::error::Error>> {
         let theory = two_sort_theory();
         let ctx = VarContext::default();
         // g(f(a0())) : A -- should typecheck
         let term = Term::app("g", vec![Term::app("f", vec![Term::constant("a0")])]);
-        let sort = typecheck_term(&term, &ctx, &theory).unwrap();
+        let sort = typecheck_term(&term, &ctx, &theory)?;
         assert_eq!(&*sort, "A");
+        Ok(())
     }
 
     #[test]
@@ -317,23 +319,25 @@ mod tests {
     }
 
     #[test]
-    fn infer_var_sorts_monoid() {
+    fn infer_var_sorts_monoid() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
         let eq = &theory.eqs[0]; // assoc
-        let ctx = infer_var_sorts(eq, &theory).unwrap();
+        let ctx = infer_var_sorts(eq, &theory)?;
         assert_eq!(ctx.len(), 3);
         assert_eq!(&*ctx[&Arc::from("a")], "Carrier");
         assert_eq!(&*ctx[&Arc::from("b")], "Carrier");
         assert_eq!(&*ctx[&Arc::from("c")], "Carrier");
+        Ok(())
     }
 
     #[test]
-    fn infer_var_sorts_identity_law() {
+    fn infer_var_sorts_identity_law() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
         let eq = &theory.eqs[1]; // left_id: mul(unit(), a) = a
-        let ctx = infer_var_sorts(eq, &theory).unwrap();
+        let ctx = infer_var_sorts(eq, &theory)?;
         assert_eq!(ctx.len(), 1);
         assert_eq!(&*ctx[&Arc::from("a")], "Carrier");
+        Ok(())
     }
 
     #[test]
@@ -350,9 +354,10 @@ mod tests {
     }
 
     #[test]
-    fn typecheck_monoid_equations() {
+    fn typecheck_monoid_equations() -> Result<(), Box<dyn std::error::Error>> {
         let theory = monoid_theory();
-        typecheck_theory(&theory).unwrap();
+        typecheck_theory(&theory)?;
+        Ok(())
     }
 
     #[test]
@@ -369,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn typecheck_graph_theory() {
+    fn typecheck_graph_theory() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "Graph",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
@@ -379,11 +384,12 @@ mod tests {
             ],
             vec![],
         );
-        typecheck_theory(&theory).unwrap();
+        typecheck_theory(&theory)?;
+        Ok(())
     }
 
     #[test]
-    fn typecheck_reflexive_graph_equations() {
+    fn typecheck_reflexive_graph_equations() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "ReflexiveGraph",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
@@ -405,11 +411,12 @@ mod tests {
                 ),
             ],
         );
-        typecheck_theory(&theory).unwrap();
+        typecheck_theory(&theory)?;
+        Ok(())
     }
 
     #[test]
-    fn typecheck_symmetric_graph_equations() {
+    fn typecheck_symmetric_graph_equations() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new(
             "SymmetricGraph",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
@@ -436,6 +443,7 @@ mod tests {
                 ),
             ],
         );
-        typecheck_theory(&theory).unwrap();
+        typecheck_theory(&theory)?;
+        Ok(())
     }
 }

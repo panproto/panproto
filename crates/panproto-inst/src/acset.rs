@@ -324,8 +324,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[allow(clippy::unwrap_used)]
-    fn winstance_restrict_via_trait() {
+    fn winstance_restrict_via_trait() -> Result<(), Box<dyn std::error::Error>> {
         let w = three_node_winstance();
         let edge_text = Edge {
             src: "post:body".into(),
@@ -344,45 +343,43 @@ mod tests {
             hyper_resolver: HashMap::new(),
         };
 
-        let via_trait = AcsetOps::restrict(&w, &src_schema, &tgt_schema, &migration).unwrap();
-        let via_fn =
-            crate::wtype::wtype_restrict(&w, &src_schema, &tgt_schema, &migration).unwrap();
+        let via_trait = AcsetOps::restrict(&w, &src_schema, &tgt_schema, &migration)?;
+        let via_fn = crate::wtype::wtype_restrict(&w, &src_schema, &tgt_schema, &migration)?;
         assert_eq!(via_trait.node_count(), via_fn.node_count());
         assert_eq!(via_trait.arc_count(), via_fn.arc_count());
+        Ok(())
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
-    fn finstance_restrict_via_trait() {
+    fn finstance_restrict_via_trait() -> Result<(), Box<dyn std::error::Error>> {
         let f = two_node_finstance();
         let schema = make_empty_schema();
         let migration = identity_migration(&["users"], &[]);
 
-        let via_trait = AcsetOps::restrict(&f, &schema, &schema, &migration).unwrap();
-        let via_fn = crate::functor::functor_restrict(&f, &migration).unwrap();
+        let via_trait = AcsetOps::restrict(&f, &schema, &schema, &migration)?;
+        let via_fn = crate::functor::functor_restrict(&f, &migration)?;
         assert_eq!(via_trait.table_count(), via_fn.table_count());
+        Ok(())
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
-    fn ginstance_restrict_via_trait() {
+    fn ginstance_restrict_via_trait() -> Result<(), Box<dyn std::error::Error>> {
         let (g, _edge) = two_node_ginstance();
         let schema = make_empty_schema();
         let migration = CompiledMigration {
             surviving_verts: HashSet::from([Name::from("person_new")]),
             surviving_edges: HashSet::new(),
-            vertex_remap: [("person".into(), "person_new".into())]
-                .into_iter()
-                .collect(),
+            vertex_remap: HashMap::from([("person".into(), "person_new".into())]),
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
         };
 
-        let via_trait = AcsetOps::restrict(&g, &schema, &schema, &migration).unwrap();
-        let via_fn = crate::ginstance::graph_restrict(&g, &migration).unwrap();
+        let via_trait = AcsetOps::restrict(&g, &schema, &schema, &migration)?;
+        let via_fn = crate::ginstance::graph_restrict(&g, &migration)?;
         assert_eq!(via_trait.node_count(), via_fn.node_count());
         assert_eq!(via_trait.edge_count(), via_fn.edge_count());
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -390,23 +387,22 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    #[allow(clippy::unwrap_used)]
-    fn graph_extend_identity_preserves_instance() {
+    fn graph_extend_identity_preserves_instance() -> Result<(), Box<dyn std::error::Error>> {
         let (g, edge) = two_node_ginstance();
         let schema = make_empty_schema();
         let migration = identity_migration(&["person"], &[edge]);
 
-        let result = AcsetOps::extend(&g, &schema, &migration).unwrap();
+        let result = AcsetOps::extend(&g, &schema, &migration)?;
         assert_eq!(result.node_count(), 2);
         assert_eq!(result.edge_count(), 1);
         assert_eq!(result.values.len(), 2);
         assert_eq!(result.values[&0], Value::Str("Alice".into()));
         assert_eq!(result.values[&1], Value::Str("Bob".into()));
+        Ok(())
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
-    fn graph_extend_vertex_remap_updates_anchors() {
+    fn graph_extend_vertex_remap_updates_anchors() -> Result<(), Box<dyn std::error::Error>> {
         let (g, edge) = two_node_ginstance();
         let schema = make_empty_schema();
         let new_edge = Edge {
@@ -418,13 +414,13 @@ mod tests {
         let migration = CompiledMigration {
             surviving_verts: HashSet::from([Name::from("human")]),
             surviving_edges: HashSet::new(),
-            vertex_remap: [("person".into(), "human".into())].into_iter().collect(),
-            edge_remap: [(edge, new_edge.clone())].into_iter().collect(),
+            vertex_remap: HashMap::from([("person".into(), "human".into())]),
+            edge_remap: HashMap::from([(edge, new_edge.clone())]),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
         };
 
-        let result = AcsetOps::extend(&g, &schema, &migration).unwrap();
+        let result = AcsetOps::extend(&g, &schema, &migration)?;
         assert_eq!(result.node_count(), 2);
         assert_eq!(result.nodes[&0].anchor, Name::from("human"));
         assert_eq!(result.nodes[&1].anchor, Name::from("human"));
@@ -432,5 +428,6 @@ mod tests {
         assert_eq!(result.edges[0].2, new_edge);
         // Values preserved
         assert_eq!(result.values[&0], Value::Str("Alice".into()));
+        Ok(())
     }
 }
