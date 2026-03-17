@@ -160,6 +160,8 @@ export interface MigrationSpec {
 /** Result of applying a compiled migration to a record. */
 export interface LiftResult {
   readonly data: unknown;
+  /** Raw msgpack-encoded instance bytes (for passing to instance_to_json). */
+  readonly _rawBytes?: Uint8Array;
 }
 
 /** Get result for bidirectional lens operation. */
@@ -423,6 +425,10 @@ export interface WasmExports {
   validate_instance(schema: number, instance: Uint8Array): Uint8Array;
   instance_to_json(schema: number, instance: Uint8Array): Uint8Array;
   json_to_instance(schema: number, json: Uint8Array): Uint8Array;
+  json_to_instance_with_root(schema: number, json: Uint8Array, root_vertex: string): Uint8Array;
+  lift_json(migration: number, json: Uint8Array, root_vertex: string): Uint8Array;
+  get_json(migration: number, json: Uint8Array, root_vertex: string): Uint8Array;
+  put_json(migration: number, view_json: Uint8Array, complement: Uint8Array, root_vertex: string): Uint8Array;
   instance_element_count(instance: Uint8Array): number;
   lens_from_combinators(schema: number, proto: number, combinators: Uint8Array): number;
   check_lens_laws(migration: number, instance: Uint8Array): Uint8Array;

@@ -47,7 +47,17 @@ export function packSchemaOps(ops: readonly SchemaOp[]): Uint8Array {
  * @returns MessagePack-encoded bytes
  */
 export function packMigrationMapping(mapping: MigrationMapping): Uint8Array {
-  return encode(mapping);
+  // The Rust Migration struct uses `map_as_vec` for fields with non-string keys,
+  // which deserializes from a sequence of [key, value] pairs, not a map.
+  // Convert JS Maps to arrays before encoding.
+  return encode({
+    vertex_map: mapping.vertex_map,
+    edge_map: Array.from(mapping.edge_map.entries()),
+    hyper_edge_map: mapping.hyper_edge_map,
+    label_map: Array.from(mapping.label_map.entries()),
+    resolver: Array.from(mapping.resolver.entries()),
+    hyper_resolver: [],
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -410,7 +410,13 @@ pub fn wtype_restrict(
                 continue;
             };
 
-            if migration.surviving_verts.contains(&child_node.anchor) {
+            // Check if this vertex survives: look up the remapped target name,
+            // falling back to the source name for unmapped vertices.
+            let target_anchor = migration
+                .vertex_remap
+                .get(&child_node.anchor)
+                .unwrap_or(&child_node.anchor);
+            if migration.surviving_verts.contains(target_anchor) {
                 // This child survives — add it to results
                 surviving_set.insert(child_id);
                 let mut new_node = child_node.clone();
@@ -963,5 +969,147 @@ mod tests {
         // Verify values are preserved
         assert!(result.nodes[&1].has_value());
         assert!(result.nodes[&2].has_value());
+    }
+
+    /// Regression test: renamed vertices must survive restrict.
+    ///
+    /// When a migration maps source vertex A to target vertex B, the
+    /// surviving_verts set contains B (the target). The restrict BFS must
+    /// remap A → B before checking membership, otherwise the node is
+    /// incorrectly pruned and its value is lost.
+    #[test]
+    fn restrict_renamed_vertex_preserves_value() {
+        use smallvec::smallvec;
+
+        // Source instance: post:body { text: "hello", title: "world" }
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, Name::from("post:body")));
+        nodes.insert(
+            1,
+            Node::new(1, "post:text")
+                .with_value(FieldPresence::Present(Value::Str("hello".into()))),
+        );
+        nodes.insert(
+            2,
+            Node::new(2, "post:title")
+                .with_value(FieldPresence::Present(Value::Str("world".into()))),
+        );
+        let arcs = vec![
+            (
+                0,
+                1,
+                Edge {
+                    src: "post:body".into(),
+                    tgt: "post:text".into(),
+                    kind: "prop".into(),
+                    name: Some("text".into()),
+                },
+            ),
+            (
+                0,
+                2,
+                Edge {
+                    src: "post:body".into(),
+                    tgt: "post:title".into(),
+                    kind: "prop".into(),
+                    name: Some("title".into()),
+                },
+            ),
+        ];
+        let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("post:body"));
+
+        // Target schema: post:body has edges to post:content and post:title
+        let tgt_content_edge = Edge {
+            src: "post:body".into(),
+            tgt: "post:content".into(),
+            kind: "prop".into(),
+            name: Some("content".into()),
+        };
+        let tgt_title_edge = Edge {
+            src: "post:body".into(),
+            tgt: "post:title".into(),
+            kind: "prop".into(),
+            name: Some("title".into()),
+        };
+        let mut tgt_between = HashMap::new();
+        tgt_between.insert(
+            (Name::from("post:body"), Name::from("post:content")),
+            smallvec![tgt_content_edge.clone()],
+        );
+        tgt_between.insert(
+            (Name::from("post:body"), Name::from("post:title")),
+            smallvec![tgt_title_edge.clone()],
+        );
+        let tgt_schema = Schema {
+            protocol: "test".into(),
+            vertices: HashMap::new(),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: tgt_between,
+        };
+
+        // Migration: post:text → post:content (renamed), post:title stays
+        let mut surviving_verts = HashSet::new();
+        surviving_verts.insert(Name::from("post:body"));
+        surviving_verts.insert(Name::from("post:content")); // target name
+        surviving_verts.insert(Name::from("post:title"));
+
+        let mut vertex_remap = HashMap::new();
+        vertex_remap.insert(Name::from("post:text"), Name::from("post:content"));
+
+        let migration = CompiledMigration {
+            surviving_verts,
+            surviving_edges: HashSet::new(),
+            vertex_remap,
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+        };
+
+        let src_schema = Schema {
+            protocol: "test".into(),
+            vertices: HashMap::new(),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        };
+
+        let result = wtype_restrict(&inst, &src_schema, &tgt_schema, &migration).unwrap();
+
+        // All three nodes must survive (root + renamed + unchanged)
+        assert_eq!(result.nodes.len(), 3, "all three nodes should survive");
+
+        // The renamed node should now have anchor "post:content"
+        let renamed_node = result.nodes.get(&1).expect("node 1 should survive");
+        assert_eq!(renamed_node.anchor.as_ref(), "post:content");
+        assert!(renamed_node.has_value(), "renamed node must keep its value");
+
+        // The value should be preserved
+        match &renamed_node.value {
+            Some(FieldPresence::Present(Value::Str(s))) => assert_eq!(s.as_str(), "hello"),
+            other => panic!("expected Some(Present(Str(\"hello\"))), got {other:?}"),
+        }
     }
 }

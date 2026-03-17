@@ -248,6 +248,11 @@ export class CompiledMigration implements Disposable {
     return this.#handle;
   }
 
+  /** The WASM module. Internal use only. */
+  get _wasm(): WasmModule {
+    return this.#wasm;
+  }
+
   /** The migration specification used to build this migration. */
   get spec(): MigrationSpec {
     return this.#spec;
@@ -256,15 +261,18 @@ export class CompiledMigration implements Disposable {
   /**
    * Transform a record using this migration (forward direction).
    *
-   * This is the hot path: data goes through WASM as MessagePack bytes
-   * with no intermediate JS-heap allocation.
+   * Accepts either a raw JS object (which will be msgpack-encoded) or
+   * an `Instance` (whose pre-encoded bytes are passed directly to WASM).
    *
-   * @param record - The input record to transform
+   * @param record - The input record or Instance to transform
    * @returns The transformed record
    * @throws {@link WasmError} if the WASM call fails
    */
   lift(record: unknown): LiftResult {
-    const inputBytes = packToWasm(record);
+    // If record has _bytes, treat it as an Instance and pass bytes directly
+    const inputBytes = (record && typeof record === 'object' && '_bytes' in record)
+      ? (record as { _bytes: Uint8Array })._bytes
+      : packToWasm(record);
 
     try {
       const outputBytes = this.#wasm.exports.lift_record(
@@ -272,7 +280,7 @@ export class CompiledMigration implements Disposable {
         inputBytes,
       );
       const data = unpackFromWasm(outputBytes);
-      return { data };
+      return { data, _rawBytes: outputBytes };
     } catch (error) {
       throw new WasmError(
         `lift_record failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -292,7 +300,9 @@ export class CompiledMigration implements Disposable {
    * @throws {@link WasmError} if the WASM call fails
    */
   get(record: unknown): GetResult {
-    const inputBytes = packToWasm(record);
+    const inputBytes = (record && typeof record === 'object' && '_bytes' in record)
+      ? (record as { _bytes: Uint8Array })._bytes
+      : packToWasm(record);
 
     try {
       const outputBytes = this.#wasm.exports.get_record(
@@ -323,7 +333,9 @@ export class CompiledMigration implements Disposable {
    * @throws {@link WasmError} if the WASM call fails
    */
   put(view: unknown, complement: Uint8Array): LiftResult {
-    const viewBytes = packToWasm(view);
+    const viewBytes = (view && typeof view === 'object' && '_bytes' in view)
+      ? (view as { _bytes: Uint8Array })._bytes
+      : packToWasm(view);
 
     try {
       const outputBytes = this.#wasm.exports.put_record(

@@ -393,6 +393,187 @@ pub fn put_record(migration: u32, view: &[u8], complement: &[u8]) -> Result<Vec<
     })
 }
 
+/// Lift a JSON record through a compiled migration, returning JSON.
+///
+/// `root_vertex` specifies which schema vertex the JSON object maps to.
+/// If empty, auto-detects (first "object" kind vertex).
+///
+/// # Errors
+///
+/// Returns `JsError` if parsing, lifting, or serialization fails.
+#[wasm_bindgen]
+pub fn lift_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<Vec<u8>, JsError> {
+    let json_value: serde_json::Value =
+        serde_json::from_slice(json_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let result = slab::with_resource(migration, |r| {
+        let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
+
+        let src_root = find_root(root_vertex, &src_schema)?;
+        let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
+            WasmError::ParseFailed {
+                reason: e.to_string(),
+            }
+        })?;
+
+        let lifted =
+            mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance).map_err(|e| {
+                WasmError::LiftFailed {
+                    reason: e.to_string(),
+                }
+            })?;
+
+        let out_json = inst::to_json(&tgt_schema, &lifted);
+        Ok(out_json)
+    })?;
+
+    serde_json::to_vec(&result).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Bidirectional get on a JSON record, returning JSON view + complement.
+///
+/// # Errors
+///
+/// Returns `JsError` if parsing, get, or serialization fails.
+#[wasm_bindgen]
+pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<Vec<u8>, JsError> {
+    #[derive(Serialize)]
+    struct GetJsonResult {
+        view: serde_json::Value,
+        complement: Vec<u8>,
+    }
+
+    let json_value: serde_json::Value =
+        serde_json::from_slice(json_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let (compiled, src_schema, tgt_schema) =
+        slab::with_resource(migration, extract_migration_owned)?;
+
+    let src_root = find_root(root_vertex, &src_schema)?;
+    let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
+        WasmError::ParseFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    let lens_obj = lens::Lens {
+        compiled,
+        src_schema,
+        tgt_schema: tgt_schema.clone(),
+    };
+
+    let (view, complement) =
+        lens::get(&lens_obj, &instance).map_err(|e| WasmError::LiftFailed {
+            reason: e.to_string(),
+        })?;
+
+    let view_json = inst::to_json(&tgt_schema, &view);
+    let complement_bytes =
+        rmp_serde::to_vec(&complement).map_err(|e| WasmError::SerializationFailed {
+            reason: format!("complement: {e}"),
+        })?;
+
+    let result = GetJsonResult {
+        view: view_json,
+        complement: complement_bytes,
+    };
+
+    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Bidirectional put: restore from a JSON view + complement.
+///
+/// # Errors
+///
+/// Returns `JsError` if parsing, put, or serialization fails.
+#[wasm_bindgen]
+pub fn put_json(
+    migration: u32,
+    view_json_bytes: &[u8],
+    complement: &[u8],
+    root_vertex: &str,
+) -> Result<Vec<u8>, JsError> {
+    let view_json: serde_json::Value =
+        serde_json::from_slice(view_json_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let comp: Complement =
+        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("complement: {e}"),
+        })?;
+
+    let result = slab::with_resource(migration, |r| {
+        let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
+
+        let tgt_root = find_root(root_vertex, &tgt_schema)?;
+        let view_instance = inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| {
+            WasmError::ParseFailed {
+                reason: e.to_string(),
+            }
+        })?;
+
+        let lens_obj = lens::Lens {
+            compiled,
+            src_schema: src_schema.clone(),
+            tgt_schema,
+        };
+
+        let restored =
+            lens::put(&lens_obj, &view_instance, &comp).map_err(|e| WasmError::PutFailed {
+                reason: e.to_string(),
+            })?;
+
+        let out_json = inst::to_json(&src_schema, &restored);
+        Ok(out_json)
+    })?;
+
+    serde_json::to_vec(&result).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Find a root vertex in the schema, preferring object-kind vertices.
+fn find_root(
+    root_vertex: &str,
+    schema: &panproto_core::schema::Schema,
+) -> Result<String, WasmError> {
+    if !root_vertex.is_empty() && schema.has_vertex(root_vertex) {
+        return Ok(root_vertex.to_string());
+    }
+    schema
+        .vertices
+        .iter()
+        .find(|(_, v)| v.kind.as_ref() == "object")
+        .or_else(|| {
+            schema
+                .vertices
+                .iter()
+                .find(|(_, v)| v.kind.as_ref() == "record")
+        })
+        .map(|(id, _)| id.to_string())
+        .ok_or_else(|| WasmError::ParseFailed {
+            reason: "no suitable root vertex found".to_string(),
+        })
+}
+
 /// Compose two compiled migrations into a single migration.
 ///
 /// Returns a handle to the composed compiled migration.
@@ -792,6 +973,25 @@ pub fn instance_to_json(schema_handle: u32, instance_bytes: &[u8]) -> Result<Vec
 /// Returns `JsError` if parsing fails.
 #[wasm_bindgen]
 pub fn json_to_instance(schema_handle: u32, json_bytes: &[u8]) -> Result<Vec<u8>, JsError> {
+    json_to_instance_with_root(schema_handle, json_bytes, "")
+}
+
+/// Parse JSON bytes into a W-type instance with an explicit root vertex.
+///
+/// If `root_vertex` is empty, the root is inferred: first tries
+/// `schema.protocol`, then looks for the first `object` or `record` vertex.
+///
+/// Returns `MessagePack`-encoded [`WInstance`].
+///
+/// # Errors
+///
+/// Returns `JsError` if parsing fails.
+#[wasm_bindgen]
+pub fn json_to_instance_with_root(
+    schema_handle: u32,
+    json_bytes: &[u8],
+    root_vertex: &str,
+) -> Result<Vec<u8>, JsError> {
     let schema = slab::with_resource(schema_handle, |r| Ok(slab::as_schema(r)?.clone()))?;
 
     let json_value: serde_json::Value =
@@ -799,7 +999,29 @@ pub fn json_to_instance(schema_handle: u32, json_bytes: &[u8]) -> Result<Vec<u8>
             reason: e.to_string(),
         })?;
 
-    let root = schema.protocol.clone();
+    // Determine root vertex: explicit > schema.protocol > first object/record vertex
+    let root: String = if !root_vertex.is_empty() && schema.has_vertex(root_vertex) {
+        root_vertex.to_string()
+    } else if schema.has_vertex(&schema.protocol) {
+        schema.protocol.clone()
+    } else {
+        // Find suitable root: prefer "object" kind (has prop edges), then "record"
+        schema
+            .vertices
+            .iter()
+            .find(|(_, v)| v.kind.as_ref() == "object")
+            .or_else(|| {
+                schema
+                    .vertices
+                    .iter()
+                    .find(|(_, v)| v.kind.as_ref() == "record")
+            })
+            .map(|(id, _)| id.to_string())
+            .ok_or_else(|| WasmError::ParseFailed {
+                reason: "no suitable root vertex found in schema".to_string(),
+            })?
+    };
+
     let instance =
         inst::parse_json(&schema, &root, &json_value).map_err(|e| WasmError::ParseFailed {
             reason: e.to_string(),

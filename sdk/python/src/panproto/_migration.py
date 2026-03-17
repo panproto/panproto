@@ -570,4 +570,5 @@ def _build_wasm_mapping(
         "hyper_edge_map": {},
         "label_map": [],
         "resolver": [(list(key), _edge_to_wire(edge)) for key, edge in resolvers],
+        "hyper_resolver": [],
     }

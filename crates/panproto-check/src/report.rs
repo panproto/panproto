@@ -167,6 +167,17 @@ fn format_non_breaking(change: &NonBreakingChange) -> String {
         NonBreakingChange::ConstraintRemoved { vertex_id, sort } => {
             format!("Constraint removed: {vertex_id}.{sort}")
         }
+        NonBreakingChange::RemovedEdge {
+            src,
+            tgt,
+            kind,
+            name,
+        } => {
+            let label = name
+                .as_deref()
+                .map_or(String::new(), |n| format!(" (name: {n})"));
+            format!("Removed edge (non-governed): {src} -> {tgt} [{kind}]{label}")
+        }
     }
 }
 
@@ -289,6 +300,18 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             "type": "constraint_removed",
             "vertex_id": vertex_id,
             "sort": sort,
+        }),
+        NonBreakingChange::RemovedEdge {
+            src,
+            tgt,
+            kind,
+            name,
+        } => json!({
+            "type": "removed_edge_non_governed",
+            "src": src,
+            "tgt": tgt,
+            "kind": kind,
+            "name": name,
         }),
     }
 }
