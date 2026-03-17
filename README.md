@@ -20,7 +20,7 @@ Level 0  GAT engine (sorts, operations, equations, morphisms, colimits, endofunc
 Level 1  Theory specifications as data (ThATProtoSchema, ThWType, ThFunctor, …)
 Level 2  Concrete schemas as models of a schema theory
 Level 3  Concrete instances as models of schemas
-Level 4  Protolenses: schema-parameterized lens families via natural transformations
+Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(S), G(S)))
 ```
 
 ## Workspace
@@ -194,7 +194,7 @@ panproto implements a four-level architecture rooted in category theory. The GAT
 
 **[Set-valued functor](https://ncatlab.org/nlab/show/functor) instances** (relational data like SQL tables) use [precomposition](https://ncatlab.org/nlab/show/precomposition) (&#916;<sub>F</sub>) for restrict and [left Kan extension](https://ncatlab.org/nlab/show/Kan+extension) (&#931;<sub>F</sub>) for extend. Right Kan extension (&#928;<sub>F</sub>) computes products over fibers.
 
-**[Protolenses](https://ncatlab.org/nlab/show/natural+transformation)** are the primary abstraction for bidirectional schema transformations. A protolens is a [natural transformation](https://ncatlab.org/nlab/show/natural+transformation) between theory endofunctors whose components are lenses. Unlike a single `Lens` (between two specific schemas), a `Protolens` is a schema-parameterized family of lenses: for every schema S satisfying a precondition P(S), it produces a `Lens(F(S), G(S))`. Elementary protolens constructors provide the atomic building blocks, while `auto_generate` derives an entire lens automatically from two schemas. `SymmetricLens` pairs two protolens chains for full bidirectional synchronization.
+**Protolenses** are the primary abstraction for bidirectional schema transformations. A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a concrete pair (`get`, `put`) between two fixed schemas. A protolens is *not* a lens — it is a [dependent function](https://ncatlab.org/nlab/show/dependent+product+type) from schemas to lenses: `Π(S : Schema | P(S)). Lens(F(S), G(S))`. A single protolens works on any schema satisfying its precondition; a lens is bound to the exact schemas it was built for. Elementary protolens constructors provide the atomic building blocks, while `auto_generate` derives an entire lens automatically from two schemas. `SymmetricLens` pairs two protolens chains for full bidirectional synchronization.
 
 **Schematic version control** (`panproto-vcs`) provides git-style operations (commit, branch, merge, rebase, cherry-pick, bisect, blame) operating on schema graphs rather than text. Merges are computed as categorical pushouts. There is no heuristic tie-breaking; the merge is commutative.
 
@@ -202,13 +202,11 @@ panproto implements a four-level architecture rooted in category theory. The GAT
 
 ## Safety guarantees
 
-panproto provides four layers of algebraic safety that go beyond structural schema validation:
+panproto provides three layers of algebraic safety that go beyond structural schema validation:
 
 - **Type-checked migrations.** Auto-derived migrations are validated as well-formed [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories) at the GAT level. Every `schema commit` runs GAT type-checking by default (disable with `--skip-verify`) to catch ill-typed vertex maps, arity mismatches, and unsound edge rewirings before they enter the commit DAG.
 
 - **Verified equations.** Schemas are checked against the axioms of their protocol theory. If a protocol declares equations (e.g., associativity of composition in a category theory), `schema verify` enumerates variable assignments over the schema's carrier sets and confirms that both sides of every equation evaluate to the same value.
-
-- **Naturality checking.** Protolenses are verified to be natural transformations: for every schema morphism in scope, the naturality square commutes. `schema lens-verify` checks both the lens laws (GetPut, PutGet) and naturality on test instances.
 
 - **Pullback-enhanced merges.** The three-way merge algorithm uses categorical [pullbacks](https://ncatlab.org/nlab/show/pullback) to detect structural overlap between branches. When two branches modify sorts or operations that share a common image under their protocol morphisms, the merge identifies these shared elements precisely rather than relying on name matching alone, producing fewer false conflicts.
 

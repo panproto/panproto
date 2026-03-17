@@ -32,7 +32,7 @@ schema lens --src old.json --tgt new.json -o lens.json
 # Apply a saved lens or protolens chain to data
 schema lens-apply --lens lens.json record.json
 
-# Verify lens laws (GetPut, PutGet) and naturality
+# Verify lens laws (GetPut, PutGet)
 schema lens-verify --lens lens.json --instance test.json
 
 # Compose lenses or protolens chains
@@ -87,7 +87,7 @@ schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json rec
 | `convert` | One-step data conversion between schemas via auto-generated protolens |
 | `lens` | Auto-generate a lens between two schemas with human-readable summary |
 | `lens-apply` | Apply a saved lens or protolens chain to data |
-| `lens-verify` | Verify lens laws (GetPut, PutGet) and naturality on a test instance |
+| `lens-verify` | Verify lens laws (GetPut, PutGet) on a test instance |
 | `lens-compose` | Compose two lenses or protolens chains into one |
 | `lens-diff` | Derive a lens from VCS commit history between two refs |
 | `lift` | Apply a migration to a record |

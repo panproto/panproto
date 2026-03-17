@@ -3,9 +3,9 @@
 [![crates.io](https://img.shields.io/crates/v/panproto-lens.svg)](https://crates.io/crates/panproto-lens)
 [![docs.rs](https://docs.rs/panproto-lens/badge.svg)](https://docs.rs/panproto-lens)
 
-[Protolens](https://ncatlab.org/nlab/show/natural+transformation)-based bidirectional schema transformations for panproto.
+Protolens-based bidirectional schema transformations for panproto.
 
-A **protolens** is a [natural transformation](https://ncatlab.org/nlab/show/natural+transformation) between theory endofunctors whose components are [lenses](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29). Unlike a `Lens` (between two specific schemas), a `Protolens` is a schema-parameterized family of lenses: for every schema S satisfying a precondition P(S), it produces a `Lens(F(S), G(S))`. `auto_generate` derives an entire lens automatically from two schemas by factorizing the underlying theory morphism. The lens laws (GetPut and PutGet) guarantee round-trip fidelity (see [Diskin et al., 2011](https://doi.org/10.1016/j.tcs.2010.12.039)).
+A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a concrete pair (`get`, `put`) between two *fixed* schemas, with complement tracking and round-trip laws (GetPut, PutGet; see [Diskin et al., 2011](https://doi.org/10.1016/j.tcs.2010.12.039)). A **protolens** is *not* a lens. It is a dependent function from schemas to lenses: for every schema S satisfying a precondition P(S), calling `instantiate(S)` produces a `Lens(F(S), G(S))` where F and G are theory endofunctors. A single protolens works on any compatible schema; a lens is bound to the exact schemas it was built for. `auto_generate` derives an entire protolens chain (and its instantiated lens) automatically from two schemas by factorizing the underlying theory morphism.
 
 ## API
 
@@ -13,7 +13,7 @@ A **protolens** is a [natural transformation](https://ncatlab.org/nlab/show/natu
 
 | Item | Description |
 |------|-------------|
-| `Protolens` | A natural transformation between theory endofunctors whose components are lenses |
+| `Protolens` | A dependent function from schemas to lenses: `Π(S : Schema \| P(S)). Lens(F(S), G(S))` |
 | `ProtolensChain` | Composable sequence of protolenses forming a reusable, schema-independent lens family |
 | `elementary::*` | Elementary protolens constructors (add sort, remove sort, rename sort, add op, remove op, rename op, etc.) |
 | `auto_generate` | Automatically generate a lens between two schemas by factorizing the underlying morphism |

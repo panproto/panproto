@@ -1,35 +1,50 @@
 //! Protolenses: schema-parameterized families of lenses.
 //!
-//! A protolens is a natural transformation between theory endofunctors whose
-//! components are lenses. Unlike a [`Lens`] (bound to two specific
-//! schemas), a `Protolens` is a *family of lenses* parameterized by schema.
+//! A [`Lens`] is a concrete bidirectional transformation between two
+//! *specific* schemas — a pair (`get`, `put`) with complement satisfying
+//! the `GetPut` and `PutGet` laws. A protolens is **not** a lens. It is
+//! a *dependent function* from schemas to lenses:
 //!
-//! In GAT terms: `η : Π(S : Schema | P(S)). Lens(F(S), G(S))`
+//! ```text
+//! Protolens ≡ Π(S : Schema | P(S)). Lens(F(S), G(S))
+//! ```
 //!
-//! For any schema `S` satisfying the precondition, [`Protolens::instantiate`]
-//! produces a concrete `Lens(F(S), G(S))`.
+//! where `P` is a precondition on schemas, `F` and `G` are theory
+//! endofunctors, and the result is a concrete [`Lens`] between `F(S)`
+//! and `G(S)`. Calling [`Protolens::instantiate`] applies this
+//! dependent function to a specific schema.
+//!
+//! The practical value is **reusability**: a single protolens works on
+//! any schema satisfying its precondition, whereas a `Lens` is bound
+//! to the exact schemas it was constructed for.
+//!
+//! The endofunctor framing (`source: F`, `target: G`) means protolenses
+//! have the *structure* of natural transformations. For the elementary
+//! constructors this holds by construction, but naturality is not
+//! verified at runtime in the current implementation.
 //!
 //! # Elementary constructors
 //!
-//! The [`elementary`] module provides atomic protolens constructors — the
-//! "atoms" from which all protolenses are composed:
+//! The [`elementary`] module provides atomic protolens constructors:
 //!
-//! - [`elementary::add_sort`]: `Id ⟹ AddSort(τ)`
-//! - [`elementary::drop_sort`]: `Id ⟹ DropSort(τ)`
-//! - [`elementary::rename_sort`]: `Id ⟹ RenameSort(old, new)`
-//! - [`elementary::add_op`]: `Id ⟹ AddOp(op)`
-//! - [`elementary::drop_op`]: `Id ⟹ DropOp(op)`
-//! - [`elementary::rename_op`]: `Id ⟹ RenameOp(old, new)`
-//! - [`elementary::add_equation`]: `Id ⟹ AddEquation(eq)`
-//! - [`elementary::drop_equation`]: `Id ⟹ DropEquation(eq)`
-//! - [`elementary::pullback`]: `Id ⟹ Pullback(φ)`
+//! - [`elementary::add_sort`]: `S ↦ Lens(S, S + {τ})`
+//! - [`elementary::drop_sort`]: `S ↦ Lens(S, S \ {τ})`
+//! - [`elementary::rename_sort`]: `S ↦ Lens(S, S[old/new])`
+//! - [`elementary::add_op`]: `S ↦ Lens(S, S + {op})`
+//! - [`elementary::drop_op`]: `S ↦ Lens(S, S \ {op})`
+//! - [`elementary::rename_op`]: `S ↦ Lens(S, S[old/new])`
+//! - [`elementary::add_equation`]: `S ↦ Lens(S, S + {eq})`
+//! - [`elementary::drop_equation`]: `S ↦ Lens(S, S \ {eq})`
+//! - [`elementary::pullback`]: `S ↦ Lens(S, φ*(S))`
 //!
 //! # Composition
 //!
-//! Protolenses compose vertically (sequential) and horizontally (parallel):
+//! Protolenses compose vertically (sequential) and horizontally
+//! (parallel). Vertical composition chains: first apply η to get a
+//! lens `S → G(S)`, then apply θ to `G(S)` to get `G(S) → H(G(S))`.
 //!
-//! - [`vertical_compose`]: `(η : F ⟹ G, θ : G ⟹ H) ↦ θ ∘ η : F ⟹ H`
-//! - [`horizontal_compose`]: `(η : F ⟹ G, θ : F' ⟹ G') ↦ η * θ : F∘F' ⟹ G∘G'`
+//! - [`vertical_compose`]: `(η, θ) ↦ λS. compose(η(S), θ(G(S)))`
+//! - [`horizontal_compose`]: `(η, θ) ↦ λS. η(S) applied in parallel with θ(S)`
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -77,15 +92,24 @@ pub enum ComplementConstructor {
     Composite(Vec<Self>),
 }
 
-/// A protolens: a natural transformation `η : F ⟹ G` between theory
-/// endofunctors, where each component `η_S` is a lens.
+/// A protolens: a dependent function from schemas to lenses.
 ///
-/// Unlike a [`Lens`] (bound to two specific schemas), a
-/// `Protolens` is a *schema-parameterized family of lenses*. For any
-/// schema `S` satisfying the precondition, [`instantiate`](Self::instantiate)
-/// produces a concrete `Lens(F(S), G(S))`.
+/// A `Protolens` is **not** a lens. A [`Lens`] is a concrete pair
+/// (`get`, `put`) between two fixed schemas. A `Protolens` is a
+/// *function* that, given any schema satisfying its precondition,
+/// *produces* a `Lens`.
 ///
-/// In GAT terms: `η : Π(S : Schema | P(S)). Lens(F(S), G(S))`
+/// ```text
+/// Protolens ≡ Π(S : Schema | P(S)). Lens(F(S), G(S))
+/// ```
+///
+/// where `F` (source) and `G` (target) are theory endofunctors.
+/// The key operation is [`instantiate`](Self::instantiate), which
+/// applies this dependent function to a specific schema.
+///
+/// The endofunctor framing means protolenses have the structure of
+/// natural transformations (each elementary constructor is natural
+/// by construction), but naturality is not runtime-verified.
 #[derive(Debug, Clone)]
 pub struct Protolens {
     /// Human-readable name.

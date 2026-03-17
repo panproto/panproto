@@ -12,8 +12,8 @@
 //! - **[`Lens`]**: An asymmetric lens backed by a compiled migration.
 //! - **[`get`]** / **[`put`]**: Forward and backward lens directions.
 //! - **[`Complement`]**: Data discarded by `get`, needed by `put`.
-//! - **[`Protolens`]**: A schema-parameterized family of lenses
-//!   (natural transformation between theory endofunctors).
+//! - **[`Protolens`]**: A dependent function from schemas to lenses
+//!   (`Π(S : Schema | P(S)). Lens(F(S), G(S))`).
 //! - **[`ProtolensChain`]**: Composable sequence of protolenses.
 //! - **[`auto_generate`]**: Automatic protolens generation from two schemas.
 //! - **[`compose()`]**: Compose two lenses sequentially.
