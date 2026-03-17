@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "panproto"
-version = "0.5.1"
+version = "0.6.0"
 description = "Universal schema migration engine (Python SDK)"
 readme = "README.md"
 license = "MIT"

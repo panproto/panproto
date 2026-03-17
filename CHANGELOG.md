@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-17
+
 ### Added — GAT Engine Completeness
 
 - **panproto-gat**: `typecheck` module — `typecheck_term`, `typecheck_equation`, `typecheck_theory`, `infer_var_sorts` for recursive type-checking of GAT terms and equations with sort inference from operation application sites
