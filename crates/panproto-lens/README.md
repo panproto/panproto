@@ -3,11 +3,33 @@
 [![crates.io](https://img.shields.io/crates/v/panproto-lens.svg)](https://crates.io/crates/panproto-lens)
 [![docs.rs](https://docs.rs/panproto-lens/badge.svg)](https://docs.rs/panproto-lens)
 
-[Bidirectional lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) combinators for panproto.
+[Protolens](https://ncatlab.org/nlab/show/natural+transformation)-based bidirectional schema transformations for panproto.
 
-Every schema migration is a lens with a `get` direction (restrict, projecting data forward) and a `put` direction (restore from [complement](https://en.wikipedia.org/wiki/View_(database)#Updating_views), bringing modifications back). The lens laws (GetPut and PutGet) guarantee round-trip fidelity (see [Diskin et al., 2011](https://doi.org/10.1016/j.tcs.2010.12.039)). This crate also provides [Cambria](https://www.inkandswitch.com/cambria/)-style atomic combinators for building lenses declaratively, including a full set of rename combinators that cascade across all schema elements.
+A **protolens** is a [natural transformation](https://ncatlab.org/nlab/show/natural+transformation) between theory endofunctors whose components are [lenses](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29). Unlike a `Lens` (between two specific schemas), a `Protolens` is a schema-parameterized family of lenses: for every schema S satisfying a precondition P(S), it produces a `Lens(F(S), G(S))`. `auto_generate` derives an entire lens automatically from two schemas by factorizing the underlying theory morphism. The lens laws (GetPut and PutGet) guarantee round-trip fidelity (see [Diskin et al., 2011](https://doi.org/10.1016/j.tcs.2010.12.039)).
 
 ## API
+
+### Protolenses
+
+| Item | Description |
+|------|-------------|
+| `Protolens` | A natural transformation between theory endofunctors whose components are lenses |
+| `ProtolensChain` | Composable sequence of protolenses forming a reusable, schema-independent lens family |
+| `elementary::*` | Elementary protolens constructors (add sort, remove sort, rename sort, add op, remove op, rename op, etc.) |
+| `auto_generate` | Automatically generate a lens between two schemas by factorizing the underlying morphism |
+| `AutoLensConfig` | Configuration for auto-generation (strategy, max steps, etc.) |
+| `AutoLensResult` | Result of auto-generation: lens, protolens chain, and human-readable summary |
+| `ComplementConstructor` | Schema-parameterized complement factory derived from a protolens chain |
+| `ComplementSpec` | Dependent complement type evaluation for a protolens step |
+| `DefaultRequirement` | Specifies default values required when a protolens adds structure |
+| `CapturedField` | A field captured into the complement during a `get` step |
+| `complement_spec_at` | Compute the complement specification for a single protolens step at a given schema |
+| `chain_complement_spec` | Compute the composite complement specification for an entire protolens chain |
+| `diff_to_protolens` | Derive a protolens chain from a structural schema diff |
+| `diff_to_lens` | Derive a concrete lens from a structural schema diff |
+| `DiffSpec` | Configuration for diff-based protolens derivation |
+
+### Lenses
 
 | Item | Description |
 |------|-------------|
@@ -15,29 +37,41 @@ Every schema migration is a lens with a `get` direction (restrict, projecting da
 | `get` | Forward direction: project an instance to a view, producing a complement |
 | `put` | Backward direction: restore source from a modified view and complement |
 | `Complement` | Data discarded by `get`, needed by `put` to reconstruct the source |
-| `Combinator` | Cambria-style atomic schema transformation |
-| `RenameField` / `AddField` / `RemoveField` | Field-level transformations |
-| `WrapInObject` / `HoistField` / `CoerceType` | Structural transformations |
-| `RenameVertex` / `RenameKind` / `RenameEdgeKind` | Name-level transformations with cascade |
-| `RenameNsid` / `RenameConstraintSort` | Protocol-specific rename combinators |
-| `ApplyTheoryMorphism` | Cascade a theory morphism to vertex/edge kind renames |
-| `from_combinators` | Build a lens from a chain of combinators |
 | `compose` | Compose two lenses sequentially |
-| `SymmetricLens` | Symmetric (bidirectional) lens variant |
+
+### Symmetric lenses
+
+| Item | Description |
+|------|-------------|
+| `SymmetricLens` | Symmetric (bidirectional) lens pairing two protolens chains with shared complement |
+| `SymmetricLens::from_protolens_chains` | Build a symmetric lens from two protolens chains |
+| `SymmetricLens::auto_symmetric` | Automatically generate a symmetric lens between two schemas |
+
+### Verification
+
+| Item | Description |
+|------|-------------|
 | `check_laws` / `check_get_put` / `check_put_get` | Verify lens laws on a test instance |
 | `LensError` / `LawViolation` | Error types |
 
 ## Example
 
 ```rust,ignore
-use panproto_lens::{Lens, get, put, check_laws};
+use panproto_lens::{auto_generate, get, put, check_laws, ProtolensChain};
 
-let (view, complement) = get(&lens, &instance)?;
+// Auto-generate a lens between two schema versions
+let result = auto_generate(&src_schema, &tgt_schema)?;
+let (view, complement) = get(&result.lens, &instance)?;
+
 // Modify the view...
-let restored = put(&lens, &view, &complement)?;
+let restored = put(&result.lens, &modified_view, &complement)?;
 
 // Verify round-trip laws
-check_laws(&lens, &instance)?;
+check_laws(&result.lens, &instance)?;
+
+// Build a reusable protolens chain (schema-independent)
+let chain = result.chain;
+let lens_at_other_schema = chain.instantiate(&other_src, &other_tgt)?;
 ```
 
 ## License

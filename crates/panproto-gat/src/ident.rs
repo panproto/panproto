@@ -302,8 +302,8 @@ impl From<Name> for String {
 
 /// Enumerates the 9 naming sites in the panproto system.
 ///
-/// A single `Combinator::Rename` can target any of these sites,
-/// providing a unified renaming algebra across the entire stack.
+/// A protolens rename can target any of these sites, providing a
+/// unified renaming algebra across the entire stack.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum NameSite {
     /// Edge label (field/property name). Currently the only site

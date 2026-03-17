@@ -29,7 +29,6 @@
 
 pub mod asymmetric;
 pub mod auto_lens;
-pub mod combinators;
 pub mod complement_type;
 pub mod compose;
 pub mod diff_to_protolens;
@@ -41,7 +40,6 @@ pub mod symmetric;
 // Re-exports for convenience.
 pub use asymmetric::{Complement, get, put};
 pub use auto_lens::{AutoLensConfig, AutoLensResult, auto_generate};
-pub use combinators::{Combinator, from_combinators};
 pub use complement_type::{
     CapturedField, ComplementKind, ComplementSpec, DefaultRequirement, chain_complement_spec,
     complement_spec_at,
@@ -264,7 +262,7 @@ pub(crate) mod tests {
         }
 
         // Rebuild indices
-        crate::combinators::rebuild_indices_pub(&mut tgt_schema);
+        crate::protolens::rebuild_indices(&mut tgt_schema);
 
         let mut surviving_verts: std::collections::HashSet<Name> =
             schema.vertices.keys().cloned().collect();

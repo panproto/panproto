@@ -108,7 +108,7 @@ pub enum WasmError {
         reason: String,
     },
 
-    /// Lens construction from combinators failed.
+    /// Lens construction failed.
     LensConstructionFailed {
         /// Description of the lens construction error.
         reason: String,

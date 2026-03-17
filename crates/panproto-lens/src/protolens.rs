@@ -769,7 +769,7 @@ pub(crate) fn schema_to_implicit_theory(schema: &Schema) -> Theory {
 
 /// Rebuild the precomputed adjacency indices on a schema after mutating
 /// vertices/edges.
-fn rebuild_indices(schema: &mut Schema) {
+pub(crate) fn rebuild_indices(schema: &mut Schema) {
     let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();

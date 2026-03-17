@@ -15,7 +15,7 @@ This crate provides a single entry point for consumers by re-exporting the publi
 | `schema` | `panproto-schema` | Schema graph, builder, validation, pushout |
 | `inst` | `panproto-inst` | W-type, functor, and graph instances; JSON round-trip; adjoint triple |
 | `mig` | `panproto-mig` | Migration compilation, lifting, composition, automatic discovery |
-| `lens` | `panproto-lens` | Bidirectional lenses, rename combinators, law verification |
+| `lens` | `panproto-lens` | Protolenses, automatic lens generation, bidirectional lenses, law verification |
 | `check` | `panproto-check` | Breaking change detection, classification, reporting |
 | `protocols` | `panproto-protocols` | 76 built-in protocol definitions and parsers |
 | `io` | `panproto-io` | Instance-level parse/emit for all protocols |

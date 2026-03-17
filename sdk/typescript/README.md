@@ -3,9 +3,9 @@
 [![npm](https://img.shields.io/npm/v/@panproto/core)](https://www.npmjs.com/package/@panproto/core)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-TypeScript SDK for panproto. Protocol-aware schema migration via [generalized algebraic theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory).
+TypeScript SDK for panproto. Protocol-aware schema migration via [generalized algebraic theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory), with automatic lens generation via [protolenses](https://ncatlab.org/nlab/show/natural+transformation).
 
-This package wraps the panproto WASM module, providing a typed, ergonomic API for defining protocols, building schemas, computing migrations, and applying lens-based transformations from JavaScript and TypeScript.
+This package wraps the panproto WASM module, providing a typed, ergonomic API for defining protocols, building schemas, computing migrations, and applying protolens-based transformations from JavaScript and TypeScript.
 
 Requires Node.js >= 20.
 
@@ -23,26 +23,35 @@ import { Panproto } from '@panproto/core';
 const panproto = await Panproto.init();
 const atproto = panproto.protocol('atproto');
 
-// Build a schema
-const schema = atproto.schema()
+// Build schemas
+const oldSchema = atproto.schema()
   .vertex('post', 'record', { nsid: 'app.bsky.feed.post' })
   .vertex('post:body', 'object')
   .edge('post', 'post:body', 'record-schema')
   .build();
 
-// Diff two schemas
-const diff = panproto.diff(oldSchema, newSchema);
+const newSchema = atproto.schema()
+  .vertex('post', 'record', { nsid: 'app.bsky.feed.post' })
+  .vertex('post:body', 'object')
+  .vertex('post:body.title', 'string')
+  .edge('post', 'post:body', 'record-schema')
+  .edge('post:body', 'post:body.title', 'prop', { name: 'title' })
+  .build();
 
-// Compile and apply a migration
-const migration = panproto.migration(srcSchema, tgtSchema)
-  .map('old_id', 'new_id')
-  .compile();
+// One-liner data conversion between schema versions
+const converted = panproto.convert(record, oldSchema, newSchema);
 
-const lifted = migration.lift(record);
+// Auto-generate a lens with full control
+const lens = panproto.lens(oldSchema, newSchema);
+const { view, complement } = lens.get(record);
+const restored = lens.put(modifiedView, complement);
 
-// Bidirectional lens
-const { view, complement } = migration.get(record);
-const restored = migration.put(modifiedView, complement);
+// Build a reusable protolens chain (schema-independent)
+const chain = panproto.protolensChain(oldSchema, newSchema);
+const result = chain.apply(record);
+
+// Factorize a theory morphism into elementary steps
+const factors = panproto.factorizeMorphism(morphism);
 ```
 
 ## API
@@ -52,6 +61,10 @@ const restored = migration.put(modifiedView, complement);
 | Export | Description |
 |--------|-------------|
 | `Panproto` | Main entry point; call `Panproto.init()` to load the WASM module |
+| `Panproto.convert()` | One-liner data conversion between two schemas via auto-generated protolens |
+| `Panproto.lens()` | Auto-generate a lens between two schemas |
+| `Panproto.protolensChain()` | Build a reusable, schema-independent protolens chain |
+| `Panproto.factorizeMorphism()` | Decompose a theory morphism into elementary endofunctors |
 | `Protocol` | Protocol handle with schema builder factory |
 | `SchemaBuilder` / `BuiltSchema` | Fluent schema construction |
 | `MigrationBuilder` / `CompiledMigration` | Migration construction, compilation, and application |
@@ -59,13 +72,14 @@ const restored = migration.put(modifiedView, complement);
 | `IoRegistry` | Protocol-aware parse/emit for all 76 formats |
 | `Repository` | Schematic version control (init, commit, branch, merge) |
 
-### Lens combinators
+### Protolenses
 
 | Export | Description |
 |--------|-------------|
-| `renameField` / `addField` / `removeField` | Field-level transformations |
-| `wrapInObject` / `hoistField` / `coerceType` | Structural transformations |
-| `compose` / `pipeline` | Cambria-style combinator composition |
+| `LensHandle` | Lens with `get`, `put`, and `autoGenerate()` for automatic lens derivation |
+| `LensHandle.autoGenerate()` | Auto-generate a lens between two schemas |
+| `ProtolensChainHandle` | Reusable, schema-independent protolens chain with `apply` and `instantiate` |
+| `SymmetricLensHandle` | Symmetric (bidirectional) lens for two-way synchronization |
 
 ### Breaking change analysis
 
