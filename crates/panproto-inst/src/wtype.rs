@@ -973,11 +973,12 @@ mod tests {
 
     /// Regression test: renamed vertices must survive restrict.
     ///
-    /// When a migration maps source vertex A to target vertex B, the
-    /// surviving_verts set contains B (the target). The restrict BFS must
-    /// remap A → B before checking membership, otherwise the node is
-    /// incorrectly pruned and its value is lost.
+    /// When a migration maps source vertex `A` to target vertex `B`, the
+    /// `surviving_verts` set contains `B` (the target). The restrict BFS
+    /// must remap `A` → `B` before checking membership, otherwise the
+    /// node is incorrectly pruned and its value is lost.
     #[test]
+    #[allow(clippy::expect_used, clippy::too_many_lines)]
     fn restrict_renamed_vertex_preserves_value() {
         use smallvec::smallvec;
 
@@ -1034,11 +1035,11 @@ mod tests {
         let mut tgt_between = HashMap::new();
         tgt_between.insert(
             (Name::from("post:body"), Name::from("post:content")),
-            smallvec![tgt_content_edge.clone()],
+            smallvec![tgt_content_edge],
         );
         tgt_between.insert(
             (Name::from("post:body"), Name::from("post:title")),
-            smallvec![tgt_title_edge.clone()],
+            smallvec![tgt_title_edge],
         );
         let tgt_schema = Schema {
             protocol: "test".into(),
@@ -1096,7 +1097,8 @@ mod tests {
             between: HashMap::new(),
         };
 
-        let result = wtype_restrict(&inst, &src_schema, &tgt_schema, &migration).unwrap();
+        let result = wtype_restrict(&inst, &src_schema, &tgt_schema, &migration)
+            .expect("restrict should succeed");
 
         // All three nodes must survive (root + renamed + unchanged)
         assert_eq!(result.nodes.len(), 3, "all three nodes should survive");
@@ -1107,9 +1109,13 @@ mod tests {
         assert!(renamed_node.has_value(), "renamed node must keep its value");
 
         // The value should be preserved
-        match &renamed_node.value {
-            Some(FieldPresence::Present(Value::Str(s))) => assert_eq!(s.as_str(), "hello"),
-            other => panic!("expected Some(Present(Str(\"hello\"))), got {other:?}"),
-        }
+        assert!(
+            matches!(
+                &renamed_node.value,
+                Some(FieldPresence::Present(Value::Str(s))) if s.as_str() == "hello"
+            ),
+            "expected Some(Present(Str(\"hello\"))), got {:?}",
+            renamed_node.value,
+        );
     }
 }
