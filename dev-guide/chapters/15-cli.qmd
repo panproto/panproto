@@ -12,25 +12,85 @@ These operate on schema files directly, without a `.panproto/` repository.
 schema validate --protocol atproto schema.json
 ```
 
-Loads the schema from JSON, resolves the protocol by name, and runs protocol-aware validation. Exits with code 1 on failure. Calls `panproto_core::schema::validate`.
+Loads the schema from JSON, resolves the protocol by name, and runs protocol-aware validation. In addition to structural validation, `schema validate` now also type-checks the protocol's schema theory equations via `gat_validate::validate_theory_equations`. Exits with code 1 on failure. Calls `panproto_core::schema::validate`.
 
 ### `schema check`
 
 ```bash
 schema check --src old.json --tgt new.json --mapping migration.json
+schema check --typecheck --src old.json --tgt new.json --mapping migration.json
 ```
 
 Loads both schemas and the migration mapping, builds the theory registry from the protocol, and runs `mig::check_existence`. With `--verbose`, also dumps the full JSON report.
+
+The `--typecheck` flag additionally runs GAT-level type-checking on the migration: it validates that the migration's vertex/edge maps form a well-typed theory morphism and that the protocol theory's equations typecheck. When `--typecheck` is set, the command calls `gat_validate::validate_migration` and `gat_validate::validate_theory_equations` and includes their diagnostics in the output.
 
 ### `schema diff`
 
 ```bash
 schema diff old-schema.json new-schema.json
+schema diff --theory old-schema.json new-schema.json
 ```
 
 Computes structural differences between two schema files. Reports added/removed vertices and edges, kind changes, constraint changes, variant changes, ordering changes, and usage mode changes. Unlike git diff, this understands the schema graph structure: it distinguishes a tightened constraint from a relaxed one, and a removed coproduct variant from a removed optional field.
 
 `--stat` uses `format::format_diff_stat` to show a summary of additions, removals, and modifications per field. `--name-only` uses `format::format_diff_name_only` to list only the names of changed elements. `--staged` diffs the index against HEAD rather than comparing two files.
+
+The `--theory` flag computes a theory-level diff instead of a schema-level diff. This shows changes to sorts, operations, and equations in the protocol's GAT theory rather than changes to vertices and edges in the schema graph. Theory-level diffs are useful for understanding how a schema change affects the mathematical structure that governs migration correctness.
+
+### `schema scaffold`
+
+```bash
+schema scaffold --protocol atproto schema.json
+schema scaffold --depth 4 --max-terms 500 --json schema.json
+```
+
+Generates a skeleton instance from a schema using the free model construction. The command calls `free_model` from `panproto-gat` with the protocol's schema theory and outputs a minimal valid instance.
+
+Flags:
+
+- `--depth <n>` sets the maximum term generation depth (default: 3). Maps to `FreeModelConfig::max_depth`.
+- `--max-terms <n>` sets the maximum number of terms per sort (default: 1000). Maps to `FreeModelConfig::max_terms_per_sort`.
+- `--json` outputs the result as JSON instead of the default human-readable format.
+
+### `schema normalize`
+
+```bash
+schema normalize schema.json
+schema normalize --identify A=B --identify f=g schema.json
+schema normalize --json schema.json
+```
+
+Normalizes a schema by quotienting its theory. Without `--identify` flags, this runs structural normalization (deduplication, canonical ordering). With `--identify` flags, it calls `quotient` from `panproto-gat` to merge the specified sorts or operations.
+
+Flags:
+
+- `--identify <a>=<b>` specifies a pair of names to identify. Can be repeated. Pairs are parsed as sort or operation identifications based on the theory.
+- `--json` outputs the normalized schema as JSON.
+
+### `schema typecheck`
+
+```bash
+schema typecheck schema.json
+schema typecheck --src old.json --tgt new.json --migration mig.json
+```
+
+Runs GAT type-checking on a schema's theory equations. Without `--src`/`--tgt`/`--migration`, it loads the schema, resolves its protocol theory, and runs `typecheck_theory`. With the migration flags, it additionally type-checks the migration morphism and validates equation preservation.
+
+This command is the standalone equivalent of the type-checking that `schema add` and `schema commit` perform automatically. It is useful for CI pipelines that want to validate schemas without a `.panproto/` repository.
+
+### `schema verify`
+
+```bash
+schema verify --protocol atproto schema.json
+schema verify --max-assignments 50000 schema.json
+```
+
+Builds a model from the schema and verifies all theory equations via `check_model_with_options`. Reports any equation violations with the specific variable assignment that caused the failure.
+
+Flags:
+
+- `--max-assignments <n>` sets the maximum number of variable assignments to enumerate per equation (default: 10,000). Maps to `CheckModelOptions::max_assignments`.
 
 ### `schema lift`
 
@@ -66,9 +126,14 @@ Flags: `--dry-run` runs the full pipeline but does not write to the index (calls
 
 ```bash
 schema commit -m "add verification status field"
+schema commit --skip-verify -m "force commit despite GAT warnings"
 ```
 
 Reads the index, stores the schema and migration as content-addressed objects, creates a `CommitObject` with parent pointer(s), advances the branch ref, appends a reflog entry, and clears the index. Unlike git commits which snapshot a tree of files, each commit here stores exactly one schema and one migration morphism.
+
+Before creating the commit, the command checks the staged GAT diagnostics. If the `gat_diagnostics` field contains type errors or equation violations, the commit is blocked with `VcsError::ValidationFailed`. This ensures that only schemas with well-typed theories and satisfied equations are committed.
+
+The `--skip-verify` flag bypasses the GAT diagnostic check, allowing commits even when type errors or equation violations are present. This is an escape hatch for advanced users who need to commit work-in-progress schemas. The diagnostics are still stored in the commit metadata for later inspection.
 
 The `--amend` flag calls `repo::amend`, which replaces the most recent commit by creating a new commit with the same parent(s) but updated schema, migration, and message.
 
@@ -134,11 +199,14 @@ If the argument matches a branch name, calls `refs::checkout_branch` to set HEAD
 
 ```bash
 schema merge feature
+schema merge --verbose feature
 ```
 
 Calls `repo::merge`. First checks for fast-forward (if HEAD is an ancestor of the target, just moves the ref). Otherwise finds the merge base via `dag::merge_base`, loads the three schemas (base, ours, theirs), and runs `merge::three_way_merge`. Clean merges are auto-committed as merge commits with two parents. Conflicts are reported with their structural types.
 
 The merge algorithm differs from git in a fundamental way: instead of three-way text merge with conflict markers, it computes the union of non-conflicting structural changes (vertex additions, edge additions, constraint changes, variant additions) and produces typed conflict descriptors for overlapping modifications. There are no conflict markers to resolve manually; conflicts are reported as structured data.
+
+The `--verbose` flag enables pullback overlap detection. When set, the merge computes the pullback of the two branch theories over the merge base theory using `panproto_gat::pullback`. The `pullback_overlap` field in the merge result reports which sorts and operations both branches modified. This helps developers understand the structural intersection of concurrent changes.
 
 Additional flags control merge behavior via `MergeOptions`: `--no-commit` stages the result without committing. `--ff-only` fails if fast-forward is not possible. `--no-ff` forces a merge commit even for fast-forwards. `--squash` collapses all changes into a single non-merge commit. `--abort` cancels a conflicted merge and restores the pre-merge state. `-m "msg"` provides a custom merge commit message.
 

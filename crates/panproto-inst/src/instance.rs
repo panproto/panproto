@@ -26,6 +26,11 @@ use crate::wtype::{CompiledMigration, WInstance};
 /// - `WType`: C = tree category (rooted, acyclic)
 /// - `Functor`: C = relational category (bipartite: tables + foreign keys)
 /// - `Graph`: C = graph category (general directed graph)
+///
+/// Each inner type implements [`AcsetOps`](crate::AcsetOps), which
+/// provides `restrict`, `extend`, `element_count`, and `shape_name`
+/// through a unified trait interface. The methods on `Instance` below
+/// dispatch to those implementations.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Instance {
     /// Tree-shaped instance (W-type).
@@ -72,6 +77,34 @@ impl Instance {
             Self::Graph(g) => {
                 let restricted = crate::ginstance::graph_restrict(g, migration)?;
                 Ok(Self::Graph(restricted))
+            }
+        }
+    }
+
+    /// Extend this instance along a compiled migration (`Sigma_F`).
+    ///
+    /// Dispatches to the shape-specific extend pipeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the extend pipeline fails.
+    pub fn extend(
+        &self,
+        tgt_schema: &Schema,
+        migration: &CompiledMigration,
+    ) -> Result<Self, RestrictError> {
+        match self {
+            Self::WType(w) => {
+                let extended = crate::wtype_extend(w, tgt_schema, migration)?;
+                Ok(Self::WType(extended))
+            }
+            Self::Functor(f) => {
+                let extended = crate::functor_extend(f, migration)?;
+                Ok(Self::Functor(extended))
+            }
+            Self::Graph(g) => {
+                let extended = crate::ginstance::graph_extend(g, migration)?;
+                Ok(Self::Graph(extended))
             }
         }
     }

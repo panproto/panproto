@@ -46,6 +46,7 @@ book:
         - chapters/22-building-blocks.qmd
         - chapters/23-naming-identity.qmd
         - chapters/24-auto-morphisms.qmd
+        - chapters/25-type-checking-pipeline.qmd
     - part: "Contributing Process"
       chapters:
         - chapters/16-conventions.qmd

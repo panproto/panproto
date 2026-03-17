@@ -17,6 +17,8 @@
 // Allow concrete HashMap/HashSet in public API signatures per ENGINEERING.md spec.
 #![allow(clippy::implicit_hasher)]
 
+/// Generic attributed C-set trait unifying all instance shapes.
+pub mod acset;
 /// Error types for instance operations.
 pub mod error;
 /// Hyperedge fan representation.
@@ -41,10 +43,11 @@ pub mod value;
 pub mod wtype;
 
 // Re-exports for convenience.
+pub use acset::AcsetOps;
 pub use error::{InstError, ParseError, RestrictError, ValidationError};
 pub use fan::Fan;
 pub use functor::{FInstance, functor_extend, functor_restrict};
-pub use ginstance::{GInstance, graph_restrict};
+pub use ginstance::{GInstance, graph_extend, graph_restrict};
 pub use instance::Instance;
 pub use metadata::Node;
 pub use parse::{parse_json, to_json};

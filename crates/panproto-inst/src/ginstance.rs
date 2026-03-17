@@ -132,6 +132,60 @@ pub fn graph_restrict(
     })
 }
 
+/// Extend (left Kan extension, `Sigma_F`) a graph instance along a migration.
+///
+/// Maps all source nodes into the target schema by remapping anchors
+/// and edges according to the compiled migration. Nodes whose anchor
+/// has no remap and is not in `surviving_verts` are dropped.
+///
+/// # Errors
+///
+/// Returns [`RestrictError`] if the extend pipeline fails.
+pub fn graph_extend(
+    instance: &GInstance,
+    migration: &CompiledMigration,
+) -> Result<GInstance, RestrictError> {
+    let mut new_nodes = HashMap::new();
+    let mut new_edges = Vec::new();
+    let mut new_values = HashMap::new();
+
+    // Remap all node anchors via vertex_remap; skip nodes whose anchor
+    // has no remap and is not in surviving_verts.
+    for (&id, node) in &instance.nodes {
+        let mut new_node = node.clone();
+        if let Some(remapped) = migration.vertex_remap.get(&node.anchor) {
+            new_node.anchor.clone_from(remapped);
+        } else if !migration.surviving_verts.contains(&node.anchor) {
+            continue;
+        }
+        new_nodes.insert(id, new_node);
+
+        // Copy values for surviving nodes
+        if let Some(value) = instance.values.get(&id) {
+            new_values.insert(id, value.clone());
+        }
+    }
+
+    // Remap edges: check edge_remap first, then surviving_edges.
+    for (src, tgt, edge) in &instance.edges {
+        if !new_nodes.contains_key(src) || !new_nodes.contains_key(tgt) {
+            continue;
+        }
+
+        if let Some(new_edge) = migration.edge_remap.get(edge) {
+            new_edges.push((*src, *tgt, new_edge.clone()));
+        } else if migration.surviving_edges.contains(edge) {
+            new_edges.push((*src, *tgt, edge.clone()));
+        }
+    }
+
+    Ok(GInstance {
+        nodes: new_nodes,
+        edges: new_edges,
+        values: new_values,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

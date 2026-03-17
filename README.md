@@ -119,6 +119,12 @@ schema diff old.json new.json
 schema lift --protocol atproto --migration mig.json \
   --src-schema old.json --tgt-schema new.json record.json
 
+# Generate minimal test data from a protocol theory
+schema scaffold --protocol atproto schema.json
+
+# Simplify a schema by merging equivalent elements
+schema normalize --protocol atproto schema.json --identify "A=B,C=D"
+
 # Version control
 schema init
 schema add schema.json
@@ -159,6 +165,16 @@ panproto implements a four-level architecture rooted in category theory. The GAT
 **Schematic version control** (`panproto-vcs`) provides git-style operations (commit, branch, merge, rebase, cherry-pick, bisect, blame) operating on schema graphs rather than text. Merges are computed as categorical pushouts. There is no heuristic tie-breaking; the merge is commutative.
 
 **Automatic migration discovery** finds schema morphisms via backtracking CSP with MRV heuristic, discovers overlaps between schemas, and computes schema-level pushouts for merging disparate formats.
+
+## Safety guarantees
+
+panproto provides three layers of algebraic safety that go beyond structural schema validation:
+
+- **Type-checked migrations.** Auto-derived migrations are validated as well-formed [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories) at the GAT level. Every `schema commit` runs GAT type-checking by default (disable with `--skip-verify`) to catch ill-typed vertex maps, arity mismatches, and unsound edge rewirings before they enter the commit DAG.
+
+- **Verified equations.** Schemas are checked against the axioms of their protocol theory. If a protocol declares equations (e.g., associativity of composition in a category theory), `schema verify` enumerates variable assignments over the schema's carrier sets and confirms that both sides of every equation evaluate to the same value.
+
+- **Pullback-enhanced merges.** The three-way merge algorithm uses categorical [pullbacks](https://ncatlab.org/nlab/show/pullback) to detect structural overlap between branches. When two branches modify sorts or operations that share a common image under their protocol morphisms, the merge identifies these shared elements precisely rather than relying on name matching alone, producing fewer false conflicts.
 
 ## Documentation
 

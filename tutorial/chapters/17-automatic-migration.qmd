@@ -118,6 +118,40 @@ When Σ_F pushes data forward, the target schema's equational constraints may no
 
 The chase is guaranteed to terminate for panproto's equational theories (which are purely algebraic, with no recursive constraints). For schemas with recursive types, an iteration bound prevents non-termination.
 
+## GAT-Validated Auto-Migration
+
+Auto-derived migrations are now subject to the same equation verification as
+hand-written ones. When `schema add` computes a migration automatically, it
+checks that the migration morphism **preserves all equations** in the theory.
+
+What does "preserves equations" mean concretely? If the source theory has an
+equation like `src(id(v)) = v` (from ThReflexiveGraph), and the migration maps
+`src` to `src'` and `id` to `id'`, then the target theory must satisfy
+`src'(id'(v)) = v`. panproto verifies this by applying the migration morphism
+to both sides of every equation and checking that the results are equal in the
+target theory.
+
+This catches a class of bugs that was previously invisible: migrations that
+look correct at the vertex-and-edge level but silently break structural
+invariants. For example, a migration that maps a reflexive graph to a
+non-reflexive one would pass the old vertex/edge compatibility check but fail
+the equation preservation check---because the target has no `id` operation to
+satisfy the reflexivity equations.
+
+The verification is fast (linear in the number of equations) and runs
+automatically during `schema add`. If it fails, you see a diagnostic like:
+
+```
+error: migration violates equation
+  equation: src(id(v)) = v
+  mapped to: src'(???) — operation 'id' has no image under the migration
+  hint: the target schema may be missing a required operation
+```
+
+This is the same verification that `schema verify` performs, applied
+automatically to every auto-derived migration.
+
+
 ## Or, skip all that
 
 For the common case---evolving a schema within the same protocol---you don't need any of this. `schema add` in the VCS (@sec-version-control) automatically derives migrations for additions, removals, and renames. The homomorphism search, adjoint triple, and pushout integration are for the hard cases: cross-protocol translation, schema integration from independent sources, and algebraic data integration patterns.

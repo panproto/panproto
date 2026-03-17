@@ -15,6 +15,7 @@ use crate::cherry_pick::{self, advance_head};
 use crate::dag;
 use crate::error::VcsError;
 use crate::fs_store::FsStore;
+use crate::gat_validate;
 use crate::gc;
 use crate::hash::{self, ObjectId};
 use crate::index::{Index, StagedSchema, ValidationStatus};
@@ -22,6 +23,13 @@ use crate::merge;
 use crate::object::{CommitObject, Object};
 use crate::refs;
 use crate::store::{self, HeadState, Store};
+
+/// Options for creating a commit.
+#[derive(Clone, Debug, Default)]
+pub struct CommitOptions {
+    /// Skip GAT equation verification (escape hatch for advanced users).
+    pub skip_verify: bool,
+}
 
 /// A panproto repository backed by a filesystem store.
 #[allow(dead_code)]
@@ -70,50 +78,63 @@ impl Repository {
     pub fn add(&mut self, schema: &Schema) -> Result<Index, VcsError> {
         let schema_id = self.store.put(&Object::Schema(Box::new(schema.clone())))?;
 
-        let (migration_id, auto_derived, validation) = match store::resolve_head(&self.store)? {
-            None => {
-                // First commit — no migration needed.
-                (None, false, ValidationStatus::Valid)
-            }
-            Some(head_id) => {
-                let head_commit = self.load_commit(head_id)?;
-                let head_schema = self.load_schema(head_commit.schema_id)?;
-
-                let schema_diff = diff::diff(&head_schema, schema);
-                if schema_diff.is_empty() {
-                    return Err(VcsError::ValidationFailed {
-                        reasons: vec!["no changes detected".to_owned()],
-                    });
+        let (migration_id, auto_derived, validation, gat_diagnostics) =
+            match store::resolve_head(&self.store)? {
+                None => {
+                    // First commit — no migration needed.
+                    (None, false, ValidationStatus::Valid, None)
                 }
+                Some(head_id) => {
+                    let head_commit = self.load_commit(head_id)?;
+                    let head_schema = self.load_schema(head_commit.schema_id)?;
 
-                let mut migration = auto_mig::derive_migration(&head_schema, schema, &schema_diff);
+                    let schema_diff = diff::diff(&head_schema, schema);
+                    if schema_diff.is_empty() {
+                        return Err(VcsError::ValidationFailed {
+                            reasons: vec!["no changes detected".to_owned()],
+                        });
+                    }
 
-                // If the auto-derived migration maps very few vertices
-                // (less than half of old schema vertices), try
-                // `find_best_morphism` as a fallback.
-                let old_vertex_count = head_schema.vertex_count();
-                if old_vertex_count > 0 && migration.vertex_map.len() * 2 < old_vertex_count {
-                    let opts = SearchOptions::default();
-                    if let Some(best) = find_best_morphism(&head_schema, schema, &opts) {
-                        if best.vertex_map.len() > migration.vertex_map.len() {
-                            let mut hom_mig = morphism_to_migration(&best);
-                            hom_mig.hyper_edge_map = migration.hyper_edge_map;
-                            hom_mig.label_map = migration.label_map;
-                            migration = hom_mig;
+                    let mut migration =
+                        auto_mig::derive_migration(&head_schema, schema, &schema_diff);
+
+                    // If the auto-derived migration maps very few vertices
+                    // (less than half of old schema vertices), try
+                    // `find_best_morphism` as a fallback.
+                    let old_vertex_count = head_schema.vertex_count();
+                    if old_vertex_count > 0 && migration.vertex_map.len() * 2 < old_vertex_count {
+                        let opts = SearchOptions::default();
+                        if let Some(best) = find_best_morphism(&head_schema, schema, &opts) {
+                            if best.vertex_map.len() > migration.vertex_map.len() {
+                                let mut hom_mig = morphism_to_migration(&best);
+                                hom_mig.hyper_edge_map = migration.hyper_edge_map;
+                                hom_mig.label_map = migration.label_map;
+                                migration = hom_mig;
+                            }
                         }
                     }
+
+                    // Run GAT-level validation on the derived migration.
+                    let gat_diag =
+                        gat_validate::validate_migration(&head_schema, schema, &migration);
+
+                    let mig_src_id = hash::hash_schema(&head_schema)?;
+                    let migration_id = self.store.put(&Object::Migration {
+                        src: mig_src_id,
+                        tgt: schema_id,
+                        mapping: migration,
+                    })?;
+
+                    // If GAT validation found errors, mark as invalid.
+                    let validation = if gat_diag.has_errors() {
+                        ValidationStatus::Invalid(gat_diag.all_errors())
+                    } else {
+                        ValidationStatus::Valid
+                    };
+
+                    (Some(migration_id), true, validation, Some(gat_diag))
                 }
-
-                let mig_src_id = hash::hash_schema(&head_schema)?;
-                let migration_id = self.store.put(&Object::Migration {
-                    src: mig_src_id,
-                    tgt: schema_id,
-                    mapping: migration,
-                })?;
-
-                (Some(migration_id), true, ValidationStatus::Valid)
-            }
-        };
+            };
 
         let index = Index {
             staged: Some(StagedSchema {
@@ -121,6 +142,7 @@ impl Repository {
                 migration_id,
                 auto_derived,
                 validation,
+                gat_diagnostics,
             }),
         };
 
@@ -130,12 +152,54 @@ impl Repository {
 
     /// Create a commit from the current staging area.
     ///
+    /// Equivalent to calling [`commit_with_options`](Self::commit_with_options)
+    /// with default options (GAT verification enabled).
+    ///
     /// # Errors
     ///
-    /// Returns [`VcsError::NothingStaged`] if the index is empty.
+    /// Returns [`VcsError::NothingStaged`] if the index is empty, or
+    /// [`VcsError::ValidationFailed`] if GAT diagnostics have errors.
     pub fn commit(&mut self, message: &str, author: &str) -> Result<ObjectId, VcsError> {
+        self.commit_with_options(message, author, &CommitOptions::default())
+    }
+
+    /// Create a commit from the current staging area with options.
+    ///
+    /// When `options.skip_verify` is `false` (the default), this method
+    /// checks the staged GAT diagnostics and blocks the commit if there
+    /// are type errors or equation violations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VcsError::NothingStaged`] if the index is empty, or
+    /// [`VcsError::ValidationFailed`] if GAT diagnostics have errors
+    /// and `skip_verify` is `false`.
+    pub fn commit_with_options(
+        &mut self,
+        message: &str,
+        author: &str,
+        options: &CommitOptions,
+    ) -> Result<ObjectId, VcsError> {
         let index = self.read_index()?;
         let staged = index.staged.ok_or(VcsError::NothingStaged)?;
+
+        // Check GAT diagnostics unless skip_verify is set.
+        if !options.skip_verify {
+            // Check validation status.
+            if let ValidationStatus::Invalid(reasons) = &staged.validation {
+                return Err(VcsError::ValidationFailed {
+                    reasons: reasons.clone(),
+                });
+            }
+            // Check GAT diagnostics directly (covers type errors and equation violations).
+            if let Some(ref diag) = staged.gat_diagnostics {
+                if diag.has_errors() {
+                    return Err(VcsError::ValidationFailed {
+                        reasons: diag.all_errors(),
+                    });
+                }
+            }
+        }
 
         let head_id = store::resolve_head(&self.store)?;
 
@@ -236,6 +300,7 @@ impl Repository {
                     conflicts: Vec::new(),
                     migration_from_ours: panproto_mig::Migration::empty(),
                     migration_from_theirs: panproto_mig::Migration::empty(),
+                    pullback_overlap: None,
                 });
             }
         } else if options.ff_only {
@@ -584,6 +649,109 @@ mod tests {
             repo.commit("empty", "alice"),
             Err(VcsError::NothingStaged)
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn commit_blocked_by_gat_errors() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::gat_validate::GatDiagnostics;
+        use crate::index::{Index, StagedSchema, ValidationStatus};
+
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+
+        // Stage a valid first schema so we have an object in the store.
+        let s = make_schema(&[("a", "object")]);
+        repo.add(&s)?;
+        repo.commit("initial", "alice")?;
+
+        // Now manually write an index with GAT errors to simulate
+        // a staging result that has equation violations.
+        let staged_schema = make_schema(&[("a", "object"), ("b", "string")]);
+        let schema_id = repo
+            .store
+            .put(&crate::object::Object::Schema(Box::new(staged_schema)))?;
+
+        let diag = GatDiagnostics {
+            type_errors: vec!["sort mismatch: expected Ob, got Hom".to_owned()],
+            equation_errors: vec![],
+            migration_warnings: vec![],
+        };
+
+        let index = Index {
+            staged: Some(StagedSchema {
+                schema_id,
+                migration_id: None,
+                auto_derived: false,
+                validation: ValidationStatus::Invalid(diag.all_errors()),
+                gat_diagnostics: Some(diag),
+            }),
+        };
+        repo.write_index(&index)?;
+
+        // Default commit should be blocked.
+        let err = repo.commit("should fail", "alice").unwrap_err();
+        assert!(
+            matches!(&err, VcsError::ValidationFailed { reasons } if !reasons.is_empty()),
+            "expected ValidationFailed, got: {err:?}"
+        );
+
+        // skip_verify should bypass the check.
+        let opts = CommitOptions { skip_verify: true };
+        let commit_id = repo.commit_with_options("forced commit", "alice", &opts)?;
+        let log = repo.log(None)?;
+        assert_eq!(log[0].message, "forced commit");
+        assert_eq!(store::resolve_head(repo.store())?, Some(commit_id));
+        Ok(())
+    }
+
+    #[test]
+    fn commit_blocked_by_gat_diagnostics_only() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::gat_validate::GatDiagnostics;
+        use crate::index::{Index, StagedSchema, ValidationStatus};
+
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+
+        // First commit.
+        let s = make_schema(&[("a", "object")]);
+        repo.add(&s)?;
+        repo.commit("initial", "alice")?;
+
+        // Write index where validation is Valid but gat_diagnostics has errors.
+        let staged_schema = make_schema(&[("a", "object"), ("c", "number")]);
+        let schema_id = repo
+            .store
+            .put(&crate::object::Object::Schema(Box::new(staged_schema)))?;
+
+        let diag = GatDiagnostics {
+            type_errors: vec![],
+            equation_errors: vec!["equation 'assoc' violated when f=id: LHS=a, RHS=b".to_owned()],
+            migration_warnings: vec![],
+        };
+
+        let index = Index {
+            staged: Some(StagedSchema {
+                schema_id,
+                migration_id: None,
+                auto_derived: false,
+                validation: ValidationStatus::Valid,
+                gat_diagnostics: Some(diag),
+            }),
+        };
+        repo.write_index(&index)?;
+
+        // Should still be blocked because gat_diagnostics has errors.
+        let err = repo.commit("should fail", "alice").unwrap_err();
+        assert!(
+            matches!(&err, VcsError::ValidationFailed { reasons } if reasons.iter().any(|r| r.contains("equation violation"))),
+            "expected ValidationFailed with equation violation, got: {err:?}"
+        );
+
+        // skip_verify bypasses.
+        let opts = CommitOptions { skip_verify: true };
+        let id = repo.commit_with_options("bypassed", "alice", &opts)?;
+        assert_eq!(store::resolve_head(repo.store())?, Some(id));
         Ok(())
     }
 }

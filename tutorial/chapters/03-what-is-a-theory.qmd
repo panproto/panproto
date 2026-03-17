@@ -538,6 +538,45 @@ and then you instantiate it with the specific theory you need.
 :::
 
 
+## Machine-Checked Equations
+
+Throughout this chapter we've stated equations informally: "associativity holds,"
+"the source column belongs to the source table." But who checks that these
+equations are well-formed? In earlier versions of panproto, equations were
+documentation---they described what *should* hold, but nothing enforced them
+automatically.
+
+That has changed. panproto now **type-checks every equation** when you define
+a theory. Both sides of an equation must have the same sort, and every
+operation must be applied to arguments of the correct sort. If you write an
+equation where the sorts don't match---say, claiming that a `Vertex`-sorted
+term equals an `Edge`-sorted term---panproto rejects it immediately with a
+clear error message.
+
+This checking happens automatically when you use the `schema` CLI. When you
+run `schema add`, the theory's equations are verified as part of staging. When
+you run `schema commit`, the equations are re-verified before the commit is
+created. If an equation is malformed, the commit is rejected---you never end
+up with an invalid theory in your version history.
+
+You can also verify equations explicitly:
+
+```bash
+schema verify my-theory.json
+```
+
+This checks that all equations in the theory are well-sorted and reports any
+errors. It's useful when you're building a custom theory and want to catch
+mistakes early.
+
+The practical consequence: equations are no longer aspirational comments.
+They're machine-checked invariants. When a building-block theory like
+ThReflexiveGraph declares `src(id(v)) = v`, panproto has verified that both
+sides have sort `Vertex`. When you compose theories via colimit, the equations
+from each component are re-checked in the combined theory. Invalid equations
+are caught before they can corrupt a schema repository.
+
+
 ## What We've Built So Far
 
 Let's take stock. Over three chapters, we've established:

@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::gat_validate::GatDiagnostics;
 use crate::hash::ObjectId;
 
 /// The staging area for the next commit.
@@ -26,6 +27,9 @@ pub struct StagedSchema {
     pub auto_derived: bool,
     /// Validation status from the staging pipeline.
     pub validation: ValidationStatus,
+    /// GAT-level diagnostics from type-checking and equation verification.
+    #[serde(default)]
+    pub gat_diagnostics: Option<GatDiagnostics>,
 }
 
 /// Result of the staging validation pipeline.
