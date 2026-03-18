@@ -478,25 +478,55 @@ Fleet migration report:
 ```
 
 
-## Comparison with Cambria {#sec-cambria-comparison}
+## Related work and comparison {#sec-protolens-related-work}
 
-[Cambria](https://www.inkandswitch.com/cambria/) [@litt2022] pioneered the combinator approach to schema evolution. panproto's protolenses build on Cambria's insights but differ in three key ways:
+The term "protolens" is specific to panproto. The concept---a schema-parameterized lens family with schema-dependent complements---does not appear under this name in the existing literature. But it draws on and extends several established ideas.
 
-| | Cambria | panproto protolenses |
+### Lenses (Foster et al. 2007)
+
+The asymmetric lens framework of @foster2007 defines a lens as a pair of `get`/`put` functions between two *fixed* types, satisfying the GetPut and PutGet laws. This is the foundation panproto builds on. The key limitation a protolens addresses: a Foster-style lens is bound to a specific source and view type. If you want the same transformation (say, renaming a field) applied across many schemas, you write many lenses. A protolens writes one.
+
+See: [Combinators for Bidirectional Tree Transformations](https://doi.org/10.1145/1232420.1232424)
+
+### Edit lenses and Cambria (Hofmann, Pierce, Wagner 2011; Litt et al. 2022)
+
+[Cambria](https://www.inkandswitch.com/cambria/) [@litt2022] pioneered the combinator approach to schema evolution, building on the *edit lenses* of @hofmann2011. Cambria's combinators (`rename`, `add`, `remove`, `wrap`, `hoist`, `convert`) are the direct inspiration for panproto's elementary protolens constructors.
+
+The distinction is in how schemas are handled:
+
+| | [Cambria](https://www.inkandswitch.com/cambria/) | panproto protolenses |
 |---|---------|---------------------|
-| **Scope** | Flat JSON schemas | Recursive, polynomial-functor schemas |
-| **Parameterization** | Combinators are schema-specific | Protolenses are schema-independent |
-| **Composition** | Sequence of combinators | Sequence of schema transforms with preconditions |
-| **Complement** | Implicit (edit lenses) | Explicit, schema-dependent |
-| **Commutativity** | Not addressed | Guaranteed by construction |
-| **Reuse** | Copy-paste combinators across schemas | Single protolens chain, many instantiations |
+| **Schema awareness** | Implicit---operates on whatever JSON document you hand it | Explicit---takes a schema as input, checks preconditions |
+| **Scope** | Flat JSON objects | Recursive schemas with arbitrary nesting, any protocol |
+| **Complement** | Implicit (encoded in edit lens state) | Explicit and schema-dependent---different schemas produce different complement structures |
+| **Precondition checking** | None---silently passes through unknown fields | Verified at instantiation time with diagnostic messages |
+| **Reuse across schemas** | Copy-paste combinator code | Single protolens chain, instantiated against many schemas |
+| **Commutativity** | Not formalized | Guaranteed: applying a protolens before or after migration produces the same result |
 
 : Cambria vs. panproto protolenses. {#tbl-cambria-comparison}
 
-The fundamental difference is parameterization. A Cambria lens `renameField("x", "y")` operates on whatever document you hand it---but it does not know the schema, so it cannot verify preconditions, compute complement types, or guarantee commutativity with migration. A panproto protolens takes the schema as an explicit argument, which enables all of these.
+Cambria's design is excellent for its domain: schema evolution in CRDT-based collaborative editors where schemas are implicit and changes are simple renames and additions. Protolenses target a different domain: platform-wide schema governance where changes must be verified across many schemas. If you work with a single schema that evolves incrementally, Cambria-style combinators (available in panproto via the `pipeline()` API from @sec-lenses) may be all you need.
 
-:::{.callout-note}
-## Cambria is still useful
+See: [Project Cambria](https://www.inkandswitch.com/cambria/), [Symmetric Lenses](https://doi.org/10.1145/1926385.1926428)
 
-Cambria's design is excellent for its intended domain: schema evolution in CRDT-based collaborative editors where schemas are implicit and changes are simple. Protolenses are designed for a different domain: platform-wide schema governance where changes must be verified, composed, and applied across many schemas. If you are working with a single schema that evolves incrementally, Cambria-style combinators (available in panproto via the `pipeline()` API from @sec-combinators) may be all you need.
-:::
+### Polymorphic lenses / lens families (Kmett 2012)
+
+Haskell's [`lens`](https://hackage.haskell.org/package/lens) library defines a `Lens s t a b` with four type parameters, allowing the source and target types to differ. This is sometimes called a "lens family" --- a single lens definition that works across different type instantiations. panproto's protolenses are conceptually similar (one definition, many instantiations) but parameterized over *schemas* rather than *Haskell types*, and the parameterization affects the complement structure, not just the source/target types.
+
+See: [lens on Hackage](https://hackage.haskell.org/package/lens)
+
+### Delta lenses (Johnson and Rosebrugh 2013)
+
+Delta lenses [@johnson2013] generalize asymmetric lenses by making the source and view *categories* rather than sets, with `get` as a functor between them. This is the closest categorical framework to what protolenses do---a protolens can be understood as a delta lens where the source category is the category of schemas satisfying a precondition. panproto does not directly implement delta lenses, but the commutativity property of protolenses (applying a protolens commutes with schema migration) is the same kind of coherence condition that delta lenses formalize.
+
+See: [Delta Lenses and Opfibrations](https://doi.org/10.14279/tuj.eceasst.57.875)
+
+### What is novel in panproto's protolenses
+
+Three things, taken together, distinguish protolenses from prior work:
+
+1. **Schema-dependent complements.** A `removeVertex("metadata")` protolens produces a complement storing a string if `metadata` is a string vertex, or an object if `metadata` is a structured vertex. The complement *type* varies with the schema. Neither Cambria nor the Haskell lens library tracks schema-dependent complement structure.
+
+2. **Precondition checking with diagnostics.** Instantiation verifies that a schema satisfies the protolens's requirements and reports which step failed and why. Cambria combinators do not check preconditions---they silently pass through fields they don't recognize.
+
+3. **Commutativity with migration.** Applying a protolens before or after a schema migration produces the same result. This is not a property of Cambria combinators (which don't have a formal migration framework to commute with) or of Haskell lens families (which don't operate in a schema-migration context).

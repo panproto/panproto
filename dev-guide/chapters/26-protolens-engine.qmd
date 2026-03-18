@@ -5,7 +5,15 @@ A `Protolens` is a reusable schema transform that produces a concrete lens for a
 For the concrete lens primitives (`get`, `put`, complement), see @sec-lenses. For the [tutorial's lens chapter](https://panproto.dev/tutorial/chapters/06-bidirectional-migration-with-lenses.html), see the tutorial. For the automated pipeline that derives protolens chains from schema diffs, see @sec-auto-lens-pipeline.
 
 ::: {.callout-note}
-The protolens formulation generalizes the Cambria combinator approach: each Cambria combinator corresponds to an elementary protolens whose source transform is the identity. Protolenses with non-identity source transforms arise during horizontal composition and factorization of complex morphisms.
+## Relationship to prior work
+
+The term "protolens" is specific to panproto. The concept extends several established ideas:
+
+- **[Cambria](https://www.inkandswitch.com/cambria/) combinators** [@litt2022]: each Cambria combinator (`rename`, `add`, `remove`, etc.) corresponds to an elementary protolens whose source transform is the identity. Protolenses generalize Cambria by adding explicit schema parameterization, precondition checking, and schema-dependent complement types. Cambria operates on implicit schemas; protolenses take the schema as an explicit argument.
+- **[Haskell lens families](https://hackage.haskell.org/package/lens)** (`Lens s t a b`): parameterized over types, not schemas. Lens families allow source/target types to differ, but the complement structure doesn't vary with the parameter.
+- **Delta lenses** [@johnson2013]: generalize asymmetric lenses by making source and view into categories. The commutativity property of protolenses (commuting with schema migration) is the same coherence condition delta lenses formalize.
+
+What distinguishes protolenses: schema-dependent complements, precondition diagnostics, and guaranteed commutativity with migration. See the [tutorial's protolens chapter](https://panproto.dev/tutorial/chapters/16-protolenses.html) for the full comparison.
 :::
 
 ## `TheoryEndofunctor` and `TheoryTransform` {#sec-theory-endofunctor}
