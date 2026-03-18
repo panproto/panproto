@@ -558,6 +558,94 @@ impl Repository {
         Ok(index)
     }
 
+    /// Checkout a branch and migrate data files to match.
+    ///
+    /// Resolves the target ref, switches HEAD, and — when the target
+    /// schema differs from the current schema — migrates every `.json`
+    /// file in `data_dir` forward through a lens.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ref cannot be resolved, HEAD cannot be
+    /// read, or data migration fails.
+    pub fn checkout_with_data(&mut self, target: &str, data_dir: &Path) -> Result<(), VcsError> {
+        // 1. Resolve current HEAD
+        let current_id = store::resolve_head(&self.store)?.ok_or(VcsError::NothingStaged)?;
+        let current_commit = self.load_commit(current_id)?;
+        let current_schema = self.load_schema(current_commit.schema_id)?;
+
+        // 2. Resolve the target and do the checkout
+        let target_id = refs::resolve_ref(&self.store, target)?;
+        let target_commit = self.load_commit(target_id)?;
+        let target_schema = self.load_schema(target_commit.schema_id)?;
+
+        // Switch HEAD to the target branch/commit
+        refs::checkout_branch(&mut self.store, target)?;
+
+        // 3. If schemas differ, migrate data files
+        if current_commit.schema_id != target_commit.schema_id && data_dir.is_dir() {
+            let protocol = crate::data_mig::protocol_for_schema(&current_schema);
+            crate::data_mig::migrate_data_directory(
+                &mut self.store,
+                data_dir,
+                &current_schema,
+                &target_schema,
+                &protocol,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Merge a branch into the current branch and migrate data files.
+    ///
+    /// Performs the schema merge via [`merge_with_options`](Self::merge_with_options),
+    /// then — if the merge produced a schema change and `data_dir`
+    /// exists — migrates every `.json` file in `data_dir` to the
+    /// merged schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the merge fails or data migration fails.
+    pub fn merge_with_data(
+        &mut self,
+        branch: &str,
+        author: &str,
+        data_dir: &Path,
+        opts: &merge::MergeOptions,
+    ) -> Result<merge::MergeResult, VcsError> {
+        // Capture pre-merge HEAD schema
+        let pre_merge_id =
+            store::resolve_head(&self.store)?.ok_or_else(|| VcsError::RefNotFound {
+                name: "HEAD".to_owned(),
+            })?;
+        let pre_merge_commit = self.load_commit(pre_merge_id)?;
+        let pre_merge_schema = self.load_schema(pre_merge_commit.schema_id)?;
+
+        // Do the schema merge
+        let result = self.merge_with_options(branch, author, opts)?;
+
+        // If merge succeeded and data_dir exists, migrate data
+        if data_dir.is_dir() {
+            let head_id = store::resolve_head(&self.store)?.ok_or(VcsError::NothingStaged)?;
+            let head_commit = self.load_commit(head_id)?;
+
+            if pre_merge_commit.schema_id != head_commit.schema_id {
+                let merged_schema = self.load_schema(head_commit.schema_id)?;
+                let protocol = crate::data_mig::protocol_for_schema(&pre_merge_schema);
+                crate::data_mig::migrate_data_directory(
+                    &mut self.store,
+                    data_dir,
+                    &pre_merge_schema,
+                    &merged_schema,
+                    &protocol,
+                )?;
+            }
+        }
+
+        Ok(result)
+    }
+
     // -- internal helpers --
 
     fn load_commit(&self, id: ObjectId) -> Result<CommitObject, VcsError> {

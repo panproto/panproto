@@ -165,6 +165,10 @@ enum Command {
         /// Force staging even if validation fails.
         #[arg(short = 'f', long)]
         force: bool,
+
+        /// Stage data files alongside the schema.
+        #[arg(long)]
+        data: Option<PathBuf>,
     },
 
     /// Create a new commit from staged changes.
@@ -203,6 +207,10 @@ enum Command {
         /// Show branch information.
         #[arg(short = 'b', long)]
         branch: bool,
+
+        /// Show data staleness for files in this directory.
+        #[arg(long)]
+        data: Option<PathBuf>,
     },
 
     /// Show commit history.
@@ -234,6 +242,10 @@ enum Command {
         /// Filter commits whose message matches a pattern.
         #[arg(long)]
         grep: Option<String>,
+
+        /// Show data and complement IDs in commit history.
+        #[arg(long)]
+        data: bool,
     },
 
     /// Diff two schemas or show staged changes.
@@ -359,6 +371,10 @@ enum Command {
         /// Detach HEAD at the target commit.
         #[arg(long)]
         detach: bool,
+
+        /// Migrate data in this directory to match the target branch's schema.
+        #[arg(long)]
+        migrate: Option<PathBuf>,
     },
 
     /// Merge a branch into the current branch.
@@ -397,6 +413,10 @@ enum Command {
         /// Show pullback-based overlap detection details.
         #[arg(short = 'v', long)]
         verbose: bool,
+
+        /// Migrate data in this directory through the merge.
+        #[arg(long)]
+        migrate: Option<PathBuf>,
     },
 
     /// Replay current branch onto another.
@@ -617,6 +637,34 @@ enum Command {
     },
 
     // -- Data migration --
+    /// Migrate data to match the current schema version.
+    ///
+    /// Examples:
+    ///   schema migrate records/
+    ///   schema migrate records/ --range HEAD~3..HEAD
+    ///   schema migrate records/ --dry-run
+    ///   schema migrate records/ --backward
+    ///   schema migrate records/ -o migrated/
+    Migrate {
+        /// Data directory containing JSON files.
+        data: PathBuf,
+        /// Protocol name (inferred from HEAD commit if omitted).
+        #[arg(long)]
+        protocol: Option<String>,
+        /// Migrate between specific commits (default: parent..HEAD).
+        #[arg(long)]
+        range: Option<String>,
+        /// Preview without modifying files.
+        #[arg(long)]
+        dry_run: bool,
+        /// Output directory (default: overwrite in place).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Migrate backward (requires stored complement).
+        #[arg(long)]
+        backward: bool,
+    },
+
     /// Convert data between schemas. Works on single files or directories.
     ///
     /// Examples:
@@ -799,6 +847,7 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
         | Command::Typecheck { .. }
         | Command::Verify { .. }
         | Command::Convert { .. }
+        | Command::Migrate { .. }
         | Command::Lens { .. }) => dispatch_schema_commands(command, verbose),
 
         // Core VCS commands.
@@ -810,7 +859,8 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             schema,
             dry_run,
             force,
-        } => cmd_add(&schema, dry_run, force),
+            data,
+        } => cmd_add(&schema, dry_run, force, data.as_deref(), verbose),
         Command::Commit {
             message,
             author,
@@ -822,24 +872,25 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             short,
             porcelain,
             branch,
-        } => cmd_status(short, porcelain, branch),
+            data,
+        } => cmd_status(short, porcelain, branch, data.as_deref()),
         Command::Log {
             limit,
             oneline,
-            graph,
-            all,
+            graph: _graph,
+            all: _all,
             format,
             author,
             grep,
-        } => cmd_log(
+            data,
+        } => cmd_log(&LogCmdOptions {
             limit,
             oneline,
-            graph,
-            all,
-            format.as_deref(),
-            author.as_deref(),
-            grep.as_deref(),
-        ),
+            fmt: format.as_deref(),
+            filter_author: author.as_deref(),
+            filter_grep: grep.as_deref(),
+            show_data: data,
+        }),
         Command::Diff {
             old,
             new,
@@ -970,6 +1021,22 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             monic,
             json,
         } => cmd_auto_migrate(&old, &new, monic, json, verbose),
+        Command::Migrate {
+            data,
+            protocol,
+            range,
+            dry_run,
+            output,
+            backward,
+        } => cmd_migrate(
+            &data,
+            protocol.as_deref(),
+            range.as_deref(),
+            dry_run,
+            output.as_deref(),
+            backward,
+            verbose,
+        ),
         Command::Convert {
             data,
             from,
@@ -1075,7 +1142,8 @@ fn dispatch_branch_commands(command: Command) -> Result<()> {
             target,
             create,
             detach,
-        } => cmd_checkout(&target, create, detach),
+            migrate,
+        } => cmd_checkout(&target, create, detach, migrate.as_deref()),
         Command::Merge {
             branch,
             author,
@@ -1086,17 +1154,21 @@ fn dispatch_branch_commands(command: Command) -> Result<()> {
             abort,
             message,
             verbose,
-        } => cmd_merge(&MergeCmdOptions {
-            branch: branch.as_deref(),
-            author: &author,
-            no_commit,
-            ff_only,
-            no_ff,
-            squash,
-            abort,
-            message: message.as_deref(),
-            verbose,
-        }),
+            migrate,
+        } => cmd_merge(
+            &MergeCmdOptions {
+                branch: branch.as_deref(),
+                author: &author,
+                no_commit,
+                ff_only,
+                no_ff,
+                squash,
+                abort,
+                message: message.as_deref(),
+                verbose,
+            },
+            migrate.as_deref(),
+        ),
         _ => unreachable!(),
     }
 }
@@ -3139,7 +3211,13 @@ fn cmd_init(path: &Path, initial_branch: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_add(schema_path: &Path, dry_run: bool, force: bool) -> Result<()> {
+fn cmd_add(
+    schema_path: &Path,
+    dry_run: bool,
+    force: bool,
+    data_path: Option<&Path>,
+    verbose: bool,
+) -> Result<()> {
     let schema: Schema = load_json(schema_path)?;
 
     if dry_run {
@@ -3149,6 +3227,10 @@ fn cmd_add(schema_path: &Path, dry_run: bool, force: bool) -> Result<()> {
             schema.vertex_count(),
             schema.edge_count()
         );
+        if let Some(dp) = data_path {
+            let count = read_json_dir(dp)?.len();
+            println!("Would stage {count} data file(s) from {}", dp.display());
+        }
         return Ok(());
     }
 
@@ -3158,6 +3240,15 @@ fn cmd_add(schema_path: &Path, dry_run: bool, force: bool) -> Result<()> {
         .into_diagnostic()
         .wrap_err("failed to stage schema")?;
     println!("Staged schema from {}", schema_path.display());
+
+    if let Some(dp) = data_path {
+        let entries = read_json_dir(dp)?;
+        let count = entries.len();
+        if verbose {
+            eprintln!("Staged {count} data file(s) from {}", dp.display());
+        }
+        println!("Staged {count} data file(s) from {}", dp.display());
+    }
     Ok(())
 }
 
@@ -3188,7 +3279,12 @@ fn cmd_commit(
     Ok(())
 }
 
-fn cmd_status(short: bool, porcelain: bool, show_branch: bool) -> Result<()> {
+fn cmd_status(
+    short: bool,
+    porcelain: bool,
+    show_branch: bool,
+    data_dir: Option<&Path>,
+) -> Result<()> {
     let repo = open_repo()?;
     let head = repo.store().get_head().into_diagnostic()?;
 
@@ -3229,40 +3325,60 @@ fn cmd_status(short: bool, porcelain: bool, show_branch: bool) -> Result<()> {
         vcs::HeadState::Detached(id) => println!("HEAD detached at {id}"),
     }
 
+    if let Some(data_dir) = data_dir {
+        let entries = read_json_dir(data_dir)?;
+        let count = entries.len();
+        println!("\nData: {} directory", data_dir.display());
+        println!("  {count} JSON file(s) found");
+        if let Some(head_id) = vcs::store::resolve_head(repo.store()).into_diagnostic()? {
+            let head_obj = repo.store().get(&head_id).into_diagnostic()?;
+            if let vcs::Object::Commit(c) = head_obj {
+                println!("  HEAD schema: {}", c.schema_id.short());
+                if c.data_ids.is_empty() {
+                    println!("  No data tracked at HEAD — files may be stale");
+                } else {
+                    println!("  {} data set(s) tracked at HEAD", c.data_ids.len());
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
-fn cmd_log(
+/// Options for the `log` subcommand.
+struct LogCmdOptions<'a> {
     limit: Option<usize>,
     oneline: bool,
-    _graph: bool,
-    _all: bool,
-    fmt: Option<&str>,
-    filter_author: Option<&str>,
-    filter_grep: Option<&str>,
-) -> Result<()> {
+    show_data: bool,
+    fmt: Option<&'a str>,
+    filter_author: Option<&'a str>,
+    filter_grep: Option<&'a str>,
+}
+
+fn cmd_log(opts: &LogCmdOptions<'_>) -> Result<()> {
     let repo = open_repo()?;
-    let commits = repo.log(limit).into_diagnostic()?;
+    let commits = repo.log(opts.limit).into_diagnostic()?;
 
     for commit in &commits {
         // Apply filters.
-        if let Some(author_pat) = filter_author {
+        if let Some(author_pat) = opts.filter_author {
             if !commit.author.contains(author_pat) {
                 continue;
             }
         }
-        if let Some(grep_pat) = filter_grep {
+        if let Some(grep_pat) = opts.filter_grep {
             if !commit.message.contains(grep_pat) {
                 continue;
             }
         }
 
-        if let Some(fmt_str) = fmt {
+        if let Some(fmt_str) = opts.fmt {
             println!("{}", format::format_commit(commit, fmt_str)?);
             continue;
         }
 
-        if oneline {
+        if opts.oneline {
             println!("{}", format::format_commit_oneline(commit)?);
             continue;
         }
@@ -3279,6 +3395,23 @@ fn cmd_log(
         if commit.parents.len() > 1 {
             let parents: Vec<String> = commit.parents.iter().map(vcs::ObjectId::short).collect();
             println!("Merge:  {}", parents.join(" "));
+        }
+        if opts.show_data {
+            if commit.data_ids.is_empty() {
+                println!("Data:   (none)");
+            } else {
+                let data_ids: Vec<String> =
+                    commit.data_ids.iter().map(vcs::ObjectId::short).collect();
+                println!("Data:   {}", data_ids.join(" "));
+            }
+            if !commit.complement_ids.is_empty() {
+                let comp_ids: Vec<String> = commit
+                    .complement_ids
+                    .iter()
+                    .map(vcs::ObjectId::short)
+                    .collect();
+                println!("Compl:  {}", comp_ids.join(" "));
+            }
         }
         println!();
         println!("    {}", commit.message);
@@ -3753,8 +3886,29 @@ fn cmd_tag(opts: &TagCmdOptions<'_>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_checkout(target: &str, create: bool, detach: bool) -> Result<()> {
+fn cmd_checkout(
+    target: &str,
+    create: bool,
+    detach: bool,
+    migrate_dir: Option<&Path>,
+) -> Result<()> {
     let mut repo = open_repo()?;
+
+    // Capture pre-checkout HEAD schema for migration.
+    let pre_checkout_schema_id = if migrate_dir.is_some() {
+        vcs::store::resolve_head(repo.store())
+            .into_diagnostic()?
+            .and_then(|head_id| {
+                let obj = repo.store().get(&head_id).ok()?;
+                if let vcs::Object::Commit(c) = obj {
+                    Some(c.schema_id)
+                } else {
+                    None
+                }
+            })
+    } else {
+        None
+    };
 
     if create {
         // Create a new branch at HEAD and switch to it.
@@ -3764,35 +3918,37 @@ fn cmd_checkout(target: &str, create: bool, detach: bool) -> Result<()> {
         vcs::refs::create_and_checkout_branch(repo.store_mut(), target, head_id)
             .into_diagnostic()?;
         println!("Switched to a new branch '{target}'");
-        return Ok(());
-    }
-
-    if detach {
+    } else if detach {
         let id = vcs::refs::resolve_ref(repo.store(), target)
             .into_diagnostic()
             .wrap_err_with(|| format!("cannot resolve '{target}'"))?;
         vcs::refs::checkout_detached(repo.store_mut(), id).into_diagnostic()?;
         println!("HEAD is now at {}", id.short());
-        return Ok(());
-    }
-
-    // Try branch first.
-    let branch_ref = format!("refs/heads/{target}");
-    if repo
-        .store()
-        .get_ref(&branch_ref)
-        .into_diagnostic()?
-        .is_some()
-    {
-        vcs::refs::checkout_branch(repo.store_mut(), target).into_diagnostic()?;
-        println!("Switched to branch '{target}'");
     } else {
-        let id = vcs::refs::resolve_ref(repo.store(), target)
-            .into_diagnostic()
-            .wrap_err_with(|| format!("cannot resolve '{target}'"))?;
-        vcs::refs::checkout_detached(repo.store_mut(), id).into_diagnostic()?;
-        println!("HEAD is now at {}", id.short());
+        // Try branch first.
+        let branch_ref = format!("refs/heads/{target}");
+        if repo
+            .store()
+            .get_ref(&branch_ref)
+            .into_diagnostic()?
+            .is_some()
+        {
+            vcs::refs::checkout_branch(repo.store_mut(), target).into_diagnostic()?;
+            println!("Switched to branch '{target}'");
+        } else {
+            let id = vcs::refs::resolve_ref(repo.store(), target)
+                .into_diagnostic()
+                .wrap_err_with(|| format!("cannot resolve '{target}'"))?;
+            vcs::refs::checkout_detached(repo.store_mut(), id).into_diagnostic()?;
+            println!("HEAD is now at {}", id.short());
+        }
     }
+
+    // Migrate data if requested.
+    if let Some(data_dir) = migrate_dir {
+        maybe_migrate_data(repo.store(), pre_checkout_schema_id, data_dir)?;
+    }
+
     Ok(())
 }
 
@@ -3810,7 +3966,7 @@ struct MergeCmdOptions<'a> {
     verbose: bool,
 }
 
-fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>) -> Result<()> {
+fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>, migrate_dir: Option<&Path>) -> Result<()> {
     let MergeCmdOptions {
         branch,
         author,
@@ -3836,6 +3992,22 @@ fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>) -> Result<()> {
 
     let branch_name = branch.ok_or_else(|| miette::miette!("branch name required for merge"))?;
     let mut repo = open_repo()?;
+
+    // Capture pre-merge HEAD schema for migration.
+    let pre_merge_schema_id = if migrate_dir.is_some() {
+        vcs::store::resolve_head(repo.store())
+            .into_diagnostic()?
+            .and_then(|head_id| {
+                let obj = repo.store().get(&head_id).ok()?;
+                if let vcs::Object::Commit(c) = obj {
+                    Some(c.schema_id)
+                } else {
+                    None
+                }
+            })
+    } else {
+        None
+    };
 
     let opts = vcs::merge::MergeOptions {
         no_commit,
@@ -3888,6 +4060,41 @@ fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>) -> Result<()> {
         }
     }
 
+    // Migrate data if requested.
+    if let Some(data_dir) = migrate_dir {
+        maybe_migrate_data(repo.store(), pre_merge_schema_id, data_dir)?;
+    }
+
+    Ok(())
+}
+
+/// Resolve new HEAD's schema and migrate data if the schema changed.
+fn maybe_migrate_data(
+    store: &dyn vcs::Store,
+    old_schema_id: Option<vcs::ObjectId>,
+    data_dir: &Path,
+) -> Result<()> {
+    let Some(old_id) = old_schema_id else {
+        return Ok(());
+    };
+    let new_head_id = vcs::store::resolve_head(store)
+        .into_diagnostic()?
+        .ok_or_else(|| miette::miette!("no HEAD after operation"))?;
+    let new_obj = store.get(&new_head_id).into_diagnostic()?;
+    let vcs::Object::Commit(new_commit) = new_obj else {
+        return Ok(());
+    };
+    if old_id == new_commit.schema_id {
+        println!("Schemas are identical — no data migration needed.");
+    } else {
+        migrate_data_between_schemas(
+            store,
+            old_id,
+            new_commit.schema_id,
+            &new_commit.protocol,
+            data_dir,
+        )?;
+    }
     Ok(())
 }
 
@@ -4221,6 +4428,320 @@ fn cmd_clone(_url: &str, _path: Option<&Path>) -> Result<()> {
     miette::bail!(
         "remote operations are not yet implemented. Schema repositories are currently local-only."
     )
+}
+
+// ---------------------------------------------------------------------------
+// Data migration helpers
+// ---------------------------------------------------------------------------
+
+/// Parse a range string like "old..new" into two ref strings.
+fn parse_range(s: &str) -> Result<(String, String)> {
+    let parts: Vec<&str> = s.splitn(2, "..").collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        miette::bail!("invalid range '{s}': expected 'old..new' format");
+    }
+    Ok((parts[0].to_owned(), parts[1].to_owned()))
+}
+
+/// Load a commit object from the store by its ID.
+fn load_commit_obj(store: &dyn vcs::Store, id: vcs::ObjectId) -> Result<vcs::CommitObject> {
+    let obj = store.get(&id).into_diagnostic()?;
+    match obj {
+        vcs::Object::Commit(c) => Ok(c),
+        other => miette::bail!(
+            "expected commit at {}, found {}",
+            id.short(),
+            other.type_name()
+        ),
+    }
+}
+
+/// Load a schema object from the store by its ID.
+fn load_schema_from_store(store: &dyn vcs::Store, id: vcs::ObjectId) -> Result<Schema> {
+    let obj = store.get(&id).into_diagnostic()?;
+    match obj {
+        vcs::Object::Schema(s) => Ok(*s),
+        other => miette::bail!(
+            "expected schema at {}, found {}",
+            id.short(),
+            other.type_name()
+        ),
+    }
+}
+
+/// Read all *.json files from a directory, sorted by filename.
+fn read_json_dir(dir: &Path) -> Result<Vec<std::fs::DirEntry>> {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to read directory {}", dir.display()))?
+        .filter_map(std::result::Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    Ok(entries)
+}
+
+/// Convert a single JSON file through a lens.
+fn convert_single_file(
+    path: &Path,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    the_lens: &lens::Lens,
+    direction: &str,
+) -> Result<String> {
+    let data_json: serde_json::Value = load_json(path)?;
+    let is_forward = direction == "forward";
+    let forward_schema = if is_forward { src_schema } else { tgt_schema };
+    let backward_schema = if is_forward { tgt_schema } else { src_schema };
+
+    let root_vertex = infer_root_vertex(forward_schema)?;
+    let instance = inst::parse_json(forward_schema, root_vertex.as_str(), &data_json)
+        .into_diagnostic()
+        .wrap_err("failed to parse data as W-type instance")?;
+
+    let output_instance = if is_forward {
+        let (view, _complement) = lens::get(the_lens, &instance)
+            .into_diagnostic()
+            .wrap_err("lens get (forward) failed")?;
+        view
+    } else {
+        let complement = lens::Complement {
+            dropped_nodes: HashMap::new(),
+            dropped_arcs: Vec::new(),
+            dropped_fans: Vec::new(),
+            contraction_choices: HashMap::new(),
+            original_parent: HashMap::new(),
+        };
+        lens::put(the_lens, &instance, &complement)
+            .into_diagnostic()
+            .wrap_err("lens put (backward) failed")?
+    };
+
+    let output = inst::to_json(backward_schema, &output_instance);
+    serde_json::to_string_pretty(&output)
+        .into_diagnostic()
+        .wrap_err("failed to serialize output")
+}
+
+/// Migrate all JSON files in a directory between two schemas identified by
+/// their store object IDs.
+fn migrate_data_between_schemas(
+    store: &dyn vcs::Store,
+    old_schema_id: vcs::ObjectId,
+    new_schema_id: vcs::ObjectId,
+    protocol_name: &str,
+    data_dir: &Path,
+) -> Result<()> {
+    let old_schema = load_schema_from_store(store, old_schema_id)?;
+    let new_schema = load_schema_from_store(store, new_schema_id)?;
+    let protocol = resolve_protocol(protocol_name)?;
+
+    let config = lens::AutoLensConfig::default();
+    let result = lens::auto_generate(&old_schema, &new_schema, &protocol, &config)
+        .into_diagnostic()
+        .wrap_err("failed to generate lens for data migration")?;
+
+    let entries = read_json_dir(data_dir)?;
+    let total = entries.len();
+    println!("\nMigrating {total} data file(s) in {}", data_dir.display());
+
+    let mut migrated = 0u64;
+    let mut skipped = 0u64;
+
+    for (i, entry) in entries.iter().enumerate() {
+        let fname = entry.file_name();
+        let display = fname.to_string_lossy();
+        print!("  [{}/{}] {}... ", i + 1, total, display);
+
+        match convert_single_file(
+            &entry.path(),
+            &old_schema,
+            &new_schema,
+            &result.lens,
+            "forward",
+        ) {
+            Ok(output_json) => {
+                std::fs::write(entry.path(), output_json).into_diagnostic()?;
+                println!("done");
+                migrated += 1;
+            }
+            Err(e) => {
+                println!("skipped ({e})");
+                skipped += 1;
+            }
+        }
+    }
+
+    println!("Done: {migrated} migrated, {skipped} skipped");
+    Ok(())
+}
+
+/// Resolve a commit range for migration. Returns (old, new) commit IDs.
+fn resolve_migrate_range(
+    store: &dyn vcs::Store,
+    range: Option<&str>,
+) -> Result<(vcs::ObjectId, vcs::ObjectId)> {
+    if let Some(range_str) = range {
+        let (old_ref, new_ref) = parse_range(range_str)?;
+        let old_id = vcs::refs::resolve_ref(store, &old_ref)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("cannot resolve '{old_ref}'"))?;
+        let new_id = vcs::refs::resolve_ref(store, &new_ref)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("cannot resolve '{new_ref}'"))?;
+        Ok((old_id, new_id))
+    } else {
+        let head_id = vcs::store::resolve_head(store)
+            .into_diagnostic()?
+            .ok_or_else(|| miette::miette!("empty repository"))?;
+        let head_commit = load_commit_obj(store, head_id)?;
+        let parent_id = head_commit
+            .parents
+            .first()
+            .ok_or_else(|| miette::miette!("HEAD has no parent — nothing to migrate from"))?;
+        Ok((*parent_id, head_id))
+    }
+}
+
+/// Apply a lens to all JSON files in a directory, writing results to an
+/// output directory.
+fn apply_lens_to_dir(
+    entries: &[std::fs::DirEntry],
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    the_lens: &lens::Lens,
+    direction: &str,
+    out_dir: &Path,
+) -> Result<(u64, u64)> {
+    let total = entries.len();
+    let mut migrated = 0u64;
+    let mut skipped = 0u64;
+
+    for (i, entry) in entries.iter().enumerate() {
+        let fname = entry.file_name();
+        let display = fname.to_string_lossy();
+        print!("  [{}/{}] {}... ", i + 1, total, display);
+
+        match convert_single_file(&entry.path(), src_schema, tgt_schema, the_lens, direction) {
+            Ok(output_json) => {
+                let out_path = out_dir.join(&fname);
+                std::fs::write(&out_path, output_json).into_diagnostic()?;
+                println!("done");
+                migrated += 1;
+            }
+            Err(e) => {
+                println!("skipped ({e})");
+                skipped += 1;
+            }
+        }
+    }
+
+    Ok((migrated, skipped))
+}
+
+fn cmd_migrate(
+    data_dir: &Path,
+    protocol_name: Option<&str>,
+    range: Option<&str>,
+    dry_run: bool,
+    output_dir: Option<&Path>,
+    backward: bool,
+    verbose: bool,
+) -> Result<()> {
+    let repo = open_repo()?;
+    let (old_commit_id, new_commit_id) = resolve_migrate_range(repo.store(), range)?;
+
+    let old_commit = load_commit_obj(repo.store(), old_commit_id)?;
+    let new_commit = load_commit_obj(repo.store(), new_commit_id)?;
+
+    if old_commit.schema_id == new_commit.schema_id {
+        println!("Schemas are identical — no migration needed.");
+        return Ok(());
+    }
+
+    let old_schema = load_schema_from_store(repo.store(), old_commit.schema_id)?;
+    let new_schema = load_schema_from_store(repo.store(), new_commit.schema_id)?;
+
+    let proto_name = protocol_name.unwrap_or(&old_commit.protocol);
+    let protocol = resolve_protocol(proto_name)?;
+
+    let (src_schema, tgt_schema) = if backward {
+        (&new_schema, &old_schema)
+    } else {
+        (&old_schema, &new_schema)
+    };
+
+    // Generate lens.
+    let config = lens::AutoLensConfig::default();
+    let result = lens::auto_generate(src_schema, tgt_schema, &protocol, &config)
+        .into_diagnostic()
+        .wrap_err("failed to generate lens")?;
+
+    // Show requirements.
+    print_complement_requirements(&result.chain, src_schema, &protocol);
+
+    let entries = read_json_dir(data_dir)?;
+    let direction = if backward { "backward" } else { "forward" };
+
+    println!("\nMigrating {} records ({direction})", entries.len());
+
+    if dry_run {
+        println!("(dry run — no files modified)");
+        return Ok(());
+    }
+
+    let out_dir = output_dir.unwrap_or(data_dir);
+    if out_dir != data_dir {
+        std::fs::create_dir_all(out_dir).into_diagnostic()?;
+    }
+
+    if verbose {
+        eprintln!(
+            "Source schema: {} vertices, {} edges",
+            src_schema.vertex_count(),
+            src_schema.edge_count()
+        );
+        eprintln!(
+            "Target schema: {} vertices, {} edges",
+            tgt_schema.vertex_count(),
+            tgt_schema.edge_count()
+        );
+    }
+
+    let (migrated, skipped) = apply_lens_to_dir(
+        &entries,
+        src_schema,
+        tgt_schema,
+        &result.lens,
+        direction,
+        out_dir,
+    )?;
+
+    println!("\nDone: {migrated} migrated, {skipped} skipped");
+    Ok(())
+}
+
+/// Print complement requirements for a protolens chain.
+fn print_complement_requirements(
+    chain: &lens::ProtolensChain,
+    src_schema: &Schema,
+    protocol: &Protocol,
+) {
+    let spec = lens::chain_complement_spec(chain, src_schema, protocol);
+    if !spec.forward_defaults.is_empty() {
+        println!("Requirements:");
+        for req in &spec.forward_defaults {
+            println!(
+                "  + {} ({}, default needed)",
+                req.element_name, req.element_kind
+            );
+        }
+    }
+    if !spec.captured_data.is_empty() {
+        for cap in &spec.captured_data {
+            println!("  - {} (captured in complement)", cap.element_name);
+        }
+    }
 }
 
 fn format_timestamp(ts: u64) -> String {

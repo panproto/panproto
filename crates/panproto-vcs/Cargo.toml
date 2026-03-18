@@ -13,6 +13,7 @@ panproto-mig = { workspace = true }
 panproto-check = { workspace = true }
 panproto-lens = { workspace = true }
 panproto-gat = { workspace = true }
+panproto-inst = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }
@@ -22,7 +23,6 @@ smallvec = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-panproto-inst = { workspace = true }
 proptest = { workspace = true }
 tempfile = "3"
 
