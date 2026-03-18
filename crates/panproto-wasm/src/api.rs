@@ -1324,11 +1324,16 @@ pub fn instantiate_protolens(chain: u32, schema: u32) -> Result<u32, JsError> {
 /// Returns `JsError` if handles are invalid or serialization fails.
 #[wasm_bindgen]
 pub fn protolens_complement_spec(chain: u32, schema: u32) -> Result<Vec<u8>, JsError> {
-    let result = slab::with_two_resources(chain, schema, |r1, r2| {
-        let chain_val = slab::as_protolens_chain(r1)?;
-        let schema_val = slab::as_schema(r2)?;
-        Ok(lens::chain_complement_spec(chain_val, schema_val))
+    let (chain_val, schema_val) = slab::with_two_resources(chain, schema, |r1, r2| {
+        let chain_val = slab::as_protolens_chain(r1)?.clone();
+        let schema_val = slab::as_schema(r2)?.clone();
+        Ok((chain_val, schema_val))
     })?;
+
+    let protocol = lookup_builtin_protocol(&schema_val.protocol)
+        .unwrap_or_else(|| default_protocol(&schema_val.protocol));
+
+    let result = lens::chain_complement_spec(&chain_val, &schema_val, &protocol);
 
     rmp_serde::to_vec(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
@@ -1601,6 +1606,148 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
         src_schema: std::sync::Arc::new(lens_obj.src_schema),
         tgt_schema: std::sync::Arc::new(lens_obj.tgt_schema),
     }))
+}
+
+/// Deserialize a protolens chain from JSON bytes.
+///
+/// Returns a handle to the `ProtolensChain` resource.
+///
+/// # Errors
+///
+/// Returns `JsError` if the JSON is invalid.
+#[wasm_bindgen]
+pub fn protolens_from_json(json_bytes: &[u8]) -> Result<u32, JsError> {
+    let json_str =
+        std::str::from_utf8(json_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("invalid UTF-8: {e}"),
+        })?;
+    let chain = lens::ProtolensChain::from_json(json_str).map_err(|e| {
+        WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        }
+    })?;
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(chain))))
+}
+
+/// Fuse a protolens chain into a single protolens.
+///
+/// Composes all steps into a single step with a composite complement.
+/// Returns a handle to a new `ProtolensChain` containing the fused step.
+///
+/// # Errors
+///
+/// Returns `JsError` if the handle is invalid or the chain is empty.
+#[wasm_bindgen]
+pub fn protolens_fuse(chain: u32) -> Result<u32, JsError> {
+    let chain_obj = slab::with_resource(chain, |r| Ok(slab::as_protolens_chain(r)?.clone()))?;
+    let fused = chain_obj
+        .fuse()
+        .map_err(|e| WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        })?;
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
+        lens::ProtolensChain::new(vec![fused]),
+    ))))
+}
+
+/// Lift a protolens chain along a theory morphism.
+///
+/// Given a chain and a `MessagePack`-encoded `TheoryMorphism`, produces
+/// a new chain that operates on schemas of the codomain theory.
+///
+/// # Errors
+///
+/// Returns `JsError` if the handle is invalid or deserialization fails.
+#[wasm_bindgen]
+pub fn protolens_lift(chain: u32, morphism_bytes: &[u8]) -> Result<u32, JsError> {
+    let chain_obj = slab::with_resource(chain, |r| Ok(slab::as_protolens_chain(r)?.clone()))?;
+    let morphism: gat::TheoryMorphism =
+        rmp_serde::from_slice(morphism_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+    let lifted = lens::lift_chain(&chain_obj, &morphism);
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(lifted))))
+}
+
+/// Check applicability of a protolens chain against a schema.
+///
+/// Returns `MessagePack`-encoded JSON: `{ "applicable": bool, "reasons": string[] }`.
+///
+/// # Errors
+///
+/// Returns `JsError` if either handle is invalid or serialization fails.
+#[wasm_bindgen]
+pub fn protolens_check_applicability(chain: u32, schema: u32) -> Result<Vec<u8>, JsError> {
+    let chain_obj = slab::with_resource(chain, |r| Ok(slab::as_protolens_chain(r)?.clone()))?;
+    let schema_obj = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let result = chain_obj.check_applicability(&schema_obj);
+    let response = match result {
+        Ok(()) => serde_json::json!({ "applicable": true, "reasons": Vec::<String>::new() }),
+        Err(reasons) => serde_json::json!({ "applicable": false, "reasons": reasons }),
+    };
+    rmp_serde::to_vec(&response).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Apply a protolens chain to a fleet of schemas.
+///
+/// The `schema_handles` are slab handles to `Schema` resources.
+/// Each schema's name is taken from its `protocol` field.
+///
+/// Returns `MessagePack`-encoded fleet result:
+/// `{ "applied": [name, ...], "skipped": [[name, [reasons]], ...] }`.
+///
+/// # Errors
+///
+/// Returns `JsError` if any handle is invalid or serialization fails.
+#[wasm_bindgen]
+pub fn protolens_fleet(chain: u32, schema_handles: &[u32]) -> Result<Vec<u8>, JsError> {
+    let chain_obj = slab::with_resource(chain, |r| Ok(slab::as_protolens_chain(r)?.clone()))?;
+
+    // Load all schemas from handles.
+    let mut schemas: Vec<(panproto_core::gat::Name, panproto_core::schema::Schema)> = Vec::new();
+    for (i, &handle) in schema_handles.iter().enumerate() {
+        let schema = slab::with_resource(handle, |r| Ok(slab::as_schema(r)?.clone()))?;
+        let name = panproto_core::gat::Name::from(format!("schema_{i}"));
+        schemas.push((name, schema));
+    }
+
+    // Determine protocol from first schema.
+    let protocol = if let Some((_, first)) = schemas.first() {
+        lookup_builtin_protocol(&first.protocol)
+            .unwrap_or_else(|| default_protocol(&first.protocol))
+    } else {
+        return rmp_serde::to_vec(&serde_json::json!({
+            "applied": Vec::<String>::new(),
+            "skipped": Vec::<String>::new(),
+        }))
+        .map_err(|e| JsError::new(&e.to_string()));
+    };
+
+    let result = lens::apply_to_fleet(&chain_obj, &schemas, &protocol);
+
+    let applied: Vec<String> = result.applied.iter().map(|(n, _)| n.to_string()).collect();
+    let skipped: Vec<(String, Vec<String>)> = result
+        .skipped
+        .iter()
+        .map(|(n, reasons)| (n.to_string(), reasons.clone()))
+        .collect();
+
+    let response = serde_json::json!({
+        "applied": applied,
+        "skipped": skipped,
+    });
+
+    rmp_serde::to_vec(&response).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
 }
 
 // ---------------------------------------------------------------------------

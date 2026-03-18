@@ -260,10 +260,10 @@ fn protolens_elementary_constructors_exist() {
     let rename_op = panproto_lens::elementary::rename_op("src", "source");
 
     // Renames are lossless; adds require defaults; drops capture data
-    assert!(!add.is_lossless());  // requires default value
+    assert!(!add.is_lossless()); // requires default value
     assert!(!drop_s.is_lossless());
     assert!(rename_s.is_lossless());
-    assert!(!add_op.is_lossless());  // requires default
+    assert!(!add_op.is_lossless()); // requires default
     assert!(rename_op.is_lossless());
     assert!(!drop_op.is_lossless());
 }

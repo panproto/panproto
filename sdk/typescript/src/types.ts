@@ -467,6 +467,12 @@ export interface WasmExports {
   symmetric_lens_sync(lens: number, view: Uint8Array, complement: Uint8Array, direction: number): Uint8Array;
   factorize_morphism(morphism: Uint8Array, domain: number, codomain: number): Uint8Array;
   apply_protolens_step(step: Uint8Array, schema: number, instance: Uint8Array): Uint8Array;
+  // Phase 11: Extended protolens operations
+  protolens_fuse(chain: number): number;
+  protolens_lift(chain: number, morphism: Uint8Array): number;
+  protolens_check_applicability(chain: number, schema: number): Uint8Array;
+  protolens_fleet(chain: number, schema_handles: Uint32Array): Uint8Array;
+  protolens_from_json(json: Uint8Array): number;
 }
 
 /** Result of checking a lens law (GetPut or PutGet). */

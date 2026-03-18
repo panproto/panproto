@@ -138,6 +138,111 @@ export class ProtolensChainHandle implements Disposable {
     }
   }
 
+  /**
+   * Deserialize a protolens chain from JSON via WASM.
+   *
+   * @param json - JSON string representing a protolens chain
+   * @param wasm - The WASM module
+   * @returns A ProtolensChainHandle wrapping the deserialized chain
+   * @throws {@link WasmError} if the WASM call fails or JSON is invalid
+   */
+  static fromJson(json: string, wasm: WasmModule): ProtolensChainHandle {
+    try {
+      const jsonBytes = new TextEncoder().encode(json);
+      const rawHandle = wasm.exports.protolens_from_json(jsonBytes);
+      return new ProtolensChainHandle(createHandle(rawHandle, wasm), wasm);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_from_json failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Fuse this chain into a single protolens step.
+   *
+   * Composes all steps into a single step with a composite complement,
+   * avoiding intermediate schema materialization.
+   *
+   * @returns A new ProtolensChainHandle containing the fused step
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  fuse(): ProtolensChainHandle {
+    try {
+      const rawHandle = this.#wasm.exports.protolens_fuse(this.#handle.id);
+      return new ProtolensChainHandle(createHandle(rawHandle, this.#wasm), this.#wasm);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_fuse failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Check whether this chain can be instantiated at a given schema.
+   *
+   * @param schema - The schema to check against
+   * @returns An object with `applicable` boolean and `reasons` array
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  checkApplicability(schema: BuiltSchema): { applicable: boolean; reasons: string[] } {
+    try {
+      const bytes = this.#wasm.exports.protolens_check_applicability(this.#handle.id, schema._handle.id);
+      return unpackFromWasm<{ applicable: boolean; reasons: string[] }>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_check_applicability failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Lift this chain along a theory morphism.
+   *
+   * Given a morphism between theories, produces a new chain that operates
+   * on schemas of the codomain theory instead of the domain theory.
+   *
+   * @param morphismBytes - MessagePack-encoded theory morphism
+   * @returns A new ProtolensChainHandle for the lifted chain
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  lift(morphismBytes: Uint8Array): ProtolensChainHandle {
+    try {
+      const rawHandle = this.#wasm.exports.protolens_lift(this.#handle.id, morphismBytes);
+      return new ProtolensChainHandle(createHandle(rawHandle, this.#wasm), this.#wasm);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_lift failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Apply this chain to a fleet of schemas.
+   *
+   * Checks applicability and instantiates the chain against each schema.
+   *
+   * @param schemas - Array of schema handles to apply the chain to
+   * @returns Fleet result with applied/skipped schema names and reasons
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  applyToFleet(schemas: BuiltSchema[]): { applied: string[]; skipped: [string, string[]][] } {
+    try {
+      const handles = new Uint32Array(schemas.map(s => s._handle.id));
+      const bytes = this.#wasm.exports.protolens_fleet(this.#handle.id, handles);
+      return unpackFromWasm<{ applied: string[]; skipped: [string, string[]][] }>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_fleet failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
   /** Release the underlying WASM resource. */
   [Symbol.dispose](): void {
     this.#handle[Symbol.dispose]();

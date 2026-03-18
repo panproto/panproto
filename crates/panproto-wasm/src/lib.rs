@@ -51,12 +51,14 @@
 //! [`vcs_status`], [`vcs_diff`], [`vcs_branch`], [`vcs_checkout`],
 //! [`vcs_merge`], [`vcs_stash`], [`vcs_stash_pop`], [`vcs_blame`]
 //!
-//! **Protolens Operations (49-57)**:
+//! **Protolens Operations (49-61)**:
 //! [`instantiate_protolens`], [`protolens_complement_spec`],
 //! [`protolens_from_diff`], [`protolens_compose`],
 //! [`protolens_chain_to_json`], [`factorize_morphism`],
 //! [`symmetric_lens_from_schemas`], [`symmetric_lens_sync`],
-//! [`apply_protolens_step`]
+//! [`apply_protolens_step`], [`protolens_fuse`],
+//! [`protolens_lift`], [`protolens_check_applicability`],
+//! [`protolens_fleet`], [`protolens_from_json`]
 
 mod api;
 mod error;
@@ -70,7 +72,8 @@ pub use api::{
     get_builtin_protocol, get_record, instance_element_count, instance_to_json,
     instantiate_protolens, invert_migration, json_to_instance, lift_record, list_builtin_protocols,
     list_io_protocols, migrate_model, normalize_schema, parse_instance, protolens_chain_to_json,
-    protolens_complement_spec, protolens_compose, protolens_from_diff, put_record,
+    protolens_check_applicability, protolens_complement_spec, protolens_compose, protolens_fleet,
+    protolens_from_diff, protolens_from_json, protolens_fuse, protolens_lift, put_record,
     register_io_protocols, report_json, report_text, symmetric_lens_from_schemas,
     symmetric_lens_sync, validate_instance, validate_schema, vcs_add, vcs_blame, vcs_branch,
     vcs_checkout, vcs_commit, vcs_diff, vcs_init, vcs_log, vcs_merge, vcs_stash, vcs_stash_pop,

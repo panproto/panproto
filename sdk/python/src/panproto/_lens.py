@@ -229,6 +229,128 @@ class ProtolensChainHandle:
 
         return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
 
+    def fuse(self) -> ProtolensChainHandle:
+        """Fuse all steps into a single protolens.
+
+        Composes all steps into a single step with a composite
+        complement, avoiding intermediate schema materialization.
+
+        Returns
+        -------
+        ProtolensChainHandle
+            A new chain handle containing the fused single step.
+
+        Raises
+        ------
+        WasmError
+            If the WASM call fails or the chain is empty.
+        """
+        try:
+            raw_handle = self._wasm.protolens_fuse(self._handle.id)
+        except Exception as exc:
+            raise WasmError(f"protolens_fuse failed: {exc}") from exc
+
+        handle = create_handle(raw_handle, self._wasm)
+        return ProtolensChainHandle(handle, self._wasm)
+
+    def check_applicability(self, schema: BuiltSchema) -> tuple[bool, list[str]]:
+        """Check whether this chain can be instantiated at a schema.
+
+        Parameters
+        ----------
+        schema : BuiltSchema
+            The schema to check against.
+
+        Returns
+        -------
+        tuple[bool, list[str]]
+            A tuple of (applicable, reasons). If applicable is True,
+            reasons is empty.
+
+        Raises
+        ------
+        WasmError
+            If the WASM call fails.
+        """
+        try:
+            raw = self._wasm.protolens_check_applicability(
+                self._handle.id,
+                schema.wasm_handle.id,
+            )
+        except Exception as exc:
+            raise WasmError(f"protolens_check_applicability failed: {exc}") from exc
+
+        data = cast("Mapping[str, object]", unpack_from_wasm(raw))
+        applicable = bool(data.get("applicable", False))
+        reasons = list(cast("list[str]", data.get("reasons", [])))
+        return (applicable, reasons)
+
+    def lift(self, morphism_bytes: bytes) -> ProtolensChainHandle:
+        """Lift this chain along a theory morphism.
+
+        Given a morphism between theories, produces a new chain that
+        operates on schemas of the codomain theory instead of the
+        domain theory.
+
+        Parameters
+        ----------
+        morphism_bytes : bytes
+            MessagePack-encoded theory morphism.
+
+        Returns
+        -------
+        ProtolensChainHandle
+            A new chain handle for the lifted chain.
+
+        Raises
+        ------
+        WasmError
+            If the WASM call fails.
+        """
+        try:
+            raw_handle = self._wasm.protolens_lift(
+                self._handle.id,
+                morphism_bytes,
+            )
+        except Exception as exc:
+            raise WasmError(f"protolens_lift failed: {exc}") from exc
+
+        handle = create_handle(raw_handle, self._wasm)
+        return ProtolensChainHandle(handle, self._wasm)
+
+    @classmethod
+    def from_json(cls, json_str: str, wasm: WasmModule) -> ProtolensChainHandle:
+        """Deserialize a protolens chain from JSON via WASM.
+
+        Sends the JSON bytes to WASM for deserialization and returns
+        a handle to the resulting chain resource.
+
+        Parameters
+        ----------
+        json_str : str
+            JSON string representing a protolens chain.
+        wasm : WasmModule
+            The WASM module.
+
+        Returns
+        -------
+        ProtolensChainHandle
+            A handle wrapping the deserialized chain.
+
+        Raises
+        ------
+        WasmError
+            If the WASM call fails or JSON is invalid.
+        """
+        try:
+            json_bytes = json_str.encode("utf-8")
+            raw_handle = wasm.protolens_from_json(json_bytes)
+        except Exception as exc:
+            raise WasmError(f"protolens_from_json failed: {exc}") from exc
+
+        handle = create_handle(raw_handle, wasm)
+        return cls(handle, wasm)
+
     def close(self) -> None:
         """Release the underlying WASM resource."""
         self._handle.close()

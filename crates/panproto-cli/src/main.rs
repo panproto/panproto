@@ -660,6 +660,9 @@ enum Command {
         /// Try overlap-based alignment.
         #[arg(long)]
         try_overlap: bool,
+        /// Fuse the protolens chain into a single protolens.
+        #[arg(long)]
+        fuse: bool,
         /// Default values.
         #[arg(long, value_delimiter = ',')]
         defaults: Vec<String>,
@@ -735,6 +738,34 @@ enum Command {
         /// Apply to data.
         #[arg(long)]
         apply: Option<PathBuf>,
+        /// Save the protolens chain JSON to a file.
+        #[arg(long)]
+        save: Option<PathBuf>,
+    },
+
+    /// Apply a protolens chain to all schemas in a directory.
+    LensFleet {
+        /// Protolens chain JSON file.
+        chain: PathBuf,
+        /// Directory containing schema JSON files.
+        schemas_dir: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Show only applicability report, don't instantiate.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Lift a protolens chain across protocols via a theory morphism.
+    LensLift {
+        /// Protolens chain JSON file.
+        chain: PathBuf,
+        /// Theory morphism JSON file.
+        morphism: PathBuf,
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -798,6 +829,7 @@ fn main() -> Result<()> {
 }
 
 /// Dispatch a parsed CLI command to the appropriate handler.
+#[allow(clippy::too_many_lines)]
 fn dispatch(command: Command, verbose: bool) -> Result<()> {
     match command {
         // Schema tools.
@@ -815,7 +847,9 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
         | Command::LensApply { .. }
         | Command::LensVerify { .. }
         | Command::LensCompose { .. }
-        | Command::LensDiff { .. }) => dispatch_schema_commands(command, verbose),
+        | Command::LensDiff { .. }
+        | Command::LensFleet { .. }
+        | Command::LensLift { .. }) => dispatch_schema_commands(command, verbose),
 
         // Core VCS commands.
         Command::Init {
@@ -990,6 +1024,7 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             apply,
             verify,
             try_overlap,
+            fuse,
             defaults,
         } => cmd_lens(
             &old,
@@ -1001,6 +1036,7 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             apply.as_deref(),
             verify,
             try_overlap,
+            fuse,
             &defaults,
             verbose,
         ),
@@ -1047,7 +1083,27 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             requirements,
             chain,
             apply,
-        } => cmd_lens_diff(&range, json, requirements, chain, apply.as_deref(), verbose),
+            save,
+        } => cmd_lens_diff(
+            &range,
+            json,
+            requirements,
+            chain,
+            apply.as_deref(),
+            save.as_deref(),
+            verbose,
+        ),
+        Command::LensFleet {
+            chain,
+            schemas_dir,
+            protocol,
+            dry_run,
+        } => cmd_lens_fleet(&chain, &schemas_dir, &protocol, dry_run, verbose),
+        Command::LensLift {
+            chain,
+            morphism,
+            json,
+        } => cmd_lens_lift(&chain, &morphism, json, verbose),
         _ => unreachable!(),
     }
 }
@@ -2192,6 +2248,7 @@ fn cmd_lens(
     apply: Option<&Path>,
     verify: bool,
     try_overlap: bool,
+    fuse: bool,
     defaults: &[String],
     verbose: bool,
 ) -> Result<()> {
@@ -2248,9 +2305,36 @@ fn cmd_lens(
         }
     }
 
+    // Fuse the chain into a single protolens if requested.
+    if fuse {
+        let fused = result
+            .chain
+            .fuse()
+            .into_diagnostic()
+            .wrap_err("failed to fuse protolens chain")?;
+        if json {
+            let fused_json = fused
+                .to_json()
+                .into_diagnostic()
+                .wrap_err("failed to serialize fused protolens")?;
+            println!("{fused_json}");
+        } else {
+            println!("\nFused protolens:");
+            println!("  Name: {}", fused.name);
+            println!("  Source: {}", fused.source.name);
+            println!("  Target: {}", fused.target.name);
+            let lossless = if fused.is_lossless() {
+                "lossless"
+            } else {
+                "lossy"
+            };
+            println!("  Complement: {lossless}");
+        }
+    }
+
     // Show requirements if requested.
     if requirements {
-        let spec = lens::chain_complement_spec(&result.chain, &src_schema);
+        let spec = lens::chain_complement_spec(&result.chain, &src_schema, &protocol);
         if json || chain {
             let spec_json = serde_json::to_string_pretty(&spec)
                 .into_diagnostic()
@@ -2688,6 +2772,7 @@ fn cmd_lens_diff(
     requirements: bool,
     chain: bool,
     apply: Option<&Path>,
+    save: Option<&Path>,
     verbose: bool,
 ) -> Result<()> {
     let repo = open_repo()?;
@@ -2784,7 +2869,7 @@ fn cmd_lens_diff(
     }
 
     if requirements {
-        let spec = lens::chain_complement_spec(&result.chain, &old_schema);
+        let spec = lens::chain_complement_spec(&result.chain, &old_schema, &protocol);
         if json || chain {
             let spec_json = serde_json::to_string_pretty(&spec)
                 .into_diagnostic()
@@ -2830,6 +2915,137 @@ fn cmd_lens_diff(
             .into_diagnostic()
             .wrap_err("failed to serialize output")?;
         println!("\nApplied result:\n{pretty}");
+    }
+
+    // Save the protolens chain to a file if requested.
+    if let Some(save_path) = save {
+        let chain_json = result
+            .chain
+            .to_json()
+            .into_diagnostic()
+            .wrap_err("failed to serialize protolens chain")?;
+        std::fs::write(save_path, &chain_json)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("failed to write chain to {}", save_path.display()))?;
+        println!("Saved protolens chain to {}", save_path.display());
+    }
+
+    Ok(())
+}
+
+fn cmd_lens_fleet(
+    chain_path: &Path,
+    schemas_dir: &Path,
+    protocol_name: &str,
+    dry_run: bool,
+    verbose: bool,
+) -> Result<()> {
+    let chain_json_str = std::fs::read_to_string(chain_path)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to read chain from {}", chain_path.display()))?;
+    let chain = lens::ProtolensChain::from_json(&chain_json_str)
+        .into_diagnostic()
+        .wrap_err("failed to parse protolens chain JSON")?;
+    let protocol = resolve_protocol(protocol_name)?;
+
+    // Read all *.json files in the schemas directory.
+    let mut schemas: Vec<(Name, Schema)> = Vec::new();
+    let entries = std::fs::read_dir(schemas_dir)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to read directory {}", schemas_dir.display()))?;
+    for entry in entries {
+        let entry = entry.into_diagnostic()?;
+        let path = entry.path();
+        if path.extension().and_then(std::ffi::OsStr::to_str) == Some("json") {
+            let schema: Schema = load_json(&path)?;
+            let name = path
+                .file_stem()
+                .and_then(std::ffi::OsStr::to_str)
+                .unwrap_or("unknown");
+            schemas.push((Name::from(name), schema));
+        }
+    }
+
+    if verbose {
+        eprintln!(
+            "Applying chain ({} steps) to {} schemas in {}",
+            chain.len(),
+            schemas.len(),
+            schemas_dir.display()
+        );
+    }
+
+    if dry_run {
+        // Only check applicability.
+        println!("Applicability report:");
+        for (name, schema) in &schemas {
+            match chain.check_applicability(schema) {
+                Ok(()) => println!("  {name}: applicable"),
+                Err(reasons) => {
+                    println!("  {name}: NOT applicable");
+                    for reason in &reasons {
+                        println!("    - {reason}");
+                    }
+                }
+            }
+        }
+    } else {
+        let result = lens::apply_to_fleet(&chain, &schemas, &protocol);
+        println!("Fleet result:");
+        println!("  Applied: {} schemas", result.applied.len());
+        for (name, _lens) in &result.applied {
+            println!("    - {name}");
+        }
+        if !result.skipped.is_empty() {
+            println!("  Skipped: {} schemas", result.skipped.len());
+            for (name, reasons) in &result.skipped {
+                println!("    - {name}:");
+                for reason in reasons {
+                    println!("      {reason}");
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_lens_lift(chain_path: &Path, morphism_path: &Path, json: bool, verbose: bool) -> Result<()> {
+    let chain_json_str = std::fs::read_to_string(chain_path)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to read chain from {}", chain_path.display()))?;
+    let chain = lens::ProtolensChain::from_json(&chain_json_str)
+        .into_diagnostic()
+        .wrap_err("failed to parse protolens chain JSON")?;
+
+    let morphism: panproto_core::gat::TheoryMorphism = load_json(morphism_path)?;
+
+    if verbose {
+        eprintln!(
+            "Lifting chain ({} steps) along morphism '{}'",
+            chain.len(),
+            morphism.name
+        );
+    }
+
+    let lifted = lens::lift_chain(&chain, &morphism);
+
+    if json {
+        let lifted_json = lifted
+            .to_json()
+            .into_diagnostic()
+            .wrap_err("failed to serialize lifted chain")?;
+        println!("{lifted_json}");
+    } else {
+        println!("Lifted protolens chain ({} steps):", lifted.len());
+        for (i, step) in lifted.steps.iter().enumerate() {
+            let lossless = if step.is_lossless() {
+                " (lossless)"
+            } else {
+                " (lossy)"
+            };
+            println!("  {}. {}{lossless}", i + 1, step.name);
+        }
     }
 
     Ok(())
