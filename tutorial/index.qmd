@@ -1,30 +1,25 @@
 # Preface {.unnumbered}
 
-You maintain three services. One speaks Protobuf. One uses JSON Schema for validation. The third talks to Bluesky's AT Protocol. Each time you change a schema, the same question arises: *what happens to existing data?*
+Every team that manages structured data eventually hits the same wall. You change a schema---add a field, rename a column, tighten a constraint---and something downstream breaks. A Protobuf client crashes on an unknown field number. A Kafka consumer rejects a message that no longer matches the registry. A SQL migration takes the database offline because it can't rewrite a table with foreign key dependents.
 
-Each community answers with its own bespoke tooling---Buf for Protobuf, Atlas for SQL, ad-hoc scripts for everything else. But the underlying problem is the same every time. You have a source schema, a target schema, and data that needs to move from one to the other. The only thing that varies across these systems is what "schema" and "data" mean.
+The tools exist to handle each of these individually. [Buf](https://buf.build/) catches breaking Protobuf changes. [Atlas](https://atlasgo.io/) manages SQL DDL. [Confluent Schema Registry](https://docs.confluent.io/platform/current/schema-registry/) enforces Avro compatibility. [graphql-inspector](https://the-guild.dev/graphql/inspector) flags GraphQL regressions. But the underlying problem is identical every time: you have a source schema, a target schema, and data that needs to move from one to the other. The only thing that varies is what "schema" and "data" mean.
 
-**panproto** is a universal schema migration engine that takes this observation seriously. Instead of hardcoding a particular schema language, it parameterizes over the *theory* that defines what schemas look like and the *theory* that defines what data looks like. Everything else---migration validation, data transformation, bidirectional lenses, breaking change detection---is derived from those two theories by the engine.
+**panproto** is a schematic version control system. Instead of hardcoding a particular schema language, it parameterizes over the *theory* (a formal description of a schema language's structural vocabulary — what kinds of entities, relationships, and constraints it supports) that defines what schemas look like and a separate theory describing what data looks like in that language. Migration validation, data transformation, bidirectional lenses, breaking-change detection---all derived from those two theories by the same algorithms, regardless of whether you are working with ATProto Lexicons, SQL DDL, Protobuf, GraphQL, or any of the [76 protocols panproto supports](appendices/C-protocol-catalog.qmd).
 
 ## What this tutorial covers
 
-This tutorial builds from concrete to abstract and back to concrete:
+The tutorial is organized in six parts:
 
-- **Part I (Motivation)** starts with what you already know: schemas in five formats you use daily. We identify the common structure and name the differences.
-- **Part II (Theory)** introduces generalized algebraic theories (GATs)---the mathematical framework that makes the common structure precise. If you've defined a TypeScript interface, you already have the intuition; we formalize it.
-- **Part III (Migration)** walks through writing, validating, and executing migrations across protocols. You'll see the data transformation pipeline in detail.
-- **Part IV (Bidirectionality & Safety)** covers lenses (every migration runs both ways) and automated breaking change detection.
-- **Part V (Advanced)** shows you how to define entirely new schema languages and how panproto can describe---and version---itself.
+- **Part I** opens with the problem: why schema migration is hard, and why existing tools are protocol-specific.
+- **Part II** introduces the structural foundation: what all schemas have in common, and how panproto parameterizes over their differences.
+- **Part III** walks through migration end-to-end: writing, validating, and executing migrations, with bidirectional lenses and CI integration.
+- **Part IV** covers the practical toolkit: data lifting, custom protocols, schema version control, and cross-protocol translation.
+- **Part V** goes deeper: naming, automatic migration discovery, and the building-block theory library.
+- **Part VI** introduces automated lenses: protolenses (reusable lens families), automatic lens generation, and symmetric lenses for cross-schema sync.
 
 ## Who this is for
 
-You write software that handles structured data. You know what JSON Schema, Protobuf, or SQL DDL look like. You may or may not know category theory---the tutorial introduces the concepts it needs, with references to the literature for deeper exploration.
-
-The appendices include a [category theory cheatsheet](appendices/A-category-theory-cheatsheet.qmd) and a [guide to the academic literature](appendices/C-guide-to-the-literature.qmd) for those who want to follow the citations to their source.
-
-## How to use this tutorial
-
-Each chapter builds on the previous ones. Code examples use the panproto TypeScript SDK (`@panproto/core`) and Rust API (`panproto-core`). All code in this tutorial is pulled directly from source files using the [`include-code-files`](https://github.com/quarto-ext/include-code-files) Quarto extension, so what you see here matches the actual implementation.
+You write software that handles structured data. You know what a Protobuf message, a SQL table, or a JSON Schema looks like. No category theory background is required---the tutorial introduces every concept it uses in practical terms, with formal foundations available in [Appendix A](appendices/A-formal-foundations.qmd) for those who want the mathematical details.
 
 ## Installation
 
@@ -40,7 +35,15 @@ npm install @panproto/core
 
 ```toml
 [dependencies]
-panproto-core = "0.1"
+panproto-core = "0.6"
+```
+
+### Python
+
+```bash
+pip install panproto
 ```
 
 :::
+
+Code examples use the panproto TypeScript SDK (`@panproto/core`), Rust API (`panproto-core`), and Python SDK (`panproto`). All code is pulled from source files using the [`include-code-files`](https://github.com/quarto-ext/include-code-files) Quarto extension, so what you see matches the implementation.

@@ -1,11 +1,11 @@
 # panproto-schema -- Schemas and Protocols {#sec-schema-protocols}
 
-`panproto-schema` is a Level 1 crate that defines the data structures for schema graphs and the protocols that govern their construction. A _schema_ is a model of a protocol's schema theory GAT: it instantiates the abstract sorts (Vertex, Edge, Constraint, ...) with concrete elements that describe a particular data format version. A _protocol_ is the configuration object that says which GATs to use and what well-formedness rules to enforce.
+`panproto-schema` is a Level 1 crate that defines the data structures for schema graphs and the protocols that govern their construction. A _schema_ is a concrete description of a particular data format version, instantiating abstract sorts (a type in a formal theory, not a sorting operation) like Vertex, Edge, and Constraint with concrete elements. A _protocol_ is the configuration object that says which theories to use and what well-formedness rules to enforce.
 
 This chapter covers every major type in the crate and the validation pipeline that ensures schemas are well-formed at construction time.
 
 ::: {.callout-note}
-For the user-facing explanation of schemas, see the [tutorial chapter 2](https://panproto.github.io/tutorial/chapters/02-the-shape-of-schemas.html).
+For the user-facing explanation of schemas, see [the tutorial](https://panproto.dev/tutorial/chapters/02-the-shape-of-schemas.html).
 :::
 
 ## Schema Elements
@@ -42,9 +42,9 @@ The adjacency indices (`outgoing`, `incoming`, `between`) are `HashMap`s from ve
 
 The indices are computed once at build time and never modified. This makes lookups O(1) and supports the fast graph traversals that the migration and validation pipelines require.
 
-### Schema as a GAT Model
+### Schema as a Theory Model
 
-Mathematically, a `Schema` is a _model_ (or _algebra_) of the schema theory GAT. The sorts of the GAT are instantiated as follows:
+A `Schema` is a _model_ (a concrete instance that satisfies a theory's requirements --- like a Rust struct implementing a trait) of the schema theory GAT.^[More precisely, a schema is a structure-preserving map from the theory to **Set** --- it sends each sort to a concrete set of elements and each operation to a concrete function between those sets. In categorical terms, this is a functor from the theory to **Set**.] The sorts of the GAT are instantiated as follows:
 
 | GAT Sort | Schema field |
 |---|---|
@@ -55,7 +55,7 @@ Mathematically, a `Schema` is a _model_ (or _algebra_) of the schema theory GAT.
 
 : How GAT sorts map to Schema fields. {#tbl-schema-model}
 
-The operations of the GAT (e.g., `src: Edge -> Vertex`, `tgt: Edge -> Vertex`) are implicit in the `Edge` struct's `src` and `tgt` fields. This is a standard encoding: rather than storing operations as separate function objects, the operation's result is stored as a field of the input struct.
+The operations of the GAT (e.g., `src: Edge -> Vertex`, `tgt: Edge -> Vertex`) are implicit in the `Edge` struct's `src` and `tgt` fields. Rather than storing operations as separate function objects, the operation's result is stored as a field of the input struct.
 
 ## Protocols
 
@@ -66,7 +66,7 @@ A `Protocol` identifies which schema theory and instance theory a data format us
 
 ### EdgeRule
 
-The `EdgeRule` struct is the mechanism for encoding well-formedness constraints on schema edges. Each rule governs a specific edge kind and specifies which vertex kinds are permitted as sources and targets. When a list is empty, any vertex kind is allowed in that position.
+The `EdgeRule` struct encodes well-formedness constraints on schema edges. Each rule governs a specific edge kind and specifies which vertex kinds are permitted as sources and targets. When a list is empty, any vertex kind is allowed in that position.
 
 This design keeps protocol definitions declarative. Rather than writing procedural validation code, protocol authors declare a table of rules and the builder enforces them uniformly.
 
@@ -142,7 +142,7 @@ The `SchemaBuilder` is the only way to construct a `Schema`. It enforces a fluen
 
 ### Validation Pipeline
 
-The builder validates elements incrementally as they are added, then performs a final global check at `build()` time. The pipeline looks like this:
+The builder validates elements incrementally as they are added, then performs a final global check at `build()` time:
 
 ```{mermaid}
 %%| label: fig-builder-pipeline
@@ -238,7 +238,7 @@ Computing adjacency indices eagerly at build time (rather than lazily on first a
 
 ### Why String-Keyed Maps
 
-Vertices, edges, and constraints are identified by `String` keys rather than integer IDs. This is intentional: string IDs carry semantic meaning (e.g., `"post:body.text"`) that makes schemas human-readable and debuggable. The performance cost is acceptable because schema sizes are modest (hundreds to low thousands of elements) and all hot-path lookups go through the precomputed `HashMap` indices.
+Vertices, edges, and constraints are identified by `String` keys rather than integer IDs. String IDs carry semantic meaning (e.g., `"post:body.text"`) that makes schemas human-readable and debuggable. The performance cost is acceptable because schema sizes are modest (hundreds to low thousands of elements) and all hot-path lookups go through the precomputed `HashMap` indices.
 
 ### Why Edge in Adjacency Values
 

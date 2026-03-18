@@ -114,8 +114,8 @@ During the 0.x.y phase, minor version bumps may include breaking changes (per se
 
 Two documentation sites auto-deploy on push to `main`:
 
-- **Tutorial** (`publish-tutorial.yml`): The user-facing tutorial at `panproto.github.io/tutorial/` is built with Quarto and deployed to GitHub Pages.
-- **Dev guide**: This developer guide at `panproto.github.io/dev-guide/` follows the same pattern.
+- **Tutorial** (`publish-tutorial.yml`): The user-facing tutorial at `panproto.dev/tutorial/` is built with Quarto and deployed to GitHub Pages.
+- **Dev guide**: This developer guide at `panproto.dev/dev-guide/` follows the same pattern.
 
 Both workflows build the Quarto site and push the rendered HTML to the `gh-pages` branch. Deployment is automatic -- no manual steps are required after merging to `main`.
 

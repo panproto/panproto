@@ -3,7 +3,7 @@ project:
   output-dir: _site
 
 book:
-  title: "panproto: Universal Schema Migration"
+  title: "panproto: Schematic Version Control"
   subtitle: "A Practitioner's Guide to Protocol-Parametric Data Evolution"
   author:
     - name: "Aaron Steven White"
@@ -22,46 +22,41 @@ book:
   search: true
   chapters:
     - index.qmd
-    - part: "Motivation"
+    - part: "The Problem"
       chapters:
-        - chapters/01-schemas-everywhere.qmd
-        - chapters/02-the-shape-of-schemas.qmd
-    - part: "Theory"
+        - chapters/01-the-schema-migration-problem.qmd
+    - part: "Foundations"
       chapters:
-        - chapters/03-what-is-a-theory.qmd
-        - chapters/04-protocols-as-parameters.qmd
+        - chapters/02-what-schemas-have-in-common.qmd
+        - chapters/03-protocols-as-parameters.qmd
     - part: "Migration"
       chapters:
-        - chapters/05-migration-by-hand.qmd
-        - chapters/06-when-migrations-exist.qmd
-        - chapters/07-lifting-data.qmd
-    - part: "Bidirectionality & Safety"
+        - chapters/04-your-first-migration.qmd
+        - chapters/05-when-migrations-break.qmd
+        - chapters/06-bidirectional-migration-with-lenses.qmd
+        - chapters/07-breaking-changes-and-ci.qmd
+    - part: "The Toolkit"
       chapters:
-        - chapters/08-lenses.qmd
-        - chapters/09-breaking-changes.qmd
-    - part: "Advanced"
+        - chapters/08-lifting-data.qmd
+        - chapters/09-building-your-own-protocol.qmd
+        - chapters/10-schema-version-control.qmd
+        - chapters/11-cross-protocol-translation.qmd
+    - part: "Advanced Topics"
       chapters:
-        - chapters/10-building-your-own-protocol.qmd
-        - chapters/11-self-description.qmd
-        - chapters/12-format-conversion.qmd
-        - chapters/13-version-control.qmd
-        - chapters/14-building-blocks.qmd
-    - part: "Names & Identity"
+        - chapters/12-names-across-protocol-boundaries.qmd
+        - chapters/13-automatic-migration-discovery.qmd
+        - chapters/14-self-description-and-building-blocks.qmd
+        - chapters/15-testing-and-simplification.qmd
+    - part: "Automated Lenses"
       chapters:
-        - chapters/15-naming-and-identity.qmd
-        - chapters/16-names-in-practice.qmd
-    - part: "Automation"
-      chapters:
-        - chapters/17-automatic-migration.qmd
-        - chapters/18-testing-with-generated-data.qmd
-        - chapters/19-simplifying-schemas.qmd
+        - chapters/16-protolenses.qmd
+        - chapters/17-automatic-lens-generation.qmd
+        - chapters/18-symmetric-lenses.qmd
     - part: "Appendices"
       chapters:
-        - appendices/A-category-theory-cheatsheet.qmd
+        - appendices/A-formal-foundations.qmd
         - appendices/B-api-reference.qmd
-        - appendices/C-guide-to-the-literature.qmd
-        - appendices/D-protocol-catalog.qmd
-        - appendices/E-formal-proofs.qmd
+        - appendices/C-protocol-catalog.qmd
 
 bibliography: references.bib
 csl: https://raw.githubusercontent.com/citation-style-language/styles/master/chicago-author-date.csl

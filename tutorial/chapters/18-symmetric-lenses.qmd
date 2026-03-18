@@ -1,0 +1,264 @@
+# Symmetric Lenses and Schema Merging {#sec-symmetric-lenses}
+
+Asymmetric lenses assume a direction: one schema is the "source" and the other is the "view." This works when one schema is a refinement of the other---a newer version, a projection, a subset. But many real situations have no natural direction:
+
+- **Cross-protocol sync.** An ATProto post and a Mastodon status are independent representations of the same concept. Neither is a view of the other.
+- **Diverged branches.** Two teams fork a schema and evolve it independently. After six months, both versions are equally authoritative.
+- **Multi-system integration.** A CRM and an ERP system both have "customer" records. Neither system's schema is primary.
+
+In these cases, we need a **symmetric lens**: a bidirectional transformation where both sides can be modified, and neither side's changes take priority by default.
+
+
+## The overlap construction {#sec-span-construction}
+
+A symmetric lens has three parts: the overlap schema (what both schemas agree on), and a lens from the overlap to each full schema.^[Formally, a symmetric lens between $S_1$ and $S_2$ is a span of asymmetric lenses: $S_1 \xleftarrow{\ell_1} O \xrightarrow{\ell_2} S_2$, where $O$ is the overlap schema and $\ell_1$, $\ell_2$ are the two legs.]
+
+The overlap schema $O$ captures the largest common structure between the two schemas. The left leg $\ell_1$ is an asymmetric lens (see @sec-lenses) from $O$ to $S_1$. The right leg $\ell_2$ is an asymmetric lens from $O$ to $S_2$.
+
+To translate from $S_1$ to $S_2$:
+
+1. `get` along $\ell_1$: project $S_1$ data down to the overlap, capturing complement $c_1$ (everything $S_1$ has that the overlap does not).
+2. `put` along $\ell_2$: lift overlap data up to $S_2$, using complement $c_2$ (everything $S_2$ needs that the overlap does not provide).
+
+To translate back from $S_2$ to $S_1$:
+
+1. `get` along $\ell_2$: project $S_2$ data down to the overlap, capturing complement $c_2'$.
+2. `put` along $\ell_1$: lift overlap data up to $S_1$, using complement $c_1$.
+
+The complements $c_1$ and $c_2$ are the "private state" of each side. They persist across sync rounds, accumulating the side-specific data that cannot be translated.
+
+
+## Building symmetric lenses from protolens chains {#sec-symmetric-from-protolens}
+
+In @sec-protolenses we introduced protolenses as schema-independent lens families. panproto combines the two ideas: it builds symmetric lenses *from protolens chains*, making cross-schema synchronization as automatic as within-schema migration.
+
+The algorithm:
+
+1. **Discover overlap.** Find the largest shared sub-schema $O$.
+2. **Generate left protolens chain.** Auto-generate a protolens chain from $O$ to $S_1$ (the additions and restructurings that $S_1$ adds beyond the overlap).
+3. **Generate right protolens chain.** Auto-generate a protolens chain from $O$ to $S_2$.
+4. **Instantiate both legs.** Produce concrete asymmetric lenses $\ell_1$ and $\ell_2$.
+5. **Combine into symmetric lens.** Package the two legs and the overlap into a `SymmetricLensHandle`.
+
+```{.typescript}
+import { SymmetricLensHandle } from "@panproto/core";
+
+// One call does steps 1-5
+const symLens = SymmetricLensHandle.fromSchemas(schemaA, schemaB);
+
+// Translate A → B
+const { data: bData, complement: cA } = symLens.forward(aData);
+
+// Translate B → A
+const { data: aData, complement: cB } = symLens.backward(bData);
+
+// Round-trip: A → B → A (using stored complement)
+const { data: bModified } = symLens.forward(aData);
+// ... modify bModified ...
+const { data: aRestored } = symLens.backward(bModified, { complement: cA });
+```
+
+In Python:
+
+```{.python}
+from panproto import SymmetricLensHandle
+
+# One call does steps 1-5
+sym_lens = SymmetricLensHandle.from_schemas(schema_a, schema_b)
+
+# Translate A → B
+b_data, c_a = sym_lens.forward(a_data)
+
+# Translate B → A
+a_data, c_b = sym_lens.backward(b_data)
+
+# Round-trip with complement
+b_modified, _ = sym_lens.forward(a_data)
+# ... modify b_modified ...
+a_restored, _ = sym_lens.backward(b_modified, complement=c_a)
+```
+
+:::{.callout-note}
+## Overlap quality
+
+The quality of the symmetric lens depends entirely on the quality of the overlap. A small overlap means large complements and more data that cannot be translated. A large overlap means small complements and better interoperability. You can inspect the overlap before committing:
+
+```{.typescript}
+const overlap = symLens.overlap;
+console.log(`Shared: ${overlap.vertices.length} vertices`);
+console.log(`A-only: ${symLens.leftComplement.length} vertices`);
+console.log(`B-only: ${symLens.rightComplement.length} vertices`);
+```
+:::
+
+
+## Worked example: synchronizing diverged schemas {#sec-diverged-example}
+
+Two teams start from the same `user` schema and evolve independently for three months.
+
+### Team A's schema
+
+```{.json}
+{
+  "vertices": ["user", "handle", "email", "createdAt", "role"],
+  "edges": [
+    { "from": "user", "to": "handle", "kind": "prop" },
+    { "from": "user", "to": "email", "kind": "prop" },
+    { "from": "user", "to": "createdAt", "kind": "prop" },
+    { "from": "user", "to": "role", "kind": "prop" }
+  ]
+}
+```
+
+Team A added `role` (admin, user, moderator).
+
+### Team B's schema
+
+```{.json}
+{
+  "vertices": ["user", "handle", "emailAddress", "created_at", "avatarUrl"],
+  "edges": [
+    { "from": "user", "to": "handle", "kind": "prop" },
+    { "from": "user", "to": "emailAddress", "kind": "prop" },
+    { "from": "user", "to": "created_at", "kind": "prop" },
+    { "from": "user", "to": "avatarUrl", "kind": "prop" }
+  ]
+}
+```
+
+Team B renamed `email` to `emailAddress`, `createdAt` to `created_at`, and added `avatarUrl`.
+
+### Building the symmetric lens
+
+```{.typescript}
+const symLens = SymmetricLensHandle.fromSchemas(teamASchema, teamBSchema);
+
+console.log(symLens.overlap);
+// Overlap: { vertices: ["user", "handle"], edges: [user→handle] }
+// Renames detected: email↔emailAddress, createdAt↔created_at
+
+console.log(symLens.leftOnly);   // ["role"]
+console.log(symLens.rightOnly);  // ["avatarUrl"]
+```
+
+panproto detects the renames (`email` / `emailAddress` and `createdAt` / `created_at`) via the morphism discovery quality scoring. These are included in the overlap with rename protolenses in each leg.
+
+### Synchronizing data
+
+```{.typescript}
+const teamAUser = {
+  handle: "alice",
+  email: "alice@example.com",
+  createdAt: "2024-06-01",
+  role: "admin",
+};
+
+// Translate to Team B's schema
+const { data: teamBUser, complement } = symLens.forward(teamAUser);
+// teamBUser = {
+//   handle: "alice",
+//   emailAddress: "alice@example.com",
+//   created_at: "2024-06-01",
+//   avatarUrl: null,  // default — Team A doesn't have this
+// }
+// complement stores: { role: "admin" }
+
+// Team B modifies the data
+teamBUser.avatarUrl = "https://example.com/alice.png";
+teamBUser.emailAddress = "alice@newdomain.com";
+
+// Translate back to Team A's schema
+const { data: syncedA } = symLens.backward(teamBUser, { complement });
+// syncedA = {
+//   handle: "alice",
+//   email: "alice@newdomain.com",  // updated!
+//   createdAt: "2024-06-01",
+//   role: "admin",                 // restored from complement
+// }
+```
+
+The email change propagated through the symmetric lens (via the overlap). The `role` field survived the round-trip via the complement. The `avatarUrl` was lost going back to Team A's schema (it is in Team B's complement, not Team A's).
+
+### Merging the schemas
+
+If the teams decide to reunify, the merged schema gives them the combined result:^[The merged schema is the *pushout* $S_1 +_O S_2$ in the categorical sense---the smallest schema containing both $S_1$ and $S_2$, with the overlap identified. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+
+```{.typescript}
+const mergedSchema = symLens.mergedSchema;
+// vertices: ["user", "handle", "email", "createdAt", "role", "avatarUrl"]
+// (renames resolved: Team A's names used as canonical, with aliases)
+```
+
+The merged schema is the smallest schema containing everything from both sides, with the overlap identified. Any schema that both $S_1$ and $S_2$ map into factors through the merged schema.^[This universal property is what makes the merged schema canonical rather than ad hoc.]
+
+
+## Multi-schema documents {#sec-multi-schema}
+
+Some applications need a document to satisfy multiple schemas simultaneously. A social media post might need to be valid ATProto *and* valid ActivityPub. A data record might need to conform to both the CRM schema and the ERP schema.
+
+Symmetric lenses enable **multi-schema documents** through the overlap:
+
+```{.typescript}
+// Create a document that satisfies both schemas
+const symLens = SymmetricLensHandle.fromSchemas(atprotoSchema, activityPubSchema);
+
+// Start from ATProto data
+const atprotoPost = { text: "Hello", createdAt: "2025-01-01T00:00:00Z", likeCount: 42 };
+
+// Get the overlap view (what both schemas agree on)
+const { data: overlapData } = symLens.toOverlap(atprotoPost, "left");
+
+// Build both representations from the overlap
+const { data: atprotoView } = symLens.fromOverlap(overlapData, "left", {
+  defaults: { likeCount: 0 },
+});
+const { data: activityPubView } = symLens.fromOverlap(overlapData, "right", {
+  defaults: { published: new Date().toISOString() },
+});
+```
+
+The overlap acts as a lingua franca---a minimal representation that both schemas can project to and reconstruct from.
+
+
+## Sync semantics and conflict {#sec-sync-conflict}
+
+When both sides of a symmetric lens are modified independently, **conflicts** arise. Two users edit the same post---one via ATProto, one via ActivityPub---and both change the `text` field.
+
+panproto's symmetric lenses handle conflicts through a three-way merge rooted at the overlap:
+
+1. **Project both sides to the overlap.** Get $O_1$ from the modified $S_1$ data and $O_2$ from the modified $S_2$ data.
+2. **Diff against the base.** Compare $O_1$ and $O_2$ against the last-synced overlap state $O_{\text{base}}$.
+3. **Merge.** For each field in the overlap:
+   - If only one side changed it, take that change.
+   - If both sides changed it to the same value, take either (they agree).
+   - If both sides changed it to different values, report a conflict.
+
+```{.typescript}
+const result = symLens.sync(modifiedA, modifiedB, { base: lastSyncedOverlap });
+
+if (result.conflicts.length > 0) {
+  console.log("Conflicts detected:");
+  for (const c of result.conflicts) {
+    console.log(`  ${c.field}: "${c.leftValue}" vs "${c.rightValue}"`);
+  }
+  // Resolve manually
+  result.resolve(c.field, c.leftValue);  // or c.rightValue
+}
+
+const { left: syncedA, right: syncedB } = result.apply();
+```
+
+Fields outside the overlap are never in conflict: they belong exclusively to one side and are preserved in that side's complement.
+
+:::{.callout-note}
+## Conflicts are structural, not semantic
+
+panproto detects conflicts at the schema level: two different values for the same overlapping field. It does not resolve semantic conflicts (e.g., "is this rename intentional?"). Semantic conflict resolution is an application-level concern. panproto gives you the machinery to detect and surface conflicts; your application decides what to do with them.
+:::
+
+
+## Related work: Cambria and bidirectional JSON sync {#sec-symmetric-related}
+
+[Cambria](https://www.inkandswitch.com/cambria/) [@litt2022] addresses a related problem: bidirectional synchronization of JSON documents across schema versions in CRDT-based collaborative editors. Cambria's lens combinators produce bidirectional transforms between implicit schemas.
+
+panproto's symmetric lenses differ in that they make the overlap schema explicit, which enables precondition checking, complement tracking, and the three-way merge conflict semantics described above. But the underlying intuition is shared: both systems recognize that schema differences are not one-directional, and that bidirectional transforms are essential for multi-party data exchange.

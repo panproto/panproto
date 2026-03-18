@@ -76,7 +76,7 @@ The `extends` field enables compositional theory construction. When theory B ext
 Diamond inheritance is handled correctly: if theories B and C both extend A, and theory D extends both B and C, the shared declarations from A appear exactly once in the resolved theory D.
 
 ::: {.callout-note}
-For the conceptual introduction to GATs, see the [tutorial chapter 3](https://panproto.github.io/tutorial/chapters/03-what-is-a-theory.html).
+For the conceptual introduction to GATs, see the [tutorial chapter 3](https://panproto.dev/tutorial/chapters/03-what-is-a-theory.html).
 :::
 
 ### Theory Structure Diagram
@@ -170,7 +170,7 @@ The `NameSite` enum enumerates the nine naming sites (edge labels, vertex IDs, v
 
 See @sec-naming-identity for the full contributor guide.
 
-## Colimits
+## Colimits (Merging Theories)
 
 The `colimit` function computes the pushout of two theories over a shared base theory. This is how panproto composes protocol fragments modularly.
 
@@ -274,7 +274,7 @@ The type-checking functions produce specific error variants that carry enough co
 
 ## Model Checking
 
-The `check_model` module verifies that a `Model` (an interpretation of a theory in Set) satisfies all equations of its theory by enumerating variable assignments from carrier sets and evaluating both sides.
+The `check_model` module verifies that a `Model` (a concrete instance that satisfies a theory's requirements --- like a Rust struct implementing a trait --- here specifically an interpretation of a theory in Set) satisfies all equations of its theory by enumerating variable assignments from carrier sets and evaluating both sides.
 
 ### Model and ModelValue
 
@@ -315,7 +315,7 @@ The `CheckModelOptions` struct provides safety bounds for enumeration. The `max_
 
 When the limit is exceeded, the function returns a `GatError::ModelError` rather than silently skipping the check. The VCS layer reports this as a non-blocking warning.
 
-## Pullbacks
+## Pullbacks (Finding Shared Structure)
 
 The `pullback` function computes the categorical pullback of two theories over a common codomain. Where colimits (pushouts) merge theories together, pullbacks find the common structure that two theories share when mapped into a common target.
 
@@ -364,7 +364,7 @@ graph LR
     style P fill:#e8f4e8,stroke:#2d7d2d
 ```
 
-## Natural Transformations
+## Natural Transformations (Maps Between Mappings)
 
 A _natural transformation_ is a morphism between two theory morphisms. Given morphisms `F, G: T1 -> T2`, a natural transformation `alpha: F => G` assigns to each sort `S` in `T1` a term that maps values of sort `F(S)` to values of sort `G(S)`, subject to naturality conditions.
 
@@ -403,13 +403,13 @@ The checker verifies four conditions:
 
 The naturality check is performed symbolically by substituting and comparing term trees. For n-ary operations, the check uses variables `x0, x1, ...` for each input.
 
-### Vertical Composition
+### Vertical Composition (Chaining Transforms)
 
 `vertical_compose` chains two natural transformations: given `alpha: F => G` and `beta: G => H`, it produces `beta . alpha: F => H`. For each sort `S`, the composed component is `beta_S[x := alpha_S(x)]`.
 
 The function checks that `alpha.target == beta.source` (the intermediate morphism must match) and returns `GatError::NatTransComposeMismatch` if they disagree.
 
-### Horizontal Composition
+### Horizontal Composition (Combining Independent Transforms)
 
 `horizontal_compose` composes natural transformations along different morphism pairs: given `alpha: F => G` (between `T1` and `T2`) and `beta: H => K` (between `T2` and `T3`), it produces `beta * alpha: H.F => K.G`.
 
@@ -419,7 +419,7 @@ For each sort `S` in the domain, the composed component is `beta_{G(S)}[x := H(a
 Horizontal composition is used in the VCS merge pipeline when composing migration paths through different branch histories. The `compose_path` function in `panproto-vcs` assembles a chain of natural transformations to verify that the composed migration path is coherent.
 :::
 
-## Free Models
+## Free Models (Minimal Valid Instances)
 
 The `free_model` module constructs the free (initial) model of a theory -- the minimal model that satisfies all equations. This is useful for generating test instances, computing protocol skeletons, and understanding the structure of a theory.
 
@@ -456,7 +456,7 @@ The depth bound controls how deep the term enumeration goes. For a theory with a
 
 The `schema scaffold` command uses `free_model` to generate skeleton instances. The `--depth` and `--max-terms` flags map directly to `FreeModelConfig` fields.
 
-## Quotient Theories
+## Quotient Theories (Identifying Equivalent Elements)
 
 The `quotient` function simplifies a theory by identifying (merging) sorts and/or operations. This is the dual of theory extension: where extension adds new structure, quotienting collapses existing structure by declaring that previously distinct elements are now the same.
 
@@ -481,26 +481,34 @@ Quotient theories are used when composing protocol fragments that have structura
 
 The alphabetical representative selection is deterministic and stable, ensuring that quotienting the same theory with the same identifications always produces the same result.
 
-## Summary of the Mathematical Stack
+## Schema Transforms and Factorization {#sec-schema-endofunctors}
 
-| Concept | Rust type | Mathematical origin |
-|---|---|---|
-| Type in a GAT | `Sort` | @cartmell1986, Definition 1 |
-| Term constructor | `Operation` | @cartmell1986, Definition 2 |
-| Axiom | `Equation` | @cartmell1986, Definition 3 |
-| Structure-preserving map | `TheoryMorphism` | @lawvere1963 (generalized to GATs) |
-| Theory composition | `colimit()` | Pushout in the category of GATs |
-| Theory intersection | `pullback()` | Pullback in the category of GATs |
-| Term well-typedness | `typecheck_term()` | Type inference in dependent type theory |
-| Model verification | `check_model()` | Model checking for equational theories |
-| 2-morphism | `NaturalTransformation` | Natural transformation between functors |
-| Initial model | `free_model()` | Free algebra / term model construction |
-| Theory quotient | `quotient()` | Congruence on an algebraic theory |
+The `schema_functor` and `factorize` modules extend `panproto-gat` with theory endofunctors and morphism decomposition, providing the GAT-level machinery that the protolens engine (@sec-protolens-engine) builds on.
 
-: Mapping from mathematical concepts to Rust types. {#tbl-math-rust}
+### Schema Endofunctors
 
-The GATlab system [@lynch2024] takes a similar approach to implementing GATs in Julia, focusing on computational category theory. panproto's `panproto-gat` is more narrowly scoped -- it provides just enough GAT machinery to support schema migration and protocol composition, without attempting to be a general-purpose categorical algebra system.
+**File**: `crates/panproto-gat/src/schema_functor.rs`
 
-::: {.callout-important}
-`panproto-gat` is the only crate in the system that has zero knowledge of schemas, instances, or protocols. If you find yourself importing `panproto-schema` types in `panproto-gat`, something has gone wrong architecturally. The abstraction boundary here is strict and intentional.
-:::
+A `TheoryEndofunctor` is a map from theories to theories, pairing a `TheoryConstraint` (a predicate specifying which theories it applies to) with a `TheoryTransform` (the actual transformation). The `TheoryTransform` enum provides eleven variants covering sort/operation/equation addition, removal, renaming, pullback, and sequential composition.
+
+```{.rust include="../../crates/panproto-gat/src/schema_functor.rs" start-line=69 end-line=77}
+```
+
+The key design principle is *cascading*: dropping a sort automatically drops all operations that reference it, and dropping an operation automatically drops all equations that reference it. This ensures that `TheoryTransform::apply` always produces a well-formed theory.
+
+Endofunctors compose via `TheoryEndofunctor::compose`, producing a new endofunctor whose transform is `Compose(self.transform, other.transform)`. The precondition of the composed endofunctor conservatively requires the first endofunctor's precondition and defers the second's to runtime checking.
+
+### Factorization
+
+**File**: `crates/panproto-gat/src/factorize.rs`
+
+The `factorize` function decomposes a theory morphism $F : T_1 \to T_2$ into a sequence of elementary `TheoryEndofunctor` steps. The decomposition follows a fixed phase ordering that maintains well-formedness at every intermediate step:
+
+1. **Drops** (equations, then operations, then sorts) --- remove elements not in the codomain.
+2. **Renames** (sorts, then operations) --- apply sort-map and op-map entries where `old != new`.
+3. **Adds** (sorts topologically sorted by dependencies, then operations, then equations) --- add elements in the codomain but not in the (renamed) domain.
+
+The `Factorization` struct holds the ordered step sequence. `validate_factorization` applies the steps to the domain and checks that the result matches the codomain, providing an end-to-end correctness guarantee.
+
+This factorization is the foundation of the automated lens generation pipeline (@sec-auto-lens-pipeline): each elementary step maps directly to a protolens constructor, and the full step sequence becomes a `ProtolensChain`.
+

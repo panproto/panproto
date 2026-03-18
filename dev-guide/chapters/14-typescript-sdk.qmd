@@ -3,7 +3,7 @@
 The `@panproto/core` npm package is the primary way most developers interact with panproto. It wraps the WASM module in a fluent, type-safe API with automatic resource management. This chapter covers every public class and function in the SDK.
 
 ::: {.callout-tip}
-For a quick-reference listing of all public APIs with parameter types, see [tutorial appendix B](https://panproto.github.io/tutorial/appendices/B-api-reference.html).
+For a quick-reference listing of all public APIs with parameter types, see [tutorial appendix B](https://panproto.dev/tutorial/appendices/B-api-reference.html).
 :::
 
 ## Architecture Overview

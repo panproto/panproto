@@ -1,0 +1,459 @@
+---
+title: "What Schemas Have in Common"
+id: sec-schemas-have-in-common
+---
+
+# What Schemas Have in Common
+
+Schema languages look different on the surface---JSON vs. Protobuf IDL vs. SQL
+DDL vs. GraphQL SDL---but they describe the same kind of thing: types connected
+by typed relationships. This chapter pins down that shared structure precisely
+enough that an algorithm can work with it.
+
+## Schemas Are Graphs
+
+Every schema language describes **vertices** (types) connected by **edges**
+(fields, properties, columns). A JSON Schema with an `object` containing a
+`name` of type `string` is a graph with two vertices and one edge. A GraphQL
+type with scalar fields is a graph. A Protobuf message is a graph.
+
+The simplest version is a **directed graph**: a set of vertices, a set of
+edges, and two functions---`src` and `tgt`---that map each edge to its source
+and target vertices.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" }
+  }
+}
+```
+
+Two vertices (`object`, `string`). One edge (`name`). `src(name) = object`,
+`tgt(name) = string`.
+
+But schemas quickly outgrow simple directed graphs. Consider an ATProto
+Lexicon record with two string fields:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "displayName": { "type": "string", "maxLength": 640 },
+    "description": { "type": "string", "maxLength": 2560 }
+  }
+}
+```
+
+Both `displayName` and `description` are edges from `object` to `string`. A
+plain directed graph collapses them into one edge. We need a **multigraph**:
+a directed graph that allows parallel edges between the same pair of vertices.
+
+```{mermaid}
+%%| label: fig-multigraph-atproto
+%%| fig-cap: "An ATProto profile schema as a directed multigraph. Two parallel edges from `object` to `string`, distinguished by label and constraint."
+graph LR
+    Object((object))
+    Str((string))
+
+    Object -- "displayName<br/>maxLength: 640" --> Str
+    Object -- "description<br/>maxLength: 2560" --> Str
+```
+
+The moment you have two fields of the same type---which is nearly always---you
+need at least a multigraph. Most schema languages live here.
+
+Some languages need even more. A SQL **foreign key** connects four things at
+once: source table, source column, referenced table, referenced column.
+
+```sql
+ALTER TABLE posts
+    ADD CONSTRAINT fk_posts_author
+    FOREIGN KEY (author_id) REFERENCES authors (id);
+```
+
+You can't represent that as a binary edge without losing information.
+**Hypergraphs** handle it: they allow edges (called hyperedges) that connect
+an ordered sequence of vertices, not just two.
+
+```{mermaid}
+%%| label: fig-hypergraph-sql
+%%| fig-cap: "A SQL foreign key as a hyperedge connecting four entities."
+graph TB
+    subgraph Posts ["posts (table)"]
+        P_id["id : BIGINT PK"]
+        P_author["author_id : BIGINT"]
+    end
+
+    subgraph Authors ["authors (table)"]
+        A_id["id : BIGINT PK"]
+    end
+
+    FK{{"fk_posts_author"}}
+
+    FK -. "source table" .-> Posts
+    FK -. "source column" .-> P_author
+    FK -. "referenced table" .-> Authors
+    FK -. "referenced column" .-> A_id
+
+    style FK fill:#f9f,stroke:#333,stroke-dasharray: 5 5
+```
+
+Composite unique constraints, Protobuf `oneof` declarations, GraphQL union
+types---these are all multi-ary relationships that benefit from hypergraph
+representation.
+
+### GitHub's GraphQL Schema as a Graph
+
+To make this concrete with a real-world example, consider a fragment of
+GitHub's GraphQL schema:
+
+```graphql
+type Repository {
+  name: String!
+  description: String
+  issues(first: Int): IssueConnection!
+  pullRequests(first: Int): PullRequestConnection!
+  owner: RepositoryOwner!
+}
+
+type Issue {
+  title: String!
+  body: String!
+  author: Actor
+}
+```
+
+As a multigraph: `Repository`, `Issue`, `String`, `IssueConnection`,
+`PullRequestConnection`, `RepositoryOwner`, `Int`, `Actor` are vertices.
+Each field is an edge. `Repository` has five outgoing edges, two of which
+(`name` and `description`) both target `String`---parallel edges, requiring
+multigraph structure. The entire GitHub GraphQL schema is a multigraph with
+hundreds of vertices and thousands of edges, all following the same pattern:
+types as vertices, fields as edges.
+
+### Constraints Decorate the Graph
+
+Schemas carry more than connectivity. They have **constraints**: `maxLength`,
+`NOT NULL`, `DEFAULT`, `pattern`, `minimum`, `maxItems`. Constraints don't
+change the graph structure---they annotate it. A `maxLength` on a string
+property attaches metadata to an existing edge; it doesn't add new vertices or
+edges.
+
+Different schema languages support different constraints:
+
+| Constraint        | JSON Schema | Protobuf      | SQL DDL       | GraphQL   | ATProto Lexicon |
+|-------------------|-------------|---------------|---------------|-----------|-----------------|
+| maxLength         | yes         | no            | VARCHAR(n)    | no        | yes             |
+| pattern (regex)   | yes         | no            | CHECK         | no        | no              |
+| minimum / maximum | yes         | no            | CHECK         | no        | yes             |
+| NOT NULL          | required[]  | (default set) | NOT NULL      | `!`       | required[]      |
+| DEFAULT           | default     | default value | DEFAULT       | no        | default         |
+| UNIQUE            | no          | no            | UNIQUE        | no        | no              |
+| PRIMARY KEY       | no          | no            | PRIMARY KEY   | no        | no              |
+
+The constraint vocabulary varies wildly. The mechanism---annotations on a
+graph---is uniform.
+
+
+## From Graphs to Theories
+
+We've been describing graph structures informally: "a set of vertices, a set
+of edges, two functions `src` and `tgt`." To write algorithms that work across
+all schema languages, panproto needs this description in a machine-readable
+form. That form is a **theory**.
+
+A theory has three parts:
+
+- **Sorts** are the types of things in the theory. (panproto uses 'sort' rather than 'type' to avoid confusion with the schema-level types like `string` or `integer` that sorts classify.) In a graph, there are two
+  sorts: `Vertex` and `Edge`. In a SQL schema theory, there are sorts for
+  `Table`, `Column`, `ForeignKey`, and so on. Sorts are like type declarations
+  in a programming language---they tell you what kinds of entities exist.
+
+- **Operations** are functions that connect sorts. `src: Edge → Vertex` says
+  "every edge has a source vertex." This is like a field on a struct: given an
+  `Edge`, you can ask for its `src` and get back a `Vertex`. Operations define
+  the relationships between sorts.
+
+- **Equations** are invariants that operations must satisfy. In a SQL theory,
+  `table(srcColumn(fk)) = srcTable(fk)` says: "take a foreign key, get its
+  source column, ask which table that column belongs to---you get the same
+  answer as asking the foreign key directly for its source table." Equations
+  encode consistency rules that would otherwise be runtime checks.
+
+A concrete schema that provides actual sets and functions satisfying a theory
+is called a **model**. In panproto, 'model' always means a concrete thing satisfying a theory — never a machine learning model or a database model. The relationship is the same as between a TypeScript
+interface and a class implementing it: the theory says what must exist and what
+laws hold; the model fills in the specifics.
+
+Why formalize this? Because once a schema language's vocabulary is declared as a theory, panproto's algorithms — diffing, migration planning, breaking-change detection, code generation — work automatically. Without a theory, each of these operations must be reimplemented per protocol. With a theory, they are derived once and instantiated per protocol.
+
+The monoid is not a schema concept — panproto does not use monoids directly. It is the simplest example of a theory with equations, which makes it a useful warm-up before the graph and schema theories that panproto actually uses.
+
+### The Monoid: Simplest Nontrivial Theory
+
+A monoid is a set with an associative binary operation and an identity element.
+String concatenation is a monoid. `Array.prototype.reduce` with an initial
+value uses a monoid.
+
+**Sorts:**
+
+- `Carrier` --- the set of elements
+
+**Operations:**
+
+- `mul(a: Carrier, b: Carrier) -> Carrier` --- the binary operation
+- `unit() -> Carrier` --- the identity element
+
+**Equations:**
+
+- **Associativity:** `mul(mul(a, b), c) = mul(a, mul(b, c))`
+- **Left identity:** `mul(unit(), a) = a`
+- **Right identity:** `mul(a, unit()) = a`
+
+Three models: integers under addition (`unit` = 0), strings under
+concatenation (`unit` = `""`), booleans under AND (`unit` = `true`). Different
+concrete sets and functions, same shape.
+
+### The Graph Theory
+
+The **theory of a directed graph**:
+
+**Sorts:**
+
+- `Vertex`
+- `Edge`
+
+**Operations:**
+
+- `src(e: Edge) -> Vertex`
+- `tgt(e: Edge) -> Vertex`
+
+**Equations:**
+
+- (none)
+
+A model of this theory is a specific graph. An ATProto schema, viewed as a
+multigraph, is a model:
+
+- `Vertex` = {`object`, `string`, `datetime`, `array`, `ref`}
+- `Edge` = {`text`, `createdAt`, `tags`, `reply`}
+- `src(text) = object`, `tgt(text) = string`
+- `src(createdAt) = object`, `tgt(createdAt) = datetime`
+
+The schema *is* the model.
+
+
+## Dependent Sorts
+
+The graph theory treats all vertices uniformly. But real schema constraints
+are not uniform. Consider what happens when you try to model constraints as a
+single flat sort:
+
+```
+Constraint = { maxLength, pattern, minimum, maximum, NOT_NULL, CHECK, ... }
+```
+
+Now you need a runtime check: "is this constraint valid for this vertex?"
+`maxLength` only makes sense on string-typed vertices. `CHECK` only makes
+sense on SQL columns. `maxGraphemes` only makes sense on ATProto string
+properties. If you attach `maxLength` to an integer vertex, you have a
+malformed schema---but nothing in the theory prevents it.
+
+The problem is that the **set of valid constraints depends on which vertex
+you're constraining**. String vertices accept `maxLength` and `pattern`.
+Integer vertices accept `minimum` and `maximum`. The constraint vocabulary
+is not one set---it's a *family* of sets, indexed by vertex.
+
+A **Generalized Algebraic Theory** (GAT) expresses this directly with
+**dependent sorts**---sorts parameterized by terms of other sorts:^[The
+foundational treatment of GATs is due to @cartmell1986.]
+
+- `Vertex` --- ordinary sort (like a simple type)
+- `Edge` --- ordinary sort
+- `Constraint(v: Vertex)` --- dependent sort: a *different* set of
+  constraints for each vertex `v`
+
+`Constraint(stringVertex)` = {`maxLength`, `pattern`}.
+`Constraint(intVertex)` = {`minimum`, `maximum`}. These are genuinely
+different sets. A model that tries to put `maxLength` in
+`Constraint(intVertex)` is not a valid model---the types don't match.
+
+The alternative---a flat `Constraint` sort with a runtime `appliesTo`
+check---is to dependent sorts what TypeScript's `any` is to precise types.
+Both let you write correct programs, but dependent sorts catch constraint
+errors structurally rather than at runtime.
+
+
+## Theories for Real Schema Languages
+
+With sorts, operations, equations, and dependent sorts in hand, here are
+sketches of the theories for three schema languages.
+
+### JSON Schema
+
+**Sorts:**
+
+- `SchemaNode` --- schema objects (things with a `type` keyword)
+- `Property` --- named properties of object schemas
+- `Constraint(s: SchemaNode)` --- constraints applicable to a node
+
+**Operations:**
+
+- `owner(p: Property) -> SchemaNode` --- the object owning this property
+- `target(p: Property) -> SchemaNode` --- the property's type
+- `name(p: Property) -> String`
+- `required(p: Property) -> Bool`
+- `schemaType(s: SchemaNode) -> TypeTag`
+- `maxLength(c: Constraint(stringNode)) -> Nat`
+- `pattern(c: Constraint(stringNode)) -> Regex`
+- `minimum(c: Constraint(numericNode)) -> Number`
+
+**Equations:**
+
+- `owner(p)` is always of type `object` (properties belong to objects)
+
+### SQL DDL
+
+**Sorts:**
+
+- `Table`
+- `Column`
+- `ForeignKey` --- a hyperedge sort
+- `Constraint(c: Column)` --- column-level constraints
+
+**Operations:**
+
+- `table(c: Column) -> Table`
+- `colType(c: Column) -> DataType`
+- `srcTable(fk: ForeignKey) -> Table`
+- `srcColumn(fk: ForeignKey) -> Column`
+- `refTable(fk: ForeignKey) -> Table`
+- `refColumn(fk: ForeignKey) -> Column`
+- `notNull(c: Column) -> Bool`
+- `defaultVal(c: Column) -> Option<Expr>`
+
+**Equations:**
+
+- `table(srcColumn(fk)) = srcTable(fk)` --- the source column belongs to the source table
+- `table(refColumn(fk)) = refTable(fk)` --- the referenced column belongs to the referenced table
+
+The equations encode structural invariants that every SQL database enforces.
+panproto can verify schema well-formedness before generating any SQL.
+
+### Protobuf
+
+**Sorts:**
+
+- `Message`
+- `Field`
+- `EnumType`
+- `EnumValue`
+
+**Operations:**
+
+- `message(f: Field) -> Message`
+- `fieldType(f: Field) -> TypeRef`
+- `fieldNumber(f: Field) -> Nat` --- the wire format number
+- `enumType(v: EnumValue) -> EnumType`
+- `enumNumber(v: EnumValue) -> Int`
+
+**Equations:**
+
+- For distinct fields `f1`, `f2` in the same message:
+  `fieldNumber(f1) != fieldNumber(f2)` --- field numbers are unique within a
+  message
+
+The uniqueness equation is what makes Protobuf's wire format work. It's a
+Protobuf-specific structural law, not shared by JSON Schema or SQL.
+
+
+## The Rust Implementation
+
+panproto represents theories as data structures---values you construct,
+inspect, and pass to algorithms.
+
+### Sorts
+
+```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=12 end-line=18}
+```
+
+A `SortParam` captures the name and sort of each parameter in a dependent
+sort. For `Constraint(v: Vertex)`, there's one `SortParam` with name `"v"` and
+a sort reference pointing to `Vertex`.
+
+```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=32 end-line=38}
+```
+
+A `Sort` has a name and a list of parameters. For `Vertex` and `Edge`, the
+parameter list is empty. For `Constraint(v: Vertex)`, it contains one entry.
+
+### Operations
+
+```{.rust include="../../crates/panproto-gat/src/op.rs" start-line=15 end-line=23}
+```
+
+An `Operation` has a name, input sorts, and an output sort. `src: Edge ->
+Vertex` becomes an `Operation` with one input of sort `Edge` and output sort
+`Vertex`.
+
+### Theories
+
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=26 end-line=44}
+```
+
+The `Theory` struct holds sorts, operations, and equations. When panproto
+diffs two schemas, generates code, or plans a migration, it consults the
+theory to understand the structural shape it's working with.
+
+Here's the monoid theory constructed as an actual Rust test from the
+panproto-gat crate:
+
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=302 end-line=367}
+```
+
+The code mirrors the mathematical specification: sorts declared first, then
+operations with their input and output sorts, then equations as pairs of
+terms that must be equal.
+
+### Machine-Checked Equations
+
+panproto type-checks every equation when you define a theory. Both sides must
+have the same sort, and every operation must be applied to arguments of the
+correct sort. An equation claiming a `Vertex`-sorted term equals an
+`Edge`-sorted term is rejected with a clear error message.
+
+This checking happens automatically in the CLI. `schema add` verifies
+equations as part of staging; `schema commit` re-verifies before creating the
+commit. You can also check explicitly:
+
+```bash
+schema verify my-theory.json
+```
+
+Equations are machine-checked invariants. When a building-block theory like
+ThReflexiveGraph declares `src(id(v)) = v`, panproto has verified that both
+sides have sort `Vertex`. When you compose theories via colimit (structured merge — gluing two theories together while identifying their shared parts), the equations
+from each component are re-checked in the combined theory.
+
+For implementation details, see [the GAT engine internals](https://panproto.dev/dev-guide/chapters/06-gat-engine.html).
+
+
+## Why This Matters for Tooling
+
+Schema tools are protocol-specific because each one hardcodes a graph type.
+**Buf** assumes multigraphs (Protobuf messages with fields). **Atlas** assumes
+hypergraphs (SQL tables with multi-ary constraints). **GraphQL Code Generator**
+assumes multigraphs with GraphQL's vertex types (Object, Interface, Union,
+Enum, Scalar). Each is a perfect fit for its target protocol and a poor fit
+for everything else.
+
+panproto parameterizes over the theory. Instead of hardcoding "the schema is a
+multigraph with these specific vertex and edge types," you specify what sorts,
+operations, and equations your schema language needs. The same core
+algorithms---diffing, merging, migration planning, code generation---work
+across any theory.^[panproto's approach builds on categorical database theory: @spivak2012 showed that database schemas can be treated as categories (collections of types linked by relationships), with migration computed by composing maps between them. panproto generalizes this from relational databases to any schema language. The GAT framework [@cartmell1986] adds dependent sorts (constraint types that vary by vertex), implemented via an equivalence with Essentially Algebraic Theories [@adamek1994] that avoids the complexity of full dependent type checking. The computational architecture adapts [GATlab](https://algebraicjulia.github.io/GATlab.jl/) [@lynch2024], a Julia framework for algebraic theories, to Rust. See [Appendix A](../appendices/A-formal-foundations.qmd) for the full mathematical treatment.]
+
+Change the theory, and you get a different schema language---but the same
+algorithms.

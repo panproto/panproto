@@ -1,0 +1,439 @@
+# Lifting Data Through Schema Changes {#sec-lifting-data}
+
+The previous chapters established *when* a migration exists (@sec-existence) and how lenses give you bidirectional `get`/`put` operations (@sec-lenses). This chapter is about the algorithmic heart of both: the `restrict` operation that transforms data from one schema to another.
+
+There are two flavors of restriction, corresponding to the two kinds of schema that panproto supports. **W-type restrict** handles tree-structured data (JSON, CBOR, protocol buffers) by walking a five-step pipeline over the instance tree. **Functor restrict** handles tabular data (SQL) by precomposition along a schema morphism.^[Restriction transforms data from one schema shape to another by walking the migration mapping in reverse. Each step in the pipeline corresponds to a specific structural change in the schema — removing a vertex prunes the corresponding subtree, contracting an ancestor reattaches orphaned children. The formal framework describes this as restriction of a recursive data structure (polynomial functor algebra) along a schema mapping [@gambino2004; @abbott2005]. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+
+We will spend most of our time on the W-type pipeline, since it handles the recursive, nested data formats common in protocol design.
+
+
+## A worked example: `threadViewPost`
+
+To make the pipeline concrete, we need a schema that exercises every step. The ATProto `threadViewPost` type is ideal: a post that contains an array of replies, each of which is itself a post. The recursion means the instance is a tree of arbitrary depth.
+
+Suppose version 1 of the schema looks like this (simplified):
+
+```
+threadViewPost
+├── post: postView
+│   ├── uri: string
+│   ├── author: profileViewBasic
+│   │   ├── did: string
+│   │   ├── handle: string
+│   │   └── displayName: string
+│   ├── text: string
+│   └── likeCount: integer
+└── replies: array<threadViewPost>
+```
+
+And version 2 drops `likeCount` from `postView` and drops `displayName` from `profileViewBasic`. A migration `m: S2 → S1` exists (both changes are field removals, which are always backward-compatible). The migration's vertex map tells us which vertices in S1 survive in S2.
+
+Now consider a concrete instance---a thread with two replies, one of which has a nested reply:
+
+```
+root (threadViewPost)
+├── post (postView)
+│   ├── uri = "at://did:plc:abc/post/1"
+│   ├── author (profileViewBasic)
+│   │   ├── did = "did:plc:abc"
+│   │   ├── handle = "alice.bsky.social"
+│   │   └── displayName = "Alice"
+│   ├── text = "Hello world"
+│   └── likeCount = 42
+└── replies
+    ├── reply-1 (threadViewPost)
+    │   ├── post (postView)
+    │   │   ├── uri = "at://did:plc:def/post/2"
+    │   │   ├── author (profileViewBasic)
+    │   │   │   ├── did = "did:plc:def"
+    │   │   │   ├── handle = "bob.bsky.social"
+    │   │   │   └── displayName = "Bob"
+    │   │   ├── text = "Nice post"
+    │   │   └── likeCount = 7
+    │   └── replies
+    │       └── reply-1-1 (threadViewPost)
+    │           └── ...
+    └── reply-2 (threadViewPost)
+        └── ...
+```
+
+This is the instance we will push through the five-step pipeline.
+
+
+## W-type restrict: the five-step pipeline
+
+The W-type `restrict` algorithm transforms an instance tree in five sequential steps.^[Each step has a precise algebraic meaning in the theory of polynomial functor algebras. The pipeline implements restriction of a polynomial functor algebra along a morphism of polynomial functors. See [instance internals](https://panproto.dev/dev-guide/chapters/08-instances-wtype.html) for the formal treatment.]
+
+### Step 1: `anchor_surviving` {#sec-step-anchor}
+
+The first step is the simplest: walk every node in the instance and check whether its **anchor vertex** (the schema vertex that the node is an instance of) survives the migration's vertex map. If the anchor vertex is not in the image of the vertex map, the node is marked for removal.
+
+```rust
+/// Mark each node as surviving or pruned based on whether
+/// its anchor vertex is in the migration's vertex map.
+fn anchor_surviving(
+    instance: &WTree,
+    vertex_map: &HashMap<VertexId, VertexId>,
+) -> Vec<bool> {
+    instance.nodes.iter().map(|node| {
+        vertex_map.values().any(|v| *v == node.anchor)
+    }).collect()
+}
+```
+
+In our example, the vertices `likeCount` and `displayName` are not in the image of the vertex map (they were dropped in version 2). So every node anchored at `likeCount` or `displayName` is marked for removal:
+
+- `root.post.likeCount` --- pruned
+- `root.post.author.displayName` --- pruned
+- `reply-1.post.likeCount` --- pruned
+- `reply-1.post.author.displayName` --- pruned
+- (and so on for every nested reply)
+
+Everything else survives.
+
+:::{.callout-note}
+## Why "anchor"?
+
+Each node in an instance tree sits over a vertex in the schema. The schema vertex is the node's *anchor* because it determines the node's shape: what children it can have, what edges connect it to its parent, and what data it carries. When a node's anchor survives, the schema still has a place for that kind of node.
+:::
+
+
+### Step 2: `reachable_from_root` {#sec-step-reachable}
+
+After marking survivors, some surviving nodes may be stranded: they are still marked as surviving, but they can only be reached from the root through pruned nodes.
+
+Step 2 runs a breadth-first search from the root, traversing only through surviving nodes. Any surviving node not visited by the BFS is marked as unreachable and will not appear in the output.
+
+```rust
+/// BFS from root through surviving nodes. Returns the set of
+/// node indices that are both surviving and reachable.
+fn reachable_from_root(
+    instance: &WTree,
+    surviving: &[bool],
+) -> HashSet<u32> {
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+
+    if surviving[instance.root as usize] {
+        queue.push_back(instance.root);
+    }
+
+    while let Some(idx) = queue.pop_front() {
+        if !visited.insert(idx) {
+            continue;
+        }
+        for child in instance.children(idx) {
+            if surviving[child as usize] {
+                queue.push_back(child);
+            }
+        }
+    }
+
+    visited
+}
+```
+
+In our example this step has no effect, because removing `likeCount` and `displayName` nodes does not disconnect anything---they are leaf nodes. But consider a different migration that removes `postView` while keeping `text`. The `text` nodes would survive step 1 but become unreachable in step 2, because their parent (`postView`) was pruned and no path from the root reaches them through survivors alone.
+
+:::{.callout-note}
+## When does step 2 matter?
+
+Step 2 is a no-op whenever every pruned node is a leaf or when the surviving nodes form a connected sub-tree. It becomes essential when intermediate structural nodes are removed---for example, when an entire wrapper object is dropped from a schema but some of its children are "hoisted" to a higher level in a later step.
+:::
+
+
+### Step 3: `ancestor_contraction` {#sec-step-contraction}
+
+This is the tree surgery step. When intermediate nodes are pruned, children that survived steps 1 and 2 need to be re-parented to their nearest surviving ancestor. The result is a new tree where every edge connects two surviving nodes.
+
+```rust
+/// For each surviving node, find its nearest surviving ancestor.
+/// Returns a map from node index to new parent index.
+fn ancestor_contraction(
+    instance: &WTree,
+    reachable: &HashSet<u32>,
+) -> HashMap<u32, u32> {
+    let mut new_parent = HashMap::new();
+
+    for &idx in reachable {
+        if idx == instance.root {
+            continue;
+        }
+        // Walk up the original tree until we find a surviving ancestor
+        let mut ancestor = instance.parent(idx);
+        while !reachable.contains(&ancestor) {
+            ancestor = instance.parent(ancestor);
+        }
+        new_parent.insert(idx, ancestor);
+    }
+
+    new_parent
+}
+```
+
+Here is the key visual intuition:
+
+```{mermaid}
+%%| label: fig-contraction-before
+%%| fig-cap: "Before contraction: node B is marked for removal, but its child C survives."
+graph TD
+    A["A (root)"] --> B["B (removed)"]
+    B --> C["C (surviving)"]
+    B --> D["D (removed)"]
+    A --> E["E (surviving)"]
+```
+
+After contraction, C is re-parented to A:
+
+```{mermaid}
+%%| label: fig-contraction-after
+%%| fig-cap: "After contraction: C is now a direct child of A. B and D are gone."
+graph TD
+    A["A (root)"] --> C["C (re-parented)"]
+    A --> E["E (surviving)"]
+```
+
+In our `threadViewPost` example, the pruned nodes (`likeCount`, `displayName`) are all leaves, so no contraction occurs. But imagine a migration that removes the `postView` wrapper while keeping `uri`, `author`, and `text` as direct children of `threadViewPost`. Then `postView` nodes are pruned, and their surviving children are re-parented to the `threadViewPost` node:
+
+```
+Before:                          After:
+threadViewPost                   threadViewPost
+├── postView (removed)    →     ├── uri
+│   ├── uri                      ├── author
+│   ├── author                   │   ├── did
+│   │   ├── did                  │   └── handle
+│   │   ├── handle               ├── text
+│   │   └── displayName          └── replies
+│   ├── text                         └── ...
+│   └── likeCount
+└── replies
+    └── ...
+```
+
+:::{.callout-note}
+## Contraction preserves depth order
+
+A node's depth in the contracted tree is always less than or equal to its depth in the original tree. Contraction never pushes nodes deeper---we only re-parent to *ancestors*, never to siblings or descendants.
+:::
+
+
+### Step 4: `resolve_edge` {#sec-step-resolve}
+
+After contraction, each re-parented child has a new parent, but the edge connecting them needs a label from the target schema. In the original tree, the edge from A to C went through B: `A --(e1)--> B --(e2)--> C`. After removing B, we need a single edge label for the direct `A --> C` connection.
+
+In a simple graph (at most one edge between any two vertices), this is trivial: there is only one choice. But schemas are often multigraphs---multiple edges can exist between the same pair of vertices (think of an object with two fields of the same type). In that case, the choice is ambiguous.
+
+The **resolver table** provides the deterministic choice. It is part of the migration specification and maps each contracted path `(source_vertex, target_vertex, intermediate_path)` to a specific edge in the target schema.
+
+```rust
+/// Given a contracted parent-child pair, look up the correct
+/// edge label from the resolver table.
+fn resolve_edge(
+    parent_anchor: VertexId,
+    child_anchor: VertexId,
+    contracted_path: &[VertexId],
+    resolver: &ResolverTable,
+) -> EdgeId {
+    resolver
+        .lookup(parent_anchor, child_anchor, contracted_path)
+        .expect("migration guarantees a resolution exists")
+}
+```
+
+The existence checker from @sec-existence guarantees that a valid resolution exists for every contracted path, so `resolve_edge` never fails on a well-formed migration.
+
+:::{.callout-note}
+## When is resolution trivial?
+
+For JSON-like schemas (which are trees, not multigraphs), resolution is always trivial: there is at most one edge between any pair of vertices in the schema. The resolver table is only needed for schemas where the same type appears in multiple positions under the same parent---protocol buffers with repeated message types, for instance.
+:::
+
+
+### Step 5: `reconstruct_fans` {#sec-step-fans}
+
+The final step handles **hypergraph schemas**---schemas where an edge can connect a vertex to multiple children simultaneously. In practice, this means SQL: a table row is a hyperedge connecting a primary key to all its column values.
+
+When some columns of a table are pruned, the surviving columns must be collected into a new, smaller hyperedge (a new "fan").
+
+```rust
+/// Reconstruct fans (hyperedges) after pruning some children.
+/// Each surviving fan keeps only its surviving children and
+/// receives a new fan ID from the target schema.
+fn reconstruct_fans(
+    instance: &WTree,
+    reachable: &HashSet<u32>,
+    fan_map: &HashMap<FanId, FanId>,
+) -> Vec<Fan> {
+    instance.fans.iter().filter_map(|fan| {
+        let new_children: Vec<u32> = fan.children.iter()
+            .copied()
+            .filter(|c| reachable.contains(c))
+            .collect();
+
+        if new_children.is_empty() {
+            return None;
+        }
+
+        let new_fan_id = fan_map.get(&fan.id)?;
+        Some(Fan {
+            id: *new_fan_id,
+            parent: fan.parent,
+            children: new_children,
+        })
+    }).collect()
+}
+```
+
+For pure tree schemas (JSON, CBOR, protocol buffers), step 5 is a no-op: every edge connects exactly one parent to exactly one child, so there are no fans to reconstruct. The step exists because panproto's data model handles both trees and hypergraphs uniformly.
+
+:::{.callout-note}
+## The five steps at a glance
+
+| Step | Operation | When it matters |
+|------|-----------|-----------------|
+| 1 | `anchor_surviving` | Always |
+| 2 | `reachable_from_root` | Intermediate nodes pruned |
+| 3 | `ancestor_contraction` | Children of pruned nodes survive |
+| 4 | `resolve_edge` | Multigraph schemas |
+| 5 | `reconstruct_fans` | Hypergraph (SQL) schemas |
+
+For a typical JSON schema migration (adding or removing fields), only step 1 does meaningful work. Steps 2--5 are structural no-ops. The common case is fast by design.
+:::
+
+
+## The pipeline in sequence
+
+Tracing our `threadViewPost` example through all five steps:
+
+**Input:** An instance tree with nodes for `threadViewPost`, `postView`, `profileViewBasic`, `uri`, `author`, `did`, `handle`, `displayName`, `text`, `likeCount`, and `replies`, recursively nested to depth 3.
+
+**Step 1 --- `anchor_surviving`:** Mark `likeCount` and `displayName` nodes as pruned. All other nodes survive. In a thread with 3 posts, this marks 6 nodes for removal (one `likeCount` and one `displayName` per post).
+
+**Step 2 --- `reachable_from_root`:** BFS from root. All surviving nodes are reachable (the pruned nodes are leaves). No additional nodes are removed.
+
+**Step 3 --- `ancestor_contraction`:** No contraction needed. Every surviving node's parent is also surviving.
+
+**Step 4 --- `resolve_edge`:** No re-parenting occurred, so no edges need resolution. All original edges between surviving nodes carry over directly.
+
+**Step 5 --- `reconstruct_fans`:** The schema is a tree, not a hypergraph. No fans to reconstruct.
+
+**Output:** The original instance tree, minus the `likeCount` and `displayName` leaf nodes. Every other node, edge, and value is preserved exactly.
+
+This is the common case for protocol evolution: field removal produces a simple, fast restriction that touches only the affected leaves.
+
+
+## Functor restrict (precomposition) {#sec-functor-restrict}
+
+For tabular data (SQL schemas), restriction takes a different form. Given a schema morphism `F: S1 → S2` and an instance `I` over `S2`, the restricted instance is the precomposition `restrict(F, I)`: apply `F` first, then `I`.^[For table-shaped data, restriction is simpler: given data organized by the new schema's tables, pull each old table's data from the corresponding new table. This is precomposition — composing the data function with the schema mapping. Categorically, this is the pullback functor $\Delta_F$ from @spivak2012.]
+
+In concrete terms: if `F` drops a table from the schema, the rows for that table vanish from the instance. If `F` drops a column, that column disappears from every row. If `F` renames a table, the rows are relabeled. The operation is purely structural---no data is computed, only rearranged.
+
+```rust
+/// Functor restriction: precompose an instance along a schema morphism.
+fn restrict_functor<F, I>(morphism: &F, instance: &I) -> RestrictedInstance
+where
+    F: SchemaMorphism,
+    I: Instance,
+{
+    let mut result = RestrictedInstance::new(morphism.source());
+    for table in morphism.source().tables() {
+        let target_table = morphism.map_table(table);
+        for row in instance.rows(target_table) {
+            let restricted_row = row.project(morphism.column_map(table));
+            result.insert(table, restricted_row);
+        }
+    }
+    result
+}
+```
+
+Precomposition is always total: if `F` is a well-typed schema morphism and `I` is a well-typed instance, the result is a well-typed instance over `S1`. There are no existence conditions to check---the operation cannot fail [@spivak2012].
+
+### Adjoints: extend and product
+
+The `restrict` functor sits in the middle of a triple of related operations:^[`restrict` projects data backward (new schema → old schema). `extend` pushes data forward (old → new, filling in new fields with defaults). `complete` fills in missing data by computing all possible values. These three operations are inverses of each other in a precise mathematical sense: restrict/extend form an adjoint pair, and restrict/complete form another. See @maclane1998, Ch. X for the formal treatment.]
+
+- **`extend`** (left adjoint): computes the "best approximation" of an S1-instance as an S2-instance by taking unions across fibers. In SQL terms, this is roughly `UNION` across related rows.
+- **`restrict`**: the primary tool for schema migration. Lossless with complement, reversible via lenses.
+- **`product`** (right adjoint): computes the "most conservative approximation" by taking intersections across fibers---roughly `JOIN` across related rows.
+
+panproto implements all three. `restrict` is the default choice for schema version migration. `extend` and `product` are available for advanced use cases: cross-protocol data integration, schema merging, and algebraic data integration patterns.
+
+:::{.callout-note}
+## When to use which operation
+
+**`restrict`**: The default choice. Lossless with complement, reversible via lenses. Use for schema version migration.
+
+**`extend`**: Pushes data forward, merging sources that map to the same target. Not reversible. Use when you need to consolidate data from multiple schema sources.
+
+**`product`**: Computes the most conservative instance via intersections over fibers. Can produce large outputs. Use when you need data provably consistent across all sources.
+:::
+
+
+## Performance {#sec-restrict-perf}
+
+The `restrict` pipeline targets **>1 million records per second** for simple projections (field additions and removals) running in WASM. Several design decisions make this possible.
+
+### Compiled migrations
+
+When a migration is loaded, panproto pre-computes everything it can:
+
+- **Surviving sets:** The set of schema vertices that survive is computed once and stored as a bitset. Step 1 becomes a single bitset lookup per node.
+- **Remap tables:** Edge resolution (step 4) is pre-computed into a flat lookup table indexed by `(source_anchor, child_anchor)`. No hash map lookups at runtime.
+- **Fan maps:** Fan reconstruction (step 5) is pre-computed into a mapping from old fan IDs to new fan IDs with pre-allocated child slots.
+
+The migration specification is effectively compiled into a small program that the `restrict` pipeline executes.
+
+### Arena allocation
+
+Instance trees are allocated in a `bumpalo` arena. This has two benefits:
+
+1. **Allocation is O(1):** Bump allocation is a pointer increment. No free-list management, no fragmentation.
+2. **Deallocation is O(1):** The entire arena is freed at once when the instance is no longer needed. No tree of destructors to walk.
+
+For the `restrict` pipeline specifically, the output tree is allocated in a fresh arena. Surviving nodes are written sequentially into the output arena, giving excellent cache locality.
+
+### Zero-copy fast path
+
+For the common case---no contraction (step 3 is a no-op), no fan reconstruction (step 5 is a no-op), and trivial edge resolution (step 4 is a no-op)---the pipeline reduces to:
+
+1. Walk the input tree.
+2. For each node, check the surviving bitset.
+3. If surviving, copy the node to the output arena with a rewritten anchor field.
+
+The node's payload (the actual data---strings, integers, booleans) is not copied. Only the structural metadata (anchor, parent pointer, child list) is written. The payload is referenced by pointer into the input arena. This is safe because the input arena outlives the `restrict` operation.
+
+In benchmarks on an M2 MacBook Air, this fast path processes ~3.2 million nodes per second for a `threadViewPost`-like schema with 8 fields per post. The WASM target is slightly slower (~1.8M nodes/sec) due to bounds checking and the lack of SIMD, but still well above the 1M target.
+
+### Fused single-pass pipeline {#sec-fused-pipeline}
+
+The implementation fuses steps 1--4 into a single BFS traversal from the root. When we visit a node during BFS, its parent's nearest surviving ancestor was already computed (because BFS visits parents before children). If the current node survives, its ancestor is its parent's ancestor (or the parent itself, if the parent survives).
+
+The fused traversal:
+
+1. Starts at the root (if its anchor survives).
+2. For each node popped from the BFS queue:
+   - Check anchor survival (step 1).
+   - If surviving: record the node, resolve its edge from the nearest surviving ancestor (steps 3+4), and mark it as the new "nearest surviving ancestor" for its children.
+   - Enqueue all children regardless (non-surviving nodes may have surviving descendants).
+
+This reduces four passes (anchor scan, BFS, ancestor walk, edge resolution) to one, cutting the constant factor significantly. The individual step functions are retained for unit testing---the fused version must produce identical output for every input, which is verified by the property test suite.
+
+### When it gets expensive
+
+The pipeline slows down when:
+
+- **Deep contraction chains** (step 3): Walking up to find the nearest surviving ancestor is O(depth). For deeply nested schemas with many pruned intermediate levels, this can be significant. panproto mitigates this by pre-computing a "skip ancestor" table during migration compilation.
+- **Ambiguous resolution** (step 4): If the resolver table is large (many parallel edges in the schema), the lookup has higher constant factors. This is rare in practice.
+- **Large fans** (step 5): Reconstructing fans with hundreds of children (wide SQL tables) requires scanning and filtering each fan. The cost is linear in fan width.
+
+For all three cases, the pre-computation done during migration compilation amortizes the per-instance cost.
+
+
+## Further reading
+
+The W-type perspective on tree-shaped data originates with @gambino2004, who showed that recursive tree structures arise as the simplest data types capable of expressing arbitrary nesting — these are the "initial algebras of polynomial functors" in the formal literature. @abbott2005 developed the "container" framework that panproto uses to determine how a schema's structure constrains its data's tree shape.
+
+The graph transformation approach to steps 3 and 4 follows @ehrig2006, particularly the treatment of when removing a node leaves a unique way to reconnect its children (pushout complement existence). @lowe1993 identified that parallel edges create ambiguity in reconnection. @drewes1997 extends this to hypergraph structures (multi-ary relationships like SQL foreign keys), which is the foundation for step 5.
+
+The framework of migrating data by composing schema maps is due to @spivak2012. The mathematical theory underlying the restrict/extend/complete triple is covered in @maclane1998, Chapter X. See [Appendix A](../appendices/A-formal-foundations.qmd) for the full formal treatment.

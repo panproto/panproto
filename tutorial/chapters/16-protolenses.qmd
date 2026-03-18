@@ -1,0 +1,372 @@
+# Protolenses: Reusable Lens Families {#sec-protolenses}
+
+In @sec-lenses we built lenses by hand: each lens was a pair of `get`/`put` operations connecting two specific schemas. If you had ten schemas that all underwent the same structural change---say, wrapping a flat `address` field into a nested `address` object---you wrote ten lenses. A protolens eliminates that repetition. It is not a lens; it is a function that produces a lens when given a schema.
+
+## The problem with manual lenses {#sec-manual-lens-problem}
+
+Consider a platform that hosts user-defined schemas. Each schema has a `metadata` block with `createdAt` and `updatedAt` fields. A platform-wide policy change renames `createdAt` to `created_at` and `updatedAt` to `updated_at` (snake_case normalization).
+
+With the combinator API from @sec-combinators, you would write:
+
+```{.typescript}
+// For schema A
+const lensA = pipeline(
+  renameField("metadata.createdAt", "metadata.created_at"),
+  renameField("metadata.updatedAt", "metadata.updated_at"),
+);
+
+// For schema B — identical logic, different schema
+const lensB = pipeline(
+  renameField("metadata.createdAt", "metadata.created_at"),
+  renameField("metadata.updatedAt", "metadata.updated_at"),
+);
+
+// For schema C, D, E, F, ...
+```
+
+The logic is the same every time. The only thing that varies is the schema the lens is instantiated against. What we want is a single object that encodes the *transformation pattern* and can be applied to any schema that matches a precondition.
+
+That object is a protolens.
+
+
+## What a protolens is {#sec-protolens-definition}
+
+A protolens is a pair:
+
+1. A **precondition** $P$: a predicate on schemas. "Does this schema have a `metadata.createdAt` field?"
+2. A **lens generator**: for any schema $S$ satisfying $P(S)$, produce a concrete lens $\ell_S : S \rightleftarrows F(S)$, where $F(S)$ is the transformed schema.
+
+The schema $S$ is a parameter, not a fixed input. The precondition $P$ gates which schemas the protolens applies to. The output type depends on the input---different schemas produce different lenses with different complements.^[Formally, a protolens is a dependent function: given a schema satisfying a precondition, it returns a lens for that schema. The type signature $\Pi(S : \mathsf{Schema} \mid P(S)). \mathsf{Lens}(S, F(S))$ captures this — $S$ ranges over schemas satisfying predicate $P$, and $F$ is the schema transform. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+
+This is the critical difference from [Cambria](https://www.inkandswitch.com/cambria/)-style combinators [@litt2022]. A Cambria combinator like `renameField("createdAt", "created_at")` is a lens between two *implicit* schemas. A panproto protolens is an explicit function that takes a schema argument and returns a lens.
+
+
+## Schema transforms {#sec-schema-transforms}
+
+The function $F$ in the definition above is a **schema transform**: it takes a schema and returns a modified schema.^[Categorically, this is an *endofunctor* on the category of theories.] panproto defines a library of elementary schema transforms, each corresponding to a `TheoryTransform` variant:
+
+| Schema transform | What it does | Example |
+|-------------|-------------|---------|
+| `RenameVertex(old, new)` | Rename a vertex ID | `author` becomes `creator` |
+| `RenameEdge(old, new)` | Rename an edge kind | `hasAuthor` becomes `hasCreator` |
+| `AddVertex(spec)` | Add a vertex with given kind | Add `version: int` |
+| `RemoveVertex(id)` | Remove a vertex and its edges | Drop `internalId` |
+| `AddEdge(spec)` | Add an edge between existing vertices | Add `author -> org` edge |
+| `RemoveEdge(id)` | Remove an edge | Drop `replyTo` edge |
+| `WrapVertex(id, wrapper)` | Nest a vertex inside a new container | `address` becomes `address.street` inside `address` |
+| `HoistVertex(id)` | Move a nested vertex up one level | `profile.name` becomes `name` |
+| `CoerceType(id, target)` | Change a vertex's data type | `age: string` becomes `age: int` |
+| `MergeVertices(ids, into)` | Merge multiple vertices | `firstName` + `lastName` into `fullName` |
+| `SplitVertex(id, into)` | Split a vertex into multiple | `fullName` into `firstName` + `lastName` |
+
+: Elementary schema transforms. {#tbl-schema-transforms}
+
+Each schema transform has a well-defined precondition. `RenameVertex("author", "creator")` requires the schema to *have* a vertex named `author`. `RemoveVertex("internalId")` requires the vertex to exist. `WrapVertex("address", "location")` requires `address` to exist and `location` to *not* exist.
+
+Schema transforms compose. A sequence of transforms $F_1, F_2, \ldots, F_n$ is a pipeline that transforms a schema step by step. The precondition for the composite is: $P_1(S) \wedge P_2(F_1(S)) \wedge \ldots \wedge P_n(F_{n-1}(\ldots F_1(S)))$. Each step's precondition is checked against the schema *as transformed by the previous steps*.
+
+
+## Instantiation: from protolens to concrete lens {#sec-protolens-instantiation}
+
+Given a protolens and a specific schema, **instantiation** produces a concrete lens:
+
+```{.typescript}
+import { Panproto, ProtolensChainHandle } from "@panproto/core";
+
+// Define a protolens chain: rename + remove
+const chain = ProtolensChainHandle.autoGenerate(oldSchema, newSchema);
+
+// Instantiate against a specific schema
+const lens = chain.instantiate(concreteSchema);
+
+// Now use the lens as in @sec-lenses
+const { view, complement } = lens.get(sourceData);
+const restored = lens.put(modifiedView, complement);
+```
+
+The `instantiate` call checks the precondition against `concreteSchema`. If the schema does not satisfy the precondition, instantiation fails with a diagnostic:
+
+```
+error: protolens precondition not satisfied
+  step 2: RemoveVertex("internalId")
+  requires: vertex "internalId" exists in schema
+  but: schema "my-schema-v3" has no vertex "internalId"
+  hint: this schema may have already undergone this transformation
+```
+
+The same protolens chain can be instantiated against many schemas:
+
+```{.typescript}
+const schemas = await Panproto.listSchemas();
+for (const schema of schemas) {
+  try {
+    const lens = chain.instantiate(schema);
+    console.log(`${schema.name}: lens ready`);
+  } catch (e) {
+    console.log(`${schema.name}: not applicable — ${e.message}`);
+  }
+}
+```
+
+
+## Commutativity with migration {#sec-naturality}
+
+Protolenses are not arbitrary functions from schemas to lenses. They satisfy a commutativity property: applying a protolens and then migrating gives the same result as migrating first and then applying the protolens. The order does not matter.^[This commutativity property is a *naturality condition* in the categorical sense. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+
+Concretely: suppose you have schema v1 and schema v2, with a migration between them. You also have a protolens that renames `createdAt` to `created_at`. You can either:
+
+1. Migrate data from v1 to v2, *then* apply the rename protolens to v2 data, or
+2. Apply the rename protolens to v1 data, *then* migrate the renamed data from v1 to v2
+
+Both paths produce the same output. This is the commutativity property.
+
+In practice, this means you can apply a protolens at any point in a migration pipeline and get the same result. If you have a chain of schema versions $S_1 \to S_2 \to S_3$ and a protolens that renames `createdAt`, you can apply it to $S_1$ data or $S_3$ data---the result is consistent either way. Without this property, the order of application would matter, and composing protolenses with migrations would require careful sequencing.
+
+
+## The 11 elementary protolens constructors {#sec-elementary-protolenses}
+
+Each schema transform from @tbl-schema-transforms has a corresponding protolens constructor:
+
+### 1. `renameVertex`
+
+```{.typescript}
+const pl = Protolens.renameVertex("author", "creator");
+// Precondition: schema has vertex "author"
+// Effect: renames to "creator", all edges updated
+// Complement: empty (bijective)
+```
+
+### 2. `renameEdge`
+
+```{.typescript}
+const pl = Protolens.renameEdge("hasAuthor", "hasCreator");
+// Precondition: schema has edge kind "hasAuthor"
+// Effect: renames edge kind
+// Complement: empty (bijective)
+```
+
+### 3. `addVertex`
+
+```{.typescript}
+const pl = Protolens.addVertex("version", { kind: "int", default: 1 });
+// Precondition: schema does NOT have vertex "version"
+// Effect: adds vertex with default value
+// Complement: stores added value (for removal on put)
+```
+
+### 4. `removeVertex`
+
+```{.typescript}
+const pl = Protolens.removeVertex("internalId");
+// Precondition: schema has vertex "internalId"
+// Effect: removes vertex and its edges
+// Complement: stores removed vertex data
+```
+
+### 5. `addEdge`
+
+```{.typescript}
+const pl = Protolens.addEdge("worksAt", { from: "author", to: "org" });
+// Precondition: both endpoints exist, edge does not
+// Effect: adds edge (data must be provided or defaulted)
+// Complement: stores added edge data
+```
+
+### 6. `removeEdge`
+
+```{.typescript}
+const pl = Protolens.removeEdge("replyTo");
+// Precondition: schema has edge "replyTo"
+// Effect: removes edge
+// Complement: stores removed edge data
+```
+
+### 7. `wrapVertex`
+
+```{.typescript}
+const pl = Protolens.wrapVertex("street", { wrapper: "address" });
+// Precondition: "street" exists, "address" does not
+// Effect: creates "address" container, nests "street" inside
+// Complement: stores wrapper structure
+```
+
+### 8. `hoistVertex`
+
+```{.typescript}
+const pl = Protolens.hoistVertex("address.street");
+// Precondition: "address.street" exists
+// Effect: moves "street" up to parent level
+// Complement: stores original nesting
+```
+
+### 9. `coerceType`
+
+```{.typescript}
+const pl = Protolens.coerceType("age", { from: "string", to: "int" });
+// Precondition: "age" exists with kind "string"
+// Effect: converts value using registered coercion
+// Complement: empty if coercion is bijective, stores original otherwise
+```
+
+### 10. `mergeVertices`
+
+```{.typescript}
+const pl = Protolens.mergeVertices(["firstName", "lastName"], {
+  into: "fullName",
+  merge: (first, last) => `${first} ${last}`,
+  split: (full) => { const [f, ...l] = full.split(" "); return [f, l.join(" ")]; },
+});
+// Precondition: all source vertices exist
+// Effect: merges into single vertex
+// Complement: stores split function result for round-trip
+```
+
+### 11. `splitVertex`
+
+```{.typescript}
+const pl = Protolens.splitVertex("fullName", {
+  into: ["firstName", "lastName"],
+  split: (full) => { const [f, ...l] = full.split(" "); return [f, l.join(" ")]; },
+  merge: (first, last) => `${first} ${last}`,
+});
+// Precondition: "fullName" exists
+// Effect: splits into multiple vertices
+// Complement: stores merge function result for round-trip
+```
+
+
+## Complement types as dependent types {#sec-dependent-complements}
+
+In @sec-complement, we saw that the complement is a fixed data structure. For protolenses, the complement *depends on the schema*. A `removeVertex("internalId")` protolens produces different complement data for different schemas:
+
+- Schema A has `internalId: string` --- complement stores a string
+- Schema B has `internalId: { hash: bytes, counter: int }` --- complement stores an object
+
+The complement type is a function from schemas to types. In panproto's implementation, complements are dynamically typed (serialized as CBOR), so this dependence is handled at runtime rather than compile time. But the *structure* of the complement---which fields it contains, how they are nested---varies with the schema.
+
+This is why protolenses are more than simple templates. A template would produce the same complement structure every time. A protolens produces a complement whose structure matches the schema it was instantiated against.
+
+
+## CLI demo {#sec-protolens-cli}
+
+The `prot protolens` command computes and displays the protolens chain between two schemas:
+
+```bash
+$ prot protolens old.json new.json
+
+Protolens chain (3 steps):
+  1. RenameVertex("userName" → "handle")
+  2. RemoveVertex("internalId")
+     complement: stores { internalId: string }
+  3. AddVertex("version", default: 1)
+
+Precondition:
+  - vertex "userName" must exist
+  - vertex "internalId" must exist
+  - vertex "version" must NOT exist
+
+Applicable to: any schema satisfying the precondition
+```
+
+You can instantiate the chain against a specific schema:
+
+```bash
+$ prot protolens old.json new.json --instantiate my-schema.json
+
+Instantiated lens for "my-schema-v2":
+  get: my-schema-v2 → my-schema-v2' (3 fields affected)
+  put: my-schema-v2' × complement → my-schema-v2
+  complement size: ~48 bytes per record
+```
+
+And you can convert data through the instantiated lens:
+
+```bash
+$ prot convert --protolens old.json new.json --schema my-schema.json data.json
+```
+
+
+## TypeScript usage {#sec-protolens-ts}
+
+The full TypeScript workflow:
+
+```{.typescript}
+import { Panproto, ProtolensChainHandle, LensHandle } from "@panproto/core";
+
+// Step 1: Generate a protolens chain from two reference schemas
+const chain = ProtolensChainHandle.autoGenerate(oldSchema, newSchema);
+
+// Step 2: Inspect the chain
+console.log(chain.steps);
+// [
+//   { type: "RenameVertex", from: "userName", to: "handle" },
+//   { type: "RemoveVertex", id: "internalId" },
+//   { type: "AddVertex", id: "version", default: 1 },
+// ]
+
+// Step 3: Instantiate against any compatible schema
+const lens: LensHandle = chain.instantiate(mySchema);
+
+// Step 4: Use the lens
+const { view, complement } = lens.get(sourceData);
+// ... modify view ...
+const restored = lens.put(modifiedView, complement);
+
+// Step 5: Convert data directly
+const converted = Panproto.convert(sourceData, { protolens: chain, schema: mySchema });
+```
+
+
+## Python usage {#sec-protolens-py}
+
+The equivalent Python workflow:
+
+```{.python}
+from panproto import Panproto, ProtolensChainHandle, LensHandle
+
+# Step 1: Generate a protolens chain from two reference schemas
+chain = ProtolensChainHandle.auto_generate(old_schema, new_schema)
+
+# Step 2: Inspect the chain
+print(chain.steps)
+# [
+#   RenameVertex(from_="userName", to="handle"),
+#   RemoveVertex(id="internalId"),
+#   AddVertex(id="version", default=1),
+# ]
+
+# Step 3: Instantiate against any compatible schema
+lens: LensHandle = chain.instantiate(my_schema)
+
+# Step 4: Use the lens
+view, complement = lens.get(source_data)
+# ... modify view ...
+restored = lens.put(modified_view, complement)
+
+# Step 5: Convert data directly
+converted = Panproto.convert(source_data, protolens=chain, schema=my_schema)
+```
+
+
+## Comparison with Cambria {#sec-cambria-comparison}
+
+[Cambria](https://www.inkandswitch.com/cambria/) [@litt2022] pioneered the combinator approach to schema evolution. panproto's protolenses build on Cambria's insights but differ in three key ways:
+
+| | Cambria | panproto protolenses |
+|---|---------|---------------------|
+| **Scope** | Flat JSON schemas | Recursive, polynomial-functor schemas |
+| **Parameterization** | Combinators are schema-specific | Protolenses are schema-independent |
+| **Composition** | Sequence of combinators | Sequence of schema transforms with preconditions |
+| **Complement** | Implicit (edit lenses) | Explicit, schema-dependent |
+| **Commutativity** | Not addressed | Guaranteed by construction |
+| **Reuse** | Copy-paste combinators across schemas | Single protolens chain, many instantiations |
+
+: Cambria vs. panproto protolenses. {#tbl-cambria-comparison}
+
+The fundamental difference is parameterization. A Cambria lens `renameField("x", "y")` operates on whatever document you hand it---but it does not know the schema, so it cannot verify preconditions, compute complement types, or guarantee commutativity with migration. A panproto protolens takes the schema as an explicit argument, which enables all of these.
+
+:::{.callout-note}
+## Cambria is still useful
+
+Cambria's design is excellent for its intended domain: schema evolution in CRDT-based collaborative editors where schemas are implicit and changes are simple. Protolenses are designed for a different domain: platform-wide schema governance where changes must be verified, composed, and applied across many schemas. If you are working with a single schema that evolves incrementally, Cambria-style combinators (available in panproto via the `pipeline()` API from @sec-combinators) may be all you need.
+:::

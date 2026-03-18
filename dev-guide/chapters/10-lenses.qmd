@@ -1,14 +1,14 @@
-# panproto-lens --- Bidirectional Lenses
+# panproto-lens --- Bidirectional Lenses {#sec-lenses}
 
 The `panproto-lens` crate implements bidirectional lenses for panproto, enabling round-trip transformations between schema versions even when the mapping is not bijective. Where `panproto-mig` requires bijectivity for inversion, lenses track a *complement*---the data discarded during the forward direction---so that the backward direction can reconstruct the original source from a (possibly modified) view.
 
-This chapter covers the asymmetric lens primitives (`get` and `put`), the complement type, Cambria-style combinators for building lenses declaratively, and the lens laws that guarantee correctness.
+This chapter covers the asymmetric lens primitives (`get` and `put`), the complement type, [Cambria](https://www.inkandswitch.com/cambria/)-style combinators for building lenses declaratively, and the lens laws that guarantee correctness.
 
-The crate lives at `crates/panproto-lens` and is published as `panproto-lens` on crates.io. It depends on `panproto-schema` for schema types, `panproto-inst` for W-type instances and compiled migrations, and `panproto-mig` for migration composition. It is a Level 2 crate in panproto's dependency hierarchy.
+The crate lives at `crates/panproto-lens` and is published as `panproto-lens` on crates.io. It depends on `panproto-schema` for schema types, `panproto-inst` for tree instances and compiled migrations, and `panproto-mig` for migration composition. It is a Level 2 crate in panproto's dependency hierarchy.
 
 ## Why Lenses?
 
-Migrations (Chapter 9) handle the common case where a schema evolution preserves all information---renames, reorderings, and bijective restructurings. But many real-world evolutions are lossy: removing a deprecated field, collapsing two fields into one, or changing a field's type. These transformations cannot be inverted by `panproto-mig` because there is no unique preimage.
+Migrations (@sec-migration-engine) handle the common case where a schema evolution preserves all information---renames, reorderings, and bijective restructurings. But many real-world evolutions are lossy: removing a deprecated field, collapsing two fields into one, or changing a field's type. These transformations cannot be inverted by `panproto-mig` because there is no unique preimage.
 
 Lenses solve this by capturing the "lost" information in a complement. The forward direction (`get`) produces a view of the data under the new schema plus a complement recording everything that was discarded. The backward direction (`put`) takes a (possibly modified) view and the stored complement, and reconstructs the original data.
 
@@ -52,7 +52,7 @@ Internally, `get` delegates to `wtype_restrict` from `panproto-inst` to compute 
 1. **View computation**: calls `wtype_restrict` with the lens's compiled migration. This produces the projected instance under the target schema.
 2. **Dropped nodes**: iterates over source nodes, collecting any not present in the view.
 3. **Dropped arcs**: iterates over source arcs, collecting any where either endpoint was dropped.
-4. **Contraction choices**: for each arc in the view that connects two nodes not directly connected in the source, records the resolver edge that was used. This is the "decision" that contraction made.
+4. **Contraction choices**: for each arc in the view that connects two nodes not directly connected in the source, records the resolver edge that was used.
 5. **Original parents**: for each surviving node in the view, records what its parent was in the source instance (before contraction may have changed the parent).
 6. **Dropped fans**: iterates over source fans, collecting any where the parent or a child was dropped.
 
@@ -119,7 +119,7 @@ These laws are property-tested in `panproto-lens` via the `check_laws` function,
 The property tests run as part of the standard `cargo test` suite and also in the CI pipeline with extended iteration counts.
 
 ::: {.callout-note}
-The lens laws follow the formulation of asymmetric lenses from @foster2007, adapted to the setting of W-type instances over GAT-based schema theories. The complement corresponds to the abstract complement in the lens framework of @johnson2013.
+The lens laws follow the formulation of asymmetric lenses from @foster2007, adapted to tree instances over GAT-based schema theories. The complement corresponds to the abstract complement in the lens framework of @johnson2013.^[Complement-based lenses have two useful structural properties: there is an identity lens (that does nothing), and lenses compose associatively (chaining A-to-B and B-to-C produces A-to-C) [@hofmann2011]. panproto exploits this by allowing lens composition through `Compose` combinators and through direct composition of compiled migrations.]
 :::
 
 ## Cambria-Style Combinators
@@ -184,17 +184,15 @@ The `from_combinators` function takes a source schema and a slice of combinators
 3. Compose the step migration with the accumulated result.
 4. Return a `Lens` containing the composed compiled migration, the original source schema, and the final target schema.
 
-This means you never need to manually construct vertex maps, edge maps, or resolvers when using combinators. The target schema and migration are derived automatically from the combinator chain. Multi-step chains work correctly because each combinator operates on the output schema of the previous step---a rename followed by a hoist that references the renamed name will find the name as expected.
+You never need to manually construct vertex maps, edge maps, or resolvers when using combinators. The target schema and migration are derived automatically from the combinator chain. Multi-step chains work correctly because each combinator operates on the output schema of the previous step---a rename followed by a hoist that references the renamed name will find the name as expected.
 
 ::: {.callout-tip}
-Combinators are inspired by the Cambria lens language [@clarke2020]. If you are familiar with Cambria's JSON lens combinators, panproto's combinators will feel familiar---but they operate on the graph-level schema representation rather than on JSON paths, making them protocol-agnostic. The same combinator chain works for JSON Schema, Protobuf, SQL, or any other supported protocol.
+Combinators are inspired by the [Cambria](https://www.inkandswitch.com/cambria/) lens language [@clarke2020]. panproto's combinators will feel familiar if you know Cambria's JSON lens combinators---but they operate on the graph-level schema representation rather than on JSON paths, making them protocol-agnostic. The same combinator chain works for JSON Schema, Protobuf, SQL, or any other supported protocol.
 :::
 
 ## Design Rationale
 
-The asymmetric lens design follows the theoretical framework of @hofmann2011, which establishes that complement-based lenses form a category: identity lenses exist, and lenses compose associatively. panproto exploits this by allowing lens composition through `Compose` combinators and through direct composition of compiled migrations.
-
-The choice of asymmetric (rather than symmetric) lenses is deliberate. In protocol evolution, one direction is typically authoritative---the new schema version defines the "view," and the old schema's extra structure is captured as complement. Symmetric lenses [@hofmann2011] would require both sides to carry complements, adding complexity without clear benefit for the schema migration use case.
+The asymmetric lens design follows the theoretical framework of @hofmann2011. The choice of asymmetric (rather than symmetric) lenses is deliberate. In protocol evolution, one direction is typically authoritative---the new schema version defines the "view," and the old schema's extra structure is captured as complement. Symmetric lenses would require both sides to carry complements, adding complexity without clear benefit for the schema migration use case.
 
 The complement-based approach also integrates naturally with panproto's existing infrastructure. A `Lens` wraps a `CompiledMigration` (the same type used by `panproto-mig`), so the forward direction of a lens is exactly a migration lift. The complement is the additional information needed to make the transformation reversible.
 
@@ -243,7 +241,7 @@ The `Complement` type derives `Serialize` and `Deserialize`, so any serde-compat
 
 ## Interaction with Breaking Change Detection
 
-Lenses and breaking change detection (Chapter 11) are complementary:
+Lenses and breaking change detection (@sec-breaking-changes) are complementary:
 
 - A `RemoveField` combinator always produces a non-empty complement. The breaking change detector (`panproto-check`) will classify the corresponding schema change as breaking (vertex removal).
 - A `RenameField` combinator produces an empty complement. The breaking change detector will see the rename as a vertex removal + vertex addition, classifying the removal as breaking. To avoid this, use the migration engine's rename support instead.
@@ -261,17 +259,37 @@ The `panproto-lens` error types cover failures in both the combinator and primit
 - **`LensError::VertexNotFound`**: a combinator references a vertex ID not present in the schema.
 - **`LensError::IncompatibleCoercion`**: a `CoerceType` combinator references a kind not present in any vertex.
 
-For a hands-on introduction to building and applying lenses, see [tutorial chapter 8](https://panproto.github.io/tutorial/chapters/08-lenses.html).
+For a hands-on introduction to building and applying lenses, see [the tutorial](https://panproto.dev/tutorial/chapters/08-lenses.html).
 
-## Summary
+## Protolens Modules {#sec-protolens-modules}
 
-The `panproto-lens` crate provides three layers of abstraction:
+The `panproto-lens` crate includes a protolens layer that lifts concrete lenses to schema-parameterized families. The protolens layer operates at the theory level, deriving lens families that can be instantiated against any schema conforming to the theory.
 
-- **Primitives**: `get` and `put` operate on `Lens` values, producing views and complements.
-- **Combinators**: `RenameField`, `AddField`, `RemoveField`, `WrapInObject`, `HoistField`, `CoerceType`, and `Compose` describe transformations declaratively.
-- **Laws**: `check_laws` property-tests GetPut and PutGet to verify correctness.
+### `protolens.rs`
 
-Together, these layers enable safe, reversible schema evolution across all panproto-supported protocols, even when the evolution involves lossy structural changes. The complement is the key innovation: it makes non-bijective transformations reversible by explicitly tracking what was lost, rather than silently discarding it.
+**File**: `crates/panproto-lens/src/protolens.rs`
+
+Exports:
+
+- **`Protolens`**: A schema-parameterized lens---a compatible family of maps between theory-level transformations whose components are lenses.^[A protolens is a reusable lens template: given any schema that satisfies a precondition, it produces a concrete lens. Categorically, this is a natural transformation between theory endofunctors. See the tutorial's [Appendix A](https://panproto.dev/tutorial/appendices/A-formal-foundations.html).]
+- **`ProtolensChain`**: A sequence of protolenses for vertical composition.
+- **`ComplementConstructor`**: A type describing how the complement varies with the schema.
+- **`vertical_compose`** / **`horizontal_compose`**: Composition operations.
+- **`elementary::*`**: Nine atomic protolens constructors (`add_sort`, `drop_sort`, `rename_sort`, `add_op`, `drop_op`, `rename_op`, `add_equation`, `drop_equation`, `pullback`).
+
+The `Protolens::instantiate` method is the `complete` operation: given a schema and protocol, it applies the source and target transformations to compute source and target schemas, derives a `CompiledMigration` between them, and returns a concrete `Lens`.^[Instantiation takes a schema-parameterized template and produces a concrete lens for a specific schema. In dependent type theory, this is called $\Pi$-elimination.]
+
+For full details, see @sec-protolens-engine.
+
+### Relationship to `combinators.rs`
+
+The `Combinator` enum in `combinators.rs` operates at the schema level---each combinator directly mutates a schema and produces a migration step. Protolenses operate at the theory level---each protolens describes a transformation on theories that induces schema transformations when instantiated.
+
+The two layers coexist: `combinators.rs` remains the preferred API for hand-written lens chains (where the user specifies exact field names), while `protolens.rs` is used by the automated pipeline (@sec-auto-lens-pipeline) where lenses are derived from schema diffs.
+
+::: {.callout-note}
+The `combinators.rs` module is not deprecated. It provides a simpler, more direct API for cases where the user knows exactly which fields to rename, add, or remove. Protolenses are the right tool when the transformation must be derived automatically or must be schema-generic.
+:::
 
 ## Module Map
 
@@ -283,9 +301,11 @@ The crate is organized into the following modules:
 | `combinators` | `Combinator`, `from_combinators` | Cambria-style declarative lens construction |
 | `compose` | `compose_compiled_migrations` | Composition of compiled migrations for multi-step lenses |
 | `laws` | `check_laws` | Property-based testing of GetPut and PutGet laws |
+| `protolens` | `Protolens`, `ProtolensChain`, `ComplementConstructor`, `elementary::*` | Schema-parameterized lens families |
+| `symmetric` | `SymmetricLens` | Symmetric lens with bidirectional complements |
 | `error` | `LensError` | Error types for lens operations |
 
-The crate root re-exports `Lens`, `Complement`, `get`, `put`, `Combinator`, and `from_combinators` for convenient access.
+The crate root re-exports `Lens`, `Complement`, `get`, `put`, `Combinator`, `from_combinators`, `Protolens`, `ProtolensChain`, `ComplementConstructor`, and the composition functions for convenient access.
 
 ## When to Use Lenses vs. Migrations
 
