@@ -577,6 +577,9 @@ mod tests {
                 timestamp: i as u64 * 100,
                 message: format!("commit {i}"),
                 renames: vec![],
+                protocol_id: None,
+                data_ids: vec![],
+                complement_ids: vec![],
             };
             let id = store.put(&Object::Commit(commit))?;
             ids.push(id);
@@ -605,6 +608,9 @@ mod tests {
             timestamp: 100,
             message: "c0".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -617,6 +623,9 @@ mod tests {
             timestamp: 200,
             message: "c1".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -629,6 +638,9 @@ mod tests {
             timestamp: 300,
             message: "c2".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -641,6 +653,9 @@ mod tests {
             timestamp: 400,
             message: "c3".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id3 = store.put(&Object::Commit(c3))?;
 
@@ -682,6 +697,9 @@ mod tests {
             timestamp: 100,
             message: "orphan1".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let c2 = CommitObject {
             schema_id: ObjectId::from_bytes([2; 32]),
@@ -692,6 +710,9 @@ mod tests {
             timestamp: 200,
             message: "orphan2".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
         let id2 = store.put(&Object::Commit(c2))?;
@@ -797,6 +818,9 @@ mod tests {
             timestamp: 100,
             message: "c0".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -809,6 +833,9 @@ mod tests {
             timestamp: 200,
             message: "c1".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -821,6 +848,9 @@ mod tests {
             timestamp: 300,
             message: "c2".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -834,6 +864,9 @@ mod tests {
             timestamp: 400,
             message: "c3".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id3 = store.put(&Object::Commit(c3))?;
 
@@ -847,6 +880,9 @@ mod tests {
             timestamp: 500,
             message: "c4".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id4 = store.put(&Object::Commit(c4))?;
 
@@ -972,6 +1008,9 @@ mod tests {
             timestamp: 100,
             message: "c0".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -984,6 +1023,9 @@ mod tests {
             timestamp: 200,
             message: "c1".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -996,6 +1038,9 @@ mod tests {
             timestamp: 300,
             message: "c2".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -1077,6 +1122,9 @@ mod tests {
             timestamp: 100,
             message: "src".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let csrc_id = store.put(&Object::Commit(c0))?;
 
@@ -1089,6 +1137,9 @@ mod tests {
             timestamp: 200,
             message: "tgt".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let ctgt_id = store.put(&Object::Commit(c1))?;
 
@@ -1140,6 +1191,9 @@ mod tests {
             timestamp: 100,
             message: "c0".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -1152,6 +1206,9 @@ mod tests {
             timestamp: 200,
             message: "c1".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -1248,6 +1305,9 @@ mod tests {
             timestamp: 100,
             message: "c0".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -1260,6 +1320,9 @@ mod tests {
             timestamp: 200,
             message: "c1".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -1272,6 +1335,9 @@ mod tests {
             timestamp: 300,
             message: "c2".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -1367,6 +1433,9 @@ mod tests {
             timestamp: 100,
             message: "c0".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -1379,6 +1448,9 @@ mod tests {
             timestamp: 200,
             message: "c1".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -1391,6 +1463,9 @@ mod tests {
             timestamp: 300,
             message: "c2".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 

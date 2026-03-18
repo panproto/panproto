@@ -2,7 +2,9 @@
 
 ## What is panproto?
 
-panproto is a **universal schema migration engine**. It treats every schema language --- SQL DDL, Protobuf, GraphQL, AT Protocol Lexicon, JSON Schema, and any future format --- as a presentation of a Generalized Algebraic Theory (GAT). A *protocol* in panproto is parameterized by two GATs: one that describes the structural sorts and operations of the schema language, and one that describes its constraint system. By computing colimits (pushouts) of theory morphisms, panproto can translate schemas across languages, compile migrations between schema versions, and verify round-trip correctness through bidirectional lenses --- all from a single algebraic core.
+panproto is a **schematic version control system**. It treats every schema language---SQL DDL, Protobuf, GraphQL, AT Protocol Lexicon, JSON Schema, and any future format---as a presentation (the parse/emit layer that converts native format syntax to panproto's internal representation) of a **Generalized Algebraic Theory** (GAT). A GAT is a formal description of what a schema language's structural vocabulary looks like: what kinds of entities exist (sorts --- a type in a formal theory, not a sorting operation --- like `Vertex` and `Edge`), what relationships connect them (operations, like `src: Edge → Vertex`), and what consistency rules hold (equations, like "a foreign key's source column must belong to its source table"). Sorts can depend on other sorts---the set of valid constraints for a string vertex is different from the set for an integer vertex---which is the "generalized" part.^[The foundational treatment of GATs is due to @cartmell1986.]
+
+A *protocol* in panproto is parameterized by two GATs: one for the schema structure, one for the data representation. By computing structured merges of structure-preserving maps between theories, panproto can translate schemas across languages, compile migrations between schema versions, and verify round-trip correctness through bidirectional lenses---all from a single algebraic core.^[The "structured merge" is formally a *colimit* (pushout) in the category of GATs. See @sec-gat-engine.]
 
 ## Who this guide is for
 
@@ -19,7 +21,7 @@ You are interested in panproto's theoretical foundations --- W-type instances, a
 
 ## This guide vs. the tutorial
 
-The [panproto Tutorial](https://panproto.github.io/tutorial/) and this Developer Guide are complementary but distinct:
+The [panproto Tutorial](https://panproto.dev/tutorial/) and this Developer Guide are complementary but distinct:
 
 | | Tutorial | Developer Guide |
 |---|---|---|
@@ -28,13 +30,13 @@ The [panproto Tutorial](https://panproto.github.io/tutorial/) and this Developer
 | **Depth** | Concepts, examples, recipes | Architecture, implementation, internals |
 | **Prerequisite** | Basic programming | Rust, algebraic thinking |
 
-The tutorial explains *what* a theory morphism does; this guide explains *how* `colimit()` computes the pushout. The tutorial shows *how* to run a migration; this guide shows *how* the surviving-set computation and W-type restrict pipeline are implemented.
+The tutorial explains *what* a theory morphism does; this guide explains *how* the engine computes structured merges. The tutorial shows *how* to run a migration; this guide shows *how* the surviving-set computation and W-type restrict pipeline are implemented.
 
 ```{mermaid}
 %%| label: fig-docs-overview
 %%| fig-cap: "Documentation structure for panproto"
 flowchart LR
-    A["panproto Tutorial<br>(panproto.github.io/tutorial/)"] -->|"teaches users"| U["Users"]
+    A["panproto Tutorial<br>(panproto.dev/tutorial/)"] -->|"teaches users"| U["Users"]
     B["Developer Guide<br>(this book)"] -->|"teaches contributors"| C["Contributors"]
     D["Rustdoc<br>(cargo doc)"] -->|"API reference"| C
     D -->|"API reference"| U
@@ -82,9 +84,9 @@ panproto is a Cargo workspace with 12 crates, TypeScript and Python SDKs, an int
 
 | Crate | Role |
 |---|---|
-| `panproto-gat` | GAT engine: sorts, operations, equations, morphisms, colimits, models |
+| `panproto-gat` | GAT engine: sorts, operations, equations, structure-preserving maps, theory merges, models (concrete instances satisfying a theory) |
 | `panproto-schema` | Schema representation: vertices, edges, hyper-edges, constraints, colimits |
-| `panproto-inst` | W-type and functor instances, restrict/extend/pi operations |
+| `panproto-inst` | Tree-shaped and table-shaped instances, project/extend/complete operations |
 | `panproto-mig` | Migration engine: compile, lift, compose, invert, homomorphism search, chase |
 | `panproto-lens` | Bidirectional lenses: asymmetric, combinators, law checking |
 | `panproto-check` | Breaking-change detection: diff, classify, report |
@@ -101,6 +103,6 @@ Chapter 5 covers how these crates depend on each other and how data flows throug
 
 - **Issues:** <https://github.com/panproto/panproto/issues>
 - **Discussions:** use GitHub Discussions for questions and design proposals.
-- **Tutorial:** <https://panproto.github.io/tutorial/> for user-facing concepts.
+- **Tutorial:** <https://panproto.dev/tutorial/> for user-facing concepts.
 
 Now proceed to @sec-first-contribution to fork the repository and land your first change.

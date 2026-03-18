@@ -1,6 +1,6 @@
 # Preface {.unnumbered}
 
-This is the **panproto Developer Guide** --- an architecture reference and contributor handbook for the panproto project. It documents the internals of the universal schema migration engine: how crates are organized, how the algebraic machinery works under the hood, and how to contribute effectively.
+This is the **panproto Developer Guide** --- an architecture reference and contributor handbook for the panproto schematic version control system. It documents how crates are organized, how the algebraic machinery works under the hood, and how to contribute effectively.
 
 ## Who this guide is for
 
@@ -8,17 +8,26 @@ This guide is written for three audiences:
 
 - **Contributors** submitting bug fixes, performance improvements, or new features to the panproto codebase.
 - **Protocol authors** adding support for new schema languages (e.g., a new IDL or data-definition format) by implementing panproto's protocol trait.
-- **Researchers** who want to understand panproto's internals --- its use of Generalized Algebraic Theories, W-type instances, and bidirectional lenses --- in order to extend or build on the engine.
+- **Researchers** who want to understand panproto's internals --- its use of Generalized Algebraic Theories, tree-shaped data instances (W-types), and bidirectional lenses --- in order to extend or build on the engine.
 
-If you are a *user* of panproto who wants to learn how to define schemas, run migrations, and use the TypeScript SDK, start with the [panproto Tutorial](https://panproto.github.io/tutorial/) instead. The tutorial teaches you how to **use** panproto; this guide explains how it **works**.
+If you are a *user* of panproto who wants to learn how to define schemas, run migrations, and use the TypeScript SDK, start with the [panproto Tutorial](https://panproto.dev/tutorial/) instead. The tutorial teaches you how to **use** panproto; this guide explains how it **works**.
 
 ## Prerequisites
 
-You should be comfortable with:
-
 - **Rust** (ownership, traits, generics, `Result`-based error handling). The codebase targets Edition 2024.
 - **Basic TypeScript**, enough to read the SDK wrapper and its tests.
-- **Algebraic concepts** like sorts, operations, and equations. You do not need a category theory background --- the [tutorial's category theory cheatsheet](https://panproto.github.io/tutorial/appendices/A-category-theory-cheatsheet.html) provides a gentle introduction --- but familiarity with algebraic thinking will help.
+- **Algebraic concepts** --- specifically *sorts* (types in a formal theory), *operations* (functions connecting sorts), and *equations* (invariants those functions satisfy). The [tutorial's formal foundations appendix](https://panproto.dev/tutorial/appendices/A-formal-foundations.html) provides relevant background.
+
+## Crate map
+
+| Level | Crates | Role |
+|-------|--------|------|
+| 0 | `panproto-gat` | The GAT engine: theories, structure-preserving maps, theory merges |
+| 1 | `panproto-schema`, `panproto-inst` | Schema graphs and instance trees |
+| 2 | `panproto-mig`, `panproto-lens`, `panproto-check` | Migration compilation, lenses, breaking-change analysis |
+| 3 | `panproto-protocols` | Protocol definitions and schema-level presentation |
+| 3.5 | `panproto-io` | Instance-level presentation: format-specific parse/emit |
+| 4 | `panproto-core`, `panproto-wasm`, `panproto-cli` | Re-export facade, WASM boundary, CLI |
 
 ## How to navigate this guide
 
@@ -42,6 +51,14 @@ Chapter 19 covers the release process and versioning policy.
 **Appendices.**
 The glossary (Appendix A) defines every domain term. The source code map (Appendix B) is a directory-level index of the entire repository. The troubleshooting FAQ (Appendix C) addresses common build and test issues.
 
+### Reading roadmaps
+
+**Contributors** landing a fix or feature: chapters 1--2, then chapter 3 (build), then chapters 16--18 (PR workflow).
+
+**Protocol authors** adding a new schema language: chapters 5 (architecture), 6 (GAT engine), then the protocol chapter.
+
+**Researchers** exploring the internals: chapters 5--6, then @sec-advanced-internals, then @sec-protolens-engine and @sec-auto-lens-pipeline.
+
 ::: {.callout-tip}
 ## Quick-start path
 
@@ -50,7 +67,7 @@ If you want to land a contribution as fast as possible: read chapters 1 and 2, b
 
 ## Links
 
-- **Tutorial:** <https://panproto.github.io/tutorial/>
+- **Tutorial:** <https://panproto.dev/tutorial/>
 - **Repository:** <https://github.com/panproto/panproto>
 - **Rustdoc:** generated from `cargo doc --workspace --no-deps`
 

@@ -1,0 +1,281 @@
+# Names Across Protocol Boundaries {#sec-names}
+
+The short text handle a person uses online goes by many names. ATProto calls it `handle`. Mastodon calls it `acct`. Twitter called it `screen_name`. ActivityPub uses `preferredUsername`. Your internal API says `username`.
+
+They all mean the same thing. But every integration between these systems requires adapter code that maps one name to another. Multiply this by dozens of fields across dozens of protocols, and you get one of the most persistent sources of integration bugs in software.
+
+Previous attempts to address this have tried to get everyone to agree on names---standards bodies, shared ontologies, canonical schemas. They tend to fail for three reasons:
+
+1. **Names carry context.** ATProto calls it `handle` because of how identity works in their protocol. The name encodes a design decision, not just a label.
+2. **Names evolve.** Your v1 API said `text`. Your v2 says `body`. Your v3 will say `content`. Each rename made sense at the time.
+3. **Agreement doesn't scale.** Getting two teams to agree is difficult. Getting an entire community to agree is, historically, impossible.
+
+panproto takes a different approach. Instead of requiring consensus on names, it formalizes the *relationships between names* as structure-preserving maps. Two protocols can call the same concept by different names, and the system tracks how those names correspond through bidirectional, composable, verifiable transformations.
+
+
+## Where names live {#sec-naming-sites}
+
+Names appear at nine different sites in the panproto system. Each site is a place where a string label is attached to a structural element:
+
+| Site | Example | What it labels |
+|------|---------|----------------|
+| Edge label | `"text"` to `"body"` | Field/property names |
+| Vertex ID | `"post:body.text"` | Structural identifiers for schema elements |
+| Vertex kind | `"string"`, `"object"` | Type classification (from the protocol's theory) |
+| Edge kind | `"prop"`, `"field-of"` | Relationship types (from the protocol's theory) |
+| NSID | `"app.bsky.feed.post"` | Namespace identifiers (ATProto-specific) |
+| Constraint sort | `"maxLength"` | Validation property names |
+| Instance anchor | `"post:body.text"` | Data-to-schema references in W-type instances |
+| Theory name | `"ThATProtoSchema"` | GAT theory identifiers |
+| Sort name | `"Vertex"`, `"Node"` | GAT sort identifiers |
+
+: The nine naming sites in panproto. {#tbl-naming-sites}
+
+When you rename a field in a migration (@sec-lifting-data), you are changing an edge label---one of these nine sites. When a theory-level mapping translates ATProto sorts to JSON Schema sorts, it changes sort names and vertex kinds---two more sites. Every naming transformation in the system, from a simple field rename to a cross-protocol vocabulary translation, operates on one or more of these sites.
+
+
+## Identity vs. name {#sec-identity-vs-name}
+
+panproto separates *identity* (which element is this?) from *name* (what do we call it?). Following the [GATlab](https://algebraicjulia.github.io/GATlab.jl/) design [@lynch2024], an identifier consists of three components:
+
+- A **scope tag**: which theory or schema this element belongs to.
+- A **positional index**: which element within that scope (a numeric position, not a name).
+- A **display name**: the human-readable label.
+
+Equality and hashing use only the scope and index. The display name is metadata. A `HashMap<Ident, _>` entry survives a rename without rehashing.
+
+To see why this matters, consider what happens when you rename a field from `text` to `body`. In a system where identity *is* the name, every reference to that field---in code, in data, in other schemas---must be updated simultaneously. A partial rename is an inconsistency. This is the same problem as renaming a column in a production database: you need to coordinate every consumer.
+
+In panproto, the rename changes the display name but not the positional index. The element's identity is unchanged. The schema, the migration, the compiled migration, the lens---all of them reference the element by its (scope, index) pair, which hasn't changed. The display name is used only when serializing to a wire format or presenting to a human.
+
+This is analogous to how git's content-addressing (SHA) doesn't care about filenames. You can rename a file and git tracks the same content. In panproto, you can rename a vertex and the system tracks the same structural element.
+
+### When identity breaks down
+
+The identity/name separation assumes you know that two elements across schemas are "the same thing." When you write a migration that maps v1's `Text` vertex to v2's `Text` vertex, you are asserting that these are the same structural element. panproto can verify that this assertion is *consistent* (via `check_existence`), but it cannot determine whether it is *correct*. Two vertices with the same kind and the same constraints might correspond to different real-world concepts, and two vertices with different names might correspond to the same concept.
+
+This is the rename-vs-drop ambiguity discussed in @sec-breaking-changes. When a vertex disappears from one schema version and a different vertex appears in the next, the structural evidence is identical for a rename (data-preserving) and a drop-and-add (destructive). The identity system can track correspondences once they are established, but it cannot discover them. Discovery requires either a human decision or a heuristic---the VCS rename detection described [later in this chapter](#sec-rename-detection) provides the structural heuristic.
+
+
+## Rename combinators {#sec-rename-combinators}
+
+panproto provides a rename combinator for each naming site. Each combinator is a lens (@sec-lenses) with an empty complement---renaming is always lossless, and the round-trip laws hold trivially.
+
+| Combinator | Site | What it changes |
+|------------|------|-----------------|
+| `RenameField { old, new }` | Edge label | A single field/property name |
+| `RenameVertex { old_id, new_id }` | Vertex ID | A structural identifier; cascades to all edges, constraints, required sets, variants, and hyper-edges that reference the vertex |
+| `RenameKind { vertex_id, new_kind }` | Vertex kind | The type classification of a single vertex |
+| `RenameEdgeKind { old_kind, new_kind }` | Edge kind | All edges matching the old kind |
+| `RenameNsid { vertex_id, new_nsid }` | NSID | The namespace identifier on a vertex |
+| `RenameConstraintSort { old_sort, new_sort }` | Constraint sort | Validation vocabulary (e.g., `"maxLength"` to `"max-length"`) |
+| `Rename { site, old, new }` | Any | Unified combinator that dispatches to the specific rename |
+
+: Rename combinators. All are lossless (empty complement). {#tbl-rename-combinators}
+
+The `RenameVertex` combinator deserves attention because it cascades. Renaming vertex `"post:body.text"` to `"post:content.text"` updates not just the vertex table but every edge, constraint, required-edge set, variant, ordering, and recursion point that references that vertex ID. The cascading is computed from the schema's adjacency indices---the same precomputed `outgoing`, `incoming`, and `between` maps that make migration fast.
+
+
+## A worked example: field renaming across versions
+
+Suppose v1 of a blog post schema has a field called `text`, and v2 renames it to `body`.
+
+The v1 schema has a vertex `Text` (kind: `string`) connected to `Post` via an edge labeled `text`. The v2 schema has the same vertex and edge, but the edge is labeled `body`.
+
+The migration maps:
+
+- `Post -> Post`, `Text -> Text` (vertex map---the types are the same)
+- `text -> body` (edge map---the field is the same structural element with a different name)
+
+This migration is expressible as a single combinator:
+
+```
+RenameField { old: "text", new: "body" }
+```
+
+The lens built from this combinator has:
+
+- **`get`**: Takes a v2 record with field `body`, produces a v1 record with field `text`. The complement is empty---no data is discarded.
+- **`put`**: Takes a v1 record with field `text`, produces a v2 record with field `body`.
+
+The round-trip: `put(get(record)) = record`. The data is identical; only the label changes.
+
+Now compose this with another rename. Suppose v3 renames `body` to `content`:
+
+```
+RenameField { old: "body", new: "content" }
+```
+
+The composed lens (`v1 -> v2 -> v3`) maps `text -> body -> content`. But composition eliminates the intermediate step---the net effect is `text -> content`. Only the first and last names matter; the intermediate history is algebraically irrelevant.
+
+```
+compose(
+    RenameField { old: "text", new: "body" },
+    RenameField { old: "body", new: "content" }
+) = RenameField { old: "text", new: "content" }
+```
+
+Each version renames whatever it wants. The system tracks the maps between all versions and composes as needed. A client that understands v1 can consume v3 data by composing two rename lenses. The composition is computed once and compiled; applying it to data is a label substitution.
+
+
+## Name mapping across protocols {#sec-name-mapping-tower}
+
+The rename combinators operate at the schema level---they rename elements within a single protocol. But naming differences also exist *between* protocols. ATProto calls a type `record`. SQL calls the analogous concept `table`. Protobuf calls it `message`. GraphQL calls it `ObjectType`.
+
+These are not schema-level differences. They are *theory-level* differences---the vocabulary of sorts and operations that define each protocol's schema theory. Translating between them requires a theory-level mapping, not a schema-level rename.
+
+A theory-level mapping `F: T1 -> T2` maps sorts and operations between theories:
+
+```
+sort_map:  Vertex -> Node,    Edge -> Arrow
+op_map:    src -> source,     tgt -> target
+```
+
+When applied as a combinator (`ApplyTheoryMorphism`), this single mapping cascades through three levels:
+
+1. **Theory level**: Renames sorts (`Vertex` to `Node`) and operations (`src` to `source`).
+2. **Schema level**: Every vertex with kind `"Vertex"` becomes kind `"Node"`. Every edge with kind `"src"` becomes `"source"`. The result is a `SchemaMorphism` recording all the induced renames.
+3. **Instance level**: The schema-level mapping lowers to a `CompiledMigration` for the restrict pipeline, so instance data follows the renames automatically.
+
+Each level is derived from the one above, not written by hand.^[This cascading derivation — theory mapping induces schema mapping induces data migration — is what @spivak2012 calls functorial data migration. The key property is that each level is automatically and correctly derived from the level above, so you only need to specify the top-level theory mapping. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+
+### A concrete cross-protocol rename
+
+Suppose you have an ATProto schema for a post and want to express the same structure as a JSON Schema. The two protocols use different vocabularies:
+
+| ATProto | JSON Schema | Meaning |
+|---------|-------------|---------|
+| `record` | `object` | The root container type |
+| `prop` | `property` | A field within a container |
+| `string` | `string` | A text type |
+| `record-schema` | `properties` | The edge from container to its fields |
+
+The theory-level mapping from ATProto's schema theory to JSON Schema's schema theory maps:
+
+```
+sort_map:  record -> object
+op_map:    prop -> property,  record-schema -> properties
+```
+
+When applied to a specific ATProto schema (say, a blog post), the cascade produces:
+
+- Every vertex with kind `record` becomes kind `object`.
+- Every edge with kind `prop` becomes kind `property`.
+- Every edge with kind `record-schema` becomes kind `properties`.
+- Vertex IDs and edge labels are unchanged---the *structure* is the same, only the *vocabulary* changes.
+
+The `string` sort is shared between both protocols (it appears in the shared sub-theory from which both are built). Shared sorts do not need renaming---they are identical by construction.
+
+### Composing across protocols
+
+Name mappings compose transitively. If you know how ATProto names map to JSON Schema names, and JSON Schema names map to Protobuf names, you get ATProto-to-Protobuf for free:
+
+```
+ATProto -> JSON Schema -> Protobuf
+         (compose)
+ATProto ────────────── -> Protobuf
+```
+
+The intermediate step is eliminated algebraically. The net rename effect is computed once.
+
+In practice, most cross-protocol paths go through a common intermediate. The building-block theories from @sec-self-description---ThGraph, ThConstraint, ThWType, etc.---serve as the shared vocabulary. Each protocol defines its mapping to and from these building blocks. Cross-protocol composition is then automatic: ATProto to ThGraph to SQL. The intermediate is a shared language that no one needs to learn, because it is internal to the engine.
+
+### What name mapping does not do
+
+The name mapping machinery translates names that have known correspondences. It does not *discover* correspondences. Given two protocols with no registered mapping between them, the system cannot infer that ATProto's `handle` corresponds to ActivityPub's `preferredUsername`. That inference requires either a human specification or a heuristic.
+
+The machinery makes the *application* of correspondences automatic and verified; it leaves the *discovery* of correspondences to another mechanism. Within a single protocol's version history, the VCS rename detection (below) provides the structural heuristic. Across protocols, the correspondences are established once when the protocol is registered and composed thereafter.
+
+
+## Rename detection in VCS {#sec-rename-detection}
+
+When two schema versions are committed to [panproto-vcs](https://github.com/aaronstevenwhite/panproto) (@sec-version-control), the system can heuristically detect renames between them. This addresses the rename-vs-drop ambiguity from earlier in this chapter: when a vertex disappears from the old schema and a structurally similar vertex appears in the new schema, is it a rename or a deletion followed by an addition?
+
+The VCS computes a confidence score for each candidate rename pair based on four structural signals:
+
+| Signal | Weight | What it measures |
+|--------|--------|-----------------|
+| Same vertex kind | +0.3 | Type classification matches |
+| Same outgoing edge set | +0.3 | Same fields/relationships |
+| Same incoming edge set | +0.2 | Same containment structure |
+| Edit distance of names <= 3 | +0.2 | Names are similar strings |
+
+: Rename detection confidence signals. {#tbl-rename-confidence}
+
+The maximum score is 1.0. Candidates are evaluated exhaustively over all (disappeared, appeared) vertex pairs. Conflicting assignments (one disappeared vertex matching multiple appeared vertices) are resolved by taking the highest-confidence match.
+
+### The detection in action
+
+```
+$ prot diff v1.json v2.json --detect-renames
+Detected renames (confidence > 0.7):
+  text -> body  (1.0: same kind, same edges, edit distance 0/4)
+
+Possible renames (confidence 0.5-0.7):
+  authorName -> displayName  (0.6: same kind, different edges)
+  ? Treat as rename? [y/n]
+```
+
+High-confidence renames (above the threshold, default 0.7) are automatically incorporated into the migration as rename operations. They appear in the migration's edge map or vertex map as correspondences rather than as separate deletions and additions. This means the migration preserves data that would otherwise be lost.
+
+Low-confidence candidates are presented to the user for confirmation. The user sees the confidence score and the structural evidence. Rejecting a candidate treats the change as a deletion + addition (data for the old field is dropped; the new field starts empty). Accepting it treats the change as a rename (data is preserved under the new name).
+
+### What the structural heuristic catches
+
+The four signals are designed to detect renames that preserve structure:
+
+- `text -> body` scores 1.0: same kind (`string`), same outgoing edges (none---it's a leaf), same incoming edges (connected to `Post` via a `prop` edge), and names have edit distance 4 (above the threshold, so +0.0 from name similarity, but the structural signals alone give 0.8).
+- `user -> account` scores 0.8: same kind (`record`), same outgoing edges (both have `name`, `email` children), same incoming edges (root), names are dissimilar.
+- `email -> contact_email` scores 0.7: same kind (`string`), same outgoing edges (none), same incoming edges (connected to the same parent), names share `email` as a substring.
+
+### What the structural heuristic misses
+
+The heuristic is entirely structural. It does not understand semantics:
+
+- `patient.dob` (date of birth) and `patient.date` (date of last visit) score 0.7: same kind (`date`), same edges, names share `dat`. A human would recognize these as different concepts.
+- `status` (account status: active/suspended) moved from `user` to `order` (order status: pending/shipped). The vertex kind is the same (`string`), but the incoming edges differ (different parent). The heuristic correctly flags this as a *non*-rename due to the incoming-edge difference. Structure saves us here, but only because the parent changed.
+
+The threshold is configurable precisely because different projects have different tolerances for false positives. A project with careful naming conventions can lower the threshold (more automatic renames, fewer prompts). A project with reused generic names (`status`, `type`, `id`) should raise it (more prompts, fewer silent errors).
+
+
+## Rename detection and VCS blame {#sec-rename-blame}
+
+When a rename is detected and incorporated into a migration, the VCS commit records it. This means [`schema blame`](https://github.com/aaronstevenwhite/panproto) can trace a field's name backward through history:
+
+```
+$ schema blame --element-type edge body
+Commit  Author         Date        Field name
+abc123  alice          2025-03-01  body  (renamed from text)
+def456  initial        2025-01-15  text  (created)
+```
+
+The rename is a first-class event in the history, not an inference. Once confirmed (by the heuristic or by the user), it is recorded permanently. Future blame queries trace through renames just as `git blame` traces through file renames.
+
+Every rename detected and confirmed becomes part of the VCS history (@sec-version-control). The commit graph records not just *what* changed but *how* it corresponds to the previous version:
+
+- `schema log` shows renames as explicit events in the commit history.
+- `schema blame` traces field names backward through renames, following the mapping chain.
+- `schema bisect` can find the commit that introduced a specific rename.
+- `schema merge` can compose renames from two branches (if branch A renamed `text -> body` and branch B renamed `text -> content`, the merge detects a conflict: two renames of the same source).
+
+
+## Renames and the existence checker
+
+Not all renames are valid. The existence checker (@sec-when-migrations-break) validates that a rename is consistent with the migration's structural constraints:
+
+- **Kind consistency**: If you rename a vertex's kind from `"string"` to `"integer"`, the existence checker flags this as a kind change, not a rename. The vertex map sends a `string` vertex to a vertex with kind `integer`, which violates kind consistency unless the protocols allow it.
+- **Constraint compatibility**: If you rename a constraint sort from `"maxLength"` to `"maxSize"`, the checker verifies that the constraint's semantics are preserved (both describe an upper bound on a numeric property). Renaming `"maxLength"` to `"minLength"` would fail---the sort changed semantics, not just its name.
+- **Edge compatibility**: If you rename an edge's kind from `"prop"` to `"field-of"`, the checker verifies that the target protocol's edge rules allow `"field-of"` edges between the same vertex kinds that `"prop"` connected.
+
+Renames that pass existence checking are guaranteed to be structure-preserving. The lens laws hold. The migration can be compiled and applied to data with no risk of structural corruption. The only question the checker cannot answer is whether the rename is *semantically* right---whether `text -> body` is a genuine rename or a coincidental name collision.
+
+
+## The naming problem, restated
+
+panproto does not make the naming problem disappear. The problem---that different systems use different names for the same concepts---is inherent to distributed, independently-evolving systems. What panproto does is change the *shape* of the problem.
+
+Without panproto, a naming disagreement between two systems requires writing adapter code: a function that translates every field name, in both directions, maintained by hand as both systems evolve. The adapter is O(n) in the number of fields, O(m) in the number of system pairs, and must be updated every time either system changes. The total cost is O(n * m * versions).
+
+With panproto, a naming disagreement is a structure-preserving map that translates vocabulary while preserving structural invariants. These maps compose (eliminating intermediate translations), are verified by the existence checker (catching structural inconsistencies), and are tracked by the VCS (providing history and blame). The total cost is O(1) per version change---each version declares its renames as combinators, and composition handles the rest.
+
+The naming problem is still there. You still need someone (or something) to determine that `handle` and `preferredUsername` refer to the same concept. But once that determination is made, the bookkeeping---propagating the correspondence through schemas, migrations, instances, and version history---is handled by the engine. The human (or heuristic) makes the judgment call once. The algebra handles the rest.

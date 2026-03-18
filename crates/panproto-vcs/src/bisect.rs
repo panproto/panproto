@@ -125,6 +125,9 @@ mod tests {
                 timestamp: i as u64 * 100,
                 message: format!("commit {i}"),
                 renames: vec![],
+                protocol_id: None,
+                data_ids: vec![],
+                complement_ids: vec![],
             };
             let id = store.put(&Object::Commit(commit))?;
             ids.push(id);

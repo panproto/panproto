@@ -13,7 +13,7 @@ pub use panproto_gat as gat;
 pub use panproto_inst as inst;
 /// Re-export of `panproto-io` for instance-level parse/emit across all protocols.
 pub use panproto_io as io;
-/// Re-export of `panproto-lens` for bidirectional lens combinators.
+/// Re-export of `panproto-lens` for bidirectional lenses and protolenses.
 pub use panproto_lens as lens;
 /// Re-export of `panproto-mig` for migration and lifting operations.
 pub use panproto_mig as mig;

@@ -176,6 +176,11 @@ pub enum GatError {
         beta_source: String,
     },
 
+    // --- Factorization errors ---
+    /// Factorization error.
+    #[error("factorization error: {0}")]
+    FactorizationError(String),
+
     // --- Quotient errors ---
     /// Identified elements are incompatible for quotienting.
     #[error("cannot identify {name_a} and {name_b}: {detail}")]

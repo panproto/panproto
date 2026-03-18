@@ -21,8 +21,31 @@ This crate exposes the panproto API to JavaScript and TypeScript consumers via [
 | `compose_migrations` | Compose two compiled migrations |
 | `diff_schemas` / `diff_schemas_full` | Diff two schemas |
 | `classify_diff` | Classify a diff against a protocol |
+| `auto_generate_protolens` | Auto-generate a protolens between two schemas, returning lens + chain + summary |
+| `instantiate_protolens` | Instantiate a protolens chain at a specific pair of schemas |
+| `protolens_complement_spec` | Compute the complement specification for a protolens chain |
+| `protolens_from_diff` | Derive a protolens chain from a structural schema diff |
+| `protolens_compose` | Compose two protolens chains into one |
+| `protolens_chain_to_json` | Serialize a protolens chain to JSON for inspection or storage |
+| `factorize_morphism` | Decompose a theory morphism into elementary endofunctors |
+| `symmetric_lens_from_schemas` | Auto-generate a symmetric lens between two schemas |
+| `symmetric_lens_sync` | Synchronize data through a symmetric lens |
+| `apply_protolens_step` | Apply a single protolens step to a schema and instance |
 | `json_to_instance` / `json_to_instance_with_root` | Parse JSON into WInstance |
 | `instance_to_json` | Convert WInstance to JSON |
+| `protolens_fuse` | Fuse a protolens chain into a single protolens step |
+| `protolens_lift` | Lift a protolens chain along a theory morphism |
+| `protolens_check_applicability` | Check chain applicability with failure reasons |
+| `protolens_fleet` | Apply a protolens chain to multiple schemas |
+| `protolens_from_json` | Deserialize a protolens chain from JSON |
+| `store_dataset` | Store a data set bound to a schema |
+| `get_dataset` | Retrieve a stored data set |
+| `migrate_dataset_forward` | Migrate data forward between schemas |
+| `migrate_dataset_backward` | Migrate data backward using complement |
+| `check_dataset_staleness` | Check if data needs migration |
+| `store_protocol_definition` | Store a protocol definition |
+| `get_protocol_definition` | Retrieve a stored protocol |
+| `get_migration_complement` | Retrieve complement data |
 | `free_handle` | Release a resource handle |
 
 The `*_json` variants handle all WInstance conversion internally, avoiding msgpack round-trip issues at the JS/WASM boundary.

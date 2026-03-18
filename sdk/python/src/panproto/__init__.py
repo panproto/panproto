@@ -16,25 +16,9 @@ from panproto._errors import (
     WasmError,
 )
 from panproto._lens import (
-    AddField,
-    CoerceType,
-    Combinator,
-    Compose,
-    HoistField,
     LensHandle,
-    RemoveField,
-    RenameField,
-    WrapInObject,
-    add_field,
-    coerce_type,
-    combinator_to_wire,
-    compose,
-    from_combinators,
-    hoist_field,
-    pipeline,
-    remove_field,
-    rename_field,
-    wrap_in_object,
+    ProtolensChainHandle,
+    SymmetricLensHandle,
 )
 from panproto._migration import (
     CompiledMigration,
@@ -43,12 +27,14 @@ from panproto._migration import (
     compose_migrations,
 )
 from panproto._check import CompatReport, FullDiffReport, ValidationResult
+from panproto._data import DataSetHandle, StalenessResult
 from panproto._gat import (
     TheoryBuilder,
     TheoryHandle,
     check_morphism as check_gat_morphism,
     colimit as gat_colimit,
     create_theory,
+    factorize_morphism,
     migrate_model,
 )
 from panproto._instance import Instance
@@ -65,6 +51,13 @@ from panproto._protocol import (
     define_protocol,
     get_builtin_protocol,
     get_protocol_names,
+)
+from panproto._protolens import (
+    CapturedField,
+    ComplementSpec,
+    DefaultRequirement,
+    ElementaryStep,
+    NaturalityResult,
 )
 from panproto._schema import BuiltSchema, SchemaBuilder
 from panproto._vcs import VcsRepository
@@ -123,24 +116,27 @@ __all__ = [
     "JSON_SCHEMA_SPEC",
     "PROTOBUF_SPEC",
     "SQL_SPEC",
-    "AddField",
     "BreakingChange",
     "BuiltSchema",
-    "CoerceType",
-    "Combinator",
+    # Data versioning
+    "DataSetHandle",
+    # Protolens types
+    "CapturedField",
     "CompatReport",
     "CompatReportData",
     "Compatibility",
     "CompiledMigration",
-    "Compose",
+    "ComplementSpec",
     "Constraint",
     "ConstraintChange",
     "ConstraintDiff",
+    "DefaultRequirement",
     "DiffReport",
     "Edge",
     "EdgeOptions",
     # Types
     "EdgeRule",
+    "ElementaryStep",
     "ExistenceCheckError",
     "ExistenceError",
     "ExistenceErrorKind",
@@ -153,7 +149,6 @@ __all__ = [
     "GatSort",
     "GatSortParam",
     "GetResult",
-    "HoistField",
     "HyperEdge",
     # Instance / I/O
     "Instance",
@@ -162,6 +157,7 @@ __all__ = [
     "JsonValue",
     "KindChange",
     "LawCheckResult",
+    # Lens / Protolens
     "LensHandle",
     "LiftResult",
     # Migration
@@ -169,6 +165,7 @@ __all__ = [
     "MigrationError",
     "MigrationSpec",
     "MorphismCheckResult",
+    "NaturalityResult",
     "NonBreakingChange",
     # Main
     "Panproto",
@@ -178,10 +175,8 @@ __all__ = [
     # Protocol
     "Protocol",
     "ProtocolSpec",
+    "ProtolensChainHandle",
     "RecursionPoint",
-    "RemoveField",
-    # Lens
-    "RenameField",
     # Schema
     "SchemaBuilder",
     "SchemaChange",
@@ -190,6 +185,8 @@ __all__ = [
     "SchemaValidationError",
     "SchemaValidationIssue",
     "Span",
+    "StalenessResult",
+    "SymmetricLensHandle",
     # GAT
     "TheoryBuilder",
     "TheoryHandle",
@@ -206,26 +203,16 @@ __all__ = [
     "Vertex",
     "VertexOptions",
     "WasmError",
-    "WrapInObject",
     # Version
     "__version__",
-    "add_field",
     "check_existence",
     "check_gat_morphism",
-    "coerce_type",
-    "combinator_to_wire",
-    "compose",
     "compose_migrations",
     "create_theory",
     "define_protocol",
-    "from_combinators",
+    "factorize_morphism",
     "gat_colimit",
     "get_builtin_protocol",
     "get_protocol_names",
-    "hoist_field",
     "migrate_model",
-    "pipeline",
-    "remove_field",
-    "rename_field",
-    "wrap_in_object",
 ]

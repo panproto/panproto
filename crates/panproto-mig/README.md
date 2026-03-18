@@ -5,7 +5,7 @@
 
 Migration engine for panproto.
 
-This crate computes and applies schema migrations, transforming instances from one schema version to another while preserving data integrity through [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories). The pipeline covers existence checking, compilation, lifting (via all three adjoint functors), composition, inversion, and automatic morphism discovery.
+This crate computes and applies schema migrations, transforming instances from one schema version to another while preserving data integrity through [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories). The pipeline covers existence checking, compilation, lifting (via all three adjoint functors), composition, inversion, and automatic morphism discovery. The `cascade` function also feeds into protolens generation: a cascaded theory morphism can be factorized into elementary endofunctors (via `panproto_gat::factorize`) to produce a reusable `ProtolensChain`.
 
 ## API
 
@@ -25,7 +25,7 @@ This crate computes and applies schema migrations, transforming instances from o
 | `find_morphisms` / `find_best_morphism` | Enumerate or find optimal schema morphisms |
 | `discover_overlap` | Find the largest shared sub-schema between two schemas |
 | `chase` | Chase algorithm for enforcing embedded dependencies |
-| `cascade` | Induce schema morphisms from theory morphisms |
+| `cascade` | Induce schema morphisms from theory morphisms (output feeds into `factorize` for protolens generation) |
 | `MigError` / `ComposeError` / `InvertError` / `LiftError` | Error types |
 
 ## Example

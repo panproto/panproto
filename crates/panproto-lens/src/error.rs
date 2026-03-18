@@ -64,6 +64,10 @@ pub enum LensError {
         /// Details about the mismatch.
         detail: String,
     },
+
+    /// A protolens operation failed.
+    #[error("protolens error: {0}")]
+    ProtolensError(String),
 }
 
 /// A violation of a round-trip lens law.

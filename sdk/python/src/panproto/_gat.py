@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, TypedDict, final
 
 from ._errors import PanprotoError, WasmError
 from ._msgpack import pack_to_wasm, unpack_from_wasm
+from ._protolens import ElementaryStep
 from ._wasm import WasmHandle, WasmModule, create_handle
 
 if TYPE_CHECKING:
@@ -343,3 +344,56 @@ def migrate_model(
     morph_bytes = pack_to_wasm(morphism)
     result_bytes = wasm.migrate_model(model_bytes, morph_bytes)
     return unpack_from_wasm(result_bytes)  # type: ignore[return-value]
+
+
+def factorize_morphism(
+    morphism_bytes: bytes,
+    domain: TheoryHandle,
+    codomain: TheoryHandle,
+    wasm: WasmModule,
+) -> list[ElementaryStep]:
+    """Factorize a morphism into elementary steps.
+
+    Decomposes a theory morphism into a sequence of elementary schema
+    transformations (renames, additions, removals, etc.) suitable for
+    constructing protolens chains.
+
+    Parameters
+    ----------
+    morphism_bytes : bytes
+        MessagePack-encoded morphism data.
+    domain : TheoryHandle
+        Handle to the domain theory.
+    codomain : TheoryHandle
+        Handle to the codomain theory.
+    wasm : WasmModule
+        The WASM module.
+
+    Returns
+    -------
+    list[ElementaryStep]
+        A sequence of elementary steps.
+
+    Raises
+    ------
+    WasmError
+        If factorization fails.
+    """
+    try:
+        result_bytes = wasm.factorize_morphism(
+            morphism_bytes,
+            domain.wasm_handle.id,
+            codomain.wasm_handle.id,
+        )
+    except Exception as exc:
+        raise WasmError(f"factorize_morphism failed: {exc}") from exc
+
+    raw_steps = unpack_from_wasm(result_bytes)
+    return [
+        ElementaryStep(
+            kind=step["kind"],
+            name=step["name"],
+            details=step.get("details", {}),
+        )
+        for step in raw_steps  # type: ignore[union-attr]
+    ]

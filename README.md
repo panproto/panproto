@@ -7,37 +7,38 @@
 [![docs.rs](https://docs.rs/panproto-core/badge.svg)](https://docs.rs/panproto-core)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A universal schema migration engine built on [Generalized Algebraic Theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory) (GATs).
+A universal schema migration engine built on [Generalized Algebraic Theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory) (GATs), with automatic lens generation via [protolenses](https://ncatlab.org/nlab/show/natural+transformation).
 
-panproto treats every schema language,[ATProto Lexicons](https://atproto.com/specs/lexicon), SQL DDL, [Protocol Buffers](https://protobuf.dev/), [GraphQL](https://graphql.org/), [JSON Schema](https://json-schema.org/), and [71 others](https://panproto.dev/tutorial/appendices/D-protocol-catalog.html),as a model of a common mathematical structure. Migrations become [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format.
+panproto treats every schema language,[ATProto Lexicons](https://atproto.com/specs/lexicon), SQL DDL, [Protocol Buffers](https://protobuf.dev/), [GraphQL](https://graphql.org/), [JSON Schema](https://json-schema.org/), and [71 others](https://panproto.dev/tutorial/appendices/D-protocol-catalog.html),as a model of a common mathematical structure. Migrations become [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format. Protolenses automatically derive schema-parameterized families of lenses, eliminating manual combinator wiring.
 
 ## Key idea
 
 A **protocol** is a pair of GATs: one describing the shape of schemas, one describing the shape of instances. Adding support for a new schema language means defining two new theories. No engine code changes required.
 
 ```
-Level 0  GAT engine (sorts, operations, equations, morphisms, colimits)
+Level 0  GAT engine (sorts, operations, equations, morphisms, colimits, endofunctors)
 Level 1  Theory specifications as data (ThATProtoSchema, ThWType, ThFunctor, …)
 Level 2  Concrete schemas as models of a schema theory
 Level 3  Concrete instances as models of schemas
+Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(S), G(S)))
 ```
 
 ## Workspace
 
 | Crate | Description |
 |-------|-------------|
-| [`panproto-gat`](crates/panproto-gat) | GAT engine: sorts, operations, equations, theory morphisms, colimits |
+| [`panproto-gat`](crates/panproto-gat) | GAT engine: sorts, operations, equations, theory morphisms, colimits, schema endofunctors, and factorization |
 | [`panproto-schema`](crates/panproto-schema) | Schema representation with protocol-aware builder and adjacency indices |
 | [`panproto-inst`](crates/panproto-inst) | [W-type](https://ncatlab.org/nlab/show/W-type), set-valued functor, and graph instances with restrict/extend/Kan extension pipelines |
 | [`panproto-mig`](crates/panproto-mig) | Migration engine: existence checks, compilation, lift, compose, invert, automatic morphism discovery |
-| [`panproto-lens`](crates/panproto-lens) | Bidirectional lenses with [Cambria](https://www.inkandswitch.com/cambria/)-style combinators and law verification |
+| [`panproto-lens`](crates/panproto-lens) | [Protolenses](https://ncatlab.org/nlab/show/natural+transformation): schema-parameterized lens families, auto-generation, symmetric lenses, and law verification |
 | [`panproto-check`](crates/panproto-check) | Breaking change detection via structural diffing and protocol-aware classification |
 | [`panproto-protocols`](crates/panproto-protocols) | 76 built-in protocol definitions composed from 27 building-block theories |
 | [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs (JSON, XML, tabular, web documents) |
 | [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge |
 | [`panproto-core`](crates/panproto-core) | Re-export facade |
-| [`panproto-wasm`](crates/panproto-wasm) | WASM bindings with handle-based slab allocator and MessagePack boundary |
-| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, and git-style version control |
+| [`panproto-wasm`](crates/panproto-wasm) | WASM bindings with handle-based slab allocator, MessagePack boundary, and protolens entry points |
+| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, convert, lens, and git-style version control |
 
 ### SDKs
 
@@ -63,8 +64,9 @@ let schema = schema::SchemaBuilder::new(&proto)
     .constraint("post:body.text", "maxLength", "3000")
     .build()?;
 
-assert_eq!(schema.vertex_count(), 3);
-assert_eq!(schema.edge_count(), 2);
+// Auto-generate a lens between two schema versions
+let lens = panproto_lens::auto_generate(&src_schema, &tgt_schema)?;
+let (view, complement) = panproto_lens::get(&lens, &instance)?;
 ```
 
 ### TypeScript
@@ -83,6 +85,13 @@ const schema = proto.schema()
   .edge('post:body', 'post:body.text', 'prop', { name: 'text' })
   .constraint('post:body.text', 'maxLength', '3000')
   .build();
+
+// One-liner data conversion between schema versions
+const converted = p.convert(record, oldSchema, newSchema);
+
+// Or build a reusable protolens chain
+const chain = p.protolensChain(oldSchema, newSchema);
+const result = chain.apply(record);
 ```
 
 ### Python
@@ -101,6 +110,13 @@ schema = (proto.schema()
     .edge("post:body", "post:body.text", "prop", name="text")
     .constraint("post:body.text", "maxLength", "3000")
     .build())
+
+# One-liner data conversion between schema versions
+converted = pp.convert(record, old_schema, new_schema)
+
+# Or build a reusable protolens chain
+chain = pp.protolens_chain(old_schema, new_schema)
+result = chain.apply(record)
 ```
 
 ### CLI
@@ -114,6 +130,30 @@ schema check --protocol atproto old.json new.json
 
 # Diff two schemas
 schema diff old.json new.json
+
+# One-step data conversion between schemas
+schema convert --src-schema old.json --tgt-schema new.json record.json
+
+# Auto-generate a lens with human-readable summary
+schema lens --src old.json --tgt new.json
+
+# Apply a saved lens or protolens chain
+schema lens --apply --lens lens.json record.json
+
+# Verify lens laws and naturality
+schema lens --verify --lens lens.json --instance test.json
+
+# Compose lenses or protolens chains
+schema lens --compose lens1.json lens2.json -o composed.json
+
+# Check applicability with failure reasons
+schema lens --check --chain chain.json --schema schema.json
+
+# Lift a protolens chain to another protocol
+schema lens --lift --chain chain.json --morphism morphism.json
+
+# Derive a lens from VCS commit history
+schema lens --diff HEAD~1 HEAD
 
 # Apply a migration to a record
 schema lift --protocol atproto --migration mig.json \
@@ -133,6 +173,9 @@ schema branch feature
 schema checkout feature
 schema merge main
 schema log
+
+# Migrate data to match current schema
+schema migrate records/
 ```
 
 ## Building
@@ -160,9 +203,11 @@ panproto implements a four-level architecture rooted in category theory. The GAT
 
 **[Set-valued functor](https://ncatlab.org/nlab/show/functor) instances** (relational data like SQL tables) use [precomposition](https://ncatlab.org/nlab/show/precomposition) (&#916;<sub>F</sub>) for restrict and [left Kan extension](https://ncatlab.org/nlab/show/Kan+extension) (&#931;<sub>F</sub>) for extend. Right Kan extension (&#928;<sub>F</sub>) computes products over fibers.
 
-**[Bidirectional lenses](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29)** provide `get` (restrict + complement capture) and `put` (restore from complement) directions, with seven [Cambria](https://www.inkandswitch.com/cambria/)-style combinators. The `GetPut` and `PutGet` laws are verified at test time.
+**Protolenses** are the primary abstraction for bidirectional schema transformations. A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a concrete pair (`get`, `put`) between two fixed schemas. A protolens is *not* a lens — it is a [dependent function](https://ncatlab.org/nlab/show/dependent+product+type) from schemas to lenses: `Π(S : Schema | P(S)). Lens(F(S), G(S))`. A single protolens works on any schema satisfying its precondition; a lens is bound to the exact schemas it was built for. Elementary protolens constructors provide the atomic building blocks, while `auto_generate` derives an entire lens automatically from two schemas. `SymmetricLens` pairs two protolens chains for full bidirectional synchronization. Protolens chains can be serialized for cross-project reuse, applied to fleets of schemas in batch, and lifted across protocols via theory morphisms.
 
 **Schematic version control** (`panproto-vcs`) provides git-style operations (commit, branch, merge, rebase, cherry-pick, bisect, blame) operating on schema graphs rather than text. Merges are computed as categorical pushouts. There is no heuristic tie-breaking; the merge is commutative.
+
+**Data versioning** stores instance data, complements, and protocol definitions as content-addressed objects alongside schemas in the commit DAG. `schema migrate` automatically generates lenses from the schema history and applies them to data files. Complements are persisted so backward migration never loses data. `schema checkout --migrate` and `schema merge --migrate` handle data migration as part of normal VCS operations.
 
 **Automatic migration discovery** finds schema morphisms via backtracking CSP with MRV heuristic, discovers overlaps between schemas, and computes schema-level pushouts for merging disparate formats.
 
@@ -178,7 +223,7 @@ panproto provides three layers of algebraic safety that go beyond structural sch
 
 ## Documentation
 
-- [Tutorial](https://panproto.dev/tutorial/): 17-chapter guide from first schema to automatic migration
+- [Tutorial](https://panproto.dev/tutorial/): 22-chapter guide from first schema to automatic migration
 - [Dev Guide](https://panproto.dev/dev-guide/): internals, algorithms, and architecture
 - [API Reference (docs.rs)](https://docs.rs/panproto-core)
 - Interactive Playground (coming soon): runs entirely in your browser via WebAssembly

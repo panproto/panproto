@@ -29,6 +29,7 @@ pub mod bisect;
 pub mod blame;
 pub mod cherry_pick;
 pub mod dag;
+pub mod data_mig;
 pub mod error;
 pub mod fs_store;
 pub mod gat_validate;
@@ -48,11 +49,12 @@ pub mod status;
 pub mod store;
 
 // Re-exports for convenience.
+pub use data_mig::{StaleData, detect_staleness, migrate_backward, migrate_forward};
 pub use error::VcsError;
 pub use fs_store::FsStore;
 pub use hash::ObjectId;
 pub use index::Index;
 pub use mem_store::MemStore;
-pub use object::{CommitObject, Object, TagObject};
+pub use object::{CommitObject, ComplementObject, DataSetObject, Object, TagObject};
 pub use repo::{CommitOptions, Repository};
 pub use store::{HeadState, ReflogEntry, Store};

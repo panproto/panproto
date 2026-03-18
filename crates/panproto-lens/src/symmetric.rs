@@ -4,12 +4,16 @@
 //! that share a common complement. This module provides the span-based
 //! construction where the "middle" schema M serves as the shared state.
 
+use std::collections::HashMap;
+
 use panproto_inst::WInstance;
-use panproto_schema::Schema;
+use panproto_schema::{Protocol, Schema};
 
 use crate::Lens;
 use crate::asymmetric::{Complement, get, put};
+use crate::auto_lens::AutoLensConfig;
 use crate::error::LensError;
+use crate::protolens::ProtolensChain;
 
 /// A symmetric lens between two schemas, built from a shared middle schema.
 ///
@@ -91,5 +95,136 @@ impl SymmetricLens {
     ) -> Result<(WInstance, Complement), LensError> {
         let middle_instance = put(&self.right, right_view, right_complement)?;
         get(&self.left, &middle_instance)
+    }
+
+    /// Build a symmetric lens from two protolens chains via a shared overlap.
+    ///
+    /// Each chain is instantiated at `overlap_schema` to produce left and
+    /// right asymmetric lenses, which are then combined into a span.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LensError`] if either chain fails to instantiate or the
+    /// resulting source schemas do not match.
+    pub fn from_protolens_chains(
+        left_chain: &ProtolensChain,
+        right_chain: &ProtolensChain,
+        overlap_schema: &Schema,
+        protocol: &Protocol,
+    ) -> Result<Self, LensError> {
+        let left_lens = left_chain.instantiate(overlap_schema, protocol)?;
+        let right_lens = right_chain.instantiate(overlap_schema, protocol)?;
+        Self::from_span(left_lens, right_lens)
+    }
+
+    /// Auto-generate a symmetric lens from two schemas.
+    ///
+    /// Uses overlap discovery to find shared structure, then builds
+    /// protolens chains for each projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LensError::ProtolensError`] if no overlap is found or
+    /// if automatic lens generation fails for either direction.
+    pub fn auto_symmetric(
+        left: &Schema,
+        right: &Schema,
+        protocol: &Protocol,
+        _config: &AutoLensConfig,
+    ) -> Result<Self, LensError> {
+        use panproto_mig::overlap::discover_overlap;
+
+        let overlap = discover_overlap(left, right);
+
+        if overlap.vertex_pairs.is_empty() {
+            return Err(LensError::ProtolensError(
+                "no overlap found between schemas".into(),
+            ));
+        }
+
+        // Build the overlap schema from the left schema restricted to
+        // overlapping vertices.
+        let mut overlap_vertices = HashMap::new();
+        let mut overlap_edges = HashMap::new();
+        for (src_id, _tgt_id) in &overlap.vertex_pairs {
+            if let Some(v) = left.vertices.get(src_id) {
+                overlap_vertices.insert(src_id.clone(), v.clone());
+            }
+        }
+        // Edges where both endpoints are in the overlap
+        for (edge, kind) in &left.edges {
+            if overlap_vertices.contains_key(&edge.src) && overlap_vertices.contains_key(&edge.tgt)
+            {
+                overlap_edges.insert(edge.clone(), kind.clone());
+            }
+        }
+
+        let overlap_schema = Schema {
+            protocol: left.protocol.clone(),
+            vertices: overlap_vertices,
+            edges: overlap_edges,
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        };
+
+        // Generate protolens chains: overlap -> left and overlap -> right
+        let config = AutoLensConfig::default();
+        let left_result = crate::auto_lens::auto_generate(&overlap_schema, left, protocol, &config);
+        let right_result =
+            crate::auto_lens::auto_generate(&overlap_schema, right, protocol, &config);
+
+        match (left_result, right_result) {
+            (Ok(lr), Ok(rr)) => Self::from_span(lr.lens, rr.lens),
+            (Err(e), _) | (_, Err(e)) => Err(LensError::ProtolensError(format!(
+                "auto_symmetric failed: {e}"
+            ))),
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::tests::{identity_lens, three_node_schema};
+
+    #[test]
+    fn from_span_identical_schemas() {
+        let schema = three_node_schema();
+        let left = identity_lens(&schema);
+        let right = identity_lens(&schema);
+        let sym = SymmetricLens::from_span(left, right).unwrap();
+        assert_eq!(sym.middle.vertices.len(), schema.vertices.len());
+    }
+
+    #[test]
+    fn from_protolens_empty_chains() {
+        let schema = three_node_schema();
+        let protocol = Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into(), "string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let left_chain = ProtolensChain::new(vec![]);
+        let right_chain = ProtolensChain::new(vec![]);
+        let sym =
+            SymmetricLens::from_protolens_chains(&left_chain, &right_chain, &schema, &protocol)
+                .unwrap();
+        assert_eq!(sym.middle.vertices.len(), schema.vertices.len());
     }
 }

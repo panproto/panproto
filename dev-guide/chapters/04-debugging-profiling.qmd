@@ -32,7 +32,7 @@ RUST_LOG=panproto_mig=debug cargo nextest run -p panproto-mig -- test_lift_round
 
 ## Stepping through the W-type restrict pipeline
 
-The restrict pipeline in `panproto-inst` transforms a W-type instance when a migration removes or restructures schema elements. The pipeline has five key functions that serve as natural debugging waypoints:
+The restrict pipeline in `panproto-inst` transforms a W-type instance (a tree-shaped data record whose structure is determined by the schema) when a migration removes or restructures schema elements. The pipeline has five key functions that serve as natural debugging waypoints:
 
 1. **`anchor_surviving()`** in `crates/panproto-inst/src/wtype.rs` --- Determines which nodes survive the migration. If your output is missing data, check whether the surviving set is too small.
 
@@ -158,7 +158,7 @@ The existence check (`panproto-mig/src/existence.rs`) verifies that a migration 
 
 When two theories are merged via `colimit()` and the result has unexpected sorts or operations:
 
-1. **Verify the span.** The colimit is computed over a span: two morphisms from a shared sub-theory. Print both morphisms and confirm that the shared sorts map correctly in each direction.
+1. **Verify the span.** The colimit is computed over a span --- two structure-preserving maps from a shared base theory to each of the theories being merged. Print both morphisms and confirm that the shared sorts map correctly in each direction.
 2. **Check equation preservation.** If the merged theory has conflicting equations, `colimit()` will return an error. But if equations are merely *missing*, the merged theory may be valid but semantically wrong. Inspect the equations in the output theory.
 3. **Trace with debug logging:**
 

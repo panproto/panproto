@@ -43,10 +43,10 @@ book:
         - chapters/20-python-sdk.qmd
         - chapters/15-cli.qmd
         - chapters/21-vcs-engine.qmd
-        - chapters/22-building-blocks.qmd
-        - chapters/23-naming-identity.qmd
-        - chapters/24-auto-morphisms.qmd
-        - chapters/25-type-checking-pipeline.qmd
+        - chapters/22-advanced-internals.qmd
+        - chapters/26-protolens-engine.qmd
+        - chapters/27-auto-lens-pipeline.qmd
+        - chapters/28-data-versioning.qmd
     - part: "Contributing Process"
       chapters:
         - chapters/16-conventions.qmd

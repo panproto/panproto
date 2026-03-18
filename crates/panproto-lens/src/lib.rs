@@ -1,6 +1,6 @@
 //! # panproto-lens
 //!
-//! Bidirectional lens combinators for panproto.
+//! Bidirectional lenses via protolens (schema-independent lens families).
 //!
 //! Every schema migration is a lens with a `get` direction (= restrict,
 //! projecting data forward) and a `put` direction (= restore from
@@ -12,31 +12,47 @@
 //! - **[`Lens`]**: An asymmetric lens backed by a compiled migration.
 //! - **[`get`]** / **[`put`]**: Forward and backward lens directions.
 //! - **[`Complement`]**: Data discarded by `get`, needed by `put`.
-//! - **[`Combinator`]**: Cambria-style atomic schema transformations.
-//! - **[`from_combinators`]**: Build a lens from a combinator chain.
+//! - **[`Protolens`]**: A dependent function from schemas to lenses
+//!   (`Π(S : Schema | P(S)). Lens(F(S), G(S))`).
+//! - **[`ProtolensChain`]**: Composable sequence of protolenses.
+//! - **[`auto_generate`]**: Automatic protolens generation from two schemas.
 //! - **[`compose()`]**: Compose two lenses sequentially.
 //! - **[`check_laws`]**: Verify `GetPut` and `PutGet` on a test instance.
 //!
 //! The mathematical foundations are based on asymmetric lenses with
-//! complement (see Diskin et al., 2011) and Cambria's combinator
-//! approach (Ink & Switch, 2020).
+//! complement (Diskin et al., 2011), GAT-based protolenses (natural
+//! transformations between theory endofunctors), and Cambria's
+//! approach to schema evolution (Ink & Switch, 2020).
 
 // Allow concrete HashMap/HashSet in public API signatures per ENGINEERING.md spec.
 #![allow(clippy::implicit_hasher)]
 
 pub mod asymmetric;
-pub mod combinators;
+pub mod auto_lens;
+pub mod complement_type;
 pub mod compose;
+pub mod diff_to_protolens;
 pub mod error;
 pub mod laws;
+pub mod protolens;
 pub mod symmetric;
 
 // Re-exports for convenience.
 pub use asymmetric::{Complement, get, put};
-pub use combinators::{Combinator, from_combinators};
+pub use auto_lens::{AutoLensConfig, AutoLensResult, auto_generate};
+pub use complement_type::{
+    CapturedField, ComplementKind, ComplementSpec, DefaultRequirement, chain_complement_spec,
+    complement_spec_at,
+};
 pub use compose::compose;
+pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolens};
 pub use error::{LawViolation, LensError};
 pub use laws::{check_get_put, check_laws, check_put_get};
+pub use protolens::{
+    ComplementConstructor, FleetResult, Protolens, ProtolensChain, SchemaConstraint,
+    apply_to_fleet, elementary, horizontal_compose as protolens_horizontal, lift_chain,
+    lift_protolens, vertical_compose as protolens_vertical,
+};
 pub use symmetric::SymmetricLens;
 
 use panproto_inst::CompiledMigration;
@@ -247,7 +263,7 @@ pub(crate) mod tests {
         }
 
         // Rebuild indices
-        crate::combinators::rebuild_indices_pub(&mut tgt_schema);
+        crate::protolens::rebuild_indices(&mut tgt_schema);
 
         let mut surviving_verts: std::collections::HashSet<Name> =
             schema.vertices.keys().cloned().collect();

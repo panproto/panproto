@@ -1,0 +1,310 @@
+# Cross-Protocol Translation {#sec-cross-protocol}
+
+There is a program called [pandoc](https://pandoc.org/) that converts between document formats. You hand it a Markdown file and it gives you a PDF, an HTML page, a Word document, or a LaTeX source file. The conversion is not lossless---some Markdown constructs have no meaningful representation in Word, and some Word features have no Markdown equivalent---but for ordinary prose, pandoc gets you close enough that the conversion is practically useful.
+
+panproto is pandoc for schemas.
+
+Every protocol in panproto ships with both a `parse_*` function that reads a native schema document into the universal Schema graph and an `emit_*` function that writes a Schema graph back out to a native schema document. These two functions together enable a **translation pipeline**: parse from format A, obtain a universal intermediate representation, optionally migrate or transform that representation, and emit to format B.
+
+
+## The parse / schema / migrate / emit pipeline
+
+The general pipeline has four stages:
+
+```{mermaid}
+%%| label: fig-translation-pipeline
+%%| fig-cap: "The translation pipeline. Every protocol has both a parse and an emit function. The Schema graph is the universal intermediate representation."
+graph LR
+    A["Source document<br/>(format A)"]
+    B["Schema graph<br/>(universal IR)"]
+    C["Schema graph<br/>(optionally transformed)"]
+    D["Target document<br/>(format B)"]
+
+    A -->|"parse_*()"| B
+    B -->|"migrate / transform"| C
+    C -->|"emit_*()"| D
+```
+
+**Parse.** The `parse_*` function for a protocol reads its native schema notation and constructs a Schema graph. What cannot be represented in the graph is dropped or converted to a best-effort annotation.
+
+**Schema graph.** The universal intermediate representation is the same Schema graph that panproto uses for everything else---diffs, migrations, lens derivation, breaking-change detection. It is not a separate format invented for translation; it is the standard representation.
+
+**Migrate / transform.** This stage is optional. You can apply a panproto migration to the Schema graph between parse and emit---for example, to rename a field, flatten a nested type, or restructure a hierarchy. Without this stage, the pipeline is a direct format translation; with it, the pipeline can simultaneously translate and transform.
+
+**Emit.** The `emit_*` function for a protocol walks the Schema graph and produces native schema notation---assigning field numbers, choosing appropriate type names, generating the correct syntax.
+
+Every one of panproto's 76 built-in protocols has both a parse and an emit function. Every pair of protocols is connected by a potential translation path through the shared Schema graph.
+
+
+## A real example: Protobuf to GraphQL
+
+Consider a common infrastructure problem: you have gRPC services defined in `.proto` files and you want to expose them through a GraphQL API. This is exactly what tools like [grpc-gateway](https://github.com/grpc-ecosystem/grpc-gateway) and [Rejoiner](https://github.com/google/rejoiner) solve with hand-written glue code. With panproto, the schema translation is structural.
+
+Here is the Protobuf service definition:
+
+```protobuf
+syntax = "proto3";
+
+package social.v1;
+
+message UserProfile {
+  string user_id = 1;
+  string display_name = 2;
+  repeated string interests = 3;
+  ProfileStatus status = 4;
+}
+
+enum ProfileStatus {
+  PROFILE_STATUS_UNSPECIFIED = 0;
+  ACTIVE = 1;
+  SUSPENDED = 2;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  UserProfile profile = 1;
+}
+
+service UserService {
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+}
+```
+
+And here is what panproto emits as GraphQL SDL:
+
+```graphql
+type UserProfile {
+  userId: String!
+  displayName: String!
+  interests: [String!]!
+  status: ProfileStatus!
+}
+
+enum ProfileStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+type Query {
+  getUser(userId: String!): UserProfile
+  listUsers(limit: Int, cursor: String): UserProfileConnection
+}
+
+type UserProfileConnection {
+  edges: [UserProfileEdge!]!
+  pageInfo: PageInfo!
+}
+
+type UserProfileEdge {
+  node: UserProfile!
+  cursor: String!
+}
+```
+
+The translation pipeline:
+
+```typescript
+import { parse_proto, emit_graphql, PROTOBUF_SPEC, GRAPHQL_SPEC } from "@panproto/core";
+
+const schema = parse_proto(protoSource, PROTOBUF_SPEC);
+const graphqlSdl = emit_graphql(schema, GRAPHQL_SPEC);
+```
+
+What happened during translation:
+
+- **Message types** became GraphQL `type` declarations. Field names were converted from `snake_case` to `camelCase`.
+- **Enums** carried over directly, minus the `UNSPECIFIED` sentinel (which has no GraphQL equivalent).
+- **Field numbers** were dropped---GraphQL has no wire-format metadata.
+- **`repeated` fields** became GraphQL list types (`[String!]!`).
+- **RPC methods** became `Query` fields. The request message was flattened into arguments; the response message became the return type.
+- **Service definitions** drove the generation of connection/edge types for list endpoints (Relay pagination pattern).
+
+The structural content---type names, field names, field types, enum variants, nesting relationships---survived intact. What was lost is Protobuf-specific wire metadata (field numbers) and what was gained is GraphQL-specific idiom (connection types, camelCase).
+
+
+## Another example: ATProto Lexicon to ActivityPub
+
+For a federated social web bridge between [Bluesky](https://bsky.app/) and [Mastodon](https://joinmastodon.org/), you need to translate between ATProto's Lexicon schema format and ActivityPub's JSON-LD vocabulary. Here is what that looks like.
+
+ATProto Lexicon (Bluesky post schema):
+
+```json
+{
+  "lexicon": 1,
+  "id": "app.bsky.feed.post",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["text", "createdAt"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 3000,
+            "maxGraphemes": 300
+          },
+          "createdAt": { "type": "string", "format": "datetime" },
+          "reply": { "type": "ref", "ref": "#replyRef" },
+          "embed": { "type": "union", "refs": [
+            "app.bsky.embed.images",
+            "app.bsky.embed.video",
+            "app.bsky.embed.external",
+            "app.bsky.embed.record",
+            "app.bsky.embed.recordWithMedia"
+          ]},
+          "langs": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxLength": 3
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Translated to an ActivityPub `Note` (JSON-LD):
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Note",
+  "attributedTo": null,
+  "content": { "@type": "xsd:string", "maxLength": 300 },
+  "published": { "@type": "xsd:dateTime" },
+  "inReplyTo": { "@type": "@id" },
+  "attachment": {
+    "@type": "@set",
+    "items": { "oneOf": ["Image", "Link"] }
+  },
+  "contentMap": {
+    "@type": "@language",
+    "items": { "@type": "xsd:string" }
+  }
+}
+```
+
+```typescript
+import { parse_lexicon, emit_activitypub } from "@panproto/core";
+
+const schema = parse_lexicon(lexiconSource, ATPROTO_SPEC);
+const apSchema = emit_activitypub(schema, ACTIVITYPUB_SPEC);
+```
+
+The translation maps:
+
+- `text` (with `maxLength: 3000` bytes and `maxGraphemes: 300` grapheme clusters) to `content` (with `maxLength: 300`)---constraint approximation, since ATProto tracks both byte length and grapheme cluster count while ActivityPub has only a single length concept
+- `createdAt` to `published`---direct datetime mapping
+- `reply.ref` to `inReplyTo`---reference semantics preserved
+- `embed` union (images, video, external links, record embeds, recordWithMedia) to `attachment` set with `oneOf`---union-to-set mapping
+- `langs` array to `contentMap` language map---structural reinterpretation
+
+The Bluesky-specific dual constraints (`maxLength` for bytes and `maxGraphemes` for grapheme clusters) are approximated to a single `maxLength` in ActivityPub. The ATProto `tid` key has no ActivityPub equivalent and is dropped. But the core content structure---text, timestamps, replies, embeds, language tags---translates faithfully.
+
+
+## Round-trip fidelity
+
+Translation is not lossless in general. What survives a round trip---parse from format A, emit to format B, parse from format B, emit back to format A---depends on how much structural territory the two formats share.
+
+There are two sources of information loss:
+
+**Parse loss.** When `parse_*` reads a source document, constructs that have no graph-level equivalent are dropped. SQL `CHECK` constraints containing arbitrary expressions may be captured only as opaque annotations---their semantics are not machine-processable at the schema level.
+
+**Emit loss.** When `emit_*` writes a target document, constructs in the Schema graph that have no target-format equivalent are dropped or approximated. Hyperedges are dropped when emitting to a format with no hyperedge concept. Constraint keywords are dropped when emitting to a format with no constraint vocabulary.
+
+| Translation | What survives | What is typically lost |
+|---|---|---|
+| JSON Schema to TypeScript | Field names, types, optionality | Constraint keywords (`maxLength`, `pattern`) |
+| SQL DDL to Parquet | Column names, types, nullability | Foreign keys, `CHECK` constraints, defaults |
+| GraphQL SDL to OpenAPI | Type names, field names, types, interfaces | Directives, resolver-level semantics |
+| Protobuf to FlatBuffers | Message names, field names, types | Field numbers, service definitions |
+| Protobuf to GraphQL | Type names, field names, types, enums | Field numbers, wire encoding, streaming RPCs |
+| ATProto Lexicon to ActivityPub | Content structure, timestamps, references | Grapheme constraints, record keys, NSIDs |
+
+The middle column---what survives---corresponds to the structural skeleton: the graph of types and relationships. The right column corresponds to format-specific decorations that lie outside the Schema graph's representational scope.
+
+
+## The theory group advantage {#sec-theory-groups}
+
+The intuition of "structural comparability" has a precise basis in panproto's architecture. Every protocol is characterized by a pair of theories: a schema theory and an instance theory (@sec-building-protocol). Protocols whose theories are closely related produce higher-fidelity translations.
+
+panproto's built-in protocols cluster into theory groups based on their schema and instance theories:
+
+| Group | Schema theory family | Instance theory | Representative protocols |
+|-------|---------------------|-----------------|--------------------------|
+| **A** | ThCategory | ThFunctor | CQL |
+| **B** | ThHypergraph + ThConstraint | ThFunctor | SQL DDL, Cassandra, DynamoDB |
+| **C** | ThGraph + ThConstraint + ThMulti | ThWType | JSON Schema, ATProto, Avro, Protobuf, Thrift, FlatBuffers |
+| **D** | ThGraph + ThConstraint + ThMulti + ThInterface | ThWType | GraphQL SDL, OpenAPI, AsyncAPI |
+| **E** | ThGraph + ThConstraint + ThMulti | ThFunctor | Parquet, Arrow, DataFrame |
+
+: Theory groups for selected protocols. Protocols in the same group share the same schema and instance theories. {#tbl-theory-groups}
+
+**Within-group translation is structurally lossless.** Two Group C protocols---say, Avro and Protobuf---share the same schema theory. A Schema graph that is a valid Avro schema is, structurally, also a valid Protobuf schema. The translation reduces to remapping surface syntax: Avro's `"type": "record"` becomes Protobuf's `message`, Avro's `"type": ["null", "string"]` becomes Protobuf's `optional string`. The graph structure itself does not change.
+
+**Cross-group translation involves structural mismatch.** Converting from Group B (SQL, hypergraph) to Group C (Protobuf, multigraph) loses hyperedge structure: foreign keys, composite unique constraints, and multi-column primary keys cannot be expressed in Group C's multigraph theory. Converting from Group C to Group B in the other direction loses tree-shaped instance semantics: SQL rows are flat, and the nested document structure of a Group C instance does not survive the trip to a relational table without denormalization decisions that the engine cannot make automatically.
+
+```{mermaid}
+%%| label: fig-theory-groups
+%%| fig-cap: "Theory groups and translation fidelity. Solid arrows: structurally lossless (within-group). Dashed arrows: structural loss (cross-group)."
+graph LR
+    A["Group A<br/>CQL"]
+    B["Group B<br/>SQL, Cassandra, DynamoDB"]
+    C["Group C<br/>JSON Schema, Avro,<br/>Protobuf, FlatBuffers"]
+    D["Group D<br/>GraphQL, OpenAPI,<br/>AsyncAPI"]
+    E["Group E<br/>Parquet, Arrow"]
+
+    C <-->|lossless| C
+    D <-->|lossless| D
+    B <-->|lossless| B
+
+    C <-.->|"structural loss<br/>(hyperedges dropped)"| B
+    C <-.->|"structural loss<br/>(no interfaces)"| D
+    D <-.->|"structural loss<br/>(hyperedges dropped)"| B
+    B <-.->|"structural loss<br/>(instance theory mismatch)"| E
+    C <-.->|"structural loss<br/>(instance theory mismatch)"| E
+```
+
+The reason this works is that group membership is determined by which building-block theories a protocol's definition composes (@sec-building-protocol). When two protocols share the same building blocks, their Schema graphs have the same shape, and translation is a matter of relabeling. When the building blocks differ, translation must bridge a structural gap, and that gap is where information is lost.
+
+### A note on "lossless"
+
+"Structurally lossless at the schema level" means the graph structure of the schema survives the round trip. It does not mean the round trip produces identical source bytes, or that all protocol-specific metadata is preserved. Protobuf field numbers, for example, are not part of the multigraph structure---they are a surface feature of the wire format. A Protobuf-to-Avro-to-Protobuf round trip will not preserve field numbers; the emit step will assign fresh ones. The schema graph---the message names, field names, types, and relationships---will be intact.
+
+If your translation requirements include preserving wire-format metadata, you can carry it as an opaque annotation through the Schema graph. The Schema graph supports arbitrary key-value metadata on vertices and edges; the parse functions use this to preserve information that is meaningful to the source format but has no universal semantic. A custom emit wrapper can then read and apply these annotations selectively.
+
+
+## Comparison with pandoc
+
+The pandoc analogy is worth examining in detail, because the structural parallel is exact in some places and breaks down in others.
+
+**What is the same.** Both pandoc and panproto translate between multiple formats using a shared intermediate representation. pandoc's IR is a document abstract syntax tree. panproto's IR is the Schema graph. In both systems, all translation goes through the IR---neither system converts directly between pairs of formats.
+
+Both systems face the same fundamental limitation: information that cannot be represented in the IR is lost. pandoc cannot round-trip Word documents with custom styles and tracked changes. panproto cannot round-trip SQL schemas with arbitrary `CHECK` expressions.
+
+**What is different.** pandoc's IR is a fixed, hand-designed document AST. Adding a new element type requires changing pandoc's source code. panproto's IR is not fixed---its structure is determined by the protocol theories. Adding a new structural concept means extending a theory via composition (@sec-building-protocol), not patching the IR definition.
+
+The second difference is in the use of the IR. In pandoc, the IR exists solely for conversion; you interact with it by writing filters. In panproto, the Schema graph is the primary representation for *all* operations: diff, migration, existence checking, lens derivation, breaking-change detection, and translation all operate on the same object.
+
+| | pandoc | panproto |
+|---|---|---|
+| Translates between | Document formats | Schema formats |
+| Intermediate representation | Pandoc document AST | Schema graph |
+| IR defined by | Fixed Haskell data types | Protocol theories (extensible) |
+| IR used for | Conversion only | Conversion, diff, migration, lenses, ... |
+| Loss mechanism | AST has no element for X | Schema graph has no vertex/edge for X |
+| Format-specific extensions | Custom AST metadata | Theory-specific constraint annotations |
+
+: Structural comparison between pandoc and panproto. {#tbl-pandoc-comparison}
+
+
+## Further reading
+
+The functorial data migration framework that underlies cross-protocol translation is due to @spivak2012. The theory group structure is a consequence of the compositional protocol definitions described in @lynch2024. The connection between theory morphisms and information-preserving translations is developed in @cartmell1986.

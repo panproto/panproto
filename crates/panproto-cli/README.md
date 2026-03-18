@@ -4,7 +4,7 @@
 
 Command-line interface for panproto. The binary is called `schema`.
 
-Provides subcommands for schema validation, migration checking, breaking change detection, record lifting, and schematic version control.
+Provides subcommands for schema validation, migration checking, breaking change detection, record lifting, protolens-based data conversion, and schematic version control.
 
 ## Installation
 
@@ -21,6 +21,32 @@ schema validate --protocol atproto schema.json
 # Diff two schemas (use --theory for sort/op/equation-level diff)
 schema diff old.json new.json
 schema diff --theory old.json new.json
+
+# One-step data conversion between schemas (auto-generates a protolens)
+schema convert --src-schema old.json --tgt-schema new.json record.json
+
+# Auto-generate a lens with human-readable summary
+schema lens --src old.json --tgt new.json
+schema lens --src old.json --tgt new.json -o lens.json
+
+# Apply a saved lens or protolens chain to data
+schema lens --apply --lens lens.json record.json
+
+# Verify lens laws (GetPut, PutGet)
+schema lens --verify --lens lens.json --instance test.json
+
+# Compose lenses or protolens chains
+schema lens --compose lens1.json lens2.json -o composed.json
+
+# Check applicability of a protolens chain
+schema lens --check --chain chain.json --schema schema.json
+
+# Lift a protolens chain to another protocol
+schema lens --lift --chain chain.json --morphism morphism.json
+
+# Derive a lens from VCS commit history
+schema lens --diff HEAD~1 HEAD
+schema lens --diff abc123 def456
 
 # Check a migration (use --typecheck for GAT-level validation)
 schema check --src old.json --tgt new.json --mapping mig.json
@@ -53,8 +79,29 @@ schema checkout main
 schema merge feature
 schema merge feature --verbose  # show pullback overlap details
 
+# Fuse a multi-step chain into a single protolens
+schema lens old.json new.json --protocol atproto --fuse
+
 # Lift a record through a migration
 schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json record.json
+
+# Migrate data to match current schema version
+schema migrate records/ --protocol atproto
+schema migrate records/ --dry-run
+schema migrate records/ --range HEAD~3..HEAD
+schema migrate records/ --backward
+
+# Stage data alongside schema
+schema add schema.json --data records/
+
+# Show data staleness
+schema status --data records/
+
+# Checkout and migrate data
+schema checkout feature --migrate records/
+
+# Merge and migrate data
+schema merge feature --migrate records/
 ```
 
 ## Subcommands
@@ -64,21 +111,24 @@ schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json rec
 | `validate` | Validate a schema file against a protocol (also type-checks the protocol theory) |
 | `check` | Check existence conditions for a migration (`--typecheck` to also GAT-validate the morphism) |
 | `diff` | Diff two schemas and report structural changes (`--theory` to show sort/op/equation-level diff) |
+| `convert` | One-step data conversion between schemas via auto-generated protolens |
+| `lens` | Auto-generate a lens between two schemas (`--apply` to apply, `--verify` to check laws, `--compose` to combine, `--check` for applicability, `--lift` to lift across protocols, `--diff` to derive from VCS history, `--fuse` to merge steps) |
 | `lift` | Apply a migration to a record |
 | `scaffold` | Generate minimal test data from a protocol theory via free model construction |
 | `normalize` | Simplify a schema by merging equivalent elements via quotient |
 | `typecheck` | Type-check a migration between two schemas at the GAT level |
 | `verify` | Verify a schema satisfies its protocol theory's equations by model checking |
 | `init` | Initialize a `.panproto/` repository |
-| `add` | Stage a schema for the next commit |
+| `migrate` | Migrate data to match current schema version (`--dry-run`, `--range`, `--backward`) |
+| `add` | Stage a schema for the next commit (`--data` to stage data files alongside) |
 | `commit` | Commit staged changes (`--skip-verify` to bypass GAT equation verification) |
-| `status` | Show working state |
+| `status` | Show working state (`--data` to show data staleness) |
 | `log` | Walk commit history |
 | `show` | Inspect an object |
 | `branch` | Create, list, or delete branches |
 | `tag` | Create, list, or delete tags |
-| `checkout` | Switch branch or detach HEAD |
-| `merge` | Three-way schema merge (`--verbose` to show pullback overlap detection details) |
+| `checkout` | Switch branch or detach HEAD (`--migrate` to migrate data) |
+| `merge` | Three-way schema merge (`--verbose` to show pullback overlap details, `--migrate` to migrate data) |
 | `rebase` | Replay commits onto another branch |
 | `cherry-pick` | Apply a single commit's migration |
 | `reset` | Move HEAD / unstage / restore |

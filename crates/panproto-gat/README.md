@@ -5,7 +5,7 @@
 
 [Generalized Algebraic Theory](https://ncatlab.org/nlab/show/generalized+algebraic+theory) (GAT) engine for panproto.
 
-This is Level 0 of the panproto architecture: the only component implemented directly in Rust rather than as data. It provides the foundational type system for defining schema languages: sorts (including dependent sorts with parameters), operations, equations, and theories, along with [morphisms](https://ncatlab.org/nlab/show/morphism+of+theories) and [colimits](https://ncatlab.org/nlab/show/colimit) (pushouts) for composing them.
+This is Level 0 of the panproto architecture: the only component implemented directly in Rust rather than as data. It provides the foundational type system for defining schema languages: sorts (including dependent sorts with parameters), operations, equations, and theories, along with [morphisms](https://ncatlab.org/nlab/show/morphism+of+theories) and [colimits](https://ncatlab.org/nlab/show/colimit) (pushouts) for composing them. Theory [endofunctors](https://ncatlab.org/nlab/show/endofunctor) and factorization support protolens construction by decomposing morphisms into elementary transformations.
 
 ## API
 
@@ -39,6 +39,12 @@ This is Level 0 of the panproto architecture: the only component implemented dir
 | `free_model` | Construct the free (initial) model by enumerating closed terms up to a depth bound |
 | `FreeModelConfig` | Configuration: `max_depth` and `max_terms_per_sort` bounds |
 | `quotient` | Quotient a theory by identifying sorts and/or operations via union-find |
+| `TheoryEndofunctor` | [Theory endofunctor](https://ncatlab.org/nlab/show/endofunctor) with precondition and transform for protolens construction |
+| `TheoryTransform` | 11 variants for elementary theory transformations (add/remove/rename sort, add/remove/rename op, etc.) |
+| `TheoryConstraint` | Precondition predicates on theories (has sort, has op, arity check, etc.) |
+| `factorize` | Decompose a `TheoryMorphism` into a sequence of elementary endofunctors |
+| `Factorization` | Result of factorization: ordered list of `TheoryEndofunctor` steps |
+| `validate_factorization` | Verify that a factorization correctly reproduces the original morphism |
 | `GatError` | Error type for GAT operations |
 
 ## Example

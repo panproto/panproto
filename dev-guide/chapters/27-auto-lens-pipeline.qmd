@@ -1,0 +1,305 @@
+# Automated Lens Generation Pipeline {#sec-auto-lens-pipeline}
+
+This chapter describes the end-to-end pipeline that automatically derives protolens chains from schema diffs. Given two schemas, panproto can search for a homomorphism, factorize it into elementary steps, convert each step to a protolens, and instantiate the resulting chain --- all without manual lens construction.
+
+For the protolens engine internals, see @sec-protolens-engine. For the homomorphism search and the extend/restrict/complete operations, see @sec-auto-morphisms-section.
+
+## End-to-End Pipeline {#sec-auto-lens-e2e}
+
+The automated lens generation pipeline consists of five stages:
+
+```{mermaid}
+%%| label: fig-auto-lens-pipeline
+%%| fig-cap: "End-to-end automated lens generation pipeline. Each stage transforms the representation one step closer to an executable lens."
+flowchart LR
+    S1[Schema v1] --> HOM["hom_search"]
+    S2[Schema v2] --> HOM
+    HOM --> MOR["TheoryMorphism"]
+    MOR --> FAC["factorize"]
+    FAC --> CHAIN["ProtolensChain"]
+    CHAIN --> INST["instantiate"]
+    INST --> LENS["Lens"]
+
+    style LENS fill:#e8f4e8,stroke:#2d7d2d
+```
+
+1. **Homomorphism search** (`hom_search`): find a structure-preserving map between the source and target schemas. This uses the CSP-based backtracking search described in @sec-auto-morphisms-section.
+2. **Factorization** (`factorize`): decompose the resulting theory morphism into a sequence of elementary transforms --- drops, renames, and adds.
+3. **Protolens chain construction** (`diff_to_protolens`): map each elementary transform to an elementary protolens constructor.
+4. **Instantiation**: apply the protolens chain to the source schema, producing a concrete `Lens`.
+5. **Application**: use the lens's `get` and `put` to migrate data bidirectionally.
+
+## `schema_to_implicit_theory`: Bridging Schema-Level to GAT-Level {#sec-implicit-theory}
+
+The pipeline's first bridge is `schema_to_implicit_theory`, which extracts a GAT from a schema's structural information:
+
+- Each unique **vertex kind** becomes a sort (a type in a formal theory, not a sorting operation --- here simple, with arity 0).
+- Each unique **edge kind** becomes a unary operation from the source vertex's kind to the target vertex's kind.
+
+This implicit theory is sufficient for constraint evaluation and morphism factorization. It does not capture equations or dependent sorts --- those are properties of the protocol's schema theory, not of individual schemas.
+
+```rust
+fn schema_to_implicit_theory(schema: &Schema) -> Theory {
+    // Collect unique vertex kinds as sorts
+    // Collect unique edge kinds as operations
+    Theory::new("implicit", sorts, ops, Vec::new())
+}
+```
+
+The implicit theory is computed lazily during `Protolens::applicable_to` and is not cached, since schemas are typically small and the extraction is O(|V| + |E|).
+
+::: {.callout-note}
+The implicit theory is a *presentation* of the schema's structure in the language of GATs. It is not the same as the protocol's schema theory (which defines vertex kinds and edge rules globally). The implicit theory is local to a specific schema instance, capturing only the kinds that actually appear.
+:::
+
+## The `factorize` Algorithm {#sec-factorize-algorithm}
+
+**File**: `crates/panproto-gat/src/factorize.rs`
+
+The `factorize` function decomposes a theory morphism F: T1 -> T2 into a sequence of elementary `TheoryEndofunctor` steps:
+
+```{.rust include="../../crates/panproto-gat/src/factorize.rs" start-line=194 end-line=230}
+```
+
+### Phase Ordering
+
+The factorization proceeds in four phases, ordered to maintain well-formedness at each intermediate step:
+
+1. **Identify renames**: sort-map and op-map entries where `old != new` and both names exist in their respective theories.
+2. **Emit drops** (equations first, then ops, then sorts): remove elements present in the domain but absent from the codomain. The ordering ensures that equations referencing an operation are dropped before the operation, and operations referencing a sort are dropped before the sort.
+3. **Emit renames**: apply the identified sort and operation renames.
+4. **Emit adds** (sorts first, then ops, then equations): add elements present in the codomain but absent from the (renamed) domain. Sorts are topologically sorted by parameter dependencies to ensure that a sort's parameters exist before the sort is added.
+
+### Topological Sort of Dependent Sorts
+
+When adding new sorts, the `emit_adds` function performs a topological sort based on `SortParam` dependencies:
+
+```{.rust include="../../crates/panproto-gat/src/factorize.rs" start-line=99 end-line=145}
+```
+
+A sort with parameters depending on other sorts must be added after those dependency sorts. The algorithm iterates until all additions are emitted, with a cycle guard (`max_iterations`) to prevent infinite loops in malformed inputs.
+
+### Factorization Result
+
+The `Factorization` struct holds the ordered sequence of steps plus domain and codomain names:
+
+```{.rust include="../../crates/panproto-gat/src/factorize.rs" start-line=11 end-line=19}
+```
+
+### Validation
+
+`validate_factorization` applies the step sequence to the domain theory and checks that the result contains all sorts and operations from the codomain:
+
+```{.rust include="../../crates/panproto-gat/src/factorize.rs" start-line=239 end-line=265}
+```
+
+This is an end-to-end correctness check: if validation passes, the factorization faithfully represents the original morphism.
+
+## `diff_to_protolens`: Mapping Transforms to Protolenses {#sec-diff-to-protolens}
+
+Each `TheoryEndofunctor` in a factorization maps directly to an elementary protolens constructor:
+
+| `TheoryTransform` variant | `elementary::` constructor | Complement |
+|---|---|---|
+| `AddSort(s)` | `add_sort(s.name, s.name, Null)` | `Empty` |
+| `DropSort(n)` | `drop_sort(n)` | `DroppedSortData` |
+| `RenameSort{old,new}` | `rename_sort(old, new)` | `Empty` |
+| `AddOp(op)` | `add_op(op.name, ...)` | `Empty` |
+| `DropOp(n)` | `drop_op(n)` | `DroppedOpData` |
+| `RenameOp{old,new}` | `rename_op(old, new)` | `Empty` |
+| `AddEquation(eq)` | `add_equation(eq)` | `Empty` |
+| `DropEquation(n)` | `drop_equation(n)` | `Empty` |
+| `Pullback(morph)` | `pullback(morph)` | `Empty` |
+
+: Mapping from theory transforms to elementary protolenses. {#tbl-diff-to-protolens}
+
+The conversion is mechanical: each transform step becomes a protolens step with the same semantics. The resulting `Vec<Protolens>` is wrapped in a `ProtolensChain` for instantiation.
+
+## Symmetric Lens Construction from Overlap Discovery {#sec-symmetric-from-overlap}
+
+When two schemas overlap partially, the pipeline constructs a symmetric lens by:
+
+1. **Discovering overlap**: use `find_best_morphism` (from `panproto-mig/src/overlap.rs`) with `monic: true` to find the maximal common substructure.
+2. **Building protolens chains for each direction**: factorize the morphisms from each schema to the overlap, producing two protolens chains (one forward, one backward).^[Each direction involves a morphism from a full schema to the overlap subschema. Factorizing these morphisms into elementary transforms and mapping them to protolenses yields two chains whose composition forms the symmetric lens.]
+3. **Instantiating both chains**: produce `Lens(S1, overlap)` and `Lens(S2, overlap)`.
+4. **Composing into a symmetric lens**: combine the forward lens from S1 to the overlap with the backward lens from the overlap to S2.
+
+The overlap serves as the "common view" that both schemas can project onto. Data not in the overlap is captured in the respective complements.
+
+```{mermaid}
+%%| label: fig-symmetric-from-overlap
+%%| fig-cap: "Symmetric lens construction via overlap discovery. The overlap is the greatest common subschema."
+flowchart LR
+    S1["Schema S1"] -->|"project"| O["Overlap"]
+    S2["Schema S2"] -->|"project"| O
+    O -->|"embed"| S1
+    O -->|"embed"| S2
+
+    style O fill:#e8f4e8,stroke:#2d7d2d
+```
+
+## WASM Boundary {#sec-protolens-wasm}
+
+Protolens chains cross the WASM boundary via handle-based allocation, consistent with panproto's handle/slab architecture (see @sec-wasm-boundary):
+
+- **`create_protolens_chain`**: allocates a `ProtolensChain` in the Rust slab, returns a `u32` handle to JavaScript.
+- **`instantiate_protolens`**: takes a chain handle and a schema handle, instantiates the chain, and returns a lens handle.
+- **`protolens_chain_info`**: returns metadata (step count, complement types) as a MessagePack-encoded blob.
+
+The `ComplementConstructor` enum is serialized via `serde` into MessagePack for transmission across the WASM boundary. The TypeScript SDK deserializes it into a discriminated union type.
+
+::: {.callout-tip}
+Protolens chains are lightweight on the Rust side (no computation until instantiation), so it is cheap to create multiple chains speculatively in JavaScript, evaluate their applicability, and instantiate only the best match.
+:::
+
+## CLI Handlers {#sec-protolens-cli}
+
+The CLI exposes protolens functionality through several subcommands:
+
+| Command | Description |
+|---|---|
+| `prot convert` | Convert data between schema versions using the automated pipeline |
+| `prot lens` | Build a lens from a combinator chain or protolens specification |
+| `prot lens-apply` | Apply a lens to an instance (`get` or `put` direction) |
+| `prot lens-verify` | Verify GetPut and PutGet laws on a lens with test data |
+| `prot lens-compose` | Compose two lenses sequentially |
+| `prot lens-diff` | Compute the protolens chain between two schemas |
+
+: CLI subcommands for protolens operations. {#tbl-protolens-cli}
+
+The `lens-diff` command is the primary entry point for the automated pipeline:
+
+```bash
+prot lens-diff --src schema-v1.json --tgt schema-v2.json --protocol json-schema
+```
+
+This runs the full pipeline (hom_search, factorize, diff_to_protolens) and outputs the protolens chain as a JSON array of steps. Each step includes the transform names, preconditions, and complement constructors, providing a human-readable audit trail of the derived migration.
+
+The `lens-verify` command property-tests the lens laws:
+
+```bash
+prot lens-verify --lens lens.json --instance data.json --iterations 1000
+```
+
+This generates random modifications to the instance data and verifies that GetPut and PutGet hold for each modification.
+
+## Fleet Application {#sec-fleet-application}
+
+`apply_to_fleet` iterates over a collection of schemas, checks each against the chain's preconditions, and either instantiates the chain or records the failure:
+
+```rust
+pub fn apply_to_fleet(
+    chain: &ProtolensChain,
+    schemas: &[Schema],
+    protocol: &Protocol,
+) -> FleetResult {
+    let mut applied = Vec::new();
+    let mut skipped = Vec::new();
+    for schema in schemas {
+        let failures = chain.check_applicability(schema);
+        if failures.is_empty() {
+            match chain.instantiate(schema, protocol) {
+                Ok(lens) => applied.push(FleetEntry { schema, lens }),
+                Err(e) => skipped.push(SkippedEntry {
+                    schema,
+                    reasons: vec![e.to_string()],
+                }),
+            }
+        } else {
+            skipped.push(SkippedEntry {
+                schema,
+                reasons: failures.iter().map(|f| f.to_string()).collect(),
+            });
+        }
+    }
+    FleetResult { applied, skipped }
+}
+```
+
+`FleetResult` partitions outcomes into `applied` (successful instantiations) and `skipped` (schemas that failed precondition checks or instantiation). Failed instantiations are skipped rather than fatal---a single broken schema does not abort the fleet migration.
+
+
+## Complement State Tracking {#sec-complement-state-tracking}
+
+`chain_complement_spec` advances a `current_schema` through each step's target transform before evaluating the next step's complement. Each step's complement is computed against the schema as it exists after all preceding steps. This means a `drop_sort("metadata")` followed by `add_sort("metadata_v2")` correctly reports the drop's captured data count from the original schema and the add's default requirement from the intermediate schema.
+
+The `AddedElement` variant of `ComplementConstructor` handles `add_sort` and `add_op` protolenses. These require default values at instantiation time. `AddedElement { name, kind }` records what the user must supply, and `chain.requirements()` aggregates these into a complete list of defaults needed for the chain to instantiate.
+
+
+## Serialization Format {#sec-serialization-format}
+
+Protolens chains serialize to JSON with the following structure:
+
+```json
+{
+  "steps": [
+    {
+      "name": "rename_sort",
+      "source": {
+        "transform": "Identity",
+        "constraint": "Unconstrained"
+      },
+      "target": {
+        "transform": { "RenameSort": { "old": "Vertex", "new": "Node" } },
+        "constraint": { "HasSort": "Vertex" }
+      },
+      "complement_constructor": "Empty"
+    },
+    {
+      "name": "drop_op",
+      "source": {
+        "transform": "Identity",
+        "constraint": "Unconstrained"
+      },
+      "target": {
+        "transform": { "DropOp": "legacyEdge" },
+        "constraint": { "HasOp": "legacyEdge" }
+      },
+      "complement_constructor": { "DroppedOpData": { "op": "legacyEdge" } }
+    }
+  ]
+}
+```
+
+Each step includes its name, source and target endofunctors (transform + constraint), and complement constructor. The `from_json(to_json(chain))` round-trip produces a chain that is structurally equal to the original: same step count, same transforms, same constraints, same complement constructors.
+
+Individual protolenses also support `to_json()` / `from_json()` with the same per-step structure (minus the outer `steps` array).
+
+
+## Testing Strategy {#sec-protolens-testing}
+
+The protolens engine uses three testing approaches:
+
+### Unit Tests
+
+Each elementary protolens constructor has unit tests verifying:
+
+- **Applicability**: the protolens is applicable to schemas containing the relevant sorts/ops and not applicable otherwise.
+- **Instantiation correctness**: the resulting lens has the expected source and target schemas.
+- **Losslessness classification**: `is_lossless()` returns the correct value.
+
+### Commutativity Checks
+
+Commutativity is tested by instantiating the same protolens at multiple related schemas and verifying that the resulting lenses commute with schema morphisms between those schemas. The test fixture generates a family of schemas of increasing complexity and checks commutativity for each pair.
+
+### Round-Trip Verification
+
+The `check_laws` function from `panproto-lens/src/laws.rs` is applied to instantiated protolenses:
+
+1. Generate a random instance conforming to the source schema.
+2. Apply `get` to produce a view and complement.
+3. Apply `put` with the unmodified view and complement.
+4. Verify that the restored instance equals the original (GetPut).
+5. Apply `get` to the restored instance.
+6. Verify that the new view and complement equal the originals (PutGet).
+
+### Property-Based Tests
+
+The integration test suite (`tests/integration/tests/lens_laws.rs`) includes property-based tests that:
+
+- Generate random schema pairs by applying random sequences of elementary protolens constructors to a base schema.
+- Factorize the resulting morphism.
+- Verify that `validate_factorization` passes.
+- Instantiate the protolens chain and verify lens laws.
+
+This provides coverage over the full pipeline, catching regressions in factorization ordering, schema transformation, and migration derivation.

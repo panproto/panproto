@@ -29,6 +29,8 @@ The algebraic core. Defines theories, morphisms, and colimits.
 | `src/morphism.rs` | `TheoryMorphism`, `check_morphism()` validation |
 | `src/colimit.rs` | `colimit()` pushout computation over theory morphisms |
 | `src/model.rs` | `Model`, `ModelValue`, `migrate_model()` |
+| `src/schema_functor.rs` | `TheoryEndofunctor`, `TheoryTransform`, `TheoryConstraint`: theory endofunctors and subcategory predicates |
+| `src/factorize.rs` | `factorize()`, `Factorization`, `validate_factorization()`: morphism decomposition into elementary steps |
 | `src/error.rs` | `GatError` enum |
 | `benches/gat_bench.rs` | divan benchmarks for colimit, morphism checking |
 
@@ -91,6 +93,10 @@ Symmetric and asymmetric lenses with law checking.
 | `src/asymmetric.rs` | Asymmetric lens: one-directional with state |
 | `src/combinators.rs` | `compose()`, `product()`, `sum()`, `identity()` combinators |
 | `src/compose.rs` | Lens composition internals |
+| `src/protolens.rs` | `Protolens`, `ProtolensChain`, `ComplementConstructor`, `elementary::*`: schema-parameterized lens families |
+| `src/complement_type.rs` | `ComplementSpec`, `DefaultRequirement`, `CapturedField`: dependent complement type evaluation |
+| `src/auto_lens.rs` | `auto_generate()`, `AutoLensConfig`, `AutoLensResult`: automatic protolens generation pipeline |
+| `src/diff_to_protolens.rs` | `diff_to_protolens()`, `diff_to_lens()`, `DiffSpec`: schema diff to protolens conversion |
 | `src/laws.rs` | `check_get_put()`, `check_put_get()` law verification |
 | `src/error.rs` | `LensError` enum |
 

@@ -5,7 +5,7 @@
 
 Schematic version control for panproto.
 
-Schemas are content-addressed objects (blake3) stored in a commit DAG, with branches, three-way structural merge via categorical pushout, rename detection, and data lifting through history. The CLI binary is `schema`.
+Schemas, data snapshots, complements, and protocol definitions are content-addressed objects (blake3) stored in a commit DAG, with branches, three-way structural merge via categorical pushout, rename detection, data lifting through history, and automatic data migration. The CLI binary is `schema`.
 
 ## API
 
@@ -27,6 +27,15 @@ Schemas are content-addressed objects (blake3) stored in a commit DAG, with bran
 | `GcReport` | Garbage collection results |
 | `GatDiagnostics` | Type errors, equation violations, and migration warnings from GAT validation |
 | `CommitOptions` | Commit configuration including `skip_verify` to bypass GAT equation checks |
+| `DataSetObject` | Content-addressed data snapshot binding instances to a schema version |
+| `ComplementObject` | Persistent complement for backward data migration |
+| `data_mig::migrate_forward` | Migrate data forward through a migration, storing complement |
+| `data_mig::migrate_backward` | Restore data from a stored complement |
+| `data_mig::detect_staleness` | Check which data sets need migration |
+| `Repository::add_data` | Stage data files alongside schema changes |
+| `Repository::add_protocol` | Stage a protocol definition for versioning |
+| `Repository::checkout_with_data` | Switch branch and migrate data |
+| `Repository::merge_with_data` | Merge and migrate data |
 
 ## Modules
 

@@ -9,7 +9,7 @@ use panproto_core::{
     vcs::{CommitObject, hash},
 };
 
-use crate::format_timestamp;
+use crate::cmd::helpers::format_timestamp;
 
 /// Format a commit using a custom format string.
 ///

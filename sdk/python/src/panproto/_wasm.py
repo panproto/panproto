@@ -920,6 +920,169 @@ class WasmModule:
         result = self._call("vcs_blame", repo, vertex)
         return bytes(result)  # type: ignore[arg-type]
 
+    # ------------------------------------------------------------------
+    # Phase 7: Data versioning WASM entry points
+    # ------------------------------------------------------------------
+
+    def store_dataset(self, schema_handle: int, data_json: bytes) -> int:
+        """Store a data set from JSON bytes, bound to a schema.
+
+        Parameters
+        ----------
+        schema_handle : int
+            Handle to the schema this data conforms to.
+        data_json : bytes
+            JSON-encoded data (array of records or single object).
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the stored data set.
+        """
+        result = self._call("store_dataset", schema_handle, data_json)
+        return int(result)  # type: ignore[arg-type]
+
+    def get_dataset(self, dataset_handle: int) -> bytes:
+        """Retrieve a data set as MessagePack bytes.
+
+        Parameters
+        ----------
+        dataset_handle : int
+            Handle to the data set.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded instance data.
+        """
+        result = self._call("get_dataset", dataset_handle)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def migrate_dataset_forward(
+        self,
+        dataset_handle: int,
+        src_schema: int,
+        tgt_schema: int,
+    ) -> bytes:
+        """Migrate a data set forward between two schemas.
+
+        Parameters
+        ----------
+        dataset_handle : int
+            Handle to the data set.
+        src_schema : int
+            Handle to the source schema.
+        tgt_schema : int
+            Handle to the target schema.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded ``{"data_handle": int, "complement_handle": int}``.
+        """
+        result = self._call("migrate_dataset_forward", dataset_handle, src_schema, tgt_schema)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def migrate_dataset_backward(
+        self,
+        dataset_handle: int,
+        complement_bytes: bytes,
+        src_schema: int,
+        tgt_schema: int,
+    ) -> int:
+        """Migrate a data set backward using a complement.
+
+        Parameters
+        ----------
+        dataset_handle : int
+            Handle to the data set.
+        complement_bytes : bytes
+            The complement bytes from a prior forward migration.
+        src_schema : int
+            Handle to the source schema.
+        tgt_schema : int
+            Handle to the target schema.
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the restored data set.
+        """
+        result = self._call(
+            "migrate_dataset_backward",
+            dataset_handle,
+            complement_bytes,
+            src_schema,
+            tgt_schema,
+        )
+        return int(result)  # type: ignore[arg-type]
+
+    def check_dataset_staleness(self, dataset_handle: int, schema_handle: int) -> bytes:
+        """Check if a data set is stale relative to a schema.
+
+        Parameters
+        ----------
+        dataset_handle : int
+            Handle to the data set.
+        schema_handle : int
+            Handle to the target schema.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded staleness result.
+        """
+        result = self._call("check_dataset_staleness", dataset_handle, schema_handle)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def store_protocol_definition(self, protocol_bytes: bytes) -> int:
+        """Store a protocol definition and return a handle.
+
+        Parameters
+        ----------
+        protocol_bytes : bytes
+            MessagePack-encoded protocol definition.
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the protocol.
+        """
+        result = self._call("store_protocol_definition", protocol_bytes)
+        return int(result)  # type: ignore[arg-type]
+
+    def get_protocol_definition(self, handle: int) -> bytes:
+        """Get a protocol definition from a handle.
+
+        Parameters
+        ----------
+        handle : int
+            Handle to the protocol.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded protocol definition.
+        """
+        result = self._call("get_protocol_definition", handle)
+        return bytes(result)  # type: ignore[arg-type]
+
+    def get_migration_complement(self, complement_bytes: bytes) -> bytes:
+        """Get the complement from a forward migration result.
+
+        Parameters
+        ----------
+        complement_bytes : bytes
+            Raw complement data.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded complement data.
+        """
+        result = self._call("get_migration_complement", complement_bytes)
+        return bytes(result)  # type: ignore[arg-type]
+
     def free_handle(self, handle: int) -> None:
         """Release a WASM-side resource.
 

@@ -10,7 +10,7 @@ panproto is a compiler library. Its restrict pipeline targets over 1 million rec
 2. **Data representation** --- `Arc<str>` for zero-cost cloning, `FxHash` for faster hashing.
 3. **Build configuration** --- WASM `opt-level = 3`, LTO, codegen-units.
 
-Every optimization preserves correctness. Formal proofs are provided in [Appendix E of the tutorial](https://panproto.github.io/tutorial/appendices/E-formal-proofs.html).
+Every optimization preserves correctness. Formal proofs are provided in the [tutorial's formal foundations appendix](https://panproto.dev/tutorial/appendices/A-formal-foundations.html).
 
 
 ## Theory Index Cache {#sec-opt-index-cache}

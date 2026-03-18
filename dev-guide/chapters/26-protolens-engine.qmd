@@ -1,0 +1,281 @@
+# Protolens Engine {#sec-protolens-engine}
+
+A `Protolens` is a reusable schema transform that produces a concrete lens for any schema matching a precondition. Where a `Lens` is bound to two specific schemas, a `Protolens` is a dependent function: given a schema S and a protocol, it yields a `Lens(F(S), G(S))` where F and G are schema transforms.^[A protolens is a reusable lens template parameterized by a schema. Given any schema meeting a precondition, it produces a concrete lens with concrete get/put operations. The formal type --- a dependent function $\Pi(S : \mathsf{Schema} \mid P(S)). \mathsf{Lens}(F(S), G(S))$ --- captures this: $S$ ranges over schemas satisfying predicate $P$, and $F$, $G$ are schema transforms that produce the source and target of the resulting lens. In the categorical literature, this is a natural transformation between theory endofunctors [@cartmell1986].]
+
+For the concrete lens primitives (`get`, `put`, complement), see @sec-lenses. For the [tutorial's lens chapter](https://panproto.dev/tutorial/chapters/06-bidirectional-migration-with-lenses.html), see the tutorial. For the automated pipeline that derives protolens chains from schema diffs, see @sec-auto-lens-pipeline.
+
+::: {.callout-note}
+## Relationship to prior work
+
+The term "protolens" is specific to panproto. The concept extends several established ideas:
+
+- **[Cambria](https://www.inkandswitch.com/cambria/) combinators** [@litt2022]: each Cambria combinator (`rename`, `add`, `remove`, etc.) corresponds to an elementary protolens whose source transform is the identity. Protolenses generalize Cambria by adding explicit schema parameterization, precondition checking, and schema-dependent complement types. Cambria operates on implicit schemas; protolenses take the schema as an explicit argument.
+- **[Haskell lens families](https://hackage.haskell.org/package/lens)** (`Lens s t a b`): parameterized over types, not schemas. Lens families allow source/target types to differ, but the complement structure doesn't vary with the parameter.
+- **Delta lenses** [@johnson2013]: generalize asymmetric lenses by making source and view into categories. The commutativity property of protolenses (commuting with schema migration) is the same coherence condition delta lenses formalize.
+
+What distinguishes protolenses: schema-dependent complements, precondition diagnostics, and guaranteed commutativity with migration. See the [tutorial's protolens chapter](https://panproto.dev/tutorial/chapters/16-protolenses.html) for the full comparison.
+:::
+
+## `TheoryEndofunctor` and `TheoryTransform` {#sec-theory-endofunctor}
+
+**File**: `crates/panproto-gat/src/schema_functor.rs`
+
+A `TheoryEndofunctor` pairs a precondition with a schema transform --- a description of how to modify a theory:
+
+```{.rust include="../../crates/panproto-gat/src/schema_functor.rs" start-line=69 end-line=77}
+```
+
+The `TheoryTransform` enum defines how a schema transform acts on a theory:
+
+```{.rust include="../../crates/panproto-gat/src/schema_functor.rs" start-line=32 end-line=66}
+```
+
+Each variant corresponds to an elementary operation on theories:
+
+| Variant | Effect on theory T | Inverse |
+|---|---|---|
+| `Identity` | No change | Self |
+| `AddSort(s)` | Add sort `s` | `DropSort(s.name)` |
+| `DropSort(n)` | Remove sort `n` and cascade to dependent ops/eqs | `AddSort(...)` |
+| `RenameSort{old,new}` | Rename sort `old` to `new` | `RenameSort{new,old}` |
+| `AddOp(op)` | Add operation `op` | `DropOp(op.name)` |
+| `DropOp(n)` | Remove operation `n` and cascade to dependent eqs | `AddOp(...)` |
+| `RenameOp{old,new}` | Rename operation `old` to `new` | `RenameOp{new,old}` |
+| `AddEquation(eq)` | Add equation `eq` | `DropEquation(eq.name)` |
+| `DropEquation(n)` | Remove equation `n` | `AddEquation(...)` |
+| `Pullback(morph)` | Sort/op renaming induced by a morphism | --- |
+| `Compose(f,g)` | Apply `f` then `g` | `Compose(g_inv, f_inv)` |
+
+: Theory transform variants and their effects. {#tbl-theory-transforms}
+
+### Cascading Drops
+
+`DropSort` cascades: removing a sort also removes all operations that reference it (as input or output) and all equations that reference those operations. `DropOp` similarly cascades to equations. This ensures that the resulting theory is always well-formed.
+
+```{.rust include="../../crates/panproto-gat/src/schema_functor.rs" start-line=96 end-line=111}
+```
+
+### Composing Schema Transforms
+
+`TheoryEndofunctor::compose` chains two transforms F and G into "apply F, then apply G". The precondition of the composed transform is the conjunction of the first transform's precondition with an unconstrained placeholder for the second (the second's precondition applies to the *output* of the first, which cannot be statically checked). Dynamic checking occurs at `apply` time.
+
+```{.rust include="../../crates/panproto-gat/src/schema_functor.rs" start-line=331 end-line=344}
+```
+
+## `TheoryConstraint`: Precondition Predicates {#sec-theory-constraint}
+
+A `TheoryConstraint` defines which theories a protolens can operate on:
+
+```{.rust include="../../crates/panproto-gat/src/schema_functor.rs" start-line=13 end-line=29}
+```
+
+The constraint language is a propositional logic over structural predicates:
+
+- `HasSort(n)` --- the theory must contain a sort (a type in a formal theory, not a sorting operation) named `n`.
+- `HasOp(n)` --- the theory must contain an operation named `n`.
+- `HasEquation(n)` --- the theory must contain an equation named `n`.
+- `All`, `Any`, `Not` --- standard Boolean connectives.
+- `Unconstrained` --- always satisfied.
+
+The `satisfied_by` method evaluates the predicate against a concrete `Theory`. This check runs in O(|C| * |T|) where |C| is the constraint tree size and |T| is the number of sorts/ops/equations in the theory.
+
+## The `Protolens` Struct {#sec-protolens-struct}
+
+**File**: `crates/panproto-lens/src/protolens.rs`
+
+The `Protolens` struct bundles the source and target schema transforms with a complement constructor:
+
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=123 end-line=133}
+```
+
+Key fields:
+
+- **`source`**: The schema transform F that produces the *source* schema of the instantiated lens.
+- **`target`**: The schema transform G that produces the *target* schema.
+- **`complement_constructor`**: How the complement type depends on the schema (see @sec-complement-spec).
+
+The `applicable_to` method checks whether a given schema satisfies the source transform's precondition. It works by converting the schema to an implicit theory (vertex kinds become sorts, edge kinds become operations) and evaluating the constraint.
+
+## Instantiation {#sec-protolens-instantiation}
+
+Instantiation is the core operation: given a schema S and protocol, produce a concrete `Lens(F(S), G(S))`.
+
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=162 end-line=192}
+```
+
+The instantiation pipeline:
+
+1. **Compute source schema**: Apply F to S via `apply_theory_transform_to_schema`. If F is the identity, this is a clone.
+2. **Compute target schema**: Apply G to S.
+3. **Derive migration**: Compare F(S) and G(S) structurally to compute a `CompiledMigration` (surviving set, vertex remap, resolver).
+4. **Return lens**: Bundle the compiled migration with the source and target schemas.
+
+The `apply_theory_transform_to_schema` function bridges theory-level operations and schema-level operations. Each `TheoryTransform` variant maps to a corresponding schema mutation:
+
+- `RenameSort{old,new}` renames vertex kinds.
+- `DropSort(n)` removes vertices with kind `n` and their incident edges.
+- `AddSort(s)` inserts a new vertex with kind `s.name`.
+- `RenameOp{old,new}` renames edge kinds.
+- `DropOp(n)` removes edges with kind `n`.
+
+::: {.callout-note}
+The `schema_to_implicit_theory` function extracts an implicit theory from a schema: each unique vertex kind becomes a sort, and each unique edge kind becomes a unary operation. This allows protolens preconditions (which operate on `Theory` values) to be evaluated against schemas without requiring an explicit theory object.
+:::
+
+## Commutativity Checking (Order Independence) {#sec-protolens-naturality}
+
+A protolens is *well-behaved* if instantiating it at one schema and then migrating along a schema morphism produces the same result as migrating first and then instantiating. In other words, the order does not matter: the two paths through the following diagram arrive at the same lens.^[Order independence means: instantiate-then-migrate produces the same result as migrate-then-instantiate. In the categorical literature, this is the naturality condition for natural transformations. Given a schema morphism $\phi : S_1 \to S_2$, the equation $\eta_{S_2} \circ F(\phi) = G(\phi) \circ \eta_{S_1}$ must hold.]
+
+For the elementary protolens constructors in `protolens::elementary`, this commutativity holds by construction: each constructor's source and target transforms act locally (on a single sort or operation), so their action commutes with schema morphisms that do not touch the affected elements. Commutativity for composed protolenses follows from commutativity of the components.
+
+In practice, commutativity is verified by the test suite rather than checked at runtime. The `ProtolensChain::instantiate` method trusts that the chain was constructed from verified components.
+
+## Vertical and Horizontal Composition {#sec-protolens-composition}
+
+Protolenses compose in two dimensions: chaining transforms sequentially, and combining independent transforms in parallel.
+
+### Vertical Composition (Chaining Transforms)
+
+Given a protolens from F to G and another from G to H, vertical composition produces a single protolens from F to H:^[Chaining two protolenses: the first transforms F to G, the second transforms G to H, producing a single protolens from F to H. In categorical notation, this is the vertical composite $\theta \circ \eta : F \Rightarrow H$.]
+
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=396 end-line=418}
+```
+
+The composed protolens uses the first step's source transform and the second step's target transform. The complement is the composite of both complements --- during `get`, both steps' lost data is captured.
+
+### Horizontal Composition (Combining Independent Transforms)
+
+Given two independent protolenses that operate on different parts of the theory, horizontal composition applies both simultaneously:^[Two independent transforms are applied in parallel: one changes sorts/ops in one region of the theory, the other changes a different region. In categorical notation, this is the whiskering product $\eta * \theta : F \circ F' \Rightarrow G \circ G'$.]
+
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=420 end-line=441}
+```
+
+Horizontal composition uses `TheoryEndofunctor::compose` to build the composed source and target transforms. This is useful when two independent schema changes need to be applied simultaneously.
+
+### `ProtolensChain`
+
+The `ProtolensChain` struct provides a convenient wrapper for vertical composition chains:
+
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=447 end-line=525}
+```
+
+Instantiating a chain applies each step sequentially, using the previous step's target schema as the next step's input. The resulting lenses are composed via `crate::compose::compose`.
+
+## Elementary Protolens Constructors {#sec-elementary-protolens}
+
+The `protolens::elementary` module provides nine atomic protolens constructors, each corresponding to one `TheoryTransform` variant:
+
+| Constructor | Type signature | Lossless? |
+|---|---|---|
+| `add_sort(name, kind, default)` | `Id => AddSort(tau)` | Yes |
+| `drop_sort(name)` | `Id => DropSort(tau)` | No |
+| `rename_sort(old, new)` | `Id => RenameSort(old, new)` | Yes |
+| `add_op(name, src, tgt, kind)` | `Id => AddOp(op)` | Yes |
+| `drop_op(name)` | `Id => DropOp(op)` | No |
+| `rename_op(old, new)` | `Id => RenameOp(old, new)` | Yes |
+| `add_equation(eq)` | `Id => AddEquation(eq)` | Yes |
+| `drop_equation(name)` | `Id => DropEquation(eq)` | Yes |
+| `pullback(morphism)` | `Id => Pullback(phi)` | Yes |
+
+: Elementary protolens constructors. {#tbl-elementary-protolens}
+
+All elementary constructors have the identity as their source transform. The precondition on the source is `Unconstrained` for additive constructors (adding a sort/op/equation is always valid) and `HasSort`/`HasOp`/`HasEquation` for subtractive or renaming constructors (the element must exist to be dropped or renamed).
+
+For example, `elementary::drop_sort` constructs:
+
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=766 end-line=786}
+```
+
+## `ComplementConstructor` as Schema-Dependent Type {#sec-complement-spec}
+
+The `ComplementConstructor` enum describes how the complement type depends on the schema at instantiation time:
+
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=72 end-line=103}
+```
+
+This is a *type-level* description, not a runtime complement. At instantiation time, the constructor determines what data the resulting lens's `get` direction will capture in the complement:
+
+- `Empty` --- lossless transformation (renames, additions, equation changes).
+- `DroppedSortData { sort }` --- the complement stores all nodes anchored at vertices with the dropped sort's kind.
+- `DroppedOpData { op }` --- the complement stores all arcs corresponding to the dropped edge kind.
+- `NatTransKernel { nat_trans_name }` --- the complement is the kernel of the transform (used in advanced composition scenarios).
+- `Composite(vec)` --- the complement is the union of multiple sub-complements, arising from vertical composition.
+
+The `is_lossless` method on `Protolens` checks whether the complement constructor is `Empty`, providing a quick determination of whether round-tripping through the protolens preserves all data without external storage.
+
+## Integration with the Cascade Module {#sec-protolens-cascade}
+
+**File**: `crates/panproto-mig/src/cascade.rs`
+
+The protolens engine connects to panproto-mig's morphism tower via the cascade module. The tower has three levels:
+
+1. **Theory morphism** --- maps sorts to sorts, operations to operations.
+2. **Schema morphism** (induced by the theory morphism) --- renames vertex kinds and edge kinds.
+3. **Data migration** (induced by the schema morphism) --- the `CompiledMigration` that transforms instances.
+
+The `induce_schema_morphism` function in `cascade.rs` bridges levels 1 and 2. The protolens engine adds a parallel path: instead of requiring a single theory morphism, it factors the morphism into elementary transforms via `factorize` (@sec-factorize-algorithm) and maps each factor to a protolens. This produces a `ProtolensChain` that, when instantiated, yields a composed `Lens`.
+
+The advantage over the direct cascade path is compositionality: each protolens step is independently verifiable, and the chain can be inspected, serialized, and modified without recomputing the full migration.
+
+## Schema Constraints vs Theory Constraints {#sec-schema-vs-theory-constraints}
+
+`TheoryConstraint` operates on implicit theories extracted from schemas via `schema_to_implicit_theory`. This extraction is lossy: vertex IDs are discarded (only kinds survive as sorts), edge names are lost (only kinds survive as operations), and structural properties like edge multiplicities and ordering constraints have no representation in the implicit theory.
+
+`SchemaConstraint` checks schemas directly, bypassing the lossy extraction. It supports predicates that `TheoryConstraint` cannot express:
+
+- `HasVertex(id)` — the schema must contain a vertex with this *ID*, not just this kind.
+- `HasEdgeBetween(src, tgt, kind)` — a specific edge must exist between two specific vertices.
+- `VertexCount(kind, min, max)` — the schema must have between `min` and `max` vertices of the given kind.
+
+The `check()` method on `SchemaConstraint` returns a `Vec<ConstraintFailure>` instead of a boolean. Each failure includes the constraint that failed, the schema element it checked, and a human-readable explanation.
+
+`SchemaConstraint::from_theory_constraint` bridges the two systems: it converts a `TheoryConstraint` into the closest `SchemaConstraint` equivalent by mapping `HasSort(n)` to "any vertex with kind `n` exists" and `HasOp(n)` to "any edge with kind `n` exists". The conversion is conservative---it never accepts a schema that the original `TheoryConstraint` would reject.
+
+`Protolens::check_applicability` uses `SchemaConstraint` internally and returns the full list of `ConstraintFailure` values, giving callers actionable diagnostics instead of a bare boolean.
+
+
+## Endofunctor Fusion {#sec-endofunctor-fusion}
+
+The `fuse()` method on `ProtolensChain` composes all steps' target transforms into a single `TheoryTransform::Compose` tree. Given a chain with steps $[F_1, F_2, \ldots, F_n]$, fusion produces a single `Protolens` whose target transform is `Compose(F_1, Compose(F_2, ... Compose(F_{n-1}, F_n)))`.
+
+The fused protolens requires a single `instantiate` call, which applies the composed transform to the input schema once. Without fusion, `ProtolensChain::instantiate` applies each step sequentially, materializing $n-1$ intermediate schemas. For a chain of length $n$ with schemas of size $|S|$, fusion reduces instantiation from $O(n \cdot |S|^2)$ to $O(|S|^2)$ (one migration derivation instead of $n$).
+
+Complement constructors from all steps merge into a `Composite` variant, preserving the per-step complement structure for accurate round-trip data capture.
+
+`ProtolensChain::instantiate` calls `fuse()` automatically. Calling `fuse()` explicitly is useful for serializing the composed protolens or inspecting the transform tree.
+
+
+## Functorial Lifting {#sec-functorial-lifting}
+
+`lift_protolens` transforms a protolens defined over one protocol's theories into an equivalent protolens over another protocol's theories, given a theory morphism between the two protocols.
+
+The implementation has three components:
+
+1. **`lift_endofunctor`**: Given a `TheoryEndofunctor` $F$ and a morphism $\phi : T_1 \to T_2$, produce a new endofunctor $\phi^* F$ that acts on $T_2$-theories. The target transform is composed with `Pullback(φ)`: first pull back the schema along the morphism, then apply the original transform, then push forward. The precondition is lifted by renaming sort and operation references through $\phi$'s maps.
+
+2. **`lift_constraint`**: Rename sort and operation references in a `TheoryConstraint` (or `SchemaConstraint`) via the morphism's sort map and op map. `HasSort("Vertex")` becomes `HasSort(φ.sort_map["Vertex"])`.
+
+3. **`lift_protolens`**: Lift both the source and target endofunctors, preserving the complement constructor. A `DroppedSortData { sort: "Vertex" }` becomes `DroppedSortData { sort: φ.sort_map["Vertex"] }`.
+
+`lift_chain` applies `lift_protolens` to each step in a `ProtolensChain`.
+
+The categorical semantics: lifting is precomposition with a morphism. A protolens $\eta : F \Rightarrow G$ over theory $T_1$ lifts to $\phi^* \eta : \phi^* F \Rightarrow \phi^* G$ over theory $T_2$, where $\phi^*$ denotes pullback along $\phi$. The naturality of $\eta$ is preserved by the functoriality of $\phi^*$.
+
+
+## Performance {#sec-protolens-performance}
+
+| Operation | Complexity | Notes |
+|---|---|---|
+| `TheoryConstraint::satisfied_by` | O(|C| * |T|) | C = constraint tree, T = theory size |
+| `TheoryTransform::apply` | O(|T|) | Linear scan of sorts/ops/eqs |
+| `Protolens::instantiate` | O(|S|^2) | Schema comparison for migration derivation |
+| `ProtolensChain::instantiate` | O(n * |S|^2) | n = chain length |
+| `factorize` (morphism decomposition) | O(|sorts| + |ops|) | Linear in domain/codomain sizes |
+| Vertical composition | O(1) | Structural only, no computation |
+| Horizontal composition | O(1) | Structural only, no computation |
+
+: Protolens engine performance. {#tbl-protolens-perf}
+
+For typical schemas (10--100 vertices), instantiation completes in microseconds. The dominant cost is the migration derivation in `compute_migration_between`, which performs a nested scan over unmapped vertices for kind-based matching. For schemas with many vertices of the same kind, this quadratic term can become significant, but panproto schemas rarely exceed a few hundred vertices.
+
+Composition (both vertical and horizontal) is O(1) because it only wraps the operands in new structs --- no computation occurs until instantiation. This makes it cheap to build complex protolens chains speculatively and discard them if the preconditions are not met.

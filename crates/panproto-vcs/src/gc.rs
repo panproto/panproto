@@ -58,14 +58,30 @@ pub fn mark_reachable(
                 for parent in commit.parents {
                     queue.push(parent);
                 }
+                if let Some(protocol_id) = commit.protocol_id {
+                    queue.push(protocol_id);
+                }
+                for data_id in commit.data_ids {
+                    queue.push(data_id);
+                }
+                for complement_id in commit.complement_ids {
+                    queue.push(complement_id);
+                }
             }
             Object::Migration { src, tgt, .. } => {
                 queue.push(src);
                 queue.push(tgt);
             }
-            Object::Schema(_) => {}
+            Object::Schema(_) | Object::Protocol(_) => {}
             Object::Tag(tag) => {
                 queue.push(tag.target);
+            }
+            Object::DataSet(dataset) => {
+                queue.push(dataset.schema_id);
+            }
+            Object::Complement(complement) => {
+                queue.push(complement.migration_id);
+                queue.push(complement.data_id);
             }
         }
     }
@@ -206,6 +222,9 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
 
@@ -218,6 +237,9 @@ mod tests {
             timestamp: 200,
             message: "second".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let c1_id = store.put(&Object::Commit(c1))?;
 
@@ -243,6 +265,9 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;
@@ -258,6 +283,9 @@ mod tests {
             timestamp: 300,
             message: "orphan".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let orphan_id = store.put(&Object::Commit(orphan))?;
 
@@ -288,12 +316,75 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;
 
         let report = gc_report(&store)?;
         assert_eq!(report.reachable, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn gc_marks_data_complement_protocol_reachable() -> Result<(), VcsError> {
+        use crate::object::{ComplementObject, DataSetObject};
+
+        let mut store = MemStore::new();
+
+        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+
+        // Store a protocol.
+        let protocol = panproto_schema::Protocol {
+            name: "test-proto".into(),
+            ..Default::default()
+        };
+        let protocol_id = store.put(&Object::Protocol(Box::new(protocol)))?;
+
+        // Store a dataset.
+        let dataset = DataSetObject {
+            schema_id,
+            data: vec![1, 2, 3],
+            record_count: 1,
+        };
+        let data_id = store.put(&Object::DataSet(dataset))?;
+
+        // Store a complement.
+        let complement = ComplementObject {
+            migration_id: ObjectId::from_bytes([99; 32]),
+            data_id,
+            complement: vec![4, 5, 6],
+        };
+        let complement_id = store.put(&Object::Complement(complement))?;
+
+        // Create commit referencing all three.
+        let c0 = CommitObject {
+            schema_id,
+            parents: vec![],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 100,
+            message: "initial".into(),
+            renames: vec![],
+            protocol_id: Some(protocol_id),
+            data_ids: vec![data_id],
+            complement_ids: vec![complement_id],
+        };
+        let c0_id = store.put(&Object::Commit(c0))?;
+        store.set_ref("refs/heads/main", c0_id)?;
+
+        let reachable = mark_reachable(&store, &[c0_id])?;
+
+        // All referenced objects should be reachable.
+        assert!(reachable.contains(&protocol_id));
+        assert!(reachable.contains(&data_id));
+        assert!(reachable.contains(&complement_id));
+        // DataSet references schema_id.
+        assert!(reachable.contains(&schema_id));
+
         Ok(())
     }
 }

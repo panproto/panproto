@@ -3,7 +3,7 @@
 The `@panproto/core` npm package is the primary way most developers interact with panproto. It wraps the WASM module in a fluent, type-safe API with automatic resource management. This chapter covers every public class and function in the SDK.
 
 ::: {.callout-tip}
-For a quick-reference listing of all public APIs with parameter types, see [tutorial appendix B](https://panproto.github.io/tutorial/appendices/B-api-reference.html).
+For a quick-reference listing of all public APIs with parameter types, see [tutorial appendix B](https://panproto.dev/tutorial/appendices/B-api-reference.html).
 :::
 
 ## Architecture Overview
@@ -73,7 +73,7 @@ classDiagram
 
 `Panproto` is the main entry point. It loads the WASM module and provides the top-level API:
 
-```{.typescript include="../../sdk/typescript/src/panproto.ts" start-line=54 end-line=74}
+```{.typescript include="../../sdk/typescript/src/panproto.ts" start-line=62 end-line=83}
 ```
 
 Key methods:
@@ -88,7 +88,7 @@ Key methods:
 
 `Panproto` implements `Disposable`. When disposed, it releases all cached protocol handles:
 
-```{.typescript include="../../sdk/typescript/src/panproto.ts" start-line=183 end-line=189}
+```{.typescript include="../../sdk/typescript/src/panproto.ts" start-line=406 end-line=411}
 ```
 
 ## Protocol
@@ -141,7 +141,7 @@ The `complement` from `get()` is an opaque `Uint8Array`. It captures the data di
 
 Every WASM-side resource is wrapped in a `WasmHandle`, which implements `Disposable` for use with the `using` declaration:
 
-```{.typescript include="../../sdk/typescript/src/wasm.ts" start-line=78 end-line=116}
+```{.typescript include="../../sdk/typescript/src/wasm.ts" start-line=229 end-line=267}
 ```
 
 Two layers of safety prevent handle leaks:
@@ -167,28 +167,29 @@ The `msgpack.ts` module provides four encoding helpers that wrap `@msgpack/msgpa
 
 The `SchemaOp` interface uses serde's internally-tagged format: the `op` field acts as the discriminant, and all variant fields sit at the same level.
 
-## Lens Combinators
+## Lens API
 
-The `lens.ts` module provides Cambria-style combinators for composing schema transformations declaratively. Each combinator is a plain data object describing a transformation step:
+The `lens.ts` module provides three handle classes for bidirectional schema transformations: `ProtolensChainHandle` for schema-independent lens families, `LensHandle` for concrete lenses, and `SymmetricLensHandle` for symmetric bidirectional sync.
 
-```{.typescript include="../../sdk/typescript/src/lens.ts" start-line=66 end-line=73}
+`ProtolensChainHandle` wraps a WASM-side protolens chain and can be instantiated against a concrete schema to produce a `LensHandle`:
+
+```{.typescript include="../../sdk/typescript/src/lens.ts" start-line=31 end-line=83}
 ```
 
-Seven combinator constructors are provided:
+`LensHandle` wraps a concrete lens with `get`, `put`, and law-checking operations:
 
-```{.typescript include="../../sdk/typescript/src/lens.ts" start-line=86 end-line=163}
+```{.typescript include="../../sdk/typescript/src/lens.ts" start-line=265 end-line=326}
 ```
 
-- **`renameField(old, new)`** -- Rename a field.
-- **`addField(name, kind, default)`** -- Add a field with a default value.
-- **`removeField(name)`** -- Remove a field.
-- **`wrapInObject(fieldName)`** -- Wrap a value inside a new object.
-- **`hoistField(host, field)`** -- Hoist a nested field up to its host.
-- **`coerceType(from, to)`** -- Coerce between compatible types.
-- **`compose(first, second)`** -- Compose two combinators sequentially.
-- **`pipeline([...combinators])`** -- Compose a chain of combinators left-to-right.
-
-The `combinatorToWire` function serializes a combinator tree into the wire format expected by the Rust side.
+- **`ProtolensChainHandle.autoGenerate(schema1, schema2, wasm)`** -- Auto-generate a protolens chain between two schemas.
+- **`ProtolensChainHandle.instantiate(schema)`** -- Instantiate the chain against a concrete schema.
+- **`ProtolensChainHandle.compose(other)`** -- Compose with another chain.
+- **`ProtolensChainHandle.fuse()`** -- Fuse all steps into a single protolens.
+- **`ProtolensChainHandle.lift(morphismBytes)`** -- Lift along a theory morphism.
+- **`LensHandle.autoGenerate(schema1, schema2, wasm)`** -- Auto-generate and instantiate a lens.
+- **`LensHandle.get(record)`** -- Forward projection: extract view and complement.
+- **`LensHandle.put(view, complement)`** -- Backward put: restore from view and complement.
+- **`LensHandle.checkLaws(instance)`** -- Verify GetPut and PutGet laws.
 
 ## Type Definitions
 
@@ -207,7 +208,7 @@ The `types.ts` module defines all TypeScript interfaces that mirror Rust structu
 
 The SDK defines a four-class error hierarchy, all extending `PanprotoError`:
 
-```{.typescript include="../../sdk/typescript/src/types.ts" start-line=212 end-line=253}
+```{.typescript include="../../sdk/typescript/src/types.ts" start-line=516 end-line=557}
 ```
 
 - **`PanprotoError`** -- Base class for all panproto errors.

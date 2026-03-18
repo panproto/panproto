@@ -457,6 +457,31 @@ export interface WasmExports {
   vcs_stash(repo: number): Uint8Array;
   vcs_stash_pop(repo: number): Uint8Array;
   vcs_blame(repo: number, vertex: Uint8Array): Uint8Array;
+  // Phase 7: Data versioning operations
+  store_dataset(schema_handle: number, data_json: Uint8Array): number;
+  get_dataset(dataset_handle: number): Uint8Array;
+  migrate_dataset_forward(dataset_handle: number, src_schema: number, tgt_schema: number): Uint8Array;
+  migrate_dataset_backward(dataset_handle: number, complement_bytes: Uint8Array, src_schema: number, tgt_schema: number): number;
+  check_dataset_staleness(dataset_handle: number, schema_handle: number): Uint8Array;
+  store_protocol_definition(protocol_bytes: Uint8Array): number;
+  get_protocol_definition(handle: number): Uint8Array;
+  get_migration_complement(complement_bytes: Uint8Array): Uint8Array;
+  // Phase 10: Protolens operations
+  auto_generate_protolens(schema1: number, schema2: number): number;
+  instantiate_protolens(chain: number, schema: number): number;
+  protolens_complement_spec(chain: number, schema: number): Uint8Array;
+  protolens_compose(chain1: number, chain2: number): number;
+  protolens_chain_to_json(chain: number): Uint8Array;
+  symmetric_lens_from_schemas(schema1: number, schema2: number): number;
+  symmetric_lens_sync(lens: number, view: Uint8Array, complement: Uint8Array, direction: number): Uint8Array;
+  factorize_morphism(morphism: Uint8Array, domain: number, codomain: number): Uint8Array;
+  apply_protolens_step(step: Uint8Array, schema: number, instance: Uint8Array): Uint8Array;
+  // Phase 11: Extended protolens operations
+  protolens_fuse(chain: number): number;
+  protolens_lift(chain: number, morphism: Uint8Array): number;
+  protolens_check_applicability(chain: number, schema: number): Uint8Array;
+  protolens_fleet(chain: number, schema_handles: Uint32Array): Uint8Array;
+  protolens_from_json(json: Uint8Array): number;
 }
 
 /** Result of checking a lens law (GetPut or PutGet). */

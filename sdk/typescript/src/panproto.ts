@@ -10,7 +10,8 @@
 import type { WasmModule, ProtocolSpec, DiffReport, FullSchemaDiff, SchemaValidationIssue } from './types.js';
 import { PanprotoError, WasmError } from './types.js';
 import { loadWasm, type WasmGlueModule, createHandle } from './wasm.js';
-import { LensHandle } from './lens.js';
+import { LensHandle, ProtolensChainHandle } from './lens.js';
+import { packToWasm, unpackFromWasm } from './msgpack.js';
 import {
   Protocol,
   defineProtocol,
@@ -25,11 +26,11 @@ import {
   checkExistence,
   composeMigrations,
 } from './migration.js';
-import { unpackFromWasm } from './msgpack.js';
 import { FullDiffReport, ValidationResult } from './check.js';
 import { Instance } from './instance.js';
 import { IoRegistry } from './io.js';
 import { Repository } from './vcs.js';
+import { DataSetHandle, type MigrationResult } from './data.js';
 
 /**
  * The main entry point for the panproto SDK.
@@ -315,6 +316,85 @@ export class Panproto implements Disposable {
    */
   initRepo(protocolName: string): Repository {
     return Repository.init(protocolName, this.#wasm);
+  }
+
+  /**
+   * Convert data from one schema to another using an auto-generated lens.
+   *
+   * This is a convenience method that generates a protolens, applies the
+   * forward projection, and disposes the lens automatically.
+   *
+   * @param data - The input data (Uint8Array of MessagePack, or a plain object)
+   * @param opts - Conversion options specifying source and target schemas
+   * @returns The converted data
+   * @throws {@link WasmError} if lens generation or conversion fails
+   */
+  async convert(data: Uint8Array | object, opts: {
+    from: BuiltSchema;
+    to: BuiltSchema;
+    defaults?: Record<string, unknown>;
+  }): Promise<unknown> {
+    const lens = LensHandle.autoGenerate(opts.from, opts.to, this.#wasm);
+    try {
+      const input = data instanceof Uint8Array ? data : packToWasm(data);
+      const result = lens.get(input);
+      return result.view;
+    } finally {
+      lens[Symbol.dispose]();
+    }
+  }
+
+  /**
+   * Create an auto-generated lens between two schemas.
+   *
+   * @param from - The source schema
+   * @param to - The target schema
+   * @returns A LensHandle for the generated lens
+   * @throws {@link WasmError} if lens generation fails
+   */
+  lens(from: BuiltSchema, to: BuiltSchema): LensHandle {
+    return LensHandle.autoGenerate(from, to, this.#wasm);
+  }
+
+  /**
+   * Create a protolens chain between two schemas.
+   *
+   * The returned chain is schema-independent and can be instantiated
+   * against different concrete schemas.
+   *
+   * @param from - The source schema
+   * @param to - The target schema
+   * @returns A ProtolensChainHandle for the generated chain
+   * @throws {@link WasmError} if chain generation fails
+   */
+  protolensChain(from: BuiltSchema, to: BuiltSchema): ProtolensChainHandle {
+    return ProtolensChainHandle.autoGenerate(from, to, this.#wasm);
+  }
+
+  /**
+   * Store and track a data set against a schema.
+   *
+   * @param data - The data to store (array of records or a single object)
+   * @param schema - The schema this data conforms to
+   * @returns A disposable DataSetHandle
+   */
+  dataSet(data: unknown, schema: BuiltSchema): DataSetHandle {
+    return DataSetHandle.fromData(data, schema, this.#wasm);
+  }
+
+  /**
+   * Migrate data forward between two schemas.
+   *
+   * Auto-generates a lens and migrates each record, returning the
+   * migrated data and a complement for backward migration.
+   *
+   * @param data - The data set to migrate
+   * @param from - The source schema
+   * @param to - The target schema
+   * @returns The migration result with new data and complement
+   */
+  migrateData(data: DataSetHandle, from: BuiltSchema, to: BuiltSchema): MigrationResult {
+    return data.migrateForward(from, to);
   }
 
   /**

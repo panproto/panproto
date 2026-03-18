@@ -24,7 +24,8 @@ from ._wasm import WasmModule, create_handle, load_wasm
 
 if TYPE_CHECKING:
     from ._check import FullDiffReport, ValidationResult
-    from ._lens import LensHandle
+    from ._data import DataSetHandle
+    from ._lens import LensHandle, ProtolensChainHandle
     from ._schema import BuiltSchema
     from ._types import DiffReport, ExistenceReport, ProtocolSpec
     from ._vcs import VcsRepository
@@ -479,6 +480,160 @@ class Panproto:
         from ._vcs import VcsRepository as _VcsRepo
 
         return _VcsRepo.init(protocol_name, self._wasm)
+
+    # ------------------------------------------------------------------
+    # Protolens
+    # ------------------------------------------------------------------
+
+    def convert(
+        self,
+        data: bytes | object,
+        *,
+        from_schema: BuiltSchema,
+        to_schema: BuiltSchema,
+        defaults: dict[str, object] | None = None,
+    ) -> object:
+        """Convert data from one schema to another using an auto-generated lens.
+
+        This is a convenience method that generates a protolens, applies the
+        forward projection, and disposes the lens automatically.
+
+        Parameters
+        ----------
+        data : bytes | object
+            The input data (MessagePack bytes or a plain object).
+        from_schema : BuiltSchema
+            The source schema.
+        to_schema : BuiltSchema
+            The target schema.
+        defaults : dict[str, object] | None, optional
+            Default values for fields missing in the source.
+
+        Returns
+        -------
+        object
+            The converted data.
+
+        Raises
+        ------
+        WasmError
+            If lens generation or conversion fails.
+        """
+        from ._lens import LensHandle as _LensHandle
+        from ._msgpack import pack_to_wasm
+
+        lens = _LensHandle.auto_generate(from_schema, to_schema, self._wasm)
+        try:
+            input_bytes = data if isinstance(data, bytes) else pack_to_wasm(data)
+            result = lens.get(input_bytes)
+            return result["view"]
+        finally:
+            lens.close()
+
+    def lens(self, from_schema: BuiltSchema, to_schema: BuiltSchema) -> LensHandle:
+        """Create an auto-generated lens between two schemas.
+
+        Parameters
+        ----------
+        from_schema : BuiltSchema
+            The source schema.
+        to_schema : BuiltSchema
+            The target schema.
+
+        Returns
+        -------
+        LensHandle
+            A handle for the generated lens.
+
+        Raises
+        ------
+        WasmError
+            If lens generation fails.
+        """
+        from ._lens import LensHandle as _LensHandle
+
+        return _LensHandle.auto_generate(from_schema, to_schema, self._wasm)
+
+    def protolens_chain(
+        self,
+        from_schema: BuiltSchema,
+        to_schema: BuiltSchema,
+    ) -> ProtolensChainHandle:
+        """Create a protolens chain between two schemas.
+
+        The returned chain is schema-independent and can be instantiated
+        against different concrete schemas.
+
+        Parameters
+        ----------
+        from_schema : BuiltSchema
+            The source schema.
+        to_schema : BuiltSchema
+            The target schema.
+
+        Returns
+        -------
+        ProtolensChainHandle
+            A handle for the generated chain.
+
+        Raises
+        ------
+        WasmError
+            If chain generation fails.
+        """
+        from ._lens import ProtolensChainHandle as _ProtolensChainHandle
+
+        return _ProtolensChainHandle.auto_generate(from_schema, to_schema, self._wasm)
+
+    # ------------------------------------------------------------------
+    # Data versioning
+    # ------------------------------------------------------------------
+
+    def data_set(self, data: object, schema: BuiltSchema) -> DataSetHandle:
+        """Store and track a data set against a schema.
+
+        Parameters
+        ----------
+        data : object
+            The data to store (list of records or a single object).
+        schema : BuiltSchema
+            The schema this data conforms to.
+
+        Returns
+        -------
+        DataSetHandle
+            A handle to the stored data set (context manager).
+        """
+        from ._data import DataSetHandle as _DataSetHandle
+
+        return _DataSetHandle.from_data(data, schema, self._wasm)
+
+    def migrate_data(
+        self,
+        data: DataSetHandle,
+        from_schema: BuiltSchema,
+        to_schema: BuiltSchema,
+    ) -> tuple[DataSetHandle, bytes]:
+        """Migrate data forward between two schemas.
+
+        Auto-generates a lens and migrates each record, returning the
+        migrated data and a complement for backward migration.
+
+        Parameters
+        ----------
+        data : DataSetHandle
+            The data set to migrate.
+        from_schema : BuiltSchema
+            The source schema.
+        to_schema : BuiltSchema
+            The target schema.
+
+        Returns
+        -------
+        tuple[DataSetHandle, bytes]
+            A tuple of (new_data_handle, complement_bytes).
+        """
+        return data.migrate_forward(from_schema, to_schema)
 
     # ------------------------------------------------------------------
     # Context manager / cleanup

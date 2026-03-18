@@ -1,6 +1,6 @@
 # Glossary {#sec-glossary}
 
-This appendix defines every domain term used in the panproto codebase and documentation. Each definition is specific to panproto's usage. For the underlying category theory foundations, see the [tutorial's category theory cheatsheet](https://panproto.github.io/tutorial/appendices/A-category-theory-cheatsheet.html).
+This appendix defines every domain term used in the panproto codebase and documentation. Each definition is specific to panproto's usage. For the underlying category theory foundations, see the [tutorial's formal foundations appendix](https://panproto.dev/tutorial/appendices/A-formal-foundations.html).
 
 ## Algebraic foundations
 
@@ -102,11 +102,32 @@ Resolver
 Lens
 : A bidirectional transformation that pairs a forward "get" with a backward "put," enabling round-trip data migration between schema versions.
 
+Protolens
+: A schema-parameterized family of lenses, formalized as a natural transformation between theory endofunctors. For any schema satisfying a precondition, a protolens can be instantiated into a concrete `Lens`. Implemented in `crates/panproto-lens/src/protolens.rs`.
+
 Complement
 : The information lost by a lens's "get" direction, stored so that "put" can reconstruct the original. Essential for lossless round-trips.
 
+Complement Constructor
+: A type-level description of how a protolens's complement depends on the schema at instantiation time. Variants include `Empty` (lossless), `DroppedSortData`, `DroppedOpData`, and `Composite`. Represented by `ComplementConstructor` in `crates/panproto-lens/src/protolens.rs`.
+
 Combinator
 : A function that builds complex lenses from simpler ones (e.g., `compose`, `product`, `sum`). Implemented in `crates/panproto-lens/src/combinators.rs`.
+
+Schema Endofunctor
+: A map from theories to theories, pairing a precondition (`TheoryConstraint`) with a transformation (`TheoryTransform`). Schema endofunctors are the building blocks of protolenses. Represented by `TheoryEndofunctor` in `crates/panproto-gat/src/schema_functor.rs`.
+
+Theory Constraint
+: A predicate on theories that determines whether a theory endofunctor or protolens can be applied. Supports `HasSort`, `HasOp`, `HasEquation`, `All`, `Any`, `Not`, and `Unconstrained`. Represented by `TheoryConstraint` in `crates/panproto-gat/src/schema_functor.rs`.
+
+Naturality
+: The coherence condition on a protolens: instantiating at one schema and then migrating must produce the same result as migrating first and then instantiating. Naturality ensures that protolenses are well-behaved families of lenses, not ad-hoc collections.
+
+Instantiation (Pi-elimination)
+: The operation of applying a protolens to a specific schema and protocol to produce a concrete `Lens`. Mathematically, this is Pi-type elimination---evaluating a dependent function at a specific argument. Performed by `Protolens::instantiate`.
+
+Factorization (morphism decomposition)
+: The decomposition of a theory morphism into a sequence of elementary endofunctor steps (drops, renames, adds). Each step maps to an elementary protolens constructor. Implemented by `factorize()` in `crates/panproto-gat/src/factorize.rs`.
 
 Get
 : The forward direction of a lens: extracts target-schema data from a source instance.

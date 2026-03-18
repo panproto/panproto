@@ -4,6 +4,8 @@
 //! The staging pipeline validates the migration and produces a
 //! compatibility report.
 
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::gat_validate::GatDiagnostics;
@@ -14,6 +16,23 @@ use crate::hash::ObjectId;
 pub struct Index {
     /// The schema staged for the next commit, if any.
     pub staged: Option<StagedSchema>,
+    /// Data files staged for the next commit.
+    #[serde(default)]
+    pub staged_data: Vec<StagedData>,
+    /// Protocol definition staged for the next commit.
+    #[serde(default)]
+    pub staged_protocol: Option<ObjectId>,
+}
+
+/// A data file that has been staged for commit.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StagedData {
+    /// Path to the source data file.
+    pub source_path: PathBuf,
+    /// Object ID of the stored data set.
+    pub data_id: ObjectId,
+    /// Object ID of the schema this data conforms to.
+    pub schema_id: ObjectId,
 }
 
 /// A schema that has been staged for commit.
@@ -46,12 +65,14 @@ pub enum ValidationStatus {
 impl Index {
     /// Returns `true` if something is staged.
     #[must_use]
-    pub const fn has_staged(&self) -> bool {
-        self.staged.is_some()
+    pub fn has_staged(&self) -> bool {
+        self.staged.is_some() || !self.staged_data.is_empty() || self.staged_protocol.is_some()
     }
 
     /// Clear the staging area.
     pub fn clear(&mut self) {
         self.staged = None;
+        self.staged_data.clear();
+        self.staged_protocol = None;
     }
 }

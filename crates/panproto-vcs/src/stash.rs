@@ -61,6 +61,9 @@ pub fn stash_push(
         timestamp,
         message: msg.clone(),
         renames: vec![],
+        protocol_id: None,
+        data_ids: vec![],
+        complement_ids: vec![],
     };
     let stash_id = store.put(&Object::Commit(stash_commit))?;
 
@@ -230,6 +233,9 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let head_id = store.put(&Object::Commit(head_commit))?;
         store.set_ref("refs/heads/main", head_id)?;
@@ -266,6 +272,9 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let head_id = store.put(&Object::Commit(head_commit))?;
         store.set_ref("refs/heads/main", head_id)?;

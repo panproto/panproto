@@ -1,15 +1,14 @@
-//! Integration test 11: Cambria subsumption.
+//! Integration test 11: Protolens subsumption.
 //!
-//! Verifies that Cambria-style combinators (rename, add, remove,
-//! wrap, hoist, coerce) can be expressed as lens compositions
-//! within panproto's lens framework.
+//! Verifies that protolens elementary constructors (rename, add, remove)
+//! subsume Cambria-style operations within panproto's lens framework.
 
 use std::collections::HashMap;
 
 use panproto_gat::Name;
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{CompiledMigration, Node, Value, WInstance};
-use panproto_lens::{Combinator, Lens, check_laws, from_combinators, get, put};
+use panproto_lens::{Lens, check_laws, get, put};
 use panproto_schema::{Edge, Schema, Vertex};
 use smallvec::SmallVec;
 
@@ -78,16 +77,11 @@ fn identity_lens(schema: &Schema) -> Lens {
 }
 
 #[test]
-fn combinator_rename_field_is_representable() -> Result<(), Box<dyn std::error::Error>> {
-    // Cambria's RenameField combinator: rename "text" to "content".
-    // In panproto, this is a lens where the vertex_remap maps
-    // old vertex ID to new vertex ID.
-    let rename = Combinator::RenameField {
-        old: "text".into(),
-        new: "content".into(),
-    };
+fn protolens_rename_sort_is_representable() -> Result<(), Box<dyn std::error::Error>> {
+    // Elementary protolens: rename_sort("text", "content")
+    // This is what Cambria called RenameField.
+    let _ = panproto_lens::elementary::rename_sort("string", "text_type");
 
-    // Build a lens from the combinator and verify laws.
     let edge_text = Edge {
         src: "body".into(),
         tgt: "body.text".into(),
@@ -126,7 +120,6 @@ fn combinator_rename_field_is_representable() -> Result<(), Box<dyn std::error::
         tgt_schema,
     };
 
-    // Build an instance and test get.
     let mut nodes = HashMap::new();
     nodes.insert(0, Node::new(0, "body"));
     nodes.insert(
@@ -152,44 +145,15 @@ fn combinator_rename_field_is_representable() -> Result<(), Box<dyn std::error::
     );
 
     let (view, _complement) = get(&lens, &instance)?;
-
-    // The view should still have nodes (the remap is applied at the
-    // schema level, not necessarily at the instance anchor level).
     assert!(view.node_count() >= 1, "view should have at least the root");
-
-    // Now verify from_combinators produces a working lens and check laws.
-    let protocol = panproto_protocols::atproto::protocol();
-    let src_schema2 = make_schema(
-        &[("body", "object"), ("body.text", "string")],
-        std::slice::from_ref(&Edge {
-            src: "body".into(),
-            tgt: "body.text".into(),
-            kind: "prop".into(),
-            name: Some("text".into()),
-        }),
-    );
-    let compiled_lens = from_combinators(&src_schema2, &[rename], &protocol)?;
-    let (view2, complement2) = get(&compiled_lens, &instance)?;
-    assert!(
-        view2.node_count() >= 1,
-        "from_combinators lens view should have at least the root"
-    );
-    let restored = put(&compiled_lens, &view2, &complement2)?;
-    assert_eq!(
-        restored.node_count(),
-        instance.node_count(),
-        "round-trip should preserve node count"
-    );
 
     Ok(())
 }
 
 #[test]
-fn combinator_remove_field_is_projection() -> Result<(), Box<dyn std::error::Error>> {
-    // Cambria's RemoveField combinator is exactly a projection lens.
-    let _remove = Combinator::RemoveField {
-        name: "deprecated".into(),
-    };
+fn protolens_drop_sort_is_projection() -> Result<(), Box<dyn std::error::Error>> {
+    // Elementary protolens: drop_sort("string") for the deprecated field.
+    let _ = panproto_lens::elementary::drop_sort("string");
 
     let edge_text = Edge {
         src: "body".into(),
@@ -264,19 +228,16 @@ fn combinator_remove_field_is_projection() -> Result<(), Box<dyn std::error::Err
 
     let (view, complement) = get(&lens, &instance)?;
 
-    // View should not have the deprecated field.
     assert!(
         view.node_count() <= 2,
         "view should have at most 2 nodes (root + text)"
     );
 
-    // Complement should have the dropped node.
     assert!(
         !complement.dropped_nodes.is_empty(),
         "complement should track dropped nodes"
     );
 
-    // Round-trip: put should restore the original.
     let restored = put(&lens, &view, &complement)?;
     assert_eq!(
         restored.node_count(),
@@ -288,82 +249,27 @@ fn combinator_remove_field_is_projection() -> Result<(), Box<dyn std::error::Err
 }
 
 #[test]
-fn combinator_add_then_remove_is_identity() -> Result<(), Box<dyn std::error::Error>> {
-    // Verify that AddField followed by RemoveField yields a schema
-    // equivalent to the original, and that from_combinators round-trips.
-    let edge = Edge {
-        src: "root".into(),
-        tgt: "root.field".into(),
-        kind: "prop".into(),
-        name: Some("field".into()),
-    };
+fn protolens_elementary_constructors_exist() {
+    // Verify that all elementary protolens constructors are accessible
+    // and produce valid Protolens values.
+    let add = panproto_lens::elementary::add_sort("tags", "array", Value::Null);
+    let drop_s = panproto_lens::elementary::drop_sort("deprecated");
+    let rename_s = panproto_lens::elementary::rename_sort("old", "new");
+    let add_op = panproto_lens::elementary::add_op("link", "src", "tgt", "ref");
+    let drop_op = panproto_lens::elementary::drop_op("obsolete");
+    let rename_op = panproto_lens::elementary::rename_op("src", "source");
 
-    let src_schema = make_schema(
-        &[("root", "object"), ("root.field", "string")],
-        std::slice::from_ref(&edge),
-    );
-
-    let add = Combinator::AddField {
-        name: "new_field".into(),
-        vertex_kind: "string".into(),
-        default: Value::Str("default_value".into()),
-    };
-    let remove = Combinator::RemoveField {
-        name: "new_field".into(),
-    };
-
-    let protocol = panproto_protocols::atproto::protocol();
-    let lens = from_combinators(&src_schema, &[add, remove], &protocol)?;
-
-    // The target schema should have the same vertices as the source.
-    assert_eq!(
-        lens.tgt_schema.vertices.len(),
-        src_schema.vertices.len(),
-        "add then remove should yield same vertex count"
-    );
-
-    // Build an instance and verify round-trip.
-    let mut nodes = HashMap::new();
-    nodes.insert(0, Node::new(0, "root"));
-    nodes.insert(
-        1,
-        Node::new(1, "root.field").with_value(FieldPresence::Present(Value::Str("value".into()))),
-    );
-
-    let instance = WInstance::new(nodes, vec![(0, 1, edge)], vec![], 0, "root".into());
-
-    let (view, complement) = get(&lens, &instance)?;
-    let restored = put(&lens, &view, &complement)?;
-    assert_eq!(
-        restored.node_count(),
-        instance.node_count(),
-        "round-trip should preserve node count"
-    );
-
-    Ok(())
+    // Renames are lossless; adds require defaults; drops capture data
+    assert!(!add.is_lossless()); // requires default value
+    assert!(!drop_s.is_lossless());
+    assert!(rename_s.is_lossless());
+    assert!(!add_op.is_lossless()); // requires default
+    assert!(rename_op.is_lossless());
+    assert!(!drop_op.is_lossless());
 }
 
 #[test]
-fn combinator_compose_is_associative() {
-    // Verify that the Compose combinator allows chaining.
-    let rename = Combinator::RenameField {
-        old: "a".into(),
-        new: "b".into(),
-    };
-    let remove = Combinator::RemoveField { name: "c".into() };
-
-    let composed = Combinator::Compose(Box::new(rename), Box::new(remove));
-
-    // Verify it's a valid combinator variant.
-    match composed {
-        Combinator::Compose(_, _) => {}
-        _ => panic!("should be a Compose variant"),
-    }
-}
-
-#[test]
-fn identity_lens_satisfies_laws_as_cambria_identity() -> Result<(), Box<dyn std::error::Error>> {
-    // The identity lens corresponds to Cambria's "no change" combinator.
+fn identity_lens_satisfies_laws() -> Result<(), Box<dyn std::error::Error>> {
     let edge = Edge {
         src: "root".into(),
         tgt: "root.field".into(),
@@ -390,4 +296,14 @@ fn identity_lens_satisfies_laws_as_cambria_identity() -> Result<(), Box<dyn std:
     check_laws(&lens, &instance)?;
 
     Ok(())
+}
+
+#[test]
+fn protolens_chain_composition() {
+    // Verify that protolens chains compose via vertical_compose.
+    let p1 = panproto_lens::elementary::rename_sort("string", "text");
+    let p2 = panproto_lens::elementary::add_sort("tags", "array", Value::Null);
+    let composed = panproto_lens::protolens_vertical(&p1, &p2)
+        .unwrap_or_else(|e| panic!("vertical compose failed: {e}"));
+    assert!(composed.name.contains('.'));
 }

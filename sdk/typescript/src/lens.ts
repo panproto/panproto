@@ -1,9 +1,10 @@
 /**
- * Lens and combinator API for bidirectional transformations.
+ * Lens API for bidirectional transformations.
  *
  * Every migration is a lens with `get` (forward projection) and
- * `put` (restore from complement). This module provides Cambria-style
- * combinators that compose into migrations.
+ * `put` (restore from complement). This module provides the `LensHandle`
+ * for concrete lenses, `ProtolensChainHandle` for schema-independent
+ * lens families, and `SymmetricLensHandle` for symmetric bidirectional sync.
  *
  * @module
  */
@@ -11,162 +12,241 @@
 import type { WasmModule, LawCheckResult, LiftResult, GetResult } from './types.js';
 import { WasmError } from './types.js';
 import { WasmHandle, createHandle } from './wasm.js';
-import { packToWasm, unpackFromWasm } from './msgpack.js';
+import { unpackFromWasm } from './msgpack.js';
 import type { BuiltSchema } from './schema.js';
-import type { Protocol } from './protocol.js';
+import type { ComplementSpec } from './protolens.js';
 
 // ---------------------------------------------------------------------------
-// Combinator types
-// ---------------------------------------------------------------------------
-
-/** Rename a field from one name to another. */
-export interface RenameFieldCombinator {
-  readonly type: 'rename-field';
-  readonly old: string;
-  readonly new: string;
-}
-
-/** Add a new field with a default value. */
-export interface AddFieldCombinator {
-  readonly type: 'add-field';
-  readonly name: string;
-  readonly vertexKind: string;
-  readonly default: unknown;
-}
-
-/** Remove a field from the schema. */
-export interface RemoveFieldCombinator {
-  readonly type: 'remove-field';
-  readonly name: string;
-}
-
-/** Wrap a value inside a new object with a given field name. */
-export interface WrapInObjectCombinator {
-  readonly type: 'wrap-in-object';
-  readonly fieldName: string;
-}
-
-/** Hoist a nested field up to the host level. */
-export interface HoistFieldCombinator {
-  readonly type: 'hoist-field';
-  readonly host: string;
-  readonly field: string;
-}
-
-/** Coerce a value from one type to another. */
-export interface CoerceTypeCombinator {
-  readonly type: 'coerce-type';
-  readonly fromKind: string;
-  readonly toKind: string;
-}
-
-/** Sequential composition of two combinators. */
-export interface ComposeCombinator {
-  readonly type: 'compose';
-  readonly first: Combinator;
-  readonly second: Combinator;
-}
-
-/** A lens combinator (Cambria-style). */
-export type Combinator =
-  | RenameFieldCombinator
-  | AddFieldCombinator
-  | RemoveFieldCombinator
-  | WrapInObjectCombinator
-  | HoistFieldCombinator
-  | CoerceTypeCombinator
-  | ComposeCombinator;
-
-// ---------------------------------------------------------------------------
-// Combinator constructors
+// ProtolensChainHandle — schema-independent lens family
 // ---------------------------------------------------------------------------
 
 /**
- * Create a rename-field combinator.
+ * A disposable handle to a WASM-side protolens chain resource.
  *
- * @param oldName - The current field name
- * @param newName - The desired field name
- * @returns A rename-field combinator
+ * Represents a schema-independent lens family that can be instantiated
+ * against a concrete schema to produce a `LensHandle`.
+ *
+ * Implements `Symbol.dispose` for use with `using` declarations.
  */
-export function renameField(oldName: string, newName: string): RenameFieldCombinator {
-  return { type: 'rename-field', old: oldName, new: newName };
-}
+export class ProtolensChainHandle implements Disposable {
+  readonly #handle: WasmHandle;
+  readonly #wasm: WasmModule;
 
-/**
- * Create an add-field combinator.
- *
- * @param name - The field name to add
- * @param vertexKind - The vertex kind for the new field
- * @param defaultValue - The default value for the field
- * @returns An add-field combinator
- */
-export function addField(name: string, vertexKind: string, defaultValue: unknown): AddFieldCombinator {
-  return { type: 'add-field', name, vertexKind, default: defaultValue };
-}
+  constructor(handle: WasmHandle, wasm: WasmModule) {
+    this.#handle = handle;
+    this.#wasm = wasm;
+  }
 
-/**
- * Create a remove-field combinator.
- *
- * @param name - The field name to remove
- * @returns A remove-field combinator
- */
-export function removeField(name: string): RemoveFieldCombinator {
-  return { type: 'remove-field', name };
-}
+  /** The underlying WASM handle. Internal use only. */
+  get _handle(): WasmHandle {
+    return this.#handle;
+  }
 
-/**
- * Create a wrap-in-object combinator.
- *
- * @param fieldName - The field name for the wrapper object
- * @returns A wrap-in-object combinator
- */
-export function wrapInObject(fieldName: string): WrapInObjectCombinator {
-  return { type: 'wrap-in-object', fieldName };
-}
+  /**
+   * Auto-generate a protolens chain between two schemas.
+   *
+   * @param schema1 - The source schema
+   * @param schema2 - The target schema
+   * @param wasm - The WASM module
+   * @returns A ProtolensChainHandle wrapping the generated chain
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  static autoGenerate(schema1: BuiltSchema, schema2: BuiltSchema, wasm: WasmModule): ProtolensChainHandle {
+    try {
+      const rawHandle = wasm.exports.auto_generate_protolens(schema1._handle.id, schema2._handle.id);
+      return new ProtolensChainHandle(createHandle(rawHandle, wasm), wasm);
+    } catch (error) {
+      throw new WasmError(
+        `auto_generate_protolens failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
 
-/**
- * Create a hoist-field combinator.
- *
- * @param host - The host vertex to hoist into
- * @param field - The nested field to hoist
- * @returns A hoist-field combinator
- */
-export function hoistField(host: string, field: string): HoistFieldCombinator {
-  return { type: 'hoist-field', host, field };
-}
+  /**
+   * Instantiate this protolens chain against a concrete schema.
+   *
+   * @param schema - The schema to instantiate against
+   * @returns A LensHandle for the instantiated lens
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  instantiate(schema: BuiltSchema): LensHandle {
+    try {
+      const rawHandle = this.#wasm.exports.instantiate_protolens(this.#handle.id, schema._handle.id);
+      return new LensHandle(createHandle(rawHandle, this.#wasm), this.#wasm);
+    } catch (error) {
+      throw new WasmError(
+        `instantiate_protolens failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
 
-/**
- * Create a coerce-type combinator.
- *
- * @param fromKind - The source type kind
- * @param toKind - The target type kind
- * @returns A coerce-type combinator
- */
-export function coerceType(fromKind: string, toKind: string): CoerceTypeCombinator {
-  return { type: 'coerce-type', fromKind, toKind };
-}
+  /**
+   * Get the complement specification for instantiation against a schema.
+   *
+   * @param schema - The schema to check requirements against
+   * @returns The complement spec describing defaults and captured data
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  requirements(schema: BuiltSchema): ComplementSpec {
+    try {
+      const bytes = this.#wasm.exports.protolens_complement_spec(this.#handle.id, schema._handle.id);
+      return unpackFromWasm<ComplementSpec>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_complement_spec failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
 
-/**
- * Compose two combinators sequentially.
- *
- * @param first - The combinator applied first
- * @param second - The combinator applied second
- * @returns A composed combinator
- */
-export function compose(first: Combinator, second: Combinator): ComposeCombinator {
-  return { type: 'compose', first, second };
-}
+  /**
+   * Compose this chain with another protolens chain.
+   *
+   * @param other - The chain to compose with (applied second)
+   * @returns A new ProtolensChainHandle for the composed chain
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  compose(other: ProtolensChainHandle): ProtolensChainHandle {
+    try {
+      const rawHandle = this.#wasm.exports.protolens_compose(this.#handle.id, other.#handle.id);
+      return new ProtolensChainHandle(createHandle(rawHandle, this.#wasm), this.#wasm);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_compose failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
 
-/**
- * Compose a chain of combinators left-to-right.
- *
- * @param combinators - The combinators to compose (at least one required)
- * @returns The composed combinator
- * @throws If the combinators array is empty
- */
-export function pipeline(combinators: readonly [Combinator, ...Combinator[]]): Combinator {
-  const [first, ...rest] = combinators;
-  return rest.reduce<Combinator>((acc, c) => compose(acc, c), first);
+  /**
+   * Serialize this chain to a JSON string.
+   *
+   * @returns A JSON representation of the chain
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  toJson(): string {
+    try {
+      const bytes = this.#wasm.exports.protolens_chain_to_json(this.#handle.id);
+      return new TextDecoder().decode(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_chain_to_json failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Deserialize a protolens chain from JSON via WASM.
+   *
+   * @param json - JSON string representing a protolens chain
+   * @param wasm - The WASM module
+   * @returns A ProtolensChainHandle wrapping the deserialized chain
+   * @throws {@link WasmError} if the WASM call fails or JSON is invalid
+   */
+  static fromJson(json: string, wasm: WasmModule): ProtolensChainHandle {
+    try {
+      const jsonBytes = new TextEncoder().encode(json);
+      const rawHandle = wasm.exports.protolens_from_json(jsonBytes);
+      return new ProtolensChainHandle(createHandle(rawHandle, wasm), wasm);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_from_json failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Fuse this chain into a single protolens step.
+   *
+   * Composes all steps into a single step with a composite complement,
+   * avoiding intermediate schema materialization.
+   *
+   * @returns A new ProtolensChainHandle containing the fused step
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  fuse(): ProtolensChainHandle {
+    try {
+      const rawHandle = this.#wasm.exports.protolens_fuse(this.#handle.id);
+      return new ProtolensChainHandle(createHandle(rawHandle, this.#wasm), this.#wasm);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_fuse failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Check whether this chain can be instantiated at a given schema.
+   *
+   * @param schema - The schema to check against
+   * @returns An object with `applicable` boolean and `reasons` array
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  checkApplicability(schema: BuiltSchema): { applicable: boolean; reasons: string[] } {
+    try {
+      const bytes = this.#wasm.exports.protolens_check_applicability(this.#handle.id, schema._handle.id);
+      return unpackFromWasm<{ applicable: boolean; reasons: string[] }>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_check_applicability failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Lift this chain along a theory morphism.
+   *
+   * Given a morphism between theories, produces a new chain that operates
+   * on schemas of the codomain theory instead of the domain theory.
+   *
+   * @param morphismBytes - MessagePack-encoded theory morphism
+   * @returns A new ProtolensChainHandle for the lifted chain
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  lift(morphismBytes: Uint8Array): ProtolensChainHandle {
+    try {
+      const rawHandle = this.#wasm.exports.protolens_lift(this.#handle.id, morphismBytes);
+      return new ProtolensChainHandle(createHandle(rawHandle, this.#wasm), this.#wasm);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_lift failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Apply this chain to a fleet of schemas.
+   *
+   * Checks applicability and instantiates the chain against each schema.
+   *
+   * @param schemas - Array of schema handles to apply the chain to
+   * @returns Fleet result with applied/skipped schema names and reasons
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  applyToFleet(schemas: BuiltSchema[]): { applied: string[]; skipped: [string, string[]][] } {
+    try {
+      const handles = new Uint32Array(schemas.map(s => s._handle.id));
+      const bytes = this.#wasm.exports.protolens_fleet(this.#handle.id, handles);
+      return unpackFromWasm<{ applied: string[]; skipped: [string, string[]][] }>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_fleet failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /** Release the underlying WASM resource. */
+  [Symbol.dispose](): void {
+    this.#handle[Symbol.dispose]();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -176,8 +256,9 @@ export function pipeline(combinators: readonly [Combinator, ...Combinator[]]): C
 /**
  * A disposable handle to a WASM-side lens (migration) resource.
  *
- * Wraps a migration handle created via `lens_from_combinators` or
- * `compose_lenses`. Provides `get`, `put`, and law-checking operations.
+ * Wraps a migration handle and provides `get`, `put`, and law-checking
+ * operations. Can be created via `autoGenerate`, `fromChain`, or
+ * directly from a WASM handle.
  *
  * Implements `Symbol.dispose` for use with `using` declarations.
  */
@@ -193,6 +274,55 @@ export class LensHandle implements Disposable {
   /** The underlying WASM handle. Internal use only. */
   get _handle(): WasmHandle {
     return this.#handle;
+  }
+
+  /**
+   * Auto-generate a lens between two schemas.
+   *
+   * Generates a protolens chain and immediately instantiates it.
+   *
+   * @param schema1 - The source schema
+   * @param schema2 - The target schema
+   * @param wasm - The WASM module
+   * @returns A LensHandle wrapping the generated lens
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  static autoGenerate(schema1: BuiltSchema, schema2: BuiltSchema, wasm: WasmModule): LensHandle {
+    try {
+      const rawHandle = wasm.exports.auto_generate_protolens(schema1._handle.id, schema2._handle.id);
+      const chainHandle = createHandle(rawHandle, wasm);
+      const lensRaw = wasm.exports.instantiate_protolens(chainHandle.id, schema1._handle.id);
+      chainHandle[Symbol.dispose]();
+      const handle = createHandle(lensRaw, wasm);
+      return new LensHandle(handle, wasm);
+    } catch (error) {
+      throw new WasmError(
+        `autoGenerate failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Create a lens by instantiating a protolens chain against a schema.
+   *
+   * @param chain - The protolens chain to instantiate
+   * @param schema - The schema to instantiate against
+   * @param wasm - The WASM module
+   * @returns A LensHandle wrapping the instantiated lens
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  static fromChain(chain: ProtolensChainHandle, schema: BuiltSchema, wasm: WasmModule): LensHandle {
+    try {
+      const rawHandle = wasm.exports.instantiate_protolens(chain._handle.id, schema._handle.id);
+      const handle = createHandle(rawHandle, wasm);
+      return new LensHandle(handle, wasm);
+    } catch (error) {
+      throw new WasmError(
+        `fromChain failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
   }
 
   /**
@@ -320,68 +450,90 @@ export class LensHandle implements Disposable {
   }
 }
 
-/**
- * Build a lens from combinators.
- *
- * Serializes the combinators to MessagePack and calls the
- * `lens_from_combinators` WASM entry point.
- *
- * @param schema - The schema to build the lens against
- * @param protocol - The protocol defining the schema theory
- * @param combinators - One or more combinators to compose into a lens
- * @returns A LensHandle wrapping the WASM migration resource
- * @throws {@link WasmError} if the WASM call fails
- */
-export function fromCombinators(
-  schema: BuiltSchema,
-  protocol: Protocol,
-  wasm: WasmModule,
-  ...combinators: Combinator[]
-): LensHandle {
-  const wireCombs = combinators.map(combinatorToWire);
-  const combBytes = packToWasm(wireCombs);
+// ---------------------------------------------------------------------------
+// SymmetricLensHandle — symmetric bidirectional sync
+// ---------------------------------------------------------------------------
 
-  try {
-    const rawHandle = wasm.exports.lens_from_combinators(
-      schema._handle.id,
-      protocol._handle.id,
-      combBytes,
-    );
-    const handle = createHandle(rawHandle, wasm);
-    return new LensHandle(handle, wasm);
-  } catch (error) {
-    throw new WasmError(
-      `lens_from_combinators failed: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
+/**
+ * A disposable handle to a WASM-side symmetric lens resource.
+ *
+ * Symmetric lenses synchronize two views bidirectionally, maintaining
+ * a complement that captures the information gap between them.
+ *
+ * Implements `Symbol.dispose` for use with `using` declarations.
+ */
+export class SymmetricLensHandle implements Disposable {
+  readonly #handle: WasmHandle;
+  readonly #wasm: WasmModule;
+
+  constructor(handle: WasmHandle, wasm: WasmModule) {
+    this.#handle = handle;
+    this.#wasm = wasm;
   }
-}
 
-// ---------------------------------------------------------------------------
-// Wire serialization
-// ---------------------------------------------------------------------------
+  /**
+   * Create a symmetric lens between two schemas.
+   *
+   * @param schema1 - The left schema
+   * @param schema2 - The right schema
+   * @param wasm - The WASM module
+   * @returns A SymmetricLensHandle for bidirectional sync
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  static fromSchemas(schema1: BuiltSchema, schema2: BuiltSchema, wasm: WasmModule): SymmetricLensHandle {
+    try {
+      const rawHandle = wasm.exports.symmetric_lens_from_schemas(schema1._handle.id, schema2._handle.id);
+      return new SymmetricLensHandle(createHandle(rawHandle, wasm), wasm);
+    } catch (error) {
+      throw new WasmError(
+        `symmetric_lens_from_schemas failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
 
-/**
- * Serialize a combinator to a plain object for MessagePack encoding.
- *
- * @param combinator - The combinator to serialize
- * @returns A plain object suitable for MessagePack encoding
- */
-export function combinatorToWire(combinator: Combinator): Record<string, unknown> {
-  switch (combinator.type) {
-    case 'rename-field':
-      return { RenameField: { old: combinator.old, new: combinator.new } };
-    case 'add-field':
-      return { AddField: { name: combinator.name, vertex_kind: combinator.vertexKind, default: combinator.default } };
-    case 'remove-field':
-      return { RemoveField: { name: combinator.name } };
-    case 'wrap-in-object':
-      return { WrapInObject: { field_name: combinator.fieldName } };
-    case 'hoist-field':
-      return { HoistField: { host: combinator.host, field: combinator.field } };
-    case 'coerce-type':
-      return { CoerceType: { from_kind: combinator.fromKind, to_kind: combinator.toKind } };
-    case 'compose':
-      return { Compose: [combinatorToWire(combinator.first), combinatorToWire(combinator.second)] };
+  /**
+   * Synchronize left view to right view.
+   *
+   * @param leftView - MessagePack-encoded left view data
+   * @param leftComplement - Opaque complement bytes from a prior sync
+   * @returns The synchronized right view and updated complement
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  syncLeftToRight(leftView: Uint8Array, leftComplement: Uint8Array): GetResult {
+    try {
+      const bytes = this.#wasm.exports.symmetric_lens_sync(this.#handle.id, leftView, leftComplement, 0);
+      return unpackFromWasm<GetResult>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `symmetric_lens_sync (left-to-right) failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Synchronize right view to left view.
+   *
+   * @param rightView - MessagePack-encoded right view data
+   * @param rightComplement - Opaque complement bytes from a prior sync
+   * @returns The synchronized left view and updated complement
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  syncRightToLeft(rightView: Uint8Array, rightComplement: Uint8Array): GetResult {
+    try {
+      const bytes = this.#wasm.exports.symmetric_lens_sync(this.#handle.id, rightView, rightComplement, 1);
+      return unpackFromWasm<GetResult>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `symmetric_lens_sync (right-to-left) failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /** Release the underlying WASM resource. */
+  [Symbol.dispose](): void {
+    this.#handle[Symbol.dispose]();
   }
 }

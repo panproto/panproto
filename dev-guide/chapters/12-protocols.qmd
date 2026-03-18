@@ -1,6 +1,8 @@
 # panproto-protocols --- Protocol Definitions
 
-The `panproto-protocols` crate is where abstract category theory meets concrete data formats. It defines 60+ protocol specifications across 9 categories, each built by composing reusable building-block theories via colimit. This chapter explains the theory composition pattern, walks through the building blocks, and provides a guide for adding new protocols.
+The `panproto-protocols` crate is where abstract algebra meets concrete data formats. It defines 60+ protocol specifications across 9 categories, each built by composing reusable building-block theories via structured merges.[^colimit-proto] This chapter explains the theory composition pattern, walks through the building blocks, and provides a guide for adding new protocols.
+
+[^colimit-proto]: A structured merge combines two theories along their shared concepts, producing a single theory with all declarations from both, where shared elements appear exactly once. In the categorical literature, this is called a *colimit* (pushout) in the category of GATs. See @sec-gat-engine for the formal definition.
 
 If you are implementing a new protocol or trying to understand why panproto handles your protocol the way it does, this chapter is the primary reference.
 
@@ -20,7 +22,7 @@ panproto organizes protocols into nine categories:
 | Domain | GeoJSON, FHIR, RSS/Atom, vCard/iCal, EDI X12, SWIFT MT | 6 |
 | Config | HCL, K8s CRD, Docker Compose, CloudFormation, Ansible | 5 |
 
-Despite this diversity, every protocol is defined using the same pattern: compose building-block theories via colimit, define edge rules and vertex kinds, and implement a parser/emitter pair. The combinatorial explosion of protocol-specific logic that plagues conventional interop tools is avoided by factoring common structure into shared theories.
+Despite this diversity, every protocol is defined using the same pattern: compose building-block theories via structured merge, define edge rules and vertex kinds, and implement a parser/emitter pair. The combinatorial explosion of protocol-specific logic that plagues conventional interop tools is avoided by factoring common structure into shared theories.
 
 ## Building-Block Theories
 
@@ -33,7 +35,7 @@ The three graph theories form the foundation for schema representation:
 ```{.rust include="../../crates/panproto-protocols/src/theories.rs" start-line=55 end-line=127}
 ```
 
-**`th_graph`** is the most fundamental building block: a directed graph with `Vertex` and `Edge` sorts and `src`/`tgt` operations. Nearly every protocol uses this theory as its base, since schemas are fundamentally graphs---vertices represent types or fields, and edges represent relationships between them.
+**`th_graph`** is the most fundamental building block: a directed graph with `Vertex` and `Edge` sorts (a type in a formal theory, not a sorting operation) and `src`/`tgt` operations. Nearly every protocol uses this theory as its base, since schemas are fundamentally graphs---vertices represent types or fields, and edges represent relationships between them.
 
 **`th_simple_graph`** adds an equation enforcing edge uniqueness by endpoints. This is appropriate for protocols like Protobuf where each field name must be unique within a message---there cannot be two distinct edges with the same source and target.
 
@@ -55,7 +57,9 @@ This dependent sort pattern has practical consequences throughout panproto:
 - The lens system (Chapter 10) can track per-vertex constraint changes in the complement.
 
 ::: {.callout-note}
-The dependent sort `Constraint(v: Vertex)` is a GAT-level encoding of the categorical notion of a fibered sort [@cartmell1986]. It ensures that constraint-related operations are automatically scoped to the correct vertex, without requiring runtime dispatch or downcasting.
+The dependent sort `Constraint(v: Vertex)` is a GAT-level encoding that ensures constraint-related operations are automatically scoped to the correct vertex, without requiring runtime dispatch or downcasting.[^fibered]
+
+[^fibered]: The dependent sort `Constraint(v: Vertex)` means "the set of valid constraints depends on which vertex you are looking at." In the categorical literature, this is called a *fibered sort* [@cartmell1986] --- a sort whose elements are indexed by elements of another sort.
 :::
 
 ### Instance Theories
@@ -68,13 +72,15 @@ Beyond the schema theories, panproto defines instance theories that model how da
 
 - **`th_flat`**: flat key-value structures with `Node`, `Field`, and `Value` sorts. Operations include `field_node` (owning node), `field_value` (payload), and `node_anchor` (schema vertex). Used by IDL protocols like Protobuf where data has a flat field structure without deep nesting.
 
-- **`th_meta`**: metadata extension adding `Discriminator` and `ExtraField` sorts. Composes with `th_wtype` via colimit over the shared `Node` sort. Used by document protocols with mixed content models (XML, HTML) where elements can have both structured children and unstructured attributes.
+- **`th_meta`**: metadata extension adding `Discriminator` and `ExtraField` sorts. Composes with `th_wtype` via structured merge over the shared `Node` sort. Used by document protocols with mixed content models (XML, HTML) where elements can have both structured children and unstructured attributes.
 
-## The Colimit Composition Pattern
+## The Structured Merge Pattern
 
-Each protocol is defined by composing building-block theories via *colimit*---the categorical operation that glues theories together along shared sorts. The shared sorts act as the "meeting point" where two theories agree on what a concept means.
+Each protocol is defined by composing building-block theories via structured merge---an operation that glues theories together along shared sorts.[^colimit-pattern] The shared sorts act as the "meeting point" where two theories agree on what a concept means.
 
-For example, ATProto's schema theory is the colimit of `ThGraph`, `ThConstraint`, and `ThMulti`, all sharing the `Vertex` sort:
+[^colimit-pattern]: The structured merge glues theories together along shared sorts, producing a combined theory where shared elements are unified. Formally, this is a *colimit* in the category of GATs. See @sec-gat-engine for the full definition.
+
+For example, ATProto's schema theory is the structured merge of `ThGraph`, `ThConstraint`, and `ThMulti`, all sharing the `Vertex` sort:
 
 ```{mermaid}
 graph TD
@@ -84,21 +90,23 @@ graph TD
     SharedV["Shared: Vertex"]
     SharedVE["Shared: Vertex, Edge"]
 
-    ThGraph -->|colimit over| SharedV
-    ThConstraint -->|colimit over| SharedV
+    ThGraph -->|merge over| SharedV
+    ThConstraint -->|merge over| SharedV
     SharedV --> GC["ThGraph + ThConstraint"]
-    GC -->|colimit over| SharedVE
-    ThMulti -->|colimit over| SharedVE
+    GC -->|merge over| SharedVE
+    ThMulti -->|merge over| SharedVE
     SharedVE --> Schema["ATProto Schema Theory"]
 
     ThWType["ThWType<br/>(Node, Arc, Value)"] --> Instance["ATProto Instance Theory"]
 ```
 
-The colimit ensures that the `Vertex` sort in `ThGraph` and the `Vertex` sort in `ThConstraint` are identified---they refer to the same concept. The resulting schema theory has all the sorts and operations from both components, with shared sorts unified. This is not a mere union; the colimit preserves the equations and operation signatures from both theories, ensuring that the composed theory is well-formed.
+The structured merge ensures that the `Vertex` sort in `ThGraph` and the `Vertex` sort in `ThConstraint` are identified---they refer to the same concept. The resulting schema theory has all the sorts and operations from both components, with shared sorts unified. This is not a mere union; the merge preserves the equations and operation signatures from both theories, ensuring that the composed theory is well-formed.
 
-### Why Colimit?
+### Why This Construction?
 
-The colimit is the right categorical construction because it is the universal way to combine theories while identifying shared structure. Alternatives like products or coproducts either identify too much (products force all sorts to be shared) or too little (coproducts share nothing). The colimit lets you precisely control which sorts are identified and which remain distinct.
+The structured merge precisely controls which sorts are identified and which remain distinct. Alternative composition strategies either identify too much (forcing all sorts to be shared) or too little (sharing nothing).[^colimit-why]
+
+[^colimit-why]: The structured merge precisely controls which concepts are shared and which remain independent. In category theory, this construction is a *colimit* (specifically a *pushout*) --- the universal way to combine theories while identifying shared structure.
 
 In practice, this means:
 
@@ -108,7 +116,7 @@ In practice, this means:
 
 ## Theory Groups
 
-Protocols cluster into six theory groups based on their schema/instance theory pair. Each group has a corresponding `register_*` helper function that handles the colimit computation:
+Protocols cluster into six theory groups based on their schema/instance theory pair. Each group has a corresponding `register_*` helper function that handles the merge computation:
 
 | Group | Schema Theory | Instance Theory | Registration Helper |
 |---|---|---|---|
@@ -124,7 +132,9 @@ The largest group, covering protocols with tree-shaped data and potentially para
 
 ### Group B: Hypergraph + Functor
 
-Covers relational and columnar protocols: SQL, Cassandra, DynamoDB, Parquet, Arrow, DataFrame, CSV/Table Schema. The schema theory uses hypergraphs because tables are multi-arity relations (a table "connects" its columns). Instances are set-valued functors---each table maps to a set of rows.
+Covers relational and columnar protocols: SQL, Cassandra, DynamoDB, Parquet, Arrow, DataFrame, CSV/Table Schema. The schema theory uses hypergraphs because tables are multi-arity relations (a table "connects" its columns). Instances are set-valued mappings---each table maps to a set of rows.[^functor-group-b]
+
+[^functor-group-b]: Each table in a relational instance corresponds to a schema vertex, and each row is an element of that table. In the formal literature, these table-shaped mappings are called *set-valued functors* from the schema category to **Set**.
 
 ### Group C: Simple Graph + Flat
 
@@ -156,13 +166,15 @@ The theory names in the `Protocol` struct reference entries in the theory regist
 
 ## The Two-Level Presentation Architecture
 
-panproto's two-parameter architecture (schema theory + instance theory) is mirrored by two crates that provide the **presentation functors** --- the operations connecting raw format syntax to abstract algebraic models:
+panproto's two-parameter architecture (schema theory + instance theory) is mirrored by two crates that provide the **presentation** layer (the parse/emit layer that converts native format syntax to panproto's internal representation) --- the operations connecting raw format syntax to abstract algebraic models:[^presentation-functor]
+
+[^presentation-functor]: Each presentation layer converts between a native format (like `.proto` files or SQL DDL) and panproto's internal representation. In the formal literature, this conversion is a *functor* mapping syntactic objects to their algebraic models.
 
 ### Schema-Level Presentations (`panproto-protocols`)
 
 Every protocol implements a bidirectional schema-level conversion:
 
-- **Parser**: `parse_*(input: &str) -> Result<Schema, ProtocolError>` converts a native format _specification_ (`.proto` file, JSON Schema, SQL DDL, GraphQL SDL) into panproto's `Schema` representation --- a model of the protocol's schema theory $T_P^S$.
+- **Parser**: `parse_*(input: &str) -> Result<Schema, ProtocolError>` converts a native format _specification_ (`.proto` file, JSON Schema, SQL DDL, GraphQL SDL) into panproto's `Schema` representation --- a model (a concrete instance that satisfies a theory's requirements --- like a Rust struct implementing a trait) of the protocol's schema theory $T_P^S$.
 - **Emitter**: `emit_*(schema: &Schema) -> Result<String, ProtocolError>` converts a `Schema` back into the native format specification.
 
 Examples:
@@ -182,7 +194,7 @@ The choice of `WInstance` vs `FInstance` is determined by the protocol's `instan
 
 ### The Complete Pipeline
 
-Together, these two levels of presentation complete the functorial data migration pipeline:
+Together, these two levels of presentation complete the data migration pipeline:
 
 ```
 raw spec ──protocols parse──→ Schema v1 ──mig compile──→ CompiledMigration
@@ -222,7 +234,7 @@ Determine which building-block theories your protocol needs. Most protocols fit 
 - Does the protocol have tree-structured data? Use `ThWType`.
 - Does the protocol have mixed content (structured + unstructured)? Add `ThMeta` to `ThWType`.
 
-### Step 2: Compose via Colimit
+### Step 2: Compose via Structured Merge
 
 If your protocol fits an existing group, call the corresponding `register_*` function with your theory names:
 
@@ -235,7 +247,7 @@ theories::register_constrained_multigraph_wtype(
 );
 ```
 
-If your protocol needs a novel combination, compose the theories manually using `panproto_gat::colimit`, specifying shared sorts at each step. Follow the pattern established by the existing `register_*` functions.
+If your protocol needs a novel combination, compose the theories manually using `panproto_gat::colimit()`, specifying shared sorts at each step. Follow the pattern established by the existing `register_*` functions.
 
 ### Step 3: Define Edge Rules and Vertex Kinds
 
@@ -281,7 +293,7 @@ Add tests at both levels:
 - **Breaking-change tests**: verify classification logic for your protocol's edge rules.
 
 ::: {.callout-warning}
-When composing theories via colimit, the shared theory must contain exactly the sorts that should be identified. If you share too few sorts, the colimit will create duplicate sorts that should be unified. If you share too many sorts, you may over-constrain the composition. Review the existing `register_*` functions for examples of correct sharing patterns.
+When composing theories via structured merge, the shared theory must contain exactly the sorts that should be identified. If you share too few sorts, the merge will create duplicate sorts that should be unified. If you share too many sorts, you may over-constrain the composition. Review the existing `register_*` functions for examples of correct sharing patterns.
 :::
 
 ### Worked Example: A Hypothetical "TaskML" Protocol
@@ -328,30 +340,11 @@ pub fn protocol() -> Protocol {
 
 ## Theoretical Foundations
 
-The colimit composition pattern implements the categorical notion of a *theory morphism* between generalized algebraic theories [@cartmell1986]. Each building-block theory is a GAT, and the colimit computes the pushout in the category of GATs, identifying sorts along the span defined by the shared theory.
+The structured merge pattern is backed by a formal guarantee: the merge preserves the equations and well-formedness conditions of both component theories. If `ThGraph` guarantees that every edge has a source and target vertex, and `ThConstraint` guarantees that every constraint is attached to a vertex, then the merged theory inherits both guarantees.[^theory-morphism]
 
-This is not merely an implementation convenience---it is a formal guarantee. The colimit preserves the equations and well-formedness conditions of both component theories. If `ThGraph` guarantees that every edge has a source and target vertex, and `ThConstraint` guarantees that every constraint is attached to a vertex, then the colimit theory inherits both guarantees.
+[^theory-morphism]: The structured merge combines building-block theories into a single theory, identifying shared sorts so they appear exactly once. Each building-block is a GAT, and the merge identifies sorts along the shared sub-theory. Formally, this is a colimit (pushout) in the category of GATs [@cartmell1986]. The protocol architecture follows @lynch2024, where data interchange protocols are presentations of algebraic theories and interoperability is mediated by structure-preserving maps (theory morphisms) between them. The `panproto-protocols` and `panproto-io` crates together implement both levels of the conversion pipeline described in Lynch 2024.
 
-The protocol architecture follows the design principles outlined in @lynch2024, where data interchange protocols are understood as presentations of algebraic theories and protocol interoperability is mediated by theory morphisms. The `panproto-protocols` and `panproto-io` crates together implement both levels of the "model functor" from Lynch 2024: schema presentations map format specifications to abstract schema models, and instance presentations map format data to abstract instance models. This two-level factorization mirrors panproto's two-parameter architecture and ensures that the full pipeline --- from raw bytes through migration to target format --- composes correctly by construction.
+The `panproto-protocols` and `panproto-io` crates together implement two levels of the data pipeline: schema presentations map format specifications to abstract schema models, and instance presentations map format data to abstract instance models. This two-level factorization mirrors panproto's two-parameter architecture and ensures that the full pipeline --- from raw bytes through migration to target format --- composes correctly by construction.
 
-For a hands-on guide to building your own protocol, see [tutorial chapter 10](https://panproto.github.io/tutorial/chapters/10-building-your-own-protocol.html).
+For a hands-on guide to building your own protocol, see [tutorial chapter 10](https://panproto.dev/tutorial/chapters/10-building-your-own-protocol.html).
 
-## Summary
-
-The protocol system spans two crates:
-
-**`panproto-protocols`** (schema-level presentations) provides:
-
-- **10 building-block theories** (`ThGraph`, `ThSimpleGraph`, `ThHypergraph`, `ThConstraint`, `ThMulti`, `ThInterface`, `ThWType`, `ThFunctor`, `ThFlat`, `ThMeta`) that can be composed via colimit.
-- **6 theory groups** (A through F) covering the structural patterns found across 76 protocols.
-- **Schema-level parse/emit**: convert native format specifications (`.proto`, DDL, SDL) to/from `Schema`.
-- **A uniform protocol interface**: every protocol exports `protocol()`, `register_theories()`, and for schema-defining protocols, a parser/emitter pair.
-
-**`panproto-io`** (instance-level presentations) provides:
-
-- **76 protocol codecs** implementing `InstanceParser` and `InstanceEmitter` traits.
-- **4 shared pathways**: SIMD JSON (`simd-json`), zero-copy XML (`quick-xml`), SIMD HTML (`tl`), SIMD tabular (`memchr`) --- enabling ~50 protocols to share optimized core parsing infrastructure.
-- **Format-specific codecs** for HTML (`tl`), Markdown (`pulldown-cmark`), and CoNLL-U (custom `memchr`-based parser).
-- **A `ProtocolRegistry`** for runtime protocol dispatch by name.
-
-The colimit composition pattern is what makes panproto's protocol coverage tractable. Rather than implementing migration, lens, and breaking-change logic separately for each protocol, the shared theory infrastructure ensures that all protocols automatically benefit from the same engine. Adding a new protocol is a matter of choosing the right building blocks, writing a schema parser/emitter, and registering an instance codec.

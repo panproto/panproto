@@ -117,6 +117,27 @@ pub enum VcsError {
         /// The tag name.
         name: String,
     },
+
+    /// Data migration failed.
+    #[error("data migration failed: {reason}")]
+    DataMigrationFailed {
+        /// Description of the failure.
+        reason: String,
+    },
+
+    /// An object had the wrong type (owned variant for runtime strings).
+    #[error("type mismatch: expected {expected}, got {got}")]
+    TypeMismatch {
+        /// The expected type name.
+        expected: String,
+        /// The actual type name.
+        got: String,
+    },
+
+    /// I/O error from a string description (for cases where
+    /// `std::io::Error` is not directly available).
+    #[error("io: {0}")]
+    IoError(String),
 }
 
 /// Wrapper for serialization errors from rmp-serde.
