@@ -183,6 +183,89 @@ prot lens-verify --lens lens.json --instance data.json --iterations 1000
 
 This generates random modifications to the instance data and verifies that GetPut and PutGet hold for each modification.
 
+## Fleet Application {#sec-fleet-application}
+
+`apply_to_fleet` iterates over a collection of schemas, checks each against the chain's preconditions, and either instantiates the chain or records the failure:
+
+```rust
+pub fn apply_to_fleet(
+    chain: &ProtolensChain,
+    schemas: &[Schema],
+    protocol: &Protocol,
+) -> FleetResult {
+    let mut applied = Vec::new();
+    let mut skipped = Vec::new();
+    for schema in schemas {
+        let failures = chain.check_applicability(schema);
+        if failures.is_empty() {
+            match chain.instantiate(schema, protocol) {
+                Ok(lens) => applied.push(FleetEntry { schema, lens }),
+                Err(e) => skipped.push(SkippedEntry {
+                    schema,
+                    reasons: vec![e.to_string()],
+                }),
+            }
+        } else {
+            skipped.push(SkippedEntry {
+                schema,
+                reasons: failures.iter().map(|f| f.to_string()).collect(),
+            });
+        }
+    }
+    FleetResult { applied, skipped }
+}
+```
+
+`FleetResult` partitions outcomes into `applied` (successful instantiations) and `skipped` (schemas that failed precondition checks or instantiation). Failed instantiations are skipped rather than fatal---a single broken schema does not abort the fleet migration.
+
+
+## Complement State Tracking {#sec-complement-state-tracking}
+
+`chain_complement_spec` advances a `current_schema` through each step's target transform before evaluating the next step's complement. Each step's complement is computed against the schema as it exists after all preceding steps. This means a `drop_sort("metadata")` followed by `add_sort("metadata_v2")` correctly reports the drop's captured data count from the original schema and the add's default requirement from the intermediate schema.
+
+The `AddedElement` variant of `ComplementConstructor` handles `add_sort` and `add_op` protolenses. These require default values at instantiation time. `AddedElement { name, kind }` records what the user must supply, and `chain.requirements()` aggregates these into a complete list of defaults needed for the chain to instantiate.
+
+
+## Serialization Format {#sec-serialization-format}
+
+Protolens chains serialize to JSON with the following structure:
+
+```json
+{
+  "steps": [
+    {
+      "name": "rename_sort",
+      "source": {
+        "transform": "Identity",
+        "constraint": "Unconstrained"
+      },
+      "target": {
+        "transform": { "RenameSort": { "old": "Vertex", "new": "Node" } },
+        "constraint": { "HasSort": "Vertex" }
+      },
+      "complement_constructor": "Empty"
+    },
+    {
+      "name": "drop_op",
+      "source": {
+        "transform": "Identity",
+        "constraint": "Unconstrained"
+      },
+      "target": {
+        "transform": { "DropOp": "legacyEdge" },
+        "constraint": { "HasOp": "legacyEdge" }
+      },
+      "complement_constructor": { "DroppedOpData": { "op": "legacyEdge" } }
+    }
+  ]
+}
+```
+
+Each step includes its name, source and target endofunctors (transform + constraint), and complement constructor. The `from_json(to_json(chain))` round-trip produces a chain that is structurally equal to the original: same step count, same transforms, same constraints, same complement constructors.
+
+Individual protolenses also support `to_json()` / `from_json()` with the same per-step structure (minus the outer `steps` array).
+
+
 ## Testing Strategy {#sec-protolens-testing}
 
 The protolens engine uses three testing approaches:
