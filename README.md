@@ -138,16 +138,22 @@ schema convert --src-schema old.json --tgt-schema new.json record.json
 schema lens --src old.json --tgt new.json
 
 # Apply a saved lens or protolens chain
-schema lens-apply --lens lens.json record.json
+schema lens --apply --lens lens.json record.json
 
 # Verify lens laws and naturality
-schema lens-verify --lens lens.json --instance test.json
+schema lens --verify --lens lens.json --instance test.json
 
 # Compose lenses or protolens chains
-schema lens-compose lens1.json lens2.json -o composed.json
+schema lens --compose lens1.json lens2.json -o composed.json
+
+# Check applicability with failure reasons
+schema lens --check --chain chain.json --schema schema.json
+
+# Lift a protolens chain to another protocol
+schema lens --lift --chain chain.json --morphism morphism.json
 
 # Derive a lens from VCS commit history
-schema lens-diff HEAD~1 HEAD
+schema lens --diff HEAD~1 HEAD
 
 # Apply a migration to a record
 schema lift --protocol atproto --migration mig.json \

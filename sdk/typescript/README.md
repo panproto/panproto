@@ -79,7 +79,15 @@ const factors = panproto.factorizeMorphism(morphism);
 | `LensHandle` | Lens with `get`, `put`, and `autoGenerate()` for automatic lens derivation |
 | `LensHandle.autoGenerate()` | Auto-generate a lens between two schemas |
 | `ProtolensChainHandle` | Reusable, schema-independent protolens chain with `apply` and `instantiate` |
+| `ProtolensChainHandle.fuse()` | Fuse chain into single step |
+| `ProtolensChainHandle.checkApplicability()` | Check applicability with reasons |
+| `ProtolensChainHandle.applyToFleet()` | Apply to multiple schemas |
+| `ProtolensChainHandle.lift()` | Lift along theory morphism |
+| `ProtolensChainHandle.fromJson()` | Deserialize from JSON |
 | `SymmetricLensHandle` | Symmetric (bidirectional) lens for two-way synchronization |
+| `DataSetHandle` | Handle to versioned data set with migrate/staleness methods |
+| `Panproto.dataSet()` | Store and track a data set |
+| `Panproto.migrateData()` | Migrate data between schemas |
 
 ### Breaking change analysis
 

@@ -64,7 +64,14 @@ with Panproto.load() as pp:
 | `Repository` | Schematic version control (init, commit, branch, merge) |
 | `LensHandle` | Lens with `get`, `put`, and `auto_generate()` for automatic lens derivation |
 | `ProtolensChainHandle` | Reusable, schema-independent protolens chain with `apply` and `instantiate` |
+| `ProtolensChainHandle.fuse()` | Fuse chain into single step |
+| `ProtolensChainHandle.check_applicability()` | Check applicability with reasons |
+| `ProtolensChainHandle.lift()` | Lift along theory morphism |
+| `ProtolensChainHandle.from_json()` | Deserialize from JSON |
 | `SymmetricLensHandle` | Symmetric (bidirectional) lens for two-way synchronization |
+| `DataSetHandle` | Handle to versioned data set with migrate/staleness methods |
+| `Panproto.data_set()` | Store and track a data set |
+| `Panproto.migrate_data()` | Migrate data between schemas |
 | `FullDiffReport` / `CompatReport` | Breaking change analysis |
 | `TheoryHandle` / `TheoryBuilder` | GAT theory construction |
 
