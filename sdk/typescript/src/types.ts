@@ -457,6 +457,15 @@ export interface WasmExports {
   vcs_stash(repo: number): Uint8Array;
   vcs_stash_pop(repo: number): Uint8Array;
   vcs_blame(repo: number, vertex: Uint8Array): Uint8Array;
+  // Phase 7: Data versioning operations
+  store_dataset(schema_handle: number, data_json: Uint8Array): number;
+  get_dataset(dataset_handle: number): Uint8Array;
+  migrate_dataset_forward(dataset_handle: number, src_schema: number, tgt_schema: number): Uint8Array;
+  migrate_dataset_backward(dataset_handle: number, complement_bytes: Uint8Array, src_schema: number, tgt_schema: number): number;
+  check_dataset_staleness(dataset_handle: number, schema_handle: number): Uint8Array;
+  store_protocol_definition(protocol_bytes: Uint8Array): number;
+  get_protocol_definition(handle: number): Uint8Array;
+  get_migration_complement(complement_bytes: Uint8Array): Uint8Array;
   // Phase 10: Protolens operations
   auto_generate_protolens(schema1: number, schema2: number): number;
   instantiate_protolens(chain: number, schema: number): number;

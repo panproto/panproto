@@ -24,6 +24,7 @@ from ._wasm import WasmModule, create_handle, load_wasm
 
 if TYPE_CHECKING:
     from ._check import FullDiffReport, ValidationResult
+    from ._data import DataSetHandle
     from ._lens import LensHandle, ProtolensChainHandle
     from ._schema import BuiltSchema
     from ._types import DiffReport, ExistenceReport, ProtocolSpec
@@ -583,6 +584,56 @@ class Panproto:
         from ._lens import ProtolensChainHandle as _ProtolensChainHandle
 
         return _ProtolensChainHandle.auto_generate(from_schema, to_schema, self._wasm)
+
+    # ------------------------------------------------------------------
+    # Data versioning
+    # ------------------------------------------------------------------
+
+    def data_set(self, data: object, schema: BuiltSchema) -> DataSetHandle:
+        """Store and track a data set against a schema.
+
+        Parameters
+        ----------
+        data : object
+            The data to store (list of records or a single object).
+        schema : BuiltSchema
+            The schema this data conforms to.
+
+        Returns
+        -------
+        DataSetHandle
+            A handle to the stored data set (context manager).
+        """
+        from ._data import DataSetHandle as _DataSetHandle
+
+        return _DataSetHandle.from_data(data, schema, self._wasm)
+
+    def migrate_data(
+        self,
+        data: DataSetHandle,
+        from_schema: BuiltSchema,
+        to_schema: BuiltSchema,
+    ) -> tuple[DataSetHandle, bytes]:
+        """Migrate data forward between two schemas.
+
+        Auto-generates a lens and migrates each record, returning the
+        migrated data and a complement for backward migration.
+
+        Parameters
+        ----------
+        data : DataSetHandle
+            The data set to migrate.
+        from_schema : BuiltSchema
+            The source schema.
+        to_schema : BuiltSchema
+            The target schema.
+
+        Returns
+        -------
+        tuple[DataSetHandle, bytes]
+            A tuple of (new_data_handle, complement_bytes).
+        """
+        return data.migrate_forward(from_schema, to_schema)
 
     # ------------------------------------------------------------------
     # Context manager / cleanup

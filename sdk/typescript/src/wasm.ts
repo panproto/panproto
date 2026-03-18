@@ -78,6 +78,15 @@ export interface WasmGlueModule {
   vcs_stash: WasmExports['vcs_stash'];
   vcs_stash_pop: WasmExports['vcs_stash_pop'];
   vcs_blame: WasmExports['vcs_blame'];
+  // Phase 7: Data versioning operations
+  store_dataset: WasmExports['store_dataset'];
+  get_dataset: WasmExports['get_dataset'];
+  migrate_dataset_forward: WasmExports['migrate_dataset_forward'];
+  migrate_dataset_backward: WasmExports['migrate_dataset_backward'];
+  check_dataset_staleness: WasmExports['check_dataset_staleness'];
+  store_protocol_definition: WasmExports['store_protocol_definition'];
+  get_protocol_definition: WasmExports['get_protocol_definition'];
+  get_migration_complement: WasmExports['get_migration_complement'];
 }
 
 /**
@@ -163,6 +172,15 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       vcs_stash: glue.vcs_stash,
       vcs_stash_pop: glue.vcs_stash_pop,
       vcs_blame: glue.vcs_blame,
+      // Phase 7: Data versioning
+      store_dataset: glue.store_dataset,
+      get_dataset: glue.get_dataset,
+      migrate_dataset_forward: glue.migrate_dataset_forward,
+      migrate_dataset_backward: glue.migrate_dataset_backward,
+      check_dataset_staleness: glue.check_dataset_staleness,
+      store_protocol_definition: glue.store_protocol_definition,
+      get_protocol_definition: glue.get_protocol_definition,
+      get_migration_complement: glue.get_migration_complement,
     };
 
     const memory: WebAssembly.Memory = initOutput.memory;

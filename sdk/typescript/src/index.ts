@@ -133,6 +133,10 @@ export type {
 
 // VCS
 export { Repository } from './vcs.js';
+
+// Data versioning
+export { DataSetHandle } from './data.js';
+export type { MigrationResult, StalenessResult } from './data.js';
 export type {
   VcsLogEntry,
   VcsStatus,

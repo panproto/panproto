@@ -12,7 +12,7 @@ use panproto_core::inst::CompiledMigration;
 use panproto_core::io::ProtocolRegistry;
 use panproto_core::lens::{ProtolensChain, SymmetricLens};
 use panproto_core::schema::{Protocol, Schema};
-use panproto_core::vcs::MemStore;
+use panproto_core::vcs::{DataSetObject, MemStore};
 use wasm_bindgen::JsError;
 
 use crate::error::WasmError;
@@ -49,6 +49,8 @@ pub enum Resource {
     ProtolensChain(Box<ProtolensChain>),
     /// A symmetric lens.
     SymmetricLensHandle(Box<SymmetricLens>),
+    /// A data set (instances bound to a schema).
+    DataSet(Box<DataSetObject>),
 }
 
 thread_local! {
@@ -316,6 +318,18 @@ pub fn as_symmetric_lens(resource: &Resource) -> Result<&SymmetricLens, WasmErro
     }
 }
 
+/// Extract a `DataSetObject` reference from a resource, or return a
+/// type mismatch error.
+pub fn as_dataset(resource: &Resource) -> Result<&DataSetObject, WasmError> {
+    match resource {
+        Resource::DataSet(d) => Ok(d),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "DataSet",
+            actual: resource_type_name(resource),
+        }),
+    }
+}
+
 /// Return a human-readable name for a resource variant (const version).
 const fn resource_type_name(resource: &Resource) -> &'static str {
     match resource {
@@ -328,6 +342,7 @@ const fn resource_type_name(resource: &Resource) -> &'static str {
         Resource::VcsRepo(_) => "VcsRepo",
         Resource::ProtolensChain(_) => "ProtolensChain",
         Resource::SymmetricLensHandle(_) => "SymmetricLens",
+        Resource::DataSet(_) => "DataSet",
     }
 }
 

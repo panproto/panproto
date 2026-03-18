@@ -27,6 +27,7 @@ from panproto._migration import (
     compose_migrations,
 )
 from panproto._check import CompatReport, FullDiffReport, ValidationResult
+from panproto._data import DataSetHandle, StalenessResult
 from panproto._gat import (
     TheoryBuilder,
     TheoryHandle,
@@ -117,6 +118,8 @@ __all__ = [
     "SQL_SPEC",
     "BreakingChange",
     "BuiltSchema",
+    # Data versioning
+    "DataSetHandle",
     # Protolens types
     "CapturedField",
     "CompatReport",
@@ -182,6 +185,7 @@ __all__ = [
     "SchemaValidationError",
     "SchemaValidationIssue",
     "Span",
+    "StalenessResult",
     "SymmetricLensHandle",
     # GAT
     "TheoryBuilder",

@@ -30,6 +30,7 @@ import { FullDiffReport, ValidationResult } from './check.js';
 import { Instance } from './instance.js';
 import { IoRegistry } from './io.js';
 import { Repository } from './vcs.js';
+import { DataSetHandle, type MigrationResult } from './data.js';
 
 /**
  * The main entry point for the panproto SDK.
@@ -368,6 +369,32 @@ export class Panproto implements Disposable {
    */
   protolensChain(from: BuiltSchema, to: BuiltSchema): ProtolensChainHandle {
     return ProtolensChainHandle.autoGenerate(from, to, this.#wasm);
+  }
+
+  /**
+   * Store and track a data set against a schema.
+   *
+   * @param data - The data to store (array of records or a single object)
+   * @param schema - The schema this data conforms to
+   * @returns A disposable DataSetHandle
+   */
+  dataSet(data: unknown, schema: BuiltSchema): DataSetHandle {
+    return DataSetHandle.fromData(data, schema, this.#wasm);
+  }
+
+  /**
+   * Migrate data forward between two schemas.
+   *
+   * Auto-generates a lens and migrates each record, returning the
+   * migrated data and a complement for backward migration.
+   *
+   * @param data - The data set to migrate
+   * @param from - The source schema
+   * @param to - The target schema
+   * @returns The migration result with new data and complement
+   */
+  migrateData(data: DataSetHandle, from: BuiltSchema, to: BuiltSchema): MigrationResult {
+    return data.migrateForward(from, to);
   }
 
   /**
