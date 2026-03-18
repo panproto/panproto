@@ -333,13 +333,9 @@ impl TheoryEndofunctor {
     pub fn compose(&self, other: &Self) -> Self {
         Self {
             name: Arc::from(format!("{}.{}", other.name, self.name)),
-            precondition: TheoryConstraint::All(vec![
-                self.precondition.clone(),
-                // The second functor's precondition applies to the result
-                // of the first, which we can't fully check statically.
-                // We'll check dynamically at apply time.
-                TheoryConstraint::Unconstrained,
-            ]),
+            // The second functor's precondition applies to the transformed
+            // theory, which we check dynamically at apply time.
+            precondition: self.precondition.clone(),
             transform: TheoryTransform::Compose(
                 Box::new(self.transform.clone()),
                 Box::new(other.transform.clone()),

@@ -6,7 +6,7 @@
 
 use panproto_gat::Name;
 use panproto_inst::value::Value;
-use panproto_schema::Schema;
+use panproto_schema::{Protocol, Schema};
 use serde::{Deserialize, Serialize};
 
 use crate::protolens::{ComplementConstructor, Protolens, ProtolensChain};
@@ -69,7 +69,11 @@ pub fn complement_spec_at(protolens: &Protolens, schema: &Schema) -> ComplementS
 
 /// Compute the complement spec for a protolens chain at a specific schema.
 #[must_use]
-pub fn chain_complement_spec(chain: &ProtolensChain, schema: &Schema) -> ComplementSpec {
+pub fn chain_complement_spec(
+    chain: &ProtolensChain,
+    schema: &Schema,
+    protocol: &Protocol,
+) -> ComplementSpec {
     if chain.steps.is_empty() {
         return ComplementSpec {
             kind: ComplementKind::Empty,
@@ -81,11 +85,15 @@ pub fn chain_complement_spec(chain: &ProtolensChain, schema: &Schema) -> Complem
 
     let mut all_defaults = Vec::new();
     let mut all_captured = Vec::new();
+    let mut current_schema = schema.clone();
 
     for step in &chain.steps {
-        let spec = complement_spec_at(step, schema);
+        let spec = complement_spec_at(step, &current_schema);
         all_defaults.extend(spec.forward_defaults);
         all_captured.extend(spec.captured_data);
+        if let Ok(next) = step.target_schema(&current_schema, protocol) {
+            current_schema = next;
+        }
     }
 
     let kind = classify(&all_defaults, &all_captured);
@@ -138,6 +146,22 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                 summary: format!("Drops operation '{op}' — {count} edges captured."),
             }
         }
+        ComplementConstructor::AddedElement {
+            element_name,
+            element_kind,
+        } => ComplementSpec {
+            kind: ComplementKind::DefaultsRequired,
+            forward_defaults: vec![DefaultRequirement {
+                element_name: element_name.clone(),
+                element_kind: element_kind.clone(),
+                description: format!(
+                    "Default value needed for added {element_kind} '{element_name}'.",
+                ),
+                suggested_default: None,
+            }],
+            captured_data: vec![],
+            summary: format!("Adds {element_kind} '{element_name}' — default required."),
+        },
         ComplementConstructor::NatTransKernel { nat_trans_name } => ComplementSpec {
             kind: ComplementKind::DataCaptured,
             forward_defaults: vec![],
@@ -221,6 +245,18 @@ mod tests {
     use crate::tests::three_node_schema;
     use panproto_inst::value::Value;
 
+    fn test_protocol() -> Protocol {
+        Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into(), "string".into(), "array".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        }
+    }
+
     #[test]
     fn rename_sort_has_empty_complement() {
         let schema = three_node_schema();
@@ -242,11 +278,13 @@ mod tests {
     }
 
     #[test]
-    fn add_sort_has_empty_complement() {
+    fn add_sort_has_defaults_required_complement() {
         let schema = three_node_schema();
         let p = elementary::add_sort("tags", "array", Value::Null);
         let spec = complement_spec_at(&p, &schema);
-        assert_eq!(spec.kind, ComplementKind::Empty);
+        assert_eq!(spec.kind, ComplementKind::DefaultsRequired);
+        assert_eq!(spec.forward_defaults.len(), 1);
+        assert_eq!(&*spec.forward_defaults[0].element_name, "tags");
     }
 
     #[test]
@@ -262,31 +300,33 @@ mod tests {
     #[test]
     fn empty_chain_is_empty() {
         let schema = three_node_schema();
+        let protocol = test_protocol();
         let chain = crate::protolens::ProtolensChain::new(vec![]);
-        let spec = chain_complement_spec(&chain, &schema);
+        let spec = chain_complement_spec(&chain, &schema, &protocol);
         assert_eq!(spec.kind, ComplementKind::Empty);
     }
 
     #[test]
     fn chain_with_drop_has_data_captured() {
         let schema = three_node_schema();
+        let protocol = test_protocol();
         let chain = crate::protolens::ProtolensChain::new(vec![elementary::drop_sort("string")]);
-        let spec = chain_complement_spec(&chain, &schema);
+        let spec = chain_complement_spec(&chain, &schema, &protocol);
         assert_eq!(spec.kind, ComplementKind::DataCaptured);
     }
 
     #[test]
     fn chain_mixed() {
         let schema = three_node_schema();
-        // This chain has both adds (defaults needed = empty complement)
-        // and drops (data captured), but add_sort has Empty complement,
-        // so only the drop contributes.
+        let protocol = test_protocol();
+        // This chain has both adds (defaults required)
+        // and drops (data captured).
         let chain = crate::protolens::ProtolensChain::new(vec![
             elementary::add_sort("tags", "array", Value::Null),
             elementary::drop_sort("string"),
         ]);
-        let spec = chain_complement_spec(&chain, &schema);
-        assert_eq!(spec.kind, ComplementKind::DataCaptured);
+        let spec = chain_complement_spec(&chain, &schema, &protocol);
+        assert_eq!(spec.kind, ComplementKind::Mixed);
     }
 
     #[test]

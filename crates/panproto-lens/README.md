@@ -28,6 +28,15 @@ A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a conc
 | `diff_to_protolens` | Derive a protolens chain from a structural schema diff |
 | `diff_to_lens` | Derive a concrete lens from a structural schema diff |
 | `DiffSpec` | Configuration for diff-based protolens derivation |
+| `SchemaConstraint` | Direct schema-level precondition checking (vs lossy implicit theory extraction) |
+| `check_applicability` | Check applicability returning failure reasons (not just boolean) |
+| `ProtolensChain::fuse` | Compose all steps into a single protolens (avoids intermediate schemas) |
+| `ProtolensChain::to_json` / `from_json` | Serialize and deserialize chains for cross-project reuse |
+| `Protolens::to_json` / `from_json` | Serialize and deserialize individual protolenses |
+| `FleetResult` | Result of applying a chain to multiple schemas (applied + skipped with reasons) |
+| `apply_to_fleet` | Apply a chain to a fleet of schemas |
+| `lift_protolens` / `lift_chain` | Lift protolenses along theory morphisms for cross-protocol reuse |
+| `ComplementConstructor::AddedElement` | Complement variant for elements requiring defaults |
 
 ### Lenses
 

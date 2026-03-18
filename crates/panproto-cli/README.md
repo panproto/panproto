@@ -73,6 +73,15 @@ schema checkout main
 schema merge feature
 schema merge feature --verbose  # show pullback overlap details
 
+# Apply a protolens chain to all schemas in a directory
+schema lens-fleet chain.json ./schemas/ --protocol atproto --dry-run
+
+# Lift a protolens chain to another protocol
+schema lens-lift chain.json morphism.json --json
+
+# Fuse a multi-step chain into a single protolens
+schema lens old.json new.json --protocol atproto --fuse
+
 # Lift a record through a migration
 schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json record.json
 ```
@@ -89,6 +98,8 @@ schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json rec
 | `lens-apply` | Apply a saved lens or protolens chain to data |
 | `lens-verify` | Verify lens laws (GetPut, PutGet) on a test instance |
 | `lens-compose` | Compose two lenses or protolens chains into one |
+| `lens-fleet` | Apply a protolens chain to all schemas in a directory (`--dry-run` for report only) |
+| `lens-lift` | Lift a protolens chain across protocols via theory morphism |
 | `lens-diff` | Derive a lens from VCS commit history between two refs |
 | `lift` | Apply a migration to a record |
 | `scaffold` | Generate minimal test data from a protocol theory via free model construction |

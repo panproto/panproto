@@ -13,6 +13,7 @@ panproto-inst = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-gat = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 smallvec = { workspace = true }
 thiserror = { workspace = true }
 rustc-hash = { workspace = true }

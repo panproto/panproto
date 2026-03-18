@@ -49,7 +49,7 @@ pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolen
 pub use error::{LawViolation, LensError};
 pub use laws::{check_get_put, check_laws, check_put_get};
 pub use protolens::{
-    ComplementConstructor, Protolens, ProtolensChain, elementary,
+    ComplementConstructor, Protolens, ProtolensChain, SchemaConstraint, elementary,
     horizontal_compose as protolens_horizontal, vertical_compose as protolens_vertical,
 };
 pub use symmetric::SymmetricLens;

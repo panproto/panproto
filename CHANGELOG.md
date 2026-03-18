@@ -21,10 +21,22 @@ All notable changes to panproto will be documented in this file.
 - Dev-guide Ch. 26 "Protolens Engine", Ch. 27 "Automated Lens Generation Pipeline"
 - Tutorial updates: Ch. 8 (protolens forward reference), Ch. 17 (migration-to-protolens section), Appendix B (protolens API)
 - Dev-guide updates: Ch. 5 (architecture diagram), Ch. 6 (factorize + schema_functor modules), Ch. 10 (protolens modules), Ch. 13 (10 new WASM entry points), Ch. 24 (morphism-to-protolens cross-ref), Appendix A (7 glossary entries), Appendix B (6 new source files)
+- **panproto-lens**: `SchemaConstraint` enum — check schema structure directly (bypasses lossy implicit theory extraction). `Protolens::check_applicability()` returns human-readable failure reasons instead of a boolean.
+- **panproto-lens**: `ProtolensChain::fuse()` — compose all steps into a single `Protolens` by fusing endofunctors. `instantiate()` uses the fused path for multi-step chains, avoiding intermediate schema materialization.
+- **panproto-lens**: `ProtolensChain::to_json()` / `from_json()` and `Protolens::to_json()` / `from_json()` — serialize and deserialize protolens chains for cross-project reuse and policy distribution.
+- **panproto-lens**: `apply_to_fleet(chain, schemas, protocol)` — apply a protolens chain to a fleet of schemas, collecting successes in `FleetResult::applied` and failures with reasons in `FleetResult::skipped`.
+- **panproto-lens**: `lift_protolens(protolens, morphism)` / `lift_chain(chain, morphism)` — lift protolenses along theory morphisms for cross-protocol reuse. Composes endofunctor transforms with morphism renames and lifts preconditions.
+- **panproto-lens**: `ComplementConstructor::AddedElement` — complement prediction now reports defaults required for `add_sort`/`add_op` protolenses. `chain_complement_spec` tracks intermediate schema state through the chain.
 
 ### Changed
 
 - **panproto-lens**: Now depends on `panproto-check` for `SchemaDiff` → protolens conversion
+
+### Breaking Changes
+
+- **panproto-lens**: `chain_complement_spec` now requires `protocol: &Protocol` parameter
+- **panproto-lens**: `ComplementConstructor` gains `AddedElement` variant
+- **panproto-lens**: `add_sort`/`add_op` protolenses report `DefaultsRequired` complement (previously `Empty`)
 
 ### Removed (Breaking)
 

@@ -88,6 +88,13 @@ pub enum ComplementConstructor {
         /// Name of the natural transformation.
         nat_trans_name: Name,
     },
+    /// Forward direction requires a default for an added element.
+    AddedElement {
+        /// Name of the element being added.
+        element_name: Name,
+        /// What kind of element: `"sort"` or `"op"`.
+        element_kind: String,
+    },
     /// Composite complement from a chain.
     Composite(Vec<Self>),
 }
@@ -110,7 +117,7 @@ pub enum ComplementConstructor {
 /// The endofunctor framing means protolenses have the structure of
 /// natural transformations (each elementary constructor is natural
 /// by construction), but naturality is not runtime-verified.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Protolens {
     /// Human-readable name.
     pub name: Name,
@@ -130,8 +137,23 @@ impl Protolens {
     /// sorts, edge kinds as operations).
     #[must_use]
     pub fn applicable_to(&self, schema: &Schema) -> bool {
-        let implicit_theory = schema_to_implicit_theory(schema);
-        self.source.precondition.satisfied_by(&implicit_theory)
+        self.check_applicability(schema).is_ok()
+    }
+
+    /// Check applicability with failure reasons.
+    ///
+    /// # Errors
+    ///
+    /// Returns a list of human-readable reasons why the precondition
+    /// is not satisfied.
+    pub fn check_applicability(&self, schema: &Schema) -> Result<(), Vec<String>> {
+        let constraint = SchemaConstraint::from_theory_constraint(&self.source.precondition);
+        let reasons = constraint.check(schema);
+        if reasons.is_empty() {
+            Ok(())
+        } else {
+            Err(reasons)
+        }
     }
 
     /// Instantiate this protolens at a specific schema, producing a concrete
@@ -181,6 +203,186 @@ impl Protolens {
     #[must_use]
     pub const fn is_lossless(&self) -> bool {
         matches!(self.complement_constructor, ComplementConstructor::Empty)
+    }
+
+    /// Serialize to JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`serde_json::Error`] if serialization fails.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Deserialize from JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`serde_json::Error`] if deserialization fails.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+}
+
+impl ProtolensChain {
+    /// Serialize to JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`serde_json::Error`] if serialization fails.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Deserialize from JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`serde_json::Error`] if deserialization fails.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+}
+
+/// A predicate on schemas for precondition checking.
+///
+/// Checks schema structure directly, unlike `TheoryConstraint` which
+/// operates on the implicit theory extracted from a schema (lossy).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum SchemaConstraint {
+    /// Any schema satisfies this.
+    Unconstrained,
+    /// Schema must have at least one vertex of this kind.
+    HasVertexKind(Name),
+    /// Schema must have a vertex with this name.
+    HasVertex(Name),
+    /// Schema must have at least one edge of this kind.
+    HasEdgeKind(Name),
+    /// Schema must have an edge between these vertices.
+    HasEdgeBetween {
+        /// Source vertex name.
+        src: Name,
+        /// Target vertex name.
+        tgt: Name,
+    },
+    /// Delegate to a theory-level constraint on the implicit theory.
+    Theory(panproto_gat::TheoryConstraint),
+    /// Conjunction: all sub-constraints must hold.
+    All(Vec<Self>),
+    /// Disjunction: at least one sub-constraint must hold.
+    Any(Vec<Self>),
+    /// Negation: the sub-constraint must not hold.
+    Not(Box<Self>),
+}
+
+impl SchemaConstraint {
+    /// Check if a schema satisfies this constraint.
+    #[must_use]
+    pub fn satisfied_by(&self, schema: &Schema) -> bool {
+        match self {
+            Self::Unconstrained => true,
+            Self::HasVertexKind(kind) => schema.vertices.values().any(|v| v.kind == *kind),
+            Self::HasVertex(name) => schema.vertices.contains_key(name),
+            Self::HasEdgeKind(kind) => schema.edges.keys().any(|e| e.kind == *kind),
+            Self::HasEdgeBetween { src, tgt } => {
+                schema.edges.keys().any(|e| e.src == *src && e.tgt == *tgt)
+            }
+            Self::Theory(tc) => {
+                let implicit = schema_to_implicit_theory(schema);
+                tc.satisfied_by(&implicit)
+            }
+            Self::All(cs) => cs.iter().all(|c| c.satisfied_by(schema)),
+            Self::Any(cs) => cs.iter().any(|c| c.satisfied_by(schema)),
+            Self::Not(c) => !c.satisfied_by(schema),
+        }
+    }
+
+    /// Return human-readable reasons why this constraint is NOT satisfied.
+    /// Empty vec if satisfied.
+    #[must_use]
+    pub fn check(&self, schema: &Schema) -> Vec<String> {
+        match self {
+            Self::Unconstrained => vec![],
+            Self::HasVertexKind(kind) => {
+                if schema.vertices.values().any(|v| v.kind == *kind) {
+                    vec![]
+                } else {
+                    vec![format!("Schema has no vertex of kind '{kind}'.")]
+                }
+            }
+            Self::HasVertex(name) => {
+                if schema.vertices.contains_key(name) {
+                    vec![]
+                } else {
+                    vec![format!("Schema has no vertex named '{name}'.")]
+                }
+            }
+            Self::HasEdgeKind(kind) => {
+                if schema.edges.keys().any(|e| e.kind == *kind) {
+                    vec![]
+                } else {
+                    vec![format!("Schema has no edge of kind '{kind}'.")]
+                }
+            }
+            Self::HasEdgeBetween { src, tgt } => {
+                if schema.edges.keys().any(|e| e.src == *src && e.tgt == *tgt) {
+                    vec![]
+                } else {
+                    vec![format!("Schema has no edge from '{src}' to '{tgt}'.")]
+                }
+            }
+            Self::Theory(tc) => {
+                let implicit = schema_to_implicit_theory(schema);
+                if tc.satisfied_by(&implicit) {
+                    vec![]
+                } else {
+                    vec![format!("TheoryConstraint not satisfied: {tc:?}")]
+                }
+            }
+            Self::All(cs) => cs.iter().flat_map(|c| c.check(schema)).collect(),
+            Self::Any(cs) => {
+                if cs.iter().any(|c| c.satisfied_by(schema)) {
+                    vec![]
+                } else {
+                    let reasons: Vec<String> = cs.iter().flat_map(|c| c.check(schema)).collect();
+                    vec![format!(
+                        "None of the alternatives were satisfied: {}",
+                        reasons.join("; ")
+                    )]
+                }
+            }
+            Self::Not(c) => {
+                if c.satisfied_by(schema) {
+                    vec![format!("Constraint should NOT be satisfied but is: {c:?}")]
+                } else {
+                    vec![]
+                }
+            }
+        }
+    }
+
+    /// Lift a `TheoryConstraint` to a `SchemaConstraint`.
+    #[must_use]
+    pub fn from_theory_constraint(tc: &panproto_gat::TheoryConstraint) -> Self {
+        match tc {
+            panproto_gat::TheoryConstraint::Unconstrained => Self::Unconstrained,
+            panproto_gat::TheoryConstraint::HasSort(name) => {
+                Self::HasVertexKind(Name::from(&**name))
+            }
+            panproto_gat::TheoryConstraint::HasOp(name) => Self::HasEdgeKind(Name::from(&**name)),
+            panproto_gat::TheoryConstraint::HasEquation(name) => Self::Theory(
+                panproto_gat::TheoryConstraint::HasEquation(Arc::clone(name)),
+            ),
+            panproto_gat::TheoryConstraint::All(cs) => {
+                Self::All(cs.iter().map(Self::from_theory_constraint).collect())
+            }
+            panproto_gat::TheoryConstraint::Any(cs) => {
+                Self::Any(cs.iter().map(Self::from_theory_constraint).collect())
+            }
+            panproto_gat::TheoryConstraint::Not(c) => {
+                Self::Not(Box::new(Self::from_theory_constraint(c)))
+            }
+        }
     }
 }
 
@@ -243,7 +445,7 @@ pub fn horizontal_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolen
 ///
 /// Each step's target endofunctor feeds into the next step's source.
 /// Instantiating the chain at a schema produces a composed lens.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProtolensChain {
     /// The individual protolens steps.
     pub steps: Vec<Protolens>,
@@ -282,23 +484,12 @@ impl ProtolensChain {
         if self.steps.is_empty() {
             return Ok(identity_lens(schema));
         }
-
-        let mut current_schema = schema.clone();
-        let mut lenses = Vec::new();
-
-        for step in &self.steps {
-            let lens = step.instantiate(&current_schema, protocol)?;
-            current_schema = lens.tgt_schema.clone();
-            lenses.push(lens);
+        if self.steps.len() == 1 {
+            return self.steps[0].instantiate(schema, protocol);
         }
-
-        // Compose all lenses
-        let mut result = lenses.remove(0);
-        for lens in lenses {
-            result = crate::compose::compose(&result, &lens)?;
-        }
-
-        Ok(result)
+        // Fuse and instantiate as a single protolens
+        let fused = self.fuse()?;
+        fused.instantiate(schema, protocol)
     }
 
     /// Returns `true` if the chain is empty (identity).
@@ -312,6 +503,213 @@ impl ProtolensChain {
     pub fn len(&self) -> usize {
         self.steps.len()
     }
+
+    /// Check if the chain can be instantiated at the given schema,
+    /// returning failure reasons on error.
+    ///
+    /// An empty chain (identity) is applicable to any schema. Otherwise,
+    /// the first step must be applicable.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `Vec<String>` of reasons if the chain's precondition
+    /// is not satisfied by the schema.
+    pub fn check_applicability(&self, schema: &Schema) -> Result<(), Vec<String>> {
+        if self.steps.is_empty() {
+            return Ok(());
+        }
+        self.steps[0].check_applicability(schema)
+    }
+
+    /// Fuse all steps into a single `Protolens` by composing endofunctors.
+    ///
+    /// The fused protolens applies all transforms in one pass, avoiding
+    /// intermediate schema materialization. The complement constructor
+    /// becomes `Composite` of all individual complements.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LensError::ProtolensError` if the chain is empty.
+    pub fn fuse(&self) -> Result<Protolens, LensError> {
+        if self.steps.is_empty() {
+            return Err(LensError::ProtolensError("cannot fuse empty chain".into()));
+        }
+        if self.steps.len() == 1 {
+            return Ok(self.steps[0].clone());
+        }
+
+        let source = self.steps[0].source.clone();
+
+        // Compose all target transforms into a single Compose tree
+        let mut combined_transform = self.steps[0].target.transform.clone();
+        for step in &self.steps[1..] {
+            combined_transform = TheoryTransform::Compose(
+                Box::new(combined_transform),
+                Box::new(step.target.transform.clone()),
+            );
+        }
+
+        let target = TheoryEndofunctor {
+            name: Arc::from(
+                self.steps
+                    .iter()
+                    .map(|s| s.target.name.to_string())
+                    .collect::<Vec<_>>()
+                    .join("."),
+            ),
+            precondition: source.precondition.clone(),
+            transform: combined_transform,
+        };
+
+        let complement = ComplementConstructor::Composite(
+            self.steps
+                .iter()
+                .map(|s| s.complement_constructor.clone())
+                .collect(),
+        );
+
+        let name = Name::from(
+            self.steps
+                .iter()
+                .map(|s| s.name.to_string())
+                .collect::<Vec<_>>()
+                .join("."),
+        );
+
+        Ok(Protolens {
+            name,
+            source,
+            target,
+            complement_constructor: complement,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fleet API
+// ---------------------------------------------------------------------------
+
+/// Result of applying a protolens chain to a fleet of schemas.
+pub struct FleetResult {
+    /// Schemas where the chain was successfully instantiated.
+    pub applied: Vec<(Name, Lens)>,
+    /// Schemas that were skipped, with reasons.
+    pub skipped: Vec<(Name, Vec<String>)>,
+}
+
+/// Apply a protolens chain to every schema in a fleet.
+///
+/// For each `(name, schema)` pair, checks applicability. If the chain's
+/// precondition is satisfied, instantiates to produce a lens. Otherwise
+/// collects the schema name and failure reasons in `skipped`.
+#[must_use]
+pub fn apply_to_fleet(
+    chain: &ProtolensChain,
+    schemas: &[(Name, Schema)],
+    protocol: &Protocol,
+) -> FleetResult {
+    let mut applied = Vec::new();
+    let mut skipped = Vec::new();
+
+    for (name, schema) in schemas {
+        let check = if chain.steps.is_empty() {
+            Ok(())
+        } else {
+            chain.steps[0].check_applicability(schema)
+        };
+
+        match check {
+            Err(reasons) => {
+                skipped.push((name.clone(), reasons));
+            }
+            Ok(()) => match chain.instantiate(schema, protocol) {
+                Ok(lens) => applied.push((name.clone(), lens)),
+                Err(e) => skipped.push((name.clone(), vec![format!("instantiation failed: {e}")])),
+            },
+        }
+    }
+
+    FleetResult { applied, skipped }
+}
+
+// ---------------------------------------------------------------------------
+// Functorial Lifting
+// ---------------------------------------------------------------------------
+
+/// Lift a theory constraint along a morphism.
+///
+/// Renames sort/op references according to the morphism's maps.
+fn lift_constraint(
+    constraint: &panproto_gat::TheoryConstraint,
+    morphism: &panproto_gat::TheoryMorphism,
+) -> panproto_gat::TheoryConstraint {
+    use panproto_gat::TheoryConstraint as TC;
+    match constraint {
+        TC::Unconstrained => TC::Unconstrained,
+        TC::HasSort(s) => {
+            let lifted = morphism.sort_map.get(s).unwrap_or(s);
+            TC::HasSort(Arc::clone(lifted))
+        }
+        TC::HasOp(o) => {
+            let lifted = morphism.op_map.get(o).unwrap_or(o);
+            TC::HasOp(Arc::clone(lifted))
+        }
+        TC::HasEquation(e) => TC::HasEquation(Arc::clone(e)),
+        TC::All(cs) => TC::All(cs.iter().map(|c| lift_constraint(c, morphism)).collect()),
+        TC::Any(cs) => TC::Any(cs.iter().map(|c| lift_constraint(c, morphism)).collect()),
+        TC::Not(c) => TC::Not(Box::new(lift_constraint(c, morphism))),
+    }
+}
+
+/// Lift a theory endofunctor along a morphism.
+fn lift_endofunctor(
+    ef: &TheoryEndofunctor,
+    morphism: &panproto_gat::TheoryMorphism,
+) -> TheoryEndofunctor {
+    let lifted_precondition = lift_constraint(&ef.precondition, morphism);
+    let pullback_transform = TheoryTransform::Pullback(morphism.clone());
+    let lifted_transform = if matches!(ef.transform, TheoryTransform::Identity) {
+        pullback_transform
+    } else {
+        TheoryTransform::Compose(Box::new(pullback_transform), Box::new(ef.transform.clone()))
+    };
+
+    TheoryEndofunctor {
+        name: Arc::from(format!("{}[{}]", ef.name, morphism.name)),
+        precondition: lifted_precondition,
+        transform: lifted_transform,
+    }
+}
+
+/// Lift a protolens along a theory morphism.
+///
+/// Given protolens `η` and morphism `φ : T1 → T2`, produces a protolens
+/// that operates on schemas of T2 instead of T1. The endofunctors are
+/// composed with the morphism's renames, and the precondition is lifted
+/// (sort/op references renamed according to the morphism).
+#[must_use]
+pub fn lift_protolens(protolens: &Protolens, morphism: &panproto_gat::TheoryMorphism) -> Protolens {
+    Protolens {
+        name: Name::from(format!("{}[{}]", protolens.name, morphism.name)),
+        source: lift_endofunctor(&protolens.source, morphism),
+        target: lift_endofunctor(&protolens.target, morphism),
+        complement_constructor: protolens.complement_constructor.clone(),
+    }
+}
+
+/// Lift an entire protolens chain along a theory morphism.
+#[must_use]
+pub fn lift_chain(
+    chain: &ProtolensChain,
+    morphism: &panproto_gat::TheoryMorphism,
+) -> ProtolensChain {
+    ProtolensChain::new(
+        chain
+            .steps
+            .iter()
+            .map(|s| lift_protolens(s, morphism))
+            .collect(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -351,7 +749,10 @@ pub mod elementary {
                 precondition: TheoryConstraint::Unconstrained,
                 transform: TheoryTransform::AddSort(Sort::simple(name_arc_clone(&sort_name))),
             },
-            complement_constructor: ComplementConstructor::Empty,
+            complement_constructor: ComplementConstructor::AddedElement {
+                element_name: sort_name,
+                element_kind: "sort".into(),
+            },
         }
     }
 
@@ -432,7 +833,10 @@ pub mod elementary {
                     name_arc_clone(&tgt_sort),
                 )),
             },
-            complement_constructor: ComplementConstructor::Empty,
+            complement_constructor: ComplementConstructor::AddedElement {
+                element_name: op_name,
+                element_kind: "op".into(),
+            },
         }
     }
 
@@ -938,7 +1342,7 @@ mod tests {
     fn is_lossless() {
         assert!(elementary::rename_sort("a", "b").is_lossless());
         assert!(elementary::rename_op("a", "b").is_lossless());
-        assert!(elementary::add_sort("a", "b", Value::Null).is_lossless());
+        assert!(!elementary::add_sort("a", "b", Value::Null).is_lossless());
         assert!(!elementary::drop_sort("a").is_lossless());
         assert!(!elementary::drop_op("a").is_lossless());
     }
@@ -956,6 +1360,10 @@ mod tests {
         assert!(matches!(
             elementary::drop_op("a").complement_constructor,
             ComplementConstructor::DroppedOpData { .. }
+        ));
+        assert!(matches!(
+            elementary::add_sort("a", "b", Value::Null).complement_constructor,
+            ComplementConstructor::AddedElement { .. }
         ));
     }
 
@@ -1033,5 +1441,393 @@ mod tests {
             lens.tgt_schema.vertices.len()
         );
         assert_eq!(lens.src_schema.edges.len(), lens.tgt_schema.edges.len());
+    }
+
+    // -----------------------------------------------------------------------
+    // Serialization tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn serde_round_trip_protolens() {
+        let p = elementary::rename_sort("old", "new");
+        let json = p.to_json().unwrap();
+        let p2 = super::Protolens::from_json(&json).unwrap();
+        assert_eq!(&*p.name, &*p2.name);
+    }
+
+    #[test]
+    fn serde_round_trip_chain() {
+        let chain = ProtolensChain::new(vec![
+            elementary::rename_sort("a", "b"),
+            elementary::add_sort("c", "d", Value::Null),
+            elementary::drop_sort("e"),
+        ]);
+        let json = chain.to_json().unwrap();
+        let chain2 = ProtolensChain::from_json(&json).unwrap();
+        assert_eq!(chain2.len(), 3);
+        assert_eq!(&*chain2.steps[0].name, &*chain.steps[0].name);
+        assert_eq!(&*chain2.steps[1].name, &*chain.steps[1].name);
+        assert_eq!(&*chain2.steps[2].name, &*chain.steps[2].name);
+    }
+
+    #[test]
+    fn serde_round_trip_pullback() {
+        use std::collections::HashMap;
+        let morphism = panproto_gat::TheoryMorphism {
+            name: std::sync::Arc::from("test_morph"),
+            domain: std::sync::Arc::from("T1"),
+            codomain: std::sync::Arc::from("T2"),
+            sort_map: HashMap::new(),
+            op_map: HashMap::new(),
+        };
+        let chain = ProtolensChain::new(vec![elementary::pullback(morphism)]);
+        let json = chain.to_json().unwrap();
+        let chain2 = ProtolensChain::from_json(&json).unwrap();
+        assert_eq!(chain2.len(), 1);
+        assert!(chain2.steps[0].name.contains("pullback"));
+    }
+
+    #[test]
+    fn serde_round_trip_composite_complement() {
+        let chain = ProtolensChain::new(vec![elementary::drop_sort("a"), elementary::drop_op("b")]);
+        let json = chain.to_json().unwrap();
+        let chain2 = ProtolensChain::from_json(&json).unwrap();
+        assert_eq!(chain2.len(), 2);
+        assert!(matches!(
+            chain2.steps[0].complement_constructor,
+            ComplementConstructor::DroppedSortData { .. }
+        ));
+        assert!(matches!(
+            chain2.steps[1].complement_constructor,
+            ComplementConstructor::DroppedOpData { .. }
+        ));
+    }
+
+    // -----------------------------------------------------------------------
+    // SchemaConstraint tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn schema_constraint_has_vertex_kind() {
+        use super::SchemaConstraint;
+        let schema = three_node_schema();
+        assert!(SchemaConstraint::HasVertexKind("object".into()).satisfied_by(&schema));
+        assert!(SchemaConstraint::HasVertexKind("string".into()).satisfied_by(&schema));
+        assert!(!SchemaConstraint::HasVertexKind("missing".into()).satisfied_by(&schema));
+    }
+
+    #[test]
+    fn schema_constraint_has_vertex() {
+        use super::SchemaConstraint;
+        let schema = three_node_schema();
+        assert!(SchemaConstraint::HasVertex("post:body".into()).satisfied_by(&schema));
+        assert!(!SchemaConstraint::HasVertex("nonexistent".into()).satisfied_by(&schema));
+    }
+
+    #[test]
+    fn schema_constraint_has_edge_kind() {
+        use super::SchemaConstraint;
+        let schema = three_node_schema();
+        assert!(SchemaConstraint::HasEdgeKind("prop".into()).satisfied_by(&schema));
+        assert!(!SchemaConstraint::HasEdgeKind("missing".into()).satisfied_by(&schema));
+    }
+
+    #[test]
+    fn schema_constraint_all_conjunction() {
+        use super::SchemaConstraint;
+        let schema = three_node_schema();
+        let both = SchemaConstraint::All(vec![
+            SchemaConstraint::HasVertexKind("object".into()),
+            SchemaConstraint::HasVertexKind("string".into()),
+        ]);
+        assert!(both.satisfied_by(&schema));
+
+        let one_bad = SchemaConstraint::All(vec![
+            SchemaConstraint::HasVertexKind("object".into()),
+            SchemaConstraint::HasVertexKind("missing".into()),
+        ]);
+        assert!(!one_bad.satisfied_by(&schema));
+    }
+
+    #[test]
+    fn check_applicability_returns_reasons() {
+        let schema = three_node_schema();
+        // Build a protolens requiring HasSort("missing") — will fail
+        let p = super::Protolens {
+            name: panproto_gat::Name::from("test"),
+            source: panproto_gat::TheoryEndofunctor {
+                name: std::sync::Arc::from("id"),
+                precondition: panproto_gat::TheoryConstraint::HasSort(std::sync::Arc::from(
+                    "missing",
+                )),
+                transform: panproto_gat::TheoryTransform::Identity,
+            },
+            target: panproto_gat::TheoryEndofunctor {
+                name: std::sync::Arc::from("id"),
+                precondition: panproto_gat::TheoryConstraint::Unconstrained,
+                transform: panproto_gat::TheoryTransform::Identity,
+            },
+            complement_constructor: ComplementConstructor::Empty,
+        };
+        let result = p.check_applicability(&schema);
+        assert!(result.is_err());
+        let reasons = result.unwrap_err();
+        assert!(!reasons.is_empty());
+        assert!(reasons[0].contains("missing"));
+    }
+
+    #[test]
+    fn from_theory_constraint_maps_has_sort() {
+        use super::SchemaConstraint;
+        let tc = panproto_gat::TheoryConstraint::HasSort(std::sync::Arc::from("Vertex"));
+        let sc = SchemaConstraint::from_theory_constraint(&tc);
+        assert!(matches!(sc, SchemaConstraint::HasVertexKind(ref n) if &**n == "Vertex"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Fleet API tests
+    // -----------------------------------------------------------------------
+
+    fn make_schema_with_kind(
+        name: &str,
+        kind: &str,
+    ) -> (panproto_gat::Name, panproto_schema::Schema) {
+        use panproto_schema::Vertex;
+        use std::collections::HashMap;
+        let mut vertices = HashMap::new();
+        vertices.insert(
+            panproto_gat::Name::from(format!("{name}:v1")),
+            Vertex {
+                id: format!("{name}:v1").into(),
+                kind: kind.into(),
+                nsid: None,
+            },
+        );
+        let schema = panproto_schema::Schema {
+            protocol: String::new(),
+            vertices,
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        };
+        (panproto_gat::Name::from(name), schema)
+    }
+
+    fn make_string_schema(name: &str) -> (panproto_gat::Name, panproto_schema::Schema) {
+        make_schema_with_kind(name, "string")
+    }
+
+    fn make_non_string_schema(name: &str) -> (panproto_gat::Name, panproto_schema::Schema) {
+        make_schema_with_kind(name, "integer")
+    }
+
+    #[test]
+    fn fleet_all_applicable() {
+        let protocol = test_protocol();
+        let chain = ProtolensChain::new(vec![elementary::rename_sort("string", "text")]);
+        let schemas: Vec<_> = vec![
+            make_string_schema("a"),
+            make_string_schema("b"),
+            make_string_schema("c"),
+        ];
+        let result = super::apply_to_fleet(&chain, &schemas, &protocol);
+        assert_eq!(result.applied.len(), 3);
+        assert_eq!(result.skipped.len(), 0);
+    }
+
+    #[test]
+    fn fleet_partial_applicable() {
+        let protocol = test_protocol();
+        let chain = ProtolensChain::new(vec![elementary::rename_sort("string", "text")]);
+        let schemas: Vec<_> = vec![
+            make_string_schema("a"),
+            make_string_schema("b"),
+            make_non_string_schema("c"),
+        ];
+        let result = super::apply_to_fleet(&chain, &schemas, &protocol);
+        assert_eq!(result.applied.len(), 2);
+        assert_eq!(result.skipped.len(), 1);
+    }
+
+    #[test]
+    fn fleet_empty_chain() {
+        let protocol = test_protocol();
+        let chain = ProtolensChain::new(vec![]);
+        let schemas: Vec<_> = vec![
+            make_string_schema("a"),
+            make_string_schema("b"),
+            make_string_schema("c"),
+        ];
+        let result = super::apply_to_fleet(&chain, &schemas, &protocol);
+        assert_eq!(result.applied.len(), 3);
+        assert_eq!(result.skipped.len(), 0);
+    }
+
+    #[test]
+    fn check_applicability_chain_delegates() {
+        let schema = three_node_schema();
+        let chain = ProtolensChain::new(vec![elementary::rename_sort("string", "text")]);
+        assert!(chain.check_applicability(&schema).is_ok());
+
+        let bad_chain = ProtolensChain::new(vec![elementary::rename_sort("nonexistent", "text")]);
+        assert!(bad_chain.check_applicability(&schema).is_err());
+
+        let empty_chain = ProtolensChain::new(vec![]);
+        assert!(empty_chain.check_applicability(&schema).is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // Fuse tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn fuse_single_step() {
+        let chain = ProtolensChain::new(vec![elementary::rename_sort("string", "text")]);
+        let fused = chain.fuse().unwrap_or_else(|e| panic!("fuse failed: {e}"));
+        assert_eq!(&*fused.name, "rename_sort_string_text");
+    }
+
+    #[test]
+    fn fuse_two_steps() {
+        let chain = ProtolensChain::new(vec![
+            elementary::rename_sort("string", "text"),
+            elementary::add_sort("tags", "array", Value::Null),
+        ]);
+        let fused = chain.fuse().unwrap_or_else(|e| panic!("fuse failed: {e}"));
+        assert!(
+            fused.name.contains("rename_sort_string_text"),
+            "fused name should contain first step name, got: {}",
+            fused.name
+        );
+        assert!(
+            fused.name.contains("add_sort_tags"),
+            "fused name should contain second step name, got: {}",
+            fused.name
+        );
+    }
+
+    #[test]
+    fn fuse_empty_chain_errors() {
+        let chain = ProtolensChain::new(vec![]);
+        let result = chain.fuse();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn fused_preserves_complement() {
+        let chain =
+            ProtolensChain::new(vec![elementary::drop_sort("a"), elementary::drop_sort("b")]);
+        let fused = chain.fuse().unwrap_or_else(|e| panic!("fuse failed: {e}"));
+        assert!(
+            matches!(fused.complement_constructor, ComplementConstructor::Composite(ref v) if v.len() == 2),
+            "expected Composite complement with 2 entries"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Functorial lifting tests
+    // -----------------------------------------------------------------------
+
+    fn test_morphism_vertex_to_node() -> panproto_gat::TheoryMorphism {
+        use std::collections::HashMap;
+        let mut sort_map = HashMap::new();
+        sort_map.insert(std::sync::Arc::from("Vertex"), std::sync::Arc::from("Node"));
+        panproto_gat::TheoryMorphism {
+            name: std::sync::Arc::from("rename_vertex_node"),
+            domain: std::sync::Arc::from("T1"),
+            codomain: std::sync::Arc::from("T2"),
+            sort_map,
+            op_map: HashMap::new(),
+        }
+    }
+
+    fn identity_morphism() -> panproto_gat::TheoryMorphism {
+        use std::collections::HashMap;
+        panproto_gat::TheoryMorphism {
+            name: std::sync::Arc::from("id"),
+            domain: std::sync::Arc::from("T"),
+            codomain: std::sync::Arc::from("T"),
+            sort_map: HashMap::new(),
+            op_map: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn lift_protolens_renames_precondition() {
+        let p = elementary::drop_sort("Vertex");
+        let morphism = test_morphism_vertex_to_node();
+        let lifted = super::lift_protolens(&p, &morphism);
+
+        // The source precondition was HasSort("Vertex"), should now be HasSort("Node")
+        match &lifted.source.precondition {
+            panproto_gat::TheoryConstraint::HasSort(s) => {
+                assert_eq!(&**s, "Node", "lifted precondition should reference 'Node'");
+            }
+            other => panic!("expected HasSort, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lift_protolens_identity_morphism() {
+        let p = elementary::drop_sort("Vertex");
+        let morphism = identity_morphism();
+        let lifted = super::lift_protolens(&p, &morphism);
+
+        // Precondition should still reference "Vertex" since identity morphism has no mappings
+        match &lifted.source.precondition {
+            panproto_gat::TheoryConstraint::HasSort(s) => {
+                assert_eq!(&**s, "Vertex", "identity lift should preserve precondition");
+            }
+            other => panic!("expected HasSort, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lift_chain_preserves_length() {
+        let chain = ProtolensChain::new(vec![
+            elementary::rename_sort("a", "b"),
+            elementary::drop_sort("c"),
+            elementary::add_sort("d", "e", Value::Null),
+        ]);
+        let morphism = identity_morphism();
+        let lifted = super::lift_chain(&chain, &morphism);
+        assert_eq!(lifted.len(), 3);
+    }
+
+    #[test]
+    fn lift_preserves_complement() {
+        let p = elementary::drop_sort("Vertex");
+        let morphism = test_morphism_vertex_to_node();
+        let lifted = super::lift_protolens(&p, &morphism);
+        assert!(
+            matches!(
+                lifted.complement_constructor,
+                ComplementConstructor::DroppedSortData { .. }
+            ),
+            "complement should be preserved as DroppedSortData"
+        );
+    }
+
+    #[test]
+    fn lift_protolens_name() {
+        let p = elementary::drop_sort("Vertex");
+        let morphism = test_morphism_vertex_to_node();
+        let lifted = super::lift_protolens(&p, &morphism);
+        assert!(
+            lifted.name.contains("rename_vertex_node"),
+            "lifted name should include morphism name, got: {}",
+            lifted.name
+        );
     }
 }
