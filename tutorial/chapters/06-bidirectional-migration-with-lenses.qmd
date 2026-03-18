@@ -83,7 +83,7 @@ Application code should treat the complement as an opaque blob. Its internal str
 
 ## Lenses in panproto
 
-In panproto, `get` is the restrict pipeline from @sec-lifting plus complement capture. `put` is reconstruction from the complement.
+In panproto, `get` is the restrict pipeline from @sec-lifting-data plus complement capture. `put` is reconstruction from the complement.
 
 - **`get`** runs the five-step W-type restrict pipeline (or functor restrict for SQL) and simultaneously records what was removed at each step.
 - **`put`** replays the removal in reverse: re-attach fans, re-resolve edges, re-expand contracted ancestors, re-attach unreachable nodes, and restore pruned anchors.
@@ -136,7 +136,7 @@ The design follows [Cambria](https://www.inkandswitch.com/cambria/)'s lens combi
 
 : Cambria-inspired combinators. All are lossless except `removeField`. {#tbl-original-combinators}
 
-In addition to these, panproto provides **naming combinators** that operate on the nine naming sites described in @sec-naming:
+In addition to these, panproto provides **naming combinators** that operate on the nine naming sites described in @sec-names:
 
 | Combinator | What it renames | Cascades? |
 |------------|----------------|-----------|
@@ -150,7 +150,7 @@ In addition to these, panproto provides **naming combinators** that operate on t
 
 : Naming combinators. All are lossless (empty complement). {#tbl-naming-combinators}
 
-The `applyTheoryMorphism` combinator is the "top of the morphism tower" described in @sec-morphism-tower: a single theory morphism cascades into vertex kind and edge kind renames automatically.
+The `applyTheoryMorphism` combinator is the "top of the morphism tower" described in @sec-name-mapping-tower: a single theory morphism cascades into vertex kind and edge kind renames automatically.
 
 Each combinator handles its own complement. `removeField` stores the removed value. `addField` stores nothing (the default is known). `renameField` stores nothing (the mapping is invertible). `wrapInObject` stores the wrapper structure. And so on.
 
@@ -265,7 +265,7 @@ Because the complement consists mostly of dropped field values---which are often
 
 ## Lenses and the restrict pipeline
 
-The restrict pipeline from @sec-lifting is `get` without complement capture---the forward direction of the lens. panproto implements `get` by running the restrict pipeline and simultaneously building the complement at each step:
+The restrict pipeline from @sec-lifting-data is `get` without complement capture---the forward direction of the lens. panproto implements `get` by running the restrict pipeline and simultaneously building the complement at each step:
 
 1. **Step 1** (`anchor_surviving`): Record each pruned node in `dropped_nodes`.
 2. **Step 2** (`reachable_from_root`): Record arcs to unreachable nodes in `dropped_arcs`.

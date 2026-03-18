@@ -272,7 +272,7 @@ Because panproto represents every schema as a graph regardless of origin format,
 
 The migration morphism in step 2 is the same kind of object as the intra-protocol migrations above. panproto validates that the morphism respects both theories and that source constraints are satisfiable in the target.
 
-See @sec-format-conversion for a comprehensive treatment of cross-format conversion.
+See @sec-cross-protocol for a comprehensive treatment of cross-format conversion.
 
 
 ## Or, Skip All That {#sec-auto-mig-teaser}

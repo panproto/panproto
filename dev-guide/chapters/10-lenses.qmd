@@ -126,7 +126,21 @@ The lens laws follow the formulation of asymmetric lenses from @foster2007, adap
 
 Rather than constructing `Migration` objects and compiling them by hand, the combinator API lets you describe schema transformations as a chain of atomic operations. Each combinator represents a single, well-understood schema change.
 
-```{.rust include="../../crates/panproto-lens/src/combinators.rs" start-line=27 end-line=76}
+::: {.callout-warning}
+The standalone `combinators.rs` module has been superseded by protolenses (@sec-protolens-engine). The combinator semantics described below are now implemented as elementary protolens constructors in `protolens::elementary` (e.g., `elementary::rename_sort`, `elementary::drop_sort`, `elementary::add_sort`). See @sec-elementary-protolens for the full list.
+:::
+
+```rust
+// Conceptual combinator enum (now implemented via protolens::elementary)
+pub enum Combinator {
+    RenameField { old: String, new: String },
+    AddField { name: String, kind: String, default: Value },
+    RemoveField { name: String },
+    WrapInObject { field_name: String },
+    HoistField { host: String, field: String },
+    CoerceType { from_kind: String, to_kind: String },
+    Compose(Box<Combinator>, Box<Combinator>),
+}
 ```
 
 ### Combinator Semantics
@@ -159,7 +173,7 @@ Each combinator has a precise effect on the schema and a defined impact on the c
 
 ### Naming Combinators
 
-In addition to the six original combinators, seven naming combinators operate on the nine naming sites described in @sec-naming-identity:
+In addition to the six original combinators, seven naming combinators operate on the nine naming sites described in @sec-naming-identity-section:
 
 | Combinator | Site | Effect |
 |---|---|---|
@@ -281,15 +295,9 @@ The `Protolens::instantiate` method is the `complete` operation: given a schema 
 
 For full details, see @sec-protolens-engine.
 
-### Relationship to `combinators.rs`
+### Relationship to Cambria-style Combinators
 
-The `Combinator` enum in `combinators.rs` operates at the schema level---each combinator directly mutates a schema and produces a migration step. Protolenses operate at the theory level---each protolens describes a transformation on theories that induces schema transformations when instantiated.
-
-The two layers coexist: `combinators.rs` remains the preferred API for hand-written lens chains (where the user specifies exact field names), while `protolens.rs` is used by the automated pipeline (@sec-auto-lens-pipeline) where lenses are derived from schema diffs.
-
-::: {.callout-note}
-The `combinators.rs` module is not deprecated. It provides a simpler, more direct API for cases where the user knows exactly which fields to rename, add, or remove. Protolenses are the right tool when the transformation must be derived automatically or must be schema-generic.
-:::
+The conceptual Cambria-style combinators described above (rename, add, remove, etc.) are now implemented as elementary protolens constructors. Each combinator maps to a corresponding `protolens::elementary` function that operates at the theory level, producing a `Protolens` that can be instantiated against any schema satisfying its precondition. The `diff_to_protolens` module provides automated derivation of protolens chains from schema diffs.
 
 ## Module Map
 
@@ -298,14 +306,15 @@ The crate is organized into the following modules:
 | Module | Exports | Purpose |
 |---|---|---|
 | `asymmetric` | `Complement`, `get`, `put` | Core lens primitives with complement tracking |
-| `combinators` | `Combinator`, `from_combinators` | Cambria-style declarative lens construction |
-| `compose` | `compose_compiled_migrations` | Composition of compiled migrations for multi-step lenses |
+| `auto_lens` | `auto_generate`, `AutoLensConfig` | Automatic lens generation from schema pairs |
+| `compose` | `compose` | Composition of lenses for multi-step transformations |
+| `diff_to_protolens` | `diff_to_protolens`, `diff_to_lens` | Derive protolens chains from schema diffs |
 | `laws` | `check_laws` | Property-based testing of GetPut and PutGet laws |
 | `protolens` | `Protolens`, `ProtolensChain`, `ComplementConstructor`, `elementary::*` | Schema-parameterized lens families |
 | `symmetric` | `SymmetricLens` | Symmetric lens with bidirectional complements |
 | `error` | `LensError` | Error types for lens operations |
 
-The crate root re-exports `Lens`, `Complement`, `get`, `put`, `Combinator`, `from_combinators`, `Protolens`, `ProtolensChain`, `ComplementConstructor`, and the composition functions for convenient access.
+The crate root re-exports `Lens`, `Complement`, `get`, `put`, `Protolens`, `ProtolensChain`, `ComplementConstructor`, `auto_generate`, and the composition functions for convenient access.
 
 ## When to Use Lenses vs. Migrations
 

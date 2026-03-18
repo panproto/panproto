@@ -18,7 +18,7 @@ A **category** $\mathcal{C}$ consists of:
 
 These satisfy the **associativity** law $(h \circ g) \circ f = h \circ (g \circ f)$ and the **unit** laws $f \circ \mathrm{id}_A = f$ and $\mathrm{id}_B \circ f = f$.
 
-**In panproto.** The category $\mathbf{GAT}$ has generalized algebraic theories as objects and theory morphisms as arrows (see @sec-theories). The category $\mathbf{Mod}(T)$ has models of a theory $T$ as objects and model homomorphisms as arrows. Schema mappings are morphisms in $\mathbf{Mod}(T)$, which is the starting point for data migration (see @sec-migration-by-hand). See [@maclane1998, Ch. 1] for the standard reference.
+**In panproto.** The category $\mathbf{GAT}$ has generalized algebraic theories as objects and theory morphisms as arrows (see @sec-ff-gats). The category $\mathbf{Mod}(T)$ has models of a theory $T$ as objects and model homomorphisms as arrows. Schema mappings are morphisms in $\mathbf{Mod}(T)$, which is the starting point for data migration (see @sec-first-migration). See [@maclane1998, Ch. 1] for the standard reference.
 
 ### Functors
 
@@ -28,7 +28,7 @@ $$
 F(g \circ f) = F(g) \circ F(f), \qquad F(\mathrm{id}_A) = \mathrm{id}_{F(A)}.
 $$
 
-**In panproto.** A theory morphism $F: T_1 \to T_2$ induces a functor $F^*: \mathbf{Mod}(T_2) \to \mathbf{Mod}(T_1)$ that pulls back models. This is the `restrict` operation---data migration in the reverse direction of the theory morphism. The pullback functor $\Delta_F = F^*$ is the backbone of panproto's migration engine (see @sec-lifting and @sec-functor-restrict). See [@maclane1998, Ch. 1].
+**In panproto.** A theory morphism $F: T_1 \to T_2$ induces a functor $F^*: \mathbf{Mod}(T_2) \to \mathbf{Mod}(T_1)$ that pulls back models. This is the `restrict` operation---data migration in the reverse direction of the theory morphism. The pullback functor $\Delta_F = F^*$ is the backbone of panproto's migration engine (see @sec-lifting-data and @sec-functor-restrict). See [@maclane1998, Ch. 1].
 
 ### Natural Transformations
 
@@ -59,7 +59,7 @@ Special cases include:
 - **Coequalizers** (colimits of parallel pairs): the universal quotient identifying the images of two morphisms.
 - **Pushouts** (colimits of spans $A \leftarrow S \rightarrow B$): the universal object gluing $A$ and $B$ along their shared sub-object $S$.
 
-**In panproto.** Colimits of theories are how new protocols are defined. The pushout of a span $T_1 \leftarrow T_{\mathrm{shared}} \rightarrow T_2$ merges two theories along a shared base, which is the primary mechanism for composing component theories into protocols (see @sec-protocols and @sec-building-blocks). See [@maclane1998, Ch. 5] and [@adamek1994, Ch. 11].
+**In panproto.** Colimits of theories are how new protocols are defined. The pushout of a span $T_1 \leftarrow T_{\mathrm{shared}} \rightarrow T_2$ merges two theories along a shared base, which is the primary mechanism for composing component theories into protocols (see @sec-protocols-as-parameters and @sec-building-protocol). See [@maclane1998, Ch. 5] and [@adamek1994, Ch. 11].
 
 ### Adjunctions
 
@@ -71,7 +71,7 @@ $$
 
 The left adjoint $F$ freely constructs; the right adjoint $G$ forgets structure.
 
-**In panproto.** The migration functors $\Sigma_F \dashv \Delta_F \dashv \Pi_F$ form an **adjoint triple**. $\Delta_F$ (restrict/pullback) is flanked by its left adjoint $\Sigma_F$ (left push) and right adjoint $\Pi_F$ (right push). These adjunctions guarantee the round-trip properties of lenses and the well-behavedness of data migration (see @sec-adjoint-triple). See [@spivak2012] and [@maclane1998, Ch. 4].
+**In panproto.** The migration functors $\Sigma_F \dashv \Delta_F \dashv \Pi_F$ form an **adjoint triple**. $\Delta_F$ (restrict/pullback) is flanked by its left adjoint $\Sigma_F$ (left push) and right adjoint $\Pi_F$ (right push). These adjunctions guarantee the round-trip properties of lenses and the well-behavedness of data migration (see @sec-ff-functorial-migration). See [@spivak2012] and [@maclane1998, Ch. 4].
 
 ### Kan Extensions
 
@@ -81,13 +81,13 @@ $$
 \Sigma_F = \mathrm{Lan}_F, \qquad \Pi_F = \mathrm{Ran}_F.
 $$
 
-**In panproto.** The left and right pushforward operations ($\Sigma_F$ and $\Pi_F$) are computed as left and right Kan extensions along the theory morphism $F$ (see @sec-adjoint-triple). See [@maclane1998, Ch. 10] and [@spivak2012].
+**In panproto.** The left and right pushforward operations ($\Sigma_F$ and $\Pi_F$) are computed as left and right Kan extensions along the theory morphism $F$ (see @sec-ff-functorial-migration). See [@maclane1998, Ch. 10] and [@spivak2012].
 
 ### Fibrations
 
 A functor $p: \mathcal{E} \to \mathcal{B}$ is a **fibration** (Grothendieck fibration) if for every morphism $f: B' \to B$ in $\mathcal{B}$ and every object $E$ in the fiber $p^{-1}(B)$, there exists a **cartesian lift**: a morphism $\bar{f}: E' \to E$ in $\mathcal{E}$ with $p(\bar{f}) = f$, universal among lifts.
 
-**In panproto.** The projection from the total category of all schemas (across all protocols) down to the category of theories is a fibration. Lifting along this fibration is what lets panproto migrate schemas when the underlying protocol theory changes. The lens structure is induced by the cleavage of this fibration (see @sec-lens-category and @sec-ff-lenses). See [@barr1990, Ch. 12] and [@johnson2013].
+**In panproto.** The projection from the total category of all schemas (across all protocols) down to the category of theories is a fibration. Lifting along this fibration is what lets panproto migrate schemas when the underlying protocol theory changes. The lens structure is induced by the cleavage of this fibration (see @sec-ff-lenses and @sec-ff-lenses). See [@barr1990, Ch. 12] and [@johnson2013].
 
 
 ## Algebraic Theories and Lawvere's Framework {#sec-ff-lawvere}
@@ -119,7 +119,7 @@ Lawvere's key insight was that "satisfying axioms" becomes "preserving structure
 2. Enables the construction of new models from old ones via categorical operations (limits, colimits, Kan extensions).
 3. Provides a precise notion of **theory morphism** $F: \mathcal{L}_1 \to \mathcal{L}_2$ (a product-preserving functor between Lawvere theories), which induces a **model reduct functor** $F^*: \mathbf{Mod}(\mathcal{L}_2) \to \mathbf{Mod}(\mathcal{L}_1)$.
 
-**In panproto.** The theory-model-morphism architecture is directly from this work. panproto's theories are generalized algebraic theories (a dependent-type extension of Lawvere theories), but the core insight---theories are objects, models are functors, theory morphisms induce migration functors---originates with @lawvere1963. See @sec-theories for how this plays out in practice.
+**In panproto.** The theory-model-morphism architecture is directly from this work. panproto's theories are generalized algebraic theories (a dependent-type extension of Lawvere theories), but the core insight---theories are objects, models are functors, theory morphisms induce migration functors---originates with @lawvere1963. See @sec-ff-gats for how this plays out in practice.
 
 ### Limitations of Ordinary Algebraic Theories
 
@@ -158,7 +158,7 @@ The semantic counterpart of a GAT is a **contextual category** (also introduced 
 - $\mathrm{src}(p : \mathrm{PropEdge}) : \mathrm{TypeNode}$
 - $\mathrm{maxLength}(c : \mathrm{Constraint}(\mathrm{stringNode})) : \mathrm{Nat}$
 
-The dependent sort $\mathrm{Constraint}(v : \mathrm{TypeNode})$ is a family of sorts indexed by vertices. Different vertices yield different constraint vocabularies---string nodes admit $\mathrm{maxLength}$ and $\mathrm{pattern}$; integer nodes admit $\mathrm{minimum}$ and $\mathrm{maximum}$. This is exactly the expressiveness panproto needs (see @sec-theories).
+The dependent sort $\mathrm{Constraint}(v : \mathrm{TypeNode})$ is a family of sorts indexed by vertices. Different vertices yield different constraint vocabularies---string nodes admit $\mathrm{maxLength}$ and $\mathrm{pattern}$; integer nodes admit $\mathrm{minimum}$ and $\mathrm{maximum}$. This is exactly the expressiveness panproto needs (see @sec-ff-gats).
 
 ### The GAT-EAT Equivalence {#sec-ff-gat-eat}
 
@@ -178,13 +178,13 @@ For the $\mathrm{Constraint}(t : \mathrm{TypeNode})$ example, the EAT version ha
 
 The partiality encodes the dependency. Mathematically, this gives the same category of models. Computationally, it is much simpler to implement---you need partial functions, not dependent types.
 
-**In panproto.** This is an architectural choice inherited from [GATlab](https://algebraicjulia.github.io/GATlab.jl/) [@lynch2024], a Julia framework for computational category theory. GATlab demonstrated that the GAT-EAT equivalence is practical, not just theoretical: real software can exploit it to get the expressiveness of dependent sorts without the complexity of dependent type checking. panproto adapts GATlab's architecture to Rust, gaining static typing, zero-cost abstractions, and Wasm compilation while retaining the mathematical foundations (see @sec-theories).
+**In panproto.** This is an architectural choice inherited from [GATlab](https://algebraicjulia.github.io/GATlab.jl/) [@lynch2024], a Julia framework for computational category theory. GATlab demonstrated that the GAT-EAT equivalence is practical, not just theoretical: real software can exploit it to get the expressiveness of dependent sorts without the complexity of dependent type checking. panproto adapts GATlab's architecture to Rust, gaining static typing, zero-cost abstractions, and Wasm compilation while retaining the mathematical foundations (see @sec-ff-gats).
 
 ### Locally Finitely Presentable Categories
 
 The locally presentable category framework from [@adamek1994] provides the theoretical guarantees that panproto's constructions are well-defined:
 
-1. **Colimits exist.** Every diagram of GAT presentations has a colimit. This guarantees that theory composition via pushout always succeeds (see @sec-protocols).
+1. **Colimits exist.** Every diagram of GAT presentations has a colimit. This guarantees that theory composition via pushout always succeeds (see @sec-protocols-as-parameters).
 2. **Initial algebras exist.** For endofunctors on locally finitely presentable categories satisfying a boundedness condition, initial algebras exist. This guarantees that W-type constructions terminate (see @sec-ff-wtypes).
 3. **Free models exist.** Every locally finitely presentable category has free objects, which are used in panproto's model construction algorithms.
 
@@ -215,7 +215,7 @@ $$
 
 This is the abstract version of the **round-trip laws** that lenses satisfy.
 
-**In panproto.** `restrict` is $\Delta_F$ (see @sec-lifting and @sec-functor-restrict). The `lift` operation computes $\Sigma_F$ or $\Pi_F$ depending on context (see @sec-adjoint-triple). The adjoint triple is the mathematical backbone of panproto's migration engine.
+**In panproto.** `restrict` is $\Delta_F$ (see @sec-lifting-data and @sec-functor-restrict). The `lift` operation computes $\Sigma_F$ or $\Pi_F$ depending on context (see @sec-ff-functorial-migration). The adjoint triple is the mathematical backbone of panproto's migration engine.
 
 ### Schemas as Categories, Instances as Functors
 
@@ -225,7 +225,7 @@ In Spivak's framework:
 - An **instance** of schema $\mathcal{C}$ is a functor $I: \mathcal{C} \to \mathbf{Set}$ (each table maps to its set of rows, each foreign key maps to the function that follows the reference).
 - A **schema mapping** is a functor $F: \mathcal{C} \to \mathcal{D}$ (sending tables to tables and preserving relational structure).
 
-panproto works at one level of abstraction higher: instead of fixing schemas to be categories (which suffices for relational databases), it parameterizes over the **theory** that schemas are models of. This lets panproto handle schema languages that are not naturally categorical---like Protobuf, where field numbers are essential structural data that plain categories do not capture (see @sec-theories and @sec-protocols).
+panproto works at one level of abstraction higher: instead of fixing schemas to be categories (which suffices for relational databases), it parameterizes over the **theory** that schemas are models of. This lets panproto handle schema languages that are not naturally categorical---like Protobuf, where field numbers are essential structural data that plain categories do not capture (see @sec-ff-gats and @sec-protocols-as-parameters).
 
 ### Algebraic Databases
 
@@ -295,11 +295,11 @@ Lenses organize into categories. The objects are schemas (or types), and the mor
 - **Symmetric lenses** form a category where composition uses the complement-passing structure.
 - **Delta lenses** form a category that is a subcategory of the arrow category of $\mathbf{Cat}$.
 
-The relationship between these lens categories and the Grothendieck construction is developed in [@johnson2013] and [@clarke2020]. See @sec-lens-category for how panproto uses this categorical structure.
+The relationship between these lens categories and the Grothendieck construction is developed in [@johnson2013] and [@clarke2020]. See @sec-ff-lenses for how panproto uses this categorical structure.
 
 ### Sequoia and Comonadic Lenses
 
-@litt2022 proposed a new foundation for bidirectional transformations based on comonadic structures, addressing limitations of the classical lens framework for recursive data structures. panproto's internal lens representation draws on ideas from this work, particularly for handling recursive data where the classical get/put laws need careful reformulation (see @sec-lenses-looking-ahead).
+@litt2022 proposed a new foundation for bidirectional transformations based on comonadic structures, addressing limitations of the classical lens framework for recursive data structures. panproto's internal lens representation draws on ideas from this work, particularly for handling recursive data where the classical get/put laws need careful reformulation (see the protolenses chapter, @sec-protolenses).
 
 
 ## Graph and Hypergraph Transformation {#sec-ff-graph-transformation}
@@ -320,13 +320,13 @@ $$
 
 where $D$ is the **pushout complement** (the host graph with the matched pattern removed) and $H$ is the result (the pushout of $D$ and $R$ along $K$).
 
-**In panproto.** The DPO approach is the mathematical basis for panproto's schema diff and patch operations. Adding a field to a schema, removing a vertex, or restructuring a type hierarchy are all graph transformation steps (see @sec-diff and @sec-graph-theory).
+**In panproto.** The DPO approach is the mathematical basis for panproto's schema diff and patch operations. Adding a field to a schema, removing a vertex, or restructuring a type hierarchy are all graph transformation steps (see @sec-diff and @sec-ff-graph-transformation).
 
 ### Adhesive Categories
 
 @lack2005 identified **adhesive categories** as the abstract setting where pushout-based rewriting works well. A category is adhesive if pushouts along monomorphisms exist and satisfy certain exactness conditions (Van Kampen squares). The key consequence: in adhesive categories, DPO rewriting is well-behaved---pushout complements are unique when they exist, and the rewriting steps compose correctly.
 
-**In panproto.** The category of schemas-as-graphs is adhesive, which is why panproto's DPO-based diff/patch is well-behaved. The uniqueness of pushout complements guarantees that schema diffs are deterministic (see @sec-graph-theory).
+**In panproto.** The category of schemas-as-graphs is adhesive, which is why panproto's DPO-based diff/patch is well-behaved. The uniqueness of pushout complements guarantees that schema diffs are deterministic (see @sec-ff-graph-transformation).
 
 ### Single-Pushout Rewriting
 
@@ -338,7 +338,7 @@ where $D$ is the **pushout complement** (the host graph with the matched pattern
 
 @drewes1997 extended algebraic graph rewriting to **hypergraphs**, where edges can connect arbitrary numbers of vertices. This is relevant for schema languages with multi-way relationships (e.g., SQL foreign keys referencing composite keys).
 
-**In panproto.** panproto's `ThHypergraph` theory models schemas with multi-way relationships. Hypergraph rewriting governs migrations within such schemas (see @sec-shape-of-schemas). The comprehensive reference is [@ehrig2006].
+**In panproto.** panproto's `ThHypergraph` theory models schemas with multi-way relationships. Hypergraph rewriting governs migrations within such schemas (see the hypergraph discussion in @sec-ff-graph-transformation). The comprehensive reference is [@ehrig2006].
 
 
 ## W-Types and Polynomial Functors {#sec-ff-wtypes}
@@ -373,7 +373,7 @@ Elements of $W_P$ are wellfounded trees: each node is labeled by some $a \in A$ 
 
 The universal property of the initial algebra gives a **recursion principle**: for any other $P$-algebra $\alpha: P(X) \to X$, there is a unique homomorphism $\mathrm{fold}_\alpha: W_P \to X$.
 
-**In panproto.** Recursive data structures (trees, nested records, lists) are modeled as W-types. A schema determines a polynomial functor whose initial algebra is the type of well-founded data conforming to that schema. Migrations between schemas lift to maps between the corresponding polynomial functors, and the recursion principle provides the migration function (see @sec-wtype-instances and @sec-lifting).
+**In panproto.** Recursive data structures (trees, nested records, lists) are modeled as W-types. A schema determines a polynomial functor whose initial algebra is the type of well-founded data conforming to that schema. Migrations between schemas lift to maps between the corresponding polynomial functors, and the recursion principle provides the migration function (see @sec-wtype-instances and @sec-lifting-data).
 
 ### Dependent Polynomial Functors
 
@@ -393,7 +393,7 @@ The W-type of a dependent polynomial functor is the initial algebra in the slice
 
 Containers make the correspondence between data types and polynomial functors constructive and algorithmic. In particular, morphisms of containers (pairs of maps on shapes and positions) correspond exactly to natural transformations between the associated polynomial functors.
 
-**In panproto.** panproto's internal representation of schema-as-polynomial-functor draws on the container perspective, which makes it possible to compute migrations of recursive data algorithmically: a migration is a container morphism, and container morphisms are pairs of functions that can be computed from theory morphisms (see @sec-lifting).
+**In panproto.** panproto's internal representation of schema-as-polynomial-functor draws on the container perspective, which makes it possible to compute migrations of recursive data algorithmically: a migration is a container morphism, and container morphisms are pairs of functions that can be computed from theory morphisms (see @sec-lifting-data).
 
 
 ## Correctness Proofs {#sec-ff-proofs}
@@ -527,7 +527,7 @@ This completes the induction.
 ::: {.callout-tip}
 ## Relationship to the sequential pipeline
 
-The fused pipeline and the sequential pipeline (@sec-lifting) may produce *different* surviving sets when non-surviving intermediate nodes have surviving descendants. The sequential step 2 BFS only traverses through anchor-surviving nodes, potentially missing surviving descendants of pruned intermediates. The fused BFS traverses *all* children, reaching such descendants and connecting them to their nearest surviving ancestor via contraction.
+The fused pipeline and the sequential pipeline (@sec-lifting-data) may produce *different* surviving sets when non-surviving intermediate nodes have surviving descendants. The sequential step 2 BFS only traverses through anchor-surviving nodes, potentially missing surviving descendants of pruned intermediates. The fused BFS traverses *all* children, reaching such descendants and connecting them to their nearest surviving ancestor via contraction.
 
 The fused behavior is strictly more complete: every node in the sequential output is also in the fused output, but the fused output may contain additional nodes that the sequential step 2 would have missed. Both outputs are valid restricted instances; the fused version simply preserves more data.
 

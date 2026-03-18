@@ -31,7 +31,7 @@ Names appear at nine different sites in the panproto system. Each site is a plac
 
 : The nine naming sites in panproto. {#tbl-naming-sites}
 
-When you rename a field in a migration (@sec-lifting), you are changing an edge label---one of these nine sites. When a theory-level mapping translates ATProto sorts to JSON Schema sorts, it changes sort names and vertex kinds---two more sites. Every naming transformation in the system, from a simple field rename to a cross-protocol vocabulary translation, operates on one or more of these sites.
+When you rename a field in a migration (@sec-lifting-data), you are changing an edge label---one of these nine sites. When a theory-level mapping translates ATProto sorts to JSON Schema sorts, it changes sort names and vertex kinds---two more sites. Every naming transformation in the system, from a simple field rename to a cross-protocol vocabulary translation, operates on one or more of these sites.
 
 
 ## Identity vs. name {#sec-identity-vs-name}
@@ -261,7 +261,7 @@ Every rename detected and confirmed becomes part of the VCS history (@sec-versio
 
 ## Renames and the existence checker
 
-Not all renames are valid. The existence checker (@sec-existence) validates that a rename is consistent with the migration's structural constraints:
+Not all renames are valid. The existence checker (@sec-when-migrations-break) validates that a rename is consistent with the migration's structural constraints:
 
 - **Kind consistency**: If you rename a vertex's kind from `"string"` to `"integer"`, the existence checker flags this as a kind change, not a rename. The vertex map sends a `string` vertex to a vertex with kind `integer`, which violates kind consistency unless the protocols allow it.
 - **Constraint compatibility**: If you rename a constraint sort from `"maxLength"` to `"maxSize"`, the checker verifies that the constraint's semantics are preserved (both describe an upper bound on a numeric property). Renaming `"maxLength"` to `"minLength"` would fail---the sort changed semantics, not just its name.

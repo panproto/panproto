@@ -3,7 +3,7 @@ title: "What Schemas Have in Common"
 id: sec-schemas-have-in-common
 ---
 
-# What Schemas Have in Common
+# What Schemas Have in Common {#sec-schemas-have-in-common}
 
 Schema languages look different on the surface---JSON vs. Protobuf IDL vs. SQL
 DDL vs. GraphQL SDL---but they describe the same kind of thing: types connected

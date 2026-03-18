@@ -145,7 +145,7 @@ Each entry point method handles the raw call, converts between Python types and 
 
 Every WASM-side resource is wrapped in a `WasmHandle`, which implements the context-manager protocol for use with `with` statements:
 
-```{.python include="../../sdk/python/src/panproto/_wasm.py" start-line=256 end-line=337}
+```{.python include="../../sdk/python/src/panproto/_wasm.py" start-line=1102 end-line=1184}
 ```
 
 Two layers of safety prevent handle leaks:
@@ -163,7 +163,7 @@ The `weakref.finalize` callback is a last resort, not a primary mechanism. GC ti
 
 The `load_wasm` factory reads a `.wasm` binary from disk, creates a `wasmtime.Engine`, `Store`, `Module`, and `Linker`, instantiates the module with WASI imports, and returns a ready `WasmModule`:
 
-```{.python include="../../sdk/python/src/panproto/_wasm.py" start-line=380 end-line=414}
+```{.python include="../../sdk/python/src/panproto/_wasm.py" start-line=1227 end-line=1261}
 ```
 
 Unlike the TypeScript SDK's async `init()`, the Python factory is synchronous---`wasmtime-py` loads modules on the calling thread.
@@ -310,37 +310,31 @@ Two additional functions are exported at module level:
 - **`check_existence(src, tgt, spec, wasm)`** -- Validate that a migration specification satisfies all protocol-derived existence conditions.
 - **`compose_migrations(m1, m2, wasm)`** -- Compose two compiled migrations into one. The resulting migration is equivalent to applying *m1* first, then *m2*.
 
-## Lens Combinators (`_lens.py`) {#sec-python-lens}
+## Lens API (`_lens.py`) {#sec-python-lens}
 
-The `_lens.py` module provides Cambria-style combinators for composing schema transformations declaratively. Each combinator is a frozen dataclass describing a single bidirectional edit step:
+The `_lens.py` module provides three handle classes for bidirectional schema transformations: `ProtolensChainHandle` for schema-independent lens families, `LensHandle` for concrete lenses, and `SymmetricLensHandle` for symmetric bidirectional sync.
 
-```{.python include="../../sdk/python/src/panproto/_lens.py" start-line=63 end-line=197}
+`ProtolensChainHandle` wraps a WASM-side protolens chain and can be instantiated against a concrete schema to produce a `LensHandle`:
+
+```{.python include="../../sdk/python/src/panproto/_lens.py" start-line=36 end-line=128}
 ```
 
-Seven combinator constructors are provided:
+`LensHandle` wraps a concrete lens with `get`, `put`, and law-checking operations:
 
-- **`rename_field(old, new)`** -- Rename a field.
-- **`add_field(name, kind, default)`** -- Add a field with a default value.
-- **`remove_field(name)`** -- Remove a field.
-- **`wrap_in_object(field_name)`** -- Wrap a value inside a new object.
-- **`hoist_field(host, field)`** -- Hoist a nested field up to its host.
-- **`coerce_type(from_kind, to_kind)`** -- Coerce between compatible types.
-- **`compose(first, second)`** -- Compose two combinators sequentially.
-- **`pipeline([...combinators])`** -- Compose a chain of combinators left-to-right.
-
-The `Combinator` type alias is a PEP 695 union of all seven dataclasses:
-
-```{.python include="../../sdk/python/src/panproto/_lens.py" start-line=189 end-line=197}
+```{.python include="../../sdk/python/src/panproto/_lens.py" start-line=370 end-line=480}
 ```
 
-### Wire Serialization
+Key methods:
 
-The `combinator_to_wire` function serializes a combinator tree into the wire format expected by the Rust side. It uses Python's structural pattern matching (`match`/`case`) to dispatch on the combinator type:
-
-```{.python include="../../sdk/python/src/panproto/_lens.py" start-line=365 end-line=417}
-```
-
-The wire format uses Rust enum variant names as top-level keys so that `serde` deserializes them correctly on the WASM side. For example, `rename_field("foo", "bar")` produces `{"RenameField": {"old": "foo", "new": "bar"}}`.
+- **`ProtolensChainHandle.auto_generate(schema1, schema2, wasm)`** -- Auto-generate a protolens chain between two schemas.
+- **`ProtolensChainHandle.instantiate(schema)`** -- Instantiate the chain against a concrete schema.
+- **`ProtolensChainHandle.compose(other)`** -- Compose with another chain.
+- **`ProtolensChainHandle.fuse()`** -- Fuse all steps into a single protolens.
+- **`ProtolensChainHandle.lift(morphism_bytes)`** -- Lift along a theory morphism.
+- **`LensHandle.auto_generate(schema1, schema2, wasm)`** -- Auto-generate and instantiate a lens.
+- **`LensHandle.get(record)`** -- Forward projection: extract view and complement.
+- **`LensHandle.put(view, complement)`** -- Backward put: restore from view and complement.
+- **`LensHandle.check_laws(instance)`** -- Verify GetPut and PutGet laws.
 
 ## Error Hierarchy (`_errors.py`) {#sec-python-errors}
 
@@ -376,7 +370,7 @@ Key methods:
 
 `Panproto` implements the context-manager protocol. When the `with` block exits, it releases all cached protocol handles:
 
-```{.python include="../../sdk/python/src/panproto/_panproto.py" start-line=272 end-line=286}
+```{.python include="../../sdk/python/src/panproto/_panproto.py" start-line=638 end-line=656}
 ```
 
 ## Usage Pattern

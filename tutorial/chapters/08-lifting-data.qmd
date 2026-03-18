@@ -1,6 +1,6 @@
 # Lifting Data Through Schema Changes {#sec-lifting-data}
 
-The previous chapters established *when* a migration exists (@sec-existence) and how lenses give you bidirectional `get`/`put` operations (@sec-lenses). This chapter is about the algorithmic heart of both: the `restrict` operation that transforms data from one schema to another.
+The previous chapters established *when* a migration exists (@sec-when-migrations-break) and how lenses give you bidirectional `get`/`put` operations (@sec-lenses). This chapter is about the algorithmic core of both: the `restrict` operation that transforms data from one schema to another.
 
 There are two flavors of restriction, corresponding to the two kinds of schema that panproto supports. **W-type restrict** handles tree-structured data (JSON, CBOR, protocol buffers) by walking a five-step pipeline over the instance tree. **Functor restrict** handles tabular data (SQL) by precomposition along a schema morphism.^[Restriction transforms data from one schema shape to another by walking the migration mapping in reverse. Each step in the pipeline corresponds to a specific structural change in the schema — removing a vertex prunes the corresponding subtree, contracting an ancestor reattaches orphaned children. The formal framework describes this as restriction of a recursive data structure (polynomial functor algebra) along a schema mapping [@gambino2004; @abbott2005]. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
@@ -240,7 +240,7 @@ fn resolve_edge(
 }
 ```
 
-The existence checker from @sec-existence guarantees that a valid resolution exists for every contracted path, so `resolve_edge` never fails on a well-formed migration.
+The existence checker from @sec-when-migrations-break guarantees that a valid resolution exists for every contracted path, so `resolve_edge` never fails on a well-formed migration.
 
 :::{.callout-note}
 ## When is resolution trivial?

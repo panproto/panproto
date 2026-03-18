@@ -59,7 +59,7 @@ Each variant corresponds to an elementary operation on theories:
 
 `TheoryEndofunctor::compose` chains two transforms F and G into "apply F, then apply G". The precondition of the composed transform is the conjunction of the first transform's precondition with an unconstrained placeholder for the second (the second's precondition applies to the *output* of the first, which cannot be statically checked). Dynamic checking occurs at `apply` time.
 
-```{.rust include="../../crates/panproto-gat/src/schema_functor.rs" start-line=332 end-line=349}
+```{.rust include="../../crates/panproto-gat/src/schema_functor.rs" start-line=331 end-line=344}
 ```
 
 ## `TheoryConstraint`: Precondition Predicates {#sec-theory-constraint}
@@ -85,7 +85,7 @@ The `satisfied_by` method evaluates the predicate against a concrete `Theory`. T
 
 The `Protolens` struct bundles the source and target schema transforms with a complement constructor:
 
-```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=84 end-line=103}
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=123 end-line=133}
 ```
 
 Key fields:
@@ -100,7 +100,7 @@ The `applicable_to` method checks whether a given schema satisfies the source tr
 
 Instantiation is the core operation: given a schema S and protocol, produce a concrete `Lens(F(S), G(S))`.
 
-```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=127 end-line=151}
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=162 end-line=192}
 ```
 
 The instantiation pipeline:
@@ -138,7 +138,7 @@ Protolenses compose in two dimensions: chaining transforms sequentially, and com
 
 Given a protolens from F to G and another from G to H, vertical composition produces a single protolens from F to H:^[Chaining two protolenses: the first transforms F to G, the second transforms G to H, producing a single protolens from F to H. In categorical notation, this is the vertical composite $\theta \circ \eta : F \Rightarrow H$.]
 
-```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=189 end-line=201}
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=396 end-line=418}
 ```
 
 The composed protolens uses the first step's source transform and the second step's target transform. The complement is the composite of both complements --- during `get`, both steps' lost data is captured.
@@ -147,7 +147,7 @@ The composed protolens uses the first step's source transform and the second ste
 
 Given two independent protolenses that operate on different parts of the theory, horizontal composition applies both simultaneously:^[Two independent transforms are applied in parallel: one changes sorts/ops in one region of the theory, the other changes a different region. In categorical notation, this is the whiskering product $\eta * \theta : F \circ F' \Rightarrow G \circ G'$.]
 
-```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=210 end-line=224}
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=420 end-line=441}
 ```
 
 Horizontal composition uses `TheoryEndofunctor::compose` to build the composed source and target transforms. This is useful when two independent schema changes need to be applied simultaneously.
@@ -156,7 +156,7 @@ Horizontal composition uses `TheoryEndofunctor::compose` to build the composed s
 
 The `ProtolensChain` struct provides a convenient wrapper for vertical composition chains:
 
-```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=234 end-line=307}
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=447 end-line=525}
 ```
 
 Instantiating a chain applies each step sequentially, using the previous step's target schema as the next step's input. The resulting lenses are composed via `crate::compose::compose`.
@@ -183,14 +183,14 @@ All elementary constructors have the identity as their source transform. The pre
 
 For example, `elementary::drop_sort` constructs:
 
-```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=346 end-line=363}
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=766 end-line=786}
 ```
 
 ## `ComplementConstructor` as Schema-Dependent Type {#sec-complement-spec}
 
 The `ComplementConstructor` enum describes how the complement type depends on the schema at instantiation time:
 
-```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=61 end-line=82}
+```{.rust include="../../crates/panproto-lens/src/protolens.rs" start-line=72 end-line=103}
 ```
 
 This is a *type-level* description, not a runtime complement. At instantiation time, the constructor determines what data the resulting lens's `get` direction will capture in the complement:

@@ -1,4 +1,4 @@
-# panproto-mig --- The Migration Engine
+# panproto-mig --- The Migration Engine {#sec-migration-engine}
 
 The `panproto-mig` crate is the core migration engine for panproto. It computes, validates, and applies schema migrations---transforming instances from one schema version to another while preserving data integrity through theory morphisms. This chapter walks through the full migration pipeline, from specification to execution.
 

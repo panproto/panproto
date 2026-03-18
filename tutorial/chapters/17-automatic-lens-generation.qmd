@@ -142,7 +142,7 @@ Attempting to instantiate an incomplete chain raises an error listing the missin
 
 ## The fallback: overlap-based alignment {#sec-overlap-fallback}
 
-When the two schemas are too different for morphism discovery to find a meaningful map---different vertex kinds, different edge structures, different theories---panproto falls back to **overlap-based alignment** via `discover_overlap` (from @sec-schema-pushout).
+When the two schemas are too different for morphism discovery to find a meaningful map---different vertex kinds, different edge structures, different theories---panproto falls back to **overlap-based alignment** via `discover_overlap` (from @sec-schema-merge).
 
 Instead of finding a full morphism, it finds the largest shared sub-schema and builds a symmetric lens through the overlap:
 

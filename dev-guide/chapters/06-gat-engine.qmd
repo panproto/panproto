@@ -156,7 +156,7 @@ This is the fundamental guarantee that makes panproto migrations principled: bec
 
 ### Inducing Schema Renames
 
-Theory morphisms induce schema-level renames via `induce_schema_renames()`. Sort-map entries where `old ≠ new` become `NameSite::VertexKind` renames (since sorts map to vertex kinds at the schema level), and op-map entries where `old ≠ new` become `NameSite::EdgeKind` renames. This is the top of the _morphism tower_ described in @sec-naming-identity.
+Theory morphisms induce schema-level renames via `induce_schema_renames()`. Sort-map entries where `old ≠ new` become `NameSite::VertexKind` renames (since sorts map to vertex kinds at the schema level), and op-map entries where `old ≠ new` become `NameSite::EdgeKind` renames. This is the top of the _morphism tower_ described in @sec-naming-identity-section.
 
 ## Identity and Naming
 
@@ -168,7 +168,7 @@ The `ident` module provides three types that separate identity from display name
 
 The `NameSite` enum enumerates the nine naming sites (edge labels, vertex IDs, vertex kinds, edge kinds, NSIDs, constraint sorts, instance anchors, theory names, sort names). `SiteRename` is a site-qualified rename operation used in schema morphism provenance and VCS commit metadata.
 
-See @sec-naming-identity for the full contributor guide.
+See @sec-naming-identity-section for the full contributor guide.
 
 ## Colimits (Merging Theories)
 

@@ -35,7 +35,7 @@ Before diffing, panproto canonicalizes both schemas: it resolves all references,
 
 ## Compatibility levels {#sec-compat-levels}
 
-panproto classifies schema changes into three levels. The classification is *theory-derived*: it follows directly from the existence conditions for migrations (@sec-existence) rather than from ad hoc rules.
+panproto classifies schema changes into three levels. The classification is *theory-derived*: it follows directly from the existence conditions for migrations (@sec-when-migrations-break) rather than from ad hoc rules.
 
 ### Fully compatible
 
@@ -72,13 +72,13 @@ This is the red line. A breaking change means that some existing data will be re
 :::{.callout-note}
 ## The classification is decidable
 
-The compatibility classification reduces to checking migration existence in both directions. As established in @sec-existence, migration existence is decidable for the class of schemas that panproto supports. There is no approximation or heuristic involved: panproto gives a definitive answer.^[The mathematical proof that this classification is decidable relies on properties of adhesive categories [@lack2005]. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+The compatibility classification reduces to checking migration existence in both directions. As established in @sec-when-migrations-break, migration existence is decidable for the class of schemas that panproto supports. There is no approximation or heuristic involved: panproto gives a definitive answer.^[The mathematical proof that this classification is decidable relies on properties of adhesive categories [@lack2005]. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 :::
 
 
 ## The connection to existence conditions
 
-The compatibility classifier delegates entirely to the migration existence checker from @sec-existence.
+The compatibility classifier delegates entirely to the migration existence checker from @sec-when-migrations-break.
 
 Given schemas $S_\text{old}$ and $S_\text{new}$:
 

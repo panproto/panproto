@@ -140,7 +140,7 @@ For edge label rename detection (`detect_edge_renames`), the algorithm compares 
 
 Detected renames are stored in `CommitObject.renames` as `Vec<SiteRename>`. This field is `#[serde(default, skip_serializing_if = "Vec::is_empty")]`, so old commits without renames deserialize correctly.
 
-See @sec-naming-identity for the full naming and identity architecture.
+See @sec-naming-identity-section for the full naming and identity architecture.
 
 ## Related Work and Differentiation
 

@@ -16,12 +16,12 @@ The handle + MessagePack design means the WASM boundary has zero JS-heap allocat
 
 ## The Resource Enum and Slab Allocator
 
-All WASM-side resources are stored in a thread-local `Vec<Option<Resource>>`. Each resource is one of four variants:
+All WASM-side resources are stored in a thread-local `Vec<Option<Resource>>`. Each resource is one of ten variants:
 
-```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=15 end-line=60}
+```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=20 end-line=58}
 ```
 
-The `Resource` enum captures the three fundamental types (protocol, schema, compiled migration) plus a fourth variant (`MigrationWithSchemas`) that bundles a compiled migration with its source and target schemas -- needed for lens `get`/`put` operations.
+The `Resource` enum captures the core resource types (protocol, schema, compiled migration, I/O registry, theory, VCS repository, protolens chain, symmetric lens, data set) plus the `MigrationWithSchemas` variant that bundles a compiled migration with its source and target schemas -- needed for lens `get`/`put` operations.
 
 The `alloc` function scans for a freed slot before appending, so handle values are reused. Handles are `u32` indices, which means the slab can hold up to 4 billion simultaneous resources -- more than sufficient for any realistic workload.
 
@@ -29,7 +29,7 @@ The `alloc` function scans for a freed slot before appending, so handle values a
 
 Accessing a resource requires borrowing the thread-local slab. The `with_resource` function encapsulates this pattern: it borrows the slab, looks up the handle, and passes a reference to a callback. The borrow is released when the callback returns, so the reference cannot escape:
 
-```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=62 end-line=80}
+```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=78 end-line=96}
 ```
 
 This pattern prevents a common class of bugs: holding a reference to a slab entry while mutating the slab (which would panic at runtime due to `RefCell` rules). The callback-based API makes it structurally impossible.
@@ -42,7 +42,7 @@ A `with_two_resources` variant exists for operations that need two handles simul
 
 Schema construction operations are sent from JS as a MessagePack-encoded `Vec<BuildOp>`. The `BuildOp` enum uses serde's internally-tagged representation (`#[serde(tag = "op")]`), so each operation is a flat object with an `op` discriminant:
 
-```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=23 end-line=79}
+```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=26 end-line=82}
 ```
 
 The five variants (`Vertex`, `Edge`, `Constraint`, `HyperEdge`, `Required`) mirror the `SchemaBuilder` methods in `panproto-schema`. The TypeScript SDK constructs these as plain objects and encodes them with `@msgpack/msgpack`.
@@ -53,7 +53,7 @@ The five variants (`Vertex`, `Edge`, `Constraint`, `HyperEdge`, `Required`) mirr
 
 Registers a protocol specification and returns a handle:
 
-```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=81 end-line=95}
+```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=84 end-line=98}
 ```
 
 The pattern is representative of all entry points: deserialize MessagePack input with `rmp_serde::from_slice`, perform the operation, allocate the result in the slab, and return the handle.
@@ -62,7 +62,7 @@ The pattern is representative of all entry points: deserialize MessagePack input
 
 The most complex entry point. It takes a protocol handle and a `Vec<BuildOp>`, replays the operations through `SchemaBuilder`, and returns a schema handle:
 
-```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=97 end-line=168}
+```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=100 end-line=171}
 ```
 
 ### All Ten Entry Points
