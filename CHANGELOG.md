@@ -2,7 +2,7 @@
 
 All notable changes to panproto will be documented in this file.
 
-## [Unreleased]
+## [0.7.0]
 
 ### Added — Protolens: Automated Lens Generation via GAT Theory
 
