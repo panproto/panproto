@@ -1,9 +1,9 @@
 /**
- * Tests for LensHandle, fromCombinators, law checking, and lens composition.
+ * Tests for LensHandle, ProtolensChainHandle, law checking, and lens composition.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { LensHandle, fromCombinators, renameField, addField } from '../src/lens.js';
+import { LensHandle, ProtolensChainHandle } from '../src/lens.js';
 import { SchemaBuilder, BuiltSchema } from '../src/schema.js';
 import { MigrationBuilder } from '../src/migration.js';
 import { Panproto } from '../src/panproto.js';
@@ -40,7 +40,29 @@ function createMockWasm(): WasmModule {
     instance_to_json: vi.fn(() => new Uint8Array()),
     json_to_instance: vi.fn(() => new Uint8Array()),
     instance_element_count: vi.fn(() => 0),
-    lens_from_combinators: vi.fn(() => ++handleCounter),
+    auto_generate_protolens: vi.fn(() => ++handleCounter),
+    instantiate_protolens: vi.fn(() => ++handleCounter),
+    protolens_complement_spec: vi.fn(() => packToWasm({ kind: 'empty', forwardDefaults: [], capturedData: [], summary: '' })),
+    protolens_from_diff: vi.fn(() => ++handleCounter),
+    protolens_compose: vi.fn(() => ++handleCounter),
+    protolens_chain_to_json: vi.fn(() => new TextEncoder().encode('[]')),
+    factorize_morphism: vi.fn(() => packToWasm([])),
+    symmetric_lens_from_schemas: vi.fn(() => ++handleCounter),
+    symmetric_lens_sync: vi.fn(() => packToWasm({ view: {}, complement: new Uint8Array() })),
+    apply_protolens_step: vi.fn(() => ++handleCounter),
+    protolens_from_json: vi.fn(() => ++handleCounter),
+    protolens_fuse: vi.fn(() => ++handleCounter),
+    protolens_lift: vi.fn(() => ++handleCounter),
+    protolens_check_applicability: vi.fn(() => packToWasm({ applicable: true, reasons: [] })),
+    protolens_fleet: vi.fn(() => packToWasm({ applied: [], skipped: [] })),
+    store_dataset: vi.fn(() => ++handleCounter),
+    get_dataset: vi.fn(() => packToWasm({})),
+    migrate_dataset_forward: vi.fn(() => packToWasm({ data_handle: 1, complement_handle: 2 })),
+    migrate_dataset_backward: vi.fn(() => ++handleCounter),
+    check_dataset_staleness: vi.fn(() => packToWasm({ stale: false, data_schema_id: '', target_schema_id: '' })),
+    store_protocol_definition: vi.fn(() => ++handleCounter),
+    get_protocol_definition: vi.fn(() => packToWasm({})),
+    get_migration_complement: vi.fn(() => packToWasm({})),
     check_lens_laws: vi.fn(() => packToWasm({ holds: true, violation: null })),
     check_get_put: vi.fn(() => packToWasm({ holds: true, violation: null })),
     check_put_get: vi.fn(() => packToWasm({ holds: false, violation: 'PutGet violated' })),
@@ -130,27 +152,33 @@ describe('LensHandle', () => {
   });
 });
 
-describe('fromCombinators', () => {
-  it('serializes combinators and calls lens_from_combinators', () => {
+describe('ProtolensChainHandle', () => {
+  it('autoGenerate calls auto_generate_protolens', () => {
     const wasm = createMockWasm();
-    const schema = createTestSchema(wasm, 'test');
-    const protocolHandle = new WasmHandle(1, vi.fn());
+    const schema1 = createTestSchema(wasm, 'v1');
+    const schema2 = createTestSchema(wasm, 'v2');
 
-    // Mock protocol with _handle
-    const protocol = { _handle: protocolHandle } as import('../src/protocol.js').Protocol;
+    const chain = ProtolensChainHandle.autoGenerate(schema1, schema2, wasm);
 
-    const lens = fromCombinators(
-      schema,
-      protocol,
-      wasm,
-      renameField('old', 'new'),
-      addField('extra', 'string', ''),
-    );
+    expect(chain).toBeInstanceOf(ProtolensChainHandle);
+    expect(wasm.exports.auto_generate_protolens).toHaveBeenCalledOnce();
+
+    chain[Symbol.dispose]();
+  });
+
+  it('instantiate calls instantiate_protolens', () => {
+    const wasm = createMockWasm();
+    const schema1 = createTestSchema(wasm, 'v1');
+    const schema2 = createTestSchema(wasm, 'v2');
+
+    const chain = ProtolensChainHandle.autoGenerate(schema1, schema2, wasm);
+    const lens = chain.instantiate(schema1);
 
     expect(lens).toBeInstanceOf(LensHandle);
-    expect(wasm.exports.lens_from_combinators).toHaveBeenCalledOnce();
+    expect(wasm.exports.instantiate_protolens).toHaveBeenCalledOnce();
 
     lens[Symbol.dispose]();
+    chain[Symbol.dispose]();
   });
 });
 

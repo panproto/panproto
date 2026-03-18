@@ -4,9 +4,8 @@
  */
 
 import type { WasmModule } from './types.js';
-import { WasmError } from './types.js';
 import { WasmHandle, createHandle } from './wasm.js';
-import { packToWasm, unpackFromWasm } from './msgpack.js';
+import { unpackFromWasm } from './msgpack.js';
 import type { BuiltSchema } from './schema.js';
 
 /** A handle to a versioned data set in the WASM store. */

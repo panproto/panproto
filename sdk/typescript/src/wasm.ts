@@ -51,7 +51,21 @@ export interface WasmGlueModule {
   get_json: WasmExports['get_json'];
   put_json: WasmExports['put_json'];
   instance_element_count: WasmExports['instance_element_count'];
-  lens_from_combinators: WasmExports['lens_from_combinators'];
+  auto_generate_protolens: WasmExports['auto_generate_protolens'];
+  instantiate_protolens: WasmExports['instantiate_protolens'];
+  protolens_complement_spec: WasmExports['protolens_complement_spec'];
+  protolens_from_diff: WasmExports['protolens_from_diff'];
+  protolens_compose: WasmExports['protolens_compose'];
+  protolens_chain_to_json: WasmExports['protolens_chain_to_json'];
+  factorize_morphism: WasmExports['factorize_morphism'];
+  symmetric_lens_from_schemas: WasmExports['symmetric_lens_from_schemas'];
+  symmetric_lens_sync: WasmExports['symmetric_lens_sync'];
+  apply_protolens_step: WasmExports['apply_protolens_step'];
+  protolens_from_json: WasmExports['protolens_from_json'];
+  protolens_fuse: WasmExports['protolens_fuse'];
+  protolens_lift: WasmExports['protolens_lift'];
+  protolens_check_applicability: WasmExports['protolens_check_applicability'];
+  protolens_fleet: WasmExports['protolens_fleet'];
   check_lens_laws: WasmExports['check_lens_laws'];
   check_get_put: WasmExports['check_get_put'];
   check_put_get: WasmExports['check_put_get'];
@@ -145,7 +159,21 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       get_json: glue.get_json,
       put_json: glue.put_json,
       instance_element_count: glue.instance_element_count,
-      lens_from_combinators: glue.lens_from_combinators,
+      auto_generate_protolens: glue.auto_generate_protolens,
+      instantiate_protolens: glue.instantiate_protolens,
+      protolens_complement_spec: glue.protolens_complement_spec,
+      protolens_from_diff: glue.protolens_from_diff,
+      protolens_compose: glue.protolens_compose,
+      protolens_chain_to_json: glue.protolens_chain_to_json,
+      factorize_morphism: glue.factorize_morphism,
+      symmetric_lens_from_schemas: glue.symmetric_lens_from_schemas,
+      symmetric_lens_sync: glue.symmetric_lens_sync,
+      apply_protolens_step: glue.apply_protolens_step,
+      protolens_from_json: glue.protolens_from_json,
+      protolens_fuse: glue.protolens_fuse,
+      protolens_lift: glue.protolens_lift,
+      protolens_check_applicability: glue.protolens_check_applicability,
+      protolens_fleet: glue.protolens_fleet,
       check_lens_laws: glue.check_lens_laws,
       check_get_put: glue.check_get_put,
       check_put_get: glue.check_put_get,

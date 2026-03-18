@@ -430,7 +430,6 @@ export interface WasmExports {
   get_json(migration: number, json: Uint8Array, root_vertex: string): Uint8Array;
   put_json(migration: number, view_json: Uint8Array, complement: Uint8Array, root_vertex: string): Uint8Array;
   instance_element_count(instance: Uint8Array): number;
-  lens_from_combinators(schema: number, proto: number, combinators: Uint8Array): number;
   check_lens_laws(migration: number, instance: Uint8Array): Uint8Array;
   check_get_put(migration: number, instance: Uint8Array): Uint8Array;
   check_put_get(migration: number, instance: Uint8Array): Uint8Array;
@@ -470,6 +469,7 @@ export interface WasmExports {
   auto_generate_protolens(schema1: number, schema2: number): number;
   instantiate_protolens(chain: number, schema: number): number;
   protolens_complement_spec(chain: number, schema: number): Uint8Array;
+  protolens_from_diff(diff_bytes: Uint8Array, schema1: number, schema2: number): number;
   protolens_compose(chain1: number, chain2: number): number;
   protolens_chain_to_json(chain: number): Uint8Array;
   symmetric_lens_from_schemas(schema1: number, schema2: number): number;
