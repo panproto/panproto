@@ -348,6 +348,136 @@ converted = Panproto.convert(source_data, protolens=chain, schema=my_schema)
 ```
 
 
+## Serialization and Reuse {#sec-protolens-serialization}
+
+Protolens chains serialize to JSON and deserialize back without loss:
+
+```{.typescript}
+const chain = ProtolensChainHandle.autoGenerate(oldSchema, newSchema);
+
+// Serialize to JSON
+const json = chain.toJson();
+fs.writeFileSync("policy.json", JSON.stringify(json));
+
+// Deserialize from JSON
+const restored = ProtolensChainHandle.fromJson(json);
+const lens = restored.instantiate(someSchema);
+```
+
+```{.python}
+chain = ProtolensChainHandle.auto_generate(old_schema, new_schema)
+
+# Serialize
+policy = chain.to_json()
+Path("policy.json").write_text(json.dumps(policy))
+
+# Deserialize
+restored = ProtolensChainHandle.from_json(policy)
+lens = restored.instantiate(some_schema)
+```
+
+Serialization matters in three scenarios:
+
+1. **Distributing migration policies across teams.** A platform team defines a protolens chain and publishes it as a JSON artifact. Downstream teams apply it to their own schemas without regenerating the chain.
+2. **Storing chains in VCS.** Protolens chains committed alongside schema versions provide an auditable migration history.
+3. **Deferred application.** A chain created today can be applied to schemas that do not yet exist. When a new schema arrives, deserialize the chain and instantiate.
+
+From the CLI:
+
+```{.sh}
+schema lens old.json new.json --protocol atproto --chain > policy.json
+```
+
+
+## Checking Applicability {#sec-check-applicability}
+
+The `check_applicability` method returns human-readable failure reasons instead of a boolean:
+
+```{.typescript}
+const reasons = chain.checkApplicability(schema);
+if (reasons.length > 0) {
+  console.log("Not applicable:");
+  for (const r of reasons) {
+    console.log(`  step ${r.step}: ${r.reason}`);
+  }
+} else {
+  const lens = chain.instantiate(schema);
+}
+```
+
+```{.python}
+reasons = chain.check_applicability(schema)
+if reasons:
+    for r in reasons:
+        print(f"  step {r.step}: {r.reason}")
+else:
+    lens = chain.instantiate(schema)
+```
+
+The boolean `applicable_to` tells you *whether* a chain applies. `check_applicability` tells you *why not*---which step failed, what sort or operation is missing, and what the schema would need for the step to succeed.
+
+From the CLI:
+
+```{.sh}
+schema lens-verify --check-fleet ./schemas/
+```
+
+
+## Fleet Migrations {#sec-fleet-migrations}
+
+`apply_to_fleet` applies a protolens chain to multiple schemas in one call, partitioning results into successes and failures:
+
+```{.typescript}
+import { applyToFleet } from "@panproto/core";
+
+const result = applyToFleet(chain, schemas, protocol);
+
+console.log(`Applied to ${result.applied.length} schemas`);
+for (const entry of result.applied) {
+  console.log(`  ${entry.schema.name}: lens ready`);
+}
+
+console.log(`Skipped ${result.skipped.length} schemas`);
+for (const entry of result.skipped) {
+  console.log(`  ${entry.schema.name}: ${entry.reasons.join(", ")}`);
+}
+```
+
+```{.python}
+from panproto import apply_to_fleet
+
+result = apply_to_fleet(chain, schemas, protocol)
+
+print(f"Applied to {len(result.applied)} schemas")
+for entry in result.applied:
+    print(f"  {entry.schema.name}: lens ready")
+
+print(f"Skipped {len(result.skipped)} schemas")
+for entry in result.skipped:
+    print(f"  {entry.schema.name}: {', '.join(entry.reasons)}")
+```
+
+From the CLI, the `--dry-run` flag produces a report without applying any changes:
+
+```{.sh}
+schema lens-fleet policy.json ./schemas/ --protocol atproto --dry-run
+```
+
+Sample output:
+
+```
+Fleet migration report:
+  Applied (12 schemas):
+    users.json: 3 steps, complement: Empty
+    posts.json: 3 steps, complement: DataCaptured(1 field)
+    comments.json: 3 steps, complement: Empty
+    ...
+  Skipped (2 schemas):
+    legacy-events.json: step 1 requires vertex "metadata" (not found)
+    internal-logs.json: step 2 requires edge kind "hasAuthor" (not found)
+```
+
+
 ## Comparison with Cambria {#sec-cambria-comparison}
 
 [Cambria](https://www.inkandswitch.com/cambria/) [@litt2022] pioneered the combinator approach to schema evolution. panproto's protolenses build on Cambria's insights but differ in three key ways:

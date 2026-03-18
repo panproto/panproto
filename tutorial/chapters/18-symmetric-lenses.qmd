@@ -257,6 +257,50 @@ panproto detects conflicts at the schema level: two different values for the sam
 :::
 
 
+## Lifting Across Protocols {#sec-lifting-across-protocols}
+
+A protolens defined for one protocol can be **lifted** to another protocol via a theory morphism. If you have a `rename_sort("Vertex", "Node")` protolens for ATProto schemas and a theory morphism from ATProto to SQL, `lift_protolens` produces an equivalent protolens that operates on SQL schemas.
+
+```{.typescript}
+import { liftProtolens, liftChain } from "@panproto/core";
+
+// A protolens that renames Vertex → Node in ATProto
+const atprotoRename = Protolens.renameSort("Vertex", "Node");
+
+// A theory morphism from ATProto to SQL
+const morphism = getTheoryMorphism("atproto", "sql");
+
+// Lift the protolens to SQL
+const sqlRename = liftProtolens(atprotoRename, morphism);
+// sqlRename renames the SQL-side image of "Vertex" to the SQL-side image of "Node"
+```
+
+Lifting works on entire chains:
+
+```{.typescript}
+const atprotoChain = ProtolensChainHandle.autoGenerate(oldAtproto, newAtproto);
+const sqlChain = liftChain(atprotoChain, morphism);
+
+const sqlLens = sqlChain.instantiate(sqlSchema);
+```
+
+```{.python}
+from panproto import lift_protolens, lift_chain
+
+atproto_chain = ProtolensChainHandle.auto_generate(old_atproto, new_atproto)
+sql_chain = lift_chain(atproto_chain, morphism)
+sql_lens = sql_chain.instantiate(sql_schema)
+```
+
+The lift composes the protolens's endofunctor transforms with a `Pullback(morphism)` step: sort and operation references in preconditions are renamed through the morphism's sort and op maps. Complement constructors are preserved---a `DataCaptured` complement remains `DataCaptured` after lifting.
+
+From the CLI:
+
+```{.sh}
+schema lens-lift chain.json atproto-to-sql.json --json
+```
+
+
 ## Related work: Cambria and bidirectional JSON sync {#sec-symmetric-related}
 
 [Cambria](https://www.inkandswitch.com/cambria/) [@litt2022] addresses a related problem: bidirectional synchronization of JSON documents across schema versions in CRDT-based collaborative editors. Cambria's lens combinators produce bidirectional transforms between implicit schemas.

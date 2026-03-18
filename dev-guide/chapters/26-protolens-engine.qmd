@@ -209,6 +209,51 @@ The `induce_schema_morphism` function in `cascade.rs` bridges levels 1 and 2. Th
 
 The advantage over the direct cascade path is compositionality: each protolens step is independently verifiable, and the chain can be inspected, serialized, and modified without recomputing the full migration.
 
+## Schema Constraints vs Theory Constraints {#sec-schema-vs-theory-constraints}
+
+`TheoryConstraint` operates on implicit theories extracted from schemas via `schema_to_implicit_theory`. This extraction is lossy: vertex IDs are discarded (only kinds survive as sorts), edge names are lost (only kinds survive as operations), and structural properties like edge multiplicities and ordering constraints have no representation in the implicit theory.
+
+`SchemaConstraint` checks schemas directly, bypassing the lossy extraction. It supports predicates that `TheoryConstraint` cannot express:
+
+- `HasVertex(id)` — the schema must contain a vertex with this *ID*, not just this kind.
+- `HasEdgeBetween(src, tgt, kind)` — a specific edge must exist between two specific vertices.
+- `VertexCount(kind, min, max)` — the schema must have between `min` and `max` vertices of the given kind.
+
+The `check()` method on `SchemaConstraint` returns a `Vec<ConstraintFailure>` instead of a boolean. Each failure includes the constraint that failed, the schema element it checked, and a human-readable explanation.
+
+`SchemaConstraint::from_theory_constraint` bridges the two systems: it converts a `TheoryConstraint` into the closest `SchemaConstraint` equivalent by mapping `HasSort(n)` to "any vertex with kind `n` exists" and `HasOp(n)` to "any edge with kind `n` exists". The conversion is conservative---it never accepts a schema that the original `TheoryConstraint` would reject.
+
+`Protolens::check_applicability` uses `SchemaConstraint` internally and returns the full list of `ConstraintFailure` values, giving callers actionable diagnostics instead of a bare boolean.
+
+
+## Endofunctor Fusion {#sec-endofunctor-fusion}
+
+The `fuse()` method on `ProtolensChain` composes all steps' target transforms into a single `TheoryTransform::Compose` tree. Given a chain with steps $[F_1, F_2, \ldots, F_n]$, fusion produces a single `Protolens` whose target transform is `Compose(F_1, Compose(F_2, ... Compose(F_{n-1}, F_n)))`.
+
+The fused protolens requires a single `instantiate` call, which applies the composed transform to the input schema once. Without fusion, `ProtolensChain::instantiate` applies each step sequentially, materializing $n-1$ intermediate schemas. For a chain of length $n$ with schemas of size $|S|$, fusion reduces instantiation from $O(n \cdot |S|^2)$ to $O(|S|^2)$ (one migration derivation instead of $n$).
+
+Complement constructors from all steps merge into a `Composite` variant, preserving the per-step complement structure for accurate round-trip data capture.
+
+`ProtolensChain::instantiate` calls `fuse()` automatically. Calling `fuse()` explicitly is useful for serializing the composed protolens or inspecting the transform tree.
+
+
+## Functorial Lifting {#sec-functorial-lifting}
+
+`lift_protolens` transforms a protolens defined over one protocol's theories into an equivalent protolens over another protocol's theories, given a theory morphism between the two protocols.
+
+The implementation has three components:
+
+1. **`lift_endofunctor`**: Given a `TheoryEndofunctor` $F$ and a morphism $\phi : T_1 \to T_2$, produce a new endofunctor $\phi^* F$ that acts on $T_2$-theories. The target transform is composed with `Pullback(φ)`: first pull back the schema along the morphism, then apply the original transform, then push forward. The precondition is lifted by renaming sort and operation references through $\phi$'s maps.
+
+2. **`lift_constraint`**: Rename sort and operation references in a `TheoryConstraint` (or `SchemaConstraint`) via the morphism's sort map and op map. `HasSort("Vertex")` becomes `HasSort(φ.sort_map["Vertex"])`.
+
+3. **`lift_protolens`**: Lift both the source and target endofunctors, preserving the complement constructor. A `DroppedSortData { sort: "Vertex" }` becomes `DroppedSortData { sort: φ.sort_map["Vertex"] }`.
+
+`lift_chain` applies `lift_protolens` to each step in a `ProtolensChain`.
+
+The categorical semantics: lifting is precomposition with a morphism. A protolens $\eta : F \Rightarrow G$ over theory $T_1$ lifts to $\phi^* \eta : \phi^* F \Rightarrow \phi^* G$ over theory $T_2$, where $\phi^*$ denotes pullback along $\phi$. The naturality of $\eta$ is preserved by the functoriality of $\phi^*$.
+
+
 ## Performance {#sec-protolens-performance}
 
 | Operation | Complexity | Notes |
