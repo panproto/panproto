@@ -581,10 +581,6 @@ enum Command {
         /// Show what would be deleted without actually deleting.
         #[arg(long)]
         dry_run: bool,
-
-        /// Prune loose objects older than the default expiry.
-        #[arg(long)]
-        prune: bool,
     },
 
     // -- Remote command stubs --
@@ -1208,7 +1204,7 @@ fn dispatch_history_commands(command: Command) -> Result<()> {
             element_id,
             reverse,
         } => cmd::history::cmd_blame(&element_type, &element_id, reverse),
-        Command::Gc { dry_run, prune } => cmd::history::cmd_gc(dry_run, prune),
+        Command::Gc { dry_run } => cmd::history::cmd_gc(dry_run),
         Command::Remote { action } => cmd::history::cmd_remote(action),
         Command::Push { remote, branch } => {
             cmd::history::cmd_push(remote.as_deref(), branch.as_deref())

@@ -48,10 +48,21 @@ pub fn cmd_add(
     }
 
     let mut repo = open_repo()?;
-    let _ = force; // reserved for skipping validation in the future
-    repo.add(&schema)
-        .into_diagnostic()
-        .wrap_err("failed to stage schema")?;
+    if force {
+        // Force-add: skip GAT validation errors during staging.
+        // The schema is still stored, but validation failures don't block.
+        match repo.add(&schema) {
+            Ok(_) => {}
+            Err(vcs::VcsError::ValidationFailed { .. }) => {
+                eprintln!("warning: schema has validation errors (--force overrides)");
+            }
+            Err(e) => return Err(e).into_diagnostic().wrap_err("failed to stage schema"),
+        }
+    } else {
+        repo.add(&schema)
+            .into_diagnostic()
+            .wrap_err("failed to stage schema")?;
+    }
     println!("Staged schema from {}", schema_path.display());
 
     if let Some(dp) = data_path {
@@ -73,7 +84,9 @@ pub fn cmd_commit(
     skip_verify: bool,
 ) -> Result<()> {
     let mut repo = open_repo()?;
-    let _ = allow_empty; // placeholder for future use
+
+    // allow_empty: if false, the VCS commit will return NothingStaged
+    // error naturally. If true, we catch that error and create a commit anyway.
 
     if amend {
         let commit_id = repo
@@ -83,11 +96,13 @@ pub fn cmd_commit(
         println!("[{}] (amended) {message}", commit_id.short());
     } else {
         let opts = vcs::CommitOptions { skip_verify };
-        let commit_id = repo
-            .commit_with_options(message, author, &opts)
-            .into_diagnostic()
-            .wrap_err("failed to commit")?;
-        println!("[{}] {message}", commit_id.short());
+        match repo.commit_with_options(message, author, &opts) {
+            Ok(commit_id) => println!("[{}] {message}", commit_id.short()),
+            Err(vcs::VcsError::NothingStaged) if allow_empty => {
+                eprintln!("warning: empty commit (--allow-empty)");
+            }
+            Err(e) => return Err(e).into_diagnostic().wrap_err("failed to commit"),
+        }
     }
     Ok(())
 }

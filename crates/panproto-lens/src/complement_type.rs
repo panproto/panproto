@@ -149,6 +149,7 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
         ComplementConstructor::AddedElement {
             element_name,
             element_kind,
+            default_value,
         } => ComplementSpec {
             kind: ComplementKind::DefaultsRequired,
             forward_defaults: vec![DefaultRequirement {
@@ -157,7 +158,7 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                 description: format!(
                     "Default value needed for added {element_kind} '{element_name}'.",
                 ),
-                suggested_default: None,
+                suggested_default: default_value.clone(),
             }],
             captured_data: vec![],
             summary: format!("Adds {element_kind} '{element_name}' — default required."),

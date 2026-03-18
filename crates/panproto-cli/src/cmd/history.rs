@@ -285,7 +285,7 @@ pub fn cmd_blame(element_type: &str, element_id: &str, reverse: bool) -> Result<
     Ok(())
 }
 
-pub fn cmd_gc(dry_run: bool, _prune: bool) -> Result<()> {
+pub fn cmd_gc(dry_run: bool) -> Result<()> {
     let mut repo = open_repo()?;
 
     if dry_run {

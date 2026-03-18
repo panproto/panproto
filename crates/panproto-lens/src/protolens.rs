@@ -51,6 +51,7 @@ use std::sync::Arc;
 
 use panproto_gat::{Name, Operation, Sort, Theory, TheoryEndofunctor, TheoryTransform};
 use panproto_inst::CompiledMigration;
+use panproto_inst::value::Value;
 use panproto_schema::{Edge, Protocol, Schema, Vertex};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -92,8 +93,10 @@ pub enum ComplementConstructor {
     AddedElement {
         /// Name of the element being added.
         element_name: Name,
-        /// What kind of element: `"sort"` or `"op"`.
+        /// What kind of element (e.g. `"string"`, `"record"`).
         element_kind: String,
+        /// Default value to use when instantiating.
+        default_value: Option<Value>,
     },
     /// Composite complement from a chain.
     Composite(Vec<Self>),
@@ -733,10 +736,11 @@ pub mod elementary {
     #[must_use]
     pub fn add_sort(
         sort_name: impl Into<Name>,
-        _vertex_kind: impl Into<Name>,
-        _default: Value,
+        vertex_kind: impl Into<Name>,
+        default: Value,
     ) -> Protolens {
         let sort_name = sort_name.into();
+        let vertex_kind = vertex_kind.into();
         Protolens {
             name: Name::from(format!("add_sort_{sort_name}")),
             source: TheoryEndofunctor {
@@ -747,11 +751,14 @@ pub mod elementary {
             target: TheoryEndofunctor {
                 name: Arc::from(&*format!("add_{sort_name}")),
                 precondition: TheoryConstraint::Unconstrained,
+                // Use sort_name as the theory sort name — this maps to
+                // the vertex ID in apply_theory_transform_to_schema.
                 transform: TheoryTransform::AddSort(Sort::simple(name_arc_clone(&sort_name))),
             },
             complement_constructor: ComplementConstructor::AddedElement {
                 element_name: sort_name,
-                element_kind: "sort".into(),
+                element_kind: format!("{vertex_kind}"),
+                default_value: Some(default),
             },
         }
     }
@@ -811,11 +818,12 @@ pub mod elementary {
         op_name: impl Into<Name>,
         src_sort: impl Into<Name>,
         tgt_sort: impl Into<Name>,
-        _kind: impl Into<Name>,
+        kind: impl Into<Name>,
     ) -> Protolens {
         let op_name = op_name.into();
         let src_sort = src_sort.into();
         let tgt_sort = tgt_sort.into();
+        let kind = kind.into();
         Protolens {
             name: Name::from(format!("add_op_{op_name}")),
             source: TheoryEndofunctor {
@@ -828,14 +836,15 @@ pub mod elementary {
                 precondition: TheoryConstraint::Unconstrained,
                 transform: TheoryTransform::AddOp(Operation::unary(
                     name_arc_clone(&op_name),
-                    "x",
+                    name_arc_clone(&kind),
                     name_arc_clone(&src_sort),
                     name_arc_clone(&tgt_sort),
                 )),
             },
             complement_constructor: ComplementConstructor::AddedElement {
                 element_name: op_name,
-                element_kind: "op".into(),
+                element_kind: format!("{kind}"),
+                default_value: None,
             },
         }
     }
