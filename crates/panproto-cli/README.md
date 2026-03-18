@@ -84,6 +84,24 @@ schema lens old.json new.json --protocol atproto --fuse
 
 # Lift a record through a migration
 schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json record.json
+
+# Migrate data to match current schema version
+schema migrate records/ --protocol atproto
+schema migrate records/ --dry-run
+schema migrate records/ --range HEAD~3..HEAD
+schema migrate records/ --backward
+
+# Stage data alongside schema
+schema add schema.json --data records/
+
+# Show data staleness
+schema status --data records/
+
+# Checkout and migrate data
+schema checkout feature --migrate records/
+
+# Merge and migrate data
+schema merge feature --migrate records/
 ```
 
 ## Subcommands
@@ -107,15 +125,16 @@ schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json rec
 | `typecheck` | Type-check a migration between two schemas at the GAT level |
 | `verify` | Verify a schema satisfies its protocol theory's equations by model checking |
 | `init` | Initialize a `.panproto/` repository |
-| `add` | Stage a schema for the next commit |
+| `migrate` | Migrate data to match current schema version (`--dry-run`, `--range`, `--backward`) |
+| `add` | Stage a schema for the next commit (`--data` to stage data files alongside) |
 | `commit` | Commit staged changes (`--skip-verify` to bypass GAT equation verification) |
-| `status` | Show working state |
+| `status` | Show working state (`--data` to show data staleness) |
 | `log` | Walk commit history |
 | `show` | Inspect an object |
 | `branch` | Create, list, or delete branches |
 | `tag` | Create, list, or delete tags |
-| `checkout` | Switch branch or detach HEAD |
-| `merge` | Three-way schema merge (`--verbose` to show pullback overlap detection details) |
+| `checkout` | Switch branch or detach HEAD (`--migrate` to migrate data) |
+| `merge` | Three-way schema merge (`--verbose` to show pullback overlap details, `--migrate` to migrate data) |
 | `rebase` | Replay commits onto another branch |
 | `cherry-pick` | Apply a single commit's migration |
 | `reset` | Move HEAD / unstage / restore |

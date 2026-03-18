@@ -869,7 +869,8 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
                 if let (Some(old_path), Some(new_path)) = (old.as_deref(), new.as_deref()) {
                     // Generate a protolens chain between the two schemas/refs
                     // Reuse cmd_lens_diff for VCS refs, or generate directly for files
-                    let range = format!("{old}..{new}",
+                    let range = format!(
+                        "{old}..{new}",
                         old = old_path.display(),
                         new = new_path.display(),
                     );
@@ -2166,22 +2167,19 @@ fn cmd_convert(
 
     if data_path.is_dir() {
         // Directory mode: iterate *.json files.
-        let output_dir = output_path.ok_or_else(|| {
-            miette::miette!("specify -o for directory mode")
-        })?;
+        let output_dir =
+            output_path.ok_or_else(|| miette::miette!("specify -o for directory mode"))?;
         std::fs::create_dir_all(output_dir)
             .into_diagnostic()
-            .wrap_err_with(|| format!("failed to create output directory {}", output_dir.display()))?;
+            .wrap_err_with(|| {
+                format!("failed to create output directory {}", output_dir.display())
+            })?;
 
         let mut entries: Vec<_> = std::fs::read_dir(data_path)
             .into_diagnostic()
             .wrap_err_with(|| format!("failed to read directory {}", data_path.display()))?
             .filter_map(Result::ok)
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .is_some_and(|ext| ext == "json")
-            })
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
             .collect();
         entries.sort_by_key(std::fs::DirEntry::file_name);
 
@@ -2211,9 +2209,7 @@ fn cmd_convert(
                     let out_file = output_dir.join(&filename);
                     std::fs::write(&out_file, &pretty)
                         .into_diagnostic()
-                        .wrap_err_with(|| {
-                            format!("failed to write {}", out_file.display())
-                        })?;
+                        .wrap_err_with(|| format!("failed to write {}", out_file.display()))?;
                     println!("done");
                     converted += 1;
                 }
@@ -2295,7 +2291,14 @@ fn cmd_lens(
             miette::bail!("--verify requires at least one positional argument (schema)");
         }
         let second = args.get(1).map(PathBuf::as_path);
-        return cmd_lens_verify(&args[0], second, protocol_name, Some(verify_data), false, verbose);
+        return cmd_lens_verify(
+            &args[0],
+            second,
+            protocol_name,
+            Some(verify_data),
+            false,
+            verbose,
+        );
     }
     if let Some(apply_path) = apply {
         if args.len() == 1 {
@@ -2827,7 +2830,10 @@ fn cmd_lens_compose(
 }
 
 /// Resolve two schemas from a VCS commit range like "HEAD~1..HEAD".
-fn resolve_schemas_from_range(range: &str, verbose: bool) -> Result<(Schema, Schema, String, String)> {
+fn resolve_schemas_from_range(
+    range: &str,
+    verbose: bool,
+) -> Result<(Schema, Schema, String, String)> {
     let repo = open_repo()?;
 
     let (old_ref, new_ref) = if let Some(pos) = range.find("...") {
@@ -2871,11 +2877,24 @@ fn resolve_schemas_from_range(range: &str, verbose: bool) -> Result<(Schema, Sch
     };
 
     if verbose {
-        eprintln!("Old schema: {} vertices, {} edges", old_schema.vertex_count(), old_schema.edge_count());
-        eprintln!("New schema: {} vertices, {} edges", new_schema.vertex_count(), new_schema.edge_count());
+        eprintln!(
+            "Old schema: {} vertices, {} edges",
+            old_schema.vertex_count(),
+            old_schema.edge_count()
+        );
+        eprintln!(
+            "New schema: {} vertices, {} edges",
+            new_schema.vertex_count(),
+            new_schema.edge_count()
+        );
     }
 
-    Ok((old_schema, new_schema, old_ref.to_owned(), new_ref.to_owned()))
+    Ok((
+        old_schema,
+        new_schema,
+        old_ref.to_owned(),
+        new_ref.to_owned(),
+    ))
 }
 
 fn cmd_lens_diff(
@@ -2884,12 +2903,16 @@ fn cmd_lens_diff(
     save: Option<&Path>,
     verbose: bool,
 ) -> Result<()> {
-    let (old_schema, new_schema, old_ref, new_ref) =
-        resolve_schemas_from_range(range, verbose)?;
+    let (old_schema, new_schema, old_ref, new_ref) = resolve_schemas_from_range(range, verbose)?;
     let protocol = resolve_protocol(&old_schema.protocol)?;
-    let result = lens::auto_generate(&old_schema, &new_schema, &protocol, &lens::AutoLensConfig::default())
-        .into_diagnostic()
-        .wrap_err("failed to generate lens between committed schemas")?;
+    let result = lens::auto_generate(
+        &old_schema,
+        &new_schema,
+        &protocol,
+        &lens::AutoLensConfig::default(),
+    )
+    .into_diagnostic()
+    .wrap_err("failed to generate lens between committed schemas")?;
 
     if chain_output {
         let pretty = serde_json::to_string_pretty(&chain_to_json(&result.chain))
@@ -2901,13 +2924,19 @@ fn cmd_lens_diff(
         println!("  Alignment quality: {:.3}", result.alignment_quality);
         println!("  Steps: {}", result.chain.steps.len());
         for (i, step) in result.chain.steps.iter().enumerate() {
-            let tag = if step.is_lossless() { " (lossless)" } else { " (lossy)" };
+            let tag = if step.is_lossless() {
+                " (lossless)"
+            } else {
+                " (lossy)"
+            };
             println!("    {}. {}{tag}", i + 1, step.name);
         }
     }
 
     if let Some(save_path) = save {
-        let chain_json = result.chain.to_json()
+        let chain_json = result
+            .chain
+            .to_json()
             .into_diagnostic()
             .wrap_err("failed to serialize protolens chain")?;
         std::fs::write(save_path, &chain_json)
@@ -3551,6 +3580,25 @@ fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
             println!("Tagger:    {}", tag.tagger);
             println!("Date:      {}", format_timestamp(tag.timestamp));
             println!("\n    {}", tag.message);
+        }
+        vcs::Object::DataSet(ds) => {
+            println!("dataset {id}");
+            println!("Schema:    {}", ds.schema_id);
+            println!("Records:   {}", ds.record_count);
+            println!("Size:      {} bytes", ds.data.len());
+        }
+        vcs::Object::Complement(comp) => {
+            println!("complement {id}");
+            println!("Migration: {}", comp.migration_id);
+            println!("Data:      {}", comp.data_id);
+            println!("Size:      {} bytes", comp.complement.len());
+        }
+        vcs::Object::Protocol(proto) => {
+            println!("protocol {id}");
+            println!("Name:      {}", proto.name);
+            println!("Schema theory: {}", proto.schema_theory);
+            println!("Instance theory: {}", proto.instance_theory);
+            println!("Object kinds: {}", proto.obj_kinds.len());
         }
     }
     Ok(())

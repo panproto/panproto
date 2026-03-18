@@ -27,6 +27,15 @@ All notable changes to panproto will be documented in this file.
 - **panproto-lens**: `apply_to_fleet(chain, schemas, protocol)` — apply a protolens chain to a fleet of schemas, collecting successes in `FleetResult::applied` and failures with reasons in `FleetResult::skipped`.
 - **panproto-lens**: `lift_protolens(protolens, morphism)` / `lift_chain(chain, morphism)` — lift protolenses along theory morphisms for cross-protocol reuse. Composes endofunctor transforms with morphism renames and lifts preconditions.
 - **panproto-lens**: `ComplementConstructor::AddedElement` — complement prediction now reports defaults required for `add_sort`/`add_op` protolenses. `chain_complement_spec` tracks intermediate schema state through the chain.
+- **panproto-vcs**: `Object::DataSet` — content-addressed data snapshots binding instance data to a schema version. `DataSetObject` stores MessagePack-encoded instances with `schema_id` and `record_count`.
+- **panproto-vcs**: `Object::Complement` — persistent complement storage for backward migration. `ComplementObject` stores the complement data alongside `migration_id` and `data_id` references.
+- **panproto-vcs**: `Object::Protocol` — protocol (metaschema) definitions as first-class versioned objects. Pins a specific protocol version to a commit.
+- **panproto-vcs**: `CommitObject` gains `protocol_id`, `data_ids`, and `complement_ids` fields, connecting commits to data snapshots, complements, and protocol versions.
+- **panproto-vcs**: `data_mig` module — `migrate_forward` (data migration with complement storage), `migrate_backward` (restore from complement), `detect_staleness` (check if data needs migration), `migrate_through_path` (multi-step migration through commit DAG).
+- **panproto-vcs**: `Repository::add_data(path)` — stage data files alongside schema changes. `Repository::add_protocol(protocol)` — stage protocol definitions.
+- **panproto-vcs**: `Repository::checkout_with_data(target, data_dir)`, `merge_with_data(branch, author, data_dir)` — VCS operations that automatically migrate data.
+- **panproto-cli**: `schema migrate <data_dir>` — migrate data to match current schema version, with `--dry-run`, `--range`, `--backward`, `-o` flags.
+- **panproto-cli**: `--data` flag on `schema add`, `schema status`, `schema log`; `--migrate` flag on `schema checkout`, `schema merge`.
 
 ### Changed
 
@@ -37,6 +46,8 @@ All notable changes to panproto will be documented in this file.
 - **panproto-lens**: `chain_complement_spec` now requires `protocol: &Protocol` parameter
 - **panproto-lens**: `ComplementConstructor` gains `AddedElement` variant
 - **panproto-lens**: `add_sort`/`add_op` protolenses report `DefaultsRequired` complement (previously `Empty`)
+- **panproto-vcs**: `CommitObject` gains required fields `protocol_id`, `data_ids`, `complement_ids` — existing serialized commits will not deserialize
+- **panproto-vcs**: `Index` gains `staged_data` and `staged_protocol` fields — existing index.json will not deserialize
 
 ### Removed (Breaking)
 

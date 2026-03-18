@@ -52,6 +52,9 @@ book:
         - chapters/16-protolenses.qmd
         - chapters/17-automatic-lens-generation.qmd
         - chapters/18-symmetric-lenses.qmd
+    - part: "Data Versioning"
+      chapters:
+        - chapters/19-data-versioning.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-formal-foundations.qmd

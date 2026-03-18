@@ -1,0 +1,280 @@
+# Data Versioning Internals {#sec-data-versioning-internals}
+
+This chapter covers the object model, algorithms, and integration points for data versioning in `panproto-vcs`. For the user-facing workflow, see the [tutorial's data versioning chapter](https://panproto.dev/tutorial/chapters/19-data-versioning.html).
+
+## Object model: DataSetObject, ComplementObject, Protocol {#sec-data-object-model}
+
+**File**: `crates/panproto-vcs/src/objects.rs`
+
+Three new variants join the `Object` enum:
+
+```{.rust}
+pub enum Object {
+    Schema(Schema),
+    Migration(CompiledMigration),
+    Commit(CommitObject),
+    Tag(TagObject),
+    DataSet(DataSetObject),
+    Complement(ComplementObject),
+    Protocol(Protocol),
+}
+```
+
+### DataSetObject
+
+A `DataSetObject` is a content-addressed snapshot of instance data bound to a specific schema version:
+
+```{.rust}
+pub struct DataSetObject {
+    pub schema_id: ObjectId,
+    pub record_count: usize,
+    pub data: Vec<u8>, // MessagePack-encoded instances
+}
+```
+
+The `data` field stores all instances as a single MessagePack array. Each element is a serialized `WInstance` or `FInstance`. The `schema_id` links the snapshot to the schema these instances conform to.
+
+Content addressing means two snapshots with identical data and schema produce the same `ObjectId`. This provides deduplication: if the same records are staged multiple times against the same schema, only one object is stored.
+
+### ComplementObject
+
+A `ComplementObject` stores the data lost during a forward migration step:
+
+```{.rust}
+pub struct ComplementObject {
+    pub migration_id: ObjectId,
+    pub data_id: ObjectId,
+    pub complement: Vec<u8>, // MessagePack-encoded complement
+}
+```
+
+- **`migration_id`**: the `ObjectId` of the `Migration` object that produced this complement.
+- **`data_id`**: the `ObjectId` of the `DataSetObject` the complement was extracted from.
+- **`complement`**: the serialized complement data (field values removed by `RemoveVertex`, edge data removed by `RemoveEdge`, etc.).
+
+The complement's content hash depends on all three fields. Two different migrations applied to the same data produce different complement objects even if the complement bytes happen to be identical, because the `migration_id` differs.
+
+### Protocol variant
+
+The `Protocol` variant stores a complete `panproto_protocols::Protocol` value. This is the same struct used throughout the codebase---no wrapper or subset. Serialization uses the existing `serde` implementation with MessagePack encoding.
+
+## CommitObject extensions {#sec-commit-extensions}
+
+**File**: `crates/panproto-vcs/src/objects.rs`
+
+`CommitObject` gains three fields:
+
+```{.rust}
+pub struct CommitObject {
+    pub schema_id: ObjectId,
+    pub parent_ids: Vec<ObjectId>,
+    pub migration_id: Option<ObjectId>,
+    pub message: String,
+    pub author: String,
+    pub timestamp: u64,
+    pub renames: Vec<SiteRename>,
+    // New fields:
+    pub protocol_id: Option<ObjectId>,
+    pub data_ids: Vec<ObjectId>,
+    pub complement_ids: Vec<ObjectId>,
+}
+```
+
+- **`protocol_id`**: optional reference to a `Protocol` object. When present, this commit is pinned to a specific protocol version. Validation uses this protocol rather than the ambient protocol.
+- **`data_ids`**: references to `DataSetObject` values staged with this commit. A commit can have zero or more data snapshots (one per data directory).
+- **`complement_ids`**: references to `ComplementObject` values generated during data migration. These are stored at commit time so that backward migration can retrieve them.
+
+:::{.callout-note}
+These fields are not `serde(default)`. Existing serialized commits will fail to deserialize. This is a breaking change. Repositories created before this version must be re-initialized.
+:::
+
+## Hash functions: canonical forms for new types {#sec-data-hash-functions}
+
+**File**: `crates/panproto-vcs/src/hash.rs`
+
+Content addressing requires a canonical serialization. The existing `hash_object` function dispatches on the `Object` variant. Three new arms handle the new types:
+
+```{.rust}
+Object::DataSet(ds) => {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(b"dataset\0");
+    buf.extend_from_slice(&ds.schema_id.0);
+    rmp_serde::encode::write(&mut buf, &ds.data)?;
+    blake3::hash(&buf)
+}
+Object::Complement(c) => {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(b"complement\0");
+    buf.extend_from_slice(&c.migration_id.0);
+    buf.extend_from_slice(&c.data_id.0);
+    rmp_serde::encode::write(&mut buf, &c.complement)?;
+    blake3::hash(&buf)
+}
+Object::Protocol(p) => {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(b"protocol\0");
+    rmp_serde::encode::write(&mut buf, p)?;
+    blake3::hash(&buf)
+}
+```
+
+Each canonical form starts with a type tag (`dataset\0`, `complement\0`, `protocol\0`) to prevent hash collisions between objects of different types that happen to have the same byte content. This follows the same pattern used by `Schema`, `Migration`, and `Commit`.
+
+## data_mig.rs: migrate_forward/backward algorithms {#sec-data-mig-algorithms}
+
+**File**: `crates/panproto-vcs/src/data_mig.rs`
+
+### migrate_forward
+
+`migrate_forward` takes a `DataSetObject`, a `CompiledMigration`, and the store, and returns a new `DataSetObject` plus a `ComplementObject`:
+
+1. Deserialize the MessagePack instances from `data.data`.
+2. For each instance, apply the migration's `lift_wtype` (or `lift_functor` for functor instances), capturing the complement.
+3. Collect all complements into a single MessagePack array.
+4. Construct the new `DataSetObject` with the target schema's `ObjectId` and the migrated instances.
+5. Construct the `ComplementObject` with the migration's `ObjectId`, the original data's `ObjectId`, and the complement bytes.
+6. Store both objects and return their `ObjectId` values.
+
+If the migration is lossless (complement is empty for every instance), no `ComplementObject` is created. The function returns `None` for the complement ID.
+
+### migrate_backward
+
+`migrate_backward` takes a `DataSetObject`, a `ComplementObject`, and a `CompiledMigration`:
+
+1. Invert the migration via `panproto_mig::invert`.
+2. Deserialize both the data instances and the complement instances.
+3. For each (instance, complement) pair, apply the inverted migration's `lift_wtype` with the complement data restored.
+4. Construct a new `DataSetObject` bound to the source schema.
+
+Backward migration fails with `Error::MissingComplement` if the complement object cannot be found in the store. Lossless steps do not need complements---the inverted migration can reconstruct the original data without external input.
+
+### detect_staleness
+
+`detect_staleness` takes a list of `DataSetObject` IDs and the current HEAD commit's schema ID:
+
+1. For each data set, compare `data.schema_id` against the HEAD schema ID.
+2. If they differ, find the DAG path from `data.schema_id` to the HEAD schema.
+3. Return a `StalenessReport` for each stale data set: the path length, the transform types along the path, and whether any step requires a complement.
+
+The function does not migrate data. It is a read-only diagnostic.
+
+### migrate_through_path
+
+`migrate_through_path` composes `migrate_forward` along a DAG path:
+
+1. Walk the commit path from the data's schema version to the target commit.
+2. At each step, extract the migration from the commit and call `migrate_forward`.
+3. Chain the resulting `DataSetObject` into the next step's input.
+4. Collect all `ComplementObject` IDs for storage in the final commit.
+
+For backward segments of a path (when the target is an ancestor), the function uses `migrate_backward` with the stored complements.
+
+## Complement lifecycle: creation, storage, retrieval, GC {#sec-complement-lifecycle}
+
+Complements follow the same lifecycle as other objects in the store:
+
+1. **Creation**: `migrate_forward` produces a `ComplementObject` and writes it to the store.
+2. **Storage**: The `ComplementObject`'s `ObjectId` is recorded in the `CommitObject`'s `complement_ids` field.
+3. **Retrieval**: `migrate_backward` looks up the complement by walking the commit's `complement_ids` and matching on `migration_id` and `data_id`.
+4. **GC**: `gc::mark_sweep` marks complements reachable from any commit in the reflog. Unreachable complements are deleted.
+
+:::{.callout-tip}
+Complements are only generated for lossy migrations. A chain of five rename steps produces zero complement objects. A single `RemoveVertex` step produces one complement object per data set. Storage cost is proportional to the data actually lost, not the number of migration steps.
+:::
+
+The retrieval algorithm in `migrate_backward` is:
+
+1. Find the commit whose `data_ids` contains the current data set's `ObjectId`.
+2. Scan that commit's `complement_ids` for a `ComplementObject` whose `migration_id` matches the step's migration and whose `data_id` matches the input data set.
+3. If found, deserialize and use. If not found and the step is lossy, return `Error::MissingComplement`.
+
+## DAG path migration: multi-step data migration through commit history {#sec-dag-path-migration}
+
+`migrate_through_path` handles three cases:
+
+**Linear path (ancestor to descendant)**: walk forward through each commit, applying `migrate_forward` at each step. Each step's output `DataSetObject` becomes the next step's input.
+
+**Linear path (descendant to ancestor)**: walk backward through each commit, applying `migrate_backward` with stored complements. This is the `--backward` flag in the CLI.
+
+**Non-linear path (across branches)**: find the LCA (lowest common ancestor) of the source and target commits. Walk backward from the source to the LCA, then forward from the LCA to the target. The backward leg consumes complements; the forward leg produces new ones.
+
+The path is computed by `dag::find_path`, which returns a sequence of `(CommitObject, Direction)` pairs. `Direction::Forward` means the migration at this commit should be applied as-is. `Direction::Backward` means the migration should be inverted.
+
+## checkout_with_data / merge_with_data integration {#sec-checkout-merge-integration}
+
+**File**: `crates/panproto-vcs/src/repo.rs`
+
+### checkout_with_data
+
+```{.rust}
+pub fn checkout_with_data(
+    &mut self,
+    target: &str,
+    data_dir: &Path,
+) -> Result<Vec<ObjectId>>
+```
+
+1. Resolve `target` to a commit ID.
+2. Read all data files from `data_dir` and construct a `DataSetObject` bound to the current HEAD schema.
+3. Find the DAG path from the current HEAD to the target commit.
+4. Call `migrate_through_path` with the data set and the path.
+5. Write migrated records back to `data_dir`.
+6. Perform the normal `checkout` (update HEAD, update index).
+7. Return the `ObjectId` values of any complements generated.
+
+### merge_with_data
+
+```{.rust}
+pub fn merge_with_data(
+    &mut self,
+    branch: &str,
+    author: &str,
+    data_dir: &Path,
+) -> Result<MergeResult>
+```
+
+1. Perform the normal `merge` (three-way pushout, conflict detection).
+2. If the merge succeeds (no conflicts), derive the protolens chain from the current branch's schema to the merged schema.
+3. Read data from `data_dir`, construct a `DataSetObject`, and apply `migrate_forward` with the derived migration.
+4. Store complements.
+5. Write migrated records to `data_dir`.
+6. Include the data and complement `ObjectId` values in the merge commit's `data_ids` and `complement_ids`.
+
+If the merge has conflicts, data migration is skipped. The `MergeResult` contains the conflicts, and the caller must resolve them before migrating data.
+
+## Index staging: StagedData, staged_protocol {#sec-index-staging}
+
+**File**: `crates/panproto-vcs/src/objects.rs`
+
+The `Index` struct gains two fields:
+
+```{.rust}
+pub struct Index {
+    pub staged_schema: Option<StagedSchema>,
+    pub staged_data: Vec<StagedData>,
+    pub staged_protocol: Option<Protocol>,
+}
+```
+
+### StagedData
+
+```{.rust}
+pub struct StagedData {
+    pub path: PathBuf,
+    pub data: DataSetObject,
+}
+```
+
+`StagedData` records the filesystem path and the constructed `DataSetObject`. Multiple data directories can be staged simultaneously (one `StagedData` per directory).
+
+`Repository::add_data(path)` reads all files in `path`, serializes them as instances, constructs a `DataSetObject` bound to the current HEAD schema, and appends to `staged_data`.
+
+### staged_protocol
+
+`Repository::add_protocol(protocol)` sets `staged_protocol` to the provided `Protocol` value. At commit time, the protocol is stored as an `Object::Protocol` and its `ObjectId` is written to the `CommitObject`'s `protocol_id` field.
+
+Only one protocol can be staged per commit. Calling `add_protocol` twice overwrites the first.
+
+:::{.callout-note}
+The `Index` is serialized as JSON to `.panproto/index.json`. The new fields use `serde(default)` on `staged_data` (defaults to empty vec) but `staged_protocol` is `Option<Protocol>` (defaults to `None`). This means old index files missing these fields will deserialize with empty data staging, but the `Index` struct itself is a breaking change because the `CommitObject` it produces now requires the new fields.
+:::

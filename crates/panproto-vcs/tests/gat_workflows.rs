@@ -257,6 +257,8 @@ fn commit_blocked_by_equation_violation_then_skip_verify() -> Result<(), Box<dyn
             validation: panproto_vcs::index::ValidationStatus::Valid,
             gat_diagnostics: Some(diag),
         }),
+        staged_data: vec![],
+        staged_protocol: None,
     };
 
     // Write the index by serializing to JSON at the expected location.

@@ -167,6 +167,9 @@ schema branch feature
 schema checkout feature
 schema merge main
 schema log
+
+# Migrate data to match current schema
+schema migrate records/
 ```
 
 ## Building
@@ -197,6 +200,8 @@ panproto implements a four-level architecture rooted in category theory. The GAT
 **Protolenses** are the primary abstraction for bidirectional schema transformations. A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a concrete pair (`get`, `put`) between two fixed schemas. A protolens is *not* a lens — it is a [dependent function](https://ncatlab.org/nlab/show/dependent+product+type) from schemas to lenses: `Π(S : Schema | P(S)). Lens(F(S), G(S))`. A single protolens works on any schema satisfying its precondition; a lens is bound to the exact schemas it was built for. Elementary protolens constructors provide the atomic building blocks, while `auto_generate` derives an entire lens automatically from two schemas. `SymmetricLens` pairs two protolens chains for full bidirectional synchronization. Protolens chains can be serialized for cross-project reuse, applied to fleets of schemas in batch, and lifted across protocols via theory morphisms.
 
 **Schematic version control** (`panproto-vcs`) provides git-style operations (commit, branch, merge, rebase, cherry-pick, bisect, blame) operating on schema graphs rather than text. Merges are computed as categorical pushouts. There is no heuristic tie-breaking; the merge is commutative.
+
+**Data versioning** stores instance data, complements, and protocol definitions as content-addressed objects alongside schemas in the commit DAG. `schema migrate` automatically generates lenses from the schema history and applies them to data files. Complements are persisted so backward migration never loses data. `schema checkout --migrate` and `schema merge --migrate` handle data migration as part of normal VCS operations.
 
 **Automatic migration discovery** finds schema morphisms via backtracking CSP with MRV heuristic, discovers overlaps between schemas, and computes schema-level pushouts for merging disparate formats.
 

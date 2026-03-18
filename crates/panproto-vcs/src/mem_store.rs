@@ -135,6 +135,9 @@ fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
         Object::Migration { src, tgt, mapping } => hash::hash_migration(*src, *tgt, mapping),
         Object::Commit(commit) => hash::hash_commit(commit),
         Object::Tag(tag) => hash::hash_tag(tag),
+        Object::DataSet(dataset) => hash::hash_dataset(dataset),
+        Object::Complement(complement) => hash::hash_complement(complement),
+        Object::Protocol(protocol) => hash::hash_protocol(protocol),
     }
 }
 

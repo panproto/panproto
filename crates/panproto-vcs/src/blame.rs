@@ -196,6 +196,9 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let commit_id = store.put(&Object::Commit(commit))?;
 
@@ -221,6 +224,9 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
 
@@ -236,6 +242,9 @@ mod tests {
             timestamp: 200,
             message: "add b".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let c1_id = store.put(&Object::Commit(c1))?;
 
@@ -260,6 +269,9 @@ mod tests {
             timestamp: 100,
             message: "initial".into(),
             renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
         };
         let commit_id = store.put(&Object::Commit(commit))?;
 

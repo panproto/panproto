@@ -46,6 +46,7 @@ book:
         - chapters/22-advanced-internals.qmd
         - chapters/26-protolens-engine.qmd
         - chapters/27-auto-lens-pipeline.qmd
+        - chapters/28-data-versioning.qmd
     - part: "Contributing Process"
       chapters:
         - chapters/16-conventions.qmd

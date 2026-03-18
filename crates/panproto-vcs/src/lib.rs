@@ -53,6 +53,6 @@ pub use fs_store::FsStore;
 pub use hash::ObjectId;
 pub use index::Index;
 pub use mem_store::MemStore;
-pub use object::{CommitObject, Object, TagObject};
+pub use object::{CommitObject, ComplementObject, DataSetObject, Object, TagObject};
 pub use repo::{CommitOptions, Repository};
 pub use store::{HeadState, ReflogEntry, Store};
