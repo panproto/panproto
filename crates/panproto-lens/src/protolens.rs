@@ -742,8 +742,8 @@ pub fn lift_chain(
 /// protolenses are composed.
 pub mod elementary {
     use panproto_gat::{
-        Equation, Name, Operation, Sort, TheoryConstraint, TheoryEndofunctor, TheoryMorphism,
-        TheoryTransform,
+        DirectedEquation, Equation, Name, Operation, Sort, TheoryConstraint, TheoryEndofunctor,
+        TheoryMorphism, TheoryTransform,
     };
     use panproto_inst::value::Value;
     use std::sync::Arc;
@@ -971,6 +971,59 @@ pub mod elementary {
                 name: Arc::from(&*format!("pullback_{morph_name}")),
                 precondition: TheoryConstraint::Unconstrained,
                 transform: TheoryTransform::Pullback(morphism),
+            },
+            complement_constructor: ComplementConstructor::Empty,
+        }
+    }
+
+    /// Add a directed equation (lax natural transformation component).
+    ///
+    /// A protolens with a directed equation is a lax natural transformation:
+    /// the naturality square commutes up to the directed equation's
+    /// computation. The `impl_term` provides the forward direction; the
+    /// complement captures the pre-image when the inverse is absent.
+    #[must_use]
+    pub fn directed_eq(deq: DirectedEquation) -> Protolens {
+        let deq_name = Arc::clone(&deq.name);
+        let has_inverse = deq.inverse.is_some();
+        Protolens {
+            name: Name::from(format!("directed_eq_{deq_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("add_deq_{deq_name}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::AddDirectedEquation(deq),
+            },
+            complement_constructor: if has_inverse {
+                ComplementConstructor::Empty
+            } else {
+                ComplementConstructor::DroppedOpData {
+                    op: Name::from(&*deq_name),
+                }
+            },
+        }
+    }
+
+    /// Drop a directed equation.
+    #[must_use]
+    pub fn drop_directed_eq(deq_name: impl Into<Name>) -> Protolens {
+        let deq_name = deq_name.into();
+        let arc = name_arc_clone(&deq_name);
+        Protolens {
+            name: Name::from(format!("drop_deq_{deq_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::HasDirectedEq(Arc::clone(&arc)),
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("drop_deq_{deq_name}")),
+                precondition: TheoryConstraint::HasDirectedEq(Arc::clone(&arc)),
+                transform: TheoryTransform::DropDirectedEquation(Arc::clone(&arc)),
             },
             complement_constructor: ComplementConstructor::Empty,
         }

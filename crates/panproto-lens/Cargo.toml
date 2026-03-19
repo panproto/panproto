@@ -12,6 +12,7 @@ panproto-mig = { workspace = true }
 panproto-inst = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-gat = { workspace = true }
+panproto-expr = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }

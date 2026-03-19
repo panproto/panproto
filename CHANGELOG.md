@@ -2,6 +2,19 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.9.0] - 2026-03-19
+
+### Added — Directed Equation Protolenses
+
+- **panproto-lens**: `elementary::directed_eq` — lax natural transformation protolens constructor for value-dependent schema migrations. Takes a `DirectedEquation` with `impl_term: Expr` and optional `inverse: Expr`. The complement captures the pre-image when the inverse is absent (lossy transform). This is the same complement-tracking mechanism used by `drop_sort` and `drop_op`.
+- **panproto-lens**: `elementary::drop_directed_eq` — removes a directed equation from a theory.
+- **panproto-lens**: `endofunctor_to_protolens` now handles `AddDirectedEquation` and `DropDirectedEquation` transforms (previously rejected with "value-level transforms not yet supported").
+- 8 integration tests parsing real RelationalText and Layers ATProto lexicons via `atproto::parse_lexicon`.
+
+### Changed
+
+- **panproto-lens**: `panproto-expr` added as a dependency (for `DirectedEquation` evaluation in protolens constructors).
+
 ## [0.8.0]
 
 ### Added — Enriched Theories: Expression Language, Directed Equations, Value Sorts

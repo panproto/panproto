@@ -207,12 +207,15 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
         TheoryTransform::AddEquation(eq) => Ok(elementary::add_equation(eq.clone())),
         TheoryTransform::DropEquation(name) => Ok(elementary::drop_equation(Name::from(&**name))),
         TheoryTransform::Pullback(morphism) => Ok(elementary::pullback(morphism.clone())),
-        TheoryTransform::AddDirectedEquation(_)
-        | TheoryTransform::DropDirectedEquation(_)
-        | TheoryTransform::CoerceSort { .. }
-        | TheoryTransform::MergeSorts { .. } => Err(LensError::ProtolensError(
-            "value-level transforms not yet supported as protolenses".into(),
-        )),
+        TheoryTransform::AddDirectedEquation(deq) => Ok(elementary::directed_eq(deq.clone())),
+        TheoryTransform::DropDirectedEquation(name) => {
+            Ok(elementary::drop_directed_eq(Name::from(&**name)))
+        }
+        TheoryTransform::CoerceSort { .. } | TheoryTransform::MergeSorts { .. } => {
+            Err(LensError::ProtolensError(
+                "coercion/merge transforms not yet supported as protolenses".into(),
+            ))
+        }
         TheoryTransform::Identity => Err(LensError::ProtolensError(
             "unexpected Identity in factorization".into(),
         )),

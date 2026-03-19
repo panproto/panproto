@@ -15,7 +15,7 @@ A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a conc
 |------|-------------|
 | `Protolens` | A dependent function from schemas to lenses: `Π(S : Schema \| P(S)). Lens(F(S), G(S))` |
 | `ProtolensChain` | Composable sequence of protolenses forming a reusable, schema-independent lens family |
-| `elementary::*` | Elementary protolens constructors (add sort, remove sort, rename sort, add op, remove op, rename op, etc.) |
+| `elementary::*` | Elementary protolens constructors (add/drop/rename sort, add/drop/rename op, add/drop equation, directed equation, pullback) |
 | `auto_generate` | Automatically generate a lens between two schemas by factorizing the underlying morphism |
 | `AutoLensConfig` | Configuration for auto-generation (strategy, max steps, etc.) |
 | `AutoLensResult` | Result of auto-generation: lens, protolens chain, and human-readable summary |
