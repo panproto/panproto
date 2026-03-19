@@ -27,18 +27,19 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 
 | Crate | Description |
 |-------|-------------|
-| [`panproto-gat`](crates/panproto-gat) | GAT engine: sorts, operations, equations, theory morphisms, colimits, schema endofunctors, and factorization |
+| [`panproto-gat`](crates/panproto-gat) | GAT engine: sorts, operations, equations, directed equations, theory morphisms, colimits, endofunctors, refinement types, and equality witnesses |
+| [`panproto-expr`](crates/panproto-expr) | Pure functional expression language: lambda calculus with closures, pattern matching, ~50 builtins, step/depth limits |
 | [`panproto-schema`](crates/panproto-schema) | Schema representation with protocol-aware builder and adjacency indices |
 | [`panproto-inst`](crates/panproto-inst) | [W-type](https://ncatlab.org/nlab/show/W-type), set-valued functor, and graph instances with restrict/extend/Kan extension pipelines |
-| [`panproto-mig`](crates/panproto-mig) | Migration engine: existence checks, compilation, lift, compose, invert, automatic morphism discovery |
-| [`panproto-lens`](crates/panproto-lens) | [Protolenses](https://ncatlab.org/nlab/show/natural+transformation): schema-parameterized lens families, auto-generation, symmetric lenses, and law verification |
+| [`panproto-mig`](crates/panproto-mig) | Migration engine: existence checks, compilation, lift, compose, invert, coverage analysis |
+| [`panproto-lens`](crates/panproto-lens) | [Protolenses](https://ncatlab.org/nlab/show/natural+transformation): schema-parameterized lens families, optic classification, symbolic simplification, auto-generation |
 | [`panproto-check`](crates/panproto-check) | Breaking change detection via structural diffing and protocol-aware classification |
-| [`panproto-protocols`](crates/panproto-protocols) | 76 built-in protocol definitions composed from 27 building-block theories |
+| [`panproto-protocols`](crates/panproto-protocols) | 77 built-in protocol definitions composed from 34 building-block theories |
 | [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs (JSON, XML, tabular, web documents) |
 | [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge |
 | [`panproto-core`](crates/panproto-core) | Re-export facade |
 | [`panproto-wasm`](crates/panproto-wasm) | WASM bindings with handle-based slab allocator, MessagePack boundary, and protolens entry points |
-| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, convert, lens, and git-style version control |
+| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, convert, lens, expr, enrich, and git-style version control |
 
 ### SDKs
 

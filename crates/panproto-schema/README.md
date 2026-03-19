@@ -11,14 +11,14 @@ A schema is a model of a protocol's schema theory [GAT](https://ncatlab.org/nlab
 
 | Item | Description |
 |------|-------------|
-| `Schema` | Core schema graph with vertices, edges, hyper-edges, constraints, variants, orderings, recursion points, spans, usage modes, and nominal identity markers |
+| `Schema` | Core schema graph with vertices, edges, hyper-edges, constraints, variants, orderings, recursion points, spans, usage modes, nominal identity, and enrichment fields (coercions, mergers, defaults, policies) |
 | `Vertex` | A node in the schema graph (id, kind, optional NSID) |
 | `Edge` | A directed edge between vertices (src, tgt, kind, name) |
 | `HyperEdge` | Multi-target edge for union/intersection types |
 | `Constraint` | Schema-level constraint (e.g., cardinality, uniqueness) |
 | `Variant` / `Ordering` / `RecursionPoint` / `Span` / `UsageMode` | Extended schema elements from building-block theories |
-| `SchemaBuilder` | Fluent, protocol-aware builder with per-element validation |
-| `Protocol` / `EdgeRule` | Protocol configuration describing allowed schema structure |
+| `SchemaBuilder` | Fluent, protocol-aware builder with per-element validation. Enrichment methods: `coercion()`, `merger()`, `default_expr()`, `policy()` |
+| `Protocol` / `EdgeRule` | Protocol configuration with enrichment flags: `has_defaults`, `has_coercions`, `has_mergers`, `has_policies` |
 | `SchemaMorphism` | Explicit schema morphism (functor F: S → T) with vertex/edge maps |
 | `normalize` | Collapse ref-chains in schemas with `Ref` vertices |
 | `validate` | Post-hoc validation of a schema against a protocol |

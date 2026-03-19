@@ -27,6 +27,9 @@ This crate provides three models for concrete data instances that conform to sch
 | `functor_pi` | Right Kan extension for functor instances |
 | `graph_restrict` | Restrict pipeline for graph-shaped instances |
 | `CompiledMigration` | Pre-computed migration data for fast per-record application |
+| `Provenance` / `ProvenanceMap` | Data lineage tracking: which source fields contributed to each target field |
+| `SourceField` / `TransformStep` | Provenance detail: source references and transform chain steps |
+| `compute_provenance` | Build a provenance map from source/target nodes and a vertex remapping |
 | `InstError` / `ParseError` / `RestrictError` | Error types |
 
 ## Example

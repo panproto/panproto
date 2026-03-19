@@ -26,6 +26,9 @@ This crate computes and applies schema migrations, transforming instances from o
 | `discover_overlap` | Find the largest shared sub-schema between two schemas |
 | `chase` | Chase algorithm for enforcing embedded dependencies |
 | `cascade` | Induce schema morphisms from theory morphisms (output feeds into `factorize` for protolens generation) |
+| `check_coverage` | Dry-run migration: test each record individually and report success/failure with structured reasons |
+| `CoverageReport` | Coverage statistics: total records, successful, failed (with `PartialFailure` details), coverage ratio |
+| `PartialReason` | Structured failure reasons: ConstraintViolation, MissingRequiredField, TypeMismatch, ExprEvalFailed |
 | `MigError` / `ComposeError` / `InvertError` / `LiftError` | Error types |
 
 ## Example

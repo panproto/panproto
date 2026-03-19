@@ -19,7 +19,7 @@ A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a conc
 | `auto_generate` | Automatically generate a lens between two schemas by factorizing the underlying morphism |
 | `AutoLensConfig` | Configuration for auto-generation (strategy, max steps, etc.) |
 | `AutoLensResult` | Result of auto-generation: lens, protolens chain, and human-readable summary |
-| `ComplementConstructor` | Schema-parameterized complement factory derived from a protolens chain |
+| `ComplementConstructor` | Schema-parameterized complement factory: Empty, DroppedSortData, CoercedData, MergedSortData, DefaultedSort, Composite |
 | `ComplementSpec` | Dependent complement type evaluation for a protolens step |
 | `DefaultRequirement` | Specifies default values required when a protolens adds structure |
 | `CapturedField` | A field captured into the complement during a `get` step |
@@ -37,6 +37,10 @@ A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a conc
 | `apply_to_fleet` | Apply a chain to a fleet of schemas |
 | `lift_protolens` / `lift_chain` | Lift protolenses along theory morphisms for cross-protocol reuse |
 | `ComplementConstructor::AddedElement` | Complement variant for elements requiring defaults |
+| `OpticKind` | Optic classification: Iso, Lens, Prism, Affine, Traversal |
+| `classify_transform` | Classify a `TheoryTransform` into its optic kind |
+| `SymbolicStep` | Symbolic representation of protolens steps for algebraic simplification |
+| `simplify_steps` | Normalize a step sequence via inverse cancellation, rename fusion, and add-drop cancellation |
 
 ### Lenses
 

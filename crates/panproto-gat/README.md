@@ -11,11 +11,14 @@ This is Level 0 of the panproto architecture: the only component implemented dir
 
 | Item | Description |
 |------|-------------|
-| `Theory` | Named collection of sorts, operations, and equations |
+| `Theory` | Named collection of sorts, operations, equations, directed equations, and conflict policies |
 | `resolve_theory` | Resolve a theory by name from a registry |
-| `Sort` / `SortParam` | Type declarations, including dependent sorts |
+| `Sort` / `SortParam` / `SortKind` | Type declarations with kind classification (Structural, Val, Coercion, Merger) |
+| `ValueKind` | Primitive value kinds: Bool, Int, Float, Str, Bytes, Token, Null, Any |
 | `Operation` | Term constructor with typed inputs and outputs |
 | `Equation` / `Term` | Judgemental equalities between terms |
+| `DirectedEquation` | Rewrite rules with `impl_term` (Expr) and optional `inverse` |
+| `ConflictPolicy` / `ConflictStrategy` | Conflict resolution: KeepLeft, KeepRight, Fail, Custom(Expr) |
 | `TheoryMorphism` | Structure-preserving map between theories |
 | `check_morphism` | Validate that a morphism is well-formed |
 | `colimit` | Compute pushouts of theories for composition |
@@ -40,8 +43,11 @@ This is Level 0 of the panproto architecture: the only component implemented dir
 | `FreeModelConfig` | Configuration: `max_depth` and `max_terms_per_sort` bounds |
 | `quotient` | Quotient a theory by identifying sorts and/or operations via union-find |
 | `TheoryEndofunctor` | [Theory endofunctor](https://ncatlab.org/nlab/show/endofunctor) with precondition and transform for protolens construction |
-| `TheoryTransform` | 11 variants for elementary theory transformations (add/remove/rename sort, add/remove/rename op, etc.) |
-| `TheoryConstraint` | Precondition predicates on theories (has sort, has op, arity check, etc.) |
+| `TheoryTransform` | 16 variants: structural (add/remove/rename sort/op/equation, pullback, compose) and enriched (CoerceSort, MergeSorts, AddSortWithDefault, AddDirectedEquation, DropDirectedEquation) |
+| `TheoryConstraint` | Precondition predicates: HasSort, HasOp, HasEquation, HasDirectedEq, HasValSort, HasCoercion, HasMerger, HasPolicy, All, Any, Not |
+| `RefinedSort` / `RefinementConstraint` | Refinement types with subsort checking via interval containment |
+| `AlgStruct` / `StructField` | Algebraic struct types in theories |
+| `EqWitness` / `WitnessJustification` | Propositional equality proofs: Reflexivity, Axiom, Symmetry, Transitivity, Congruence, RuntimeChecked |
 | `factorize` | Decompose a `TheoryMorphism` into a sequence of elementary endofunctors |
 | `Factorization` | Result of factorization: ordered list of `TheoryEndofunctor` steps |
 | `validate_factorization` | Verify that a factorization correctly reproduces the original morphism |
