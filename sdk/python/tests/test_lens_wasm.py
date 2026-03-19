@@ -1,4 +1,4 @@
-"""Tests for LensHandle, from_combinators, law checking, and lens composition."""
+"""Tests for LensHandle, law checking, and lens composition."""
 
 from __future__ import annotations
 
@@ -8,8 +8,7 @@ from unittest.mock import MagicMock
 import msgpack
 import pytest
 
-import panproto
-from panproto._lens import LensHandle, from_combinators
+from panproto._lens import LensHandle
 from panproto._types import LawCheckResult
 from panproto._wasm import WasmHandle, WasmModule
 
@@ -195,43 +194,6 @@ class TestLawCheckResult:
         result = LawCheckResult(holds=True, violation=None)
         with pytest.raises(AttributeError):
             result.extra = "nope"  # type: ignore[attr-defined]
-
-
-# ---------------------------------------------------------------------------
-# from_combinators tests
-# ---------------------------------------------------------------------------
-
-
-class TestFromCombinators:
-    """Tests for the from_combinators factory function."""
-
-    def test_calls_lens_from_combinators(self) -> None:
-        """Verify from_combinators serializes and calls WASM."""
-        wasm = _make_mock_wasm()
-
-        schema = MagicMock()
-        schema.wasm_handle = MagicMock()
-        schema.wasm_handle.id = 10
-
-        protocol = MagicMock()
-        protocol.wasm_handle = MagicMock()
-        protocol.wasm_handle.id = 20
-
-        lens = from_combinators(
-            schema,
-            protocol,
-            cast(WasmModule, wasm),
-            panproto.rename_field("old", "new"),
-            panproto.add_field("extra", "string", ""),
-        )
-
-        assert isinstance(lens, LensHandle)
-        wasm.lens_from_combinators.assert_called_once()
-        call_args = wasm.lens_from_combinators.call_args
-        assert call_args[0][0] == 10  # schema handle
-        assert call_args[0][1] == 20  # protocol handle
-
-        lens.close()
 
 
 # ---------------------------------------------------------------------------
