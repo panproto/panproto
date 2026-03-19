@@ -34,7 +34,9 @@ pub mod compose;
 pub mod diff_to_protolens;
 pub mod error;
 pub mod laws;
+pub mod optic;
 pub mod protolens;
+pub mod symbolic;
 pub mod symmetric;
 
 // Re-exports for convenience.
@@ -48,11 +50,13 @@ pub use compose::compose;
 pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolens};
 pub use error::{LawViolation, LensError};
 pub use laws::{check_get_put, check_laws, check_put_get};
+pub use optic::{OpticKind, classify_transform};
 pub use protolens::{
     ComplementConstructor, FleetResult, Protolens, ProtolensChain, SchemaConstraint,
     apply_to_fleet, elementary, horizontal_compose as protolens_horizontal, lift_chain,
     lift_protolens, vertical_compose as protolens_vertical,
 };
+pub use symbolic::{SymbolicStep, simplify_steps};
 pub use symmetric::SymmetricLens;
 
 use panproto_inst::CompiledMigration;
@@ -175,6 +179,10 @@ pub(crate) mod tests {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
             outgoing,
             incoming,
             between,

@@ -385,6 +385,12 @@ impl SchemaConstraint {
             panproto_gat::TheoryConstraint::Not(c) => {
                 Self::Not(Box::new(Self::from_theory_constraint(c)))
             }
+            // Enriched theory constraints delegate to the theory-level checker.
+            other @ (panproto_gat::TheoryConstraint::HasDirectedEq(_)
+            | panproto_gat::TheoryConstraint::HasValSort(_)
+            | panproto_gat::TheoryConstraint::HasCoercion { .. }
+            | panproto_gat::TheoryConstraint::HasMerger(_)
+            | panproto_gat::TheoryConstraint::HasPolicy(_)) => Self::Theory(other.clone()),
         }
     }
 }
@@ -564,12 +570,19 @@ impl ProtolensChain {
             transform: combined_transform,
         };
 
-        let complement = ComplementConstructor::Composite(
-            self.steps
-                .iter()
-                .map(|s| s.complement_constructor.clone())
-                .collect(),
-        );
+        let sub_complements: Vec<_> = self
+            .steps
+            .iter()
+            .map(|s| s.complement_constructor.clone())
+            .collect();
+        let complement = if sub_complements
+            .iter()
+            .all(|c| matches!(c, ComplementConstructor::Empty))
+        {
+            ComplementConstructor::Empty
+        } else {
+            ComplementConstructor::Composite(sub_complements)
+        };
 
         let name = Name::from(
             self.steps
@@ -661,6 +674,12 @@ fn lift_constraint(
         TC::All(cs) => TC::All(cs.iter().map(|c| lift_constraint(c, morphism)).collect()),
         TC::Any(cs) => TC::Any(cs.iter().map(|c| lift_constraint(c, morphism)).collect()),
         TC::Not(c) => TC::Not(Box::new(lift_constraint(c, morphism))),
+        // Enriched constraints pass through unchanged.
+        TC::HasDirectedEq(_)
+        | TC::HasValSort(_)
+        | TC::HasCoercion { .. }
+        | TC::HasMerger(_)
+        | TC::HasPolicy(_) => constraint.clone(),
     }
 }
 
@@ -1049,6 +1068,47 @@ fn apply_theory_transform_to_schema(
 ) -> Result<Schema, LensError> {
     match transform {
         TheoryTransform::Identity => Ok(schema.clone()),
+        TheoryTransform::CoerceSort {
+            sort_name,
+            coercion_expr,
+            ..
+        } => {
+            // Install the coercion expression in the schema's enrichment map.
+            let mut new_schema = schema.clone();
+            let name = Name::from(&**sort_name);
+            new_schema
+                .coercions
+                .insert((name.clone(), name), coercion_expr.clone());
+            Ok(new_schema)
+        }
+        TheoryTransform::MergeSorts {
+            sort_a,
+            sort_b,
+            merged_name,
+            merger_expr,
+        } => {
+            // Merge two sorts into one: remove the source sorts, add the merged sort,
+            // and install the merger expression.
+            let mut new_schema = apply_drop_sort_from_schema(schema, sort_a);
+            new_schema = apply_drop_sort_from_schema(&new_schema, sort_b);
+            let vertex = Vertex {
+                id: Name::from(&**merged_name),
+                kind: Name::from(&**merged_name),
+                nsid: None,
+            };
+            new_schema
+                .vertices
+                .insert(Name::from(&**merged_name), vertex);
+            new_schema
+                .mergers
+                .insert(Name::from(&**merged_name), merger_expr.clone());
+            Ok(new_schema)
+        }
+        TheoryTransform::AddDirectedEquation(_) | TheoryTransform::DropDirectedEquation(_) => {
+            // Directed equations modify the theory's rewrite rules but
+            // do not change the schema's vertex/edge graph structure.
+            Ok(schema.clone())
+        }
         TheoryTransform::RenameSort { old, new } => {
             Ok(apply_rename_sort_to_schema(schema, old, new))
         }
@@ -1064,12 +1124,47 @@ fn apply_theory_transform_to_schema(
             new_schema.vertices.insert(Name::from(&*sort.name), vertex);
             Ok(new_schema)
         }
+        TheoryTransform::AddSortWithDefault { sort, default_expr } => {
+            let mut new_schema = schema.clone();
+            let name = Name::from(&*sort.name);
+            let vertex = Vertex {
+                id: name.clone(),
+                kind: name.clone(),
+                nsid: None,
+            };
+            new_schema.vertices.insert(name.clone(), vertex);
+            // Install the default expression so the migration engine can
+            // compute values for this sort when lifting instances.
+            new_schema.defaults.insert(name, default_expr.clone());
+            Ok(new_schema)
+        }
         TheoryTransform::DropOp(name) => Ok(apply_drop_op_from_schema(schema, name)),
-        TheoryTransform::AddOp(_op) => {
-            // Adding an op adds edges — but we need source/target vertices
-            // to already exist. For now, this is a no-op at schema level
-            // if the required vertices don't exist.
-            Ok(schema.clone())
+        TheoryTransform::AddOp(op) => {
+            // Adding an operation adds an edge to the schema. The operation's
+            // first input sort is the source vertex, and the output sort is
+            // the target vertex. If both endpoints exist, add the edge.
+            let mut new_schema = schema.clone();
+            if let Some((_, src_sort)) = op.inputs.first() {
+                let src = Name::from(&**src_sort);
+                let tgt = Name::from(&*op.output);
+                if new_schema.vertices.contains_key(&src) && new_schema.vertices.contains_key(&tgt)
+                {
+                    let edge = Edge {
+                        src: src.clone(),
+                        tgt: tgt.clone(),
+                        kind: Name::from(&*op.name),
+                        name: Some(Name::from(&*op.name)),
+                    };
+                    new_schema.edges.insert(edge.clone(), Name::from(&*op.name));
+                    new_schema
+                        .outgoing
+                        .entry(src)
+                        .or_default()
+                        .push(edge.clone());
+                    new_schema.incoming.entry(tgt).or_default().push(edge);
+                }
+            }
+            Ok(new_schema)
         }
         TheoryTransform::AddEquation(_) | TheoryTransform::DropEquation(_) => {
             // Equations don't change schema structure, only constraints.
@@ -1626,6 +1721,10 @@ mod tests {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),

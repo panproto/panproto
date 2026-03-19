@@ -14,6 +14,7 @@ panproto-check = { workspace = true }
 panproto-lens = { workspace = true }
 panproto-gat = { workspace = true }
 panproto-inst = { workspace = true }
+panproto-expr = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }

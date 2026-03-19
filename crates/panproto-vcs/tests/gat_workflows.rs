@@ -55,6 +55,10 @@ fn make_schema(vertices: &[(&str, &str)]) -> Schema {
         spans: HashMap::new(),
         usage_modes: HashMap::new(),
         nominal: HashMap::new(),
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
@@ -1038,6 +1042,7 @@ fn gat_validate_migration_with_schema_checking() {
         label_map: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        expr_resolvers: HashMap::new(),
     };
 
     let diag = gat_validate::validate_migration(&old_schema, &new_schema, &bad_migration);
@@ -1067,6 +1072,7 @@ fn gat_validate_migration_with_schema_checking() {
         label_map: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        expr_resolvers: HashMap::new(),
     };
 
     let diag_good = gat_validate::validate_migration(&old_schema, &new_schema, &good_migration);

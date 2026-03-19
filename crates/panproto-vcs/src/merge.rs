@@ -667,6 +667,10 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         outgoing,
         incoming,
         between,
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
     };
 
     // Derive migrations.
@@ -2012,6 +2016,10 @@ mod tests {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),

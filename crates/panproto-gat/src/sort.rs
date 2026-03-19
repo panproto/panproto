@@ -1,5 +1,45 @@
 use std::sync::Arc;
 
+/// The primitive value kind that a value sort ranges over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ValueKind {
+    /// Boolean values.
+    Bool,
+    /// Integer values.
+    Int,
+    /// Floating-point values.
+    Float,
+    /// String values.
+    Str,
+    /// Byte-sequence values.
+    Bytes,
+    /// Opaque token values.
+    Token,
+    /// Null / unit values.
+    Null,
+    /// Any value kind (polymorphic).
+    Any,
+}
+
+/// The kind of a sort, distinguishing structural sorts from value/coercion sorts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum SortKind {
+    /// Standard structural sort (vertices, edges, constraints).
+    #[default]
+    Structural,
+    /// Value sort: carries data of a specific kind.
+    Val(ValueKind),
+    /// Coercion sort: a directed morphism between value kinds.
+    Coercion {
+        /// The source value kind.
+        from: ValueKind,
+        /// The target value kind.
+        to: ValueKind,
+    },
+    /// Merger sort: combines values of a specific kind.
+    Merger(ValueKind),
+}
+
 /// A parameter of a dependent sort.
 ///
 /// Sort parameters allow sorts to depend on terms of other sorts,
@@ -35,24 +75,39 @@ pub struct Sort {
     pub name: Arc<str>,
     /// Parameters this sort depends on. Empty for simple sorts.
     pub params: Vec<SortParam>,
+    /// The kind of this sort (structural, value, coercion, or merger).
+    #[serde(default)]
+    pub kind: SortKind,
 }
 
 impl Sort {
-    /// Create a simple (non-dependent) sort.
+    /// Create a simple (non-dependent) sort with structural kind.
     #[must_use]
     pub fn simple(name: impl Into<Arc<str>>) -> Self {
         Self {
             name: name.into(),
             params: Vec::new(),
+            kind: SortKind::default(),
         }
     }
 
-    /// Create a dependent sort with the given parameters.
+    /// Create a dependent sort with the given parameters and structural kind.
     #[must_use]
     pub fn dependent(name: impl Into<Arc<str>>, params: Vec<SortParam>) -> Self {
         Self {
             name: name.into(),
             params,
+            kind: SortKind::default(),
+        }
+    }
+
+    /// Create a simple sort with a specific kind.
+    #[must_use]
+    pub fn with_kind(name: impl Into<Arc<str>>, kind: SortKind) -> Self {
+        Self {
+            name: name.into(),
+            params: Vec::new(),
+            kind,
         }
     }
 

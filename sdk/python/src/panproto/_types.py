@@ -982,3 +982,718 @@ class ExistenceReport(TypedDict):
 
     valid: bool
     errors: list[ExistenceError]
+
+
+# ---------------------------------------------------------------------------
+# Enriched theory types
+# ---------------------------------------------------------------------------
+
+type ValueKind = Literal[
+    "bool", "int", "float", "str", "bytes", "token", "null", "any",
+]
+"""Primitive value kind classification."""
+
+type OpticKind = Literal["iso", "lens", "prism", "affine", "traversal"]
+"""Optic kind classification for protolens chains."""
+
+type BuiltinOp = Literal[
+    "Add", "Sub", "Mul", "Div", "Mod", "Neg", "Abs",
+    "Floor", "Ceil",
+    "Eq", "Neq", "Lt", "Lte", "Gt", "Gte",
+    "And", "Or", "Not",
+    "Concat", "Len", "Slice", "Upper", "Lower", "Trim", "Split", "Join", "Replace", "Contains",
+    "Map", "Filter", "Fold", "Append", "Head", "Tail", "Reverse", "FlatMap", "Length",
+    "MergeRecords", "Keys", "Values", "HasField",
+    "IntToFloat", "FloatToInt", "IntToStr", "FloatToStr", "StrToInt", "StrToFloat",
+    "TypeOf", "IsNull", "IsList",
+]
+"""All builtin operations in the enriched expression language."""
+
+
+class SortKindStructural(TypedDict):
+    """Structural sort kind.
+
+    Attributes
+    ----------
+    type : Literal["structural"]
+        Discriminant tag.
+    """
+
+    type: Literal["structural"]
+
+
+class SortKindVal(TypedDict):
+    """Value sort kind.
+
+    Attributes
+    ----------
+    type : Literal["val"]
+        Discriminant tag.
+    kind : ValueKind
+        The primitive value kind.
+    """
+
+    type: Literal["val"]
+    kind: ValueKind
+
+
+class SortKindCoercion(TypedDict):
+    """Coercion sort kind.
+
+    Attributes
+    ----------
+    type : Literal["coercion"]
+        Discriminant tag.
+    from_ : ValueKind
+        Source value kind.
+    to : ValueKind
+        Target value kind.
+    """
+
+    type: Literal["coercion"]
+    from_: ValueKind
+    to: ValueKind
+
+
+class SortKindMerger(TypedDict):
+    """Merger sort kind.
+
+    Attributes
+    ----------
+    type : Literal["merger"]
+        Discriminant tag.
+    kind : ValueKind
+        The value kind being merged.
+    """
+
+    type: Literal["merger"]
+    kind: ValueKind
+
+
+type SortKind = SortKindStructural | SortKindVal | SortKindCoercion | SortKindMerger
+"""Sort kind classification."""
+
+
+class LitBool(TypedDict):
+    """Boolean literal.
+
+    Attributes
+    ----------
+    type : Literal["bool"]
+        Discriminant tag.
+    value : bool
+        The boolean value.
+    """
+
+    type: Literal["bool"]
+    value: bool
+
+
+class LitInt(TypedDict):
+    """Integer literal.
+
+    Attributes
+    ----------
+    type : Literal["int"]
+        Discriminant tag.
+    value : int
+        The integer value.
+    """
+
+    type: Literal["int"]
+    value: int
+
+
+class LitFloat(TypedDict):
+    """Float literal.
+
+    Attributes
+    ----------
+    type : Literal["float"]
+        Discriminant tag.
+    value : float
+        The float value.
+    """
+
+    type: Literal["float"]
+    value: float
+
+
+class LitStr(TypedDict):
+    """String literal.
+
+    Attributes
+    ----------
+    type : Literal["str"]
+        Discriminant tag.
+    value : str
+        The string value.
+    """
+
+    type: Literal["str"]
+    value: str
+
+
+class LitBytes(TypedDict):
+    """Bytes literal.
+
+    Attributes
+    ----------
+    type : Literal["bytes"]
+        Discriminant tag.
+    value : bytes
+        The byte data.
+    """
+
+    type: Literal["bytes"]
+    value: bytes
+
+
+class LitNull(TypedDict):
+    """Null literal.
+
+    Attributes
+    ----------
+    type : Literal["null"]
+        Discriminant tag.
+    """
+
+    type: Literal["null"]
+
+
+class LitRecord(TypedDict):
+    """Record literal.
+
+    Attributes
+    ----------
+    type : Literal["record"]
+        Discriminant tag.
+    fields : list[tuple[str, LiteralValue]]
+        The record fields.
+    """
+
+    type: Literal["record"]
+    fields: list[tuple[str, LiteralValue]]
+
+
+class LitList(TypedDict):
+    """List literal.
+
+    Attributes
+    ----------
+    type : Literal["list"]
+        Discriminant tag.
+    items : list[LiteralValue]
+        The list items.
+    """
+
+    type: Literal["list"]
+    items: list[LiteralValue]
+
+
+type LiteralValue = LitBool | LitInt | LitFloat | LitStr | LitBytes | LitNull | LitRecord | LitList
+"""A literal value in the enriched expression language."""
+
+
+class PatWildcard(TypedDict):
+    """Wildcard pattern (matches anything).
+
+    Attributes
+    ----------
+    type : Literal["wildcard"]
+        Discriminant tag.
+    """
+
+    type: Literal["wildcard"]
+
+
+class PatVar(TypedDict):
+    """Variable-binding pattern.
+
+    Attributes
+    ----------
+    type : Literal["var"]
+        Discriminant tag.
+    name : str
+        The variable name to bind.
+    """
+
+    type: Literal["var"]
+    name: str
+
+
+class PatLit(TypedDict):
+    """Literal pattern.
+
+    Attributes
+    ----------
+    type : Literal["lit"]
+        Discriminant tag.
+    value : LiteralValue
+        The literal to match against.
+    """
+
+    type: Literal["lit"]
+    value: LiteralValue
+
+
+class PatRecord(TypedDict):
+    """Record pattern.
+
+    Attributes
+    ----------
+    type : Literal["record"]
+        Discriminant tag.
+    fields : list[tuple[str, Pattern]]
+        The fields to match.
+    """
+
+    type: Literal["record"]
+    fields: list[tuple[str, Pattern]]
+
+
+class PatList(TypedDict):
+    """List pattern.
+
+    Attributes
+    ----------
+    type : Literal["list"]
+        Discriminant tag.
+    items : list[Pattern]
+        The items to match.
+    """
+
+    type: Literal["list"]
+    items: list[Pattern]
+
+
+type Pattern = PatWildcard | PatVar | PatLit | PatRecord | PatList
+"""A pattern in the enriched expression language."""
+
+
+class ExprVar(TypedDict):
+    """Variable reference expression.
+
+    Attributes
+    ----------
+    type : Literal["var"]
+        Discriminant tag.
+    name : str
+        The variable name.
+    """
+
+    type: Literal["var"]
+    name: str
+
+
+class ExprLam(TypedDict):
+    """Lambda (anonymous function) expression.
+
+    Attributes
+    ----------
+    type : Literal["lam"]
+        Discriminant tag.
+    param : str
+        The parameter name.
+    body : Expr
+        The function body.
+    """
+
+    type: Literal["lam"]
+    param: str
+    body: Expr
+
+
+class ExprApp(TypedDict):
+    """Function application expression.
+
+    Attributes
+    ----------
+    type : Literal["app"]
+        Discriminant tag.
+    func : Expr
+        The function expression.
+    arg : Expr
+        The argument expression.
+    """
+
+    type: Literal["app"]
+    func: Expr
+    arg: Expr
+
+
+class ExprLit(TypedDict):
+    """Literal expression.
+
+    Attributes
+    ----------
+    type : Literal["lit"]
+        Discriminant tag.
+    value : LiteralValue
+        The literal value.
+    """
+
+    type: Literal["lit"]
+    value: LiteralValue
+
+
+class ExprRecord(TypedDict):
+    """Record constructor expression.
+
+    Attributes
+    ----------
+    type : Literal["record"]
+        Discriminant tag.
+    fields : list[tuple[str, Expr]]
+        The record fields.
+    """
+
+    type: Literal["record"]
+    fields: list[tuple[str, Expr]]
+
+
+class ExprList(TypedDict):
+    """List constructor expression.
+
+    Attributes
+    ----------
+    type : Literal["list"]
+        Discriminant tag.
+    items : list[Expr]
+        The list items.
+    """
+
+    type: Literal["list"]
+    items: list[Expr]
+
+
+class ExprField(TypedDict):
+    """Field access expression.
+
+    Attributes
+    ----------
+    type : Literal["field"]
+        Discriminant tag.
+    expr : Expr
+        The record to access.
+    name : str
+        The field name.
+    """
+
+    type: Literal["field"]
+    expr: Expr
+    name: str
+
+
+class ExprIndex(TypedDict):
+    """Index access expression.
+
+    Attributes
+    ----------
+    type : Literal["index"]
+        Discriminant tag.
+    expr : Expr
+        The collection to index.
+    index : Expr
+        The index expression.
+    """
+
+    type: Literal["index"]
+    expr: Expr
+    index: Expr
+
+
+class ExprMatch(TypedDict):
+    """Pattern match expression.
+
+    Attributes
+    ----------
+    type : Literal["match"]
+        Discriminant tag.
+    scrutinee : Expr
+        The expression to match against.
+    arms : list[tuple[Pattern, Expr]]
+        The match arms.
+    """
+
+    type: Literal["match"]
+    scrutinee: Expr
+    arms: list[tuple[Pattern, Expr]]
+
+
+class ExprLet(TypedDict):
+    """Let binding expression.
+
+    Attributes
+    ----------
+    type : Literal["let"]
+        Discriminant tag.
+    name : str
+        The variable name to bind.
+    value : Expr
+        The value to bind.
+    body : Expr
+        The body where the binding is in scope.
+    """
+
+    type: Literal["let"]
+    name: str
+    value: Expr
+    body: Expr
+
+
+class ExprBuiltin(TypedDict):
+    """Builtin operation expression.
+
+    Attributes
+    ----------
+    type : Literal["builtin"]
+        Discriminant tag.
+    op : BuiltinOp
+        The builtin operation.
+    args : list[Expr]
+        The arguments.
+    """
+
+    type: Literal["builtin"]
+    op: BuiltinOp
+    args: list[Expr]
+
+
+type Expr = (
+    ExprVar | ExprLam | ExprApp | ExprLit | ExprRecord | ExprList
+    | ExprField | ExprIndex | ExprMatch | ExprLet | ExprBuiltin
+)
+"""An expression in the enriched functional language."""
+
+
+class ConflictKeepLeft(TypedDict):
+    """Keep-left conflict strategy.
+
+    Attributes
+    ----------
+    type : Literal["keep_left"]
+        Discriminant tag.
+    """
+
+    type: Literal["keep_left"]
+
+
+class ConflictKeepRight(TypedDict):
+    """Keep-right conflict strategy.
+
+    Attributes
+    ----------
+    type : Literal["keep_right"]
+        Discriminant tag.
+    """
+
+    type: Literal["keep_right"]
+
+
+class ConflictFail(TypedDict):
+    """Fail conflict strategy.
+
+    Attributes
+    ----------
+    type : Literal["fail"]
+        Discriminant tag.
+    """
+
+    type: Literal["fail"]
+
+
+class ConflictCustom(TypedDict):
+    """Custom conflict strategy.
+
+    Attributes
+    ----------
+    type : Literal["custom"]
+        Discriminant tag.
+    expr : Expr
+        The custom resolution expression.
+    """
+
+    type: Literal["custom"]
+    expr: Expr
+
+
+type ConflictStrategy = ConflictKeepLeft | ConflictKeepRight | ConflictFail | ConflictCustom
+"""Conflict resolution strategy."""
+
+
+class ConflictPolicy(TypedDict):
+    """Conflict resolution policy.
+
+    Attributes
+    ----------
+    name : str
+        The policy name.
+    value_kind : ValueKind
+        The value kind this policy applies to.
+    strategy : ConflictStrategy
+        The conflict resolution strategy.
+    """
+
+    name: str
+    value_kind: ValueKind
+    strategy: ConflictStrategy
+
+
+class DirectedEquation(TypedDict):
+    """A directed equation (rewrite rule).
+
+    Attributes
+    ----------
+    name : str
+        The equation name.
+    lhs : dict[str, object]
+        Left-hand side term.
+    rhs : dict[str, object]
+        Right-hand side term.
+    impl_term : Expr
+        The implementation expression.
+    inverse : NotRequired[Expr | None]
+        Optional inverse expression.
+    """
+
+    name: str
+    lhs: dict[str, object]
+    rhs: dict[str, object]
+    impl_term: Expr
+    inverse: NotRequired[Expr | None]
+
+
+class PartialReasonConstraintViolation(TypedDict):
+    """Constraint violation failure reason.
+
+    Attributes
+    ----------
+    type : Literal["constraint_violation"]
+        Discriminant tag.
+    constraint : str
+        The constraint that was violated.
+    value : str
+        The value that violated the constraint.
+    """
+
+    type: Literal["constraint_violation"]
+    constraint: str
+    value: str
+
+
+class PartialReasonMissingRequiredField(TypedDict):
+    """Missing required field failure reason.
+
+    Attributes
+    ----------
+    type : Literal["missing_required_field"]
+        Discriminant tag.
+    field : str
+        The missing field name.
+    """
+
+    type: Literal["missing_required_field"]
+    field: str
+
+
+class PartialReasonTypeMismatch(TypedDict):
+    """Type mismatch failure reason.
+
+    Attributes
+    ----------
+    type : Literal["type_mismatch"]
+        Discriminant tag.
+    expected : str
+        The expected type.
+    got : str
+        The actual type.
+    """
+
+    type: Literal["type_mismatch"]
+    expected: str
+    got: str
+
+
+class PartialReasonExprEvalFailed(TypedDict):
+    """Expression evaluation failure reason.
+
+    Attributes
+    ----------
+    type : Literal["expr_eval_failed"]
+        Discriminant tag.
+    expr_name : str
+        The expression that failed.
+    error : str
+        The error message.
+    """
+
+    type: Literal["expr_eval_failed"]
+    expr_name: str
+    error: str
+
+
+type PartialReason = (
+    PartialReasonConstraintViolation
+    | PartialReasonMissingRequiredField
+    | PartialReasonTypeMismatch
+    | PartialReasonExprEvalFailed
+)
+"""Reason for a partial migration failure."""
+
+
+class PartialFailure(TypedDict):
+    """A single record failure from a dry-run migration.
+
+    Attributes
+    ----------
+    record_id : int
+        The zero-based index of the failing record.
+    reason : PartialReason
+        The structured failure reason.
+    """
+
+    record_id: int
+    reason: PartialReason
+
+
+class CoverageReport(TypedDict):
+    """Coverage report from a dry-run migration.
+
+    Attributes
+    ----------
+    total_records : int
+        Total number of records tested.
+    successful : int
+        Number of records that migrated successfully.
+    failed : list[PartialFailure]
+        List of individual record failures.
+    coverage_ratio : float
+        Ratio of successful records to total (0.0 to 1.0).
+    """
+
+    total_records: int
+    successful: int
+    failed: list[PartialFailure]
+    coverage_ratio: float
+
+
+class EnrichmentSummary(TypedDict):
+    """Summary of enrichments applied to a schema.
+
+    Attributes
+    ----------
+    defaults : list[dict[str, object]]
+        Default expression entries.
+    coercions : list[dict[str, object]]
+        Coercion function entries.
+    mergers : list[dict[str, object]]
+        Merger expression entries.
+    policies : list[dict[str, object]]
+        Conflict policy entries.
+    """
+
+    defaults: list[dict[str, object]]
+    coercions: list[dict[str, object]]
+    mergers: list[dict[str, object]]
+    policies: list[dict[str, object]]

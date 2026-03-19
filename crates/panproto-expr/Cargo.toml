@@ -1,0 +1,25 @@
+[package]
+name = "panproto-expr"
+description = "Pure functional expression language for panproto enriched theories"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+proptest = { workspace = true }
+divan = { workspace = true }
+
+[[bench]]
+name = "expr_bench"
+harness = false
+
+[lints]
+workspace = true

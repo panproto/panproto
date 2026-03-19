@@ -80,6 +80,33 @@ export type {
   SchemaValidationIssue,
 } from './types.js';
 
+// Enrichment
+export { SchemaEnrichment } from './enrichment.js';
+
+// Expression builder
+export { ExprBuilder } from './expr.js';
+
+// Coverage analysis
+export { MigrationAnalysis } from './coverage.js';
+
+// Enriched theory types
+export type {
+  ValueKind,
+  SortKind,
+  DirectedEquation,
+  ConflictStrategy,
+  ConflictPolicy,
+  Pattern,
+  Expr,
+  Literal,
+  BuiltinOp,
+  CoverageReport,
+  PartialFailure,
+  PartialReason,
+  OpticKind,
+  EnrichmentSummary,
+} from './types.js';
+
 // Types
 export type {
   LawCheckResult,

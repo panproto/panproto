@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashSet;
 
-use crate::eq::{Equation, Term};
+use crate::eq::{DirectedEquation, Equation, Term};
 use crate::error::GatError;
 use crate::morphism::TheoryMorphism;
 use crate::op::Operation;
-use crate::sort::{Sort, SortParam};
+use crate::sort::{Sort, SortKind, SortParam, ValueKind};
 use crate::theory::Theory;
 
 /// A predicate on theories — the precondition for applying a transform.
@@ -20,6 +20,21 @@ pub enum TheoryConstraint {
     HasOp(Arc<str>),
     /// Theory must have an equation with this name.
     HasEquation(Arc<str>),
+    /// Theory must have a directed equation with this name.
+    HasDirectedEq(Arc<str>),
+    /// Theory must have a value sort of the given kind.
+    HasValSort(ValueKind),
+    /// Theory must have a coercion sort between the given kinds.
+    HasCoercion {
+        /// The source value kind.
+        from: ValueKind,
+        /// The target value kind.
+        to: ValueKind,
+    },
+    /// Theory must have a merger sort for the given kind.
+    HasMerger(ValueKind),
+    /// Theory must have a conflict policy with this name.
+    HasPolicy(Arc<str>),
     /// Conjunction.
     All(Vec<Self>),
     /// Disjunction.
@@ -59,6 +74,37 @@ pub enum TheoryTransform {
     AddEquation(Equation),
     /// Drop an equation.
     DropEquation(Arc<str>),
+    /// Coerce a sort to a different value kind.
+    CoerceSort {
+        /// The sort to coerce.
+        sort_name: Arc<str>,
+        /// The target value kind.
+        target_kind: ValueKind,
+        /// The coercion expression.
+        coercion_expr: panproto_expr::Expr,
+    },
+    /// Merge two sorts into one.
+    MergeSorts {
+        /// The first sort to merge.
+        sort_a: Arc<str>,
+        /// The second sort to merge.
+        sort_b: Arc<str>,
+        /// The name for the merged sort.
+        merged_name: Arc<str>,
+        /// The merger expression.
+        merger_expr: panproto_expr::Expr,
+    },
+    /// Add a sort with a default expression for backward compatibility.
+    AddSortWithDefault {
+        /// The sort to add.
+        sort: Sort,
+        /// The default expression for existing data.
+        default_expr: panproto_expr::Expr,
+    },
+    /// Add a directed equation.
+    AddDirectedEquation(DirectedEquation),
+    /// Drop a directed equation by name.
+    DropDirectedEquation(Arc<str>),
     /// Pullback along a theory morphism.
     Pullback(TheoryMorphism),
     /// Sequential composition: T ↦ G(F(T))
@@ -85,6 +131,17 @@ impl TheoryConstraint {
             Self::HasSort(name) => theory.has_sort(name),
             Self::HasOp(name) => theory.has_op(name),
             Self::HasEquation(name) => theory.find_eq(name).is_some(),
+            Self::HasDirectedEq(name) => theory.has_directed_eq(name),
+            Self::HasValSort(vk) => theory.sorts.iter().any(|s| s.kind == SortKind::Val(*vk)),
+            Self::HasCoercion { from, to } => theory.sorts.iter().any(|s| {
+                s.kind
+                    == SortKind::Coercion {
+                        from: *from,
+                        to: *to,
+                    }
+            }),
+            Self::HasMerger(vk) => theory.sorts.iter().any(|s| s.kind == SortKind::Merger(*vk)),
+            Self::HasPolicy(name) => theory.has_policy(name),
             Self::All(cs) => cs.iter().all(|c| c.satisfied_by(theory)),
             Self::Any(cs) => cs.iter().any(|c| c.satisfied_by(theory)),
             Self::Not(c) => !c.satisfied_by(theory),
@@ -120,6 +177,7 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
                 Sort {
                     name: Arc::clone(new),
                     params: s.params.clone(),
+                    kind: s.kind.clone(),
                 }
             } else {
                 let params = s
@@ -139,6 +197,7 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
                 Sort {
                     name: Arc::clone(&s.name),
                     params,
+                    kind: s.kind.clone(),
                 }
             }
         })
@@ -245,17 +304,25 @@ impl TheoryTransform {
     /// # Errors
     ///
     /// Returns [`GatError::FactorizationError`] if the transform cannot be applied.
+    #[allow(clippy::too_many_lines)]
     pub fn apply(&self, theory: &Theory) -> Result<Theory, GatError> {
         match self {
             Self::Identity => Ok(theory.clone()),
-            Self::AddSort(sort) => {
+            Self::AddSort(sort)
+            | Self::AddSortWithDefault {
+                sort,
+                default_expr: _,
+            } => {
                 let mut sorts = theory.sorts.clone();
                 sorts.push(sort.clone());
-                Ok(Theory::new(
+                Ok(Theory::full(
                     Arc::clone(&theory.name),
+                    theory.extends.clone(),
                     sorts,
                     theory.ops.clone(),
                     theory.eqs.clone(),
+                    theory.directed_eqs.clone(),
+                    theory.policies.clone(),
                 ))
             }
             Self::DropSort(name) => Ok(apply_drop_sort(theory, name)),
@@ -263,11 +330,14 @@ impl TheoryTransform {
             Self::AddOp(op) => {
                 let mut ops = theory.ops.clone();
                 ops.push(op.clone());
-                Ok(Theory::new(
+                Ok(Theory::full(
                     Arc::clone(&theory.name),
+                    theory.extends.clone(),
                     theory.sorts.clone(),
                     ops,
                     theory.eqs.clone(),
+                    theory.directed_eqs.clone(),
+                    theory.policies.clone(),
                 ))
             }
             Self::DropOp(name) => Ok(apply_drop_op(theory, name)),
@@ -275,11 +345,14 @@ impl TheoryTransform {
             Self::AddEquation(eq) => {
                 let mut eqs = theory.eqs.clone();
                 eqs.push(eq.clone());
-                Ok(Theory::new(
+                Ok(Theory::full(
                     Arc::clone(&theory.name),
+                    theory.extends.clone(),
                     theory.sorts.clone(),
                     theory.ops.clone(),
                     eqs,
+                    theory.directed_eqs.clone(),
+                    theory.policies.clone(),
                 ))
             }
             Self::DropEquation(name) => {
@@ -289,11 +362,136 @@ impl TheoryTransform {
                     .filter(|eq| eq.name != *name)
                     .cloned()
                     .collect();
-                Ok(Theory::new(
+                Ok(Theory::full(
                     Arc::clone(&theory.name),
+                    theory.extends.clone(),
                     theory.sorts.clone(),
                     theory.ops.clone(),
                     eqs,
+                    theory.directed_eqs.clone(),
+                    theory.policies.clone(),
+                ))
+            }
+            Self::CoerceSort {
+                sort_name,
+                target_kind,
+                coercion_expr: _,
+            } => {
+                let sorts: Vec<_> = theory
+                    .sorts
+                    .iter()
+                    .map(|s| {
+                        if s.name == *sort_name {
+                            Sort {
+                                name: Arc::clone(&s.name),
+                                params: s.params.clone(),
+                                kind: SortKind::Val(*target_kind),
+                            }
+                        } else {
+                            s.clone()
+                        }
+                    })
+                    .collect();
+                Ok(Theory::full(
+                    Arc::clone(&theory.name),
+                    theory.extends.clone(),
+                    sorts,
+                    theory.ops.clone(),
+                    theory.eqs.clone(),
+                    theory.directed_eqs.clone(),
+                    theory.policies.clone(),
+                ))
+            }
+            Self::MergeSorts {
+                sort_a,
+                sort_b,
+                merged_name,
+                merger_expr: _,
+            } => {
+                let sorts: Vec<_> = theory
+                    .sorts
+                    .iter()
+                    .filter_map(|s| {
+                        if s.name == *sort_a {
+                            Some(Sort {
+                                name: Arc::clone(merged_name),
+                                params: s.params.clone(),
+                                kind: s.kind.clone(),
+                            })
+                        } else if s.name == *sort_b {
+                            None
+                        } else {
+                            Some(s.clone())
+                        }
+                    })
+                    .collect();
+                // Rename references in ops
+                let ops: Vec<_> = theory
+                    .ops
+                    .iter()
+                    .map(|o| {
+                        let inputs: Vec<_> = o
+                            .inputs
+                            .iter()
+                            .map(|(n, s)| {
+                                let mapped = if s == sort_a || s == sort_b {
+                                    Arc::clone(merged_name)
+                                } else {
+                                    Arc::clone(s)
+                                };
+                                (Arc::clone(n), mapped)
+                            })
+                            .collect();
+                        let output = if o.output == *sort_a || o.output == *sort_b {
+                            Arc::clone(merged_name)
+                        } else {
+                            Arc::clone(&o.output)
+                        };
+                        Operation {
+                            name: Arc::clone(&o.name),
+                            inputs,
+                            output,
+                        }
+                    })
+                    .collect();
+                Ok(Theory::full(
+                    Arc::clone(&theory.name),
+                    theory.extends.clone(),
+                    sorts,
+                    ops,
+                    theory.eqs.clone(),
+                    theory.directed_eqs.clone(),
+                    theory.policies.clone(),
+                ))
+            }
+            Self::AddDirectedEquation(de) => {
+                let mut directed_eqs = theory.directed_eqs.clone();
+                directed_eqs.push(de.clone());
+                Ok(Theory::full(
+                    Arc::clone(&theory.name),
+                    theory.extends.clone(),
+                    theory.sorts.clone(),
+                    theory.ops.clone(),
+                    theory.eqs.clone(),
+                    directed_eqs,
+                    theory.policies.clone(),
+                ))
+            }
+            Self::DropDirectedEquation(name) => {
+                let directed_eqs: Vec<_> = theory
+                    .directed_eqs
+                    .iter()
+                    .filter(|de| de.name != *name)
+                    .cloned()
+                    .collect();
+                Ok(Theory::full(
+                    Arc::clone(&theory.name),
+                    theory.extends.clone(),
+                    theory.sorts.clone(),
+                    theory.ops.clone(),
+                    theory.eqs.clone(),
+                    directed_eqs,
+                    theory.policies.clone(),
                 ))
             }
             Self::Pullback(morphism) => Ok(apply_pullback(theory, morphism)),

@@ -149,6 +149,42 @@ pub enum WasmError {
         /// Description of the VCS error.
         reason: String,
     },
+
+    /// Expression evaluation failed.
+    ExprEvalFailed {
+        /// Description of the evaluation error.
+        reason: String,
+    },
+
+    /// Expression type-check failed.
+    ExprCheckFailed {
+        /// Description of the type-check error.
+        reason: String,
+    },
+
+    /// Schema enrichment operation failed.
+    EnrichmentFailed {
+        /// Description of the enrichment error.
+        reason: String,
+    },
+
+    /// Coverage analysis failed.
+    CoverageFailed {
+        /// Description of the coverage error.
+        reason: String,
+    },
+
+    /// Protolens classification failed.
+    ClassificationFailed {
+        /// Description of the classification error.
+        reason: String,
+    },
+
+    /// Refinement subsort check failed.
+    RefinementFailed {
+        /// Description of the refinement error.
+        reason: String,
+    },
 }
 
 impl fmt::Display for WasmError {
@@ -186,6 +222,12 @@ impl fmt::Display for WasmError {
                 write!(f, "morphism check error: {reason}")
             }
             Self::VcsError { reason } => write!(f, "vcs error: {reason}"),
+            Self::ExprEvalFailed { reason } => write!(f, "expression eval error: {reason}"),
+            Self::ExprCheckFailed { reason } => write!(f, "expression check error: {reason}"),
+            Self::EnrichmentFailed { reason } => write!(f, "enrichment error: {reason}"),
+            Self::CoverageFailed { reason } => write!(f, "coverage error: {reason}"),
+            Self::ClassificationFailed { reason } => write!(f, "classification error: {reason}"),
+            Self::RefinementFailed { reason } => write!(f, "refinement error: {reason}"),
         }
     }
 }

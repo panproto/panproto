@@ -279,6 +279,10 @@ enum Command {
         /// Save the protolens chain to a file (requires --lens).
         #[arg(long)]
         save: Option<PathBuf>,
+
+        /// Show the optic classification of the diff.
+        #[arg(long)]
+        optic_kind: bool,
     },
 
     /// Inspect a commit, schema, or migration object.
@@ -583,6 +587,22 @@ enum Command {
         dry_run: bool,
     },
 
+    // -- Expression operations --
+    /// Evaluate, type-check, or interactively explore GAT expressions.
+    Expr {
+        /// Expression operation.
+        #[command(subcommand)]
+        action: ExprAction,
+    },
+
+    // -- Schema enrichment --
+    /// Add, list, or remove schema enrichments (defaults, coercions, mergers, policies).
+    Enrich {
+        /// Enrichment operation.
+        #[command(subcommand)]
+        action: EnrichAction,
+    },
+
     // -- Remote command stubs --
     /// Add, list, or remove remote repositories.
     Remote {
@@ -651,6 +671,9 @@ enum Command {
         /// Migrate backward (requires stored complement).
         #[arg(long)]
         backward: bool,
+        /// Apply migration and print coverage statistics.
+        #[arg(long)]
+        coverage: bool,
     },
 
     /// Convert data between schemas. Works on single files or directories.
@@ -815,6 +838,73 @@ enum StashAction {
     Clear,
 }
 
+/// Expression sub-operations.
+#[derive(Subcommand, Debug)]
+enum ExprAction {
+    /// Evaluate an expression from a JSON file.
+    Eval {
+        /// Path to the JSON file containing a GAT term.
+        file: PathBuf,
+
+        /// Path to a JSON file with variable bindings.
+        #[arg(long)]
+        env: Option<PathBuf>,
+    },
+    /// Type-check an expression from a JSON file.
+    Check {
+        /// Path to the JSON file containing term, theory, and context.
+        file: PathBuf,
+    },
+    /// Interactive expression REPL.
+    Repl,
+}
+
+/// Enrichment sub-operations.
+#[derive(Subcommand, Debug)]
+enum EnrichAction {
+    /// Add a default value expression to a vertex.
+    AddDefault {
+        /// Vertex name.
+        vertex: String,
+        /// Default value as JSON.
+        #[arg(long)]
+        expr: String,
+    },
+    /// Add a coercion expression between two vertex kinds.
+    AddCoercion {
+        /// Source vertex kind.
+        from: String,
+        /// Target vertex kind.
+        to: String,
+        /// Coercion expression as JSON.
+        #[arg(long)]
+        expr: String,
+    },
+    /// Add a merger expression to a vertex.
+    AddMerger {
+        /// Vertex name.
+        vertex: String,
+        /// Merger specification as JSON.
+        #[arg(long)]
+        expr: String,
+    },
+    /// Add a conflict policy to a vertex.
+    AddPolicy {
+        /// Vertex name.
+        vertex: String,
+        /// Conflict resolution strategy name.
+        #[arg(long)]
+        strategy: String,
+    },
+    /// List all enrichments on the HEAD schema.
+    List,
+    /// Remove an enrichment by name.
+    Remove {
+        /// Enrichment name or vertex name to remove enrichments from.
+        name: String,
+    },
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     dispatch(cli.command, cli.verbose)
@@ -890,6 +980,7 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             theory,
             lens,
             save,
+            optic_kind,
         } => {
             let result = cmd::schema::cmd_diff(
                 old.as_deref(),
@@ -902,6 +993,7 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
                     verbose,
                     detect_renames,
                     theory,
+                    optic_kind,
                 },
             );
             if lens {
@@ -923,6 +1015,12 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             format,
             stat,
         } => cmd::schema::cmd_show(&target, format.as_deref(), stat),
+
+        // Expression commands.
+        Command::Expr { action } => dispatch_expr_commands(action, verbose),
+
+        // Enrichment commands.
+        Command::Enrich { action } => dispatch_enrich_commands(action, verbose),
 
         // Branching, tagging, and merge commands.
         command @ (Command::Branch { .. }
@@ -1018,6 +1116,7 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             dry_run,
             output,
             backward,
+            coverage,
         } => cmd::migrate::cmd_migrate(
             &data,
             protocol.as_deref(),
@@ -1026,7 +1125,19 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             output.as_deref(),
             backward,
             verbose,
-        ),
+        )
+        .and_then(|()| {
+            if coverage {
+                cmd::migrate::cmd_migrate_coverage(
+                    &data,
+                    protocol.as_deref(),
+                    range.as_deref(),
+                    verbose,
+                )
+            } else {
+                Ok(())
+            }
+        }),
         Command::Convert {
             data,
             from,
@@ -1215,5 +1326,34 @@ fn dispatch_history_commands(command: Command) -> Result<()> {
         Command::Fetch { remote } => cmd::history::cmd_fetch(remote.as_deref()),
         Command::Clone { url, path } => cmd::history::cmd_clone(&url, path.as_deref()),
         _ => unreachable!(),
+    }
+}
+
+/// Dispatch expression subcommands.
+fn dispatch_expr_commands(action: ExprAction, verbose: bool) -> Result<()> {
+    match action {
+        ExprAction::Eval { file, env } => cmd::expr::cmd_expr_eval(&file, env.as_deref(), verbose),
+        ExprAction::Check { file } => cmd::expr::cmd_expr_check(&file, verbose),
+        ExprAction::Repl => cmd::expr::cmd_expr_repl(),
+    }
+}
+
+/// Dispatch enrichment subcommands.
+fn dispatch_enrich_commands(action: EnrichAction, verbose: bool) -> Result<()> {
+    match action {
+        EnrichAction::AddDefault { vertex, expr } => {
+            cmd::enrich::cmd_enrich_add_default(&vertex, &expr, verbose)
+        }
+        EnrichAction::AddCoercion { from, to, expr } => {
+            cmd::enrich::cmd_enrich_add_coercion(&from, &to, &expr, verbose)
+        }
+        EnrichAction::AddMerger { vertex, expr } => {
+            cmd::enrich::cmd_enrich_add_merger(&vertex, &expr, verbose)
+        }
+        EnrichAction::AddPolicy { vertex, strategy } => {
+            cmd::enrich::cmd_enrich_add_policy(&vertex, &strategy, verbose)
+        }
+        EnrichAction::List => cmd::enrich::cmd_enrich_list(verbose),
+        EnrichAction::Remove { name } => cmd::enrich::cmd_enrich_remove(&name, verbose),
     }
 }

@@ -68,6 +68,11 @@ export class Panproto implements Disposable {
     this.#protocols = new Map();
   }
 
+  /** The WASM module reference. Internal use only. */
+  get _wasm(): WasmModule {
+    return this.#wasm;
+  }
+
   /**
    * Initialize the panproto SDK by loading the WASM module.
    *

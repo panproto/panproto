@@ -60,6 +60,20 @@ pub struct Protocol {
     /// Whether this protocol uses nominal identity (`ThNominal`).
     #[serde(default)]
     pub nominal_identity: bool,
+
+    // -- enrichment feature flags (all default to false) --
+    /// Whether this protocol supports default value expressions (`ThValued`).
+    #[serde(default)]
+    pub has_defaults: bool,
+    /// Whether this protocol supports type coercion expressions (`ThCoercible`).
+    #[serde(default)]
+    pub has_coercions: bool,
+    /// Whether this protocol supports merge/split expressions (`ThMergeable`).
+    #[serde(default)]
+    pub has_mergers: bool,
+    /// Whether this protocol supports conflict resolution policies (`ThPolicied`).
+    #[serde(default)]
+    pub has_policies: bool,
 }
 
 impl Protocol {

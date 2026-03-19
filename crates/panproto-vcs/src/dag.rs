@@ -940,6 +940,10 @@ mod tests {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
@@ -973,6 +977,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let mig01_id = store.put(&Object::Migration {
             src: s0_id,
@@ -991,6 +996,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let mig12_id = store.put(&Object::Migration {
             src: s1_id,
@@ -1106,6 +1112,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let bad_mig_id = store.put(&Object::Migration {
             src: s_src_id,
@@ -1175,6 +1182,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let mig_id = store.put(&Object::Migration {
             src: s_src_id,
@@ -1227,6 +1235,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn coherence_composition_drift_detected() -> Result<(), Box<dyn std::error::Error>> {
         // Build a 3-commit history where the composed migration disagrees
         // with the directly derived migration from source to target schema.
@@ -1270,6 +1279,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let mig01_id = store.put(&Object::Migration {
             src: s0_id,
@@ -1289,6 +1299,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let mig12_id = store.put(&Object::Migration {
             src: s1_id,
@@ -1398,6 +1409,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let mig01_id = store.put(&Object::Migration {
             src: s0_id,
@@ -1417,6 +1429,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let mig12_id = store.put(&Object::Migration {
             src: s1_id,

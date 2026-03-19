@@ -128,7 +128,7 @@ Schemas accumulate cruft. A field gets copied instead of referenced. Two teams i
 
 ### When schemas have duplicates
 
-Consider an ATProto schema that evolved over several months. The original author defined a `DateTime` type node for timestamps. Later, a different contributor added a `Timestamp` type node with exactly the same structure: same sort, same constraints, same edges. The schema now has two names for the same concept.
+Consider an ATProto schema where two contributors independently defined type nodes for timestamps: `DateTime` and `Timestamp`. Both have exactly the same structure: same sort, same constraints, same edges. The schema has two names for the same concept.
 
 This is not a bug---both definitions are valid, and instances using either one are well-formed. But it is a problem for migrations. When you diff two versions of this schema, changes to `DateTime` and changes to `Timestamp` show up as separate modifications, even though they are logically the same thing. Merge conflicts between the two are spurious. Migration mappings have to map both, doubling the work.
 
@@ -143,7 +143,7 @@ schema normalize --protocol atproto --schema my-schema.json --identify DateTime=
 This tells panproto: "treat `DateTime` and `Timestamp` as the same thing." The output is a new schema where:
 
 1. **One definition survives.** By default, the first-named element (`DateTime`) is kept and the second (`Timestamp`) is removed.
-2. **All references are updated.** Every edge that pointed to `Timestamp` now points to `DateTime`. Every constraint attached to `Timestamp` is merged into `DateTime`'s constraint set.
+2. **All references are updated.** Every edge that pointed to `Timestamp` points to `DateTime` instead. Every constraint attached to `Timestamp` is merged into `DateTime`'s constraint set.
 3. **Equations are re-verified.** The simplified schema's theory is type-checked to ensure that merging the two definitions did not break any equations.
 
 You can choose which name survives with `--prefer`:

@@ -149,6 +149,10 @@ struct CanonicalSchema {
     spans: BTreeMap<String, Span>,
     usage_modes: BTreeMap<Edge, UsageMode>,
     nominal: BTreeMap<String, bool>,
+    coercions: BTreeMap<(String, String), panproto_expr::Expr>,
+    mergers: BTreeMap<String, panproto_expr::Expr>,
+    defaults: BTreeMap<String, panproto_expr::Expr>,
+    policies: BTreeMap<String, panproto_expr::Expr>,
 }
 
 impl From<&Schema> for CanonicalSchema {
@@ -222,6 +226,26 @@ impl From<&Schema> for CanonicalSchema {
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
             nominal: s.nominal.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            coercions: s
+                .coercions
+                .iter()
+                .map(|((k1, k2), v)| ((k1.to_string(), k2.to_string()), v.clone()))
+                .collect(),
+            mergers: s
+                .mergers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            defaults: s
+                .defaults
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            policies: s
+                .policies
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
         }
     }
 }
@@ -237,6 +261,7 @@ struct CanonicalMigration {
     label_map: BTreeMap<(String, String), String>,
     resolver: BTreeMap<(String, String), Edge>,
     hyper_resolver: BTreeMap<String, (String, BTreeMap<String, String>)>,
+    expr_resolvers: BTreeMap<(String, String), panproto_expr::Expr>,
 }
 
 // ---------------------------------------------------------------------------
@@ -313,6 +338,11 @@ pub fn hash_migration(
             .map(|((k1, k2), v)| ((k1.to_string(), k2.to_string()), v.clone()))
             .collect(),
         hyper_resolver,
+        expr_resolvers: migration
+            .expr_resolvers
+            .iter()
+            .map(|((k1, k2), v)| ((k1.to_string(), k2.to_string()), v.clone()))
+            .collect(),
     };
     let bytes = rmp_serde::to_vec(&canonical)?;
     Ok(ObjectId(blake3::hash(&bytes).into()))
@@ -439,6 +469,10 @@ mod tests {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
             outgoing,
             incoming,
             between,

@@ -132,6 +132,74 @@ impl Equation {
     }
 }
 
+/// A directed equation (rewrite rule) with a computation term.
+///
+/// Unlike [`Equation`] which asserts an undirected equality (`lhs = rhs`),
+/// a directed equation specifies a computation direction: when the engine
+/// encounters a value matching `lhs`, it rewrites to `rhs` using `impl_term`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct DirectedEquation {
+    /// A human-readable name for this directed equation.
+    pub name: Arc<str>,
+    /// The left-hand side (pattern to match).
+    pub lhs: Term,
+    /// The right-hand side (rewrite target).
+    pub rhs: Term,
+    /// The computable implementation of the rewrite.
+    pub impl_term: panproto_expr::Expr,
+    /// Optional inverse for the backward (put) direction.
+    pub inverse: Option<panproto_expr::Expr>,
+}
+
+impl DirectedEquation {
+    /// Create a new directed equation.
+    #[must_use]
+    pub fn new(
+        name: impl Into<Arc<str>>,
+        lhs: Term,
+        rhs: Term,
+        impl_term: panproto_expr::Expr,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            lhs,
+            rhs,
+            impl_term,
+            inverse: None,
+        }
+    }
+
+    /// Create a directed equation with an inverse.
+    #[must_use]
+    pub fn with_inverse(
+        name: impl Into<Arc<str>>,
+        lhs: Term,
+        rhs: Term,
+        impl_term: panproto_expr::Expr,
+        inverse: panproto_expr::Expr,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            lhs,
+            rhs,
+            impl_term,
+            inverse: Some(inverse),
+        }
+    }
+
+    /// Apply an operation renaming to both sides of this directed equation.
+    #[must_use]
+    pub fn rename_ops(&self, op_map: &std::collections::HashMap<Arc<str>, Arc<str>>) -> Self {
+        Self {
+            name: Arc::clone(&self.name),
+            lhs: self.lhs.rename_ops(op_map),
+            rhs: self.rhs.rename_ops(op_map),
+            impl_term: self.impl_term.clone(),
+            inverse: self.inverse.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -45,8 +45,22 @@ Each variant corresponds to an elementary operation on theories:
 | `DropEquation(n)` | Remove equation `n` | `AddEquation(...)` |
 | `Pullback(morph)` | Sort/op renaming induced by a morphism | --- |
 | `Compose(f,g)` | Apply `f` then `g` | `Compose(g_inv, f_inv)` |
+| `CoerceSort{sort,kind,expr}` | Change sort's value kind, install coercion expression | --- |
+| `MergeSorts{a,b,merged,expr}` | Merge two sorts into one via a merger expression | --- |
+| `AddSortWithDefault{sort,expr}` | Add sort with a default value expression | `DropSort(sort.name)` |
+| `AddDirectedEquation(deq)` | Add a directed equation (rewrite rule) | `DropDirectedEquation(deq.name)` |
+| `DropDirectedEquation(n)` | Remove directed equation `n` | `AddDirectedEquation(...)` |
 
 : Theory transform variants and their effects. {#tbl-theory-transforms}
+
+### Enriched transforms
+
+The enriched transform variants extend beyond structural changes (rename, add, drop) to semantic transforms that carry computation:
+
+- **`CoerceSort`** changes a sort's value kind (e.g., string → int) and installs an expression that performs the coercion at migration time. The coercion expression is a term in the `panproto-expr` expression language.
+- **`MergeSorts`** combines two sorts into one (e.g., firstName + lastName → fullName), with a merger expression that specifies how to combine values.
+- **`AddSortWithDefault`** adds a sort with a default value expression, used when a new field needs a computed default for existing data.
+- **`AddDirectedEquation`** / **`DropDirectedEquation`** manage directed equations (rewrite rules) that specify computation direction for equational rewrites.
 
 ### Cascading Drops
 

@@ -18,6 +18,7 @@ miette = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"

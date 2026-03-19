@@ -232,7 +232,11 @@ fn rebuild_sorts(theory: &Theory, sort_rename: &RenameMap) -> Result<Vec<Sort>, 
                 .iter()
                 .map(|p| SortParam::new(p.name.clone(), apply_sort_rename(&p.sort, sort_rename)))
                 .collect();
-            result.push(Sort { name: rep, params });
+            result.push(Sort {
+                name: rep,
+                params,
+                kind: rep_sort.kind.clone(),
+            });
         }
     }
     Ok(result)

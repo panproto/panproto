@@ -484,6 +484,120 @@ export interface WasmExports {
   protolens_from_json(json: Uint8Array): number;
 }
 
+// ---------------------------------------------------------------------------
+// Enriched theory types
+// ---------------------------------------------------------------------------
+
+/** Primitive value kind. */
+export type ValueKind = 'bool' | 'int' | 'float' | 'str' | 'bytes' | 'token' | 'null' | 'any';
+
+/** Sort kind classification. */
+export type SortKind =
+  | { readonly type: 'structural' }
+  | { readonly type: 'val'; readonly kind: ValueKind }
+  | { readonly type: 'coercion'; readonly from: ValueKind; readonly to: ValueKind }
+  | { readonly type: 'merger'; readonly kind: ValueKind };
+
+/** A directed equation (rewrite rule). */
+export interface DirectedEquation {
+  readonly name: string;
+  readonly lhs: Term;
+  readonly rhs: Term;
+  readonly implTerm: Expr;
+  readonly inverse?: Expr | undefined;
+}
+
+/** Conflict resolution strategy. */
+export type ConflictStrategy =
+  | { readonly type: 'keep_left' }
+  | { readonly type: 'keep_right' }
+  | { readonly type: 'fail' }
+  | { readonly type: 'custom'; readonly expr: Expr };
+
+/** Conflict resolution policy. */
+export interface ConflictPolicy {
+  readonly name: string;
+  readonly valueKind: ValueKind;
+  readonly strategy: ConflictStrategy;
+}
+
+/** Pattern for expression matching. */
+export type Pattern =
+  | { readonly type: 'wildcard' }
+  | { readonly type: 'var'; readonly name: string }
+  | { readonly type: 'lit'; readonly value: Literal }
+  | { readonly type: 'record'; readonly fields: readonly [string, Pattern][] }
+  | { readonly type: 'list'; readonly items: readonly Pattern[] };
+
+/** Expression in the pure functional language. */
+export type Expr =
+  | { readonly type: 'var'; readonly name: string }
+  | { readonly type: 'lam'; readonly param: string; readonly body: Expr }
+  | { readonly type: 'app'; readonly func: Expr; readonly arg: Expr }
+  | { readonly type: 'lit'; readonly value: Literal }
+  | { readonly type: 'record'; readonly fields: readonly [string, Expr][] }
+  | { readonly type: 'list'; readonly items: readonly Expr[] }
+  | { readonly type: 'field'; readonly expr: Expr; readonly name: string }
+  | { readonly type: 'index'; readonly expr: Expr; readonly index: Expr }
+  | { readonly type: 'match'; readonly scrutinee: Expr; readonly arms: readonly [Pattern, Expr][] }
+  | { readonly type: 'let'; readonly name: string; readonly value: Expr; readonly body: Expr }
+  | { readonly type: 'builtin'; readonly op: BuiltinOp; readonly args: readonly Expr[] };
+
+/** Literal value. */
+export type Literal =
+  | { readonly type: 'bool'; readonly value: boolean }
+  | { readonly type: 'int'; readonly value: number }
+  | { readonly type: 'float'; readonly value: number }
+  | { readonly type: 'str'; readonly value: string }
+  | { readonly type: 'bytes'; readonly value: Uint8Array }
+  | { readonly type: 'null' }
+  | { readonly type: 'record'; readonly fields: readonly [string, Literal][] }
+  | { readonly type: 'list'; readonly items: readonly Literal[] };
+
+/** All builtin operations. */
+export type BuiltinOp =
+  | 'Add' | 'Sub' | 'Mul' | 'Div' | 'Mod' | 'Neg' | 'Abs'
+  | 'Floor' | 'Ceil'
+  | 'Eq' | 'Neq' | 'Lt' | 'Lte' | 'Gt' | 'Gte'
+  | 'And' | 'Or' | 'Not'
+  | 'Concat' | 'Len' | 'Slice' | 'Upper' | 'Lower' | 'Trim' | 'Split' | 'Join' | 'Replace' | 'Contains'
+  | 'Map' | 'Filter' | 'Fold' | 'Append' | 'Head' | 'Tail' | 'Reverse' | 'FlatMap' | 'Length'
+  | 'MergeRecords' | 'Keys' | 'Values' | 'HasField'
+  | 'IntToFloat' | 'FloatToInt' | 'IntToStr' | 'FloatToStr' | 'StrToInt' | 'StrToFloat'
+  | 'TypeOf' | 'IsNull' | 'IsList';
+
+/** Coverage report from dry-run migration. */
+export interface CoverageReport {
+  readonly totalRecords: number;
+  readonly successful: number;
+  readonly failed: readonly PartialFailure[];
+  readonly coverageRatio: number;
+}
+
+/** A single record failure from a dry-run migration. */
+export interface PartialFailure {
+  readonly recordId: number;
+  readonly reason: PartialReason;
+}
+
+/** Reason for a partial migration failure. */
+export type PartialReason =
+  | { readonly type: 'constraint_violation'; readonly constraint: string; readonly value: string }
+  | { readonly type: 'missing_required_field'; readonly field: string }
+  | { readonly type: 'type_mismatch'; readonly expected: string; readonly got: string }
+  | { readonly type: 'expr_eval_failed'; readonly exprName: string; readonly error: string };
+
+/** Optic kind classification. */
+export type OpticKind = 'iso' | 'lens' | 'prism' | 'affine' | 'traversal';
+
+/** Summary of enrichments applied to a schema. */
+export interface EnrichmentSummary {
+  readonly defaults: readonly { readonly vertex: string; readonly expr: Expr }[];
+  readonly coercions: readonly { readonly from: string; readonly to: string; readonly expr: Expr }[];
+  readonly mergers: readonly { readonly vertex: string; readonly expr: Expr }[];
+  readonly policies: readonly { readonly vertex: string; readonly strategy: ConflictStrategy }[];
+}
+
 /** Result of checking a lens law (GetPut or PutGet). */
 export interface LawCheckResult {
   readonly holds: boolean;

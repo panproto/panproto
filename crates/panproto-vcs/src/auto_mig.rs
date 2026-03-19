@@ -113,6 +113,7 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
         label_map,
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        expr_resolvers: HashMap::new(),
     };
 
     // If there are both removed and added vertices (potential renames),
@@ -224,6 +225,10 @@ mod tests {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),

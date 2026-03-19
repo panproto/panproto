@@ -179,6 +179,20 @@ pub struct Schema {
     #[serde(default)]
     pub nominal: HashMap<Name, bool>,
 
+    // -- enrichment fields --
+    /// Coercion expressions: `(source_kind, target_kind)` to coercion expression.
+    #[serde(default, with = "crate::serde_helpers::map_as_vec_default")]
+    pub coercions: HashMap<(Name, Name), panproto_expr::Expr>,
+    /// Merger expressions: `vertex_id` to merger expression.
+    #[serde(default)]
+    pub mergers: HashMap<Name, panproto_expr::Expr>,
+    /// Default value expressions: `vertex_id` to default expression.
+    #[serde(default)]
+    pub defaults: HashMap<Name, panproto_expr::Expr>,
+    /// Conflict resolution policy expressions: `sort_name` to policy expression.
+    #[serde(default)]
+    pub policies: HashMap<Name, panproto_expr::Expr>,
+
     // -- precomputed indices --
     /// Outgoing edges per vertex ID.
     pub outgoing: HashMap<Name, SmallVec<Edge, 4>>,

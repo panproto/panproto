@@ -62,9 +62,40 @@ Equations (axioms) constrain the behavior of operations. An equation consists of
 
 Equations are not computationally evaluated; they serve as proof obligations that theory morphisms must preserve. When `panproto-gat` checks a morphism, it verifies that for each equation `lhs = rhs` in the domain theory, the mapped equation `F(lhs) = F(rhs)` exists in the codomain theory.
 
+## Sort Kinds
+
+Sorts are classified by their `SortKind`, which distinguishes structural sorts from value-level sorts:
+
+- **`Structural`** (default): standard schema-level sorts like `Vertex`, `Edge`, `Constraint`.
+- **`Val(kind)`**: value sorts carrying data of a specific `ValueKind` (Bool, Int, Float, Str, Bytes, Token, Null, Any).
+- **`Coercion { from, to }`**: coercion sorts representing directed morphisms between value kinds.
+- **`Merger(kind)`**: merger sorts that combine values of a specific kind.
+
+Value sorts bridge the schema level and the instance level. A sort like `Val(Str)` classifies string values; `Coercion { from: Str, to: Int }` classifies functions that convert strings to integers (e.g., `parse_int`).
+
+## Directed Equations
+
+A `DirectedEquation` extends the standard `Equation` with a computation direction. Where an equation `lhs = rhs` is an undirected assertion, a directed equation `lhs ⟶ rhs` specifies a rewrite rule: when the migration engine encounters a value matching `lhs`, it rewrites to `rhs` using the implementation term.
+
+Each directed equation carries:
+
+- `impl_term`: a `panproto_expr::Expr` — the computable implementation of the rewrite.
+- `inverse`: an optional `panproto_expr::Expr` for the backward (put) direction.
+
+The expression language is defined in the `panproto-expr` crate — a pure functional language with lambda calculus, pattern matching, records, lists, and ~50 built-in operations.
+
+## Conflict Policies
+
+A `ConflictPolicy` specifies how merge conflicts are resolved for values of a given kind:
+
+- `KeepLeft` — always prefer the left branch.
+- `KeepRight` — always prefer the right branch.
+- `Fail` — report a conflict (default behavior).
+- `Custom(expr)` — evaluate a `panproto_expr::Expr` to decide.
+
 ## Theory
 
-The `Theory` struct is the central type of `panproto-gat`. It groups sorts, operations, and equations under a name, with optional inheritance via `extends`.
+The `Theory` struct is the central type of `panproto-gat`. It groups sorts, operations, equations, directed equations, and conflict policies under a name, with optional inheritance via `extends`.
 
 ```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=10 end-line=44}
 ```
@@ -458,7 +489,7 @@ The `schema scaffold` command uses `free_model` to generate skeleton instances. 
 
 ## Quotient Theories (Identifying Equivalent Elements)
 
-The `quotient` function simplifies a theory by identifying (merging) sorts and/or operations. This is the dual of theory extension: where extension adds new structure, quotienting collapses existing structure by declaring that previously distinct elements are now the same.
+The `quotient` function simplifies a theory by identifying (merging) sorts and/or operations. This is the dual of theory extension: where extension adds new structure, quotienting collapses existing structure by declaring that distinct elements are the same.
 
 ### How Quotienting Works
 

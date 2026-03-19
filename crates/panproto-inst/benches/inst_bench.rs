@@ -79,6 +79,10 @@ fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         spans: HashMap::new(),
         usage_modes: HashMap::new(),
         nominal: HashMap::new(),
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
     }
 }
 

@@ -1,4 +1,4 @@
-//! Shared component theory definitions (27 building blocks).
+//! Shared component theory definitions (31 building blocks).
 //!
 //! These are the building-block GATs that protocols compose via colimit
 //! to form their schema and instance theories. Each function returns
@@ -45,6 +45,10 @@
 //! | 25 | ThOperad | 2 | 0 | Schema structure |
 //! | 26 | ThTracedMonoidal | 2 | 0 | Schema structure |
 //! | 27 | ThSimplicial | 3 | 0 | Instance structure |
+//! | 28 | ThValued | 2 | 1 | Enrichment |
+//! | 29 | ThCoercible | 2 | 3 | Enrichment |
+//! | 30 | ThMergeable | 2 | 2 | Enrichment |
+//! | 31 | ThPolicied | 2 | 0 | Enrichment |
 
 use panproto_gat::{Equation, Operation, Sort, SortParam, Term, Theory};
 
@@ -781,6 +785,185 @@ pub fn th_simplicial() -> Theory {
             Operation::unary("face_map", "f", "Face", "Simplex"),
             Operation::unary("degeneracy_map", "d", "Degeneracy", "Simplex"),
         ],
+        vec![],
+    )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Enrichment building blocks
+// ═══════════════════════════════════════════════════════════════════
+
+/// `ThValued`: default values.
+///
+/// Sorts: `Vertex`, `Default`.
+/// Ops: `default_value : Vertex → Default`, `inject : Default → Vertex`.
+/// Eqs: `default_value(inject(d)) = d`.
+///
+/// Attaches a default-value generation operation to vertices. When a
+/// migration adds a new vertex, the runtime evaluates `default_value`
+/// to populate it. `inject` is a section: every default is the default
+/// of some vertex.
+///
+/// Type check for `default_inject`: both sides have sort `Default`.
+///
+/// `Vertex` is shared with `ThGraph` via colimit.
+#[must_use]
+pub fn th_valued() -> Theory {
+    Theory::new(
+        "ThValued",
+        vec![Sort::simple("Vertex"), Sort::simple("Default")],
+        vec![
+            Operation::unary("default_value", "v", "Vertex", "Default"),
+            Operation::unary("inject", "d", "Default", "Vertex"),
+        ],
+        vec![Equation::new(
+            "default_inject",
+            Term::app(
+                "default_value",
+                vec![Term::app("inject", vec![Term::var("d")])],
+            ),
+            Term::var("d"),
+        )],
+    )
+}
+
+/// `ThCoercible`: type coercions.
+///
+/// Sorts: `Kind`, `Coercion`.
+/// Ops: `coerce_src : Coercion → Kind`, `coerce_tgt : Coercion → Kind`,
+///      `apply_coercion : Coercion → Kind`,
+///      `invert_coercion : Coercion → Coercion`.
+/// Eqs: `coerce_src(invert_coercion(c)) = coerce_tgt(c)`,
+///       `coerce_tgt(invert_coercion(c)) = coerce_src(c)`,
+///       `invert_coercion(invert_coercion(c)) = c`.
+///
+/// Models type coercions between vertex kinds (e.g., int to float,
+/// string to datetime). `apply_coercion` produces the target kind.
+/// `invert_coercion` is an involution: every coercion has an inverse
+/// (which may be lossy, but always exists structurally).
+///
+/// `Kind` is shared with schema vertex kinds via colimit.
+#[must_use]
+pub fn th_coercible() -> Theory {
+    Theory::new(
+        "ThCoercible",
+        vec![Sort::simple("Kind"), Sort::simple("Coercion")],
+        vec![
+            Operation::unary("coerce_src", "c", "Coercion", "Kind"),
+            Operation::unary("coerce_tgt", "c", "Coercion", "Kind"),
+            Operation::unary("apply_coercion", "c", "Coercion", "Kind"),
+            Operation::unary("invert_coercion", "c", "Coercion", "Coercion"),
+        ],
+        vec![
+            Equation::new(
+                "inv_src",
+                Term::app(
+                    "coerce_src",
+                    vec![Term::app("invert_coercion", vec![Term::var("c")])],
+                ),
+                Term::app("coerce_tgt", vec![Term::var("c")]),
+            ),
+            Equation::new(
+                "inv_tgt",
+                Term::app(
+                    "coerce_tgt",
+                    vec![Term::app("invert_coercion", vec![Term::var("c")])],
+                ),
+                Term::app("coerce_src", vec![Term::var("c")]),
+            ),
+            Equation::new(
+                "inv_inv",
+                Term::app(
+                    "invert_coercion",
+                    vec![Term::app("invert_coercion", vec![Term::var("c")])],
+                ),
+                Term::var("c"),
+            ),
+        ],
+    )
+}
+
+/// `ThMergeable`: binary merge/split operations.
+///
+/// Sorts: `Vertex`, `Merger2`.
+/// Ops: `merge2(l: Vertex, r: Vertex) → Merger2`,
+///      `merged : Merger2 → Vertex`,
+///      `split_left : Merger2 → Vertex`,
+///      `split_right : Merger2 → Vertex`.
+/// Eqs: `split_left(merge2(l, r)) = l`,
+///       `split_right(merge2(l, r)) = r`.
+///
+/// Models merge strategies for concurrent writes. `merge2` combines two
+/// vertex values into a merger witness; `merged` extracts the combined
+/// result. `split_left` and `split_right` are projections recovering the
+/// original inputs (retraction equations).
+///
+/// `Vertex` is shared with `ThGraph` via colimit.
+#[must_use]
+pub fn th_mergeable() -> Theory {
+    Theory::new(
+        "ThMergeable",
+        vec![Sort::simple("Vertex"), Sort::simple("Merger2")],
+        vec![
+            Operation::new(
+                "merge2",
+                vec![("l".into(), "Vertex".into()), ("r".into(), "Vertex".into())],
+                "Merger2",
+            ),
+            Operation::unary("merged", "m", "Merger2", "Vertex"),
+            Operation::unary("split_left", "m", "Merger2", "Vertex"),
+            Operation::unary("split_right", "m", "Merger2", "Vertex"),
+        ],
+        vec![
+            Equation::new(
+                "split_left_merge",
+                Term::app(
+                    "split_left",
+                    vec![Term::app("merge2", vec![Term::var("l"), Term::var("r")])],
+                ),
+                Term::var("l"),
+            ),
+            Equation::new(
+                "split_right_merge",
+                Term::app(
+                    "split_right",
+                    vec![Term::app("merge2", vec![Term::var("l"), Term::var("r")])],
+                ),
+                Term::var("r"),
+            ),
+        ],
+    )
+}
+
+/// `ThPolicied`: conflict resolution policies.
+///
+/// Sorts: `Value`, `ConflictPolicy`.
+/// Ops: `resolve(p: ConflictPolicy, a: Value, b: Value) → Value`.
+///
+/// Models conflict resolution when two concurrent writes to the same
+/// vertex disagree. The `resolve` operation takes a policy and two
+/// candidate values, producing the winner. Policies are sort-level
+/// (e.g., "last-writer-wins", "max", "merge-sets") rather than
+/// vertex-level.
+///
+/// No equations: policy semantics are model-level (runtime-interpreted),
+/// not unconditional GAT axioms.
+///
+/// `Value` is shared with instance theories via colimit.
+#[must_use]
+pub fn th_policied() -> Theory {
+    Theory::new(
+        "ThPolicied",
+        vec![Sort::simple("Value"), Sort::simple("ConflictPolicy")],
+        vec![Operation::new(
+            "resolve",
+            vec![
+                ("p".into(), "ConflictPolicy".into()),
+                ("a".into(), "Value".into()),
+                ("b".into(), "Value".into()),
+            ],
+            "Value",
+        )],
         vec![],
     )
 }

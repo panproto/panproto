@@ -14,6 +14,7 @@ use smallvec::SmallVec;
 use crate::error::SchemaError;
 use crate::protocol::Protocol;
 use crate::schema::{Constraint, Edge, HyperEdge, Schema, Vertex};
+use panproto_expr::Expr;
 
 /// A builder for incrementally constructing a validated [`Schema`].
 ///
@@ -35,6 +36,10 @@ pub struct SchemaBuilder {
     required: HashMap<Name, Vec<Edge>>,
     nsids: HashMap<Name, Name>,
     edge_set: FxHashSet<(Name, Name, Name, Option<Name>)>,
+    coercions: HashMap<(Name, Name), Expr>,
+    mergers: HashMap<Name, Expr>,
+    defaults: HashMap<Name, Expr>,
+    policies: HashMap<Name, Expr>,
 }
 
 impl SchemaBuilder {
@@ -50,6 +55,10 @@ impl SchemaBuilder {
             required: HashMap::new(),
             nsids: HashMap::new(),
             edge_set: FxHashSet::default(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
         }
     }
 
@@ -234,6 +243,35 @@ impl SchemaBuilder {
         self
     }
 
+    /// Add a coercion expression for a `(source_kind, target_kind)` pair.
+    #[must_use]
+    pub fn coercion(mut self, source_kind: &str, target_kind: &str, expr: Expr) -> Self {
+        self.coercions
+            .insert((Name::from(source_kind), Name::from(target_kind)), expr);
+        self
+    }
+
+    /// Add a merger expression for a vertex.
+    #[must_use]
+    pub fn merger(mut self, vertex_id: &str, expr: Expr) -> Self {
+        self.mergers.insert(Name::from(vertex_id), expr);
+        self
+    }
+
+    /// Add a default value expression for a vertex.
+    #[must_use]
+    pub fn default_expr(mut self, vertex_id: &str, expr: Expr) -> Self {
+        self.defaults.insert(Name::from(vertex_id), expr);
+        self
+    }
+
+    /// Add a conflict resolution policy expression for a sort.
+    #[must_use]
+    pub fn policy(mut self, sort_name: &str, expr: Expr) -> Self {
+        self.policies.insert(Name::from(sort_name), expr);
+        self
+    }
+
     /// Consume the builder and produce a validated [`Schema`] with
     /// precomputed adjacency indices.
     ///
@@ -284,6 +322,10 @@ impl SchemaBuilder {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: self.coercions,
+            mergers: self.mergers,
+            defaults: self.defaults,
+            policies: self.policies,
             outgoing,
             incoming,
             between,

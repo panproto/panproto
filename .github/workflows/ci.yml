@@ -95,6 +95,18 @@ jobs:
       - run: cd sdk/typescript && pnpm test
       - run: cd sdk/typescript && pnpm exec tsc --noEmit
 
+  python:
+    name: Python SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install wasmtime msgpack pyright
+      - run: cd sdk/python && pyright src/panproto/
+      - run: cd sdk/python && python -m pytest tests/ -x
+
   semver:
     name: Semver Check
     if: github.event_name == 'pull_request'

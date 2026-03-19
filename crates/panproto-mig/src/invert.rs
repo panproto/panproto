@@ -167,6 +167,7 @@ pub fn invert(
         label_map: inv_label_map,
         resolver: inv_resolver,
         hyper_resolver: inv_hyper_resolver,
+        expr_resolvers: HashMap::new(),
     })
 }
 
@@ -224,6 +225,10 @@ mod tests {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
             outgoing,
             incoming,
             between,
@@ -264,6 +269,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
 
         let result = invert(&mig, &src, &tgt);
@@ -299,6 +305,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
 
         let tgt2 = test_schema(&[("a", "object")], &[]);

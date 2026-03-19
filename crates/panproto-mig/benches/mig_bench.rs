@@ -72,6 +72,10 @@ fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
         variants: HashMap::new(),
         orderings: HashMap::new(),
         recursion_points: HashMap::new(),
@@ -191,6 +195,7 @@ fn make_protocol() -> panproto_schema::Protocol {
         has_recursion: false,
         has_causal: false,
         nominal_identity: false,
+        ..panproto_schema::Protocol::default()
     }
 }
 
@@ -331,6 +336,7 @@ fn compose_with_renaming(bencher: Bencher, n: usize) {
         label_map: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        expr_resolvers: HashMap::new(),
     };
 
     bencher.bench(|| compose(&m1, &m2));

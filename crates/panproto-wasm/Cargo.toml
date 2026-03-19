@@ -17,6 +17,7 @@ rmp-serde = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
+rustc-hash = { workspace = true }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

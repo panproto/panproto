@@ -127,11 +127,11 @@ The lens laws follow the formulation of asymmetric lenses from @foster2007, adap
 Rather than constructing `Migration` objects and compiling them by hand, the combinator API lets you describe schema transformations as a chain of atomic operations. Each combinator represents a single, well-understood schema change.
 
 ::: {.callout-warning}
-The standalone `combinators.rs` module has been superseded by protolenses (@sec-protolens-engine). The combinator semantics described below are now implemented as elementary protolens constructors in `protolens::elementary` (e.g., `elementary::rename_sort`, `elementary::drop_sort`, `elementary::add_sort`). See @sec-elementary-protolens for the full list.
+The combinator semantics described below are implemented as elementary protolens constructors in `protolens::elementary` (e.g., `elementary::rename_sort`, `elementary::drop_sort`, `elementary::add_sort`). See @sec-elementary-protolens for the full list.
 :::
 
 ```rust
-// Conceptual combinator enum (now implemented via protolens::elementary)
+// Conceptual combinator enum (implemented via protolens::elementary)
 pub enum Combinator {
     RenameField { old: String, new: String },
     AddField { name: String, kind: String, default: Value },
@@ -297,7 +297,7 @@ For full details, see @sec-protolens-engine.
 
 ### Relationship to Cambria-style Combinators
 
-The conceptual Cambria-style combinators described above (rename, add, remove, etc.) are now implemented as elementary protolens constructors. Each combinator maps to a corresponding `protolens::elementary` function that operates at the theory level, producing a `Protolens` that can be instantiated against any schema satisfying its precondition. The `diff_to_protolens` module provides automated derivation of protolens chains from schema diffs.
+The conceptual Cambria-style combinators described above (rename, add, remove, etc.) are implemented as elementary protolens constructors. Each combinator maps to a corresponding `protolens::elementary` function that operates at the theory level, producing a `Protolens` that can be instantiated against any schema satisfying its precondition. The `diff_to_protolens` module provides automated derivation of protolens chains from schema diffs.
 
 ## Module Map
 
@@ -345,3 +345,33 @@ For lossless transformations (empty complement), `get` and `put` have essentiall
 In batch scenarios where the same lens is applied to many instances (e.g., projecting a million records to an API view), the lens should be constructed once and reused. The `Lens` struct is `Clone` and can be shared across threads via `Arc<Lens>`. The compiled migration inside the lens is immutable after construction, so concurrent `get` calls are safe without synchronization.
 
 The complement size is the primary cost driver. A lens that drops a single leaf field produces a small complement (one node, one arc). A lens that removes an entire subtree produces a complement proportional to the subtree size. When designing lens-based APIs, consider whether the complement can be compressed or whether a more targeted lens (removing only the specific fields needed) would reduce overhead.
+
+## Optic Classification {#sec-optic-classification}
+
+**File**: `crates/panproto-lens/src/optic.rs`
+
+Not every schema change is a lens. The `OpticKind` enum classifies protolens chains into five optic types, enabling complement optimization:
+
+| Kind | Complement | When |
+|---|---|---|
+| `Iso` | Unit (none needed) | All-rename chains, lossless coercions |
+| `Lens` | Dropped data | Any sort/op drops, additions with defaults |
+| `Prism` | Variant tag | Accessing a field in a union type |
+| `Affine` | (variant tag, dropped data) | Lens composed with Prism |
+| `Traversal` | Position list | Mapping over array elements |
+
+The `OpticKind::compose` method implements the standard optics lattice composition rules: Iso is the identity element, Traversal absorbs everything, and mixing Lens with Prism yields Affine.
+
+The `classify_transform` function maps each `TheoryTransform` to its optic kind. When a protolens chain is classified as `Iso`, the engine skips complement computation entirely — a significant optimization for the common case where schema changes are renames and lossless coercions.
+
+## Symbolic Simplification {#sec-symbolic-simplification}
+
+**File**: `crates/panproto-lens/src/symbolic.rs`
+
+Protolens chains composed from multiple schema migrations often contain redundant steps. The `simplify_steps` function applies algebraic rewrite rules in a fixpoint loop:
+
+1. **Inverse cancellation**: `rename(A,B)` followed by `rename(B,A)` → removed.
+2. **Rename fusion**: `rename(A,B)` followed by `rename(B,C)` → `rename(A,C)`.
+3. **Add-drop cancellation**: `add(X)` followed by `drop(X)` → removed.
+
+A chain composed from three separate schema migrations might have 15 steps, many of which cancel or fuse. Symbolic simplification reduces this to the minimal equivalent chain before any data is touched.

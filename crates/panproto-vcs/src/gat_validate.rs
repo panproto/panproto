@@ -208,6 +208,10 @@ mod tests {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
@@ -227,6 +231,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let diag = validate_migration(&schema, &schema, &migration);
         assert!(diag.is_clean());
@@ -243,6 +248,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
         let diag = validate_migration(&schema, &schema, &migration);
         assert!(!diag.migration_warnings.is_empty());

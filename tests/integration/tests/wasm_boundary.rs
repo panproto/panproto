@@ -57,6 +57,7 @@ fn migration_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         label_map: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        expr_resolvers: HashMap::new(),
     };
 
     let bytes = rmp_serde::to_vec(&migration)?;

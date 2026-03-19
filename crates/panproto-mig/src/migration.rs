@@ -36,6 +36,9 @@ pub struct Migration {
     #[allow(clippy::type_complexity)]
     #[serde(with = "panproto_schema::serde_helpers::map_as_vec")]
     pub hyper_resolver: HashMap<(Name, Vec<Name>), (Name, HashMap<Name, Name>)>,
+    /// Expression-based resolvers for enriched migrations.
+    #[serde(default, with = "panproto_schema::serde_helpers::map_as_vec_default")]
+    pub expr_resolvers: HashMap<(Name, Name), panproto_expr::Expr>,
 }
 
 impl Migration {
@@ -54,6 +57,7 @@ impl Migration {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         }
     }
 
@@ -67,6 +71,7 @@ impl Migration {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         }
     }
 }

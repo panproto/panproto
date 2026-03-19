@@ -738,6 +738,7 @@ pub struct DiffOptions {
     pub verbose: bool,
     pub detect_renames: bool,
     pub theory: bool,
+    pub optic_kind: bool,
 }
 
 pub fn cmd_diff(
@@ -753,6 +754,7 @@ pub fn cmd_diff(
         verbose,
         detect_renames,
         theory,
+        optic_kind,
     } = *opts;
     if staged {
         // Diff staged schema vs HEAD.
@@ -802,6 +804,9 @@ pub fn cmd_diff(
         if theory {
             print_theory_diff(&old_schema, &new_schema);
         }
+        if optic_kind {
+            print_optic_kind(&old_schema, &new_schema);
+        }
         return Ok(());
     }
 
@@ -838,7 +843,89 @@ pub fn cmd_diff(
     if theory {
         print_theory_diff(&old_schema, &new_schema);
     }
+    if optic_kind {
+        print_optic_kind(&old_schema, &new_schema);
+    }
     Ok(())
+}
+
+/// Print the optic classification of the diff between two schemas.
+///
+/// Auto-generates a protolens chain and classifies it as iso, lens,
+/// prism, affine, or traversal based on complement structure.
+pub fn print_optic_kind(old_schema: &Schema, new_schema: &Schema) {
+    let protocol = match resolve_protocol(&old_schema.protocol) {
+        Ok(p) => p,
+        Err(_) => {
+            if let Ok(p) = resolve_protocol("atproto") {
+                p
+            } else {
+                println!("\nCould not resolve protocol for optic classification.");
+                return;
+            }
+        }
+    };
+
+    let config = panproto_core::lens::AutoLensConfig::default();
+    match panproto_core::lens::auto_generate(old_schema, new_schema, &protocol, &config) {
+        Ok(result) => {
+            let kind = classify_chain_optic_kind(&result.chain);
+            println!("\nOptic classification: {kind}");
+        }
+        Err(e) => {
+            println!("\nCould not classify optic kind: {e}");
+        }
+    }
+}
+
+/// Classify a protolens chain's optic kind based on complement constructors.
+fn classify_chain_optic_kind(chain: &panproto_core::lens::ProtolensChain) -> &'static str {
+    if chain.steps.is_empty() {
+        return "iso";
+    }
+
+    let mut has_added = false;
+    let mut has_dropped = false;
+
+    for step in &chain.steps {
+        classify_complement_kind(
+            &step.complement_constructor,
+            &mut has_added,
+            &mut has_dropped,
+        );
+    }
+
+    match (has_added, has_dropped) {
+        (false, false) => "iso",
+        (true, false) => "lens",
+        (false, true) => "prism",
+        (true, true) => "affine",
+    }
+}
+
+/// Recursively classify a complement constructor.
+fn classify_complement_kind(
+    cc: &panproto_core::lens::protolens::ComplementConstructor,
+    has_added: &mut bool,
+    has_dropped: &mut bool,
+) {
+    use panproto_core::lens::protolens::ComplementConstructor;
+    match cc {
+        ComplementConstructor::Empty => {}
+        ComplementConstructor::DroppedSortData { .. }
+        | ComplementConstructor::DroppedOpData { .. }
+        | ComplementConstructor::NatTransKernel { .. } => {
+            *has_dropped = true;
+        }
+        ComplementConstructor::AddedElement { .. } => {
+            *has_added = true;
+        }
+        ComplementConstructor::Composite(subs) => {
+            for sub in subs {
+                classify_complement_kind(sub, has_added, has_dropped);
+            }
+        }
+    }
 }
 
 /// Print detected vertex and edge renames between two schemas.

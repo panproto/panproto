@@ -1,5 +1,7 @@
 pub mod branch;
 pub mod convert;
+pub mod enrich;
+pub mod expr;
 pub mod helpers;
 pub mod history;
 pub mod lens;

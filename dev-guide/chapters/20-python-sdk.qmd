@@ -123,7 +123,7 @@ The `_wasm.py` module handles WASM binary loading, instance creation, and resour
 
 ### `WasmModule`
 
-`WasmModule` wraps a `wasmtime.Instance` and exposes the ten panproto WASM entry points as typed Python methods:
+`WasmModule` wraps a `wasmtime.Instance` and exposes the panproto WASM entry points as typed Python methods:
 
 ```{.python include="../../sdk/python/src/panproto/_wasm.py" start-line=25 end-line=49}
 ```
@@ -371,6 +371,99 @@ Key methods:
 `Panproto` implements the context-manager protocol. When the `with` block exits, it releases all cached protocol handles:
 
 ```{.python include="../../sdk/python/src/panproto/_panproto.py" start-line=638 end-line=656}
+```
+
+## Schema Enrichment
+
+The `SchemaBuilder` supports enrichment through constraints, which encode defaults, coercions, and merge policies:
+
+```python
+# Add constraints to encode enriched schema properties
+with (
+    protocol.schema()
+    .vertex("post:body", "object")
+    .vertex("post:body.text", "string")
+    .edge("post:body", "post:body.text", "prop", {"name": "text"})
+    .constraint("post:body.text", "maxLength", "3000")   # refinement type
+    .constraint("post:body.text", "minLength", "1")       # lower bound
+    .build()
+) as schema:
+    assert schema.data["constraints"]["post:body.text"][0]["sort"] == "maxLength"
+```
+
+Constraints serve triple duty: they encode refinement types (value bounds), default behaviors (when a field has a known initial value), and coercion hints (when a field can be safely converted between representations). The protocol's `constraint_sorts` list determines which constraint sorts are recognized during compatibility checking.
+
+## Migration Analysis
+
+The SDK provides analysis capabilities through the diff/classify pipeline:
+
+```python
+# Compute structural diff
+diff_report = pp.diff(old_schema, new_schema)
+
+# Classify into breaking vs. non-breaking
+compat = pp.classify(diff_report)
+
+# Coverage: fraction of source vertices surviving in target
+total_changes = len(compat["breaking"]) + len(compat["non_breaking"])
+if total_changes > 0:
+    coverage = len(compat["non_breaking"]) / total_changes
+```
+
+For optic classification, the protolens chain structure reveals whether a migration is an isomorphism (lossless, rename-only), a lens (lossy, drops data), or more complex:
+
+```python
+from panproto import ProtolensChainHandle
+
+# Auto-generate protolens
+with ProtolensChainHandle.auto_generate(schema1, schema2, wasm) as chain:
+    # Fuse to analyze the composed transform
+    with chain.fuse() as fused:
+        # Serialize to inspect the transform structure
+        spec = fused.to_json()
+        # spec["complement_constructor"] == "Empty" means isomorphism
+        # "DroppedSortData" in complement means lens
+```
+
+## GAT Engine Access
+
+The SDK provides direct access to the GAT engine for theory construction and composition:
+
+```python
+# Create theories via WASM
+theory_spec = {
+    "name": "ThGraph",
+    "sorts": [
+        {"name": "Vertex", "params": []},
+        {"name": "Edge", "params": []},
+    ],
+    "ops": [
+        {"name": "src", "inputs": [["e", "Edge"]], "output": "Vertex"},
+        {"name": "tgt", "inputs": [["e", "Edge"]], "output": "Vertex"},
+    ],
+    "eqs": [],
+}
+
+with pp.create_theory(theory_spec) as th_graph:
+    # Compose theories via colimit
+    with pp.colimit_theories(th_graph, th_constraint, shared) as composed:
+        pass  # use composed theory
+```
+
+## VCS Integration
+
+The SDK exposes version control operations for schemas and data:
+
+```python
+# Initialize a repository
+with pp.vcs_init("atproto") as repo:
+    # Stage and commit schema changes
+    pp.vcs_add(repo, schema)
+    commit_hash = pp.vcs_commit(repo, "add post schema", "author@example.com")
+
+    # Query history
+    log = pp.vcs_log(repo, count=10)
+    status = pp.vcs_status(repo)
 ```
 
 ## Usage Pattern
