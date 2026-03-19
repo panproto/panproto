@@ -2,6 +2,35 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.8.0]
+
+### Added — Enriched Theories: Expression Language, Directed Equations, Value Sorts
+
+- **panproto-expr** (new crate): Pure functional expression language — lambda calculus with closures, pattern matching, records, lists, ~50 built-in operations. Call-by-value evaluator with step/depth limits. Deterministic on native and WASM.
+- **panproto-gat**: `DirectedEquation` — rewrite rules with `impl_term: Expr` and optional `inverse: Expr`. `SortKind` (Structural, Val, Coercion, Merger) and `ValueKind` for classifying sorts. `ConflictPolicy` with `ConflictStrategy` (KeepLeft, KeepRight, Fail, Custom). Five new `TheoryTransform` variants: CoerceSort, MergeSorts, AddSortWithDefault, AddDirectedEquation, DropDirectedEquation.
+- **panproto-gat**: `AlgStruct` — algebraic struct types in theories. `EqWitness` — propositional equality proofs with justifications. `RefinedSort` — refinement types with subsort checking via interval containment.
+- **panproto-schema**: Enrichment fields on `Schema`: `coercions`, `mergers`, `defaults`, `policies`. Feature flags on `Protocol`: `has_defaults`, `has_coercions`, `has_mergers`, `has_policies`. `SchemaBuilder` enrichment methods.
+- **panproto-mig**: `CoverageReport` — dry-run migration with structured `RestrictError` matching. `expr_resolvers` on `Migration` for expression-based resolution.
+- **panproto-lens**: `OpticKind` (Iso, Lens, Prism, Affine, Traversal) with algebraic composition table. `classify_transform` maps transforms to optic kinds. Symbolic simplification: inverse cancellation, rename fusion, add-drop cancellation. Fused complement collapse (all-Empty → Empty). Full schema-level implementations for CoerceSort, MergeSorts, AddSortWithDefault transforms.
+- **panproto-inst**: `Provenance` tracking — `ProvenanceMap`, `SourceField`, `TransformStep`, `compute_provenance`.
+- **panproto-protocols**: Building-block theories: ThValued, ThCoercible, ThMergeable, ThPolicied. Expression sub-theories: ThExpr, ThLam, ThMatch, ThArith, ThString, ThRecord, ThList (with round-trip equations).
+- **panproto-wasm**: 11 new entry points — expr eval/check/substitute, schema enrichment (coercion, default, merger, policy), coverage analysis, optic classification, symbolic simplification, refinement subsort.
+- **panproto-cli**: `schema expr eval/check/repl` — expression evaluation commands. `schema enrich add-default/add-coercion/add-merger/add-policy/list/remove` — schema enrichment management. `schema migrate --coverage` — coverage statistics. `schema diff --optic-kind` — optic classification.
+- **@panproto/core**: `ExprBuilder`, `SchemaEnrichment`, `MigrationAnalysis` classes. Enriched type definitions.
+- **panproto (Python)**: `ExprBuilder`, `SchemaEnrichment`, `MigrationAnalysis` classes. Full type annotations (pyright clean).
+- **CI**: Added Python SDK job (pyright + pytest).
+- 36 new integration tests covering all enriched theory features.
+
+### Changed
+
+- `Sort` gains `kind: SortKind` field (default: Structural).
+- `Theory` gains `directed_eqs` and `policies` fields.
+- `Schema` gains `coercions`, `mergers`, `defaults`, `policies` fields.
+- `Protocol` gains `has_defaults`, `has_coercions`, `has_mergers`, `has_policies` flags.
+- `Migration` gains `expr_resolvers` field.
+- Lambda expressions evaluate to proper `Literal::Closure` values with captured environments.
+- `ProtolensChain::fuse` collapses all-Empty complement lists to `ComplementConstructor::Empty`.
+
 ## [0.7.0]
 
 ### Added — Protolens: Automated Lens Generation via GAT Theory
