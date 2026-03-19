@@ -32,6 +32,7 @@ pub mod cascade;
 pub mod chase;
 pub mod compile;
 pub mod compose;
+pub mod coverage;
 pub mod error;
 pub mod existence;
 pub mod hom_search;
@@ -47,6 +48,7 @@ pub use chase::{
 };
 pub use compile::compile;
 pub use compose::compose;
+pub use coverage::{CoverageReport, PartialFailure, PartialReason, check_coverage};
 pub use error::{ComposeError, ExistenceError, InvertError, LiftError, MigError};
 pub use existence::{ExistenceReport, check_existence};
 pub use hom_search::{FoundMorphism, SearchOptions, find_best_morphism, find_morphisms};

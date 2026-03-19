@@ -54,7 +54,7 @@ An annotated summary of the public API surface. For full documentation, see the 
 
 ### Built-in Protocol Specs
 
-All 76 built-in protocols are accessible via named constants. Every protocol supports bidirectional conversion: a `parse_*` function reads a source document into a panproto schema, and a matching `emit_*` function writes a panproto schema back out to that format. The emit functions are new — all protocols now have full parse + emit support.
+All 76 built-in protocols are accessible via named constants. Every protocol supports bidirectional conversion: a `parse_*` function reads a source document into a panproto schema, and a matching `emit_*` function writes a panproto schema back out to that format. All protocols have full parse + emit support.
 
 **Serialization**
 

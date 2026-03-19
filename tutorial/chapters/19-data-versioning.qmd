@@ -1,6 +1,6 @@
 # Versioning Data with Schemas {#sec-data-versioning}
 
-Schemas evolve. Data does not evolve on its own. Every time you commit a new schema version, the records written against the previous version fall out of sync. Until now, panproto versioned schemas but left data migration as an external problem. This chapter introduces the data versioning system that closes that gap.
+Schemas evolve. Data does not evolve on its own. Every time you commit a schema version, the records written against a previous version fall out of sync. panproto versions both schemas and data, keeping them aligned through the commit DAG. This chapter covers the data versioning system that closes that gap.
 
 ## The problem: schema evolves, data stays behind {#sec-data-stays-behind}
 
@@ -162,7 +162,7 @@ If the merge has conflicts, data migration is deferred until the conflicts are r
 
 ## Protocol versioning: pinning the metaschema {#sec-protocol-versioning}
 
-Protocols (the theories that define what a valid schema looks like) can themselves evolve. A new version of ATProto might add a sort, change an equation, or rename an operation. panproto now stores protocol definitions as first-class `Object::Protocol` values in the commit DAG.
+Protocols (the theories that define what a valid schema looks like) can themselves evolve. A new version of ATProto might add a sort, change an equation, or rename an operation. panproto stores protocol definitions as first-class `Object::Protocol` values in the commit DAG.
 
 ```{.sh}
 schema add schema.json --protocol atproto-v2.json

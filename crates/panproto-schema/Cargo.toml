@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 panproto-gat = { workspace = true }
+panproto-expr = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 rustc-hash = { workspace = true }

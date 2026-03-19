@@ -191,15 +191,103 @@ The `lens.ts` module provides three handle classes for bidirectional schema tran
 - **`LensHandle.put(view, complement)`** -- Backward put: restore from view and complement.
 - **`LensHandle.checkLaws(instance)`** -- Verify GetPut and PutGet laws.
 
+## Schema Enrichment
+
+The `SchemaBuilder` supports enrichment through constraints, which encode defaults, coercions, and merge policies:
+
+```typescript
+// Add constraints to encode enriched schema properties
+using schema = protocol.schema()
+  .vertex('post:body', 'object')
+  .vertex('post:body.text', 'string')
+  .edge('post:body', 'post:body.text', 'prop', { name: 'text' })
+  .constraint('post:body.text', 'maxLength', '3000')   // refinement type
+  .constraint('post:body.text', 'minLength', '1')       // lower bound
+  .build();
+```
+
+Constraints serve triple duty: they encode refinement types (value bounds), default behaviors (when a field has a known initial value), and coercion hints (when a field can be safely converted between representations). The protocol's `constraint_sorts` array determines which constraint sorts are recognized during compatibility checking.
+
+## Migration Analysis
+
+The SDK provides analysis capabilities through the diff/classify pipeline:
+
+```typescript
+// Compute structural diff
+const diffReport = panproto.diff(oldSchema, newSchema);
+
+// Classify into breaking vs. non-breaking
+const compat = panproto.classify(diffReport);
+
+// Coverage: fraction of source vertices surviving in target
+const coverage = compat.non_breaking.length /
+  (compat.breaking.length + compat.non_breaking.length);
+```
+
+For optic classification, the protolens chain structure reveals whether a migration is an isomorphism (lossless, rename-only), a lens (lossy, drops data), or more complex:
+
+```typescript
+// Auto-generate protolens
+using chain = ProtolensChainHandle.autoGenerate(schema1, schema2, wasm);
+
+// Fuse to analyze the composed transform
+using fused = chain.fuse();
+
+// Serialize to inspect the transform structure
+const json = fused.toJSON();
+// json.complement_constructor === "Empty" means isomorphism
+// json.complement_constructor contains "DroppedSortData" means lens
+```
+
+## GAT Engine Access
+
+The SDK provides direct access to the GAT engine for theory construction and composition:
+
+```typescript
+// Create theories
+using thGraph = panproto.createTheory({
+  name: 'ThGraph',
+  sorts: [{ name: 'Vertex', params: [] }, { name: 'Edge', params: [] }],
+  ops: [
+    { name: 'src', inputs: [['e', 'Edge']], output: 'Vertex' },
+    { name: 'tgt', inputs: [['e', 'Edge']], output: 'Vertex' },
+  ],
+  eqs: [],
+});
+
+// Compose theories via colimit
+using shared = panproto.createTheory({ name: 'Shared', sorts: [{ name: 'Vertex', params: [] }], ops: [], eqs: [] });
+using composed = panproto.colimitTheories(thGraph, thConstraint, shared);
+```
+
+## VCS Integration
+
+The SDK exposes version control operations for schemas and data:
+
+```typescript
+// Initialize a repository
+using repo = panproto.vcsInit('atproto');
+
+// Stage and commit schema changes
+panproto.vcsAdd(repo, schema);
+const hash = panproto.vcsCommit(repo, 'add post schema', 'author@example.com');
+
+// Query history
+const log = panproto.vcsLog(repo, 10);
+const status = panproto.vcsStatus(repo);
+```
+
 ## Type Definitions
 
 The `types.ts` module defines all TypeScript interfaces that mirror Rust structures. Key types include:
 
-- **`WasmExports`** -- The raw WASM module interface listing all ten entry points
+- **`WasmExports`** -- The raw WASM module interface listing all entry points
 - **`ProtocolSpec`**, **`Vertex`**, **`Edge`**, **`HyperEdge`**, **`Constraint`** -- Schema domain types
 - **`MigrationSpec`**, **`LiftResult`**, **`GetResult`** -- Migration domain types
 - **`ExistenceReport`**, **`ExistenceError`** -- Existence checking results
 - **`DiffReport`**, **`SchemaChange`**, **`Compatibility`** -- Schema diff results
+- **`TheorySpec`**, **`SortSpec`**, **`OperationSpec`**, **`EquationSpec`** -- GAT theory types
+- **`ProtolensChainSpec`**, **`ComplementConstructor`** -- Protolens types
 
 ```{.typescript include="../../sdk/typescript/src/types.ts" start-line=187 end-line=199}
 ```

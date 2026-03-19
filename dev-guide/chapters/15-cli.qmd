@@ -12,7 +12,7 @@ These operate on schema files directly, without a `.panproto/` repository.
 schema validate --protocol atproto schema.json
 ```
 
-Loads the schema from JSON, resolves the protocol by name, and runs protocol-aware validation. In addition to structural validation, `schema validate` now also type-checks the protocol's schema theory equations via `gat_validate::validate_theory_equations`. Exits with code 1 on failure. Calls `panproto_core::schema::validate`.
+Loads the schema from JSON, resolves the protocol by name, and runs protocol-aware validation. In addition to structural validation, `schema validate` type-checks the protocol's schema theory equations via `gat_validate::validate_theory_equations`. Exits with code 1 on failure. Calls `panproto_core::schema::validate`.
 
 ### `schema check`
 

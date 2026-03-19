@@ -79,6 +79,17 @@ class Panproto:
         self._wasm: WasmModule = wasm
         self._protocols: dict[str, Protocol] = {}
 
+    @property
+    def wasm_module(self) -> WasmModule:
+        """The WASM module backing this instance.
+
+        Returns
+        -------
+        WasmModule
+            The underlying WASM module for direct access by SDK modules.
+        """
+        return self._wasm
+
     # ------------------------------------------------------------------
     # Factory
     # ------------------------------------------------------------------

@@ -11,6 +11,7 @@ repository.workspace = true
 panproto-inst = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-gat = { workspace = true }
+panproto-expr = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 rustc-hash = { workspace = true }

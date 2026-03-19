@@ -21,6 +21,7 @@
 //! The mathematical foundations are based on Cartmell (1986) and
 //! the `GATlab` architecture (Lynch et al., 2024).
 
+pub mod alg_struct;
 mod check_model;
 mod colimit;
 mod eq;
@@ -34,10 +35,12 @@ mod nat_transform;
 mod op;
 mod pullback;
 mod quotient;
+pub mod refinement;
 mod schema_functor;
 mod sort;
 mod theory;
 mod typecheck;
+pub mod witness;
 
 pub use check_model::{
     CheckModelOptions, EquationViolation, check_model, check_model_with_options,
@@ -45,7 +48,7 @@ pub use check_model::{
 pub use colimit::colimit;
 pub use factorize::{Factorization, factorize, validate_factorization};
 
-pub use eq::{Equation, Term};
+pub use eq::{DirectedEquation, Equation, Term};
 pub use error::GatError;
 pub use free_model::{FreeModelConfig, free_model};
 pub use ident::{Ident, Name, NameSite, ScopeTag, SiteRename};
@@ -58,8 +61,12 @@ pub use op::Operation;
 pub use pullback::{PullbackResult, pullback};
 pub use quotient::quotient;
 pub use schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
-pub use sort::{Sort, SortParam};
-pub use theory::{Theory, resolve_theory};
+pub use sort::{Sort, SortKind, SortParam, ValueKind};
+pub use theory::{ConflictPolicy, ConflictStrategy, Theory, resolve_theory};
 pub use typecheck::{
     VarContext, infer_var_sorts, typecheck_equation, typecheck_term, typecheck_theory,
 };
+
+pub use alg_struct::{AlgStruct, StructField, StructParam};
+pub use refinement::{RefinedSort, RefinementConstraint, RefinementError};
+pub use witness::{EqWitness, WitnessJustification};

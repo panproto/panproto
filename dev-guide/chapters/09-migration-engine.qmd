@@ -318,3 +318,20 @@ The crate's test suite covers each pipeline stage independently:
 The test suite is intentionally structured so that each test constructs its own minimal schema pair and migration from scratch, avoiding shared test fixtures that could mask bugs through accidental coupling. See Chapter 17 for the project-wide testing conventions.
 
 Property-based tests (using `proptest`) supplement the hand-crafted cases, generating random schemas and migrations to verify invariants like "composing a migration with its inverse yields an identity migration" and "existence checking accepts the identity migration for any schema."
+
+## Coverage Analysis (Partiality) {#sec-coverage-analysis}
+
+**File**: `crates/panproto-mig/src/coverage.rs`
+
+Not every record can survive every migration. A coercion from string to int fails on non-numeric strings. A constraint tightening rejects values that violate the new constraint. The `check_coverage` function provides dry-run capability: it attempts the migration on each record individually and reports which succeed and which fail, without modifying any data.
+
+```rust
+pub struct CoverageReport {
+    pub total_records: usize,
+    pub successful: usize,
+    pub failed: Vec<PartialFailure>,
+    pub coverage_ratio: f64,
+}
+```
+
+Each `PartialFailure` records the failing record's ID and the reason: `ConstraintViolation`, `MissingRequiredField`, `TypeMismatch`, or `ExprEvalFailed`. This integrates with the CLI's `schema migrate --dry-run` command, which prints a coverage report before committing to the migration.

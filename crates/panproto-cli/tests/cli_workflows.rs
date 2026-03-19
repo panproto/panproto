@@ -1832,6 +1832,10 @@ fn make_lift_schema(
         spans: HashMap::new(),
         usage_modes: HashMap::new(),
         nominal: HashMap::new(),
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
         outgoing,
         incoming,
         between,
@@ -1852,6 +1856,7 @@ fn make_migration(
         label_map: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        expr_resolvers: HashMap::new(),
     }
 }
 

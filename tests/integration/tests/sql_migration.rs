@@ -74,6 +74,7 @@ fn add_column_migration() -> Result<(), Box<dyn std::error::Error>> {
         label_map: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        expr_resolvers: HashMap::new(),
     };
 
     let compiled = compile(&src_schema, &tgt_schema, &migration)?;

@@ -35,11 +35,12 @@ pub mod metadata;
 pub mod parse;
 /// Right Kan extension (Pi_F) for instances.
 pub mod pi;
+/// W-type instance representation and the `wtype_restrict` pipeline.
+pub mod provenance;
 /// Validation of W-type instances against schemas.
 pub mod validate;
 /// Value types and field presence.
 pub mod value;
-/// W-type instance representation and the `wtype_restrict` pipeline.
 pub mod wtype;
 
 // Re-exports for convenience.
@@ -52,6 +53,7 @@ pub use instance::Instance;
 pub use metadata::Node;
 pub use parse::{parse_json, to_json};
 pub use pi::{functor_pi, wtype_pi};
+pub use provenance::{Provenance, ProvenanceMap, SourceField, TransformStep, compute_provenance};
 pub use validate::validate_wtype;
 pub use value::{FieldPresence, Value};
 pub use wtype::{

@@ -91,6 +91,10 @@ fn simple_schema() -> Schema {
         spans: HashMap::new(),
         usage_modes: HashMap::new(),
         nominal: HashMap::new(),
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
         outgoing,
         incoming,
         between,
@@ -255,6 +259,10 @@ fn thread_view_post_schema() -> (Schema, Schema) {
         spans: HashMap::new(),
         usage_modes: HashMap::new(),
         nominal: HashMap::new(),
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
         outgoing: outgoing.clone(),
         incoming: incoming.clone(),
         between: between.clone(),
@@ -314,6 +322,10 @@ fn thread_view_post_schema() -> (Schema, Schema) {
         spans: HashMap::new(),
         usage_modes: HashMap::new(),
         nominal: HashMap::new(),
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
         outgoing: tgt_outgoing,
         incoming: tgt_incoming,
         between: tgt_between,
@@ -518,6 +530,7 @@ fn test_recursive_schema_restrict_drops_to_3_nodes() {
 // Test 3: Fan instance: 4-ary hyperedge, drop 1 child -> valid 3-ary fan
 // ---------------------------------------------------------------------------
 #[test]
+#[allow(clippy::too_many_lines)]
 fn test_fan_reconstruction_4_to_3() {
     // Schema with a 4-ary hyperedge (like a SQL FK)
     let mut vertices = HashMap::new();
@@ -561,6 +574,10 @@ fn test_fan_reconstruction_4_to_3() {
         spans: HashMap::new(),
         usage_modes: HashMap::new(),
         nominal: HashMap::new(),
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),

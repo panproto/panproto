@@ -84,7 +84,7 @@ pub struct MergeOptions {
 
 Beyond the core commit flow, `repo.rs` exposes several additional operations:
 
-- `Repository::amend()` -- replaces the most recent commit. Creates a new commit with the same parent(s) but updated schema, migration, and message. The old commit becomes unreachable (collectible by `gc`).
+- `Repository::amend()` -- creates a commit with the same parent(s) as the current HEAD but updated schema, migration, and message. The previous HEAD commit becomes unreachable (collectible by `gc`).
 - `refs::force_delete_branch` -- deletes a branch regardless of merge status
 - `refs::rename_branch` -- renames a branch ref, updating HEAD if the current branch is renamed
 - `refs::create_and_checkout_branch` -- creates a branch at HEAD and switches to it atomically
@@ -119,7 +119,7 @@ Given schemas `base`, `ours`, `theirs`, the merge computes a combined result:^[T
 
 ## Rename Detection
 
-The `rename_detect` module provides heuristic rename detection between schema versions. When `auto_mig::derive_migration` encounters a vertex that was removed in the old schema and a structurally similar vertex was added in the new schema, the rename detector can identify this as a rename rather than a delete-and-add.
+The `rename_detect` module provides heuristic rename detection between schema versions. When `auto_mig::derive_migration` encounters a vertex that is absent in one schema version and a structurally similar vertex appears in the other, the rename detector can identify this as a rename rather than a delete-and-add.
 
 ### Algorithm
 

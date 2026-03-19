@@ -205,3 +205,103 @@ pub fn cmd_migrate(
     println!("\nDone: {migrated} migrated, {skipped} skipped");
     Ok(())
 }
+
+/// Run coverage analysis on migration between two schema versions.
+///
+/// Reads JSON files from the data directory, attempts to lift each through
+/// the migration, and reports coverage statistics without modifying files.
+pub fn cmd_migrate_coverage(
+    data_dir: &Path,
+    protocol_name: Option<&str>,
+    range: Option<&str>,
+    verbose: bool,
+) -> Result<()> {
+    let repo = open_repo()?;
+    let (old_commit_id, new_commit_id) = resolve_migrate_range(repo.store(), range)?;
+
+    let old_commit = load_commit_obj(repo.store(), old_commit_id)?;
+    let new_commit = load_commit_obj(repo.store(), new_commit_id)?;
+
+    if old_commit.schema_id == new_commit.schema_id {
+        println!("\nCoverage: schemas are identical — 100% coverage.");
+        return Ok(());
+    }
+
+    let old_schema = load_schema_from_store(repo.store(), old_commit.schema_id)?;
+    let new_schema = load_schema_from_store(repo.store(), new_commit.schema_id)?;
+
+    let proto_name = protocol_name.unwrap_or(&old_commit.protocol);
+    let protocol = resolve_protocol(proto_name)?;
+
+    let config = lens::AutoLensConfig::default();
+    let result = lens::auto_generate(&old_schema, &new_schema, &protocol, &config)
+        .into_diagnostic()
+        .wrap_err("failed to generate lens for coverage analysis")?;
+
+    let entries = read_json_dir(data_dir)?;
+    let total = entries.len();
+    let mut succeeded = 0u64;
+    let mut failed = 0u64;
+    let mut errors: Vec<String> = Vec::new();
+
+    for entry in &entries {
+        let path = entry.path();
+        let json_str = std::fs::read_to_string(&path).into_diagnostic()?;
+        let json_value: serde_json::Value = serde_json::from_str(&json_str).into_diagnostic()?;
+
+        // Infer root vertex for parsing.
+        let root = if let Some((id, _)) = old_schema
+            .vertices
+            .iter()
+            .find(|(_, v)| v.kind.as_ref() == "object" || v.kind.as_ref() == "record")
+        {
+            id.to_string()
+        } else {
+            old_schema
+                .vertices
+                .keys()
+                .next()
+                .map_or_else(|| "root".to_owned(), ToString::to_string)
+        };
+
+        match panproto_core::inst::parse_json(&old_schema, &root, &json_value) {
+            Ok(instance) => match lens::get(&result.lens, &instance) {
+                Ok(_) => succeeded += 1,
+                Err(e) => {
+                    failed += 1;
+                    if errors.len() < 20 {
+                        errors.push(format!("{}: {e}", path.display()));
+                    }
+                }
+            },
+            Err(e) => {
+                failed += 1;
+                if errors.len() < 20 {
+                    errors.push(format!("{}: parse error: {e}", path.display()));
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    let coverage_pct = if total > 0 {
+        (succeeded as f64 / total as f64) * 100.0
+    } else {
+        100.0
+    };
+
+    println!("\nCoverage report:");
+    println!("  Total records:  {total}");
+    println!("  Succeeded:      {succeeded}");
+    println!("  Failed:         {failed}");
+    println!("  Coverage:       {coverage_pct:.1}%");
+
+    if verbose && !errors.is_empty() {
+        println!("\nFirst {} failure(s):", errors.len());
+        for e in &errors {
+            println!("  {e}");
+        }
+    }
+
+    Ok(())
+}

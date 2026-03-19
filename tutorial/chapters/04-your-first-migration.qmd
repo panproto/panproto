@@ -167,7 +167,7 @@ The result:
 }
 ```
 
-The `tags` field has been cleanly removed. The surviving fields are untouched.
+The `tags` field is cleanly removed. The surviving fields are untouched.
 
 
 ## What Happened

@@ -111,6 +111,10 @@ fn bare_schema(
         spans: HashMap::new(),
         usage_modes: HashMap::new(),
         nominal: HashMap::new(),
+        coercions: HashMap::new(),
+        mergers: HashMap::new(),
+        defaults: HashMap::new(),
+        policies: HashMap::new(),
         outgoing,
         incoming,
         between,
@@ -291,6 +295,7 @@ fn sigma_then_chase_workflow() {
         label_map: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        expr_resolvers: HashMap::new(),
     };
 
     // Compile and apply Sigma_F (extend)
@@ -597,6 +602,7 @@ fn schema_pushout_with_overlap_and_lift() {
         label_map: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        expr_resolvers: HashMap::new(),
     };
 
     let compiled = compile(&schema_a, &pushout, &left_mig).unwrap();

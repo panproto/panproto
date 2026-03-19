@@ -469,8 +469,8 @@ class BuiltSchema:
         return self._handle
 
     @property
-    def _wasm_module(self) -> WasmModule:
-        """The owning WASM module (internal use only)."""
+    def wasm_module(self) -> WasmModule:
+        """The WASM module backing this schema."""
         return self._wasm
 
     # ------------------------------------------------------------------

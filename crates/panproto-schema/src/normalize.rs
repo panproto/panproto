@@ -175,6 +175,20 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Nam
         .map(|(id, he)| (id.clone(), he.clone()))
         .collect();
 
+    let new_mergers = schema
+        .mergers
+        .iter()
+        .filter(|(id, _)| new_vertices.contains_key(*id))
+        .map(|(id, e)| (id.clone(), e.clone()))
+        .collect();
+
+    let new_defaults = schema
+        .defaults
+        .iter()
+        .filter(|(id, _)| new_vertices.contains_key(*id))
+        .map(|(id, e)| (id.clone(), e.clone()))
+        .collect();
+
     Schema {
         protocol: schema.protocol.clone(),
         vertices: new_vertices,
@@ -189,6 +203,10 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Nam
         spans: schema.spans.clone(),
         usage_modes: schema.usage_modes.clone(),
         nominal: schema.nominal.clone(),
+        coercions: schema.coercions.clone(),
+        mergers: new_mergers,
+        defaults: new_defaults,
+        policies: schema.policies.clone(),
         outgoing,
         incoming,
         between,

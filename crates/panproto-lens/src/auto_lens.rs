@@ -174,11 +174,13 @@ fn alignment_to_theory_morphism(
 /// rejected since they should not appear in a factorized sequence.
 fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens, LensError> {
     match &endofunctor.transform {
-        TheoryTransform::AddSort(sort) => Ok(elementary::add_sort(
-            Name::from(&*sort.name),
-            Name::from(&*sort.name),
-            Value::Null,
-        )),
+        TheoryTransform::AddSort(sort) | TheoryTransform::AddSortWithDefault { sort, .. } => {
+            Ok(elementary::add_sort(
+                Name::from(&*sort.name),
+                Name::from(&*sort.name),
+                Value::Null,
+            ))
+        }
         TheoryTransform::DropSort(name) => Ok(elementary::drop_sort(Name::from(&**name))),
         TheoryTransform::RenameSort { old, new } => Ok(elementary::rename_sort(
             Name::from(&**old),
@@ -205,6 +207,12 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
         TheoryTransform::AddEquation(eq) => Ok(elementary::add_equation(eq.clone())),
         TheoryTransform::DropEquation(name) => Ok(elementary::drop_equation(Name::from(&**name))),
         TheoryTransform::Pullback(morphism) => Ok(elementary::pullback(morphism.clone())),
+        TheoryTransform::AddDirectedEquation(_)
+        | TheoryTransform::DropDirectedEquation(_)
+        | TheoryTransform::CoerceSort { .. }
+        | TheoryTransform::MergeSorts { .. } => Err(LensError::ProtolensError(
+            "value-level transforms not yet supported as protolenses".into(),
+        )),
         TheoryTransform::Identity => Err(LensError::ProtolensError(
             "unexpected Identity in factorization".into(),
         )),

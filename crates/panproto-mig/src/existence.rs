@@ -560,6 +560,10 @@ mod tests {
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
             nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
             outgoing,
             incoming,
             between,
@@ -611,6 +615,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
 
         // Provide a theory with Constraint sort so the check fires.
@@ -657,6 +662,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
 
         let registry = HashMap::new();
@@ -697,6 +703,7 @@ mod tests {
             label_map: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
         };
 
         let mut registry = HashMap::new();

@@ -1,6 +1,6 @@
 # panproto-wasm --- The WASM Boundary {#sec-wasm-boundary}
 
-The `panproto-wasm` crate is the thin glue layer between the Rust core and the TypeScript SDK. It exposes exactly ten `#[wasm_bindgen]` entry points. Every structured value crossing the boundary is serialized as MessagePack bytes -- never as a JS object graph. This chapter explains why, and walks through the implementation.
+The `panproto-wasm` crate is the thin glue layer between the Rust core and the TypeScript SDK. It exposes `#[wasm_bindgen]` entry points for schema construction, migration, analysis, lens operations, GAT engine access, and version control. Every structured value crossing the boundary is serialized as MessagePack bytes -- never as a JS object graph. This chapter explains why, and walks through the implementation.
 
 ## Design Rationale
 
@@ -65,9 +65,11 @@ The most complex entry point. It takes a protocol handle and a `Vec<BuildOp>`, r
 ```{.rust include="../../crates/panproto-wasm/src/api.rs" start-line=100 end-line=171}
 ```
 
-### All Ten Entry Points
+### All Entry Points
 
-The complete set of WASM entry points, with their Rust signatures:
+The WASM boundary exposes far more than the original ten entry points. The complete set is organized into six categories.
+
+#### Core Schema and Migration
 
 | Entry Point | Signature | Returns |
 |---|---|---|
@@ -79,11 +81,100 @@ The complete set of WASM entry points, with their Rust signatures:
 | `get_record` | `(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack view+complement |
 | `put_record` | `(migration: u32, view: &[u8], complement: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack record |
 | `compose_migrations` | `(m1: u32, m2: u32) -> Result<u32, JsError>` | Migration handle |
-| `diff_schemas` | `(s1: u32, s2: u32) -> Vec<u8>` | MessagePack diff |
 | `free_handle` | `(handle: u32)` | (void) |
 
+#### Schema Analysis
+
+| Entry Point | Signature | Returns |
+|---|---|---|
+| `diff_schemas` | `(s1: u32, s2: u32) -> Vec<u8>` | MessagePack diff |
+| `diff_schemas_full` | `(s1: u32, s2: u32) -> Vec<u8>` | Full MessagePack diff with all fields |
+| `classify_diff` | `(proto: u32, diff_bytes: &[u8]) -> Vec<u8>` | MessagePack compat report |
+| `report_text` | `(report_bytes: &[u8]) -> Result<String, JsError>` | Human-readable text |
+| `report_json` | `(report_bytes: &[u8]) -> Result<String, JsError>` | JSON string |
+| `normalize_schema` | `(schema_handle: u32) -> Result<u32, JsError>` | Normalized schema handle |
+| `validate_schema` | `(schema_handle: u32, proto: u32) -> Result<Vec<u8>, JsError>` | MessagePack validation report |
+
+#### JSON and Instance Operations
+
+| Entry Point | Signature | Returns |
+|---|---|---|
+| `lift_json` | `(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<Vec<u8>, JsError>` | MessagePack lifted JSON |
+| `get_json` | `(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<Vec<u8>, JsError>` | MessagePack view+complement |
+| `put_json` | `(migration: u32, view: &[u8], complement: &[u8], root_vertex: &str) -> Result<Vec<u8>, JsError>` | MessagePack restored JSON |
+| `validate_instance` | `(schema: u32, instance: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack validation report |
+| `instance_to_json` | `(schema: u32, instance: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack JSON bytes |
+| `json_to_instance` | `(schema: u32, json: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack instance bytes |
+| `json_to_instance_with_root` | `(schema: u32, json: &[u8], root: &str) -> Result<Vec<u8>, JsError>` | MessagePack instance bytes |
+| `instance_element_count` | `(instance: &[u8]) -> Result<u32, JsError>` | Node count |
+| `parse_instance` | `(registry: u32, format: &str, data: &[u8], ...) -> Result<Vec<u8>, JsError>` | MessagePack instance bytes |
+| `emit_instance` | `(registry: u32, format: &str, instance: &[u8], ...) -> Result<Vec<u8>, JsError>` | Serialized output bytes |
+
+#### Protolens and Lens Operations
+
+| Entry Point | Signature | Returns |
+|---|---|---|
+| `auto_generate_protolens` | `(schema1: u32, schema2: u32) -> Result<u32, JsError>` | ProtolensChain handle |
+| `check_lens_laws` | `(migration: u32, instance: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack law check |
+| `check_get_put` | `(migration: u32, instance: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack law check |
+| `check_put_get` | `(migration: u32, instance: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack law check |
+| `invert_migration` | `(mapping: &[u8], src: u32, tgt: u32) -> Result<Vec<u8>, JsError>` | MessagePack inverse |
+| `compose_lenses` | `(l1: u32, l2: u32) -> Result<u32, JsError>` | Migration handle |
+| `instantiate_protolens` | `(chain: u32, schema: u32) -> Result<u32, JsError>` | Migration handle |
+| `protolens_complement_spec` | `(chain: u32, schema: u32) -> Result<Vec<u8>, JsError>` | MessagePack spec |
+| `protolens_from_diff` | `(diff: &[u8], s1: u32, s2: u32) -> Result<u32, JsError>` | ProtolensChain handle |
+| `protolens_compose` | `(c1: u32, c2: u32) -> Result<u32, JsError>` | ProtolensChain handle |
+| `protolens_chain_to_json` | `(chain: u32) -> Result<Vec<u8>, JsError>` | JSON bytes |
+| `protolens_from_json` | `(json: &[u8]) -> Result<u32, JsError>` | ProtolensChain handle |
+| `protolens_fuse` | `(chain: u32) -> Result<u32, JsError>` | ProtolensChain handle |
+| `protolens_lift` | `(chain: u32, morphism: &[u8]) -> Result<u32, JsError>` | ProtolensChain handle |
+| `protolens_check_applicability` | `(chain: u32, schema: u32) -> Result<Vec<u8>, JsError>` | MessagePack report |
+| `protolens_fleet` | `(chain: u32, schemas: &[u32]) -> Result<Vec<u8>, JsError>` | MessagePack fleet result |
+| `apply_protolens_step` | `(protolens: &[u8], schema: u32) -> Result<u32, JsError>` | Schema handle |
+| `factorize_morphism` | `(morphism: &[u8], domain: u32, codomain: u32) -> Result<u32, JsError>` | ProtolensChain handle |
+| `symmetric_lens_from_schemas` | `(s1: u32, s2: u32) -> Result<u32, JsError>` | SymmetricLens handle |
+| `symmetric_lens_sync` | `(lens: u32, dir: &str, data: &[u8], state: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack sync result |
+
+#### GAT Engine
+
+| Entry Point | Signature | Returns |
+|---|---|---|
+| `create_theory` | `(spec: &[u8]) -> Result<u32, JsError>` | Theory handle |
+| `colimit_theories` | `(t1: u32, t2: u32, shared: u32) -> Result<u32, JsError>` | Theory handle |
+| `check_morphism` | `(morphism: &[u8], domain: u32, codomain: u32) -> Result<Vec<u8>, JsError>` | MessagePack result |
+| `migrate_model` | `(model: &[u8], morphism: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack model |
+| `list_builtin_protocols` | `() -> Vec<u8>` | MessagePack protocol list |
+| `get_builtin_protocol` | `(name: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack protocol |
+| `register_io_protocols` | `() -> u32` | Registry handle |
+| `list_io_protocols` | `(registry: u32) -> Result<Vec<u8>, JsError>` | MessagePack list |
+
+#### VCS and Data Versioning
+
+| Entry Point | Signature | Returns |
+|---|---|---|
+| `vcs_init` | `(protocol_name: &[u8]) -> u32` | Repo handle |
+| `vcs_add` | `(repo: u32, schema: u32) -> Result<Vec<u8>, JsError>` | MessagePack add result |
+| `vcs_commit` | `(repo: u32, message: &[u8], author: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack commit hash |
+| `vcs_log` | `(repo: u32, count: u32) -> Result<Vec<u8>, JsError>` | MessagePack log entries |
+| `vcs_status` | `(repo: u32) -> Result<Vec<u8>, JsError>` | MessagePack status |
+| `vcs_diff` | `(repo: u32) -> Result<Vec<u8>, JsError>` | MessagePack diff |
+| `vcs_branch` | `(repo: u32, name: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack result |
+| `vcs_checkout` | `(repo: u32, target: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack result |
+| `vcs_merge` | `(repo: u32, branch: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack result |
+| `vcs_stash` | `(repo: u32) -> Result<Vec<u8>, JsError>` | MessagePack result |
+| `vcs_stash_pop` | `(repo: u32) -> Result<Vec<u8>, JsError>` | MessagePack result |
+| `vcs_blame` | `(repo: u32, vertex: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack blame info |
+| `store_dataset` | `(schema: u32, data: &[u8]) -> Result<u32, JsError>` | Dataset handle |
+| `get_dataset` | `(dataset: u32) -> Result<Vec<u8>, JsError>` | MessagePack dataset |
+| `migrate_dataset_forward` | `(dataset: u32, migration: u32, ...) -> Result<u32, JsError>` | Dataset handle |
+| `migrate_dataset_backward` | `(dataset: u32, migration: u32, ...) -> Result<u32, JsError>` | Dataset handle |
+| `check_dataset_staleness` | `(dataset: u32, schema: u32) -> Result<Vec<u8>, JsError>` | MessagePack staleness |
+| `store_protocol_definition` | `(protocol: &[u8]) -> Result<u32, JsError>` | Handle |
+| `get_protocol_definition` | `(handle: u32) -> Result<Vec<u8>, JsError>` | MessagePack protocol |
+| `get_migration_complement` | `(complement: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack complement |
+
 ::: {.callout-important}
-`check_existence` and `diff_schemas` never return errors at the WASM boundary. Instead, they encode error information inside the returned MessagePack report. This simplifies the JS-side error handling for operations where "failure" is an expected, structured result.
+`check_existence`, `diff_schemas`, and `diff_schemas_full` never return errors at the WASM boundary. Instead, they encode error information inside the returned MessagePack report. This simplifies the JS-side error handling for operations where "failure" is an expected, structured result.
 :::
 
 ## Data Flow: JS to Rust and Back

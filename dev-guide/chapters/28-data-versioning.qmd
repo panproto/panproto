@@ -56,7 +56,7 @@ The complement's content hash depends on all three fields. Two different migrati
 
 ### Protocol variant
 
-The `Protocol` variant stores a complete `panproto_protocols::Protocol` value. This is the same struct used throughout the codebase---no wrapper or subset. Serialization uses the existing `serde` implementation with MessagePack encoding.
+The `Protocol` variant stores a complete `panproto_protocols::Protocol` value. This is the same struct used throughout the codebase---no wrapper or subset. Serialization uses the `serde` implementation with MessagePack encoding.
 
 ## CommitObject extensions {#sec-commit-extensions}
 
@@ -88,11 +88,11 @@ pub struct CommitObject {
 These fields are not `serde(default)`. Existing serialized commits will fail to deserialize. This is a breaking change. Repositories created before this version must be re-initialized.
 :::
 
-## Hash functions: canonical forms for new types {#sec-data-hash-functions}
+## Hash functions: canonical forms for data types {#sec-data-hash-functions}
 
 **File**: `crates/panproto-vcs/src/hash.rs`
 
-Content addressing requires a canonical serialization. The existing `hash_object` function dispatches on the `Object` variant. Three new arms handle the new types:
+Content addressing requires a canonical serialization. The `hash_object` function dispatches on the `Object` variant. Three arms handle these types:
 
 ```{.rust}
 Object::DataSet(ds) => {
@@ -276,5 +276,5 @@ pub struct StagedData {
 Only one protocol can be staged per commit. Calling `add_protocol` twice overwrites the first.
 
 :::{.callout-note}
-The `Index` is serialized as JSON to `.panproto/index.json`. The new fields use `serde(default)` on `staged_data` (defaults to empty vec) but `staged_protocol` is `Option<Protocol>` (defaults to `None`). This means old index files missing these fields will deserialize with empty data staging, but the `Index` struct itself is a breaking change because the `CommitObject` it produces now requires the new fields.
+The `Index` is serialized as JSON to `.panproto/index.json`. The `staged_data` field uses `serde(default)` (defaults to empty vec) and `staged_protocol` is `Option<Protocol>` (defaults to `None`).
 :::

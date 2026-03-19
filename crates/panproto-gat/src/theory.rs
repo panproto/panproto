@@ -2,10 +2,34 @@ use std::sync::Arc;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::eq::Equation;
+use crate::eq::{DirectedEquation, Equation};
 use crate::error::GatError;
 use crate::op::Operation;
-use crate::sort::Sort;
+use crate::sort::{Sort, ValueKind};
+
+/// A conflict resolution strategy for merge operations.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ConflictStrategy {
+    /// Keep the left (ours) value.
+    KeepLeft,
+    /// Keep the right (theirs) value.
+    KeepRight,
+    /// Fail on conflict.
+    Fail,
+    /// Custom resolution via an expression.
+    Custom(panproto_expr::Expr),
+}
+
+/// A conflict resolution policy for merge operations.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ConflictPolicy {
+    /// A human-readable name for this policy.
+    pub name: Arc<str>,
+    /// The value kind this policy applies to.
+    pub value_kind: ValueKind,
+    /// The strategy to use when values conflict.
+    pub strategy: ConflictStrategy,
+}
 
 /// A generalized algebraic theory (GAT).
 ///
@@ -35,12 +59,20 @@ pub struct Theory {
     pub ops: Vec<Operation>,
     /// Equations (axioms).
     pub eqs: Vec<Equation>,
+    /// Directed equations (rewrite rules).
+    pub directed_eqs: Vec<DirectedEquation>,
+    /// Conflict resolution policies for merge operations.
+    pub policies: Vec<ConflictPolicy>,
     /// O(1) sort lookup by name.
     sort_idx: FxHashMap<Arc<str>, usize>,
     /// O(1) operation lookup by name.
     op_idx: FxHashMap<Arc<str>, usize>,
     /// O(1) equation lookup by name.
     eq_idx: FxHashMap<Arc<str>, usize>,
+    /// O(1) directed equation lookup by name.
+    directed_eq_idx: FxHashMap<Arc<str>, usize>,
+    /// O(1) policy lookup by name.
+    policy_idx: FxHashMap<Arc<str>, usize>,
 }
 
 impl PartialEq for Theory {
@@ -50,6 +82,8 @@ impl PartialEq for Theory {
             && self.sorts == other.sorts
             && self.ops == other.ops
             && self.eqs == other.eqs
+            && self.directed_eqs == other.directed_eqs
+            && self.policies == other.policies
     }
 }
 
@@ -58,12 +92,14 @@ impl Eq for Theory {}
 impl serde::Serialize for Theory {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("Theory", 5)?;
+        let mut s = serializer.serialize_struct("Theory", 7)?;
         s.serialize_field("name", &self.name)?;
         s.serialize_field("extends", &self.extends)?;
         s.serialize_field("sorts", &self.sorts)?;
         s.serialize_field("ops", &self.ops)?;
         s.serialize_field("eqs", &self.eqs)?;
+        s.serialize_field("directed_eqs", &self.directed_eqs)?;
+        s.serialize_field("policies", &self.policies)?;
         s.end()
     }
 }
@@ -77,14 +113,20 @@ impl<'de> serde::Deserialize<'de> for Theory {
             sorts: Vec<Sort>,
             ops: Vec<Operation>,
             eqs: Vec<Equation>,
+            #[serde(default)]
+            directed_eqs: Vec<DirectedEquation>,
+            #[serde(default)]
+            policies: Vec<ConflictPolicy>,
         }
         let raw = Raw::deserialize(deserializer)?;
-        Ok(Self::extending(
+        Ok(Self::full(
             raw.name,
             raw.extends,
             raw.sorts,
             raw.ops,
             raw.eqs,
+            raw.directed_eqs,
+            raw.policies,
         ))
     }
 }
@@ -112,6 +154,22 @@ fn build_eq_idx(eqs: &[Equation]) -> FxHashMap<Arc<str>, usize> {
         .collect()
 }
 
+fn build_directed_eq_idx(directed_eqs: &[DirectedEquation]) -> FxHashMap<Arc<str>, usize> {
+    directed_eqs
+        .iter()
+        .enumerate()
+        .map(|(i, de)| (Arc::clone(&de.name), i))
+        .collect()
+}
+
+fn build_policy_idx(policies: &[ConflictPolicy]) -> FxHashMap<Arc<str>, usize> {
+    policies
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (Arc::clone(&p.name), i))
+        .collect()
+}
+
 impl Theory {
     /// Create a new theory with no parents.
     #[must_use]
@@ -121,19 +179,7 @@ impl Theory {
         ops: Vec<Operation>,
         eqs: Vec<Equation>,
     ) -> Self {
-        let sort_idx = build_sort_idx(&sorts);
-        let op_idx = build_op_idx(&ops);
-        let eq_idx = build_eq_idx(&eqs);
-        Self {
-            name: name.into(),
-            extends: Vec::new(),
-            sorts,
-            ops,
-            eqs,
-            sort_idx,
-            op_idx,
-            eq_idx,
-        }
+        Self::full(name, Vec::new(), sorts, ops, eqs, Vec::new(), Vec::new())
     }
 
     /// Create a theory that extends one or more parent theories.
@@ -145,18 +191,39 @@ impl Theory {
         ops: Vec<Operation>,
         eqs: Vec<Equation>,
     ) -> Self {
+        Self::full(name, extends, sorts, ops, eqs, Vec::new(), Vec::new())
+    }
+
+    /// Create a theory with all fields specified, including directed equations
+    /// and conflict policies.
+    #[must_use]
+    pub fn full(
+        name: impl Into<Arc<str>>,
+        extends: Vec<Arc<str>>,
+        sorts: Vec<Sort>,
+        ops: Vec<Operation>,
+        eqs: Vec<Equation>,
+        directed_eqs: Vec<DirectedEquation>,
+        policies: Vec<ConflictPolicy>,
+    ) -> Self {
         let sort_idx = build_sort_idx(&sorts);
         let op_idx = build_op_idx(&ops);
         let eq_idx = build_eq_idx(&eqs);
+        let directed_eq_idx = build_directed_eq_idx(&directed_eqs);
+        let policy_idx = build_policy_idx(&policies);
         Self {
             name: name.into(),
             extends,
             sorts,
             ops,
             eqs,
+            directed_eqs,
+            policies,
             sort_idx,
             op_idx,
             eq_idx,
+            directed_eq_idx,
+            policy_idx,
         }
     }
 
@@ -193,6 +260,36 @@ impl Theory {
     #[must_use]
     pub fn has_op(&self, name: &str) -> bool {
         self.op_idx.contains_key(name)
+    }
+
+    /// Look up a directed equation by name. O(1) via index cache.
+    #[inline]
+    #[must_use]
+    pub fn find_directed_eq(&self, name: &str) -> Option<&DirectedEquation> {
+        self.directed_eq_idx
+            .get(name)
+            .map(|&i| &self.directed_eqs[i])
+    }
+
+    /// Check if a directed equation with the given name exists. O(1).
+    #[inline]
+    #[must_use]
+    pub fn has_directed_eq(&self, name: &str) -> bool {
+        self.directed_eq_idx.contains_key(name)
+    }
+
+    /// Look up a conflict policy by name. O(1) via index cache.
+    #[inline]
+    #[must_use]
+    pub fn find_policy(&self, name: &str) -> Option<&ConflictPolicy> {
+        self.policy_idx.get(name).map(|&i| &self.policies[i])
+    }
+
+    /// Check if a conflict policy with the given name exists. O(1).
+    #[inline]
+    #[must_use]
+    pub fn has_policy(&self, name: &str) -> bool {
+        self.policy_idx.contains_key(name)
     }
 }
 
@@ -238,10 +335,14 @@ fn resolve_recursive<S: std::hash::BuildHasher>(
     let mut sort_names: FxHashSet<Arc<str>> = FxHashSet::default();
     let mut op_names: FxHashSet<Arc<str>> = FxHashSet::default();
     let mut eq_names: FxHashSet<Arc<str>> = FxHashSet::default();
+    let mut directed_eq_names: FxHashSet<Arc<str>> = FxHashSet::default();
+    let mut policy_names: FxHashSet<Arc<str>> = FxHashSet::default();
 
     let mut merged_sorts = Vec::new();
     let mut merged_ops = Vec::new();
     let mut merged_eqs = Vec::new();
+    let mut merged_directed_eqs = Vec::new();
+    let mut merged_policies = Vec::new();
 
     // Resolve all parents first.
     for parent_name in &theory.extends {
@@ -259,6 +360,16 @@ fn resolve_recursive<S: std::hash::BuildHasher>(
         for eq in resolved_parent.eqs {
             if eq_names.insert(Arc::clone(&eq.name)) {
                 merged_eqs.push(eq);
+            }
+        }
+        for de in resolved_parent.directed_eqs {
+            if directed_eq_names.insert(Arc::clone(&de.name)) {
+                merged_directed_eqs.push(de);
+            }
+        }
+        for pol in resolved_parent.policies {
+            if policy_names.insert(Arc::clone(&pol.name)) {
+                merged_policies.push(pol);
             }
         }
     }
@@ -279,15 +390,28 @@ fn resolve_recursive<S: std::hash::BuildHasher>(
             merged_eqs.push(eq.clone());
         }
     }
+    for de in &theory.directed_eqs {
+        if directed_eq_names.insert(Arc::clone(&de.name)) {
+            merged_directed_eqs.push(de.clone());
+        }
+    }
+    for pol in &theory.policies {
+        if policy_names.insert(Arc::clone(&pol.name)) {
+            merged_policies.push(pol.clone());
+        }
+    }
 
     in_stack.remove(name);
     visited.insert(name.to_owned());
 
-    Ok(Theory::new(
+    Ok(Theory::full(
         Arc::from(name),
+        Vec::new(),
         merged_sorts,
         merged_ops,
         merged_eqs,
+        merged_directed_eqs,
+        merged_policies,
     ))
 }
 

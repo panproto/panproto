@@ -124,6 +124,7 @@ pub fn compose(m1: &Migration, m2: &Migration) -> Result<Migration, ComposeError
         label_map,
         resolver,
         hyper_resolver,
+        expr_resolvers: HashMap::new(),
     })
 }
 

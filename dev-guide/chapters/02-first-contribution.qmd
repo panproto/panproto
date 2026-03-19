@@ -246,7 +246,7 @@ Improvements to rustdoc, this developer guide, or the tutorial are always welcom
 
 ## Summary
 
-You now know how to:
+At this point you know how to:
 
 - Set up the development environment
 - Build and test the entire workspace
