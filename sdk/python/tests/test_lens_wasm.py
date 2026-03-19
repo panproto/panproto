@@ -54,7 +54,6 @@ def _make_mock_wasm() -> MagicMock:
         counter["n"] += 1
         return counter["n"]
 
-    wasm.lens_from_combinators = MagicMock(side_effect=_next_handle)
     wasm.compose_lenses = MagicMock(side_effect=_next_handle)
 
     # Migration inversion

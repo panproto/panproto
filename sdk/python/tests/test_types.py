@@ -407,11 +407,11 @@ class TestTypeAliases:
         """
         assert hasattr(panproto, "ExistenceErrorKind")
 
-    def test_combinator_alias_exists(self) -> None:
-        """Verify Combinator type alias is exported.
+    def test_expr_alias_exists(self) -> None:
+        """Verify Expr type alias is exported.
 
         Parameters
         ----------
         None
         """
-        assert hasattr(panproto, "Combinator")
+        assert hasattr(panproto, "Expr")
