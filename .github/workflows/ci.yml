@@ -103,7 +103,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install wasmtime msgpack pyright
+      - run: pip install wasmtime msgpack pyright pytest
       - run: cd sdk/python && pyright src/panproto/_enrichment.py src/panproto/_expr.py src/panproto/_coverage.py src/panproto/_types.py
       - run: cd sdk/python && python -m pytest tests/ -x
 
