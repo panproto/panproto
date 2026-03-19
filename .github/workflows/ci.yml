@@ -104,6 +104,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install wasmtime msgpack pyright pytest
+      - run: cd sdk/python && pip install -e .
       - run: cd sdk/python && pyright src/panproto/_enrichment.py src/panproto/_expr.py src/panproto/_coverage.py src/panproto/_types.py
       - run: cd sdk/python && python -m pytest tests/ -x
 
