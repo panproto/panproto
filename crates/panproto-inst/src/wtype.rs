@@ -145,6 +145,30 @@ pub enum FieldTransform {
         /// The expression, with all `extra_fields` bound as variables.
         expr: panproto_expr::Expr,
     },
+    /// Case analysis on node values — the coproduct eliminator for the
+    /// field transform algebra.
+    ///
+    /// Each branch is a (predicate, transforms) pair. Branches are evaluated
+    /// in order with the node's `extra_fields` (and nested `attrs.*` keys)
+    /// bound as expression variables. The first branch whose predicate
+    /// evaluates to `true` has its transforms applied. If no branch matches,
+    /// the node passes through unchanged.
+    ///
+    /// This is the dependent function space lift of field transforms:
+    /// `Π(x : Value). FieldTransform` — a transform that depends on the
+    /// runtime value of the node, not just its schema vertex. It composes
+    /// naturally with all other transform variants (including nesting
+    /// inside `PathTransform`).
+    ///
+    /// Use cases:
+    /// - `matchAttrs`: "if `level == 1` then rename to `h1`, if `level == 2`
+    ///   then rename to `h2`" — each heading level is a branch.
+    /// - Conditional attribute injection: "if `list == 'ordered'` then add
+    ///   `type: ol`, else add `type: ul`".
+    Case {
+        /// Ordered branches: first matching predicate wins.
+        branches: Vec<CaseBranch>,
+    },
     /// Update string values that reference vertex names.
     ///
     /// When vertices are renamed or dropped during migration, string fields
@@ -166,6 +190,18 @@ pub enum FieldTransform {
         /// Map from old name to new name (None = remove the reference).
         rename_map: HashMap<String, Option<String>>,
     },
+}
+
+/// A branch in a [`FieldTransform::Case`] analysis.
+///
+/// Contains a predicate expression and a sequence of transforms to apply
+/// if the predicate evaluates to `true`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CaseBranch {
+    /// Predicate evaluated with the node's `extra_fields` as variables.
+    pub predicate: panproto_expr::Expr,
+    /// Transforms to apply if the predicate is true.
+    pub transforms: Vec<FieldTransform>,
 }
 
 impl CompiledMigration {
@@ -298,6 +334,18 @@ impl CompiledMigration {
                 field: field.to_owned(),
                 rename_map,
             });
+    }
+
+    /// Add a case-analysis transform for a vertex.
+    ///
+    /// The branches are evaluated in order; the first matching predicate's
+    /// transforms are applied. This is the dependent function space lift
+    /// of field transforms.
+    pub fn add_case_transform(&mut self, vertex: &str, branches: Vec<CaseBranch>) {
+        self.field_transforms
+            .entry(Name::from(vertex))
+            .or_default()
+            .push(FieldTransform::Case { branches });
     }
 }
 
@@ -799,6 +847,17 @@ fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
             }
             FieldTransform::MapReferences { field, rename_map } => {
                 apply_map_references(node, field, rename_map);
+            }
+            FieldTransform::Case { branches } => {
+                let env = build_env_from_extra_fields(&node.extra_fields);
+                let config = panproto_expr::EvalConfig::default();
+                for branch in branches {
+                    let result = panproto_expr::eval(&branch.predicate, &env, &config);
+                    if matches!(result, Ok(panproto_expr::Literal::Bool(true))) {
+                        apply_field_transforms(node, &branch.transforms);
+                        break;
+                    }
+                }
             }
         }
     }
