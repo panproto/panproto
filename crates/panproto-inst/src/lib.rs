@@ -57,6 +57,7 @@ pub use provenance::{Provenance, ProvenanceMap, SourceField, TransformStep, comp
 pub use validate::validate_wtype;
 pub use value::{FieldPresence, Value};
 pub use wtype::{
-    CompiledMigration, FieldTransform, WInstance, ancestor_contraction, anchor_surviving,
-    reachable_from_root, reconstruct_fans, resolve_edge, wtype_extend, wtype_restrict,
+    CaseBranch, CompiledMigration, FieldTransform, WInstance, ancestor_contraction,
+    anchor_surviving, reachable_from_root, reconstruct_fans, resolve_edge, wtype_extend,
+    wtype_restrict,
 };
