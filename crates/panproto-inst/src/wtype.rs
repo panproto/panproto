@@ -93,6 +93,46 @@ pub enum FieldTransform {
         /// The expression to evaluate (receives the field value as input).
         expr: panproto_expr::Expr,
     },
+    /// Apply a field transform at a nested path within the Value tree.
+    ///
+    /// The path is a sequence of string keys navigating through nested
+    /// `Value::Unknown` (object) structures. The inner transform is applied
+    /// to the `extra_fields` map at the resolved path.
+    ///
+    /// This generalizes flat field transforms to operate on the full
+    /// Value algebra. A `PathTransform` with an empty path is equivalent
+    /// to applying the inner transform directly.
+    ///
+    /// Categorically, this is the action of a path functor on the
+    /// endomorphism algebra of field transforms — it lifts a transform
+    /// from a leaf to an inner node of the Value tree.
+    PathTransform {
+        /// Path to navigate (e.g., `vec!["attrs"]` for nested attrs objects).
+        path: Vec<String>,
+        /// The transform to apply at the resolved path.
+        inner: Box<Self>,
+    },
+    /// Update string values that reference vertex names.
+    ///
+    /// When vertices are renamed or dropped during migration, string fields
+    /// that reference those vertices by name must be updated to reflect the
+    /// new names. This is the functorial action of the vertex rename map
+    /// on the name-reference algebra.
+    ///
+    /// For each field value:
+    /// - If the value is a `Value::Str` matching a key in `rename_map`,
+    ///   it is replaced with the mapped value (or removed if mapped to None).
+    /// - If the value is a `Value::Unknown` containing an `__array_len`
+    ///   sentinel (encoded array), each string element is checked.
+    ///
+    /// This handles parent reference arrays, cross-annotation links,
+    /// and any other string fields that carry vertex identity.
+    MapReferences {
+        /// The field containing references (e.g., "parents").
+        field: String,
+        /// Map from old name to new name (None = remove the reference).
+        rename_map: HashMap<String, Option<String>>,
+    },
 }
 
 impl CompiledMigration {
@@ -161,6 +201,40 @@ impl CompiledMigration {
             .push(FieldTransform::ApplyExpr {
                 key: key.to_owned(),
                 expr,
+            });
+    }
+
+    /// Add a path-based field transform for a vertex.
+    ///
+    /// The inner transform is applied at the nested path within the
+    /// node's `extra_fields` tree, navigating through `Value::Unknown`
+    /// maps at each path segment.
+    pub fn add_path_transform(&mut self, vertex: &str, path: &[&str], inner: FieldTransform) {
+        self.field_transforms
+            .entry(Name::from(vertex))
+            .or_default()
+            .push(FieldTransform::PathTransform {
+                path: path.iter().map(|s| (*s).to_owned()).collect(),
+                inner: Box::new(inner),
+            });
+    }
+
+    /// Add a reference map transform for a vertex's field.
+    ///
+    /// String values (or encoded array elements) in the given field
+    /// are renamed or removed according to the `rename_map`.
+    pub fn add_map_references(
+        &mut self,
+        vertex: &str,
+        field: &str,
+        rename_map: HashMap<String, Option<String>>,
+    ) {
+        self.field_transforms
+            .entry(Name::from(vertex))
+            .or_default()
+            .push(FieldTransform::MapReferences {
+                field: field.to_owned(),
+                rename_map,
             });
     }
 }
@@ -631,6 +705,93 @@ fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
                     }
                 }
             }
+            FieldTransform::PathTransform { path, inner } => {
+                if path.is_empty() {
+                    // Empty path = apply directly
+                    apply_field_transforms(node, std::slice::from_ref(inner));
+                } else {
+                    apply_path_transform(node, path, inner);
+                }
+            }
+            FieldTransform::MapReferences { field, rename_map } => {
+                apply_map_references(node, field, rename_map);
+            }
+        }
+    }
+}
+
+/// Navigate into nested `Value::Unknown` maps along `path` and apply the
+/// inner transform at the resolved location.
+fn apply_path_transform(node: &mut Node, path: &[String], inner: &FieldTransform) {
+    let first = &path[0];
+    if let Some(Value::Unknown(map)) = node.extra_fields.get_mut(first) {
+        if path.len() == 1 {
+            // At the target — apply inner transform to this map
+            let mut temp_node = Node::new(0, "");
+            temp_node.extra_fields = std::mem::take(map);
+            apply_field_transforms(&mut temp_node, std::slice::from_ref(inner));
+            *map = temp_node.extra_fields;
+        } else {
+            // Recurse deeper — wrap the remaining path in a temporary node
+            let rest = &path[1..];
+            let mut temp_node = Node::new(0, "");
+            temp_node.extra_fields = std::mem::take(map);
+            apply_path_transform(&mut temp_node, rest, inner);
+            *map = temp_node.extra_fields;
+        }
+    }
+}
+
+/// Apply a `MapReferences` transform to a node's field, handling both
+/// flat `Value::Str` and encoded arrays with `__array_len` sentinels.
+fn apply_map_references(
+    node: &mut Node,
+    field: &str,
+    rename_map: &HashMap<String, Option<String>>,
+) {
+    if let Some(val) = node.extra_fields.get_mut(field) {
+        match val {
+            Value::Str(s) => {
+                if let Some(replacement) = rename_map.get(s.as_str()) {
+                    match replacement {
+                        Some(new_name) => *s = new_name.clone(),
+                        None => {
+                            node.extra_fields.remove(field);
+                        }
+                    }
+                }
+            }
+            Value::Unknown(map) => {
+                // Encoded array: check for __array_len sentinel
+                if map.contains_key("__array_len") {
+                    let len = match map.get("__array_len") {
+                        Some(Value::Int(n)) => usize::try_from(*n).unwrap_or(0),
+                        _ => 0,
+                    };
+                    let mut new_entries = Vec::new();
+                    for i in 0..len {
+                        let key = i.to_string();
+                        if let Some(Value::Str(s)) = map.get(&key) {
+                            match rename_map.get(s.as_str()) {
+                                Some(Some(new_name)) => {
+                                    new_entries.push(Value::Str(new_name.clone()));
+                                }
+                                Some(None) => {} // drop
+                                None => new_entries.push(Value::Str(s.clone())),
+                            }
+                        }
+                    }
+                    // Rebuild the encoded array
+                    let mut new_map = HashMap::new();
+                    for (i, v) in new_entries.iter().enumerate() {
+                        new_map.insert(i.to_string(), v.clone());
+                    }
+                    let new_len = i64::try_from(new_entries.len()).unwrap_or(0);
+                    new_map.insert("__array_len".to_string(), Value::Int(new_len));
+                    *map = new_map;
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -1344,5 +1505,139 @@ mod tests {
             "expected Some(Present(Str(\"hello\"))), got {:?}",
             renamed_node.value,
         );
+    }
+
+    // --- PathTransform tests ---
+
+    #[test]
+    fn path_transform_renames_nested_field() {
+        let mut node = Node::new(0, "v");
+        let mut inner_map = HashMap::new();
+        inner_map.insert("old_attr".to_string(), Value::Str("val".into()));
+        node.extra_fields
+            .insert("attrs".to_string(), Value::Unknown(inner_map));
+
+        let transform = FieldTransform::PathTransform {
+            path: vec!["attrs".to_string()],
+            inner: Box::new(FieldTransform::RenameField {
+                old_key: "old_attr".to_string(),
+                new_key: "new_attr".to_string(),
+            }),
+        };
+        apply_field_transforms(&mut node, &[transform]);
+
+        match node.extra_fields.get("attrs") {
+            Some(Value::Unknown(map)) => {
+                assert!(!map.contains_key("old_attr"));
+                assert_eq!(map.get("new_attr"), Some(&Value::Str("val".into())));
+            }
+            other => panic!("expected Unknown map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn path_transform_empty_path_is_identity() {
+        let mut node = Node::new(0, "v");
+        node.extra_fields
+            .insert("color".to_string(), Value::Str("red".into()));
+
+        let transform = FieldTransform::PathTransform {
+            path: vec![],
+            inner: Box::new(FieldTransform::RenameField {
+                old_key: "color".to_string(),
+                new_key: "colour".to_string(),
+            }),
+        };
+        apply_field_transforms(&mut node, &[transform]);
+
+        assert!(!node.extra_fields.contains_key("color"));
+        assert_eq!(
+            node.extra_fields.get("colour"),
+            Some(&Value::Str("red".into()))
+        );
+    }
+
+    // --- MapReferences tests ---
+
+    #[test]
+    fn map_references_renames_string_field() {
+        let mut node = Node::new(0, "v");
+        node.extra_fields
+            .insert("parent".to_string(), Value::Str("old_name".into()));
+
+        let mut rename_map = HashMap::new();
+        rename_map.insert("old_name".to_string(), Some("new_name".to_string()));
+
+        let transform = FieldTransform::MapReferences {
+            field: "parent".to_string(),
+            rename_map,
+        };
+        apply_field_transforms(&mut node, &[transform]);
+
+        assert_eq!(
+            node.extra_fields.get("parent"),
+            Some(&Value::Str("new_name".into()))
+        );
+    }
+
+    #[test]
+    fn map_references_filters_encoded_array() {
+        let mut node = Node::new(0, "v");
+        let mut arr = HashMap::new();
+        arr.insert("__array_len".to_string(), Value::Int(3));
+        arr.insert("0".to_string(), Value::Str("alpha".into()));
+        arr.insert("1".to_string(), Value::Str("beta".into()));
+        arr.insert("2".to_string(), Value::Str("gamma".into()));
+        node.extra_fields
+            .insert("parents".to_string(), Value::Unknown(arr));
+
+        let mut rename_map = HashMap::new();
+        rename_map.insert("alpha".to_string(), Some("alpha_v2".to_string()));
+        rename_map.insert("beta".to_string(), None); // drop
+
+        let transform = FieldTransform::MapReferences {
+            field: "parents".to_string(),
+            rename_map,
+        };
+        apply_field_transforms(&mut node, &[transform]);
+
+        match node.extra_fields.get("parents") {
+            Some(Value::Unknown(map)) => {
+                assert_eq!(map.get("__array_len"), Some(&Value::Int(2)));
+                assert_eq!(map.get("0"), Some(&Value::Str("alpha_v2".into())));
+                assert_eq!(map.get("1"), Some(&Value::Str("gamma".into())));
+            }
+            other => panic!("expected Unknown map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_references_drops_removed_entries() {
+        let mut node = Node::new(0, "v");
+        let mut arr = HashMap::new();
+        arr.insert("__array_len".to_string(), Value::Int(2));
+        arr.insert("0".to_string(), Value::Str("gone".into()));
+        arr.insert("1".to_string(), Value::Str("also_gone".into()));
+        node.extra_fields
+            .insert("refs".to_string(), Value::Unknown(arr));
+
+        let mut rename_map = HashMap::new();
+        rename_map.insert("gone".to_string(), None);
+        rename_map.insert("also_gone".to_string(), None);
+
+        let transform = FieldTransform::MapReferences {
+            field: "refs".to_string(),
+            rename_map,
+        };
+        apply_field_transforms(&mut node, &[transform]);
+
+        match node.extra_fields.get("refs") {
+            Some(Value::Unknown(map)) => {
+                assert_eq!(map.get("__array_len"), Some(&Value::Int(0)));
+                assert!(!map.contains_key("0"));
+                assert!(!map.contains_key("1"));
+            }
+            other => panic!("expected Unknown map, got {other:?}"),
+        }
     }
 }
