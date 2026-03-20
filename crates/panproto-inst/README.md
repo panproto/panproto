@@ -27,6 +27,12 @@ This crate provides three models for concrete data instances that conform to sch
 | `functor_pi` | Right Kan extension for functor instances |
 | `graph_restrict` | Restrict pipeline for graph-shaped instances |
 | `CompiledMigration` | Pre-computed migration data for fast per-record application |
+| `FieldTransform` | Value-level operation on node `extra_fields`: rename, drop, add, keep, or apply expression |
+| `CompiledMigration::add_field_rename` | Builder: rename a field key on a vertex's nodes |
+| `CompiledMigration::add_field_drop` | Builder: drop a field from a vertex's nodes |
+| `CompiledMigration::add_field_default` | Builder: add a field with a default value |
+| `CompiledMigration::add_field_keep` | Builder: retain only specified fields |
+| `CompiledMigration::add_field_expr` | Builder: apply an expression to a field's value |
 | `Provenance` / `ProvenanceMap` | Data lineage tracking: which source fields contributed to each target field |
 | `SourceField` / `TransformStep` | Provenance detail: source references and transform chain steps |
 | `compute_provenance` | Build a provenance map from source/target nodes and a vertex remapping |

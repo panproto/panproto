@@ -2,6 +2,24 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Added — Value-Level Field Transforms
+
+- **panproto-inst**: `FieldTransform` enum — value-level operations on node `extra_fields` applied during `wtype_restrict`. Variants: `RenameField`, `DropField`, `AddField`, `KeepFields`, `ApplyExpr`. These enable the instance pipeline to handle attribute renames, drops, additions, and expression-evaluated value transforms that go beyond pure structural schema changes.
+- **panproto-inst**: `CompiledMigration` builder API — `add_field_rename(vertex, old_key, new_key)`, `add_field_drop(vertex, key)`, `add_field_default(vertex, key, value)`, `add_field_keep(vertex, keys)`, `add_field_expr(vertex, key, expr)`. These are the stable API that protocol integrations use to inject value-level transforms into the migration pipeline.
+- **panproto-inst**: `FieldTransform` re-exported from crate root.
+- **panproto-inst**: `panproto-expr` added as a dependency (for expression evaluation in `ApplyExpr`).
+
+### Changed
+
+- **panproto-inst**: `CompiledMigration` gains `field_transforms: HashMap<Name, Vec<FieldTransform>>` field. Default is empty (backward compatible via `#[serde(default)]`).
+- **panproto-inst**: `wtype_restrict` applies field transforms to surviving nodes after structural operations (anchor remapping, vertex survival) complete. Expressions are evaluated via `panproto_expr::eval` with the field value bound as input.
+- **panproto-inst**: Integer-valued floats normalized to `Value::Int` in `expr_literal_to_value` for JSON round-trip fidelity.
+- **panproto-lens**: `apply_rename_sort_to_schema` now renames vertex IDs (not just kinds) and rebuilds edge references, fixing schema-level rename for instance-derived schemas.
+- **panproto-lens**: `apply_drop_sort_from_schema` now matches by vertex ID or kind, fixing drops for schemas where vertex IDs and kinds diverge.
+- **panproto-lens**: `compute_migration_between` adds renamed vertices to `surviving_verts` with their target names, ensuring `wtype_restrict` correctly processes renamed nodes.
+
 ## [0.9.0] - 2026-03-19
 
 ### Added — Directed Equation Protolenses
