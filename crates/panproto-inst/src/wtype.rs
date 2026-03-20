@@ -658,9 +658,7 @@ fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
             // Normalize integer-valued floats to Int for JSON round-trip fidelity.
             // Use safe bounds that avoid precision loss in f64→i64 conversion.
             #[allow(clippy::cast_precision_loss)]
-            let fits = f.fract() == 0.0
-                && *f >= i64::MIN as f64
-                && *f <= i64::MAX as f64;
+            let fits = f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64;
             if fits {
                 #[allow(clippy::cast_possible_truncation)]
                 let i = *f as i64;
