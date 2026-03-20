@@ -514,6 +514,7 @@ fn test_recursive_schema_restrict_drops_to_3_nodes() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     };
 
     let result = wtype_restrict(&inst, &src_schema, &tgt_schema, &migration);
@@ -629,6 +630,7 @@ fn test_fan_reconstruction_4_to_3() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     };
 
     let result = reconstruct_fans(&inst, &surviving, &ancestors, &migration, &schema);
@@ -699,6 +701,7 @@ fn test_functor_restrict_precomposition() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     };
 
     let result = functor_restrict(&inst, &migration);

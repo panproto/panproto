@@ -850,6 +850,7 @@ fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::E
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     };
 
     // --- WInstance ---

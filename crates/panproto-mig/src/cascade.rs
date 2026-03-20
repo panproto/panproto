@@ -113,6 +113,7 @@ fn compile_schema_morphism(
         resolver,
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     }
 }
 

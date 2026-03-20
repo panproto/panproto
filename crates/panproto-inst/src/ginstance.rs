@@ -236,6 +236,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         let restricted = graph_restrict(&g, &migration).expect("graph_restrict should succeed");

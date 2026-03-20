@@ -92,6 +92,7 @@ fn parse_json_then_identity_lift_then_serialize() -> Result<(), Box<dyn std::err
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     };
 
     // Lift with identity migration.

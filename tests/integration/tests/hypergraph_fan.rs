@@ -289,6 +289,7 @@ fn functor_restrict_after_column_drop() -> Result<(), Box<dyn std::error::Error>
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     };
 
     let restricted = lift_functor(&compiled, &instance)?;

@@ -226,6 +226,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         let result = lift_wtype(&compiled, &schema, &schema, &instance);
@@ -289,6 +290,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         let result = lift_wtype(&compiled, &schema, &schema, &instance);
@@ -378,6 +380,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         let result = lift_wtype(&compiled, &schema, &schema, &instance);

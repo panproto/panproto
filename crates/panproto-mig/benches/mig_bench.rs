@@ -153,6 +153,7 @@ fn identity_compiled(n: usize, edges: &[Edge]) -> CompiledMigration {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     }
 }
 
@@ -173,6 +174,7 @@ fn projection_compiled(n: usize, keep: usize, edges: &[Edge]) -> CompiledMigrati
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     }
 }
 

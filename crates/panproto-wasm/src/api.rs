@@ -3921,6 +3921,7 @@ fn compose_compiled(c1: &CompiledMigration, c2: &CompiledMigration) -> CompiledM
         resolver,
         hyper_resolver: c2.hyper_resolver.clone(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     }
 }
 

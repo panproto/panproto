@@ -139,6 +139,7 @@ fn identity_lens(schema: &Schema) -> Lens {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     };
 
     Lens {
@@ -174,6 +175,7 @@ fn projection_lens(schema: &Schema, edges: &[Edge], total: usize, keep: usize) -
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     };
 
     Lens {

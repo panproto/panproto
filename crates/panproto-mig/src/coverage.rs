@@ -260,6 +260,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         let report = check_coverage(&compiled, &[inst1, inst2], &schema, &schema);
@@ -281,6 +282,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         let report = check_coverage(&compiled, &[], &schema, &schema);
@@ -331,6 +333,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         let report = check_coverage(

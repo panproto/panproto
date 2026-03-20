@@ -243,6 +243,7 @@ pub(crate) mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         Lens {
@@ -294,6 +295,7 @@ pub(crate) mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         Lens {

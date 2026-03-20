@@ -82,6 +82,7 @@ pub fn compile(
         resolver,
         hyper_resolver,
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     })
 }
 

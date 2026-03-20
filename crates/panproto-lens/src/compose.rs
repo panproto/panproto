@@ -119,6 +119,7 @@ pub(crate) fn compose_compiled_migrations(
         resolver,
         hyper_resolver,
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     }
 }
 

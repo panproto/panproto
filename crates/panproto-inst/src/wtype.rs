@@ -52,6 +52,23 @@ pub struct CompiledMigration {
     /// applied in order after the node survives and is remapped.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub field_transforms: HashMap<Name, Vec<FieldTransform>>,
+    /// Value-dependent survival predicates.
+    ///
+    /// During `wtype_restrict`, after checking that a node's anchor vertex
+    /// is in `surviving_verts`, the conditional survival predicate (if any)
+    /// is evaluated with the node's `extra_fields` bound as variables.
+    /// If the predicate evaluates to `false`, the node is dropped despite
+    /// its anchor surviving.
+    ///
+    /// This enables value-dependent filtering: "keep this vertex only if
+    /// attrs.level == 2" (matchAttrs), or "keep this vertex only if
+    /// class contains 'u-url'" (matchAttrsAll).
+    ///
+    /// Categorically, this is a refinement of the survival predicate
+    /// from a structural predicate (vertex set membership) to a
+    /// value-dependent predicate (vertex set membership AND value predicate).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub conditional_survival: HashMap<Name, panproto_expr::Expr>,
 }
 
 /// A value-level transformation on a node's `extra_fields`.
@@ -111,6 +128,22 @@ pub enum FieldTransform {
         path: Vec<String>,
         /// The transform to apply at the resolved path.
         inner: Box<Self>,
+    },
+    /// Compute a field value from an expression with access to ALL `extra_fields`.
+    ///
+    /// Unlike `ApplyExpr` which binds a single field, `ComputeField` binds
+    /// all `extra_fields` (and nested attrs) as variables, evaluates the
+    /// expression, and stores the result in the target field.
+    ///
+    /// This enables template name computation like
+    ///   `target_key`: "name",
+    ///   `expr`: `(concat "h" (int_to_str attrs.level))`
+    /// which computes "h1", "h2", etc. from the level attribute.
+    ComputeField {
+        /// The field to store the computed result in.
+        target_key: String,
+        /// The expression, with all `extra_fields` bound as variables.
+        expr: panproto_expr::Expr,
     },
     /// Update string values that reference vertex names.
     ///
@@ -217,6 +250,35 @@ impl CompiledMigration {
                 path: path.iter().map(|s| (*s).to_owned()).collect(),
                 inner: Box::new(inner),
             });
+    }
+
+    /// Add a computed field transform for a vertex.
+    ///
+    /// The expression is evaluated with all `extra_fields` (and nested
+    /// attrs) bound as variables, and the result is stored in `target_key`.
+    pub fn add_computed_field(
+        &mut self,
+        vertex: &str,
+        target_key: &str,
+        expr: panproto_expr::Expr,
+    ) {
+        self.field_transforms
+            .entry(Name::from(vertex))
+            .or_default()
+            .push(FieldTransform::ComputeField {
+                target_key: target_key.to_owned(),
+                expr,
+            });
+    }
+
+    /// Add a conditional survival predicate for a vertex.
+    ///
+    /// The expression is evaluated with the node's `extra_fields` bound
+    /// as variables. If it returns false, the node is dropped.
+    pub fn add_conditional_survival(&mut self, vertex: &str, predicate: panproto_expr::Expr) {
+        self.conditional_survival
+            .entry(Name::from(vertex))
+            .or_insert(predicate);
     }
 
     /// Add a reference map transform for a vertex's field.
@@ -609,6 +671,20 @@ pub fn wtype_restrict(
                 .get(&child_node.anchor)
                 .unwrap_or(&child_node.anchor);
             if migration.surviving_verts.contains(target_anchor) {
+                // Check conditional survival predicate if one exists
+                if let Some(pred) = migration.conditional_survival.get(&child_node.anchor) {
+                    let env = build_env_from_extra_fields(&child_node.extra_fields);
+                    let config = panproto_expr::EvalConfig::default();
+                    if matches!(
+                        panproto_expr::eval(pred, &env, &config),
+                        Ok(panproto_expr::Literal::Bool(false))
+                    ) {
+                        // Predicate is false — skip this node (treat as non-surviving)
+                        queue.push_back((child_id, child_ancestor));
+                        continue;
+                    }
+                }
+
                 // This child survives — add it to results
                 surviving_set.insert(child_id);
                 let mut new_node = child_node.clone();
@@ -705,6 +781,14 @@ fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
                     }
                 }
             }
+            FieldTransform::ComputeField { target_key, expr } => {
+                let env = build_env_from_extra_fields(&node.extra_fields);
+                let config = panproto_expr::EvalConfig::default();
+                if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
+                    node.extra_fields
+                        .insert(target_key.clone(), expr_literal_to_value(&result));
+                }
+            }
             FieldTransform::PathTransform { path, inner } => {
                 if path.is_empty() {
                     // Empty path = apply directly
@@ -794,6 +878,32 @@ fn apply_map_references(
             _ => {}
         }
     }
+}
+
+/// Build an evaluation environment from a node's `extra_fields`.
+///
+/// Each field is bound as a top-level variable. If an `attrs` field
+/// contains a `Value::Unknown` map, its entries are also bound with
+/// qualified names (e.g., `attrs.level`).
+fn build_env_from_extra_fields(fields: &HashMap<String, Value>) -> panproto_expr::Env {
+    let mut env = panproto_expr::Env::new();
+    for (key, val) in fields {
+        env = env.extend(
+            std::sync::Arc::from(key.as_str()),
+            value_to_expr_literal(val),
+        );
+    }
+    // Also bind nested "attrs" as qualified names if present
+    if let Some(Value::Unknown(attrs)) = fields.get("attrs") {
+        for (key, val) in attrs {
+            let qualified = format!("attrs.{key}");
+            env = env.extend(
+                std::sync::Arc::from(qualified.as_str()),
+                value_to_expr_literal(val),
+            );
+        }
+    }
+    env
 }
 
 /// Convert an instance `Value` to a `panproto_expr::Literal` for expression evaluation.
@@ -1194,6 +1304,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
         let result = wtype_extend(&inst, &schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
@@ -1247,6 +1358,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
         let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
@@ -1297,6 +1409,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
         let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.arc_count(), 2);
@@ -1338,6 +1451,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
         let result = wtype_extend(&inst, &schema, &migration).unwrap();
         // Verify parent/children maps are correctly rebuilt
@@ -1460,6 +1574,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
         };
 
         let src_schema = Schema {
@@ -1639,5 +1754,269 @@ mod tests {
             }
             other => panic!("expected Unknown map, got {other:?}"),
         }
+    }
+
+    // --- ConditionalSurvival tests ---
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn conditional_survival_drops_non_matching_node() {
+        use smallvec::smallvec;
+
+        // Two child nodes anchored to "item", with different level values.
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, Name::from("root")));
+        nodes.insert(
+            1,
+            Node::new(1, "item").with_extra_field("level", Value::Int(2)),
+        );
+        nodes.insert(
+            2,
+            Node::new(2, "item").with_extra_field("level", Value::Int(1)),
+        );
+
+        let edge = Edge {
+            src: "root".into(),
+            tgt: "item".into(),
+            kind: "prop".into(),
+            name: Some("child".into()),
+        };
+        let arcs = vec![(0, 1, edge.clone()), (0, 2, edge.clone())];
+        let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("root"));
+
+        let mut between = HashMap::new();
+        between.insert(
+            (Name::from("root"), Name::from("item")),
+            smallvec![edge.clone()],
+        );
+        let tgt_schema = Schema {
+            protocol: "test".into(),
+            vertices: HashMap::new(),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between,
+        };
+        let src_schema = Schema {
+            protocol: "test".into(),
+            vertices: HashMap::new(),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        };
+
+        // Predicate: (== level 2)
+        let predicate = panproto_expr::Expr::Builtin(
+            panproto_expr::BuiltinOp::Eq,
+            vec![
+                panproto_expr::Expr::Var(std::sync::Arc::from("level")),
+                panproto_expr::Expr::Lit(panproto_expr::Literal::Int(2)),
+            ],
+        );
+
+        let mut migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("root"), Name::from("item")]),
+            surviving_edges: HashSet::from([edge]),
+            vertex_remap: HashMap::new(),
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+        };
+        migration.add_conditional_survival("item", predicate);
+
+        let result =
+            wtype_restrict(&inst, &src_schema, &tgt_schema, &migration).expect("restrict ok");
+
+        // Node 1 (level=2) survives, node 2 (level=1) is dropped
+        assert_eq!(result.node_count(), 2);
+        assert!(result.nodes.contains_key(&0));
+        assert!(result.nodes.contains_key(&1));
+        assert!(!result.nodes.contains_key(&2));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn conditional_survival_no_predicate_survives() {
+        use smallvec::smallvec;
+
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, Name::from("root")));
+        nodes.insert(
+            1,
+            Node::new(1, "item").with_extra_field("level", Value::Int(1)),
+        );
+
+        let edge = Edge {
+            src: "root".into(),
+            tgt: "item".into(),
+            kind: "prop".into(),
+            name: Some("child".into()),
+        };
+        let arcs = vec![(0, 1, edge.clone())];
+        let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("root"));
+
+        let mut between = HashMap::new();
+        between.insert(
+            (Name::from("root"), Name::from("item")),
+            smallvec![edge.clone()],
+        );
+        let tgt_schema = Schema {
+            protocol: "test".into(),
+            vertices: HashMap::new(),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between,
+        };
+        let src_schema = Schema {
+            protocol: "test".into(),
+            vertices: HashMap::new(),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        };
+
+        // No conditional_survival predicates — node should survive normally
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("root"), Name::from("item")]),
+            surviving_edges: HashSet::from([edge]),
+            vertex_remap: HashMap::new(),
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+        };
+
+        let result =
+            wtype_restrict(&inst, &src_schema, &tgt_schema, &migration).expect("restrict ok");
+
+        assert_eq!(result.node_count(), 2);
+        assert!(result.nodes.contains_key(&1));
+    }
+
+    // --- ComputeField tests ---
+
+    #[test]
+    fn computed_field_template_name() {
+        let mut node = Node::new(0, "heading");
+        node.extra_fields.insert("level".to_string(), Value::Int(2));
+
+        // (concat "h" (int_to_str level))
+        let expr = panproto_expr::Expr::Builtin(
+            panproto_expr::BuiltinOp::Concat,
+            vec![
+                panproto_expr::Expr::Lit(panproto_expr::Literal::Str("h".to_string())),
+                panproto_expr::Expr::Builtin(
+                    panproto_expr::BuiltinOp::IntToStr,
+                    vec![panproto_expr::Expr::Var(std::sync::Arc::from("level"))],
+                ),
+            ],
+        );
+
+        let transform = FieldTransform::ComputeField {
+            target_key: "name".to_string(),
+            expr,
+        };
+        apply_field_transforms(&mut node, &[transform]);
+
+        assert_eq!(
+            node.extra_fields.get("name"),
+            Some(&Value::Str("h2".into()))
+        );
+    }
+
+    #[test]
+    fn computed_field_reads_nested_attrs() {
+        let mut node = Node::new(0, "heading");
+        let mut attrs = HashMap::new();
+        attrs.insert("level".to_string(), Value::Int(3));
+        node.extra_fields
+            .insert("attrs".to_string(), Value::Unknown(attrs));
+
+        // (concat "h" (int_to_str attrs.level))
+        let expr = panproto_expr::Expr::Builtin(
+            panproto_expr::BuiltinOp::Concat,
+            vec![
+                panproto_expr::Expr::Lit(panproto_expr::Literal::Str("h".to_string())),
+                panproto_expr::Expr::Builtin(
+                    panproto_expr::BuiltinOp::IntToStr,
+                    vec![panproto_expr::Expr::Var(std::sync::Arc::from(
+                        "attrs.level",
+                    ))],
+                ),
+            ],
+        );
+
+        let transform = FieldTransform::ComputeField {
+            target_key: "name".to_string(),
+            expr,
+        };
+        apply_field_transforms(&mut node, &[transform]);
+
+        assert_eq!(
+            node.extra_fields.get("name"),
+            Some(&Value::Str("h3".into()))
+        );
     }
 }

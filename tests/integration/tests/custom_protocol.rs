@@ -282,6 +282,7 @@ fn custom_protocol_build_instance_and_lift() -> Result<(), Box<dyn std::error::E
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
     };
 
     let lifted = lift_wtype(&compiled, &schema, &schema, &instance)?;
