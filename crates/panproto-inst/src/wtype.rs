@@ -647,11 +647,21 @@ fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
 }
 
 /// Convert a `panproto_expr::Literal` back to an instance `Value`.
+///
+/// Integer-valued floats are normalized to `Value::Int` for round-trip
+/// fidelity with JSON (which doesn't distinguish int/float).
 fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
     match lit {
         panproto_expr::Literal::Bool(b) => Value::Bool(*b),
         panproto_expr::Literal::Int(i) => Value::Int(*i),
-        panproto_expr::Literal::Float(f) => Value::Float(*f),
+        panproto_expr::Literal::Float(f) => {
+            // Normalize integer-valued floats to Int
+            if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 {
+                Value::Int(*f as i64)
+            } else {
+                Value::Float(*f)
+            }
+        }
         panproto_expr::Literal::Str(s) => Value::Str(s.clone()),
         _ => Value::Null,
     }
