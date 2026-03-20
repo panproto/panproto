@@ -433,6 +433,7 @@ fn projection_drops_replies_and_parent() -> Result<(), Box<dyn std::error::Error
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     let lifted = lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance)?;
@@ -559,6 +560,7 @@ fn reachability_prunes_orphaned_children() -> Result<(), Box<dyn std::error::Err
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     let lifted = lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance)?;

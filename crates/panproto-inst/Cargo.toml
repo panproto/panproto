@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 panproto-schema = { workspace = true }
 panproto-gat = { workspace = true }
+panproto-expr = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

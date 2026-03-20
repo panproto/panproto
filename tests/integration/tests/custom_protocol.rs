@@ -281,6 +281,7 @@ fn custom_protocol_build_instance_and_lift() -> Result<(), Box<dyn std::error::E
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     let lifted = lift_wtype(&compiled, &schema, &schema, &instance)?;

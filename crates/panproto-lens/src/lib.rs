@@ -242,6 +242,7 @@ pub(crate) mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         Lens {
@@ -292,6 +293,7 @@ pub(crate) mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         Lens {

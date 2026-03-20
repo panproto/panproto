@@ -78,6 +78,7 @@ fn identity_lens(schema: &Schema) -> Lens {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         },
         src_schema: schema.clone(),
         tgt_schema: schema.clone(),

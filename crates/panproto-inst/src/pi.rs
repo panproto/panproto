@@ -342,6 +342,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let result = functor_pi(&inst, &migration, 100).unwrap();
@@ -383,6 +384,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let result = functor_pi(&inst, &migration, 100).unwrap();
@@ -437,6 +439,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         // Limit to 2 but product would be 4
@@ -481,6 +484,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let result = wtype_pi(&inst, &schema, &migration, 10_000).unwrap();
@@ -507,6 +511,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         // With a very small limit, the product is rejected
@@ -537,6 +542,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         // With a generous limit, it succeeds

@@ -118,6 +118,7 @@ pub(crate) fn compose_compiled_migrations(
         edge_remap,
         resolver,
         hyper_resolver,
+        field_transforms: HashMap::new(),
     }
 }
 

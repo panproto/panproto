@@ -351,6 +351,7 @@ fn pi_functor_product_workflow() {
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     // Apply Pi_F (Cartesian product)

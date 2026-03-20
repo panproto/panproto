@@ -146,6 +146,7 @@ fn compiled_migration_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Erro
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     let bytes = rmp_serde::to_vec(&compiled)?;

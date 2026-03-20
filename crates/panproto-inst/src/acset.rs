@@ -220,6 +220,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         }
     }
 
@@ -349,6 +350,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let via_trait = AcsetOps::restrict(&w, &src_schema, &tgt_schema, &migration)?;
@@ -381,6 +383,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let via_trait = AcsetOps::restrict(&g, &schema, &schema, &migration)?;
@@ -426,6 +429,7 @@ mod tests {
             edge_remap: HashMap::from([(edge, new_edge.clone())]),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let result = AcsetOps::extend(&g, &schema, &migration)?;

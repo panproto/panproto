@@ -26,6 +26,7 @@ use smallvec::SmallVec;
 use crate::error::RestrictError;
 use crate::fan::Fan;
 use crate::metadata::Node;
+use crate::value::Value;
 
 /// A compiled migration specification (minimal version for panproto-inst).
 ///
@@ -45,6 +46,53 @@ pub struct CompiledMigration {
     pub resolver: HashMap<(Name, Name), Edge>,
     /// Hyper-edge contraction resolver.
     pub hyper_resolver: HashMap<Name, (Name, HashMap<Name, Name>)>,
+    /// Value-level field transforms applied to surviving nodes' `extra_fields`.
+    ///
+    /// Keyed by source vertex anchor. Each entry is a list of field operations
+    /// applied in order after the node survives and is remapped.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub field_transforms: HashMap<Name, Vec<FieldTransform>>,
+}
+
+/// A value-level transformation on a node's `extra_fields`.
+///
+/// These are applied during `wtype_restrict` after structural operations
+/// (anchor remapping, vertex survival). They enable the instance pipeline
+/// to handle value-dependent migrations (attribute renames, drops, value
+/// transforms) that go beyond pure structural schema changes.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum FieldTransform {
+    /// Rename a field key: `old_key` → `new_key`.
+    RenameField {
+        /// The current field name.
+        old_key: String,
+        /// The new field name.
+        new_key: String,
+    },
+    /// Drop a field by key.
+    DropField {
+        /// The field to remove.
+        key: String,
+    },
+    /// Add a field with a constant default value.
+    AddField {
+        /// The field name to add.
+        key: String,
+        /// The default value.
+        value: Value,
+    },
+    /// Keep only the specified fields (all others are dropped).
+    KeepFields {
+        /// The field names to retain.
+        keys: Vec<String>,
+    },
+    /// Apply an expression to a field's value, storing the result.
+    ApplyExpr {
+        /// The field whose value is transformed.
+        key: String,
+        /// The expression to evaluate (receives the field value as input).
+        expr: panproto_expr::Expr,
+    },
 }
 
 /// A W-type instance: tree-shaped data conforming to a schema.
@@ -423,6 +471,10 @@ pub fn wtype_restrict(
                 if let Some(remapped) = migration.vertex_remap.get(&child_node.anchor) {
                     new_node.anchor.clone_from(remapped);
                 }
+                // Apply value-level field transforms if any exist for this vertex
+                if let Some(transforms) = migration.field_transforms.get(&child_node.anchor) {
+                    apply_field_transforms(&mut new_node, transforms);
+                }
                 new_nodes.insert(child_id, new_node.clone());
 
                 // Build the arc from nearest surviving ancestor to this node
@@ -468,6 +520,71 @@ pub fn wtype_restrict(
         instance.root,
         new_schema_root,
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Value-level field transforms
+// ---------------------------------------------------------------------------
+
+/// Apply a sequence of field transforms to a node's `extra_fields`.
+///
+/// Called during `wtype_restrict` after a node survives and its anchor
+/// is remapped. Operations are applied in order.
+fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
+    for transform in transforms {
+        match transform {
+            FieldTransform::RenameField { old_key, new_key } => {
+                if let Some(val) = node.extra_fields.remove(old_key) {
+                    node.extra_fields.insert(new_key.clone(), val);
+                }
+            }
+            FieldTransform::DropField { key } => {
+                node.extra_fields.remove(key);
+            }
+            FieldTransform::AddField { key, value } => {
+                node.extra_fields
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
+            FieldTransform::KeepFields { keys } => {
+                node.extra_fields.retain(|k, _| keys.contains(k));
+            }
+            FieldTransform::ApplyExpr { key, expr } => {
+                if let Some(val) = node.extra_fields.get(key) {
+                    let input = value_to_expr_literal(val);
+                    let env =
+                        panproto_expr::Env::new().extend(std::sync::Arc::from(key.as_str()), input);
+                    let config = panproto_expr::EvalConfig::default();
+                    if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
+                        node.extra_fields
+                            .insert(key.clone(), expr_literal_to_value(&result));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Convert an instance `Value` to a `panproto_expr::Literal` for expression evaluation.
+fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
+    match val {
+        Value::Bool(b) => panproto_expr::Literal::Bool(*b),
+        Value::Int(i) => panproto_expr::Literal::Int(*i),
+        Value::Float(f) => panproto_expr::Literal::Float(*f),
+        Value::Str(s) => panproto_expr::Literal::Str(s.clone()),
+        _ => panproto_expr::Literal::Null,
+    }
+}
+
+/// Convert a `panproto_expr::Literal` back to an instance `Value`.
+fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
+    match lit {
+        panproto_expr::Literal::Bool(b) => Value::Bool(*b),
+        panproto_expr::Literal::Int(i) => Value::Int(*i),
+        panproto_expr::Literal::Float(f) => Value::Float(*f),
+        panproto_expr::Literal::Str(s) => Value::Str(s.clone()),
+        _ => Value::Null,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -830,6 +947,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
         let result = wtype_extend(&inst, &schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
@@ -882,6 +1000,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
         let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
@@ -931,6 +1050,7 @@ mod tests {
             edge_remap,
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
         let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.arc_count(), 2);
@@ -971,6 +1091,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
         let result = wtype_extend(&inst, &schema, &migration).unwrap();
         // Verify parent/children maps are correctly rebuilt
@@ -1092,6 +1213,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let src_schema = Schema {

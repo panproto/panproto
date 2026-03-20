@@ -112,6 +112,7 @@ fn compile_schema_morphism(
         edge_remap,
         resolver,
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     }
 }
 

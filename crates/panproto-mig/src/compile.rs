@@ -81,6 +81,7 @@ pub fn compile(
         edge_remap,
         resolver,
         hyper_resolver,
+        field_transforms: HashMap::new(),
     })
 }
 

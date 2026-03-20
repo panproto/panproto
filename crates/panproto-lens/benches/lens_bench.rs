@@ -138,6 +138,7 @@ fn identity_lens(schema: &Schema) -> Lens {
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     Lens {
@@ -172,6 +173,7 @@ fn projection_lens(schema: &Schema, edges: &[Edge], total: usize, keep: usize) -
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     Lens {

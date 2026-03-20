@@ -1037,7 +1037,7 @@ pub mod elementary {
 /// Build a [`CompiledMigration`] between two schemas by comparing their
 /// structures.
 fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
-    let surviving_verts: HashSet<Name> = src
+    let mut surviving_verts: HashSet<Name> = src
         .vertices
         .keys()
         .filter(|v| tgt.vertices.contains_key(&**v))
@@ -1072,6 +1072,9 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
                     if src_v.kind == tgt_v.kind
                         && !vertex_remap.values().any(|v: &Name| v == *tgt_id)
                     {
+                        // Renamed vertex survives — add TARGET name to surviving_verts
+                        // (wtype_restrict checks target_anchor against surviving_verts)
+                        surviving_verts.insert((*tgt_id).clone());
                         vertex_remap.insert((*src_id).clone(), (*tgt_id).clone());
                         break;
                     }
@@ -1105,6 +1108,7 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
         edge_remap: HashMap::new(),
         resolver,
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     }
 }
 
@@ -1250,12 +1254,29 @@ fn apply_rename_sort_to_schema(schema: &Schema, old: &Arc<str>, new: &Arc<str>) 
     let mut new_vertices = HashMap::new();
     for (id, vertex) in &new_schema.vertices {
         let mut v = vertex.clone();
-        if *v.kind == **old {
-            v.kind = Name::from(&**new);
+        if **id == **old {
+            // Rename the vertex ID; keep the kind unchanged
+            v.id = Name::from(&**new);
+            new_vertices.insert(Name::from(&**new), v);
+        } else {
+            new_vertices.insert(id.clone(), v);
         }
-        new_vertices.insert(id.clone(), v);
     }
     new_schema.vertices = new_vertices;
+    // Rebuild edges that reference the old vertex ID
+    let mut new_edges = HashMap::new();
+    for (edge, kind) in &new_schema.edges {
+        let mut e = edge.clone();
+        if *e.src == **old {
+            e.src = Name::from(&**new);
+        }
+        if *e.tgt == **old {
+            e.tgt = Name::from(&**new);
+        }
+        new_edges.insert(e, kind.clone());
+    }
+    new_schema.edges = new_edges;
+    rebuild_indices(&mut new_schema);
     new_schema
 }
 
@@ -1392,6 +1413,7 @@ fn identity_lens(schema: &Schema) -> Lens {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         },
         src_schema: schema.clone(),
         tgt_schema: schema.clone(),

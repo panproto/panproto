@@ -225,6 +225,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let result = lift_wtype(&compiled, &schema, &schema, &instance);
@@ -287,6 +288,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let result = lift_wtype(&compiled, &schema, &schema, &instance);
@@ -375,6 +377,7 @@ mod tests {
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
         };
 
         let result = lift_wtype(&compiled, &schema, &schema, &instance);

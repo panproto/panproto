@@ -52,6 +52,7 @@ fn delta_f_is_functor_restrict() -> Result<(), Box<dyn std::error::Error>> {
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     let restricted = lift_functor(&compiled, &instance)?;
@@ -145,6 +146,7 @@ fn functor_restrict_with_fk_is_delta() -> Result<(), Box<dyn std::error::Error>>
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     let restricted = lift_functor(&compiled, &instance)?;
@@ -204,6 +206,7 @@ fn sigma_as_theory_morphism_left_adjoint() -> Result<(), Box<dyn std::error::Err
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
     };
 
     let extended = functor_extend(&small_instance, &migration)?;
