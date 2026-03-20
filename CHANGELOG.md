@@ -4,6 +4,13 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added — Nested Field Transforms and Reference Mapping
+
+- **panproto-inst**: `FieldTransform::PathTransform` — lifts a field transform to operate at a nested path within the Value tree. Navigates through `Value::Unknown` maps to the target level. An empty path is the identity. This is the action of a path functor on the endomorphism algebra of field transforms.
+- **panproto-inst**: `FieldTransform::MapReferences` — updates string values carrying vertex identity when vertices are renamed or dropped. Handles both flat `Str` values and encoded arrays (with `__array_len` sentinel). This is the functorial action of the vertex rename map on the name-reference algebra.
+- **panproto-inst**: `CompiledMigration::add_path_transform(vertex, path, inner)` — builder method for nested transforms.
+- **panproto-inst**: `CompiledMigration::add_map_references(vertex, field, rename_map)` — builder method for reference updates.
+
 ## [0.11.0] - 2026-03-20
 
 ### Added — Universal Lexicon Parsing & Cross-Lexicon Morphism Discovery
