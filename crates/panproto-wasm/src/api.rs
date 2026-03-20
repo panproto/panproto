@@ -170,6 +170,99 @@ pub fn build_schema(proto: u32, ops: &[u8]) -> Result<u32, JsError> {
     Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
 }
 
+/// Parse an `ATProto` lexicon JSON document into a schema.
+///
+/// Takes the raw JSON bytes of a lexicon file (e.g., `app.bsky.feed.post`
+/// or `pub.layers.annotation.annotationLayer`) and returns a schema handle.
+/// This is the generic entry point for any `ATProto`-compatible lexicon —
+/// works for `Bluesky`, `RelationalText`, Layers, and any custom lexicon.
+///
+/// # Errors
+///
+/// Returns `JsError` if the JSON cannot be parsed or the lexicon is
+/// not a valid `ATProto` Lexicon document.
+#[wasm_bindgen]
+pub fn parse_atproto_lexicon(json_bytes: &[u8]) -> Result<u32, JsError> {
+    let json: serde_json::Value =
+        serde_json::from_slice(json_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+    let schema =
+        protocols::atproto::parse_lexicon(&json).map_err(|e| WasmError::SchemaBuildFailed {
+            reason: e.to_string(),
+        })?;
+    Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
+}
+
+#[derive(serde::Serialize)]
+struct SchemaMeta {
+    protocol: String,
+    vertices: Vec<VertexMeta>,
+    edges: Vec<EdgeMeta>,
+}
+#[derive(serde::Serialize)]
+struct VertexMeta {
+    id: String,
+    kind: String,
+    nsid: Option<String>,
+}
+#[derive(serde::Serialize)]
+struct EdgeMeta {
+    src: String,
+    tgt: String,
+    kind: String,
+    name: Option<String>,
+}
+
+/// Extract schema metadata from a schema handle.
+///
+/// Returns `MessagePack`-encoded schema data including protocol name,
+/// vertex IDs and kinds, edge sources/targets/kinds/names, and
+/// constraint information. Used by the TypeScript SDK to populate
+/// `SchemaData` for schemas built on the Rust side (e.g., via
+/// [`parse_atproto_lexicon`]).
+///
+/// # Errors
+///
+/// Returns `JsError` if the handle is invalid.
+#[wasm_bindgen]
+pub fn schema_metadata(schema_handle: u32) -> Result<Vec<u8>, JsError> {
+    slab::with_resource(schema_handle, |r| {
+        let schema = slab::as_schema(r)?;
+
+        let vertices: Vec<VertexMeta> = schema
+            .vertices
+            .values()
+            .map(|v| VertexMeta {
+                id: v.id.to_string(),
+                kind: v.kind.to_string(),
+                nsid: v.nsid.as_deref().map(str::to_owned),
+            })
+            .collect();
+
+        let edges: Vec<EdgeMeta> = schema
+            .edges
+            .keys()
+            .map(|e| EdgeMeta {
+                src: e.src.to_string(),
+                tgt: e.tgt.to_string(),
+                kind: e.kind.to_string(),
+                name: e.name.as_deref().map(str::to_owned),
+            })
+            .collect();
+
+        let meta = SchemaMeta {
+            protocol: schema.protocol.clone(),
+            vertices,
+            edges,
+        };
+
+        rmp_serde::to_vec(&meta).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })
+    })
+}
+
 /// Check existence conditions for a migration mapping between two schemas.
 ///
 /// `proto` is the handle to the protocol (obtained from

@@ -25,6 +25,8 @@ export interface WasmGlueModule {
   default: (...args: any[]) => Promise<{ memory: WebAssembly.Memory }>;
   define_protocol: WasmExports['define_protocol'];
   build_schema: WasmExports['build_schema'];
+  parse_atproto_lexicon: WasmExports['parse_atproto_lexicon'];
+  schema_metadata: WasmExports['schema_metadata'];
   check_existence: WasmExports['check_existence'];
   compile_migration: WasmExports['compile_migration'];
   lift_record: WasmExports['lift_record'];
@@ -133,6 +135,8 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
     const exports: WasmExports = {
       define_protocol: glue.define_protocol,
       build_schema: glue.build_schema,
+      parse_atproto_lexicon: glue.parse_atproto_lexicon,
+      schema_metadata: glue.schema_metadata,
       check_existence: glue.check_existence,
       compile_migration: glue.compile_migration,
       lift_record: glue.lift_record,

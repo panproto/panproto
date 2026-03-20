@@ -2,6 +2,14 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Added — Universal Lexicon Parsing
+
+- **panproto-wasm**: `parse_atproto_lexicon(json_bytes)` — WASM export that parses any `ATProto` lexicon JSON into a schema handle. Works for Bluesky, `RelationalText`, Layers, and any custom lexicon. This is the foundation for browser-side morphism-first integration.
+- **panproto-wasm**: `schema_metadata(handle)` — WASM export that extracts vertex/edge metadata from a schema handle as `MessagePack`, enabling the TypeScript SDK to populate `SchemaData` for schemas built on the Rust side.
+- **@panproto/core**: `Panproto.parseLexicon(json)` — TypeScript method that parses an `ATProto` lexicon JSON into a `BuiltSchema`. Enables the full `parseLexicon → lens → convert` workflow entirely in the browser.
+
 ## [0.10.0] - 2026-03-20
 
 ### Added — Value-Level Field Transforms

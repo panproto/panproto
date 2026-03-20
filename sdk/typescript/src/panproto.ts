@@ -137,6 +137,71 @@ export class Panproto implements Disposable {
   }
 
   /**
+   * Parse an ATProto lexicon JSON document into a schema.
+   *
+   * This is the universal entry point for any ATProto-compatible lexicon —
+   * works for Bluesky, RelationalText, Layers, and any custom lexicon.
+   * The resulting schema can be used with `lens()`, `convert()`, `diff()`,
+   * and all other schema operations.
+   *
+   * @param lexiconJson - The lexicon JSON (object or string)
+   * @returns A built schema that can be used for migration, lens generation, etc.
+   * @throws {@link PanprotoError} if the lexicon is not valid ATProto Lexicon JSON
+   *
+   * @example
+   * ```typescript
+   * const rtSchema = panproto.parseLexicon(rtDocumentLexicon);
+   * const layersSchema = panproto.parseLexicon(layersAnnotationLexicon);
+   * const lens = panproto.lens(rtSchema, layersSchema);
+   * ```
+   */
+  parseLexicon(lexiconJson: object | string): BuiltSchema {
+    const jsonStr = typeof lexiconJson === 'string' ? lexiconJson : JSON.stringify(lexiconJson);
+    const jsonBytes = new TextEncoder().encode(jsonStr);
+
+    let rawHandle: number;
+    try {
+      rawHandle = this.#wasm.exports.parse_atproto_lexicon(jsonBytes);
+    } catch (error) {
+      throw new PanprotoError(
+        `Failed to parse lexicon: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // Extract schema metadata from the WASM handle
+    const metaBytes = this.#wasm.exports.schema_metadata(rawHandle) as Uint8Array;
+    const meta = unpackFromWasm<{
+      protocol: string;
+      vertices: Array<{ id: string; kind: string; nsid?: string }>;
+      edges: Array<{ src: string; tgt: string; kind: string; name?: string }>;
+    }>(metaBytes);
+
+    const data: import('./types.js').SchemaData = {
+      protocol: meta.protocol,
+      vertices: Object.fromEntries(
+        meta.vertices.map((v) => [v.id, { id: v.id, kind: v.kind, nsid: v.nsid }]),
+      ),
+      edges: meta.edges.map((e) => ({
+        src: e.src,
+        tgt: e.tgt,
+        kind: e.kind,
+        name: e.name,
+      })),
+      hyperEdges: {},
+      constraints: {},
+      required: {},
+      variants: {},
+      orderings: {},
+      recursionPoints: {},
+      usageModes: {},
+      spans: {},
+      nominal: {},
+    };
+
+    return BuiltSchema._fromHandle(rawHandle, data, meta.protocol, this.#wasm);
+  }
+
+  /**
    * Start building a migration between two schemas.
    *
    * @param src - The source schema

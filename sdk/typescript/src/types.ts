@@ -404,6 +404,8 @@ export interface VcsBlameResult {
 export interface WasmExports {
   define_protocol(spec: Uint8Array): number;
   build_schema(proto: number, ops: Uint8Array): number;
+  parse_atproto_lexicon(json_bytes: Uint8Array): number;
+  schema_metadata(schema: number): Uint8Array;
   check_existence(proto: number, src: number, tgt: number, mapping: Uint8Array): Uint8Array;
   compile_migration(src: number, tgt: number, mapping: Uint8Array): number;
   lift_record(migration: number, record: Uint8Array): Uint8Array;
