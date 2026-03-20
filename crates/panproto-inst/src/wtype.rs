@@ -95,6 +95,76 @@ pub enum FieldTransform {
     },
 }
 
+impl CompiledMigration {
+    /// Add a field rename transform for a vertex.
+    ///
+    /// After the node survives and its anchor is remapped, the field
+    /// `old_key` in `extra_fields` is renamed to `new_key`.
+    pub fn add_field_rename(&mut self, vertex: &str, old_key: &str, new_key: &str) {
+        self.field_transforms
+            .entry(Name::from(vertex))
+            .or_default()
+            .push(FieldTransform::RenameField {
+                old_key: old_key.to_owned(),
+                new_key: new_key.to_owned(),
+            });
+    }
+
+    /// Add a field drop transform for a vertex.
+    ///
+    /// The field `key` is removed from the node's `extra_fields`.
+    pub fn add_field_drop(&mut self, vertex: &str, key: &str) {
+        self.field_transforms
+            .entry(Name::from(vertex))
+            .or_default()
+            .push(FieldTransform::DropField {
+                key: key.to_owned(),
+            });
+    }
+
+    /// Add a field with a default value for a vertex.
+    ///
+    /// The field `key` is added to `extra_fields` with the given value
+    /// if it does not already exist.
+    pub fn add_field_default(&mut self, vertex: &str, key: &str, value: Value) {
+        self.field_transforms
+            .entry(Name::from(vertex))
+            .or_default()
+            .push(FieldTransform::AddField {
+                key: key.to_owned(),
+                value,
+            });
+    }
+
+    /// Add a keep-fields transform for a vertex.
+    ///
+    /// Only the specified fields are retained in `extra_fields`;
+    /// all others are dropped.
+    pub fn add_field_keep(&mut self, vertex: &str, keys: &[&str]) {
+        self.field_transforms
+            .entry(Name::from(vertex))
+            .or_default()
+            .push(FieldTransform::KeepFields {
+                keys: keys.iter().map(|k| (*k).to_owned()).collect(),
+            });
+    }
+
+    /// Add an expression transform for a field on a vertex.
+    ///
+    /// The expression is evaluated with the field's current value
+    /// bound to the variable named `key`, and the result replaces
+    /// the field value.
+    pub fn add_field_expr(&mut self, vertex: &str, key: &str, expr: panproto_expr::Expr) {
+        self.field_transforms
+            .entry(Name::from(vertex))
+            .or_default()
+            .push(FieldTransform::ApplyExpr {
+                key: key.to_owned(),
+                expr,
+            });
+    }
+}
+
 /// A W-type instance: tree-shaped data conforming to a schema.
 ///
 /// Nodes are anchored to schema vertices, connected by arcs that
