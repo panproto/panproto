@@ -134,11 +134,46 @@ impl<'a> BacktrackState<'a> {
         for (src_id, src_vertex) in &src.vertices {
             let compatible: Vec<Name> = opts.initial.get(src_id).map_or_else(
                 || {
-                    tgt.vertices
+                    let mut candidates: Vec<Name> = tgt
+                        .vertices
                         .iter()
                         .filter(|(_, tv)| tv.kind == src_vertex.kind)
                         .map(|(tid, _)| tid.clone())
-                        .collect()
+                        .collect();
+
+                    // Property-name domain pruning: for "object" vertices with
+                    // large domains, restrict to targets sharing ≥1 edge name.
+                    // This anchors alignment on shared structure (e.g., both
+                    // have byteStart/byteEnd children).
+                    if candidates.len() > 5 {
+                        let src_edge_names: std::collections::HashSet<&str> = src
+                            .outgoing_edges(src_id)
+                            .iter()
+                            .filter_map(|e| e.name.as_deref())
+                            .collect();
+                        if !src_edge_names.is_empty() {
+                            let pruned: Vec<Name> = candidates
+                                .iter()
+                                .filter(|tid| {
+                                    let tgt_edge_names: std::collections::HashSet<&str> = tgt
+                                        .outgoing_edges(tid)
+                                        .iter()
+                                        .filter_map(|e| e.name.as_deref())
+                                        .collect();
+                                    src_edge_names
+                                        .intersection(&tgt_edge_names)
+                                        .next()
+                                        .is_some()
+                                })
+                                .cloned()
+                                .collect();
+                            if !pruned.is_empty() {
+                                candidates = pruned;
+                            }
+                        }
+                    }
+
+                    candidates
                 },
                 |tgt_id| vec![tgt_id.clone()],
             );
@@ -342,21 +377,24 @@ fn build_morphism(state: &BacktrackState<'_>) -> Option<FoundMorphism> {
 
 /// Compute a quality score for a morphism.
 ///
-/// Higher is better. Components:
-/// - Name similarity: 1.0 - (avg edit distance / max name length)
-/// - Edge name preservation: fraction of edges where source and
-///   target have the same label name
+/// Higher is better. Four components:
+/// 1. **Name similarity** (0.25): 1.0 - (avg edit distance / max name length)
+/// 2. **Edge name preservation** (0.25): fraction of edges with matching names
+/// 3. **Property-name Jaccard** (0.3): for each mapped vertex pair, Jaccard
+///    similarity of their outgoing edge names — rewards structural alignment
+/// 4. **Degree similarity** (0.2): penalizes mappings where vertex degrees
+///    differ significantly
 fn compute_quality(
     vertex_map: &HashMap<Name, Name>,
     edge_map: &HashMap<Edge, Edge>,
-    _src: &Schema,
-    _tgt: &Schema,
+    src: &Schema,
+    tgt: &Schema,
 ) -> f64 {
     if vertex_map.is_empty() {
         return 1.0;
     }
 
-    // Name similarity component (weight 0.5)
+    // 1. Name similarity component (weight 0.25)
     let name_score: f64 = {
         let mut total = 0.0;
         for (src_id, tgt_id) in vertex_map {
@@ -373,7 +411,7 @@ fn compute_quality(
         }
     };
 
-    // Edge name preservation component (weight 0.5)
+    // 2. Edge name preservation component (weight 0.25)
     let edge_score: f64 = if edge_map.is_empty() {
         1.0
     } else {
@@ -387,7 +425,66 @@ fn compute_quality(
         }
     };
 
-    0.5f64.mul_add(name_score, 0.5 * edge_score)
+    // 3. Property-name Jaccard similarity (weight 0.3)
+    let prop_score: f64 = {
+        let mut total = 0.0;
+        let mut count = 0;
+        for (src_id, tgt_id) in vertex_map {
+            let src_names: std::collections::HashSet<&str> = src
+                .outgoing_edges(src_id)
+                .iter()
+                .filter_map(|e| e.name.as_deref())
+                .collect();
+            let tgt_names: std::collections::HashSet<&str> = tgt
+                .outgoing_edges(tgt_id)
+                .iter()
+                .filter_map(|e| e.name.as_deref())
+                .collect();
+            if !src_names.is_empty() || !tgt_names.is_empty() {
+                let intersection = src_names.intersection(&tgt_names).count();
+                let union = src_names.union(&tgt_names).count();
+                if union > 0 {
+                    #[allow(clippy::cast_precision_loss)]
+                    {
+                        total += intersection as f64 / union as f64;
+                    }
+                    count += 1;
+                }
+            }
+        }
+        if count > 0 {
+            total / f64::from(count)
+        } else {
+            1.0
+        }
+    };
+
+    // 4. Degree similarity (weight 0.2)
+    let degree_score: f64 = {
+        let mut total = 0.0;
+        for (src_id, tgt_id) in vertex_map {
+            let src_deg = src.outgoing_edges(src_id).len();
+            let tgt_deg = tgt.outgoing_edges(tgt_id).len();
+            let max_deg = src_deg.max(tgt_deg);
+            if max_deg > 0 {
+                let diff = src_deg.abs_diff(tgt_deg);
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    total += 1.0 - (diff as f64 / max_deg as f64);
+                }
+            } else {
+                total += 1.0;
+            }
+        }
+        #[allow(clippy::cast_precision_loss)]
+        {
+            total / vertex_map.len() as f64
+        }
+    };
+
+    #[allow(clippy::suboptimal_flops)]
+    let score = 0.25 * name_score + 0.25 * edge_score + 0.3 * prop_score + 0.2 * degree_score;
+    score
 }
 
 /// Simple edit distance (Levenshtein).

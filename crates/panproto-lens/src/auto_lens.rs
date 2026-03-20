@@ -59,7 +59,33 @@ pub fn auto_generate(
     config: &AutoLensConfig,
 ) -> Result<AutoLensResult, LensError> {
     // Step 1: Find best morphism alignment
-    let alignment = find_best_morphism(src, tgt, &config.search_opts)
+    let mut alignment = find_best_morphism(src, tgt, &config.search_opts);
+
+    // Step 1b: Overlap fallback — if direct morphism has low quality or
+    // fails, try overlap-based alignment when configured.
+    if config.try_overlap {
+        let should_try_overlap = alignment.as_ref().is_none_or(|a| a.quality < 0.5);
+        if should_try_overlap {
+            let overlap = panproto_mig::discover_overlap(src, tgt);
+            if !overlap.vertex_pairs.is_empty() {
+                // Use the overlap as initial hints for a constrained search
+                let mut constrained_opts = config.search_opts.clone();
+                for (src_id, tgt_id) in &overlap.vertex_pairs {
+                    constrained_opts
+                        .initial
+                        .insert(src_id.clone(), tgt_id.clone());
+                }
+                if let Some(oa) = find_best_morphism(src, tgt, &constrained_opts) {
+                    let is_better = alignment.as_ref().is_none_or(|a| oa.quality > a.quality);
+                    if is_better {
+                        alignment = Some(oa);
+                    }
+                }
+            }
+        }
+    }
+
+    let alignment = alignment
         .ok_or_else(|| LensError::ProtolensError("no morphism found between schemas".into()))?;
 
     let quality = alignment.quality;
@@ -68,7 +94,11 @@ pub fn auto_generate(
     let chain = protolens_from_alignment(&alignment, src, tgt)?;
 
     // Step 3: Instantiate at source schema
-    let lens = chain.instantiate(src, protocol)?;
+    let mut lens = chain.instantiate(src, protocol)?;
+
+    // Step 4: Derive field transforms from the protolens chain
+    let field_transforms = derive_field_transforms(&chain, src, tgt);
+    lens.compiled.field_transforms = field_transforms;
 
     Ok(AutoLensResult {
         chain,
@@ -109,6 +139,79 @@ pub fn protolens_from_alignment(
     }
 
     Ok(ProtolensChain::new(steps))
+}
+
+/// Derive value-level field transforms from a protolens chain.
+///
+/// For each elementary protolens step, determines which vertices are
+/// affected and generates the appropriate `FieldTransform` entries.
+/// This is protocol-agnostic — it works purely from the chain structure.
+fn derive_field_transforms(
+    chain: &ProtolensChain,
+    src: &Schema,
+    _tgt: &Schema,
+) -> std::collections::HashMap<Name, Vec<panproto_inst::FieldTransform>> {
+    use panproto_gat::TheoryTransform;
+    use panproto_inst::FieldTransform;
+
+    let mut transforms: std::collections::HashMap<Name, Vec<FieldTransform>> =
+        std::collections::HashMap::new();
+
+    for step in &chain.steps {
+        match &step.target.transform {
+            TheoryTransform::RenameOp { old, new } => {
+                // Find all vertices that have an outgoing edge with this name
+                for vid in src.vertices.keys() {
+                    let has_edge = src
+                        .outgoing_edges(vid)
+                        .iter()
+                        .any(|e| e.name.as_deref() == Some(old.as_ref()));
+                    if has_edge {
+                        transforms.entry(vid.clone()).or_default().push(
+                            FieldTransform::RenameField {
+                                old_key: old.to_string(),
+                                new_key: new.to_string(),
+                            },
+                        );
+                    }
+                }
+            }
+            TheoryTransform::DropOp(name) => {
+                for vid in src.vertices.keys() {
+                    let has_edge = src
+                        .outgoing_edges(vid)
+                        .iter()
+                        .any(|e| e.name.as_deref() == Some(name.as_ref()));
+                    if has_edge {
+                        transforms.entry(vid.clone()).or_default().push(
+                            FieldTransform::DropField {
+                                key: name.to_string(),
+                            },
+                        );
+                    }
+                }
+            }
+            TheoryTransform::AddDirectedEquation(deq) => {
+                // Extract the variable name from the LHS pattern
+                let key = match &deq.lhs {
+                    panproto_gat::Term::Var(name) => name.to_string(),
+                    panproto_gat::Term::App { op, .. } => op.to_string(),
+                };
+                for vid in src.vertices.keys() {
+                    transforms
+                        .entry(vid.clone())
+                        .or_default()
+                        .push(FieldTransform::ApplyExpr {
+                            key: key.clone(),
+                            expr: deq.impl_term.clone(),
+                        });
+                }
+            }
+            _ => {} // Other transforms don't produce field-level effects
+        }
+    }
+
+    transforms
 }
 
 /// Convert a schema to its implicit theory (sorts = vertex kinds,
