@@ -2,7 +2,7 @@
 
 All notable changes to panproto will be documented in this file.
 
-## [Unreleased]
+## [0.10.0] - 2026-03-20
 
 ### Added — Value-Level Field Transforms
 
