@@ -104,6 +104,38 @@ class WasmModule:
         result = self._call("build_schema", proto, ops)
         return int(result)  # type: ignore[arg-type]
 
+    def parse_atproto_lexicon(self, json_bytes: bytes) -> int:
+        """Parse an ATProto lexicon JSON document into a schema handle.
+
+        Parameters
+        ----------
+        json_bytes : bytes
+            UTF-8 encoded lexicon JSON.
+
+        Returns
+        -------
+        int
+            Opaque WASM handle for the parsed schema.
+        """
+        result = self._call("parse_atproto_lexicon", json_bytes)
+        return int(result)  # type: ignore[arg-type]
+
+    def schema_metadata(self, handle: int) -> bytes:
+        """Extract schema metadata from a handle as MessagePack.
+
+        Parameters
+        ----------
+        handle : int
+            Schema handle.
+
+        Returns
+        -------
+        bytes
+            MessagePack-encoded metadata.
+        """
+        result = self._call("schema_metadata", handle)
+        return bytes(result)  # type: ignore[arg-type]
+
     def check_existence(self, src: int, tgt: int, mapping: bytes) -> bytes:
         """Check migration existence conditions.
 

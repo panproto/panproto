@@ -4,11 +4,14 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-03-20
+
 ### Added — Universal Lexicon Parsing & Cross-Lexicon Morphism Discovery
 
-- **panproto-wasm**: `parse_atproto_lexicon(json_bytes)` — WASM export that parses any `ATProto` lexicon JSON into a schema handle. Works for `Bluesky`, `RelationalText`, Layers, and any custom lexicon. This is the foundation for browser-side morphism-first integration.
-- **panproto-wasm**: `schema_metadata(handle)` — WASM export that extracts vertex/edge metadata from a schema handle as `MessagePack`, enabling the TypeScript SDK to populate `SchemaData` for schemas built on the Rust side.
-- **@panproto/core**: `Panproto.parseLexicon(json)` — TypeScript method that parses an `ATProto` lexicon JSON into a `BuiltSchema`. Enables the full `parseLexicon → lens → convert` workflow entirely in the browser.
+- **panproto-wasm**: `parse_atproto_lexicon(json_bytes)` — WASM export that parses any ATProto lexicon JSON into a schema handle. Works for Bluesky, RelationalText, Layers, and any custom lexicon. Foundation for browser-side morphism-first integration.
+- **panproto-wasm**: `schema_metadata(handle)` — WASM export that extracts vertex/edge metadata from a schema handle as MessagePack.
+- **@panproto/core**: `Panproto.parseLexicon(json)` — TypeScript method that parses an ATProto lexicon JSON into a `BuiltSchema`. Enables the full `parseLexicon → lens → convert` workflow entirely in the browser.
+- **panproto (Python)**: `Panproto.parse_lexicon(json)` — Python equivalent of the TypeScript `parseLexicon`.
 - **panproto-lens**: `derive_field_transforms(chain, src, tgt)` — automatically derives `FieldTransform` entries from a protolens chain's elementary steps. `RenameOp → RenameField`, `DropOp → DropField`, `AddDirectedEquation → ApplyExpr`. Called automatically by `auto_generate`.
 - **panproto-lens**: `auto_generate` now populates `lens.compiled.field_transforms` automatically from the protolens chain, eliminating the need for manual `inject_field_transforms` calls.
 - **panproto-lens**: Overlap-based fallback in `auto_generate` — when `config.try_overlap` is true and the direct morphism has quality < 0.5, `discover_overlap` finds shared substructure and uses it as alignment hints for a constrained re-search.
@@ -16,7 +19,7 @@ All notable changes to panproto will be documented in this file.
 ### Changed
 
 - **panproto-mig**: Morphism search quality scoring now has four components (was two): name similarity (0.25), edge name preservation (0.25), property-name Jaccard similarity (0.3), and degree similarity (0.2). The property-name component rewards structural alignment — vertices with matching child property names (e.g., both have `byteStart`/`byteEnd`) score much higher.
-- **panproto-mig**: Domain pruning for "object" vertices — when domain size > 5, restrict to target vertices sharing ≥1 outgoing edge name. This anchors alignment on shared structure and dramatically reduces combinatorial explosion for cross-lexicon morphisms.
+- **panproto-mig**: Domain pruning for "object" vertices — when domain size > 5, restrict to target vertices sharing ≥1 outgoing edge name. Anchors alignment on shared structure and dramatically reduces combinatorial explosion for cross-lexicon morphisms.
 
 ## [0.10.0] - 2026-03-20
 

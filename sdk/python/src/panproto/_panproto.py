@@ -541,6 +541,68 @@ class Panproto:
         finally:
             lens.close()
 
+    def parse_lexicon(self, lexicon_json: str | bytes | dict) -> BuiltSchema:
+        """Parse an ATProto lexicon JSON document into a schema.
+
+        Works for Bluesky, RelationalText, Layers, and any custom ATProto
+        lexicon. The resulting schema can be used with ``lens()``,
+        ``convert()``, ``diff()``, and all other schema operations.
+
+        Parameters
+        ----------
+        lexicon_json : str | bytes | dict
+            The lexicon JSON (string, bytes, or dict).
+
+        Returns
+        -------
+        BuiltSchema
+            A built schema that can be used for migration, lens generation, etc.
+
+        Raises
+        ------
+        WasmError
+            If the lexicon is not valid ATProto Lexicon JSON.
+        """
+        import json as _json
+
+        from ._msgpack import unpack_from_wasm as _unpack
+        from ._schema import BuiltSchema as _BuiltSchema
+
+        if isinstance(lexicon_json, dict):
+            json_bytes = _json.dumps(lexicon_json).encode("utf-8")
+        elif isinstance(lexicon_json, str):
+            json_bytes = lexicon_json.encode("utf-8")
+        else:
+            json_bytes = lexicon_json
+
+        from typing import Any, cast
+
+        handle = self._wasm.parse_atproto_lexicon(json_bytes)
+        meta_bytes = self._wasm.schema_metadata(handle)
+        meta = cast(dict[str, Any], _unpack(meta_bytes))
+
+        data: Any = {
+            "protocol": meta["protocol"],
+            "vertices": {
+                v["id"]: {"id": v["id"], "kind": v["kind"], "nsid": v.get("nsid")}
+                for v in meta["vertices"]
+            },
+            "edges": [
+                {"src": e["src"], "tgt": e["tgt"], "kind": e["kind"], "name": e.get("name")}
+                for e in meta["edges"]
+            ],
+            "hyperEdges": {},
+            "constraints": {},
+            "required": {},
+            "variants": {},
+            "orderings": {},
+            "recursionPoints": {},
+            "usageModes": {},
+            "spans": {},
+            "nominal": {},
+        }
+        return _BuiltSchema._from_handle(handle, data, str(meta["protocol"]), self._wasm)
+
     def lens(self, from_schema: BuiltSchema, to_schema: BuiltSchema) -> LensHandle:
         """Create an auto-generated lens between two schemas.
 
