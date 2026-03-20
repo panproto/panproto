@@ -1301,13 +1301,13 @@ fn apply_rename_op_to_schema(schema: &Schema, old: &Arc<str>, new: &Arc<str>) ->
     new_schema
 }
 
-/// Drop a sort (vertex kind) and all dependent edges from a schema.
+/// Drop a sort (vertex ID or kind) and all dependent edges from a schema.
 fn apply_drop_sort_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
     let mut new_schema = schema.clone();
     let to_remove: Vec<Name> = new_schema
         .vertices
         .iter()
-        .filter(|(_, v)| *v.kind == **name)
+        .filter(|(id, v)| **id == **name || *v.kind == **name)
         .map(|(id, _)| id.clone())
         .collect();
     for id in &to_remove {
