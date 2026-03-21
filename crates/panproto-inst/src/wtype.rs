@@ -947,19 +947,25 @@ fn apply_map_references(
 fn build_env_from_extra_fields(fields: &HashMap<String, Value>) -> panproto_expr::Env {
     let mut env = panproto_expr::Env::new();
     for (key, val) in fields {
-        env = env.extend(
-            std::sync::Arc::from(key.as_str()),
-            value_to_expr_literal(val),
-        );
+        let lit = value_to_expr_literal(val);
+        // Bind flat key
+        env = env.extend(std::sync::Arc::from(key.as_str()), lit.clone());
+        // Also bind as attrs.key (so predicates work regardless of nesting style)
+        if key != "attrs" && key != "name" && key != "$type" && key != "parents" {
+            let qualified = format!("attrs.{key}");
+            env = env.extend(std::sync::Arc::from(qualified.as_str()), lit);
+        }
     }
-    // Also bind nested "attrs" as qualified names if present
+    // Also bind nested "attrs" entries as both qualified and flat
     if let Some(Value::Unknown(attrs)) = fields.get("attrs") {
         for (key, val) in attrs {
+            let lit = value_to_expr_literal(val);
             let qualified = format!("attrs.{key}");
-            env = env.extend(
-                std::sync::Arc::from(qualified.as_str()),
-                value_to_expr_literal(val),
-            );
+            env = env.extend(std::sync::Arc::from(qualified.as_str()), lit.clone());
+            // Also bind as flat key if not already present
+            if !fields.contains_key(key) {
+                env = env.extend(std::sync::Arc::from(key.as_str()), lit);
+            }
         }
     }
     env
@@ -2077,5 +2083,45 @@ mod tests {
             node.extra_fields.get("name"),
             Some(&Value::Str("h3".into()))
         );
+    }
+
+    #[test]
+    fn case_transform_sets_field_conditionally() {
+        use crate::value::Value;
+        use panproto_expr::{BuiltinOp, Expr, Literal};
+        use std::sync::Arc;
+
+        let mut node = Node::new(0, "heading");
+        node.extra_fields.insert("level".into(), Value::Int(1));
+        node.extra_fields.insert("name".into(), Value::Str("heading".into()));
+
+        let case = FieldTransform::Case {
+            branches: vec![
+                CaseBranch {
+                    predicate: Expr::builtin(
+                        BuiltinOp::Eq,
+                        vec![Expr::Var(Arc::from("level")), Expr::Lit(Literal::Int(1))],
+                    ),
+                    transforms: vec![FieldTransform::ComputeField {
+                        target_key: "name".into(),
+                        expr: Expr::Lit(Literal::Str("h1".into())),
+                    }],
+                },
+                CaseBranch {
+                    predicate: Expr::builtin(
+                        BuiltinOp::Eq,
+                        vec![Expr::Var(Arc::from("level")), Expr::Lit(Literal::Int(2))],
+                    ),
+                    transforms: vec![FieldTransform::ComputeField {
+                        target_key: "name".into(),
+                        expr: Expr::Lit(Literal::Str("h2".into())),
+                    }],
+                },
+            ],
+        };
+
+        apply_field_transforms(&mut node, &[case]);
+
+        assert_eq!(node.extra_fields.get("name"), Some(&Value::Str("h1".into())));
     }
 }
