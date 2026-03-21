@@ -1,0 +1,282 @@
+# Value-Dependent Migration {#sec-value-dependent-transforms}
+
+Structural schema transforms handle the easy cases: rename a vertex, drop an edge, wrap a field in a container. But real data is messier. Heading elements that encode level as a vertex name (`h1`, `h2`, `h3`). CSS class lists that determine which microformat a node participates in. Template names computed from integer attributes. None of these can be expressed as pure schema operations --- they depend on what the data *says*, not just what the schema *looks like*.
+
+This chapter covers panproto's value-level field transform layer: the `FieldTransform` enum and `conditional_survival` predicate, which let migration logic reach inside nodes and act on their content.
+
+## Why structural transforms are not enough {#sec-why-value-transforms}
+
+Consider a document format that uses separate vertex types for each heading level: `h1`, `h2`, and `h3` are distinct vertices in the schema. A new version of the format collapses them into a single `heading` vertex with a `level` attribute. The structural rename is easy --- `RenameVertex("h1", "heading")` --- but that leaves you with three migrations that each produce `heading` nodes with no `level` attribute. The attribute has to come *from somewhere*.
+
+Where it comes from is the original vertex name. The data says `h1`; you want `heading` with `level: 1`. That relationship is value-dependent: you need to know which old vertex name you started from in order to compute the new attribute value.
+
+Here is a second kind of problem. Some document formats use CSS class attributes to distinguish semantic roles. An `a` element with `class: "u-url"` is a microformat URL link. An `a` element with `class: "u-email"` is an email link. Migrating to a schema that has a single `link` vertex type requires keeping only the elements whose class contains a recognizable microformat token. Whether a given `a` element survives depends on the *value* of its `class` attribute, not its vertex type.
+
+Both cases require logic that structural schema transforms cannot express. The `FieldTransform` variants handle the first case. The `conditional_survival` predicate handles the second.
+
+## PathTransform: reaching into nested structures {#sec-path-transform}
+
+A node's `extra_fields` is a flat map from field names to values. But field values can themselves be maps (`Value::Unknown`), giving a tree structure. Some document formats store attributes in a nested object: `{ "attrs": { "level": 2, "style": "bold" } }`.
+
+`PathTransform` lets you apply any other field transform at a specified path within this tree:
+
+```{.rust}
+// Rename "old_attr" → "new_attr" inside the "attrs" nested object
+migration.add_path_transform(
+    "heading",
+    &["attrs"],
+    FieldTransform::RenameField {
+        old_key: "old_attr".to_owned(),
+        new_key: "new_attr".to_owned(),
+    },
+);
+```
+
+The path is a sequence of keys to navigate. `&["attrs"]` means: find the `attrs` field, treat it as a map, and apply the inner transform to that map's fields. Deeper paths are supported: `&["attrs", "styles"]` navigates two levels.
+
+An empty path applies the inner transform directly to the node's own `extra_fields`. This is equivalent to registering the inner transform without a path wrapper.
+
+`PathTransform` composes with all other variants. You can nest a `Case` inside a `PathTransform` to do conditional logic at a nested level, or nest a `ComputeField` inside `PathTransform` to compute values using both top-level fields and the nested subtree.
+
+## MapReferences: updating vertex-referencing strings {#sec-map-references}
+
+When you rename a vertex, any fields that carry that vertex name as a string value go stale. Parent reference arrays in tree-structured formats (`"parents": ["root", "body"]`) are the canonical example: if you rename `"body"` to `"main"`, the parent reference strings need to follow.
+
+`MapReferences` applies a rename map to a string field:
+
+```{.rust}
+let mut rename_map = HashMap::new();
+rename_map.insert("body".to_owned(), Some("main".to_owned()));
+rename_map.insert("sidebar".to_owned(), None); // drop references to removed vertex
+
+migration.add_map_references("paragraph", "parents", rename_map);
+```
+
+For each `paragraph` node, the `parents` field is updated:
+
+- `Value::Str("body")` becomes `Value::Str("main")`.
+- `Value::Str("sidebar")` is removed (because it maps to `None`).
+- String values not in the rename map pass through unchanged.
+
+The transform handles both flat string values and encoded arrays. panproto encodes arrays inside `extra_fields` as `Value::Unknown` maps with an `__array_len` sentinel key. `MapReferences` detects this encoding and iterates over the array elements, renaming or dropping each one. References mapped to `None` are removed from the array; the array is compacted and its length updated.
+
+This is the functorial action of the vertex rename map on the name-reference algebra: every structural rename in the schema ought to be accompanied by a `MapReferences` transform on any field that carries those names as data.
+
+## ComputeField: expression-based field computation {#sec-compute-field}
+
+`ComputeField` evaluates an expression against a node's full field environment and stores the result in a target field. Unlike `ApplyExpr` (which binds a single field's value), `ComputeField` makes all `extra_fields` available as variables.
+
+The heading level example from above:
+
+```{.rust}
+use panproto_expr::{Expr, Literal, BuiltinOp};
+use std::sync::Arc;
+
+// Compute: (concat "h" (int_to_str level))
+let expr = Expr::Builtin(
+    BuiltinOp::Concat,
+    vec![
+        Expr::Lit(Literal::Str("h".to_owned())),
+        Expr::Builtin(
+            BuiltinOp::IntToStr,
+            vec![Expr::Var(Arc::from("level"))],
+        ),
+    ],
+);
+
+migration.add_computed_field("heading", "name", expr);
+```
+
+When a `heading` node with `level: 2` is processed, this expression evaluates to `"h2"` and stores it in the `name` field. The variable `level` is bound from `extra_fields["level"]`.
+
+If the level attribute lives in a nested `attrs` object (`extra_fields["attrs"]["level"]`), the variable `attrs.level` is also bound automatically. The same expression using `Expr::Var(Arc::from("attrs.level"))` works regardless of whether `level` is flat or nested.
+
+The `panproto_expr` evaluator runs the expression using `panproto_expr::EvalConfig::default()`. If evaluation fails (e.g., because a field is missing), the field is left unchanged.
+
+## Case: conditional transforms based on runtime values {#sec-case-transform}
+
+`Case` is the dependent function space for field transforms: it applies different transforms depending on what the data says. Each branch is a (predicate, transforms) pair. The first branch whose predicate evaluates to `true` fires; the rest are skipped.
+
+The matchAttrs pattern --- one branch per attribute value --- is the canonical use case:
+
+```{.rust}
+use panproto_expr::{Expr, Literal, BuiltinOp, CaseBranch};
+use std::sync::Arc;
+
+let case = FieldTransform::Case {
+    branches: vec![
+        CaseBranch {
+            predicate: Expr::Builtin(
+                BuiltinOp::Eq,
+                vec![
+                    Expr::Var(Arc::from("level")),
+                    Expr::Lit(Literal::Int(1)),
+                ],
+            ),
+            transforms: vec![FieldTransform::ComputeField {
+                target_key: "name".to_owned(),
+                expr: Expr::Lit(Literal::Str("h1".to_owned())),
+            }],
+        },
+        CaseBranch {
+            predicate: Expr::Builtin(
+                BuiltinOp::Eq,
+                vec![
+                    Expr::Var(Arc::from("level")),
+                    Expr::Lit(Literal::Int(2)),
+                ],
+            ),
+            transforms: vec![FieldTransform::ComputeField {
+                target_key: "name".to_owned(),
+                expr: Expr::Lit(Literal::Str("h2".to_owned())),
+            }],
+        },
+        // ... and so on for h3
+    ],
+};
+
+migration.add_case_transform("heading", vec![/* branches */]);
+```
+
+A node with `level: 1` gets `name` set to `"h1"`. A node with `level: 2` gets `"h2"`. A node whose `level` matches none of the predicates passes through unchanged.
+
+Predicates are evaluated with the same variable environment as `ComputeField`: all `extra_fields` and `attrs.*` entries are bound. The `BuiltinOp::Eq`, `BuiltinOp::Lt`, `BuiltinOp::Contains`, and all other comparison builtins from `panproto_expr` are available.
+
+`Case` branches can contain any sequence of `FieldTransform` variants, including nested `Case` blocks and `PathTransform` wrappers. The transforms in the matching branch execute in order before moving on.
+
+## ConditionalSurvival: value-dependent vertex survival {#sec-conditional-survival}
+
+The `FieldTransform` variants operate on nodes that have already survived the structural pass: their schema anchor vertex is in `surviving_verts`. `conditional_survival` adds a second, value-dependent gate *before* field transforms run.
+
+If a vertex has a conditional survival predicate, the predicate is evaluated against the node's `extra_fields`. If it returns `false`, the node is dropped --- treated exactly as if its anchor were not in `surviving_verts` at all. Its descendants (if any) undergo ancestor contraction just as they would for a structurally pruned node.
+
+```{.rust}
+// Keep only "item" nodes where level == 2
+let predicate = Expr::Builtin(
+    BuiltinOp::Eq,
+    vec![
+        Expr::Var(Arc::from("level")),
+        Expr::Lit(Literal::Int(2)),
+    ],
+);
+migration.add_conditional_survival("item", predicate);
+```
+
+This is the matchAttrs pattern at the survival level rather than the transform level. If you want to keep only those nodes of a given type that match a condition, use `add_conditional_survival`. If you want all nodes of that type to survive but behave differently depending on their values, use `add_case_transform`.
+
+The two interact cleanly: `conditional_survival` runs first. Nodes that pass the predicate then undergo `field_transforms` in the usual order.
+
+## Worked example: heading levels {#sec-heading-example}
+
+The most common use case for value-dependent migration is normalizing heading-level encodings. The Prosemirror and Pandoc document formats encode heading level as an integer attribute on a single `heading` vertex. Older HTML-derived formats use separate `h1`, `h2`, `h3` vertex types.
+
+Migrating from the separate-vertex form to the unified form requires:
+
+1. Renaming `h1`, `h2`, `h3` all to `heading` (three `RenameVertex` transforms at the schema level).
+2. Adding a `level` attribute to each node with the correct integer value.
+
+Step 2 is value-dependent: the source vertex name determines the value.
+
+```{.rust}
+use panproto_expr::{Expr, Literal, BuiltinOp, CaseBranch};
+use std::sync::Arc;
+
+// The schema migration renames h1/h2/h3 to heading.
+// Field transforms add the level attribute after remapping.
+
+// For nodes originally anchored to h1:
+migration.add_field_default("h1", "level", Value::Int(1));
+
+// For nodes originally anchored to h2:
+migration.add_field_default("h2", "level", Value::Int(2));
+
+// For nodes originally anchored to h3:
+migration.add_field_default("h3", "level", Value::Int(3));
+```
+
+::: {.callout-note}
+`add_field_default` uses the *source* vertex name as the key. The transform is registered against `"h1"`, which is the anchor name at the time the node is processed. The anchor is remapped to `"heading"` *after* field transforms run, so the lookup is against the original name.
+:::
+
+In the reverse direction --- migrating from the unified form back to the separate-vertex form --- the structural transforms map `heading` back to `h1`, `h2`, `h3`. But how does panproto know which heading node becomes `h1` versus `h2`? It does not, unless you add a `ConditionalSurvival` predicate for each target vertex. The full bidirectional version requires each target vertex to survive only for the matching level value:
+
+```{.rust}
+// Reverse migration: heading → h1/h2/h3
+// Structural: RenameVertex("heading", "h1"), RenameVertex("heading", "h2"), ...
+// (This is actually a split, handled by the schema-level SplitVertex transform.)
+
+// Value-dependent survival gates each rename:
+migration.add_conditional_survival(
+    "heading",
+    Expr::Builtin(
+        BuiltinOp::Eq,
+        vec![
+            Expr::Var(Arc::from("level")),
+            Expr::Lit(Literal::Int(1)),
+        ],
+    ),
+);
+```
+
+## Worked example: CSS class-based matching {#sec-css-class-example}
+
+The `matchAttrsAll` pattern uses `BuiltinOp::Contains` to check whether a list-valued attribute includes a specific token. panproto encodes JSON arrays in `extra_fields` as `Value::Unknown` maps with an `__array_len` sentinel. When this map is used as an expression variable, it is serialized as a comma-separated string, which makes `Contains` work as a membership test.
+
+Consider a microformat migration: keep only `a` elements whose `class` array contains `"u-url"`.
+
+```{.rust}
+// Keep only anchor nodes where class contains "u-url"
+let predicate = Expr::Builtin(
+    BuiltinOp::Contains,
+    vec![
+        Expr::Var(Arc::from("class")),
+        Expr::Lit(Literal::Str("u-url".to_owned())),
+    ],
+);
+migration.add_conditional_survival("a", predicate);
+```
+
+If a node has `class: ["u-url", "external"]`, the variable `class` is bound to the string `"u-url,external"`. `Contains("u-url,external", "u-url")` returns `true`, and the node survives. A node with `class: ["u-email"]` fails the predicate and is dropped.
+
+::: {.callout-note}
+The comma-separated serialization is a consequence of how `value_to_expr_literal` converts encoded arrays. Membership tests using `Contains` work correctly as long as no element contains a comma. For elements that do contain commas, use a more precise predicate (such as checking for `"u-url,"` or `",u-url"`), or restructure the data before migration.
+:::
+
+The same `Contains` predicate can drive `Case` branches instead of survival. If you want all `a` elements to survive but behave differently based on which microformat token they carry:
+
+```{.rust}
+let case = FieldTransform::Case {
+    branches: vec![
+        CaseBranch {
+            predicate: Expr::Builtin(
+                BuiltinOp::Contains,
+                vec![
+                    Expr::Var(Arc::from("class")),
+                    Expr::Lit(Literal::Str("u-url".to_owned())),
+                ],
+            ),
+            transforms: vec![FieldTransform::AddField {
+                key: "link_type".to_owned(),
+                value: Value::Str("url".to_owned()),
+            }],
+        },
+        CaseBranch {
+            predicate: Expr::Builtin(
+                BuiltinOp::Contains,
+                vec![
+                    Expr::Var(Arc::from("class")),
+                    Expr::Lit(Literal::Str("u-email".to_owned())),
+                ],
+            ),
+            transforms: vec![FieldTransform::AddField {
+                key: "link_type".to_owned(),
+                value: Value::Str("email".to_owned()),
+            }],
+        },
+    ],
+};
+
+migration.add_case_transform("a", vec![/* branches above */]);
+```
+
+Nodes with `u-url` in their class get `link_type: "url"`. Nodes with `u-email` get `link_type: "email"`. Nodes matching neither branch are unchanged.

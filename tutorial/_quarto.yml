@@ -55,6 +55,7 @@ book:
     - part: "Data Versioning"
       chapters:
         - chapters/19-data-versioning.qmd
+        - chapters/20-value-dependent-transforms.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-formal-foundations.qmd
