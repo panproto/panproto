@@ -33,11 +33,11 @@
     "@msgpack/msgpack": "^3.0.0"
   },
   "devDependencies": {
-    "oxlint": "^0.16.0",
+    "oxlint": "^1.56.0",
     "typescript": "^5.8.0",
-    "vite": "^6.0.0",
+    "vite": "^8.0.0",
     "vite-plugin-dts": "^4.5.4",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.0"
   },
   "engines": {
     "node": ">=20"
