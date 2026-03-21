@@ -978,6 +978,21 @@ fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
         Value::Int(i) => panproto_expr::Literal::Int(*i),
         Value::Float(f) => panproto_expr::Literal::Float(*f),
         Value::Str(s) => panproto_expr::Literal::Str(s.clone()),
+        Value::Unknown(map) => {
+            // Encoded arrays (with __array_len): serialize as comma-separated
+            // string so Contains can check membership.
+            if let Some(Value::Int(len)) = map.get("__array_len") {
+                let mut parts = Vec::new();
+                for i in 0..*len as usize {
+                    if let Some(Value::Str(s)) = map.get(&i.to_string()) {
+                        parts.push(s.as_str());
+                    }
+                }
+                panproto_expr::Literal::Str(parts.join(","))
+            } else {
+                panproto_expr::Literal::Null
+            }
+        }
         _ => panproto_expr::Literal::Null,
     }
 }
