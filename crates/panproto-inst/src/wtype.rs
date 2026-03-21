@@ -983,7 +983,8 @@ fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
             // string so Contains can check membership.
             if let Some(Value::Int(len)) = map.get("__array_len") {
                 let mut parts = Vec::new();
-                for i in 0..*len as usize {
+                let count = usize::try_from(*len).unwrap_or(0);
+                for i in 0..count {
                     if let Some(Value::Str(s)) = map.get(&i.to_string()) {
                         parts.push(s.as_str());
                     }
@@ -2108,7 +2109,8 @@ mod tests {
 
         let mut node = Node::new(0, "heading");
         node.extra_fields.insert("level".into(), Value::Int(1));
-        node.extra_fields.insert("name".into(), Value::Str("heading".into()));
+        node.extra_fields
+            .insert("name".into(), Value::Str("heading".into()));
 
         let case = FieldTransform::Case {
             branches: vec![
@@ -2137,6 +2139,9 @@ mod tests {
 
         apply_field_transforms(&mut node, &[case]);
 
-        assert_eq!(node.extra_fields.get("name"), Some(&Value::Str("h1".into())));
+        assert_eq!(
+            node.extra_fields.get("name"),
+            Some(&Value::Str("h1".into()))
+        );
     }
 }

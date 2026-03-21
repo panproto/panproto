@@ -4,12 +4,25 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
-### Added — Nested Field Transforms and Reference Mapping
+## [0.12.0] - 2026-03-21
 
-- **panproto-inst**: `FieldTransform::PathTransform` — lifts a field transform to operate at a nested path within the Value tree. Navigates through `Value::Unknown` maps to the target level. An empty path is the identity. This is the action of a path functor on the endomorphism algebra of field transforms.
-- **panproto-inst**: `FieldTransform::MapReferences` — updates string values carrying vertex identity when vertices are renamed or dropped. Handles both flat `Str` values and encoded arrays (with `__array_len` sentinel). This is the functorial action of the vertex rename map on the name-reference algebra.
-- **panproto-inst**: `CompiledMigration::add_path_transform(vertex, path, inner)` — builder method for nested transforms.
-- **panproto-inst**: `CompiledMigration::add_map_references(vertex, field, rename_map)` — builder method for reference updates.
+### Added — Value-Dependent Migration via Expression Language
+
+Five new `FieldTransform` variants and one new `CompiledMigration` field that extend the migration pipeline from purely structural operations to value-dependent decisions, using panproto-expr as the evaluation engine.
+
+- **panproto-inst**: `FieldTransform::PathTransform { path, inner }` — lifts a field transform to operate at a nested path within the Value tree. This is the action of a path functor on the endomorphism algebra of field transforms.
+- **panproto-inst**: `FieldTransform::MapReferences { field, rename_map }` — updates string values carrying vertex identity when vertices are renamed or dropped. Functorial action of the vertex rename map on the name-reference algebra.
+- **panproto-inst**: `FieldTransform::ComputeField { target_key, expr }` — evaluates an expression with ALL `extra_fields` bound as variables, storing the result. Enables template name computation: `(concat "h" (int_to_str attrs.level))` → `"h2"`.
+- **panproto-inst**: `FieldTransform::Case { branches: Vec<CaseBranch> }` — the coproduct eliminator for the field transform algebra. `Π(x : Value). FieldTransform` — a dependent function from node values to transform sequences. Branches are evaluated in order; the first matching predicate's transforms are applied.
+- **panproto-inst**: `CaseBranch { predicate: Expr, transforms: Vec<FieldTransform> }` — a branch in a Case analysis.
+- **panproto-inst**: `CompiledMigration::conditional_survival: HashMap<Name, Expr>` — value-dependent survival predicates. Refines the survival predicate from structural (vertex set membership) to value-dependent (membership AND expression predicate).
+- **panproto-inst**: Builder methods: `add_path_transform`, `add_map_references`, `add_computed_field`, `add_case_transform`, `add_conditional_survival`.
+- **panproto-inst**: `build_env_from_extra_fields` helper — binds both flat keys and `attrs.*` qualified keys for complete variable coverage in expression evaluation.
+
+### Changed
+
+- **panproto-inst**: `value_to_expr_literal` now serializes encoded arrays (`Value::Unknown` with `__array_len` sentinel) as comma-separated strings, enabling the `Contains` builtin to check array membership in Case predicates.
+- **panproto-inst**: `build_env_from_extra_fields` binds ALL extra_fields as both flat keys and `attrs.*` qualified keys, plus nested attrs entries as flat keys if not already present.
 
 ## [0.11.0] - 2026-03-20
 
