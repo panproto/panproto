@@ -1,4 +1,4 @@
-//! Shared component theory definitions (31 building blocks).
+//! Shared component theory definitions (32 building blocks).
 //!
 //! These are the building-block GATs that protocols compose via colimit
 //! to form their schema and instance theories. Each function returns
@@ -49,6 +49,7 @@
 //! | 29 | ThCoercible | 2 | 3 | Enrichment |
 //! | 30 | ThMergeable | 2 | 2 | Enrichment |
 //! | 31 | ThPolicied | 2 | 0 | Enrichment |
+//! | 32 | ThExpr | 4 | 0 | Expression language |
 
 use panproto_gat::{Equation, Operation, Sort, SortParam, Term, Theory};
 
@@ -964,6 +965,93 @@ pub fn th_policied() -> Theory {
             ],
             "Value",
         )],
+        vec![],
+    )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Expression language building block
+// ═══════════════════════════════════════════════════════════════════
+
+/// `ThExpr`: the expression language as a GAT.
+///
+/// Sorts: `Expr`, `Pattern`, `Literal`, `Builtin`.
+/// Operations mirror the 11 variants of the `panproto_expr::Expr` enum:
+/// `var`, `lam`, `app`, `lit`, `field_access`, `let_bind`, `match_on`,
+/// `builtin_apply`, `record`, `list_expr`, `index`.
+///
+/// Instances of `ThExpr` are expressions represented as data, enabling
+/// expressions to be stored in the VCS, lensed to other query languages
+/// (SQL, SPARQL, GraphQL), and migrated when the expression language
+/// evolves.
+#[must_use]
+pub fn th_expr() -> Theory {
+    Theory::new(
+        "ThExpr",
+        vec![
+            Sort::simple("Expr"),
+            Sort::simple("Pattern"),
+            Sort::simple("Literal"),
+            Sort::simple("Builtin"),
+        ],
+        vec![
+            // Expr constructors
+            Operation::unary("var", "name", "Literal", "Expr"),
+            Operation::new(
+                "lam",
+                vec![
+                    ("param".into(), "Literal".into()),
+                    ("body".into(), "Expr".into()),
+                ],
+                "Expr",
+            ),
+            Operation::new(
+                "app",
+                vec![
+                    ("func".into(), "Expr".into()),
+                    ("arg".into(), "Expr".into()),
+                ],
+                "Expr",
+            ),
+            Operation::unary("lit", "value", "Literal", "Expr"),
+            Operation::new(
+                "field_access",
+                vec![
+                    ("base".into(), "Expr".into()),
+                    ("name".into(), "Literal".into()),
+                ],
+                "Expr",
+            ),
+            Operation::new(
+                "let_bind",
+                vec![
+                    ("name".into(), "Literal".into()),
+                    ("value".into(), "Expr".into()),
+                    ("body".into(), "Expr".into()),
+                ],
+                "Expr",
+            ),
+            Operation::new(
+                "match_on",
+                vec![("scrutinee".into(), "Expr".into())],
+                "Expr",
+            ),
+            Operation::new(
+                "builtin_apply",
+                vec![("op".into(), "Builtin".into())],
+                "Expr",
+            ),
+            Operation::unary("record", "fields", "Literal", "Expr"),
+            Operation::unary("list_expr", "elements", "Literal", "Expr"),
+            Operation::new(
+                "index",
+                vec![
+                    ("base".into(), "Expr".into()),
+                    ("idx".into(), "Expr".into()),
+                ],
+                "Expr",
+            ),
+        ],
         vec![],
     )
 }
