@@ -86,6 +86,14 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
 
         // --- Type inspection ---
         BuiltinOp::TypeOf | BuiltinOp::IsNull | BuiltinOp::IsList => apply_inspection(op, args),
+        // Graph traversal builtins require an instance context.
+        // In the standard evaluator (no instance), they return Null.
+        // Use `panproto_inst::instance_env` for instance-aware evaluation.
+        BuiltinOp::Edge
+        | BuiltinOp::Children
+        | BuiltinOp::HasEdge
+        | BuiltinOp::EdgeCount
+        | BuiltinOp::Anchor => Ok(Literal::Null),
     }
 }
 

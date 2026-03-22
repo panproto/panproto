@@ -29,6 +29,8 @@ pub mod functor;
 pub mod ginstance;
 /// Unified instance enum (attributed C-set).
 pub mod instance;
+/// Instance-aware expression evaluation (graph traversal builtins).
+pub mod instance_env;
 /// Metadata types for instance nodes.
 pub mod metadata;
 /// JSON parsing for W-type instances.
@@ -54,6 +56,7 @@ pub use fan::Fan;
 pub use functor::{FInstance, functor_extend, functor_restrict};
 pub use ginstance::{GInstance, graph_extend, graph_restrict};
 pub use instance::Instance;
+pub use instance_env::eval_with_instance;
 pub use metadata::Node;
 pub use parse::{parse_json, to_json};
 pub use pi::{functor_pi, wtype_pi};

@@ -190,6 +190,26 @@ pub enum BuiltinOp {
     IsNull,
     /// `is_list(v) → bool`
     IsList,
+
+    // --- Graph traversal (5) ---
+    // These builtins require an instance context (`InstanceEnv` in
+    // panproto-inst) and are evaluated by `eval_with_instance`, not
+    // the standard `eval`. In the standard evaluator they return Null.
+    /// `edge(node_ref: string, edge_kind: string) → value`
+    /// Follow a named edge from a node in the instance tree.
+    Edge,
+    /// `children(node_ref: string) → [value]`
+    /// Get all children of a node in the instance tree.
+    Children,
+    /// `has_edge(node_ref: string, edge_kind: string) → bool`
+    /// Check if a node has a specific outgoing edge.
+    HasEdge,
+    /// `edge_count(node_ref: string) → int`
+    /// Count outgoing edges from a node.
+    EdgeCount,
+    /// `anchor(node_ref: string) → string`
+    /// Get the schema anchor (sort/kind) of a node.
+    Anchor,
 }
 
 impl BuiltinOp {
@@ -221,7 +241,10 @@ impl BuiltinOp {
             | Self::IsNull
             | Self::IsList
             | Self::Len
-            | Self::Length => 1,
+            | Self::Length
+            | Self::Children
+            | Self::EdgeCount
+            | Self::Anchor => 1,
             // Binary
             Self::Add
             | Self::Sub
@@ -245,7 +268,9 @@ impl BuiltinOp {
             | Self::HasField
             | Self::MergeRecords
             | Self::Contains
-            | Self::FlatMap => 2,
+            | Self::FlatMap
+            | Self::Edge
+            | Self::HasEdge => 2,
             // Ternary
             Self::Slice | Self::Replace | Self::Fold => 3,
         }
