@@ -16,7 +16,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::metadata::Node;
 use crate::value::FieldPresence;
-use crate::wtype::{CompiledMigration, WInstance, build_env_from_extra_fields, value_to_expr_literal};
+use crate::wtype::{
+    CompiledMigration, WInstance, build_env_from_extra_fields, value_to_expr_literal,
+};
 
 /// Compute the fiber of a compiled migration at a specific target anchor.
 ///
@@ -82,10 +84,7 @@ pub fn fiber_with_predicate(
             };
             let mut env = build_env_from_extra_fields(&node.extra_fields);
             if let Some(FieldPresence::Present(ref v)) = node.value {
-                env = env.extend(
-                    std::sync::Arc::from("_value"),
-                    value_to_expr_literal(v),
-                );
+                env = env.extend(std::sync::Arc::from("_value"), value_to_expr_literal(v));
             }
             env = env.extend(
                 std::sync::Arc::from("_anchor"),

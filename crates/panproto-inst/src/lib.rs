@@ -35,15 +35,17 @@ pub mod metadata;
 pub mod parse;
 /// Right Kan extension (Pi_F) for instances.
 pub mod pi;
+/// Polynomial functor operations (fiber, group-by, join, section).
+pub mod poly;
 /// W-type instance representation and the `wtype_restrict` pipeline.
 pub mod provenance;
+/// Declarative query engine for W-type instances.
+pub mod query;
 /// Validation of W-type instances against schemas.
 pub mod validate;
 /// Value types and field presence.
 pub mod value;
 pub mod wtype;
-/// Polynomial functor operations (fiber, group-by, join, section).
-pub mod poly;
 
 // Re-exports for convenience.
 pub use acset::AcsetOps;
@@ -55,14 +57,13 @@ pub use instance::Instance;
 pub use metadata::Node;
 pub use parse::{parse_json, to_json};
 pub use pi::{functor_pi, wtype_pi};
+pub use poly::{fiber_at_anchor, fiber_decomposition, fiber_with_predicate, group_by, join};
 pub use provenance::{Provenance, ProvenanceMap, SourceField, TransformStep, compute_provenance};
+pub use query::{InstanceQuery, QueryMatch, build_node_env, execute as execute_query};
 pub use validate::validate_wtype;
 pub use value::{FieldPresence, Value};
 pub use wtype::{
     CaseBranch, CompiledMigration, FieldTransform, WInstance, ancestor_contraction,
     anchor_surviving, build_env_from_extra_fields, reachable_from_root, reconstruct_fans,
     resolve_edge, value_to_expr_literal, wtype_extend, wtype_restrict,
-};
-pub use poly::{
-    fiber_at_anchor, fiber_decomposition, fiber_with_predicate, group_by, join,
 };
