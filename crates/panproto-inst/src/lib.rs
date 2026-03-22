@@ -42,6 +42,8 @@ pub mod validate;
 /// Value types and field presence.
 pub mod value;
 pub mod wtype;
+/// Polynomial functor operations (fiber, group-by, join, section).
+pub mod poly;
 
 // Re-exports for convenience.
 pub use acset::AcsetOps;
@@ -58,6 +60,9 @@ pub use validate::validate_wtype;
 pub use value::{FieldPresence, Value};
 pub use wtype::{
     CaseBranch, CompiledMigration, FieldTransform, WInstance, ancestor_contraction,
-    anchor_surviving, reachable_from_root, reconstruct_fans, resolve_edge, wtype_extend,
-    wtype_restrict,
+    anchor_surviving, build_env_from_extra_fields, reachable_from_root, reconstruct_fans,
+    resolve_edge, value_to_expr_literal, wtype_extend, wtype_restrict,
+};
+pub use poly::{
+    fiber_at_anchor, fiber_decomposition, fiber_with_predicate, group_by, join,
 };

@@ -944,7 +944,8 @@ fn apply_map_references(
 /// Each field is bound as a top-level variable. If an `attrs` field
 /// contains a `Value::Unknown` map, its entries are also bound with
 /// qualified names (e.g., `attrs.level`).
-fn build_env_from_extra_fields(fields: &HashMap<String, Value>) -> panproto_expr::Env {
+#[must_use]
+pub fn build_env_from_extra_fields(fields: &HashMap<String, Value>) -> panproto_expr::Env {
     let mut env = panproto_expr::Env::new();
     for (key, val) in fields {
         let lit = value_to_expr_literal(val);
@@ -972,7 +973,8 @@ fn build_env_from_extra_fields(fields: &HashMap<String, Value>) -> panproto_expr
 }
 
 /// Convert an instance `Value` to a `panproto_expr::Literal` for expression evaluation.
-fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
+#[must_use]
+pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
     match val {
         Value::Bool(b) => panproto_expr::Literal::Bool(*b),
         Value::Int(i) => panproto_expr::Literal::Int(*i),

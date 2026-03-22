@@ -1,0 +1,19 @@
+[package]
+name = "panproto-expr-parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Haskell-style surface syntax parser for panproto expressions"
+
+[dependencies]
+panproto-expr = { workspace = true }
+logos = "0.15"
+chumsky = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

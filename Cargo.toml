@@ -14,6 +14,7 @@ members = [
     "crates/panproto-io",
     "crates/panproto-vcs",
     "crates/panproto-expr",
+    "crates/panproto-expr-parser",
     "tests/integration",
 ]
 
@@ -71,6 +72,7 @@ panproto-core = { version = "0.12.0", path = "crates/panproto-core" }
 panproto-io = { version = "0.12.0", path = "crates/panproto-io" }
 panproto-vcs = { version = "0.12.0", path = "crates/panproto-vcs" }
 panproto-expr = { version = "0.12.0", path = "crates/panproto-expr" }
+panproto-expr-parser = { version = "0.12.0", path = "crates/panproto-expr-parser" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
