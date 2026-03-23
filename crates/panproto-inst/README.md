@@ -29,7 +29,13 @@ This crate provides three models for concrete data instances that conform to sch
 | `CompiledMigration` | Pre-computed migration data for fast per-record application |
 | `FieldTransform` | Value-level operation on node `extra_fields`: rename, drop, add, keep, or apply expression |
 | `InstanceQuery` / `execute` | Declarative query engine: anchor selection, predicate filtering, path navigation, projection, grouping, limits |
+| `Complement` / `DroppedNode` | Complement data from restriction for backward migration |
+| `SectionEnrichment` | Enrichment specification for section construction |
 | `fiber_at_anchor` / `fiber_decomposition` | Polynomial functor operations: preimage of a migration at target anchors |
+| `fiber_at_node` | Instance-aware fiber at a specific target node |
+| `restrict_with_complement` | Restriction with complement tracking |
+| `section` | Section construction (right inverse of projection) |
+| `hom_schema` / `curry_migration` / `eval_hom` | Internal hom schema construction, currying, and evaluation |
 | `group_by` / `join` | Instance partitioning and pullback operations |
 | `eval_with_instance` | Instance-aware expression evaluation with graph traversal builtins (Edge, Children, HasEdge, EdgeCount, Anchor) |
 | `CompiledMigration::add_field_rename` | Builder: rename a field key on a vertex's nodes |

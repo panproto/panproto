@@ -1,0 +1,327 @@
+# Polynomial Operations {#sec-polynomial-operations}
+
+panproto treats schemas as polynomial endofunctors and instances as their initial algebras (W-types). This interpretation yields a family of derived operations from the adjoint triple $\Sigma \dashv \Delta \dashv \Pi$: fibers, sections, group-by, join, and the internal hom. These operations live in three crate modules: `panproto-inst/src/poly.rs` (fiber, section, group-by, join), `panproto-inst/src/hom.rs` (internal hom), and `panproto-lens/src/graph.rs` (Lawvere metric).
+
+::: {.callout-note}
+For the user-facing walkthrough of the internal hom and lens graph, see [the tutorial](https://panproto.dev/tutorial/chapters/22-internal-hom-and-preferred-paths.html).
+:::
+
+## Fiber operations {#sec-fiber-ops}
+
+Fibers are the $\Delta_f$ operation (pullback along a migration $f: S \to T$) applied to representable presheaves. Given a compiled migration and a target anchor, the fiber is the set of source nodes that map to that anchor.
+
+### fiber_at_anchor
+
+```{.rust}
+pub fn fiber_at_anchor(
+    compiled: &CompiledMigration,
+    source: &WInstance,
+    target_anchor: &Name,
+) -> Vec<u32>
+```
+
+Iterates over source nodes, keeping those whose anchor remaps to `target_anchor` via `compiled.vertex_remap`. Returns source node IDs. This is $\Delta_f(\delta_w) = \{v \in S \mid f(v) = w\}$.
+
+### fiber_decomposition
+
+```{.rust}
+pub fn fiber_decomposition(
+    compiled: &CompiledMigration,
+    source: &WInstance,
+) -> FxHashMap<Name, Vec<u32>>
+```
+
+Computes fibers for all target anchors simultaneously. The result is a partition: every source node appears in exactly one fiber. Implemented as a single pass over source nodes, grouping by remapped anchor.
+
+### fiber_with_predicate
+
+Combines `fiber_at_anchor` with a value predicate. Computes $f^{-1}(a) \cap \{x \mid \mathrm{pred}(x)\}$. The predicate is evaluated against each node's `extra_fields` using `build_env_from_extra_fields`, with additional bindings for `_value` (if present) and `_anchor`.
+
+```{.rust}
+let predicate = Expr::Builtin(
+    BuiltinOp::Gt,
+    vec![Expr::Var("confidence".into()), Expr::Lit(Literal::Float(0.8))],
+);
+let filtered = fiber_with_predicate(&compiled, &inst, &Name::from("span"), &predicate, &config);
+```
+
+### fiber_at_node
+
+```{.rust}
+pub fn fiber_at_node(
+    source: &WInstance,
+    target: &WInstance,
+    target_node_id: u32,
+    complement: &Complement,
+) -> Vec<u32>
+```
+
+Computes the fiber at a specific node ID in the restricted (target) instance, rather than at an anchor. Finds source nodes in two ways: (a) direct preimage via anchor matching, and (b) nodes from the `Complement` that were contracted into the target node during ancestor contraction. Requires a `Complement` from `restrict_with_complement`.
+
+## Complement tracking {#sec-complement-tracking}
+
+### Complement struct
+
+```{.rust}
+pub struct Complement {
+    pub dropped_nodes: Vec<DroppedNode>,
+    pub dropped_arcs: Vec<(u32, u32, Edge)>,
+}
+```
+
+Records nodes and arcs that were removed during `restrict_with_complement`. Each `DroppedNode` stores the original node ID, its anchor, and the surviving node it was contracted into (if any).
+
+### DroppedNode
+
+```{.rust}
+pub struct DroppedNode {
+    pub original_id: u32,
+    pub anchor: Name,
+    pub contracted_into: Option<u32>,
+}
+```
+
+The `contracted_into` field records the nearest surviving ancestor. This is `None` only for unreachable nodes.
+
+### restrict_with_complement
+
+```{.rust}
+pub fn restrict_with_complement(
+    instance: &WInstance,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+) -> Result<(WInstance, Complement), RestrictError>
+```
+
+A BFS-based restrict that produces both the restricted instance and a `Complement`. The BFS traversal tracks the nearest surviving ancestor for each node. Surviving nodes are remapped and have field transforms applied; non-surviving nodes are recorded in the complement.
+
+This is distinct from the `Complement` in `panproto-lens/src/asymmetric.rs`, which tracks dropped nodes, arcs, fans, contraction choices, and original parents for the bidirectional lens. The `poly.rs` complement is a lighter-weight structure focused on fiber operations.
+
+## Section construction {#sec-section-construction}
+
+A section of a projection $p: S \to T$ is a morphism $s: T \to S$ such that $p \circ s = \mathrm{id}_T$. In instance terms: an annotation layer is a section that enriches a base document with additional structure that projects back to the original.
+
+### SectionEnrichment
+
+```{.rust}
+pub struct SectionEnrichment {
+    pub base_node_id: u32,
+    pub anchor: Name,
+    pub edge: Edge,
+    pub value: Option<FieldPresence>,
+    pub extra_fields: FxHashMap<String, Value>,
+}
+```
+
+Each enrichment specifies a new node to attach at a specific position in the base instance. The anchor must be a vertex in the source schema but not in the target schema (otherwise it would already be present in the base).
+
+### section()
+
+```{.rust}
+pub fn section(
+    base: &WInstance,
+    projection: &CompiledMigration,
+    enrichments: Vec<SectionEnrichment>,
+) -> Result<WInstance, InstError>
+```
+
+Constructs an S-instance from a T-instance (the base) plus enrichment nodes. The algorithm:
+
+1. Copies base nodes, inverse-remapping anchors from target to source schema.
+2. Remaps arcs to use source-schema anchors.
+3. Adds enrichment nodes with fresh IDs, connected to base nodes via the specified edges.
+
+The roundtrip property: `restrict(section(base, projection, enrichments), projection) ≅ base`. The restricted section has the same nodes and anchors as the base.
+
+## Group-by and join {#sec-group-by-join}
+
+### group_by
+
+```{.rust}
+pub fn group_by(
+    compiled: &CompiledMigration,
+    source: &WInstance,
+) -> FxHashMap<Name, WInstance>
+```
+
+Partitions source nodes by their migration image, returning a sub-instance for each target anchor. Internal arcs between nodes in the same fiber are preserved. This is the dependent product $\Pi_f$ computed explicitly on trees.
+
+Implementation: calls `fiber_decomposition`, then `extract_subinstance` for each fiber. `extract_subinstance` copies the specified nodes and retains only arcs where both endpoints are in the fiber.
+
+### join
+
+```{.rust}
+pub fn join(
+    left: &WInstance,
+    right: &WInstance,
+    left_compiled: &CompiledMigration,
+    right_compiled: &CompiledMigration,
+) -> Vec<(u32, u32)>
+```
+
+Given two instances A and B with migrations to a shared target C, computes the pullback $A \times_C B$: all pairs $(a, b)$ where $a$ and $b$ map to the same target anchor.
+
+Implementation: decomposes both instances into fibers via `fiber_decomposition`, then takes the Cartesian product of fibers at each shared anchor. If A has 2 nodes in the `"span"` fiber and B has 3, the join produces 6 pairs for that anchor.
+
+## Internal hom {#sec-internal-hom}
+
+The internal hom `[S, T]` is a schema whose instances represent structure-preserving maps from S to T. Implemented in `panproto-inst/src/hom.rs`.
+
+### hom_schema
+
+```{.rust}
+pub fn hom_schema(source: &Schema, target: &Schema) -> Schema
+```
+
+For each source vertex `v`:
+
+- Creates `choice_v` (kind `"hom_choice"`) with `maps_to` edges to all compatible target vertices (those sharing the same kind).
+- Creates `backward_v_e` (kind `"hom_backward"`) for each outgoing edge `e` from `v`, with a `backward_for` edge from `choice_v`.
+
+Target vertices are included in the hom schema so that `maps_to` edges have valid endpoints. Compatibility is determined by the `kind` field on vertices.
+
+### curry_migration
+
+```{.rust}
+pub fn curry_migration(
+    compiled: &CompiledMigration,
+    source_schema: &Schema,
+    hom_schema: &Schema,
+) -> WInstance
+```
+
+Encodes a compiled migration as an instance of `[S, T]`. Creates a synthetic `hom_root` node, then for each entry in `vertex_remap`:
+
+1. Creates a `choice_v` node.
+2. Creates a target vertex node and connects it via a `maps_to` arc.
+3. For each outgoing edge from the source vertex, creates a `backward_v_e` node with extra fields encoding the source and target edge metadata (`src_src`, `src_tgt`, `src_kind`, `src_name`, `tgt_kind`, `tgt_name`).
+
+### eval_hom
+
+```{.rust}
+pub fn eval_hom(
+    hom_instance: &WInstance,
+    source_instance: &WInstance,
+    source_schema: &Schema,
+    target_schema: &Schema,
+) -> Result<WInstance, InstError>
+```
+
+Evaluates an instance of `[S, T]` against an instance of S to produce an instance of T. Three steps:
+
+1. Extract vertex remap from choice nodes: scan for nodes with `choice_`-prefixed anchors, follow `maps_to` arcs to read the target anchor.
+2. Extract edge remap from backward nodes: scan for `backward_`-prefixed anchors, read source/target edge metadata from extra fields.
+3. Build a `CompiledMigration` and apply `wtype_restrict`.
+
+The roundtrip property: `eval_hom(curry_migration(m, S, [S,T]), x, S, T) = wtype_restrict(x, S, T, m)`.
+
+## Lawvere metric {#sec-lawvere-metric}
+
+The Lawvere metric on lens graphs is implemented across two modules in `panproto-lens`.
+
+### complement_cost (cost.rs)
+
+```{.rust}
+pub fn complement_cost(complement: &ComplementConstructor) -> f64
+```
+
+Assigns a numeric cost to each `ComplementConstructor` variant:
+
+| Variant | Cost |
+|---------|------|
+| `Empty` | 0.0 |
+| `DroppedSortData` | 1.0 |
+| `DroppedOpData` | 1.0 |
+| `AddedElement` | 0.5 |
+| `NatTransKernel` | 10.0 |
+| `Composite(children)` | `sum(children)` |
+
+: Complement cost table. {.striped}
+
+`chain_cost` sums the complement costs of all steps in a `ProtolensChain`.
+
+### LensGraph (graph.rs)
+
+```{.rust}
+pub struct LensGraph {
+    schemas: Vec<Name>,
+    schema_index: FxHashMap<Name, usize>,
+    edges: FxHashMap<(usize, usize), (f64, ProtolensChain)>,
+    distances: Option<Vec<Vec<f64>>>,
+    next: Option<Vec<Vec<Option<usize>>>>,
+}
+```
+
+A weighted directed graph of schemas. Key methods:
+
+- **`add_schema(name)`**: registers a schema, returns its index.
+- **`add_lens(src, tgt, chain)`**: adds an edge with cost `chain_cost(&chain)`. Auto-adds schemas. Keeps the cheaper edge when duplicates exist. Invalidates cached distances.
+- **`compute_distances()`**: runs Floyd-Warshall. Initializes identity distances to 0, direct edges to their costs, then relaxes via the standard triple loop.
+- **`preferred_path(src, tgt)`**: reconstructs the shortest path from the `next` matrix. Returns `(cost, ProtolensChain)` by composing the chains along the path.
+- **`distance(src, tgt)`**: returns the shortest distance, or `f64::INFINITY` if unreachable or distances not yet computed.
+
+The Floyd-Warshall implementation is $O(n^3)$ where $n$ is the number of schemas. This is acceptable because lens graphs are typically small (tens of schemas, not thousands).
+
+## WASM boundary {#sec-poly-wasm}
+
+Five WASM exports in `panproto-wasm/src/api.rs` expose polynomial operations:
+
+| Export | Input (MessagePack) | Output (MessagePack) | Calls |
+|--------|---------------------|----------------------|-------|
+| `fiber_at` | instance, migration, anchor name | `Vec<u32>` | `inst::fiber_at_anchor` |
+| `fiber_decomposition_wasm` | instance, migration | `HashMap<Name, Vec<u32>>` | `inst::fiber_decomposition` |
+| `poly_hom` | source schema, target schema | schema bytes | `hom::hom_schema` |
+| `preferred_conversion_path` | edges, src name, tgt name | `(cost, chain)` | `LensGraph::preferred_path` |
+| `conversion_distance` | edges, src name, tgt name | `f64` | `LensGraph::distance` |
+
+: WASM exports for polynomial operations. {.striped}
+
+`preferred_conversion_path` and `conversion_distance` both construct a `LensGraph` from the provided edges and call `compute_distances()` before querying. The graph is not cached across calls; each invocation builds it from scratch.
+
+## TypeScript SDK {#sec-poly-typescript}
+
+The TypeScript SDK wraps these WASM exports in three modules:
+
+**`fiber.ts`**: exports `fiberAt(instanceBytes, migrationBytes, anchor, wasm)` and `fiberDecomposition(instanceBytes, migrationBytes, wasm)`. Both serialize inputs as MessagePack, call the WASM function, and deserialize the result.
+
+**`hom.ts`**: exports `polyHom(sourceBytes, targetBytes, wasm)`, returning the serialized hom schema.
+
+**`graph.ts`**: exports `preferredPath(edges, src, tgt, wasm)` returning `{ cost: number, chain: ProtolensChain }`, and `distance(edges, src, tgt, wasm)` returning a number. The `GraphEdge` type describes an edge as `{ src: string, tgt: string, chain: ProtolensChain }`.
+
+All functions accept and return MessagePack-encoded bytes for the heavy data (instances, schemas, migrations). Schema and anchor names are passed as plain strings.
+
+## Source locations {#sec-poly-source}
+
+**`crates/panproto-inst/src/poly.rs`**:
+
+- `Complement`, `DroppedNode`, `SectionEnrichment` structs
+- `fiber_at_anchor`, `fiber_decomposition`, `fiber_with_predicate`
+- `restrict_with_complement`, `fiber_at_node`
+- `group_by`, `join`, `section`
+- `extract_subinstance` (private)
+
+**`crates/panproto-inst/src/hom.rs`**:
+
+- `hom_schema`, `curry_migration`, `eval_hom`
+- `add_maps_to_edges`, `add_backward_vertices`, `edge_label` (private)
+
+**`crates/panproto-lens/src/cost.rs`**:
+
+- `complement_cost`, `chain_cost`
+
+**`crates/panproto-lens/src/graph.rs`**:
+
+- `LensGraph`, `LensGraph::add_schema`, `LensGraph::add_lens`
+- `LensGraph::compute_distances`, `LensGraph::preferred_path`, `LensGraph::distance`
+
+**`crates/panproto-wasm/src/api.rs`**:
+
+- `fiber_at`, `fiber_decomposition_wasm`, `poly_hom`
+- `preferred_conversion_path`, `conversion_distance`
+
+**`sdk/typescript/src/`**:
+
+- `fiber.ts`: `fiberAt`, `fiberDecomposition`
+- `hom.ts`: `polyHom`
+- `graph.ts`: `preferredPath`, `distance`

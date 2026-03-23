@@ -1,0 +1,173 @@
+# The Internal Hom and Preferred Paths {#sec-internal-hom}
+
+When you have multiple ways to convert between schemas, how do you pick the best one? If schema A can reach schema C directly (but the direct path drops three fields) or via schema B (dropping only one field each way), which route should you take? And what does "best" even mean in this context?
+
+panproto answers these questions with two ideas. First, the *internal hom* turns the space of migrations between two schemas into a schema itself, making migrations into data you can inspect, store, and version. Second, a *Lawvere metric* on protolens graphs assigns a cost to each conversion path, letting panproto compute the cheapest route automatically.
+
+## The internal hom {#sec-hom-schema}
+
+Given two schemas S and T, `hom_schema(S, T)` constructs a new schema `[S, T]` whose instances represent structure-preserving maps from S to T. The idea: instead of treating a migration as an opaque procedure, encode it as data conforming to a schema.
+
+The construction works like this. For each source vertex `v` in S, the hom schema contains:
+
+- A **choice vertex** `choice_v` (with kind `"hom_choice"`) representing which target vertex `v` maps to.
+- A **maps_to edge** from `choice_v` to each compatible target vertex (compatible meaning they share the same kind).
+- A **backward vertex** `backward_v_e` (with kind `"hom_backward"`) for each outgoing edge `e` from `v`, representing the backward (edge-level) component of the lens.
+- A **backward_for edge** from `choice_v` to each of its backward vertices.
+
+Consider a concrete example. Suppose the source schema S has two vertices (`a` and `b`, both kind `"object"`) connected by an edge `child`, and the target schema T has two vertices (`x` and `y`, also kind `"object"`) connected by an edge `child`.
+
+```{.rust}
+use panproto_inst::hom::hom_schema;
+
+let source = make_schema(&["a", "b"], &[("a", "b", "child")]);
+let target = make_schema(&["x", "y"], &[("x", "y", "child")]);
+let h = hom_schema(&source, &target);
+```
+
+The resulting hom schema `h` contains:
+
+| Vertex | Kind | Purpose |
+|--------|------|---------|
+| `choice_a` | `hom_choice` | Records where vertex `a` maps |
+| `choice_b` | `hom_choice` | Records where vertex `b` maps |
+| `backward_a_child` | `hom_backward` | Records the edge mapping for `a`'s `child` edge |
+| `x` | `object` | Target vertex (included for `maps_to` edges) |
+| `y` | `object` | Target vertex (included for `maps_to` edges) |
+
+: Vertices of `[S, T]`. {.striped}
+
+`choice_a` has two `maps_to` edges (to `x` and to `y`) because both target vertices have the same kind as `a`. An instance of this schema encodes a specific mapping: picking one `maps_to` edge for each choice vertex determines the forward map of a migration.
+
+## Currying and evaluation {#sec-curry-eval}
+
+Two operations connect the internal hom to ordinary migrations.
+
+**`curry_migration`** takes a compiled migration and encodes it as an instance of the hom schema. Each vertex remap entry becomes a choice node with a `maps_to` arc to the target vertex. Each edge remap entry becomes a backward node with extra fields recording the source and target edge metadata.
+
+```{.rust}
+use panproto_inst::hom::{hom_schema, curry_migration, eval_hom};
+
+let h = hom_schema(&source, &target);
+let curried = curry_migration(&compiled, &source, &h);
+// curried is a WInstance of schema [S, T]
+```
+
+**`eval_hom`** goes the other direction. Given an instance of `[S, T]` and an instance of S, it produces an instance of T. The evaluation extracts the forward map from choice nodes, extracts edge remaps from backward nodes, builds a `CompiledMigration`, and applies `wtype_restrict`.
+
+```{.rust}
+let result = eval_hom(&curried, &source_instance, &source, &target);
+// result is equivalent to wtype_restrict(&source_instance, &source, &target, &compiled)
+```
+
+The roundtrip property holds: currying a migration and then evaluating it produces the same result as applying the migration directly. This is not just a convenience; it means you can store migrations as instances in the VCS, version them, and even migrate *migrations* when schemas evolve.
+
+## The lens graph {#sec-lens-graph}
+
+When multiple schemas are connected by protolenses, they form a directed graph. Each node is a schema; each edge is a protolens chain with an associated cost. The `LensGraph` structure manages this graph and computes shortest paths.
+
+```{.rust}
+use panproto_lens::graph::LensGraph;
+
+let mut graph = LensGraph::new();
+graph.add_lens(&schema_a, &schema_b, chain_ab);
+graph.add_lens(&schema_b, &schema_c, chain_bc);
+graph.add_lens(&schema_a, &schema_c, chain_ac);
+```
+
+Adding a lens automatically registers both schemas if they are not already present. If you add two lenses between the same pair of schemas, only the cheaper one is kept.
+
+## Complement cost {#sec-complement-cost}
+
+Each protolens step carries a `ComplementConstructor` describing what data is lost or fabricated. The `complement_cost` function assigns a numeric cost to each constructor:
+
+| Constructor | Cost | Interpretation |
+|-------------|------|----------------|
+| `Empty` | 0.0 | No data lost (identity, rename) |
+| `AddedElement` | 0.5 | A default value was fabricated |
+| `DroppedSortData` | 1.0 | An entire vertex type's data was dropped |
+| `DroppedOpData` | 1.0 | An entire edge type's data was dropped |
+| `NatTransKernel` | 10.0 | A natural transformation lost kernel data |
+| `Composite` | sum of children | Multiple constructors composed |
+
+: Complement cost assignments. {.striped}
+
+These costs form a Lawvere metric. That means two things:
+
+1. **Identity costs zero.** A schema mapped to itself has cost 0.
+2. **The triangle inequality holds.** The cost of going from A to C via B is at most the cost of going from A to B plus the cost of going from B to C.
+
+The cost of an entire protolens chain is the sum of its step costs. A chain that renames two fields and drops one has cost 1.0 (two `Empty` steps at 0.0 each, one `DroppedSortData` at 1.0).
+
+## Preferred paths {#sec-preferred-paths}
+
+Once the graph is populated with lenses, `compute_distances` runs Floyd-Warshall to compute all-pairs shortest distances. After that, `preferred_path` returns the cheapest route between any two schemas.
+
+```{.rust}
+graph.compute_distances();
+
+let (cost, chain) = graph.preferred_path(&schema_a, &schema_c)
+    .expect("path should exist");
+// cost is the total complement cost along the cheapest route
+// chain is the composed ProtolensChain
+```
+
+If the direct lens from A to C drops three fields (cost 3.0) but the indirect route A to B to C drops only one field each way (cost 2.0), `preferred_path` returns the indirect route. The composed chain contains the protolens steps from both hops.
+
+When no path exists between two schemas, `preferred_path` returns `None` and `distance` returns `f64::INFINITY`.
+
+```{.rust}
+// Distance without path reconstruction
+let d = graph.distance(&schema_a, &schema_c);
+// d is 2.0 (the A->B->C route)
+```
+
+## CLI usage {#sec-cli-lens-graph}
+
+The `schema lens --diff` command shows the complement cost of a lens between two schemas. When working with multiple schemas, you can query the lens graph from the CLI:
+
+```{.bash}
+schema lens --diff schema_v1.json schema_v3.json
+```
+
+This displays the protolens chain and its total complement cost. If multiple paths exist, the preferred (cheapest) path is shown.
+
+## TypeScript SDK {#sec-ts-hom-graph}
+
+The TypeScript SDK exposes these features through three modules.
+
+**Fiber operations** (`fiberAt`, `fiberDecomposition`):
+
+```{.typescript}
+import { fiberAt, fiberDecomposition } from '@panproto/core';
+
+const fiber = fiberAt(instanceBytes, migrationBytes, 'post', panproto._wasm);
+const decomposition = fiberDecomposition(instanceBytes, migrationBytes, panproto._wasm);
+```
+
+**Internal hom** (`polyHom`):
+
+```{.typescript}
+import { polyHom } from '@panproto/core';
+
+const homSchema = polyHom(sourceBytes, targetBytes, panproto._wasm);
+```
+
+**Lens graph** (`preferredPath`, `distance`):
+
+```{.typescript}
+import { preferredPath, distance } from '@panproto/core';
+
+const path = preferredPath(edges, 'schema_v1', 'schema_v3', panproto._wasm);
+// path.cost: number, path.chain: ProtolensChain
+
+const d = distance(edges, 'schema_v1', 'schema_v3', panproto._wasm);
+```
+
+## Summary {#sec-hom-summary}
+
+The internal hom makes migrations into data. `hom_schema(S, T)` constructs a schema whose instances are maps from S to T. `curry_migration` encodes a compiled migration as an instance of that schema; `eval_hom` evaluates it. The roundtrip property guarantees that currying followed by evaluation is equivalent to direct migration.
+
+The Lawvere metric assigns a cost to each protolens step based on its complement constructor. The lens graph uses Floyd-Warshall to find the cheapest conversion path between any two schemas. When a direct path is expensive, an indirect route through intermediate schemas may be cheaper.
+
+Together, these features let panproto answer the question "what is the best way to convert from schema A to schema C?" with a precise, computable answer.

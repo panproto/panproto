@@ -49,6 +49,7 @@ book:
         - chapters/28-data-versioning.qmd
         - chapters/23-field-transforms.qmd
         - chapters/29-expression-engine.qmd
+        - chapters/30-polynomial-operations.qmd
     - part: "Contributing Process"
       chapters:
         - chapters/16-conventions.qmd

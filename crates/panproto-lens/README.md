@@ -41,6 +41,10 @@ A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a conc
 | `classify_transform` | Classify a `TheoryTransform` into its optic kind |
 | `SymbolicStep` | Symbolic representation of protolens steps for algebraic simplification |
 | `simplify_steps` | Normalize a step sequence via inverse cancellation, rename fusion, and add-drop cancellation |
+| `complement_cost` / `chain_cost` | Lawvere metric cost computation for complement constructors and protolens chains |
+| `LensGraph` | Weighted lens graph with Floyd-Warshall shortest path computation |
+| `LensGraph::preferred_path` | Find the minimum-cost conversion path between schemas |
+| `LensGraph::distance` | Shortest distance between two schemas in the lens graph |
 
 ### Lenses
 

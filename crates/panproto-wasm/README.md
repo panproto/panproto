@@ -49,6 +49,11 @@ This crate exposes the panproto API to JavaScript and TypeScript consumers via [
 | `parse_expr` | Tokenize and parse Haskell-style expression source text, return MsgPack-encoded Expr |
 | `eval_func_expr` | Evaluate a MsgPack-encoded expression with environment bindings |
 | `execute_query` | Run a declarative query against an instance, return MsgPack-encoded results |
+| `fiber_at` | Compute the fiber (preimage) of a migration at a target anchor |
+| `fiber_decomposition_wasm` | Full fiber decomposition of a migration across all target anchors |
+| `poly_hom` | Construct the internal hom schema [S, T] for two schemas |
+| `preferred_conversion_path` | Find the minimum-cost conversion path in a lens graph |
+| `conversion_distance` | Shortest distance between two schemas in a lens graph |
 | `free_handle` | Release a resource handle |
 
 The `*_json` variants handle all WInstance conversion internally, avoiding msgpack round-trip issues at the JS/WASM boundary.

@@ -57,6 +57,7 @@ book:
         - chapters/19-data-versioning.qmd
         - chapters/20-value-dependent-transforms.qmd
         - chapters/21-querying-instances.qmd
+        - chapters/22-internal-hom-and-preferred-paths.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-formal-foundations.qmd

@@ -273,6 +273,10 @@ The `GInstance` type handles the most general instance shape: a directed graph o
 Use `GInstance` when your protocol's data is inherently graph-shaped (no natural root node, cycles expected). For tree-structured data (JSON, XML), use `WInstance`. For tabular data (SQL, CSV), use `FInstance`. The `AcsetOps` trait ensures that the migration engine works identically regardless of which shape you choose.
 :::
 
+## Polynomial Operations and Fibers
+
+`panproto-inst` also provides polynomial functor operations in `poly.rs` and `hom.rs`. These include fiber decomposition (preimage of a migration at a target anchor), section construction (enriching a base instance with annotation data), group-by (partitioning by migration image), join (pullback of two instances along shared projections), and the internal hom (a schema whose instances represent migrations). The `restrict_with_complement` function in `poly.rs` extends the restrict pipeline to track dropped nodes and arcs, enabling `fiber_at_node` queries. For full details, see @sec-polynomial-operations.
+
 ## Design Rationale
 
 ### Why Separate Node IDs from Anchors

@@ -4,6 +4,38 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-03-23
+
+### Added — Expression Parser, Polynomial Queries, and Lens Graphs
+
+- **panproto-expr-parser** (new crate): Haskell-style surface syntax parser for panproto expressions. Logos-based lexer with GHC-style layout insertion (Indent/Dedent/Newline virtual tokens), Chumsky 1.0 recursive-descent + Pratt precedence parser producing `Expr`, and precedence-aware pretty printer with minimal parenthesization. Public API: `tokenize()`, `parse()`, `pretty_print()`. 50+ token kinds, structured error types with source spans.
+- **panproto-inst**: `fiber_at_node` — instance-aware fiber at a specific target node (lifts `fiber_at_anchor` with node-level context).
+- **panproto-inst**: `restrict_with_complement` — restriction pipeline that tracks complement data (`Complement`, `DroppedNode`) for backward migration reconstruction.
+- **panproto-inst**: `section` — section construction (right inverse of projection) with `SectionEnrichment` specification.
+- **panproto-inst**: `hom_schema` — internal hom schema `[S, T]` for two schemas. `curry_migration` — curry a migration into the internal hom. `eval_hom` — evaluate a curried migration at a specific instance.
+- **panproto-inst**: `InstanceQuery` / `execute` — declarative query engine with anchor selection, predicate filtering, path navigation, group_by, projection, and limits.
+- **panproto-inst**: `eval_with_instance` — instance-aware expression evaluation with graph traversal builtins (Edge, Children, HasEdge, EdgeCount, Anchor).
+- **panproto-inst**: `fiber_at_anchor` / `fiber_decomposition` / `fiber_with_predicate` — polynomial functor operations: preimage of a migration at target anchors, full fiber decomposition, and predicate-filtered fibers.
+- **panproto-inst**: `group_by` / `join` — instance partitioning and pullback operations.
+- **panproto-lens**: `complement_cost` / `chain_cost` — Lawvere metric cost computation for complement constructors and protolens chains. Identity has cost 0; composition satisfies the triangle inequality.
+- **panproto-lens**: `LensGraph` — weighted lens graph with Floyd-Warshall shortest path computation. `preferred_path` finds the minimum-cost conversion path between schemas. `distance` returns the shortest distance.
+- **panproto-wasm**: `parse_expr` — tokenize and parse Haskell-style expression source text, return MsgPack-encoded `Expr`.
+- **panproto-wasm**: `eval_func_expr` — evaluate a MsgPack-encoded expression with environment bindings.
+- **panproto-wasm**: `execute_query` — run a declarative query against an instance, return MsgPack-encoded results.
+- **panproto-wasm**: `fiber_at` / `fiber_decomposition_wasm` — fiber operations at the WASM boundary.
+- **panproto-wasm**: `poly_hom` — internal hom schema construction via WASM.
+- **panproto-wasm**: `preferred_conversion_path` / `conversion_distance` — lens graph shortest path and distance queries.
+- **panproto-cli**: `schema expr parse` — parse a Haskell-style expression and print the AST. `schema expr eval` — evaluate an expression. `schema expr fmt` — pretty-print in canonical form. `schema expr check` — validate syntax.
+- **panproto-cli**: `schema expr gat-eval` — evaluate a JSON-encoded GAT term from a file. `schema expr gat-check` — type-check a JSON-encoded GAT term against a theory.
+- **panproto-vcs**: `store_expr` / `load_expr` — content-addressed expression storage and retrieval. `Object::Expr` — first-class VCS object type for expressions.
+- **panproto-protocols**: `ThExpr` registered as a GAT theory (#32).
+- **@panproto/core**: `parseExpr`, `evalExpr`, `formatExpr` — expression parsing, evaluation, and formatting. `executeQuery` with `InstanceQuery` / `QueryMatch` types. `fiberAt` / `fiberDecomposition` — fiber operations. `polyHom` — internal hom. `preferredPath` / `distance` with `GraphEdge` / `PreferredPath` types — lens graph queries.
+
+### Fixed
+
+- **panproto-inst**: Fix `surviving_verts` membership check in `wtype_restrict` for vertices participating in fiber decomposition; fibers that span renamed vertices now survive correctly.
+- **panproto-inst**: Fix root survival check in `wtype_restrict` when the schema root is mapped through `vertex_remap`; the remapped root is now always added to the survival set.
+
 ## [0.12.0] - 2026-03-21
 
 ### Added — Value-Dependent Migration via Expression Language

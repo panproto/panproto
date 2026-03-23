@@ -1,6 +1,6 @@
 [package]
 name = "panproto-integration-tests"
-version = "0.10.0"
+version = "0.13.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"

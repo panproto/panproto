@@ -261,13 +261,17 @@ A chain composed from three separate schema migrations might have 15 steps, many
 | `asymmetric` | `Complement`, `get`, `put` | Core lens primitives with complement tracking |
 | `auto_lens` | `auto_generate`, `AutoLensConfig` | Automatic lens generation from schema pairs |
 | `compose` | `compose` | Composition of lenses for multi-step transformations |
+| `cost` | `complement_cost`, `chain_cost` | Lawvere metric cost computation |
 | `diff_to_protolens` | `diff_to_protolens`, `diff_to_lens` | Derive protolens chains from schema diffs |
+| `graph` | `LensGraph` | Weighted lens graph with Floyd-Warshall shortest paths |
 | `laws` | `check_laws` | Property-based testing of GetPut and PutGet laws |
 | `protolens` | `Protolens`, `ProtolensChain`, `ComplementConstructor`, `elementary::*` | Schema-parameterized lens families |
 | `symmetric` | `SymmetricLens` | Symmetric lens with bidirectional complements |
 | `error` | `LensError` | Error types for lens operations |
 
 The crate root re-exports `Lens`, `Complement`, `get`, `put`, `Protolens`, `ProtolensChain`, `ComplementConstructor`, `auto_generate`, and the composition functions.
+
+The `cost` and `graph` modules implement a Lawvere metric on protolens chains. Each `ComplementConstructor` has a numeric cost; `LensGraph` uses Floyd-Warshall to find the cheapest conversion path between any two schemas. For full details, see @sec-polynomial-operations.
 
 ## When to Use Lenses vs. Migrations
 
