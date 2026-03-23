@@ -9,19 +9,12 @@
 //! function composition, operator sections, record syntax with punning,
 //! pattern matching, and `->` for graph edge traversal.
 
-/// Placeholder — parser implementation follows in subsequent phases.
-#[must_use]
-pub const fn parse_smoke_test() -> bool {
-    // Verify logos and chumsky are importable
-    true
-}
+/// Token types for the surface syntax.
+pub mod token;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Lexer with layout insertion pass.
+pub mod lexer;
 
-    #[test]
-    fn smoke_test() {
-        assert!(parse_smoke_test());
-    }
-}
+// Re-exports for convenience.
+pub use lexer::{LexError, tokenize};
+pub use token::{Span, Spanned, Token};
