@@ -6,12 +6,94 @@ use panproto_core::gat::{self, Term};
 
 use super::helpers::load_json;
 
+/// Parse source text through the lexer and parser, returning the AST on success.
+fn parse_source(source: &str) -> Result<panproto_expr::Expr> {
+    let tokens =
+        panproto_expr_parser::tokenize(source).map_err(|e| miette::miette!("lex error: {e}"))?;
+    panproto_expr_parser::parse(&tokens).map_err(|errs| {
+        let msgs: Vec<String> = errs.iter().map(ToString::to_string).collect();
+        miette::miette!("parse error(s):\n{}", msgs.join("\n"))
+    })
+}
+
+/// Parse a Haskell-style expression and print its AST.
+pub fn cmd_expr_parse(source: &str, verbose: bool) -> Result<()> {
+    if verbose {
+        eprintln!("Parsing: {source}");
+    }
+    let expr = parse_source(source)?;
+    println!("{expr:#?}");
+    Ok(())
+}
+
+/// Parse and evaluate a Haskell-style expression, printing the result as JSON.
+pub fn cmd_expr_eval_source(source: &str, verbose: bool) -> Result<()> {
+    if verbose {
+        eprintln!("Parsing: {source}");
+    }
+    let expr = parse_source(source)?;
+    if verbose {
+        eprintln!("AST: {expr:?}");
+    }
+    let config = panproto_expr::EvalConfig::default();
+    let env = panproto_expr::Env::new();
+    let result = panproto_expr::eval(&expr, &env, &config)
+        .map_err(|e| miette::miette!("eval error: {e}"))?;
+    let json = serde_json::to_string_pretty(&result)
+        .into_diagnostic()
+        .wrap_err("failed to serialize result")?;
+    println!("{json}");
+    Ok(())
+}
+
+/// Parse an expression and pretty-print it back in canonical form.
+pub fn cmd_expr_fmt(source: &str, verbose: bool) -> Result<()> {
+    if verbose {
+        eprintln!("Parsing: {source}");
+    }
+    let expr = parse_source(source)?;
+    let formatted = panproto_expr_parser::pretty_print(&expr);
+    println!("{formatted}");
+    Ok(())
+}
+
+/// Parse an expression and report any syntax errors.
+///
+/// Exits with success and a confirmation message when the source is valid.
+/// Reports each error on failure.
+pub fn cmd_expr_check_source(source: &str, verbose: bool) -> Result<()> {
+    if verbose {
+        eprintln!("Checking: {source}");
+    }
+    // Lex phase.
+    let tokens = match panproto_expr_parser::tokenize(source) {
+        Ok(t) => t,
+        Err(e) => {
+            println!("lex error: {e}");
+            miette::bail!("expression contains syntax errors");
+        }
+    };
+    // Parse phase.
+    match panproto_expr_parser::parse(&tokens) {
+        Ok(_) => {
+            println!("OK");
+            Ok(())
+        }
+        Err(errs) => {
+            for e in &errs {
+                println!("parse error: {e}");
+            }
+            miette::bail!("expression contains {} parse error(s)", errs.len());
+        }
+    }
+}
+
 /// Evaluate a GAT expression from a JSON file.
 ///
 /// The file contains a JSON-encoded `Term`. An optional environment can be
 /// provided via `--env` (a JSON file mapping variable names to values) or
 /// piped through stdin.
-pub fn cmd_expr_eval(file: &Path, env_file: Option<&Path>, verbose: bool) -> Result<()> {
+pub fn cmd_expr_gat_eval(file: &Path, env_file: Option<&Path>, verbose: bool) -> Result<()> {
     let term: Term = load_json(file)?;
 
     let env: Vec<(String, gat::ModelValue)> = if let Some(env_path) = env_file {
@@ -40,7 +122,7 @@ pub fn cmd_expr_eval(file: &Path, env_file: Option<&Path>, verbose: bool) -> Res
 ///
 /// The file contains a JSON object with `term` and `theory` fields.
 /// Verifies the expression is well-formed against the theory.
-pub fn cmd_expr_check(file: &Path, verbose: bool) -> Result<()> {
+pub fn cmd_expr_gat_check(file: &Path, verbose: bool) -> Result<()> {
     #[derive(serde::Deserialize)]
     struct CheckInput {
         term: Term,

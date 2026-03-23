@@ -841,8 +841,8 @@ enum StashAction {
 /// Expression sub-operations.
 #[derive(Subcommand, Debug)]
 enum ExprAction {
-    /// Evaluate an expression from a JSON file.
-    Eval {
+    /// Evaluate a JSON-encoded GAT term from a file.
+    GatEval {
         /// Path to the JSON file containing a GAT term.
         file: PathBuf,
 
@@ -850,13 +850,33 @@ enum ExprAction {
         #[arg(long)]
         env: Option<PathBuf>,
     },
-    /// Type-check an expression from a JSON file.
-    Check {
+    /// Type-check a JSON-encoded GAT term from a file.
+    GatCheck {
         /// Path to the JSON file containing term, theory, and context.
         file: PathBuf,
     },
     /// Interactive expression REPL.
     Repl,
+    /// Parse a Haskell-style expression and print its AST.
+    Parse {
+        /// Expression source text.
+        source: String,
+    },
+    /// Parse and evaluate a Haskell-style expression, printing the result.
+    Eval {
+        /// Expression source text.
+        source: String,
+    },
+    /// Parse an expression and pretty-print it back in canonical form.
+    Fmt {
+        /// Expression source text.
+        source: String,
+    },
+    /// Parse an expression and report any syntax errors.
+    Check {
+        /// Expression source text.
+        source: String,
+    },
 }
 
 /// Enrichment sub-operations.
@@ -1332,9 +1352,15 @@ fn dispatch_history_commands(command: Command) -> Result<()> {
 /// Dispatch expression subcommands.
 fn dispatch_expr_commands(action: ExprAction, verbose: bool) -> Result<()> {
     match action {
-        ExprAction::Eval { file, env } => cmd::expr::cmd_expr_eval(&file, env.as_deref(), verbose),
-        ExprAction::Check { file } => cmd::expr::cmd_expr_check(&file, verbose),
+        ExprAction::GatEval { file, env } => {
+            cmd::expr::cmd_expr_gat_eval(&file, env.as_deref(), verbose)
+        }
+        ExprAction::GatCheck { file } => cmd::expr::cmd_expr_gat_check(&file, verbose),
         ExprAction::Repl => cmd::expr::cmd_expr_repl(),
+        ExprAction::Parse { source } => cmd::expr::cmd_expr_parse(&source, verbose),
+        ExprAction::Eval { source } => cmd::expr::cmd_expr_eval_source(&source, verbose),
+        ExprAction::Fmt { source } => cmd::expr::cmd_expr_fmt(&source, verbose),
+        ExprAction::Check { source } => cmd::expr::cmd_expr_check_source(&source, verbose),
     }
 }
 
