@@ -18,7 +18,11 @@ pub mod lexer;
 /// Chumsky parser producing `Expr` from the token stream.
 pub mod parser;
 
+/// Pretty printer converting `Expr` back to surface syntax.
+pub mod pretty;
+
 // Re-exports for convenience.
 pub use lexer::{LexError, tokenize};
 pub use parser::parse;
+pub use pretty::pretty_print;
 pub use token::{Span, Spanned, Token};
