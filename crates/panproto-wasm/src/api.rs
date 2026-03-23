@@ -4143,6 +4143,138 @@ fn classify_complement(
     }
 }
 
+// ── Expression parser and query engine (70-72) ─────────────────────
+
+/// Parse source text into a panproto expression.
+///
+/// Tokenizes the input using the surface syntax lexer, then parses
+/// the token stream into an `Expr` AST. Returns the expression as
+/// `MessagePack` bytes.
+///
+/// # Errors
+///
+/// Returns `JsError` if tokenization or parsing fails.
+#[wasm_bindgen]
+pub fn parse_expr(source: &str) -> Result<Vec<u8>, JsError> {
+    let tokens =
+        panproto_expr_parser::tokenize(source).map_err(|e| WasmError::ParseFailed {
+            reason: e.to_string(),
+        })?;
+
+    let expr =
+        panproto_expr_parser::parse(&tokens).map_err(|errs| WasmError::ParseFailed {
+            reason: errs
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; "),
+        })?;
+
+    rmp_serde::to_vec(&expr).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Evaluate a functional expression with a given environment.
+///
+/// The `expr_bytes` are `MessagePack`-encoded [`panproto_expr::Expr`].
+/// The `env_bytes` are `MessagePack`-encoded `Vec<(String, panproto_expr::Literal)>`.
+/// Returns the result as `MessagePack`-encoded [`panproto_expr::Literal`].
+///
+/// This evaluates expressions from the pure functional language (lambda
+/// calculus with builtins), as opposed to [`eval_expr`] which evaluates
+/// GAT terms against a theory.
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization fails or evaluation errors.
+#[wasm_bindgen]
+pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, JsError> {
+    let expr: panproto_expr::Expr =
+        rmp_serde::from_slice(expr_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("expr: {e}"),
+        })?;
+
+    let bindings: Vec<(String, panproto_expr::Literal)> =
+        rmp_serde::from_slice(env_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("env: {e}"),
+        })?;
+
+    let env: panproto_expr::Env = bindings
+        .into_iter()
+        .map(|(k, v)| (std::sync::Arc::from(k.as_str()), v))
+        .collect();
+
+    let config = panproto_expr::EvalConfig::default();
+    let result =
+        panproto_expr::eval(&expr, &env, &config).map_err(|e| WasmError::ExprEvalFailed {
+            reason: e.to_string(),
+        })?;
+
+    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Execute a declarative query against a W-type instance.
+///
+/// The `query_bytes` are `MessagePack`-encoded [`inst::InstanceQuery`].
+/// The `instance_bytes` are `MessagePack`-encoded [`WInstance`].
+/// Returns `MessagePack`-encoded query results as a list of match objects,
+/// each containing `node_id`, `anchor`, `value`, and `fields`.
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization fails.
+#[wasm_bindgen]
+pub fn execute_query(query_bytes: &[u8], instance_bytes: &[u8]) -> Result<Vec<u8>, JsError> {
+    let query: inst::InstanceQuery =
+        rmp_serde::from_slice(query_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("query: {e}"),
+        })?;
+
+    let instance: WInstance =
+        rmp_serde::from_slice(instance_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("instance: {e}"),
+        })?;
+
+    let matches = inst::execute_query(&query, &instance);
+
+    // Convert QueryMatch results to a serializable form.
+    let results: Vec<serde_json::Value> = matches
+        .into_iter()
+        .map(|m| {
+            let fields: serde_json::Map<String, serde_json::Value> = m
+                .fields
+                .into_iter()
+                .map(|(k, v)| {
+                    let json_v = serde_json::to_value(&v).unwrap_or(serde_json::Value::Null);
+                    (k, json_v)
+                })
+                .collect();
+            serde_json::json!({
+                "node_id": m.node_id,
+                "anchor": m.anchor.as_ref(),
+                "value": serde_json::to_value(&m.value).unwrap_or(serde_json::Value::Null),
+                "fields": fields,
+            })
+        })
+        .collect();
+
+    rmp_serde::to_vec(&results).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
 /// Simplify a protolens chain by eliminating redundant steps.
 ///
 /// Removes pairs where an `add_sort(X)` is immediately followed by

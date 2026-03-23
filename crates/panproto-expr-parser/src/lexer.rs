@@ -50,26 +50,25 @@ fn raw_tokenize(input: &str) -> Result<Vec<Spanned>, LexError> {
 
     while let Some(result) = lexer.next() {
         let span = lexer.span();
-        match result {
-            Ok(token) => tokens.push(Spanned {
+        if let Ok(token) = result {
+            tokens.push(Spanned {
                 token,
                 span: Span {
                     start: span.start,
                     end: span.end,
                 },
-            }),
-            Err(()) => {
-                // Check if this is a newline (which logos skips).
-                let slice = &input[span.start..span.end];
-                if slice.contains('\n') || slice.contains('\r') {
-                    // Newlines are handled by the layout pass, not as tokens.
-                    continue;
-                }
-                return Err(LexError {
-                    offset: span.start,
-                    text: slice.to_string(),
-                });
+            });
+        } else {
+            // Check if this is a newline (which logos skips).
+            let slice = &input[span.clone()];
+            if slice.contains('\n') || slice.contains('\r') {
+                // Newlines are handled by the layout pass, not as tokens.
+                continue;
             }
+            return Err(LexError {
+                offset: span.start,
+                text: slice.to_string(),
+            });
         }
     }
 
@@ -112,44 +111,50 @@ fn insert_layout(input: &str, raw: &[Spanned]) -> Vec<Spanned> {
         if cur_line > prev_line {
             let current_indent = *indent_stack.last().unwrap_or(&0);
 
-            if cur_col > current_indent {
-                // Check if previous token was a layout keyword.
-                let prev_is_layout = result.last().is_some_and(|s: &Spanned| {
-                    matches!(s.token, Token::Let | Token::Where | Token::Do | Token::Of)
-                });
-                if prev_is_layout {
-                    indent_stack.push(cur_col);
-                    result.push(Spanned {
-                        token: Token::Indent,
-                        span: Span {
-                            start: spanned.span.start,
-                            end: spanned.span.start,
-                        },
+            match cur_col.cmp(&current_indent) {
+                std::cmp::Ordering::Greater => {
+                    // Check if previous token was a layout keyword.
+                    let prev_is_layout = result.last().is_some_and(|s: &Spanned| {
+                        matches!(s.token, Token::Let | Token::Where | Token::Do | Token::Of)
                     });
+                    if prev_is_layout {
+                        indent_stack.push(cur_col);
+                        result.push(Spanned {
+                            token: Token::Indent,
+                            span: Span {
+                                start: spanned.span.start,
+                                end: spanned.span.start,
+                            },
+                        });
+                    }
                 }
-            } else if cur_col < current_indent {
-                // Dedent: pop indent stack until we match or go below.
-                while indent_stack.len() > 1 && *indent_stack.last().unwrap_or(&0) > cur_col {
-                    indent_stack.pop();
-                    result.push(Spanned {
-                        token: Token::Dedent,
-                        span: Span {
-                            start: spanned.span.start,
-                            end: spanned.span.start,
-                        },
-                    });
+                std::cmp::Ordering::Less => {
+                    // Dedent: pop indent stack until we match or go below.
+                    while indent_stack.len() > 1
+                        && *indent_stack.last().unwrap_or(&0) > cur_col
+                    {
+                        indent_stack.pop();
+                        result.push(Spanned {
+                            token: Token::Dedent,
+                            span: Span {
+                                start: spanned.span.start,
+                                end: spanned.span.start,
+                            },
+                        });
+                    }
                 }
-            } else {
-                // Same indentation: insert Newline separator.
-                // Only if we're inside a layout block (indent_stack.len() > 1).
-                if indent_stack.len() > 1 {
-                    result.push(Spanned {
-                        token: Token::Newline,
-                        span: Span {
-                            start: spanned.span.start,
-                            end: spanned.span.start,
-                        },
-                    });
+                std::cmp::Ordering::Equal => {
+                    // Same indentation: insert Newline separator.
+                    // Only if we're inside a layout block (indent_stack.len() > 1).
+                    if indent_stack.len() > 1 {
+                        result.push(Spanned {
+                            token: Token::Newline,
+                            span: Span {
+                                start: spanned.span.start,
+                                end: spanned.span.start,
+                            },
+                        });
+                    }
                 }
             }
         }

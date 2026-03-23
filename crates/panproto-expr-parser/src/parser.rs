@@ -32,14 +32,19 @@ pub fn parse(tokens: &[crate::Spanned]) -> Result<Expr, Vec<ParseError>> {
         .filter(|s| s.token != Token::Eof)
         .map(|s| (s.token.clone(), SimpleSpan::new(s.span.start, s.span.end)))
         .collect();
-    let eoi = tokens.last().map_or(SimpleSpan::new(0, 0), |s| {
-        SimpleSpan::new(s.span.start, s.span.end)
-    });
+    let eoi = tokens.last().map_or_else(
+        || SimpleSpan::new(0, 0),
+        |s| SimpleSpan::new(s.span.start, s.span.end),
+    );
     let stream = Stream::from_iter(mapped).map(eoi, |(tok, span)| (tok, span));
     expr_parser()
         .parse(stream)
         .into_result()
-        .map_err(|errs| errs.into_iter().map(|e| e.into_owned()).collect())
+        .map_err(|errs| {
+            errs.into_iter()
+                .map(chumsky::error::Rich::into_owned)
+                .collect()
+        })
 }
 
 // ── Token matchers ──────────────────────────────────────────────────
@@ -101,7 +106,7 @@ where
 
         let var = ident().map(Pattern::Var);
 
-        let lit_pat = literal_parser().map(Pattern::Lit);
+        let literal_pat = literal_parser().map(Pattern::Lit);
 
         let paren = pat
             .clone()
@@ -132,7 +137,7 @@ where
             .map(|(name, args): (Arc<str>, Vec<Pattern>)| Pattern::Constructor(name, args));
 
         choice((
-            wildcard, lit_pat, paren, list_pat, record_pat, constructor, var,
+            wildcard, literal_pat, paren, list_pat, record_pat, constructor, var,
         ))
     })
 }
@@ -211,6 +216,7 @@ fn resolve_builtin(name: &str) -> Option<BuiltinOp> {
 // ── Expression parser ───────────────────────────────────────────────
 
 /// Top-level expression parser.
+#[allow(clippy::too_many_lines)]
 fn expr_parser<'t, 'src: 't, I>()
 -> impl Parser<'t, I, Expr, extra::Err<Rich<'t, Token, SimpleSpan>>> + Clone
 where
@@ -341,7 +347,7 @@ where
 
         let app = postfix_chain.clone().foldl(
             postfix_chain.repeated(),
-            |func, arg| resolve_application(func, arg),
+            resolve_application,
         );
 
         // ── Pratt parser for infix/prefix operators ─────────
@@ -439,7 +445,7 @@ where
                     if params.is_empty() {
                         (name, val)
                     } else {
-                        (name.clone(), desugar_lambda(&params, val))
+                        (name, desugar_lambda(&params, val))
                     }
                 },
             );
@@ -510,7 +516,7 @@ where
                     if params.is_empty() {
                         (name, val)
                     } else {
-                        (name.clone(), desugar_lambda(&params, val))
+                        (name, desugar_lambda(&params, val))
                     }
                 },
             );
@@ -616,7 +622,10 @@ fn desugar_do(stmts: Vec<DoStmt>) -> Expr {
         return Expr::List(vec![]);
     }
     let mut iter = stmts.into_iter().rev();
-    let last = iter.next().unwrap();
+    // Safety: we checked `is_empty()` above, so `next()` always returns `Some`.
+    let Some(last) = iter.next() else {
+        return Expr::List(vec![]);
+    };
     let init = match last {
         DoStmt::Expr(e) | DoStmt::Bind(_, e) => e,
         DoStmt::Let(name, val) => Expr::Let {
