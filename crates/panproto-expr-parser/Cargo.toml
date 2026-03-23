@@ -9,8 +9,8 @@ description = "Haskell-style surface syntax parser for panproto expressions"
 
 [dependencies]
 panproto-expr = { workspace = true }
-logos = "0.15"
-chumsky = { version = "0.10", default-features = false }
+logos = "0.16"
+chumsky = { version = "1.0.0-alpha.8", features = ["pratt"] }
 
 [dev-dependencies]
 proptest.workspace = true

@@ -15,6 +15,10 @@ pub mod token;
 /// Lexer with layout insertion pass.
 pub mod lexer;
 
+/// Chumsky parser producing `Expr` from the token stream.
+pub mod parser;
+
 // Re-exports for convenience.
 pub use lexer::{LexError, tokenize};
+pub use parser::parse;
 pub use token::{Span, Spanned, Token};

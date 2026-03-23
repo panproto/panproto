@@ -27,7 +27,7 @@ pub struct Spanned {
 /// a keyword are emitted as the keyword token, not as `Ident`.
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t]+")]
-#[logos(skip r"--[^\n]*")]
+#[logos(skip(r"--[^\n]*", allow_greedy = true))]
 pub enum Token {
     // ── Keywords ──────────────────────────────────────────────────
     /// `do` keyword (layout block).
