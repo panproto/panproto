@@ -1,7 +1,5 @@
 # Building and Testing {#sec-building-testing}
 
-This chapter is the complete reference for building panproto, running tests, and understanding the test matrix. Return here whenever you set up a new machine or need to debug a build issue.
-
 ## Toolchain requirements
 
 | Tool | Version | Purpose |
@@ -30,7 +28,7 @@ cargo install wasm-pack cargo-nextest
 cargo build --workspace
 ```
 
-This compiles all 10 crates and the integration test crate in debug mode. Incremental builds after the first compile are fast --- typically under 5 seconds for single-crate changes.
+This compiles all 10 crates and the integration test crate in debug mode. Incremental builds after the first compile are fast, typically under 5 seconds for single-crate changes.
 
 ### Single crate
 
@@ -146,7 +144,7 @@ These tests cover scenarios like:
 
 ### Property tests
 
-Several crates use `proptest` for property-based testing. These run as part of the normal unit test suite --- no special invocation is needed. To run more cases:
+Several crates use `proptest` for property-based testing. These run as part of the normal unit test suite; no special invocation is needed. To run more cases:
 
 ```bash
 PROPTEST_CASES=10000 cargo nextest run -p panproto-gat
@@ -215,7 +213,7 @@ The workspace configures clippy at the pedantic and nursery levels (see `[worksp
 ::: {.callout-note}
 ## `unsafe_code = "deny"`
 
-The workspace denies all `unsafe` code. panproto achieves its performance through arena allocation (`bumpalo`), small-vector optimization (`smallvec`), and hash map selection (`rustc-hash`) --- all within safe Rust.
+The workspace denies all `unsafe` code. panproto achieves its performance through arena allocation (`bumpalo`), small-vector optimization (`smallvec`), and hash map selection (`rustc-hash`), all within safe Rust.
 :::
 
 ## CI parity

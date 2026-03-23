@@ -1,6 +1,6 @@
-# panproto-wasm --- The WASM Boundary {#sec-wasm-boundary}
+# panproto-wasm: The WASM Boundary {#sec-wasm-boundary}
 
-The `panproto-wasm` crate is the thin glue layer between the Rust core and the TypeScript SDK. It exposes `#[wasm_bindgen]` entry points for schema construction, migration, analysis, lens operations, GAT engine access, and version control. Every structured value crossing the boundary is serialized as MessagePack bytes -- never as a JS object graph. This chapter explains why, and walks through the implementation.
+The `panproto-wasm` crate is the thin glue layer between the Rust core and the TypeScript SDK. It exposes `#[wasm_bindgen]` entry points for schema construction, migration, analysis, lens operations, GAT engine access, and version control. Every structured value crossing the boundary is serialized as MessagePack bytes, never as a JS object graph.
 
 ## Design Rationale
 
@@ -8,7 +8,7 @@ Two design decisions shape the entire WASM boundary:
 
 1. **Handle-based API.** Complex Rust objects (protocols, schemas, compiled migrations) never cross the boundary. Instead, they live in a Rust-side slab allocator, and JS holds opaque `u32` handles. This avoids the overhead and fragility of `serde-wasm-bindgen`, which must recursively convert Rust structs into JS objects on every call.
 
-2. **MessagePack over serde-wasm-bindgen.** Structured arguments (builder operations, migration mappings, records) are encoded as MessagePack byte slices with `rmp_serde`. MessagePack is faster than JSON for encode/decode, produces smaller payloads, and -- critically -- is deterministic: the same Rust struct always encodes to the same bytes, which simplifies testing and caching.
+2. **MessagePack over serde-wasm-bindgen.** Structured arguments (builder operations, migration mappings, records) are encoded as MessagePack byte slices with `rmp_serde`. MessagePack is faster than JSON for encode/decode, produces smaller payloads, and (critically) is deterministic: the same Rust struct always encodes to the same bytes, which simplifies testing and caching.
 
 ::: {.callout-tip}
 The handle + MessagePack design means the WASM boundary has zero JS-heap allocations for data that stays on the Rust side. The only JS objects created are the `Uint8Array` wrappers around byte slices.
@@ -21,9 +21,9 @@ All WASM-side resources are stored in a thread-local `Vec<Option<Resource>>`. Ea
 ```{.rust include="../../crates/panproto-wasm/src/slab.rs" start-line=20 end-line=58}
 ```
 
-The `Resource` enum captures the core resource types (protocol, schema, compiled migration, I/O registry, theory, VCS repository, protolens chain, symmetric lens, data set) plus the `MigrationWithSchemas` variant that bundles a compiled migration with its source and target schemas -- needed for lens `get`/`put` operations.
+The `Resource` enum captures the core resource types (protocol, schema, compiled migration, I/O registry, theory, VCS repository, protolens chain, symmetric lens, data set) plus the `MigrationWithSchemas` variant that bundles a compiled migration with its source and target schemas (needed for lens `get`/`put` operations).
 
-The `alloc` function scans for a freed slot before appending, so handle values are reused. Handles are `u32` indices, which means the slab can hold up to 4 billion simultaneous resources -- more than sufficient for any realistic workload.
+The `alloc` function scans for a freed slot before appending, so handle values are reused. Handles are `u32` indices, which means the slab can hold up to 4 billion simultaneous resources, more than sufficient for any realistic workload.
 
 ## The `with_resource` Pattern
 
@@ -36,6 +36,12 @@ This pattern prevents a common class of bugs: holding a reference to a slab entr
 
 ::: {.callout-note}
 A `with_two_resources` variant exists for operations that need two handles simultaneously (e.g., `compile_migration` needs both source and target schemas). It takes the borrow once and looks up both indices.
+:::
+
+::: {.callout-tip}
+## Why not just return references?
+
+Returning a `&Resource` from the slab would require the caller to hold the `RefCell` borrow for the lifetime of the reference. Any nested call that also borrows the slab would panic. The callback pattern scopes each borrow precisely.
 :::
 
 ## The `BuildOp` Tagged Enum
@@ -223,11 +229,17 @@ On the TypeScript side, `WasmHandle` wraps each raw `u32` handle and calls `free
 
 Errors are represented as `WasmError` variants (an internal `thiserror` enum) and converted to `JsError` at the boundary via `Into`. The JS side receives them as standard `Error` objects. The five error variants are:
 
-- `DeserializationFailed` -- MessagePack input could not be decoded
-- `InvalidHandle` -- the `u32` index does not point to a live resource
-- `TypeMismatch` -- the resource at a handle is the wrong variant (e.g., expected Protocol, got Schema)
-- `SchemaBuildFailed` -- a `SchemaBuilder` operation failed validation
-- `MigrationFailed` / `LiftFailed` / `PutFailed` -- runtime operation errors
+- `DeserializationFailed`: MessagePack input could not be decoded
+- `InvalidHandle`: the `u32` index does not point to a live resource
+- `TypeMismatch`: the resource at a handle is the wrong variant (e.g., expected Protocol, got Schema)
+- `SchemaBuildFailed`: a `SchemaBuilder` operation failed validation
+- `MigrationFailed` / `LiftFailed` / `PutFailed`: runtime operation errors
+
+::: {.callout-note}
+## What happens if JS passes a freed handle?
+
+The slab slot contains `None`, so `with_resource` returns `Err(WasmError::InvalidHandle)`. The JS side receives a standard `Error` with the message "invalid handle: 42". There's no undefined behavior or silent corruption.
+:::
 
 ## Adding a New Entry Point
 

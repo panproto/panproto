@@ -1,6 +1,6 @@
 # Data Versioning Internals {#sec-data-versioning-internals}
 
-This chapter covers the object model, algorithms, and integration points for data versioning in `panproto-vcs`. For the user-facing workflow, see the [tutorial's data versioning chapter](https://panproto.dev/tutorial/chapters/19-data-versioning.html).
+The `panproto-vcs` object model extends beyond schemas and migrations to include data snapshots, complements, and protocol definitions as first-class versioned objects. For the user-facing workflow, see the [tutorial's data versioning chapter](https://panproto.dev/tutorial/chapters/19-data-versioning.html).
 
 ## Object model: DataSetObject, ComplementObject, Protocol {#sec-data-object-model}
 
@@ -56,7 +56,7 @@ The complement's content hash depends on all three fields. Two different migrati
 
 ### Protocol variant
 
-The `Protocol` variant stores a complete `panproto_protocols::Protocol` value. This is the same struct used throughout the codebase---no wrapper or subset. Serialization uses the `serde` implementation with MessagePack encoding.
+The `Protocol` variant stores a complete `panproto_protocols::Protocol` value. This is the same struct used throughout the codebase; no wrapper or subset. Serialization uses the `serde` implementation with MessagePack encoding.
 
 ## CommitObject extensions {#sec-commit-extensions}
 
@@ -146,7 +146,7 @@ If the migration is lossless (complement is empty for every instance), no `Compl
 3. For each (instance, complement) pair, apply the inverted migration's `lift_wtype` with the complement data restored.
 4. Construct a new `DataSetObject` bound to the source schema.
 
-Backward migration fails with `Error::MissingComplement` if the complement object cannot be found in the store. Lossless steps do not need complements---the inverted migration can reconstruct the original data without external input.
+Backward migration fails with `Error::MissingComplement` if the complement object can't be found in the store. Lossless steps don't need complements; the inverted migration can reconstruct the original data without external input.
 
 ### detect_staleness
 
@@ -156,7 +156,7 @@ Backward migration fails with `Error::MissingComplement` if the complement objec
 2. If they differ, find the DAG path from `data.schema_id` to the HEAD schema.
 3. Return a `StalenessReport` for each stale data set: the path length, the transform types along the path, and whether any step requires a complement.
 
-The function does not migrate data. It is a read-only diagnostic.
+The function doesn't migrate data. It's a read-only diagnostic.
 
 ### migrate_through_path
 
@@ -168,6 +168,12 @@ The function does not migrate data. It is a read-only diagnostic.
 4. Collect all `ComplementObject` IDs for storage in the final commit.
 
 For backward segments of a path (when the target is an ancestor), the function uses `migrate_backward` with the stored complements.
+
+::: {.callout-note}
+## What if a complement is missing for a backward step?
+
+The function returns `Error::MissingComplement` with the migration ID and data set ID. This can happen if someone ran `schema gc` and the complement was collected. The remedy is to re-migrate forward from an older snapshot that still has its complements.
+:::
 
 ## Complement lifecycle: creation, storage, retrieval, GC {#sec-complement-lifecycle}
 

@@ -1,6 +1,6 @@
 # Coding Conventions and API Design {#sec-conventions}
 
-This chapter documents the coding conventions and API design patterns used throughout the panproto codebase. Following these consistently makes the code predictable and keeps the review process efficient.
+The panproto codebase follows a consistent set of coding conventions and API design patterns. Following these keeps the code predictable and the review process efficient.
 
 ## Rust Edition and Toolchain
 
@@ -22,10 +22,10 @@ Strict linting is configured at the workspace level. Every crate inherits these 
 
 Key policies:
 
-- **`unsafe_code = "deny"`** -- No unsafe code anywhere. The WASM boundary uses `wasm_bindgen`'s safe abstractions.
-- **`unwrap_used = "deny"`** -- No `.unwrap()` in library code. Use `?`, `.ok_or()`, or pattern matching. Test modules annotate `#[allow(clippy::unwrap_used)]` where appropriate.
-- **`pedantic` + `nursery`** -- Both clippy lint groups are enabled as warnings, catching style issues and potential bugs early.
-- **`missing_docs = "warn"`** -- Every public item should be documented.
+- **`unsafe_code = "deny"`**: No unsafe code anywhere. The WASM boundary uses `wasm_bindgen`'s safe abstractions.
+- **`unwrap_used = "deny"`**: No `.unwrap()` in library code. Use `?`, `.ok_or()`, or pattern matching. Test modules annotate `#[allow(clippy::unwrap_used)]` where appropriate.
+- **`pedantic` + `nursery`**: Both clippy lint groups are enabled as warnings, catching style issues and potential bugs early.
+- **`missing_docs = "warn"`**: Every public item should be documented.
 
 The release profile enables LTO, single codegen unit, and symbol stripping for minimal binary size. The `release-wasm` profile inherits from release but uses `opt-level = "z"` for aggressive size optimization.
 
@@ -38,9 +38,9 @@ Both `SchemaBuilder` (Rust) and `SchemaBuilder`/`MigrationBuilder` (TypeScript) 
 
 Each method consumes the builder and returns a new one (or an error). This ensures:
 
-- **No partial construction** -- if a step fails, the builder is consumed and cannot be reused in an inconsistent state
-- **Type-level linearity** -- the compiler prevents using a builder after it has been moved
-- **Composability** -- methods chain naturally with `?`
+- **No partial construction**: if a step fails, the builder is consumed and can't be reused in an inconsistent state
+- **Type-level linearity**: the compiler prevents using a builder after it has been moved
+- **Composability**: methods chain naturally with `?`
 
 In TypeScript, the same pattern uses `readonly` fields and returns new instances:
 
@@ -85,6 +85,12 @@ let schema = load_json(path)?;  // returns miette::Result
 ```
 
 This keeps the library crates lightweight. A GUI or web consumer of `panproto-core` never pulls in `miette`'s terminal formatting code.
+
+::: {.callout-note}
+## Why two error crates?
+
+`thiserror` generates zero-overhead error types with structured fields. `miette` generates rich terminal output with colors, source labels, and suggestions. Library consumers need the first; CLI users need the second. Keeping them separate respects that boundary.
+:::
 
 ## `#[must_use]` on Builders and Pure Functions
 

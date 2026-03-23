@@ -1,13 +1,11 @@
 # Self-Description and Building Blocks {#sec-self-description}
 
-panproto's architecture has a recursive quality that turns out to be one of its most consequential features. The system that describes schemas is itself described by a schema. The theory language is itself a theory. And the 76 protocol definitions that panproto supports are all composed from a small catalog of reusable building-block theories.
+panproto organizes into four levels. Each level is defined as a model of the level below it. For example, a concrete schema (Level 2) is a model of a theory specification (Level 1), which is itself data interpreted by the GAT engine (Level 0).
 
-This chapter covers both: the self-description architecture that makes panproto closed and extensible, and the building-block catalog that makes protocol definitions compositional. The compositional approach follows [GATlab](https://algebraicjulia.github.io/GATlab.jl/) [@lynch2024].
+The compositional approach follows [GATlab](https://algebraicjulia.github.io/GATlab.jl/) [@lynch2024].
 
 
 ## Four levels {#sec-four-levels}
-
-panproto organizes its abstractions into four levels. Each level is defined by the one below it.
 
 ```{mermaid}
 %%| label: fig-levels
@@ -24,19 +22,19 @@ graph TB
 
 ### Level 0: The GAT engine
 
-The bottom of the stack is approximately 2,000 lines of Rust that implement the core GAT machinery: sorts, operations, equations, theory mappings, composition, and model checking. This is the only part of panproto that is not data-driven. It is the interpreter for everything above.
+The bottom of the stack is approximately 2,000 lines of Rust that implement the core GAT machinery: sorts, operations, equations, theory mappings, composition, and model checking. This is the only part of panproto that isn't data-driven. It's the interpreter for everything above.
 
 ### Level 1: Theory specifications
 
-The theories used throughout this tutorial---ThGraph, ThConstraint, ThConstrainedMultiGraph, and the protocol-specific theories for ATProto, SQL, and so on---are all *data* at this level. They are values of type `Theory`, constructed by the Level 0 engine. Adding a new schema language means adding new Level 1 data; no Rust code changes.
+The theories used throughout this tutorial (ThGraph, ThConstraint, ThConstrainedMultiGraph, and the protocol-specific theories for ATProto, SQL, and so on) are all *data* at this level. They're values of type `Theory`, constructed by the Level 0 engine. Adding a new schema language means adding new Level 1 data; no Rust code changes.
 
 ### Level 2: Concrete schemas
 
-A schema is a *model* of a Level 1 theory. When you write an ATProto lexicon, you are constructing a model of ThConstrainedMultiGraph. When you write a SQL DDL, you are constructing a model of the SQL protocol theory. The schema is governed by the theory it instantiates, in the same way that a value is governed by its type.
+A schema is a *model* of a Level 1 theory (see @sec-schemas-have-in-common). When you write an ATProto lexicon, you're constructing a model of ThConstrainedMultiGraph. When you write a SQL DDL, you're constructing a model of the SQL protocol theory. The schema is governed by the theory it instantiates, in the same way that a value is governed by its type.
 
 ### Level 3: Concrete instances
 
-The actual data---a Bluesky post, a row in a database, a Protobuf message---lives at Level 3. An instance is a model of a Level 2 schema. It is the concrete content that conforms to a specific schema within a specific protocol.
+The actual data (a Bluesky post, a row in a database, a Protobuf message) lives at Level 3. An instance is a model of a Level 2 schema. It's the concrete content that conforms to a specific schema within a specific protocol.
 
 :::{.callout-note}
 Migrations happen at every level, using the same engine:
@@ -51,30 +49,36 @@ The machinery is uniform. The same `lift`, `get`, `put`, and `checkExistence` op
 
 ## ThGAT: panproto can describe its own type system {#sec-thgat}
 
-The self-description becomes fully explicit when we observe that the theory of GATs is itself a GAT. panproto defines **ThGAT**---a theory whose models are themselves theories.
+The theory of GATs is itself a GAT. panproto defines **ThGAT**: a theory whose models are themselves theories.
 
 ThGAT has:
 
 - **Sorts**: `Sort`, `Op`, `Eq`, `Theory`, `Param(s: Sort)`, `Name`
 - **Operations**: `sort_name`, `op_name`, `op_output`, `op_param`, `eq_lhs`, `eq_rhs`, and others that specify how sorts, operations, and equations relate within a theory.
 
-A *model* of ThGAT is a concrete theory---ThGraph, ThConstraint, or any protocol theory. This is not a metaphor; it is a literal statement about the GAT formalism. The same `Theory` type that represents ThGraph also represents ThGAT, and the same model-checking machinery that validates a schema against ThGraph validates a theory against ThGAT.
+A *model* of ThGAT is a concrete theory (ThGraph, ThConstraint, or any protocol theory). This isn't a metaphor; it's a literal statement about the GAT formalism. The same `Theory` type that represents ThGraph also represents ThGAT. The same model-checking machinery that validates a schema against ThGraph validates a theory against ThGAT.
 
 ### Why self-description matters
 
 Self-description has three practical consequences.
 
-**Versioning the theory language.** If you need to extend what a "sort" or "operation" can express---say, adding support for dependent sorts with multiple parameters, or adding a new kind of equation---you can define a new version of ThGAT and construct a theory mapping from the old version to the new one. The migration engine then handles the upgrade of all Level 1 data (your theory specifications) automatically. Without self-description, extending the theory language would require rewriting the Level 0 engine and manually migrating all existing theory definitions. With it, the extension is a *data migration* like any other.
+**Versioning the theory language.** If you need to extend what a "sort" or "operation" can express (say, adding support for dependent sorts with multiple parameters, or adding a new kind of equation), you can define a new version of ThGAT and construct a theory mapping from the old version to the new one. The migration engine then handles the upgrade of all Level 1 data (your theory specifications) automatically. Without self-description, extending the theory language would require rewriting the Level 0 engine and manually migrating all existing theory definitions. With it, the extension is a *data migration* like any other.
 
-**Uniform tooling.** Because theories are models of ThGAT, all the tooling that operates on models---diff, existence checking, lifting, lenses---can be applied to theories themselves. You can diff two versions of a protocol's theory, check whether a migration between them exists, and lift schemas through the change. The tooling is not specialized per level; it is generic and uniform.
+**Uniform tooling.** Because theories are models of ThGAT, all the tooling that operates on models (diff, existence checking, lifting, lenses) can be applied to theories themselves. You can diff two versions of a protocol's theory, check whether a migration between them exists, and lift schemas through the change. The tooling isn't specialized per level; it's generic and uniform.
 
-**Formal guarantees at every level.** The correctness properties that panproto provides---round-tripping for lenses, completeness of existence checking, correct migration behavior---hold at every level of the hierarchy. A theory mapping between Level 1 theories satisfies the same laws as a schema mapping between Level 2 schemas. This uniformity is a direct consequence of the self-description architecture: every level is an instance of the same framework.
+**Formal guarantees at every level.** The correctness properties that panproto provides (round-tripping for lenses, completeness of existence checking, correct migration behavior) hold at every level of the hierarchy. A theory mapping between Level 1 theories satisfies the same laws as a schema mapping between Level 2 schemas. This uniformity is a direct consequence of the self-description architecture: every level is an instance of the same framework.
+
+:::{.callout-caution}
+## Does ThGAT create an infinite regress?
+
+ThGAT is a model of itself, which sounds circular. The circularity is broken by Level 0: the GAT engine is hardcoded Rust, not data. ThGAT describes what a theory *is*, but the engine that *interprets* ThGAT is outside the self-description loop.
+:::
 
 ### The system is closed
 
-There is an appealing sense in which panproto is *closed*. The only code that cannot be replaced by data is Level 0---the GAT engine itself, which interprets everything above it. Everything at Level 1 and above is defined by the level below, and can be extended, versioned, and migrated using the same engine.
+There's an appealing sense in which panproto is *closed*. The only code that can't be replaced by data is Level 0 (the GAT engine itself, which interprets everything above it). Everything at Level 1 and above is defined by the level below, and can be extended, versioned, and migrated using the same engine.
 
-This is the sense in which panproto is a general-purpose schematic version control system. It is not general because it supports every protocol (it does not, yet). It is general because the mechanism for adding a new protocol is the same mechanism that the existing protocols use, and that mechanism is itself described within the system.
+This is the sense in which panproto is a general-purpose schematic version control system. It's not general because it supports every protocol (it doesn't, yet). It's general because the mechanism for adding a new protocol is the same mechanism that the existing protocols use, and that mechanism is itself described within the system.
 
 
 ## The building-block catalog {#sec-building-block-catalog}
@@ -96,9 +100,9 @@ The full catalog of all 27 theories is in [Appendix C](../appendices/C-protocol-
 
 ### Structure vs. validation
 
-Some schema properties can be expressed directly as sorts, operations, and equations in a theory. Others are inherently computational — you can't capture "matches this regex" or "is at most 3000 characters" as an equation between algebraic operations.
+Some schema properties can be expressed directly as sorts, operations, and equations in a theory. Others are inherently computational: you can't capture "matches this regex" or "is at most 3000 characters" as an equation between algebraic operations.
 
-The distinction matters: structural properties propagate automatically through migrations and theory composition, while validation constraints must be checked separately.
+The distinction matters. Structural properties propagate automatically through migrations and theory composition. Validation constraints must be checked separately.
 
 **Structural (captured by theory equations):**
 
@@ -115,6 +119,12 @@ The distinction matters: structural properties propagate automatically through m
 - `pattern`: regular expression matching
 - `minimum`, `maximum`: numeric range bounds
 - `format` (date-time, email, URI): domain-specific format checks
+
+:::{.callout-caution}
+## When should a property be structural vs. validation?
+
+If the property can be expressed as an equation between sorts and operations, make it structural. Structural properties propagate through migrations automatically. If the property requires arithmetic, string matching, or domain logic, it belongs in the validation layer.
+:::
 
 
 ## Schema-side theories
@@ -183,16 +193,22 @@ Each protocol opts into additional theories (ThOrder, ThCoproduct, etc.) by comp
 
 ## Equations as structural invariants
 
-Only 6 of the 27 theories have equations. Each has been type-checked against the theory's sort declarations. As of v0.6, this type-checking happens automatically at commit time. When you [`schema commit`](https://github.com/aaronstevenwhite/panproto) a theory that includes any of these building blocks, panproto verifies that every equation is well-sorted in the composed theory. If a colimit introduces a sort mismatch (for example, by identifying two sorts that break an equation's typing), the commit is rejected with a diagnostic pointing to the offending equation.
+Only 6 of the 27 theories have equations. Each has been type-checked against the theory's sort declarations. As of v0.6, this type-checking happens automatically at commit time. When you `schema commit` a theory that includes any of these building blocks, panproto verifies that every equation is well-sorted in the composed theory. If a colimit introduces a sort mismatch (for example, by identifying two sorts that break an equation's typing), the commit is rejected with a diagnostic pointing to the offending equation.
 
 The equations and their sort-checking:
 
-**ThRecursion**: `unfold(fold(v)) = v` --- `fold(v)` has sort Mu, `unfold(fold(v))` has sort Vertex. The right side `v` also has sort Vertex. Both sides match.
+**ThRecursion**: `unfold(fold(v)) = v`. `fold(v)` has sort Mu; `unfold(fold(v))` has sort Vertex. The right side `v` also has sort Vertex. Both sides match.
 
-**ThReflexiveGraph**: `src(id(v)) = v` and `tgt(id(v)) = v` --- `id(v)` has sort Edge, `src(id(v))` has sort Vertex, matching `v`.
+**ThReflexiveGraph**: `src(id(v)) = v` and `tgt(id(v)) = v`. `id(v)` has sort Edge; `src(id(v))` has sort Vertex, matching `v`.
 
-**ThSymmetricGraph**: `src(inv(e)) = tgt(e)`, `tgt(inv(e)) = src(e)`, `inv(inv(e)) = e` --- all sides have matching sorts (Vertex, Vertex, Edge respectively).
+**ThSymmetricGraph**: `src(inv(e)) = tgt(e)`, `tgt(inv(e)) = src(e)`, `inv(inv(e)) = e`. All sides have matching sorts (Vertex, Vertex, Edge respectively).
 
-**ThCoproduct**: `variant_of(injection(v)) = v` --- both sides have sort Variant.
+**ThCoproduct**: `variant_of(injection(v)) = v`. Both sides have sort Variant.
 
-**ThPartial**: `defined(witness(d)) = d` --- both sides have sort Defined.
+**ThPartial**: `defined(witness(d)) = d`. Both sides have sort Defined.
+
+:::{.callout-caution}
+## What happens if a colimit breaks an equation?
+
+When two building blocks are composed via colimit and a sort identification makes an equation ill-typed, panproto rejects the composition at commit time. The diagnostic names the equation, the sorts involved, and which identification caused the conflict.
+:::

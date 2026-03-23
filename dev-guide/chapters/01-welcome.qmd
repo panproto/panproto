@@ -1,108 +1,33 @@
 # Welcome to panproto Development {#sec-welcome}
 
-## What is panproto?
+panproto is a schematic version control system parameterized by pairs of Generalized Algebraic Theories (GATs). A protocol $\mathcal{P} = (\mathbb{T}_S, \mathbb{T}_I)$ consists of a schema theory $\mathbb{T}_S$ (what schemas look like) and an instance theory $\mathbb{T}_I$ (what data looks like). Migration, diffing, compatibility checking, and bidirectional lenses are derived from $\mathcal{P}$ by the same algorithms regardless of protocol.^[The foundational treatment of GATs is due to @cartmell1986. panproto's computational architecture adapts [GATlab](https://algebraicjulia.github.io/GATlab.jl/) [@lynch2024] to Rust.]
 
-panproto is a **schematic version control system**. It treats every schema language---SQL DDL, Protobuf, GraphQL, AT Protocol Lexicon, JSON Schema, and any future format---as a presentation (the parse/emit layer that converts native format syntax to panproto's internal representation) of a **Generalized Algebraic Theory** (GAT). A GAT is a formal description of what a schema language's structural vocabulary looks like: what kinds of entities exist (sorts --- a type in a formal theory, not a sorting operation --- like `Vertex` and `Edge`), what relationships connect them (operations, like `src: Edge → Vertex`), and what consistency rules hold (equations, like "a foreign key's source column must belong to its source table"). Sorts can depend on other sorts---the set of valid constraints for a string vertex is different from the set for an integer vertex---which is the "generalized" part.^[The foundational treatment of GATs is due to @cartmell1986.]
+The crate hierarchy mirrors this algebraic structure:
 
-A *protocol* in panproto is parameterized by two GATs: one for the schema structure, one for the data representation. By computing structured merges of structure-preserving maps between theories, panproto can translate schemas across languages, compile migrations between schema versions, and verify round-trip correctness through bidirectional lenses---all from a single algebraic core.^[The "structured merge" is formally a *colimit* (pushout) in the category of GATs. See @sec-gat-engine.]
+- **Level 0** (`panproto-gat`): sorts, operations, equations, theory morphisms, colimits.
+- **Level 1** (`panproto-schema`, `panproto-inst`): schema graphs as models of $\mathbb{T}_S$; instances as models of $\mathbb{T}_I$.
+- **Level 2** (`panproto-mig`, `panproto-lens`, `panproto-check`): migration compilation, bidirectional lenses, breaking-change detection.
+- **Level 3** (`panproto-protocols`, `panproto-io`): protocol definitions, format-specific parse/emit.
+- **Level 4** (`panproto-core`, `panproto-wasm`, `panproto-cli`): re-export facade, WASM boundary, CLI.
 
-## Who this guide is for
+Each level depends only on the levels below it. `panproto-gat` has no panproto dependencies. `panproto-core` re-exports everything.
 
-This developer guide serves three audiences:
 
-**Contributors.**
-You want to fix a bug, improve performance, or add a feature. You need to understand the crate structure, the build system, and the contribution workflow. Start with this chapter and @sec-first-contribution, then jump to the architecture chapters relevant to your change.
+## Three audiences
 
-**Protocol authors.**
-You want to add support for a new schema language by implementing the `Protocol` trait in `panproto-protocols`. You need to understand how GATs map to schema constructs and how the protocol validation pipeline works. After onboarding, read chapters 7 and 12.
+**Contributors** fixing bugs or adding features: start with @sec-first-contribution, then build the project (@sec-building-testing), then read the architecture chapter for the crate you're modifying, then review the contribution process (chapters 16 through 18).
 
-**Researchers.**
-You are interested in panproto's theoretical foundations --- W-type instances, asymmetric lenses, migration compilation via colimits --- and want to understand how the mathematics is implemented. After onboarding, start with chapters 5--6 and work through the architecture section sequentially.
+**Protocol authors** adding a new schema language: you'll define a pair of GATs ($\mathbb{T}_S$, $\mathbb{T}_I$) and implement the `Protocol` trait. Read @sec-architecture-overview, @sec-gat-engine, @sec-schema-protocols, and @sec-protocols.
 
-## This guide vs. the tutorial
+**Researchers** exploring the internals: read the architecture section sequentially (chapters 5 through 11), then @sec-advanced-internals for the building-block theory catalog.
 
-The [panproto Tutorial](https://panproto.dev/tutorial/) and this Developer Guide are complementary but distinct:
 
-| | Tutorial | Developer Guide |
-|---|---|---|
-| **Audience** | Users of panproto | Contributors to panproto |
-| **Focus** | How to *use* the API | How the engine *works* |
-| **Depth** | Concepts, examples, recipes | Architecture, implementation, internals |
-| **Prerequisite** | Basic programming | Rust, algebraic thinking |
+## Key design decisions
 
-The tutorial explains *what* a theory morphism does; this guide explains *how* the engine computes structured merges. The tutorial shows *how* to run a migration; this guide shows *how* the surviving-set computation and W-type restrict pipeline are implemented.
+1. **Theories are data, not code.** A protocol is defined by constructing `Theory` values, not by implementing an interface with methods. The engine inspects the theory's sorts, operations, and equations to derive behavior.
 
-```{mermaid}
-%%| label: fig-docs-overview
-%%| fig-cap: "Documentation structure for panproto"
-flowchart LR
-    A["panproto Tutorial<br>(panproto.dev/tutorial/)"] -->|"teaches users"| U["Users"]
-    B["Developer Guide<br>(this book)"] -->|"teaches contributors"| C["Contributors"]
-    D["Rustdoc<br>(cargo doc)"] -->|"API reference"| C
-    D -->|"API reference"| U
-    E["Source code<br>(github.com/panproto)"] -->|"implementation"| C
-    B -->|"cross-references"| D
-    A -->|"prerequisites for"| B
-```
+2. **Two parameters, not one.** Both the schema shape ($\mathbb{T}_S$) and the data shape ($\mathbb{T}_I$) are parameters. The instance theory determines the restriction operator: `restrict` for $\text{ThFunctor}$, tree surgery for $\text{ThWType}$, field projection for $\text{ThFlat}$.
 
-## Roadmap through the guide
+3. **Content-addressed everything.** Schemas, migrations, and commits are identified by blake3 hashes of their canonical forms. Identity comes from structure, not naming.
 
-Here is a recommended reading order depending on your goal:
-
-### First-time contributor
-
-1. **Chapters 1--2** --- Orientation and your first contribution.
-2. **Chapter 3** --- Build the project and run the test suite.
-3. **Chapter 5** --- Architecture overview to understand how crates connect.
-4. **The chapter for your target crate** (chapters 6--15).
-5. **Chapters 16--18** --- Conventions, testing philosophy, and PR workflow.
-
-### Protocol author
-
-1. **Chapters 1--3** --- Onboarding and build setup.
-2. **Chapter 5** --- Architecture overview.
-3. **Chapter 6** --- The GAT engine (you will define sorts and operations).
-4. **Chapter 7** --- Schema representation and the `Protocol` trait.
-5. **Chapter 12** --- Deep dive into `panproto-protocols`.
-6. **Chapters 16--18** --- Contribution process.
-
-### Researcher
-
-1. **Chapters 1--2** --- Quick orientation.
-2. **Chapters 5--11** --- Full architecture walkthrough from GATs through lenses and breaking-change detection.
-3. **Appendix A** --- Glossary for precise definitions of all domain terms.
-
-::: {.callout-note}
-## You do not need to read everything
-
-This guide is a reference, not a novel. Read the onboarding chapters linearly, then use the table of contents and the source code map (Appendix B) to jump to whatever you need.
-:::
-
-## The crate map at a glance
-
-panproto is a Cargo workspace with 12 crates, TypeScript and Python SDKs, an integration test suite, and CI/CD workflows:
-
-| Crate | Role |
-|---|---|
-| `panproto-gat` | GAT engine: sorts, operations, equations, structure-preserving maps, theory merges, models (concrete instances satisfying a theory) |
-| `panproto-schema` | Schema representation: vertices, edges, hyper-edges, constraints, colimits |
-| `panproto-inst` | Tree-shaped and table-shaped instances, project/extend/complete operations |
-| `panproto-mig` | Migration engine: compile, lift, compose, invert, homomorphism search, chase |
-| `panproto-lens` | Bidirectional lenses: asymmetric, combinators, law checking |
-| `panproto-check` | Breaking-change detection: diff, classify, report |
-| `panproto-protocols` | Built-in protocol definitions for 76 formats |
-| `panproto-io` | Instance-level parse/emit across all protocols |
-| `panproto-vcs` | Schematic version control: content-addressed store, merge, rebase, blame |
-| `panproto-core` | Re-export facade for all sub-crates |
-| `panproto-wasm` | WASM boundary: slab allocator, MessagePack serialization, JS API |
-| `panproto-cli` | CLI binary (`schema` command) |
-
-Chapter 5 covers how these crates depend on each other and how data flows through the system.
-
-## Getting help
-
-- **Issues:** <https://github.com/panproto/panproto/issues>
-- **Discussions:** use GitHub Discussions for questions and design proposals.
-- **Tutorial:** <https://panproto.dev/tutorial/> for user-facing concepts.
-
-Now proceed to @sec-first-contribution to fork the repository and land your first change.
+The [tutorial](https://panproto.dev/tutorial/) teaches how to *use* panproto. This guide explains how the engine *works*. The tutorial defines what a theory morphism does; this guide shows how colimits are computed. The tutorial shows how to run a migration; this guide shows how the surviving-set computation and W-type restrict pipeline are implemented.

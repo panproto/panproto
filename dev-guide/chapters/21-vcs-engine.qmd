@@ -1,6 +1,6 @@
 # VCS Engine {#sec-vcs-engine}
 
-The `panproto-vcs` crate implements schematic version control: schemas are content-addressed objects stored in a commit DAG, with branches, three-way merge, and data lifting through history.
+The `panproto-vcs` crate implements schematic version control. Schemas are content-addressed objects stored in a commit DAG, with branches, three-way merge, and data lifting through history.
 
 ## Module Layout
 
@@ -74,25 +74,33 @@ pub struct MergeOptions {
 
 ## DAG Algorithms
 
-- **Merge base**: two-frontier BFS, alternately expanding from each side
-- **Path finding**: BFS backwards from target, reconstruct via parent map
-- **Log walk**: max-heap by timestamp for topological-chronological order
-- **Compose path**: chain migrations via `panproto_mig::compose`
-- **Is ancestor**: BFS reachability check
+All DAG algorithms operate on the commit graph $G = (V, E)$ where $V$ is the set of commits and $E$ is the parent relation.
+
+- **Merge base**: Two-frontier BFS. We alternately expand from each side; the first vertex visited by both frontiers is the lowest common ancestor. For commits $a$ and $b$, this finds $\text{LCA}(a, b) = \arg\min_{c \in \text{Anc}(a) \cap \text{Anc}(b)} \text{depth}(c)$. Complexity: $O(|V|)$ worst case, typically much less.
+- **Path finding**: BFS backwards from target, reconstruct via parent map. Returns the sequence of commits $(c_0, c_1, \ldots, c_k)$ where $c_0$ is the source and $c_k$ is the target.
+- **Log walk**: Max-heap ordered by timestamp for topological-chronological order. Each commit is visited exactly once (tracked via a `HashSet`). Merge commits push both parents onto the heap. Complexity: $O(n \log n)$ for $n$ commits.
+- **Compose path**: Given a path $(c_0, \ldots, c_k)$, chains migrations via `panproto_mig::compose`. The composed migration $M_{0 \to k} = M_{k-1 \to k} \circ \cdots \circ M_{0 \to 1}$ transforms data from schema $S_0$ to schema $S_k$.
+- **Is ancestor**: BFS reachability check from candidate to target. Returns true if there exists a path in $G$ from the candidate to the target following parent edges.
+
+::: {.callout-note}
+## Why a max-heap for log walk instead of simple DFS?
+
+DFS would visit one branch fully before starting the other, producing non-chronological output for interleaved branches. The timestamp-ordered heap interleaves branches chronologically, matching what users expect from `git log`.
+:::
 
 ## Repository Operations
 
 Beyond the core commit flow, `repo.rs` exposes several additional operations:
 
-- `Repository::amend()` -- creates a commit with the same parent(s) as the current HEAD but updated schema, migration, and message. The previous HEAD commit becomes unreachable (collectible by `gc`).
-- `refs::force_delete_branch` -- deletes a branch regardless of merge status
-- `refs::rename_branch` -- renames a branch ref, updating HEAD if the current branch is renamed
-- `refs::create_and_checkout_branch` -- creates a branch at HEAD and switches to it atomically
-- `refs::create_annotated_tag` -- creates a `TagObject` in the store and points a tag ref at it
-- `refs::create_tag_force` -- overwrites an existing tag ref
-- `stash::stash_apply` -- re-applies the top stash entry without removing it from the stack
-- `stash::stash_show` -- returns the schema diff between the stash entry and its parent
-- `stash::stash_clear` -- drops all stash entries and removes the `refs/stash` ref
+- `Repository::amend()`: creates a commit with the same parent(s) as the current HEAD but updated schema, migration, and message. The previous HEAD commit becomes unreachable (collectible by `gc`).
+- `refs::force_delete_branch`: deletes a branch regardless of merge status
+- `refs::rename_branch`: renames a branch ref, updating HEAD if the current branch is renamed
+- `refs::create_and_checkout_branch`: creates a branch at HEAD and switches to it atomically
+- `refs::create_annotated_tag`: creates a `TagObject` in the store and points a tag ref at it
+- `refs::create_tag_force`: overwrites an existing tag ref
+- `stash::stash_apply`: re-applies the top stash entry without removing it from the stack
+- `stash::stash_show`: returns the schema diff between the stash entry and its parent
+- `stash::stash_clear`: drops all stash entries and removes the `refs/stash` ref
 
 ## Error Variants
 
@@ -108,14 +116,22 @@ Beyond the core commit flow, `repo.rs` exposes several additional operations:
 
 ## Three-Way Merge (Combining Diverged Branches)
 
-Given schemas `base`, `ours`, `theirs`, the merge computes a combined result:^[The merge combines the two branch schemas along their shared base, producing a unified result. Categorically, this is a pushout (colimit) over the shared base.]
+Given schemas `base`, `ours`, `theirs`, the merge computes a combined result. Categorically, this is a pushout (colimit) over the shared base.[^merge-pushout]
 
-1. `diff(base, ours)` and `diff(base, theirs)` -- the extended diff covers all 13 schema fields (vertices, edges, constraints, hyper-edges, required, NSIDs, variants, orderings, recursion points, usage modes, spans, nominal)
+[^merge-pushout]: The merge combines the two branch schemas along their shared base, producing a unified result. Formally, let $S_b$ be the base schema, $S_o$ the "ours" schema, and $S_t$ the "theirs" schema. The merged schema $S_m$ is the pushout of the span $S_o \leftarrow S_b \rightarrow S_t$ in the category of schemas.
+
+1. `diff(base, ours)` and `diff(base, theirs)`: the extended diff covers all 13 schema fields (vertices, edges, constraints, hyper-edges, required, NSIDs, variants, orderings, recursion points, usage modes, spans, nominal)
 2. For every element in every field, classify its fate on each side: unchanged, added, removed, or modified
 3. Apply the merge rule: one-sided changes accepted; identical changes deduplicated; incompatible changes flagged as typed conflicts with the base value retained
-4. No tie-breaking -- the merge is commutative: `merge(base, A, B) == merge(base, B, A)`
+4. No tie-breaking: the merge is commutative, meaning `merge(base, A, B) == merge(base, B, A)`
 5. Rebuild precomputed indices
-6. Derive migrations from ours->merged and theirs->merged via `auto_mig::derive_migration`
+6. Derive migrations from ours to merged and theirs to merged via `auto_mig::derive_migration`
+
+::: {.callout-tip}
+## Why is commutativity important for merge?
+
+Commutativity means the merge result doesn't depend on which branch we call "ours" vs "theirs." This eliminates an entire class of bugs where merge order affects the outcome. It's a stronger guarantee than git's text merge, which can produce different conflict markers depending on merge direction.
+:::
 
 ## Rename Detection
 
@@ -154,7 +170,7 @@ These tools bring structure-awareness to source code via AST/CST parsing. They u
 
 sem is a Rust CLI that provides entity-level diff, blame, graph, and impact analysis for code across 16 languages via tree-sitter. It uses structural hashing to distinguish cosmetic changes from real logic changes. weave is its companion merge driver, which resolves conflicts at the entity level and achieves 31/31 clean merges on a benchmark where git manages 15/31.
 
-Both tools sit on top of git. They do not replace git's object store or DAG; they provide a smarter view of git's existing data. sem parses source code into entity trees (functions, classes, interfaces). panproto-vcs operates on a different kind of object: mathematical schema structure expressed as GAT models with sorts (types in a formal theory, not sorting operations), operations, and equations. weave's merge works by entity-level pattern matching. panproto-vcs's merge computes the combined result over a shared base theory.^[The merge combines two theories along their shared elements. Categorically, this is a pushout (colimit).]
+Both tools sit on top of git. They don't replace git's object store or DAG; they provide a smarter view of git's existing data. sem parses source code into entity trees (functions, classes, interfaces). panproto-vcs operates on a different kind of object: mathematical schema structure expressed as GAT models with sorts (types in a formal theory, not sorting operations), operations, and equations. weave's merge works by entity-level pattern matching. panproto-vcs's merge computes the combined result over a shared base theory (a pushout in the category of GATs).
 
 #### [Cow](https://jelv.is/cow/) (Tikhon Jelvis)
 
@@ -164,7 +180,7 @@ Cow works on generic parse trees and is language-agnostic. panproto-vcs works on
 
 #### [difftastic](https://github.com/Wilfred/difftastic) (Wilfred Hughes)
 
-difftastic is a Rust structural diff tool using tree-sitter for 30+ languages. It produces human-readable diffs that understand syntax and ignore whitespace, but it is purely a diff tool. It cannot merge, has no VCS, and has no schema awareness.
+difftastic is a Rust structural diff tool using tree-sitter for 30+ languages. It produces human-readable diffs that understand syntax and ignore whitespace, but it's purely a diff tool. It can't merge, has no VCS, and has no schema awareness.
 
 #### [Mergiraf](https://codeberg.org/mergiraf/mergiraf)
 
@@ -188,7 +204,9 @@ This is the closest work in mathematical spirit. Both panproto-vcs and the Topos
 
 #### A Categorical Theory of Patches [@mimram2013]
 
-Mimram and Di Giusto define a category where objects are files and morphisms are patches, with merge defined as a shared-structure merge.^[The merge combines structures along shared elements, producing a universal result. Categorically, this is a pushout (colimit).] They investigate the free completion of this category under finite merges and give an explicit description where objects are finite sets labeled by lines equipped with a transitive relation.
+Mimram and Di Giusto define a category where objects are files and morphisms are patches, with merge defined as a pushout.[^mimram-pushout] They investigate the free completion of this category under finite merges and give an explicit description where objects are finite sets labeled by lines equipped with a transitive relation.
+
+[^mimram-pushout]: The merge combines structures along shared elements, producing a universal result. Categorically, this is a pushout (colimit).
 
 panproto-vcs implements this idea for schemas rather than text files. The objects in Mimram and Di Giusto's category are sequences of lines, a flat structure. panproto's objects are models of GATs: typed graphs with protocol-specific sorts, operations, equations, and constraints. The richer structure gives the merge more to work with.
 
@@ -202,17 +220,21 @@ Schurmann's manifesto calls for version control over relational algebra and alge
 
 Darcs is a Haskell VCS where patches are algebraic objects with inverse and commutation operations. Merge works by finding a reordering of patches that lets both sides apply cleanly.
 
-Darcs's patches are syntactic: line insertions and deletions that can commute when they touch different lines. panproto's migrations are semantic: vertex and edge maps that compose associatively and merge over shared structure. Darcs has no notion of typed structure.^[Both [Darcs](http://darcs.net/) and [Pijul](https://pijul.org/) use algebraic patch theories, but their objects are untyped text (lines and insertions). panproto's objects are typed schema graphs with sorts, operations, and equations, which allows the merge to exploit type information for conflict detection.]
+Darcs's patches are syntactic: line insertions and deletions that can commute when they touch different lines. panproto's migrations are semantic: vertex and edge maps that compose associatively and merge over shared structure. Darcs has no notion of typed structure.[^darcs-pijul]
+
+[^darcs-pijul]: Both [Darcs](http://darcs.net/) and [Pijul](https://pijul.org/) use algebraic patch theories, but their objects are untyped text (lines and insertions). panproto's objects are typed schema graphs with sorts, operations, and equations, which allows the merge to exploit type information for conflict detection.
 
 #### [Pijul](https://pijul.org/)
 
-Pijul is a Rust DVCS based on @mimram2013's categorical patch theory. Merge is the shared-structure merge in a category of files and patches, giving commutativity and associativity.^[Both Pijul and panproto-vcs use pushouts for merge. The difference is in the objects being merged.]
+Pijul is a Rust DVCS based on @mimram2013's categorical patch theory. Merge is the pushout in a category of files and patches, giving commutativity and associativity.[^pijul-pushout]
 
-Pijul's objects are byte-chunk graphs, essentially ordered sequences of text blocks. panproto's are models of GATs with protocol-specific theories, constraints, and edge rules. panproto's merge has access to type information that lets it distinguish "both branches renamed vertex X" (conflict) from "both branches added unrelated vertices" (clean merge). Pijul cannot make this distinction. Additionally, panproto can migrate instance data through the DAG via lifting, which requires understanding the semantics of the objects being versioned.
+[^pijul-pushout]: Both Pijul and panproto-vcs use pushouts for merge. The difference is in the objects being merged.
+
+Pijul's objects are byte-chunk graphs, essentially ordered sequences of text blocks. panproto's are models of GATs with protocol-specific theories, constraints, and edge rules. panproto's merge has access to type information that lets it distinguish "both branches renamed vertex X" (conflict) from "both branches added unrelated vertices" (clean merge). Pijul can't make this distinction. Additionally, panproto can migrate instance data through the DAG via lifting, which requires understanding the semantics of the objects being versioned.
 
 ### Schema Migration Tools
 
-These tools manage schema evolution but are not version control systems. They lack content-addressing, commit DAGs, branching, and structural merge.
+These tools manage schema evolution but aren't version control systems. They lack content-addressing, commit DAGs, branching, and structural merge.
 
 #### Cambria [@litt2021]
 
@@ -224,7 +246,7 @@ panproto subsumes Cambria's combinator model in panproto-lens. Cambria operates 
 
 [Buf](https://buf.build/) is a Go tool for Protobuf schema linting, breaking change detection, and schema registry. It integrates with CI/CD to enforce compatibility.
 
-Buf is a registry and linter for a single protocol. It relies on git for version control, cannot migrate instance data, has no merge algorithm, and does not work across protocol boundaries.
+Buf is a registry and linter for a single protocol. It relies on git for version control, can't migrate instance data, has no merge algorithm, and doesn't work across protocol boundaries.
 
 #### [Atlas](https://atlasgo.io/) (Ariga)
 
@@ -238,7 +260,7 @@ These tools produce linear migration sequences (SQL scripts). No branching, no m
 
 ### Schema Registries
 
-Schema registries store schema versions but do not provide version control. Versions are linearly ordered per subject with no branching or merge.
+Schema registries store schema versions but don't provide version control. Versions are linearly ordered per subject with no branching or merge.
 
 #### [Confluent Schema Registry](https://docs.confluent.io/platform/current/schema-registry/)
 

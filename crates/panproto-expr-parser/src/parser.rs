@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use chumsky::input::{Input as _, Stream, ValueInput};
-use chumsky::prelude::*;
 use chumsky::pratt::{infix, left, prefix, right};
+use chumsky::prelude::*;
 use chumsky::span::SimpleSpan;
 
 use panproto_expr::{BuiltinOp, Expr, Literal, Pattern};
@@ -37,14 +37,11 @@ pub fn parse(tokens: &[crate::Spanned]) -> Result<Expr, Vec<ParseError>> {
         |s| SimpleSpan::new(s.span.start, s.span.end),
     );
     let stream = Stream::from_iter(mapped).map(eoi, |(tok, span)| (tok, span));
-    expr_parser()
-        .parse(stream)
-        .into_result()
-        .map_err(|errs| {
-            errs.into_iter()
-                .map(chumsky::error::Rich::into_owned)
-                .collect()
-        })
+    expr_parser().parse(stream).into_result().map_err(|errs| {
+        errs.into_iter()
+            .map(chumsky::error::Rich::into_owned)
+            .collect()
+    })
 }
 
 // ── Token matchers ──────────────────────────────────────────────────
@@ -137,7 +134,13 @@ where
             .map(|(name, args): (Arc<str>, Vec<Pattern>)| Pattern::Constructor(name, args));
 
         choice((
-            wildcard, literal_pat, paren, list_pat, record_pat, constructor, var,
+            wildcard,
+            literal_pat,
+            paren,
+            list_pat,
+            record_pat,
+            constructor,
+            var,
         ))
     })
 }
@@ -326,12 +329,8 @@ where
 
         let postfix_chain = atom.foldl(
             choice((
-                just(Token::Dot)
-                    .ignore_then(ident())
-                    .map(PostfixOp::Field),
-                just(Token::Arrow)
-                    .ignore_then(ident())
-                    .map(PostfixOp::Edge),
+                just(Token::Dot).ignore_then(ident()).map(PostfixOp::Field),
+                just(Token::Arrow).ignore_then(ident()).map(PostfixOp::Edge),
             ))
             .repeated(),
             |expr, postfix| match postfix {
@@ -345,10 +344,9 @@ where
 
         // ── Application (juxtaposition) ─────────────────────
 
-        let app = postfix_chain.clone().foldl(
-            postfix_chain.repeated(),
-            resolve_application,
-        );
+        let app = postfix_chain
+            .clone()
+            .foldl(postfix_chain.repeated(), resolve_application);
 
         // ── Pratt parser for infix/prefix operators ─────────
 
@@ -440,15 +438,13 @@ where
             .then(pattern.clone().repeated().collect::<Vec<Pattern>>())
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
-            .map(
-                |((name, params), val): ((Arc<str>, Vec<Pattern>), Expr)| {
-                    if params.is_empty() {
-                        (name, val)
-                    } else {
-                        (name, desugar_lambda(&params, val))
-                    }
-                },
-            );
+            .map(|((name, params), val): ((Arc<str>, Vec<Pattern>), Expr)| {
+                if params.is_empty() {
+                    (name, val)
+                } else {
+                    (name, desugar_lambda(&params, val))
+                }
+            });
 
         let let_expr = just(Token::Let)
             .ignore_then(layout_block(let_bind.clone()).or(let_bind.clone().map(|b| vec![b])))
@@ -511,15 +507,13 @@ where
             .then(pattern.repeated().collect::<Vec<Pattern>>())
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
-            .map(
-                |((name, params), val): ((Arc<str>, Vec<Pattern>), Expr)| {
-                    if params.is_empty() {
-                        (name, val)
-                    } else {
-                        (name, desugar_lambda(&params, val))
-                    }
-                },
-            );
+            .map(|((name, params), val): ((Arc<str>, Vec<Pattern>), Expr)| {
+                if params.is_empty() {
+                    (name, val)
+                } else {
+                    (name, desugar_lambda(&params, val))
+                }
+            });
 
         let where_clause = just(Token::Where)
             .ignore_then(layout_block(where_bind.clone()).or(where_bind.map(|b| vec![b])));
@@ -676,8 +670,8 @@ mod tests {
     use crate::tokenize;
 
     fn parse_ok(input: &str) -> Expr {
-        let tokens = tokenize(input).expect("lex failed");
-        parse(&tokens).expect("parse failed")
+        let tokens = tokenize(input).unwrap_or_else(|e| panic!("lex failed: {e}"));
+        parse(&tokens).unwrap_or_else(|e| panic!("parse failed: {e:?}"))
     }
 
     #[test]

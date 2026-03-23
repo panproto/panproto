@@ -77,7 +77,7 @@ schema typecheck --src old.json --tgt new.json --migration mig.json
 
 Runs GAT type-checking on a schema's theory equations. Without `--src`/`--tgt`/`--migration`, it loads the schema, resolves its protocol theory, and runs `typecheck_theory`. With the migration flags, it additionally type-checks the migration morphism and validates equation preservation.
 
-This command is the standalone equivalent of the type-checking that `schema add` and `schema commit` perform automatically. It is useful for CI pipelines that want to validate schemas without a `.panproto/` repository.
+This command is the standalone equivalent of the type-checking that `schema add` and `schema commit` perform automatically. It's useful for CI pipelines that want to validate schemas without a `.panproto/` repository.
 
 ### `schema verify`
 
@@ -110,7 +110,7 @@ These require a `.panproto/` repository (created by `schema init`). See @sec-vcs
 schema init
 ```
 
-Creates `.panproto/` with the object store, refs, logs, and HEAD pointing to `main`. Unlike `git init`, this does not create a working tree. The repository tracks a single schema's evolution, not a directory of files. The `-b <name>` flag sets the initial branch name (default: `main`).
+Creates `.panproto/` with the object store, refs, logs, and HEAD pointing to `main`. Unlike `git init`, this doesn't create a working tree. The repository tracks a single schema's evolution, not a directory of files. The `-b <name>` flag sets the initial branch name (default: `main`).
 
 ### `schema add`
 
@@ -120,7 +120,7 @@ schema add schema.json
 
 Stages a schema for the next commit. Internally: loads the schema, hashes it via `hash::hash_schema`, computes `check::diff` against HEAD's schema, calls `auto_mig::derive_migration` to produce the migration morphism, runs `mig::check_existence` to validate it, and writes the result to `.panproto/index.json`. Unlike `git add`, which stages file blobs, this stages a schema graph and simultaneously derives and validates the migration that connects it to the previous version.
 
-Flags: `--dry-run` runs the full pipeline but does not write to the index (calls `index::stage` in preview mode). `--force` skips the `check_existence` validation step, allowing staging of schemas that fail migration validation.
+Flags: `--dry-run` runs the full pipeline but doesn't write to the index (calls `index::stage` in preview mode). `--force` skips the `check_existence` validation step, allowing staging of schemas that fail migration validation.
 
 ### `schema commit`
 
@@ -208,7 +208,7 @@ The merge algorithm differs from git in a fundamental way: instead of three-way 
 
 The `--verbose` flag enables pullback overlap detection. When set, the merge computes the pullback of the two branch theories over the merge base theory using `panproto_gat::pullback`. The `pullback_overlap` field in the merge result reports which sorts and operations both branches modified. This helps developers understand the structural intersection of concurrent changes.
 
-Additional flags control merge behavior via `MergeOptions`: `--no-commit` stages the result without committing. `--ff-only` fails if fast-forward is not possible. `--no-ff` forces a merge commit even for fast-forwards. `--squash` collapses all changes into a single non-merge commit. `--abort` cancels a conflicted merge and restores the pre-merge state. `-m "msg"` provides a custom merge commit message.
+Additional flags control merge behavior via `MergeOptions`: `--no-commit` stages the result without committing. `--ff-only` fails if fast-forward isn't possible. `--no-ff` forces a merge commit even for fast-forwards. `--squash` collapses all changes into a single non-merge commit. `--abort` cancels a conflicted merge and restores the pre-merge state. `-m "msg"` provides a custom merge commit message.
 
 ### `schema rebase`
 
@@ -264,7 +264,7 @@ Reads the NDJSON reflog file for the specified ref (default: HEAD). Every mutati
 schema bisect v1.0 HEAD
 ```
 
-Calls `bisect::bisect_start`. Finds the path from good to bad, presents the midpoint. The user inspects the midpoint (e.g. via `schema show`) and re-runs with a narrowed range. Converges in O(log n) steps.
+Calls `bisect::bisect_start`. Finds the path from good to bad, presents the midpoint. The user inspects the midpoint (e.g. via `schema show`) and re-runs with a narrowed range. Converges in $O(\log n)$ steps.
 
 ### `schema blame`
 
@@ -288,11 +288,11 @@ Calls `gc::gc`. Collects all ref targets as roots, marks reachable objects via B
 
 The `format.rs` module provides reusable formatting functions for commit and diff output.
 
-- `format_commit(commit, fmt_str)` — interpolates a format string with placeholders: `%H` (full hash), `%h` (short hash), `%s` (subject/message), `%an` (author name), `%ad` (author date)
-- `format_commit_oneline(commit)` — produces `<short_hash> <message>`, used by `schema log --oneline`
-- `format_diff_stat(diff)` — summary table of additions, removals, and modifications per schema field
-- `format_diff_name_only(diff)` — plain list of changed element names
-- `format_diff_name_status(diff)` — element names prefixed with `A` (added), `D` (deleted), or `M` (modified)
+- `format_commit(commit, fmt_str)`: interpolates a format string with placeholders: `%H` (full hash), `%h` (short hash), `%s` (subject/message), `%an` (author name), `%ad` (author date)
+- `format_commit_oneline(commit)`: produces `<short_hash> <message>`, used by `schema log --oneline`
+- `format_diff_stat(diff)`: summary table of additions, removals, and modifications per schema field
+- `format_diff_name_only(diff)`: plain list of changed element names
+- `format_diff_name_status(diff)`: element names prefixed with `A` (added), `D` (deleted), or `M` (modified)
 
 ## Error Handling
 

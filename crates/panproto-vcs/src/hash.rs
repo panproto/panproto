@@ -405,7 +405,7 @@ pub fn hash_complement(complement: &ComplementObject) -> Result<ObjectId, VcsErr
 
 /// Compute the content-addressed ID of an expression.
 ///
-/// The hash is computed from the canonical MessagePack serialization
+/// The hash is computed from the canonical `MessagePack` serialization
 /// of the expression AST.
 ///
 /// # Errors
@@ -641,7 +641,10 @@ mod tests {
         let e2 = panproto_expr::Expr::Lit(panproto_expr::Literal::Int(2));
         let h1 = hash_expr(&e1)?;
         let h2 = hash_expr(&e2)?;
-        assert_ne!(h1, h2, "different expressions should produce different hashes");
+        assert_ne!(
+            h1, h2,
+            "different expressions should produce different hashes"
+        );
         Ok(())
     }
 }

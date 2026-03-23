@@ -1,6 +1,6 @@
 # Your First Contribution {#sec-first-contribution}
 
-This chapter walks you through the entire contribution cycle --- from forking the repository to opening a pull request --- with a concrete example change.
+We'll walk through the entire contribution cycle (forking the repository through opening a pull request) with a concrete example change.
 
 ## Prerequisites
 
@@ -55,7 +55,7 @@ All tests should pass on a clean checkout. If any fail, check @sec-troubleshooti
 ::: {.callout-tip}
 ## Why nextest?
 
-panproto uses `cargo-nextest` instead of `cargo test` for test isolation --- each test runs in its own process, preventing shared mutable state from causing flaky results. See @sec-building-testing for details.
+panproto uses `cargo-nextest` instead of `cargo test` for test isolation: each test runs in its own process, preventing shared mutable state from causing flaky results. See @sec-building-testing for details.
 :::
 
 ## Step 5: Build the WASM target
@@ -170,22 +170,22 @@ Common prefixes:
 
 Go to your fork on GitHub and open a pull request against `main`. The PR template will guide you through:
 
-1. **Description** --- what the change does and why.
-2. **Testing** --- how you verified it works.
-3. **Breaking changes** --- whether any public API changed.
+1. **Description**: what the change does and why.
+2. **Testing**: how you verified it works.
+3. **Breaking changes**: whether any public API changed.
 
 ## What happens next
 
 After you push, CI runs automatically:
 
-1. **Lint** --- `cargo clippy --workspace -- -D warnings` with pedantic and nursery lints.
-2. **Test** --- `cargo nextest run --workspace` on Linux, macOS, and Windows.
-3. **WASM** --- `wasm-pack build` and `wasm-pack test --headless --chrome`.
-4. **TypeScript** --- `pnpm build && pnpm test` in `sdk/typescript/`.
-5. **Format** --- `cargo fmt --check` and `prettier --check` for TypeScript.
+1. **Lint**: `cargo clippy --workspace -- -D warnings` with pedantic and nursery lints.
+2. **Test**: `cargo nextest run --workspace` on Linux, macOS, and Windows.
+3. **WASM**: `wasm-pack build` and `wasm-pack test --headless --chrome`.
+4. **TypeScript**: `pnpm build && pnpm test` in `sdk/typescript/`.
+5. **Format**: `cargo fmt --check` and `prettier --check` for TypeScript.
 
 ::: {.callout-note}
-CI must pass before a maintainer reviews your PR. If a CI job fails, check the logs --- @sec-troubleshooting covers the most common failure modes and how to reproduce them locally.
+CI must pass before a maintainer reviews your PR. If a CI job fails, check the logs; @sec-troubleshooting covers the most common failure modes and how to reproduce them locally.
 :::
 
 ## The contribution lifecycle

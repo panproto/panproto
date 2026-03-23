@@ -1,22 +1,6 @@
 # Preface {.unnumbered}
 
-This is the **panproto Developer Guide** --- an architecture reference and contributor handbook for the panproto schematic version control system. It documents how crates are organized, how the algebraic machinery works under the hood, and how to contribute effectively.
-
-## Who this guide is for
-
-This guide is written for three audiences:
-
-- **Contributors** submitting bug fixes, performance improvements, or new features to the panproto codebase.
-- **Protocol authors** adding support for new schema languages (e.g., a new IDL or data-definition format) by implementing panproto's protocol trait.
-- **Researchers** who want to understand panproto's internals --- its use of Generalized Algebraic Theories, tree-shaped data instances (W-types), and bidirectional lenses --- in order to extend or build on the engine.
-
-If you are a *user* of panproto who wants to learn how to define schemas, run migrations, and use the TypeScript SDK, start with the [panproto Tutorial](https://panproto.dev/tutorial/) instead. The tutorial teaches you how to **use** panproto; this guide explains how it **works**.
-
-## Prerequisites
-
-- **Rust** (ownership, traits, generics, `Result`-based error handling). The codebase targets Edition 2024.
-- **Basic TypeScript**, enough to read the SDK wrapper and its tests.
-- **Algebraic concepts** --- specifically *sorts* (types in a formal theory), *operations* (functions connecting sorts), and *equations* (invariants those functions satisfy). The [tutorial's formal foundations appendix](https://panproto.dev/tutorial/appendices/A-formal-foundations.html) provides relevant background.
+This is the panproto developer guide. It documents crate architecture, algebraic internals, and contributor workflow for the panproto schematic version control system. We assume Rust (ownership, traits, generics, `Result`-based error handling; Edition 2024) and basic algebraic thinking (sorts, operations, equations). The [tutorial's formal foundations appendix](https://panproto.dev/tutorial/appendices/A-formal-foundations.html) provides relevant background on the algebraic concepts.
 
 ## Crate map
 
@@ -29,41 +13,24 @@ If you are a *user* of panproto who wants to learn how to define schemas, run mi
 | 3.5 | `panproto-io` | Instance-level presentation: format-specific parse/emit |
 | 4 | `panproto-core`, `panproto-wasm`, `panproto-cli` | Re-export facade, WASM boundary, CLI |
 
-## How to navigate this guide
+## Organization
 
 The guide is organized into six parts:
 
-**Part I --- Getting Started.**
-Read @sec-welcome and @sec-first-contribution to understand the project's goals, clone the repository, and land your first pull request. This is the recommended starting point for all new contributors.
+- **Part I (Getting Started):** orientation and your first contribution.
+- **Part II (Development Environment):** building, testing, debugging, profiling.
+- **Part III (Architecture and Internals):** deep dives into each crate and subsystem. Read the architecture overview first, then jump to whichever crate you're working on.
+- **Part IV (Contributing Process):** coding conventions, testing philosophy, PR workflow.
+- **Part V (Project Operations):** release process and versioning policy.
+- **Appendices:** glossary (A), source code map (B), troubleshooting FAQ (C), optimization guide (D), benchmark results (E).
 
-**Part II --- Development Environment.**
-Chapters 3--4 cover building, testing, debugging, and profiling. Return here whenever you need to set up a new machine or diagnose a test failure.
+## Reading paths
 
-**Part III --- Architecture & Internals.**
-Chapters 5--15 are deep dives into each crate and subsystem. Read the architecture overview first, then jump to whichever crate you are working on.
+**Contributors** landing a fix or feature: chapters 1 through 2, then chapter 3 (build), then chapters 16 through 18 (PR workflow).
 
-**Part IV --- Contributing Process.**
-Chapters 16--18 cover coding conventions, the testing philosophy, and the PR workflow. Read these before opening your first pull request.
+**Protocol authors** adding a new schema language: chapters 5 (architecture), 6 (GAT engine), then the protocol chapter (12).
 
-**Part V --- Project Operations.**
-Chapter 19 covers the release process and versioning policy.
-
-**Appendices.**
-The glossary (Appendix A) defines every domain term. The source code map (Appendix B) is a directory-level index of the entire repository. The troubleshooting FAQ (Appendix C) addresses common build and test issues.
-
-### Reading roadmaps
-
-**Contributors** landing a fix or feature: chapters 1--2, then chapter 3 (build), then chapters 16--18 (PR workflow).
-
-**Protocol authors** adding a new schema language: chapters 5 (architecture), 6 (GAT engine), then the protocol chapter.
-
-**Researchers** exploring the internals: chapters 5--6, then @sec-advanced-internals, then @sec-protolens-engine and @sec-auto-lens-pipeline.
-
-::: {.callout-tip}
-## Quick-start path
-
-If you want to land a contribution as fast as possible: read chapters 1 and 2, build the project (chapter 3), make your change, then read chapters 16--18 before opening your PR.
-:::
+**Researchers** exploring the internals: chapters 5 through 6, then @sec-advanced-internals, then @sec-protolens-engine and @sec-auto-lens-pipeline.
 
 ## Links
 
@@ -71,13 +38,12 @@ If you want to land a contribution as fast as possible: read chapters 1 and 2, b
 - **Repository:** <https://github.com/panproto/panproto>
 - **Rustdoc:** generated from `cargo doc --workspace --no-deps`
 
-## Conventions used in this guide
+## Conventions
 
 - Inline code like `panproto-gat` refers to a crate name.
 - File paths like `crates/panproto-gat/src/theory.rs` are relative to the repository root.
 - Shell commands assume a Unix-like environment (macOS or Linux).
-- Callout boxes highlight important notes, tips, and warnings.
 
 ---
 
-*Aaron Steven White --- {{< meta date >}}*
+*Aaron Steven White*

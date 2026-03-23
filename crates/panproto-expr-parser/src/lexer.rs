@@ -130,9 +130,7 @@ fn insert_layout(input: &str, raw: &[Spanned]) -> Vec<Spanned> {
                 }
                 std::cmp::Ordering::Less => {
                     // Dedent: pop indent stack until we match or go below.
-                    while indent_stack.len() > 1
-                        && *indent_stack.last().unwrap_or(&0) > cur_col
-                    {
+                    while indent_stack.len() > 1 && *indent_stack.last().unwrap_or(&0) > cur_col {
                         indent_stack.pop();
                         result.push(Spanned {
                             token: Token::Dedent,
@@ -269,8 +267,8 @@ mod tests {
 
     #[test]
     fn float_literal() {
-        let tokens = tokenize("3.14").unwrap_or_default();
-        assert!(matches!(tokens[0].token, Token::Float(f) if (f - 3.14).abs() < f64::EPSILON));
+        let tokens = tokenize("3.125").unwrap_or_default();
+        assert!(matches!(tokens[0].token, Token::Float(f) if (f - 3.125).abs() < f64::EPSILON));
     }
 
     #[test]

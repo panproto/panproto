@@ -1,12 +1,15 @@
 # Protolenses: Reusable Lens Families {#sec-protolenses}
 
-In @sec-lenses we built lenses by hand: each lens was a pair of `get`/`put` operations connecting two specific schemas. If you had ten schemas that all underwent the same structural change---say, wrapping a flat `address` field into a nested `address` object---you wrote ten lenses. A protolens eliminates that repetition. It is not a lens; it is a function that produces a lens when given a schema.
+A protolens is a pair $(P, F)$: a precondition $P$ on schemas and a lens generator $F$ that produces a concrete lens for any schema satisfying $P$. For example, a `renameVertex("author", "creator")` protolens has precondition "schema contains vertex `author`" and produces, for each qualifying schema $S$, a lens $\ell_S : S \rightleftarrows F(S)$ where $F(S)$ is $S$ with `author` renamed to `creator`.
+
+The complement type depends on $S$ (see @sec-complement for what complements are). A `removeVertex("metadata")` protolens stores a string if `metadata` is a string vertex, or an object if `metadata` is structured. This schema-dependence is what makes protolenses more than templates.
+
 
 ## The problem with manual lenses {#sec-manual-lens-problem}
 
 Consider a platform that hosts user-defined schemas. Each schema has a `metadata` block with `createdAt` and `updatedAt` fields. A platform-wide policy change renames `createdAt` to `created_at` and `updatedAt` to `updated_at` (snake_case normalization).
 
-With the combinator API from @sec-combinators, you would write:
+With the combinator API from @sec-combinators, you'd write:
 
 ```{.typescript}
 // For schema A
@@ -15,7 +18,7 @@ const lensA = pipeline(
   renameField("metadata.updatedAt", "metadata.updated_at"),
 );
 
-// For schema B — identical logic, different schema
+// For schema B (identical logic, different schema)
 const lensB = pipeline(
   renameField("metadata.createdAt", "metadata.created_at"),
   renameField("metadata.updatedAt", "metadata.updated_at"),
@@ -24,21 +27,21 @@ const lensB = pipeline(
 // For schema C, D, E, F, ...
 ```
 
-The logic is the same every time. The only thing that varies is the schema the lens is instantiated against. What we want is a single object that encodes the *transformation pattern* and can be applied to any schema that matches a precondition.
+The logic is the same every time. The only thing that varies is the schema the lens is instantiated against. We want a single object that encodes the *transformation pattern* and can be applied to any schema that matches a precondition.
 
 That object is a protolens.
 
 
-## What a protolens is {#sec-protolens-definition}
+## Formal definition {#sec-protolens-definition}
 
-A protolens is a pair:
+A protolens consists of:
 
 1. A **precondition** $P$: a predicate on schemas. "Does this schema have a `metadata.createdAt` field?"
 2. A **lens generator**: for any schema $S$ satisfying $P(S)$, produce a concrete lens $\ell_S : S \rightleftarrows F(S)$, where $F(S)$ is the transformed schema.
 
-The schema $S$ is a parameter, not a fixed input. The precondition $P$ gates which schemas the protolens applies to. The output type depends on the input---different schemas produce different lenses with different complements.^[Formally, a protolens is a dependent function: given a schema satisfying a precondition, it returns a lens for that schema. The type signature $\Pi(S : \mathsf{Schema} \mid P(S)). \mathsf{Lens}(S, F(S))$ captures this — $S$ ranges over schemas satisfying predicate $P$, and $F$ is the schema transform. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+The schema $S$ is a parameter, not a fixed input. The precondition $P$ gates which schemas the protolens applies to. The output type depends on the input: different schemas produce different lenses with different complements.^[Formally, a protolens is a dependent function: given a schema satisfying a precondition, it returns a lens for that schema. The type signature $\Pi(S : \mathsf{Schema} \mid P(S)). \mathsf{Lens}(S, F(S))$ captures this. $S$ ranges over schemas satisfying predicate $P$, and $F$ is the schema transform. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
-This is the critical difference from [Cambria](https://www.inkandswitch.com/cambria/)-style combinators [@litt2022]. A Cambria combinator like `renameField("createdAt", "created_at")` is a lens between two *implicit* schemas. A panproto protolens is an explicit function that takes a schema argument and returns a lens.
+The lens laws from @sec-lenses (GetPut and PutGet) hold for every instantiated lens $\ell_S$. We don't re-derive them here; they're guaranteed by construction from the elementary protolens constructors.
 
 
 ## Schema transforms {#sec-schema-transforms}
@@ -84,7 +87,7 @@ const { view, complement } = lens.get(sourceData);
 const restored = lens.put(modifiedView, complement);
 ```
 
-The `instantiate` call checks the precondition against `concreteSchema`. If the schema does not satisfy the precondition, instantiation fails with a diagnostic:
+The `instantiate` call checks the precondition against `concreteSchema`. If the schema doesn't satisfy the precondition, instantiation fails with a diagnostic:
 
 ```
 error: protolens precondition not satisfied
@@ -103,24 +106,36 @@ for (const schema of schemas) {
     const lens = chain.instantiate(schema);
     console.log(`${schema.name}: lens ready`);
   } catch (e) {
-    console.log(`${schema.name}: not applicable — ${e.message}`);
+    console.log(`${schema.name}: not applicable: ${e.message}`);
   }
 }
 ```
 
+:::{.callout-caution}
+## What if a schema has already been transformed?
+
+If a schema has already undergone the transformation (e.g., `internalId` was already removed in a prior version), instantiation will fail. This is intentional: applying the same protolens twice would violate the precondition. Use `check_applicability` to filter schemas before instantiation.
+:::
+
 
 ## Commutativity with migration {#sec-naturality}
 
-Protolenses are not arbitrary functions from schemas to lenses. They satisfy a commutativity property: applying a protolens and then migrating gives the same result as migrating first and then applying the protolens. The order does not matter.^[This commutativity property is a *naturality condition* in the categorical sense. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+Protolenses satisfy a commutativity property: applying a protolens and then migrating gives the same result as migrating first and then applying the protolens.^[This commutativity property is a *naturality condition* in the categorical sense. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
-Concretely: suppose you have schema v1 and schema v2, with a migration between them. You also have a protolens that renames `createdAt` to `created_at`. You can either:
+Concretely: suppose we have schema v1 and schema v2, with a migration between them. We also have a protolens that renames `createdAt` to `created_at`. We can either:
 
 1. Migrate data from v1 to v2, *then* apply the rename protolens to v2 data, or
 2. Apply the rename protolens to v1 data, *then* migrate the renamed data from v1 to v2
 
 Both paths produce the same output. This is the commutativity property.
 
-In practice, this means you can apply a protolens at any point in a migration pipeline and get the same result. If you have a chain of schema versions $S_1 \to S_2 \to S_3$ and a protolens that renames `createdAt`, you can apply it to $S_1$ data or $S_3$ data---the result is consistent either way. Without this property, the order of application would matter, and composing protolenses with migrations would require careful sequencing.
+In practice, this means we can apply a protolens at any point in a migration pipeline and get the same result. If we have a chain of schema versions $S_1 \to S_2 \to S_3$ and a protolens that renames `createdAt`, we can apply it to $S_1$ data or $S_3$ data; the result is consistent either way. Without this property, the order of application would matter, and composing protolenses with migrations would require careful sequencing.
+
+:::{.callout-caution}
+## Does commutativity hold for all protolens constructors?
+
+Commutativity holds for all 11 elementary constructors and their compositions, provided the migration preserves the protolens's precondition. If the migration removes a vertex that the protolens requires, commutativity is vacuously satisfied (the protolens isn't applicable post-migration).
+:::
 
 
 ## The 11 elementary protolens constructors {#sec-elementary-protolenses}
@@ -239,10 +254,10 @@ const pl = Protolens.splitVertex("fullName", {
 
 In @sec-complement, we saw that the complement is a fixed data structure. For protolenses, the complement *depends on the schema*. A `removeVertex("internalId")` protolens produces different complement data for different schemas:
 
-- Schema A has `internalId: string` --- complement stores a string
-- Schema B has `internalId: { hash: bytes, counter: int }` --- complement stores an object
+- Schema A has `internalId: string`: complement stores a string
+- Schema B has `internalId: { hash: bytes, counter: int }`: complement stores an object
 
-The complement type is a function from schemas to types. In panproto's implementation, complements are dynamically typed (serialized as CBOR), so this dependence is handled at runtime rather than compile time. But the *structure* of the complement---which fields it contains, how they are nested---varies with the schema.
+The complement type is a function from schemas to types. In panproto's implementation, complements are dynamically typed (serialized as CBOR), so this dependence is handled at runtime rather than compile time. But the *structure* of the complement (which fields it contains, how they're nested) varies with the schema.
 
 This is why protolenses are more than simple templates. A template would produce the same complement structure every time. A protolens produces a complement whose structure matches the schema it was instantiated against.
 
@@ -255,7 +270,7 @@ The `prot protolens` command computes and displays the protolens chain between t
 $ prot protolens old.json new.json
 
 Protolens chain (3 steps):
-  1. RenameVertex("userName" → "handle")
+  1. RenameVertex("userName" -> "handle")
   2. RemoveVertex("internalId")
      complement: stores { internalId: string }
   3. AddVertex("version", default: 1)
@@ -274,8 +289,8 @@ You can instantiate the chain against a specific schema:
 $ prot protolens old.json new.json --instantiate my-schema.json
 
 Instantiated lens for "my-schema-v2":
-  get: my-schema-v2 → my-schema-v2' (3 fields affected)
-  put: my-schema-v2' × complement → my-schema-v2
+  get: my-schema-v2 -> my-schema-v2' (3 fields affected)
+  put: my-schema-v2' x complement -> my-schema-v2
   complement size: ~48 bytes per record
 ```
 
@@ -380,7 +395,7 @@ Serialization matters in three scenarios:
 
 1. **Distributing migration policies across teams.** A platform team defines a protolens chain and publishes it as a JSON artifact. Downstream teams apply it to their own schemas without regenerating the chain.
 2. **Storing chains in VCS.** Protolens chains committed alongside schema versions provide an auditable migration history.
-3. **Deferred application.** A chain created today can be applied to schemas that do not yet exist. When a new schema arrives, deserialize the chain and instantiate.
+3. **Deferred application.** A chain created today can be applied to schemas that don't yet exist. When a new schema arrives, deserialize the chain and instantiate.
 
 From the CLI:
 
@@ -414,7 +429,7 @@ else:
     lens = chain.instantiate(schema)
 ```
 
-The boolean `applicable_to` tells you *whether* a chain applies. `check_applicability` tells you *why not*---which step failed, what sort or operation is missing, and what the schema would need for the step to succeed.
+The boolean `applicable_to` tells you *whether* a chain applies. `check_applicability` tells you *why not*: which step failed, what sort or operation is missing, and what the schema would need for the step to succeed.
 
 From the CLI:
 
@@ -478,13 +493,13 @@ Fleet migration report:
 ```
 
 
-## Related work and comparison {#sec-protolens-related-work}
+## Related work {#sec-protolens-related-work}
 
-The term "protolens" is specific to panproto. The concept---a schema-parameterized lens family with schema-dependent complements---does not appear under this name in the existing literature. But it draws on and extends several established ideas.
+The term "protolens" is specific to panproto. The concept (a schema-parameterized lens family with schema-dependent complements) doesn't appear under this name in the existing literature. But it draws on and extends several established ideas.
 
 ### Lenses (Foster et al. 2007)
 
-The asymmetric lens framework of @foster2007 defines a lens as a pair of `get`/`put` functions between two *fixed* types, satisfying the GetPut and PutGet laws. This is the foundation panproto builds on. The key limitation a protolens addresses: a Foster-style lens is bound to a specific source and view type. If you want the same transformation (say, renaming a field) applied across many schemas, you write many lenses. A protolens writes one.
+The asymmetric lens framework of @foster2007 defines a lens as a pair of `get`/`put` functions between two *fixed* types, satisfying the GetPut and PutGet laws (@sec-lenses). The key limitation a protolens addresses: a Foster-style lens is bound to a specific source and view type. If you want the same transformation (say, renaming a field) applied across many schemas, you write many lenses. A protolens writes one.
 
 See: [Combinators for Bidirectional Tree Transformations](https://doi.org/10.1145/1232420.1232424)
 
@@ -496,28 +511,28 @@ The distinction is in how schemas are handled:
 
 | | [Cambria](https://www.inkandswitch.com/cambria/) | panproto protolenses |
 |---|---------|---------------------|
-| **Schema awareness** | Implicit---operates on whatever JSON document you hand it | Explicit---takes a schema as input, checks preconditions |
+| **Schema awareness** | Implicit: operates on whatever JSON document you hand it | Explicit: takes a schema as input, checks preconditions |
 | **Scope** | Flat JSON objects | Recursive schemas with arbitrary nesting, any protocol |
-| **Complement** | Implicit (encoded in edit lens state) | Explicit and schema-dependent---different schemas produce different complement structures |
-| **Precondition checking** | None---silently passes through unknown fields | Verified at instantiation time with diagnostic messages |
+| **Complement** | Implicit (encoded in edit lens state) | Explicit and schema-dependent: different schemas produce different complement structures |
+| **Precondition checking** | None: silently passes through unknown fields | Verified at instantiation time with diagnostic messages |
 | **Reuse across schemas** | Copy-paste combinator code | Single protolens chain, instantiated against many schemas |
 | **Commutativity** | Not formalized | Guaranteed: applying a protolens before or after migration produces the same result |
 
 : Cambria vs. panproto protolenses. {#tbl-cambria-comparison}
 
-Cambria's design is excellent for its domain: schema evolution in CRDT-based collaborative editors where schemas are implicit and changes are simple renames and additions. Protolenses target a different domain: platform-wide schema governance where changes must be verified across many schemas. If you work with a single schema that evolves incrementally, Cambria-style combinators (available in panproto via the `pipeline()` API from @sec-lenses) may be all you need.
+Cambria's design is well suited for its domain: schema evolution in CRDT-based collaborative editors where schemas are implicit and changes are simple renames and additions. Protolenses target a different domain: platform-wide schema governance where changes must be verified across many schemas. If you work with a single schema that evolves incrementally, Cambria-style combinators (available in panproto via the `pipeline()` API from @sec-lenses) may be all you need.
 
 See: [Project Cambria](https://www.inkandswitch.com/cambria/), [Symmetric Lenses](https://doi.org/10.1145/1926385.1926428)
 
 ### Polymorphic lenses / lens families (Kmett 2012)
 
-Haskell's [`lens`](https://hackage.haskell.org/package/lens) library defines a `Lens s t a b` with four type parameters, allowing the source and target types to differ. This is sometimes called a "lens family" --- a single lens definition that works across different type instantiations. panproto's protolenses are conceptually similar (one definition, many instantiations) but parameterized over *schemas* rather than *Haskell types*, and the parameterization affects the complement structure, not just the source/target types.
+Haskell's [`lens`](https://hackage.haskell.org/package/lens) library defines a `Lens s t a b` with four type parameters, allowing the source and target types to differ. This is sometimes called a "lens family": a single lens definition that works across different type instantiations. panproto's protolenses are conceptually similar (one definition, many instantiations) but parameterized over *schemas* rather than *Haskell types*, and the parameterization affects the complement structure, not just the source/target types.
 
 See: [lens on Hackage](https://hackage.haskell.org/package/lens)
 
 ### Delta lenses (Johnson and Rosebrugh 2013)
 
-Delta lenses [@johnson2013] generalize asymmetric lenses by making the source and view *categories* rather than sets, with `get` as a functor between them. This is the closest categorical framework to what protolenses do---a protolens can be understood as a delta lens where the source category is the category of schemas satisfying a precondition. panproto does not directly implement delta lenses, but the commutativity property of protolenses (applying a protolens commutes with schema migration) is the same kind of coherence condition that delta lenses formalize.
+Delta lenses [@johnson2013] generalize asymmetric lenses by making the source and view *categories* rather than sets, with `get` as a functor between them. This is the closest categorical framework to what protolenses do: a protolens can be understood as a delta lens where the source category is the category of schemas satisfying a precondition. panproto doesn't directly implement delta lenses, but the commutativity property of protolenses (applying a protolens commutes with schema migration) is the same kind of coherence condition that delta lenses formalize.
 
 See: [Delta Lenses and Opfibrations](https://doi.org/10.14279/tuj.eceasst.57.875)
 
@@ -527,6 +542,6 @@ Three things, taken together, distinguish protolenses from prior work:
 
 1. **Schema-dependent complements.** A `removeVertex("metadata")` protolens produces a complement storing a string if `metadata` is a string vertex, or an object if `metadata` is a structured vertex. The complement *type* varies with the schema. Neither Cambria nor the Haskell lens library tracks schema-dependent complement structure.
 
-2. **Precondition checking with diagnostics.** Instantiation verifies that a schema satisfies the protolens's requirements and reports which step failed and why. Cambria combinators do not check preconditions---they silently pass through fields they don't recognize.
+2. **Precondition checking with diagnostics.** Instantiation verifies that a schema satisfies the protolens's requirements and reports which step failed and why. Cambria combinators don't check preconditions; they silently pass through fields they don't recognize.
 
-3. **Commutativity with migration.** Applying a protolens before or after a schema migration produces the same result. This is not a property of Cambria combinators (which don't have a formal migration framework to commute with) or of Haskell lens families (which don't operate in a schema-migration context).
+3. **Commutativity with migration.** Applying a protolens before or after a schema migration produces the same result. This isn't a property of Cambria combinators (which don't have a formal migration framework to commute with) or of Haskell lens families (which don't operate in a schema-migration context).

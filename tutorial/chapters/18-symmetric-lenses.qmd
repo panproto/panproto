@@ -1,19 +1,13 @@
 # Symmetric Lenses and Schema Merging {#sec-symmetric-lenses}
 
-Asymmetric lenses assume a direction: one schema is the "source" and the other is the "view." This works when one schema is a refinement of the other---a newer version, a projection, a subset. But many real situations have no natural direction:
+A symmetric lens is a bidirectional transformation where both sides can be modified and neither side's changes take priority by default. Formally, a symmetric lens between schemas $S_1$ and $S_2$ is a span of asymmetric lenses: $S_1 \xleftarrow{\ell_1} O \xrightarrow{\ell_2} S_2$, where $O$ is the overlap schema and $\ell_1$, $\ell_2$ are the two legs. We need symmetric lenses whenever there's no natural direction between two schemas.
 
-- **Cross-protocol sync.** An ATProto post and a Mastodon status are independent representations of the same concept. Neither is a view of the other.
-- **Diverged branches.** Two teams fork a schema and evolve it independently. After six months, both versions are equally authoritative.
-- **Multi-system integration.** A CRM and an ERP system both have "customer" records. Neither system's schema is primary.
-
-In these cases, we need a **symmetric lens**: a bidirectional transformation where both sides can be modified, and neither side's changes take priority by default.
+An ATProto post and a Mastodon status are independent representations of the same concept; neither is a view of the other. Two teams that fork a schema and evolve it independently for six months produce equally authoritative versions. A CRM and an ERP system both have "customer" records with no primary schema. In all three cases, asymmetric lenses (@sec-lenses) don't apply.
 
 
 ## The overlap construction {#sec-span-construction}
 
-A symmetric lens has three parts: the overlap schema (what both schemas agree on), and a lens from the overlap to each full schema.^[Formally, a symmetric lens between $S_1$ and $S_2$ is a span of asymmetric lenses: $S_1 \xleftarrow{\ell_1} O \xrightarrow{\ell_2} S_2$, where $O$ is the overlap schema and $\ell_1$, $\ell_2$ are the two legs.]
-
-The overlap schema $O$ captures the largest common structure between the two schemas. The left leg $\ell_1$ is an asymmetric lens (see @sec-lenses) from $O$ to $S_1$. The right leg $\ell_2$ is an asymmetric lens from $O$ to $S_2$.
+The overlap schema $O$ captures the largest common structure between $S_1$ and $S_2$. The left leg $\ell_1$ is an asymmetric lens from $O$ to $S_1$. The right leg $\ell_2$ is an asymmetric lens from $O$ to $S_2$.
 
 To translate from $S_1$ to $S_2$:
 
@@ -30,7 +24,7 @@ The complements $c_1$ and $c_2$ are the "private state" of each side. They persi
 
 ## Building symmetric lenses from protolens chains {#sec-symmetric-from-protolens}
 
-In @sec-protolenses we introduced protolenses as schema-independent lens families. panproto combines the two ideas: it builds symmetric lenses *from protolens chains*, making cross-schema synchronization as automatic as within-schema migration.
+panproto combines protolenses (@sec-protolenses) with the span construction: it builds symmetric lenses *from protolens chains*, making cross-schema synchronization as automatic as within-schema migration.
 
 The algorithm:
 
@@ -46,13 +40,13 @@ import { SymmetricLensHandle } from "@panproto/core";
 // One call does steps 1-5
 const symLens = SymmetricLensHandle.fromSchemas(schemaA, schemaB);
 
-// Translate A → B
+// Translate A -> B
 const { data: bData, complement: cA } = symLens.forward(aData);
 
-// Translate B → A
+// Translate B -> A
 const { data: aData, complement: cB } = symLens.backward(bData);
 
-// Round-trip: A → B → A (using stored complement)
+// Round-trip: A -> B -> A (using stored complement)
 const { data: bModified } = symLens.forward(aData);
 // ... modify bModified ...
 const { data: aRestored } = symLens.backward(bModified, { complement: cA });
@@ -66,10 +60,10 @@ from panproto import SymmetricLensHandle
 # One call does steps 1-5
 sym_lens = SymmetricLensHandle.from_schemas(schema_a, schema_b)
 
-# Translate A → B
+# Translate A -> B
 b_data, c_a = sym_lens.forward(a_data)
 
-# Translate B → A
+# Translate B -> A
 a_data, c_b = sym_lens.backward(b_data)
 
 # Round-trip with complement
@@ -89,6 +83,12 @@ console.log(`Shared: ${overlap.vertices.length} vertices`);
 console.log(`A-only: ${symLens.leftComplement.length} vertices`);
 console.log(`B-only: ${symLens.rightComplement.length} vertices`);
 ```
+:::
+
+::: {.callout-caution}
+## Can the overlap be too small?
+
+If two schemas share only a single vertex, the overlap-based symmetric lens is technically valid but nearly useless: almost all data lives in the complements. What's the minimum overlap size at which a symmetric lens produces meaningful translations?
 :::
 
 
@@ -134,8 +134,8 @@ Team B renamed `email` to `emailAddress`, `createdAt` to `created_at`, and added
 const symLens = SymmetricLensHandle.fromSchemas(teamASchema, teamBSchema);
 
 console.log(symLens.overlap);
-// Overlap: { vertices: ["user", "handle"], edges: [user→handle] }
-// Renames detected: email↔emailAddress, createdAt↔created_at
+// Overlap: { vertices: ["user", "handle"], edges: [user->handle] }
+// Renames detected: email<->emailAddress, createdAt<->created_at
 
 console.log(symLens.leftOnly);   // ["role"]
 console.log(symLens.rightOnly);  // ["avatarUrl"]
@@ -159,7 +159,7 @@ const { data: teamBUser, complement } = symLens.forward(teamAUser);
 //   handle: "alice",
 //   emailAddress: "alice@example.com",
 //   created_at: "2024-06-01",
-//   avatarUrl: null,  // default — Team A doesn't have this
+//   avatarUrl: null,  // default: Team A doesn't have this
 // }
 // complement stores: { role: "admin" }
 
@@ -181,7 +181,7 @@ The email change propagated through the symmetric lens (via the overlap). The `r
 
 ### Merging the schemas
 
-If the teams decide to reunify, the merged schema gives them the combined result:^[The merged schema is the *pushout* $S_1 +_O S_2$ in the categorical sense---the smallest schema containing both $S_1$ and $S_2$, with the overlap identified. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+If the teams decide to reunify, the merged schema gives them the combined result.^[The merged schema is the *pushout* $S_1 +_O S_2$ in the categorical sense: the smallest schema containing both $S_1$ and $S_2$, with the overlap identified. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
 ```{.typescript}
 const mergedSchema = symLens.mergedSchema;
@@ -217,12 +217,12 @@ const { data: activityPubView } = symLens.fromOverlap(overlapData, "right", {
 });
 ```
 
-The overlap acts as a lingua franca---a minimal representation that both schemas can project to and reconstruct from.
+The overlap acts as a lingua franca: a minimal representation that both schemas can project to and reconstruct from.
 
 
 ## Sync semantics and conflict {#sec-sync-conflict}
 
-When both sides of a symmetric lens are modified independently, **conflicts** arise. Two users edit the same post---one via ATProto, one via ActivityPub---and both change the `text` field.
+When both sides of a symmetric lens are modified independently, **conflicts** arise. Two users edit the same post (one via ATProto, one via ActivityPub) and both change the `text` field.
 
 panproto's symmetric lenses handle conflicts through a three-way merge rooted at the overlap:
 
@@ -256,6 +256,12 @@ Fields outside the overlap are never in conflict: they belong exclusively to one
 panproto detects conflicts at the schema level: two different values for the same overlapping field. It does not resolve semantic conflicts (e.g., "is this rename intentional?"). Semantic conflict resolution is an application-level concern. panproto gives you the machinery to detect and surface conflicts; your application decides what to do with them.
 :::
 
+::: {.callout-caution}
+## What about non-overlapping conflicts?
+
+If Team A removes a vertex that Team B renamed, neither change touches the overlap directly, yet the resulting schemas are incompatible. How does panproto detect "structural divergence" conflicts that live outside the overlap?
+:::
+
 
 ## Lifting Across Protocols {#sec-lifting-across-protocols}
 
@@ -264,7 +270,7 @@ A protolens defined for one protocol can be **lifted** to another protocol via a
 ```{.typescript}
 import { liftProtolens, liftChain } from "@panproto/core";
 
-// A protolens that renames Vertex → Node in ATProto
+// A protolens that renames Vertex -> Node in ATProto
 const atprotoRename = Protolens.renameSort("Vertex", "Node");
 
 // A theory morphism from ATProto to SQL
@@ -292,13 +298,19 @@ sql_chain = lift_chain(atproto_chain, morphism)
 sql_lens = sql_chain.instantiate(sql_schema)
 ```
 
-The lift composes the protolens's endofunctor transforms with a `Pullback(morphism)` step: sort and operation references in preconditions are renamed through the morphism's sort and op maps. Complement constructors are preserved---a `DataCaptured` complement remains `DataCaptured` after lifting.
+The lift composes the protolens's endofunctor transforms with a `Pullback(morphism)` step: sort and operation references in preconditions are renamed through the morphism's sort and op maps. Complement constructors are preserved; a `DataCaptured` complement remains `DataCaptured` after lifting.
 
 From the CLI:
 
 ```{.sh}
 schema lens-lift chain.json atproto-to-sql.json --json
 ```
+
+::: {.callout-caution}
+## Does lifting preserve complement structure?
+
+When you lift a protolens chain from ATProto to SQL, the complements are "preserved." But the SQL-side schema may have different cardinalities for the affected sorts. Can the lifted chain produce larger (or smaller) complements than the original, even though the structural transformation is "the same"?
+:::
 
 
 ## Related work: Cambria and bidirectional JSON sync {#sec-symmetric-related}

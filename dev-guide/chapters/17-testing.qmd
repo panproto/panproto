@@ -1,6 +1,6 @@
 # Test Strategy and Property Testing {#sec-testing}
 
-panproto uses a layered testing strategy: fast unit tests for individual functions, integration tests that exercise cross-crate workflows, property-based tests for algebraic invariants, and TypeScript tests for the SDK. This chapter explains how each layer works and how to extend them.
+panproto uses a layered testing strategy: fast unit tests for individual functions, integration tests that exercise cross-crate workflows, property-based tests for algebraic invariants, and TypeScript tests for the SDK.
 
 ## Test Pyramid
 
@@ -129,7 +129,7 @@ proptest! {
 ```
 
 ::: {.callout-note}
-Strategies should generate structurally valid inputs (well-formed schemas with consistent vertices and edges). Testing with completely random bytes is not useful -- the interesting properties live in the space of valid structures.
+Strategies should generate structurally valid inputs (well-formed schemas with consistent vertices and edges). Testing with completely random bytes isn't useful; the interesting properties live in the space of valid structures.
 :::
 
 ### Shrinking
@@ -183,10 +183,10 @@ The `bench.yml` workflow runs on every PR against `main`. It:
 2. Runs `cargo bench --workspace` on both
 3. Compares results using `benchmark-action/github-action-benchmark`
 4. Posts a comment on the PR with a comparison table
-5. Alerts (but does not fail) if any benchmark regresses by more than 120% of the baseline
+5. Alerts (but doesn't fail) if any benchmark regresses by more than 120% of the baseline
 
 ::: {.callout-important}
-Benchmark results are inherently noisy on shared CI runners. A 120% threshold means the regression must be at least 20% worse than baseline to trigger an alert. If you see a spurious alert, re-run the workflow -- true regressions will be consistent.
+Benchmark results are inherently noisy on shared CI runners. A 120% threshold means the regression must be at least 20% worse than baseline to trigger an alert. If you see a spurious alert, re-run the workflow; true regressions will be consistent.
 :::
 
 ## VCS Workflow Tests
@@ -228,6 +228,12 @@ Run the CLI test suite:
 ```bash
 cargo nextest run -p panproto-cli --test cli_workflows
 ```
+
+::: {.callout-tip}
+## When should I add a property test vs. an integration test?
+
+Property tests are best for algebraic invariants (commutativity, associativity, round-trip laws) where the property should hold for *all* valid inputs. Integration tests are best for specific workflows where you need to verify that multiple crates cooperate correctly on a concrete example.
+:::
 
 ## Writing Tests for a New Feature
 

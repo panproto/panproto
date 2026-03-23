@@ -1,6 +1,6 @@
 //! Content-addressed storage for expressions.
 //!
-//! Expressions are serialized via MessagePack and stored as blob objects
+//! Expressions are serialized via `MessagePack` and stored as blob objects
 //! in the VCS, following the same pattern used for schemas and protocols.
 
 use panproto_expr::Expr;

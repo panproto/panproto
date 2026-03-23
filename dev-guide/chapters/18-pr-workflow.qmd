@@ -1,6 +1,6 @@
 # PR Workflow and CI {#sec-pr-workflow}
 
-Every change to panproto goes through a pull request with automated CI checks. This chapter documents the CI pipeline, how to reproduce checks locally, and what reviewers look for.
+Every change to panproto goes through a pull request with automated CI checks. We'll document the CI pipeline, how to reproduce checks locally, and what reviewers look for.
 
 ## CI Pipeline Overview
 
@@ -37,7 +37,7 @@ flowchart LR
 
 ## CI Jobs Explained
 
-### `fmt` -- Format Check
+### `fmt`: Format Check
 
 Verifies that all Rust code is formatted with `rustfmt`:
 
@@ -47,7 +47,7 @@ cargo fmt --all -- --check
 
 This is a fast, zero-dependency check. If it fails, run `cargo fmt --all` locally and commit the result.
 
-### `clippy` -- Lint Check
+### `clippy`: Lint Check
 
 Runs clippy with `-D warnings`, treating all warnings as errors:
 
@@ -57,7 +57,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Combined with the workspace lint configuration (pedantic + nursery + `unwrap_used = deny`), this catches a wide range of issues. Uses `rust-cache` for faster incremental runs.
 
-### `test` -- Test Suite
+### `test`: Test Suite
 
 Runs the full test suite on two Rust versions: stable and 1.85 (the MSRV). Uses `cargo-nextest` for parallel, isolated test execution:
 
@@ -65,9 +65,9 @@ Runs the full test suite on two Rust versions: stable and 1.85 (the MSRV). Uses 
 cargo nextest run --workspace
 ```
 
-Testing on both stable and MSRV ensures we do not accidentally use features from newer Rust editions.
+Testing on both stable and MSRV ensures we don't accidentally use features from newer Rust editions.
 
-### `wasm` -- WASM Build
+### `wasm`: WASM Build
 
 Verifies that the WASM crate compiles and packages correctly:
 
@@ -75,9 +75,9 @@ Verifies that the WASM crate compiles and packages correctly:
 wasm-pack build crates/panproto-wasm --target web
 ```
 
-This installs the `wasm32-unknown-unknown` target and uses `wasm-pack` to build the WASM binary. Failure here usually means a dependency pulled in something that does not compile to WASM (e.g., `std::fs`).
+This installs the `wasm32-unknown-unknown` target and uses `wasm-pack` to build the WASM binary. Failure here usually means a dependency pulled in something that doesn't compile to WASM (e.g., `std::fs`).
 
-### `doc` -- Documentation Build
+### `doc`: Documentation Build
 
 Builds rustdoc for the entire workspace with warnings treated as errors:
 
@@ -87,7 +87,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 
 This catches broken doc links, missing documentation on public items (via `missing_docs = warn`), and malformed doc comments.
 
-### `deny` -- Dependency Audit
+### `deny`: Dependency Audit
 
 Runs `cargo-deny` to check for:
 
@@ -98,7 +98,7 @@ Runs `cargo-deny` to check for:
 
 Configuration lives in `deny.toml` at the workspace root.
 
-### `ts` -- TypeScript Tests
+### `ts`: TypeScript Tests
 
 Depends on the `wasm` job (needs the built WASM binary). Runs the full TypeScript test suite and type checking:
 
@@ -108,7 +108,7 @@ cd sdk/typescript && pnpm test
 cd sdk/typescript && pnpm exec tsc --noEmit
 ```
 
-### `semver` -- Semver Compatibility Check
+### `semver`: Semver Compatibility Check
 
 Only runs on pull requests. Uses `cargo-semver-checks` to verify that public API changes are backward-compatible (or that the version has been bumped appropriately):
 
@@ -130,7 +130,7 @@ A separate `bench.yml` workflow runs on every PR against `main`:
 4. Posts a comparison table as a PR comment
 5. Alerts if any benchmark regresses by more than 120% of baseline
 
-The alert threshold is intentionally generous (20% regression) because CI runners have variable performance. The workflow does **not** fail the PR on regression -- it only posts a warning comment.
+The alert threshold is intentionally generous (20% regression) because CI runners have variable performance. The workflow does **not** fail the PR on regression; it only posts a warning comment.
 
 ## Reproducing CI Locally
 
@@ -224,5 +224,5 @@ Reviewers look for:
 - **Semver compliance**: are public API changes backward-compatible, or has the version been bumped?
 
 ::: {.callout-important}
-All CI jobs must pass before a PR can be merged. If a job fails, fix the issue and push -- do not ask reviewers to merge with failing checks.
+All CI jobs must pass before a PR can be merged. If a job fails, fix the issue and push; don't ask reviewers to merge with failing checks.
 :::

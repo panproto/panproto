@@ -1,6 +1,6 @@
-# `@panproto/core` --- The TypeScript SDK {#sec-typescript-sdk}
+# `@panproto/core`: The TypeScript SDK {#sec-typescript-sdk}
 
-The `@panproto/core` npm package is the primary way most developers interact with panproto. It wraps the WASM module in a fluent, type-safe API with automatic resource management. This chapter covers every public class and function in the SDK.
+The `@panproto/core` npm package is the primary way most developers interact with panproto. It wraps the WASM module in a fluent, type-safe API with automatic resource management.
 
 ::: {.callout-tip}
 For a quick-reference listing of all public APIs with parameter types, see [tutorial appendix B](https://panproto.dev/tutorial/appendices/B-api-reference.html).
@@ -78,13 +78,13 @@ classDiagram
 
 Key methods:
 
-- **`init(wasmUrl?)`** -- Async factory. Loads the WASM binary (bundled by default) and returns a ready instance.
-- **`protocol(name)`** -- Get or auto-register a built-in protocol (`atproto`, `sql`, `protobuf`, `graphql`, `json-schema`). Custom protocols must be registered first with `defineProtocol`.
-- **`defineProtocol(spec)`** -- Register a custom protocol specification.
-- **`migration(src, tgt)`** -- Start building a migration between two schemas.
-- **`checkExistence(src, tgt, builder)`** -- Validate a migration against protocol-derived existence conditions.
-- **`compose(m1, m2)`** -- Compose two compiled migrations into one.
-- **`diff(old, new)`** -- Compute a structural diff between two schemas.
+- **`init(wasmUrl?)`**: Async factory. Loads the WASM binary (bundled by default) and returns a ready instance.
+- **`protocol(name)`**: Get or auto-register a built-in protocol (`atproto`, `sql`, `protobuf`, `graphql`, `json-schema`). Custom protocols must be registered first with `defineProtocol`.
+- **`defineProtocol(spec)`**: Register a custom protocol specification.
+- **`migration(src, tgt)`**: Start building a migration between two schemas.
+- **`checkExistence(src, tgt, builder)`**: Validate a migration against protocol-derived existence conditions.
+- **`compose(m1, m2)`**: Compose two compiled migrations into one.
+- **`diff(old, new)`**: Compute a structural diff between two schemas.
 
 `Panproto` implements `Disposable`. When disposed, it releases all cached protocol handles:
 
@@ -98,7 +98,7 @@ A `Protocol` holds a WASM-side handle to the registered protocol specification a
 ```{.typescript include="../../sdk/typescript/src/protocol.ts" start-line=23 end-line=62}
 ```
 
-Five built-in protocol specs are provided: `ATPROTO_SPEC`, `SQL_SPEC`, `PROTOBUF_SPEC`, `GRAPHQL_SPEC`, and `JSON_SCHEMA_SPEC`. They are auto-registered on first access via `panproto.protocol('atproto')`.
+Five built-in protocol specs are provided: `ATPROTO_SPEC`, `SQL_SPEC`, `PROTOBUF_SPEC`, `GRAPHQL_SPEC`, and `JSON_SCHEMA_SPEC`. They're auto-registered on first access via `panproto.protocol('atproto')`.
 
 ## SchemaBuilder and BuiltSchema
 
@@ -129,12 +129,12 @@ The `compile()` method packs the mapping and sends it to the `compile_migration`
 ```{.typescript include="../../sdk/typescript/src/migration.ts" start-line=181 end-line=228}
 ```
 
-- **`lift(record)`** -- Forward-only transformation. The hot path: data goes through WASM as MessagePack bytes with no intermediate JS-heap allocation.
-- **`get(record)`** -- Bidirectional get: extract a projected view and an opaque complement.
-- **`put(view, complement)`** -- Bidirectional put: restore a full record from a (possibly modified) view and the complement from `get`.
+- **`lift(record)`**: Forward-only transformation. The hot path: data goes through WASM as MessagePack bytes with no intermediate JS-heap allocation.
+- **`get(record)`**: Bidirectional get: extract a projected view and an opaque complement.
+- **`put(view, complement)`**: Bidirectional put: restore a full record from a (possibly modified) view and the complement from `get`.
 
 ::: {.callout-note}
-The `complement` from `get()` is an opaque `Uint8Array`. It captures the data discarded by the forward projection, enabling lossless round-tripping. Treat it as a black box -- its internal format is a MessagePack-encoded Rust `Complement` struct.
+The `complement` from `get()` is an opaque `Uint8Array`. It captures the data discarded by the forward projection, enabling lossless round-tripping. Treat it as a black box; its internal format is a MessagePack-encoded Rust `Complement` struct.
 :::
 
 ## WasmHandle and Resource Safety
@@ -146,11 +146,17 @@ Every WASM-side resource is wrapped in a `WasmHandle`, which implements `Disposa
 
 Two layers of safety prevent handle leaks:
 
-1. **`Symbol.dispose`** -- Explicit cleanup. Called automatically by `using` or manually by the consumer.
-2. **`FinalizationRegistry`** -- Safety net. If a `WasmHandle` is garbage-collected without being disposed, the registry calls `free_handle` to release the WASM resource.
+1. **`Symbol.dispose`**: Explicit cleanup. Called automatically by `using` or manually by the consumer.
+2. **`FinalizationRegistry`**: Safety net. If a `WasmHandle` is garbage-collected without being disposed, the registry calls `free_handle` to release the WASM resource.
 
 ::: {.callout-important}
 The `FinalizationRegistry` is a last resort, not a primary mechanism. GC timing is non-deterministic, so relying on it can cause resource exhaustion under load. Always prefer explicit disposal via `using` or `Symbol.dispose()`.
+:::
+
+::: {.callout-tip}
+## What if I forget to dispose a handle?
+
+The `FinalizationRegistry` will eventually clean it up, but "eventually" is unpredictable. Under load, leaked handles accumulate until GC runs, which can exhaust WASM memory. Always use `using` or explicit `[Symbol.dispose]()` calls.
 :::
 
 ## MessagePack Encoding Helpers
@@ -160,10 +166,10 @@ The `msgpack.ts` module provides four encoding helpers that wrap `@msgpack/msgpa
 ```{.typescript include="../../sdk/typescript/src/msgpack.ts" start-line=18 end-line=51}
 ```
 
-- **`packToWasm(value)`** -- Encode any JS value to MessagePack bytes for a WASM entry point.
-- **`unpackFromWasm<T>(bytes)`** -- Decode MessagePack bytes from WASM into a typed JS value.
-- **`packSchemaOps(ops)`** -- Encode a `SchemaOp[]` for the `build_schema` entry point.
-- **`packMigrationMapping(mapping)`** -- Encode a `MigrationMapping` for `compile_migration` or `check_existence`.
+- **`packToWasm(value)`**: Encode any JS value to MessagePack bytes for a WASM entry point.
+- **`unpackFromWasm<T>(bytes)`**: Decode MessagePack bytes from WASM into a typed JS value.
+- **`packSchemaOps(ops)`**: Encode a `SchemaOp[]` for the `build_schema` entry point.
+- **`packMigrationMapping(mapping)`**: Encode a `MigrationMapping` for `compile_migration` or `check_existence`.
 
 The `SchemaOp` interface uses serde's internally-tagged format: the `op` field acts as the discriminant, and all variant fields sit at the same level.
 
@@ -181,15 +187,15 @@ The `lens.ts` module provides three handle classes for bidirectional schema tran
 ```{.typescript include="../../sdk/typescript/src/lens.ts" start-line=265 end-line=326}
 ```
 
-- **`ProtolensChainHandle.autoGenerate(schema1, schema2, wasm)`** -- Auto-generate a protolens chain between two schemas.
-- **`ProtolensChainHandle.instantiate(schema)`** -- Instantiate the chain against a concrete schema.
-- **`ProtolensChainHandle.compose(other)`** -- Compose with another chain.
-- **`ProtolensChainHandle.fuse()`** -- Fuse all steps into a single protolens.
-- **`ProtolensChainHandle.lift(morphismBytes)`** -- Lift along a theory morphism.
-- **`LensHandle.autoGenerate(schema1, schema2, wasm)`** -- Auto-generate and instantiate a lens.
-- **`LensHandle.get(record)`** -- Forward projection: extract view and complement.
-- **`LensHandle.put(view, complement)`** -- Backward put: restore from view and complement.
-- **`LensHandle.checkLaws(instance)`** -- Verify GetPut and PutGet laws.
+- **`ProtolensChainHandle.autoGenerate(schema1, schema2, wasm)`**: Auto-generate a protolens chain between two schemas.
+- **`ProtolensChainHandle.instantiate(schema)`**: Instantiate the chain against a concrete schema.
+- **`ProtolensChainHandle.compose(other)`**: Compose with another chain.
+- **`ProtolensChainHandle.fuse()`**: Fuse all steps into a single protolens.
+- **`ProtolensChainHandle.lift(morphismBytes)`**: Lift along a theory morphism.
+- **`LensHandle.autoGenerate(schema1, schema2, wasm)`**: Auto-generate and instantiate a lens.
+- **`LensHandle.get(record)`**: Forward projection: extract view and complement.
+- **`LensHandle.put(view, complement)`**: Backward put: restore from view and complement.
+- **`LensHandle.checkLaws(instance)`**: Verify GetPut and PutGet laws.
 
 ## Schema Enrichment
 
@@ -281,13 +287,13 @@ const status = panproto.vcsStatus(repo);
 
 The `types.ts` module defines all TypeScript interfaces that mirror Rust structures. Key types include:
 
-- **`WasmExports`** -- The raw WASM module interface listing all entry points
-- **`ProtocolSpec`**, **`Vertex`**, **`Edge`**, **`HyperEdge`**, **`Constraint`** -- Schema domain types
-- **`MigrationSpec`**, **`LiftResult`**, **`GetResult`** -- Migration domain types
-- **`ExistenceReport`**, **`ExistenceError`** -- Existence checking results
-- **`DiffReport`**, **`SchemaChange`**, **`Compatibility`** -- Schema diff results
-- **`TheorySpec`**, **`SortSpec`**, **`OperationSpec`**, **`EquationSpec`** -- GAT theory types
-- **`ProtolensChainSpec`**, **`ComplementConstructor`** -- Protolens types
+- **`WasmExports`**: The raw WASM module interface listing all entry points
+- **`ProtocolSpec`**, **`Vertex`**, **`Edge`**, **`HyperEdge`**, **`Constraint`**: Schema domain types
+- **`MigrationSpec`**, **`LiftResult`**, **`GetResult`**: Migration domain types
+- **`ExistenceReport`**, **`ExistenceError`**: Existence checking results
+- **`DiffReport`**, **`SchemaChange`**, **`Compatibility`**: Schema diff results
+- **`TheorySpec`**, **`SortSpec`**, **`OperationSpec`**, **`EquationSpec`**: GAT theory types
+- **`ProtolensChainSpec`**, **`ComplementConstructor`**: Protolens types
 
 ```{.typescript include="../../sdk/typescript/src/types.ts" start-line=187 end-line=199}
 ```
@@ -299,11 +305,11 @@ The SDK defines a four-class error hierarchy, all extending `PanprotoError`:
 ```{.typescript include="../../sdk/typescript/src/types.ts" start-line=516 end-line=557}
 ```
 
-- **`PanprotoError`** -- Base class for all panproto errors.
-- **`WasmError`** -- Errors from the WASM boundary (load failures, call failures, disposed handles).
-- **`SchemaValidationError`** -- Schema building errors, with a list of individual error strings.
-- **`MigrationError`** -- Migration compilation or composition errors.
-- **`ExistenceCheckError`** -- Existence check failures, bundling the full `ExistenceReport`.
+- **`PanprotoError`**: Base class for all panproto errors.
+- **`WasmError`**: Errors from the WASM boundary (load failures, call failures, disposed handles).
+- **`SchemaValidationError`**: Schema building errors, with a list of individual error strings.
+- **`MigrationError`**: Migration compilation or composition errors.
+- **`ExistenceCheckError`**: Existence check failures, bundling the full `ExistenceReport`.
 
 ## Usage Pattern
 
@@ -344,5 +350,5 @@ const result = migration.lift(inputRecord);
 ```
 
 ::: {.callout-tip}
-The `using` keyword (TC39 Explicit Resource Management) ensures all WASM handles are freed when the variables go out of scope. If your runtime does not support `using`, call `[Symbol.dispose]()` manually or use a `try/finally` block.
+The `using` keyword (TC39 Explicit Resource Management) ensures all WASM handles are freed when the variables go out of scope. If your runtime doesn't support `using`, call `[Symbol.dispose]()` manually or use a `try/finally` block.
 :::

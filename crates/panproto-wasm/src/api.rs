@@ -4156,19 +4156,17 @@ fn classify_complement(
 /// Returns `JsError` if tokenization or parsing fails.
 #[wasm_bindgen]
 pub fn parse_expr(source: &str) -> Result<Vec<u8>, JsError> {
-    let tokens =
-        panproto_expr_parser::tokenize(source).map_err(|e| WasmError::ParseFailed {
-            reason: e.to_string(),
-        })?;
+    let tokens = panproto_expr_parser::tokenize(source).map_err(|e| WasmError::ParseFailed {
+        reason: e.to_string(),
+    })?;
 
-    let expr =
-        panproto_expr_parser::parse(&tokens).map_err(|errs| WasmError::ParseFailed {
-            reason: errs
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("; "),
-        })?;
+    let expr = panproto_expr_parser::parse(&tokens).map_err(|errs| WasmError::ParseFailed {
+        reason: errs
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; "),
+    })?;
 
     rmp_serde::to_vec(&expr).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
@@ -4185,7 +4183,7 @@ pub fn parse_expr(source: &str) -> Result<Vec<u8>, JsError> {
 /// Returns the result as `MessagePack`-encoded [`panproto_expr::Literal`].
 ///
 /// This evaluates expressions from the pure functional language (lambda
-/// calculus with builtins), as opposed to [`eval_expr`] which evaluates
+/// calculus with builtins), as opposed to `eval_expr` which evaluates
 /// GAT terms against a theory.
 ///
 /// # Errors
@@ -4198,8 +4196,8 @@ pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, Js
             reason: format!("expr: {e}"),
         })?;
 
-    let bindings: Vec<(String, panproto_expr::Literal)> =
-        rmp_serde::from_slice(env_bytes).map_err(|e| WasmError::DeserializationFailed {
+    let bindings: Vec<(String, panproto_expr::Literal)> = rmp_serde::from_slice(env_bytes)
+        .map_err(|e| WasmError::DeserializationFailed {
             reason: format!("env: {e}"),
         })?;
 

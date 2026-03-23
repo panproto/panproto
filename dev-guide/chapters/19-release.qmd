@@ -40,7 +40,7 @@ Crates must be published in dependency order. The `publish-crates` job publishes
 Each crate is published with `--no-verify` to skip local rebuild (CI has already verified the build). The `CARGO_REGISTRY_TOKEN` secret authenticates with crates.io.
 
 ::: {.callout-important}
-If a crate publish fails mid-pipeline (e.g., due to a network error or version conflict), the remaining crates will not be published. You may need to manually publish the failed crate and re-run the workflow, or bump the version and create a new tag.
+If a crate publish fails mid-pipeline (e.g., due to a network error or version conflict), the remaining crates won't be published. You may need to manually publish the failed crate and re-run the workflow, or bump the version and create a new tag.
 :::
 
 ## WASM and npm Publishing
@@ -117,7 +117,7 @@ Two documentation sites auto-deploy on push to `main`:
 - **Tutorial** (`publish-tutorial.yml`): The user-facing tutorial at `panproto.dev/tutorial/` is built with Quarto and deployed to GitHub Pages.
 - **Dev guide**: This developer guide at `panproto.dev/dev-guide/` follows the same pattern.
 
-Both workflows build the Quarto site and push the rendered HTML to the `gh-pages` branch. Deployment is automatic -- no manual steps are required after merging to `main`.
+Both workflows build the Quarto site and push the rendered HTML to the `gh-pages` branch. Deployment is automatic; no manual steps are required after merging to `main`.
 
 ## Pre-Release Checklist
 

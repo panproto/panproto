@@ -125,10 +125,7 @@ fn write_expr(buf: &mut String, expr: &Expr, ctx: Prec) {
             buf.push(']');
         }
 
-        Expr::Match {
-            scrutinee,
-            arms,
-        } => {
+        Expr::Match { scrutinee, arms } => {
             write_match(buf, scrutinee, arms, ctx);
         }
 
@@ -278,7 +275,6 @@ fn write_let(buf: &mut String, name: &Arc<str>, value: &Expr, body: &Expr, ctx: 
         buf.push_str(" = ");
         write_expr(buf, value, Prec::Top);
         buf.push_str(" in ");
-        write_expr(buf, final_body, Prec::Top);
     } else {
         buf.push_str("let\n");
         for (n, v) in &bindings {
@@ -289,8 +285,8 @@ fn write_let(buf: &mut String, name: &Arc<str>, value: &Expr, body: &Expr, ctx: 
             buf.push('\n');
         }
         buf.push_str("in ");
-        write_expr(buf, final_body, Prec::Top);
     }
+    write_expr(buf, final_body, Prec::Top);
 
     if needs_parens {
         buf.push(')');
@@ -387,7 +383,7 @@ fn write_builtin(buf: &mut String, op: BuiltinOp, args: &[Expr], ctx: Prec) {
 /// Map a builtin op to its infix operator symbol, precedence, and associativity.
 ///
 /// Returns `None` for builtins that should use function call syntax.
-fn infix_info(op: BuiltinOp) -> Option<(&'static str, Prec, Assoc)> {
+const fn infix_info(op: BuiltinOp) -> Option<(&'static str, Prec, Assoc)> {
     match op {
         BuiltinOp::Or => Some(("||", Prec::Or, Assoc::Left)),
         BuiltinOp::And => Some(("&&", Prec::And, Assoc::Left)),
@@ -408,7 +404,7 @@ fn infix_info(op: BuiltinOp) -> Option<(&'static str, Prec, Assoc)> {
 }
 
 /// Get the next higher precedence level.
-fn next_prec(p: Prec) -> Prec {
+const fn next_prec(p: Prec) -> Prec {
     match p {
         Prec::Top => Prec::Pipe,
         Prec::Pipe => Prec::Or,
@@ -419,13 +415,12 @@ fn next_prec(p: Prec) -> Prec {
         Prec::AddSub => Prec::MulDiv,
         Prec::MulDiv => Prec::Unary,
         Prec::Unary => Prec::App,
-        Prec::App => Prec::Atom,
-        Prec::Atom => Prec::Atom,
+        Prec::App | Prec::Atom => Prec::Atom,
     }
 }
 
 /// Map a builtin op to its canonical function name for call syntax.
-fn builtin_name(op: BuiltinOp) -> &'static str {
+const fn builtin_name(op: BuiltinOp) -> &'static str {
     match op {
         BuiltinOp::Add => "add",
         BuiltinOp::Sub => "sub",
@@ -604,8 +599,7 @@ fn write_pattern(buf: &mut String, pat: &Pattern) {
                 buf.push(' ');
                 // Wrap constructor args in parens if they are themselves
                 // constructors with args (to avoid ambiguity).
-                let needs_parens =
-                    matches!(arg, Pattern::Constructor(_, a) if !a.is_empty());
+                let needs_parens = matches!(arg, Pattern::Constructor(_, a) if !a.is_empty());
                 if needs_parens {
                     buf.push('(');
                 }
@@ -625,8 +619,8 @@ mod tests {
 
     /// Parse a string, pretty print it, re-parse, and verify equality.
     fn round_trip(input: &str) {
-        let tokens1 = tokenize(input).expect("first lex failed");
-        let expr1 = parse(&tokens1).expect("first parse failed");
+        let tokens1 = tokenize(input).unwrap_or_else(|e| panic!("first lex failed: {e}"));
+        let expr1 = parse(&tokens1).unwrap_or_else(|e| panic!("first parse failed: {e:?}"));
         let printed = pretty_print(&expr1);
         let tokens2 = tokenize(&printed).unwrap_or_else(|e| {
             panic!("re-lex failed for {printed:?}: {e}");
@@ -660,15 +654,12 @@ mod tests {
 
     #[test]
     fn lit_float() {
-        prints_as(&Expr::Lit(Literal::Float(3.14)), "3.14");
+        prints_as(&Expr::Lit(Literal::Float(3.125)), "3.125");
     }
 
     #[test]
     fn lit_string() {
-        prints_as(
-            &Expr::Lit(Literal::Str("hello".into())),
-            r#""hello""#,
-        );
+        prints_as(&Expr::Lit(Literal::Str("hello".into())), r#""hello""#);
     }
 
     #[test]
@@ -707,10 +698,7 @@ mod tests {
     #[test]
     fn lambda_simple() {
         prints_as(
-            &Expr::Lam(
-                Arc::from("x"),
-                Box::new(Expr::Var(Arc::from("x"))),
-            ),
+            &Expr::Lam(Arc::from("x"), Box::new(Expr::Var(Arc::from("x")))),
             "\\x -> x",
         );
     }
@@ -851,10 +839,7 @@ mod tests {
     #[test]
     fn field_access() {
         prints_as(
-            &Expr::Field(
-                Box::new(Expr::Var(Arc::from("x"))),
-                Arc::from("name"),
-            ),
+            &Expr::Field(Box::new(Expr::Var(Arc::from("x"))), Arc::from("name")),
             "x.name",
         );
     }
@@ -1090,10 +1075,7 @@ mod tests {
     #[test]
     fn prefix_not() {
         prints_as(
-            &Expr::Builtin(
-                BuiltinOp::Not,
-                vec![Expr::Lit(Literal::Bool(true))],
-            ),
+            &Expr::Builtin(BuiltinOp::Not, vec![Expr::Lit(Literal::Bool(true))]),
             "not True",
         );
     }
@@ -1161,7 +1143,10 @@ mod tests {
         let expr = Expr::Match {
             scrutinee: Box::new(Expr::Lit(Literal::Bool(true))),
             arms: vec![
-                (Pattern::Lit(Literal::Bool(true)), Expr::Lit(Literal::Int(1))),
+                (
+                    Pattern::Lit(Literal::Bool(true)),
+                    Expr::Lit(Literal::Int(1)),
+                ),
                 (Pattern::Wildcard, Expr::Lit(Literal::Int(0))),
             ],
         };
@@ -1190,10 +1175,7 @@ mod tests {
                 ),
             ],
         };
-        prints_as(
-            &expr,
-            "case x of\n  True -> 1\n  False -> 0",
-        );
+        prints_as(&expr, "case x of\n  True -> 1\n  False -> 0");
     }
 
     #[test]
@@ -1287,10 +1269,7 @@ mod tests {
         let mut buf = String::new();
         write_pattern(
             &mut buf,
-            &Pattern::Constructor(
-                Arc::from("Just"),
-                vec![Pattern::Var(Arc::from("x"))],
-            ),
+            &Pattern::Constructor(Arc::from("Just"), vec![Pattern::Var(Arc::from("x"))]),
         );
         assert_eq!(buf, "Just x");
     }
@@ -1324,10 +1303,7 @@ mod tests {
     #[test]
     fn literal_list() {
         prints_as(
-            &Expr::Lit(Literal::List(vec![
-                Literal::Int(1),
-                Literal::Int(2),
-            ])),
+            &Expr::Lit(Literal::List(vec![Literal::Int(1), Literal::Int(2)])),
             "[1, 2]",
         );
     }

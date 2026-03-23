@@ -1,10 +1,8 @@
 # Advanced Internals: Building Blocks, Naming, Auto-Morphisms, and Type Checking {#sec-advanced-internals}
 
-This chapter covers four interconnected subsystems: the 27 building-block GATs that compose into protocol theories, the identity and naming layer, automatic morphism search and the extend/restrict (project data from the target schema onto the source schema, keeping only what the source schema expects)/complete triple, and the type-checking pipeline.
+panproto defines 27 building-block GATs. We'll build up from the three simplest, then catalog the rest.
 
 ## Building-Block Theories {#sec-building-blocks-section}
-
-panproto defines 27 building-block GATs that compose via colimit into protocol-specific schema and instance theories.
 
 ### Formal Invariants
 
@@ -12,19 +10,68 @@ Every building-block theory satisfies:
 
 1. **Sort closure**: every sort (a type in a formal theory, not a sorting operation) name in an operation's input/output types is declared in the theory's sorts list.
 2. **Equation well-typedness**: both sides of every equation have the same output sort.
-3. **No tautologies**: `lhs != rhs` syntactically for all equations.
+3. **No tautologies**: $\text{lhs} \neq \text{rhs}$ syntactically for all equations.
 
 ### The Property-to-Structure Principle
 
-Several building blocks encode conditional properties as unconditional equations by adding operations and dependent sorts.^[Rather than expressing injectivity as a conditional equation (which GATs cannot express), panproto adds a retraction operation that witnesses the property structurally. This is Cartmell's property-to-structure move [@cartmell1986].]
+Several building blocks encode conditional properties as unconditional equations by adding operations and dependent sorts.[^property-to-structure] For example, injectivity of coproduct injection is not `injection(v1) = injection(v2) -> v1 = v2` (a conditional equation, not expressible in GATs). Instead, ThCoproduct adds a retraction `variant_of : Vertex -> Variant` with the equation `variant_of(injection(v)) = v`. The retraction is *structure*, not a *property*.
 
-For example, injectivity of coproduct injection is not `injection(v1) = injection(v2) -> v1 = v2` (a conditional equation, not expressible in GATs). Instead, ThCoproduct adds a retraction `variant_of : Vertex -> Variant` with the equation `variant_of(injection(v)) = v`. The retraction is *structure*, not a *property*.
+[^property-to-structure]: Rather than expressing injectivity as a conditional equation (which GATs can't express), panproto adds a retraction operation that witnesses the property structurally. This is Cartmell's property-to-structure move [@cartmell1986].
 
 This separation yields a clean boundary: structural properties (transitivity, injectivity, uniqueness, optionality) belong in GAT sorts+equations; validation properties (cardinality, patterns, ranges) belong in ThConstraint.
 
+### The ThGraph to ThReflexiveGraph to ThCoproduct Progression
+
+The simplest theory is ThGraph: just vertices, edges, and two operations.
+
+```
+ThGraph
+  Sorts: Vertex, Edge
+  Ops:   src : Edge → Vertex
+         tgt : Edge → Vertex
+  Eqs:   (none)
+```
+
+ThReflexiveGraph extends ThGraph with identity edges and two equations that force `id` to be a section of both `src` and `tgt`:
+
+```
+ThReflexiveGraph
+  Sorts: Vertex, Edge
+  Ops:   id  : Vertex → Edge
+         src : Edge → Vertex
+         tgt : Edge → Vertex
+  Eqs:   src(id(v)) = v
+         tgt(id(v)) = v
+```
+
+Type check: `id(v) : Edge`, `src(id(v)) : Vertex`, `v : Vertex`. Both sides have sort Vertex.
+
+Without the equations, this is just ThGraph + an extra operation. The equations make the identity edge load-bearing.
+
+ThCoproduct adds the retraction pattern to encode injectivity:
+
+```
+ThCoproduct
+  Sorts: Vertex, Variant, Tag
+  Ops:   injection : Variant → Vertex
+         tag : Variant → Tag
+         variant_of : Vertex → Variant
+  Eq:    variant_of(injection(v)) = v
+```
+
+Type check: `injection(v) : Vertex`, `variant_of(injection(v)) : Variant`, `v : Variant`. Both sides have sort Variant.
+
+The equation `variant_of(injection(v)) = v` encodes that `variant_of` is a left inverse of `injection`. This is how panproto represents "injection is injective" without conditional equations.
+
+::: {.callout-note}
+## Why can't we just write `injection(v1) = injection(v2) implies v1 = v2`?
+
+GATs only support unconditional equations. Conditional equations (implications) would require dependent type theory or first-order logic. The retraction trick sidesteps this by adding structure (the `variant_of` operation) that *witnesses* the property.
+:::
+
 ### Theories with Equations
 
-#### ThRecursion --- Fold-Unfold
+#### ThRecursion: Fold-Unfold
 
 ```
 Sorts: Vertex, Mu
@@ -37,7 +84,7 @@ Type check: `fold(v) : Mu`, `unfold(fold(v)) : Vertex`, `v : Vertex`. Both sides
 
 This is the isorecursive fold-unfold law. `fold` is a section of `unfold`.
 
-#### ThReflexiveGraph --- Identity Edges
+#### ThReflexiveGraph: Identity Edges
 
 ```
 Sorts: Vertex, Edge
@@ -50,9 +97,7 @@ Eqs:   src(id(v)) = v
 
 Type check: `id(v) : Edge`, `src(id(v)) : Vertex`, `v : Vertex`. Both sides: Vertex.
 
-Without the equations, this is just ThGraph + an extra operation. The equations make the identity edge load-bearing.
-
-#### ThSymmetricGraph --- Involution
+#### ThSymmetricGraph: Involution
 
 ```
 Sorts: Vertex, Edge
@@ -69,7 +114,7 @@ Type checks:
 - `src(inv(e)) : Vertex`, `tgt(e) : Vertex`
 - `inv(inv(e)) : Edge`, `e : Edge`
 
-#### ThCoproduct --- Variant Retraction
+#### ThCoproduct: Variant Retraction
 
 ```
 Sorts: Vertex, Variant, Tag
@@ -81,7 +126,7 @@ Eq:    variant_of(injection(v)) = v
 
 Type check: `injection(v) : Vertex`, `variant_of(injection(v)) : Variant`, `v : Variant`. Both sides: Variant.
 
-#### ThPartial --- Definedness Witness
+#### ThPartial: Definedness Witness
 
 ```
 Sorts: Vertex, Defined
@@ -161,8 +206,6 @@ Type check: `witness(d) : Vertex`, `defined(witness(d)) : Defined`, `d : Defined
 
 This section covers the `panproto-gat` identifier abstraction, the unified naming layer, the morphism tower that cascades theory-level renames into data migrations, and the VCS rename detection heuristic.
 
-For the user-facing introduction to naming, see the [tutorial chapter on naming](@sec-naming).
-
 ### The `Ident` Abstraction
 
 **File**: `crates/panproto-gat/src/ident.rs`
@@ -177,7 +220,7 @@ pub struct Ident {
 }
 ```
 
-`PartialEq` and `Hash` use only `(scope, index)`, making comparisons O(1) regardless of name length. Renaming an identifier (via `ident.renamed("new_name")`) does not change its identity, so `HashMap<Ident, _>` entries survive renames without rehashing.
+`PartialEq` and `Hash` use only `(scope, index)`, making comparisons $O(1)$ regardless of name length. Renaming an identifier (via `ident.renamed("new_name")`) doesn't change its identity, so `HashMap<Ident, _>` entries survive renames without rehashing.
 
 `ScopeTag` is a monotonically increasing `u32` assigned via `ScopeTag::fresh()`. Each `Theory` or `SchemaBuilder` gets a unique scope at construction time. `ScopeTag::LEGACY` (scope 0) is used for deserializing old-format data via `Ident::from_legacy()`.
 
@@ -225,7 +268,7 @@ pub enum NameSite {
 
 **File**: `crates/panproto-gat/src/morphism.rs`
 
-A theory morphism `F: T1 -> T2` with `sort_map` and `op_map` induces schema-level renames:
+A theory morphism $F: T_1 \to T_2$ with `sort_map` and `op_map` induces schema-level renames:
 
 - Each `sort_map` entry where `old != new` becomes a `NameSite::VertexKind` rename
 - Each `op_map` entry where `old != new` becomes a `NameSite::EdgeKind` rename
@@ -236,7 +279,7 @@ This is analogous to [GATlab](https://algebraicjulia.github.io/GATlab.jl/)'s `Si
 
 **File**: `crates/panproto-schema/src/morphism.rs`
 
-An explicit schema morphism (a map F: S -> T):
+An explicit schema morphism (a map $F: S \to T$):
 
 ```rust
 pub struct SchemaMorphism {
@@ -270,7 +313,13 @@ Theory morphism  ──induce_schema_morphism──→  Schema morphism
 - `induce_data_migration(schema_morph, tgt_schema)`: Lowers to `CompiledMigration` for the restrict pipeline
 - `induce_migration_from_theory(theory_morph, src, tgt)`: Convenience function chaining both
 
-This implements the action described in @spivak2012: a schema morphism F induces the pullback on instances.^[A schema morphism F maps elements from one schema to another. The induced operation on instances works backward: it pulls data from the target schema back to the source schema. Formally, this is the pullback functor $\Delta_F$ [@spivak2012].]
+This implements the action described in @spivak2012: a schema morphism $F$ induces the pullback functor $\Delta_F$ on instances.
+
+::: {.callout-tip}
+## How does a theory rename become a data migration?
+
+A sort rename `Vertex → Node` in the theory becomes a vertex-kind rename in the schema, which becomes an anchor remap in the instance. Each level of the tower translates the same conceptual change into a more concrete representation.
+:::
 
 ### New Combinators
 
@@ -321,9 +370,9 @@ The `SchemaBuilder` API still accepts `&str` parameters, converting to `Name` in
 
 ## Automatic Morphisms: Extend, Restrict, and Complete {#sec-auto-morphisms-section}
 
-This section covers the automatic homomorphism search, the extend/restrict/complete operations,^[Extend pushes data forward along a migration ($\Sigma_F$), restrict pulls data backward ($\Delta_F$), and complete fills in missing data by computing products over fibers ($\Pi_F$). These three operations form an adjoint triple in categorical database theory [@spivak2012].] schema-level pushouts, overlap discovery, and the chase algorithm.
+This section covers the automatic homomorphism search, the extend/restrict/complete operations,[^adjoint-triple] schema-level pushouts, overlap discovery, and the chase algorithm.
 
-For the user-facing introduction, see the [tutorial chapter on automatic migration](@sec-auto-migration).
+[^adjoint-triple]: Extend pushes data forward along a migration ($\Sigma_F$), restrict pulls data backward ($\Delta_F$), and complete fills in missing data by computing products over fibers ($\Pi_F$). These three operations form an adjoint triple $\Sigma_F \dashv \Delta_F \dashv \Pi_F$ in categorical database theory [@spivak2012].
 
 ### Homomorphism Search
 
@@ -341,7 +390,7 @@ The homomorphism problem reduces to a constraint satisfaction problem:
 
 Backtracking search with forward checking:
 
-1. **Variable ordering**: MRV heuristic --- assign vertices with smallest domains first
+1. **Variable ordering**: MRV heuristic (assign vertices with smallest domains first)
 2. **Value selection**: try each domain value
 3. **Forward check**: after assignment, verify all unassigned neighbors still have valid domain values via `has_compatible_edge`
 4. **Edge compatibility**: requires matching edge kind between mapped vertex pairs; edge names are allowed to differ (name differences only affect quality scoring)
@@ -359,16 +408,16 @@ Backtracking search with forward checking:
 
 #### Quality Scoring
 
-`compute_quality` produces a score in [0.0, 1.0]:
+`compute_quality` produces a score in $[0.0, 1.0]$:
 
-- 50% weight: average name similarity (1 - edit_distance / max_length) across vertex pairs
+- 50% weight: average name similarity ($1 - \text{edit\_distance} / \text{max\_length}$) across vertex pairs
 - 50% weight: fraction of edges where source and target have the same label name
 
 #### Performance
 
-Schemas have O(10-100) vertices. The backtracking search with MRV and forward checking handles this scale easily. Worst case is exponential in the number of vertices with identical kinds, but the edge constraints prune aggressively.
+Schemas have $O(10\text{-}100)$ vertices. The backtracking search with MRV and forward checking handles this scale easily. Worst case is exponential in the number of vertices with identical kinds, but the edge constraints prune aggressively.
 
-### Extend (Left Kan Extension)
+### Extend (Left Kan Extension, $\Sigma_F$)
 
 **Files**: `crates/panproto-inst/src/wtype.rs` (`wtype_extend`), `crates/panproto-inst/src/functor.rs` (`functor_extend`)
 
@@ -391,7 +440,7 @@ Unlike `wtype_restrict`, extend keeps all mappable nodes rather than dropping un
 3. Fill missing columns with `Value::Null`
 4. Offset FK row indices for concatenated tables
 
-### Complete (Right Kan Extension)
+### Complete (Right Kan Extension, $\Pi_F$)
 
 **File**: `crates/panproto-inst/src/pi.rs`
 
@@ -428,18 +477,18 @@ pub struct SchemaOverlap {
 1. Merged vertices: all left vertices + non-overlapping right vertices (overlapping right vertices merge with their left counterpart)
 2. Merged edges: all left edges + right edges with remapped vertex references
 3. Constraint/metadata union for overlapping vertices
-4. Build morphisms: left->pushout (identity for left vertices), right->pushout (identity or remapped for right vertices)
+4. Build morphisms: left to pushout (identity for left vertices), right to pushout (identity or remapped for right vertices)
 5. Rebuild adjacency indices
 
 #### Universal Property
 
-For any schema C with morphisms from both left and right that agree on the overlap, there exists a unique morphism from the pushout to C.
+For any schema $C$ with morphisms from both left and right that agree on the overlap, there exists a unique morphism from the pushout to $C$.
 
 ### Overlap Discovery
 
 **File**: `crates/panproto-mig/src/overlap.rs`
 
-Uses `find_best_morphism` with `monic: true` in both directions (left->right and right->left), taking whichever produces more vertex pairs. The vertex map entries from the best morphism define the overlap pairs.
+Uses `find_best_morphism` with `monic: true` in both directions (left to right and right to left), taking whichever produces more vertex pairs. The vertex map entries from the best morphism define the overlap pairs.
 
 ### Chase Algorithm
 
@@ -496,11 +545,11 @@ Because `hom_search` is the most expensive step (exponential worst case), the au
 
 | Function | Direction | Instance Type | Module |
 |----------|-----------|---------------|--------|
-| `lift_wtype` | restrict | W-type | `lift.rs` |
-| `lift_functor` | restrict | Functor | `lift.rs` |
-| `lift_wtype_sigma` | extend | W-type | `lift.rs` |
-| `lift_functor_pi` | complete | Functor | `lift.rs` |
-| `lift_wtype_pi` | complete | W-type | `lift.rs` |
+| `lift_wtype` | restrict ($\Delta_F$) | W-type | `lift.rs` |
+| `lift_functor` | restrict ($\Delta_F$) | Functor | `lift.rs` |
+| `lift_wtype_sigma` | extend ($\Sigma_F$) | W-type | `lift.rs` |
+| `lift_functor_pi` | complete ($\Pi_F$) | Functor | `lift.rs` |
+| `lift_wtype_pi` | complete ($\Pi_F$) | W-type | `lift.rs` |
 
 ## The Type-Checking Pipeline {#sec-type-checking-pipeline-section}
 
@@ -525,11 +574,11 @@ flowchart TD
     style CLI fill:#fee8e8,stroke:#e81a1a
 ```
 
-**Level 0 -- GAT (panproto-gat)**: The `typecheck` module provides the primitive type-checking functions. These operate on `Term`, `Equation`, and `Theory` values and return `Result<_, GatError>`. This level has no knowledge of schemas, migrations, or the VCS.
+**Level 0 (GAT, `panproto-gat`)**: The `typecheck` module provides the primitive type-checking functions. These operate on `Term`, `Equation`, and `Theory` values and return `Result<_, GatError>`. This level has no knowledge of schemas, migrations, or the VCS.
 
-**Level 1 -- VCS (panproto-vcs)**: The `gat_validate` module wraps the GAT-level functions and collects their results into `GatDiagnostics`, a structured report of type errors, equation violations, and migration warnings. The `index` module stores these diagnostics in the staging area, and the `repo` module consults them during commit.
+**Level 1 (VCS, `panproto-vcs`)**: The `gat_validate` module wraps the GAT-level functions and collects their results into `GatDiagnostics`, a structured report of type errors, equation violations, and migration warnings. The `index` module stores these diagnostics in the staging area, and the `repo` module consults them during commit.
 
-**Level 2 -- CLI (panproto-cli)**: The CLI commands convert `VcsError::ValidationFailed` into user-facing `miette` diagnostics with source context, suggestions, and error codes.
+**Level 2 (CLI, `panproto-cli`)**: The CLI commands convert `VcsError::ValidationFailed` into user-facing `miette` diagnostics with source context, suggestions, and error codes.
 
 ### Level 0: GAT Type-Checking
 
@@ -553,7 +602,7 @@ Given a term, a variable typing context, and a theory, infers the output sort of
 pub fn infer_var_sorts(eq: &Equation, theory: &Theory) -> Result<VarContext, GatError>
 ```
 
-Infers variable sorts from an equation by walking both sides and collecting sort constraints from operation application sites. This eliminates the need for explicit sort annotations on equation variables --- the sorts are determined by the positions where variables appear.
+Infers variable sorts from an equation by walking both sides and collecting sort constraints from operation application sites. This eliminates the need for explicit sort annotations on equation variables; the sorts are determined by the positions where variables appear.
 
 #### typecheck_equation
 
@@ -594,7 +643,7 @@ The VCS layer integrates type-checking at three points in the schema evolution w
 
 #### GatDiagnostics
 
-The `GatDiagnostics` struct in `panproto-vcs::gat_validate` is the bridge between GAT-level errors and VCS-level validation:
+The `GatDiagnostics` struct in `panproto-vcs::gat_validate` bridges GAT-level errors and VCS-level validation:
 
 ```rust
 pub struct GatDiagnostics {
@@ -606,9 +655,9 @@ pub struct GatDiagnostics {
 
 - `type_errors` collects results from `typecheck_theory`. Each entry is the `Display` output of a `GatError`.
 - `equation_errors` collects results from `check_model_with_options`. Each entry describes a specific equation violation with its variable assignment and the values that disagreed.
-- `migration_warnings` collects structural warnings from `validate_migration` --- these are non-blocking issues like empty vertex maps or incoherent edge endpoints.
+- `migration_warnings` collects structural warnings from `validate_migration`; these are non-blocking issues like empty vertex maps or incoherent edge endpoints.
 
-The `is_clean()` method returns `true` only when both `type_errors` and `equation_errors` are empty. Migration warnings do not block commits.
+The `is_clean()` method returns `true` only when both `type_errors` and `equation_errors` are empty. Migration warnings don't block commits.
 
 #### Integration Point: schema add (Repository::add)
 
@@ -616,7 +665,7 @@ When `Repository::add` stages a schema, it runs GAT validation on the auto-deriv
 
 1. Compute the schema diff between HEAD and the new schema.
 2. Call `auto_mig::derive_migration` to produce a `Migration`.
-3. Call `gat_validate::validate_migration` to check migration structure --- the result populates `GatDiagnostics`.
+3. Call `gat_validate::validate_migration` to check migration structure; the result populates `GatDiagnostics`.
 4. Store the diagnostics in the `StagedSchema::gat_diagnostics` field.
 5. If `gat_diagnostics.has_errors()`, set `ValidationStatus::Invalid(diag.all_errors())`.
 
@@ -645,9 +694,9 @@ The `validate_theory_equations` function provides standalone theory type-checkin
 pub fn validate_theory_equations(theory: &Theory) -> GatDiagnostics
 ```
 
-This is called by the `schema validate` and `schema typecheck` CLI commands for schemas that are not part of a VCS repository. It runs `typecheck_theory` and collects any errors into `GatDiagnostics::type_errors`.
+This is called by the `schema validate` and `schema typecheck` CLI commands for schemas that aren't part of a VCS repository. It runs `typecheck_theory` and collects any errors into `GatDiagnostics::type_errors`.
 
-The `validate_schema_equations` function goes further by building a model (a concrete instance that satisfies a theory's requirements --- like a Rust struct implementing a trait) from the schema and running `check_model_with_options`:
+The `validate_schema_equations` function goes further by building a model from the schema and running `check_model_with_options`:
 
 ```rust
 pub fn validate_schema_equations(
@@ -701,7 +750,7 @@ The type-checking pipeline touches several subsystems beyond the primary `add`/`
 
 #### auto_mig
 
-The `auto_mig::derive_migration` function in `panproto-vcs` produces the migration that is subsequently validated. While `auto_mig` itself does not call type-checking functions, the quality of its output directly affects whether GAT validation passes. A poorly-derived migration (e.g., one that maps vertices to vertices of incompatible kinds) will produce `GatDiagnostics` with migration warnings.
+The `auto_mig::derive_migration` function in `panproto-vcs` produces the migration that is subsequently validated. While `auto_mig` itself doesn't call type-checking functions, the quality of its output directly affects whether GAT validation passes. A poorly-derived migration (e.g., one that maps vertices to vertices of incompatible kinds) will produce `GatDiagnostics` with migration warnings.
 
 #### Index Persistence
 
@@ -709,7 +758,7 @@ The `StagedSchema` struct in `panproto-vcs::index` stores `gat_diagnostics: Opti
 
 #### Merge and Rebase
 
-The merge and rebase pipelines do not currently run GAT type-checking on the merged result. Three-way merge operates at the schema level (vertices, edges, constraints), and the merged schema is validated structurally. GAT validation is deferred to the next `schema add` that stages the merged schema for further evolution.
+The merge and rebase pipelines don't currently run GAT type-checking on the merged result. Three-way merge operates at the schema level (vertices, edges, constraints), and the merged schema is validated structurally. GAT validation is deferred to the next `schema add` that stages the merged schema for further evolution.
 
 The merge pipeline does use GAT-level operations: it calls `pullback` to compute structural overlap between branches, and it constructs migration morphisms that are validated by `check_morphism`. These are correctness checks on the merge algorithm itself, not on the user's schema.
 
@@ -748,8 +797,8 @@ Storing `GatDiagnostics` in the index rather than re-computing them at commit ti
 
 #### Why skip_verify Exists
 
-The `--skip-verify` flag is an explicit escape hatch for situations where the type-checking pipeline produces false positives or where a work-in-progress schema intentionally violates equations. Without this flag, users would be blocked from committing legitimate intermediate states. The flag is named to make its risk visible: you are skipping verification, not disabling a cosmetic check.
+The `--skip-verify` flag is an explicit escape hatch for situations where the type-checking pipeline produces false positives or where a work-in-progress schema intentionally violates equations. Without this flag, users would be blocked from committing legitimate intermediate states. The flag is named to make its risk visible: you're skipping verification, not disabling a cosmetic check.
 
 #### Why Equation Checking is Bounded
 
-The `max_assignments` bound in `CheckModelOptions` prevents combinatorial explosion. An equation with 3 variables over a carrier of 100 elements requires 1,000,000 assignments; with 4 variables it is 100,000,000. The default bound of 10,000 catches most violations while keeping verification fast. Users who need exhaustive checking can raise the bound via `schema verify --max-assignments`.
+The `max_assignments` bound in `CheckModelOptions` prevents combinatorial explosion. An equation with 3 variables over a carrier of 100 elements requires $10^6$ assignments; with 4 variables it's $10^8$. The default bound of 10,000 catches most violations while keeping verification fast. Users who need exhaustive checking can raise the bound via `schema verify --max-assignments`.

@@ -5,22 +5,15 @@ id: sec-schema-migration-problem
 
 # The Schema Migration Problem
 
-Stripe has shipped over a hundred backward-incompatible API changes since 2011, each creating a new date-stamped version (e.g., `2017-05-24`). Every time they change a field name, tighten a constraint, or restructure a response object, they can't just update the schema---thousands of integrations depend on the old shape. Users are auto-pinned to the version active when they first make an API request, and version changes are encapsulated in transform modules. The result is a sprawling compatibility layer that consumes a meaningful fraction of their engineering effort.
+A *schema migration* maps data described by one schema to data described by another. The transformation must be safe, predictable, and (ideally) automated.
 
-Stripe isn't unusual. A team running Kafka with [Confluent Schema Registry](https://docs.confluent.io/platform/current/schema-registry/) tightens a constraint on an Avro schema---say, making a previously optional field required---and downstream consumers start rejecting messages. The Schema Registry supports seven compatibility modes (BACKWARD, BACKWARD_TRANSITIVE, FORWARD, FORWARD_TRANSITIVE, FULL, FULL_TRANSITIVE, and NONE), where the transitive variants check against *all* previous versions rather than just the last. Making a field required is only forward compatible (old schemas can still read the new data, but new schemas reject old data missing the field), so it breaks under the default BACKWARD mode. The interaction between constraint changes and compatibility modes is subtle enough that production incidents keep happening.
-
-Bluesky's ATProto protocol faces a version of the same problem at protocol scale. When the `app.bsky.feed.post` Lexicon evolves---`langs` for language tagging (2023), `labels` for content warnings (2023), `tags` for additional hashtags (2023), video embeds (2024)---every third-party client needs to handle both old and new record shapes. There's no central deployment; the records are already in people's repositories, immutable and content-addressed.
-
-These are all instances of the same underlying problem: **schema migration**. You have data described by one schema, you need it described by another, and the transformation has to be safe, predictable, and (ideally) automated.
-
+To see what this means concretely, here are four descriptions of the same entity: a social media post, modeled on Bluesky's `app.bsky.feed.post`.
 
 ## Four Schemas for a Post
 
-To make the problem concrete, here's a single entity---a social media post, roughly modeled on Bluesky's `app.bsky.feed.post`---described in four schema languages.
-
 ### ATProto Lexicon
 
-This is close to what Bluesky actually uses. Lexicon is a JSON-based schema language with protocol-specific concepts like NSIDs (namespaced identifiers) and record types.
+Lexicon is a JSON-based schema language with protocol-specific concepts: NSIDs (namespaced identifiers), record types, and grapheme-cluster counting.
 
 ```json
 {
@@ -60,7 +53,7 @@ This is close to what Bluesky actually uses. Lexicon is a JSON-based schema lang
 }
 ```
 
-The outer structure is ATProto-specific: the NSID `app.bsky.feed.post` identifies this record type across the network, and `"key": "tid"` specifies a timestamp-based ID strategy. Inside the `record` block, the shape language looks a lot like JSON Schema---`required` array, `properties` object, `type` annotations. `maxGraphemes` is Lexicon-specific: it counts Unicode grapheme clusters, not bytes or code points.
+The NSID `app.bsky.feed.post` identifies this record type across the network. `"key": "tid"` specifies a timestamp-based ID strategy. Inside the `record` block, the shape language resembles JSON Schema: `required` array, `properties` object, `type` annotations. `maxGraphemes` is Lexicon-specific: it counts Unicode grapheme clusters, not bytes or code points.
 
 ### SQL DDL (PostgreSQL)
 
@@ -73,7 +66,7 @@ CREATE TABLE posts (
 );
 ```
 
-SQL brings concepts the other formats don't have: identity (`PRIMARY KEY`), defaults (`DEFAULT now()`), and operational constraints enforced at write time (`NOT NULL`). The `TEXT[]` type is PostgreSQL's array syntax---other databases would model tags as a join table, which is itself a schema design decision with migration consequences.
+SQL brings concepts the other formats lack: identity (`PRIMARY KEY`), defaults (`DEFAULT now()`), and operational constraints enforced at write time (`NOT NULL`). The `TEXT[]` type is PostgreSQL's array syntax; other databases would model tags as a join table, which is itself a schema design decision with migration consequences.
 
 ### Protocol Buffers
 
@@ -91,7 +84,7 @@ message Post {
 }
 ```
 
-Protobuf's defining feature is field numbers (`= 1`, `= 2`, `= 3`), which decouple wire encoding from field names. You can rename a field without breaking existing consumers---but you can never reuse a field number. There's no built-in constraint language; if you want `maxLength` validation, you reach for [Buf](https://buf.build/) and its `protovalidate` toolchain.
+Protobuf's defining feature is field numbers (`= 1`, `= 2`, `= 3`), which decouple wire encoding from field names. You can rename a field without breaking existing consumers, but you can never reuse a field number. There's no built-in constraint language; `maxLength` validation requires an external tool like [Buf](https://buf.build/) and its `protovalidate` toolchain.
 
 ### GraphQL SDL
 
@@ -104,12 +97,12 @@ type Post {
 }
 ```
 
-GraphQL describes API surfaces, not storage. The `!` suffix means non-nullable---GraphQL's analog of `required`. `[String!]` is a nullable list of non-nullable strings (nullability is a type-level concern, not a separate constraint). There's no `maxLength` in the SDL; validation happens in resolvers or custom directives. A schema change here means every client query that touches the changed field needs to be checked for compatibility, which is what tools like [graphql-inspector](https://the-guild.dev/graphql/inspector) automate.
+GraphQL describes API surfaces, not storage. The `!` suffix means non-nullable (GraphQL's analog of `required`). `[String!]` is a nullable list of non-nullable strings; nullability is a type-level concern, not a separate constraint. There's no `maxLength` in the SDL. Validation happens in resolvers or custom directives.
 
 
 ## The Structural Pattern
 
-These four formats use different syntax, different terminology, and different operational semantics. But they all describe the same structural anatomy:
+These four formats use different syntax, different terminology, and different operational semantics. They all describe the same structural anatomy:
 
 | Concept          | ATProto Lexicon | SQL DDL       | Protobuf        | GraphQL SDL   |
 |------------------|-----------------|---------------|-----------------|---------------|
@@ -120,57 +113,37 @@ These four formats use different syntax, different terminology, and different op
 | Length constraint | maxLength       | VARCHAR(n)    | (external)      | (external)    |
 | List marker      | type: array     | ARRAY / table | repeated        | `[T]` syntax  |
 
-Every schema language has containers that hold named, typed members. Some members are required. Some have constraints. The differences are real---SQL has foreign keys, Protobuf has field numbers, GraphQL has nullability in its type system, Lexicon has grapheme counting---but they're parametric variations on a shared structure, not fundamentally different kinds of things.
+Every schema language has containers that hold named, typed members. Some members are required. Some have constraints. The differences are real (SQL has foreign keys, Protobuf has field numbers, GraphQL has nullability in its type system, Lexicon has grapheme counting), but they are parametric variations on a shared structure, not fundamentally different kinds of things.
 
-::: {.callout-note collapse="true" title="The full spectrum: 76 protocols"}
-panproto covers 76 protocols beyond these four, including JSON Schema, Avro, Thrift, OpenAPI, XML Schema (XSD), TypeScript interfaces, Cap'n Proto, FlatBuffers, FHIR, JSON-LD, MessagePack schemas, CBOR (CDDL), and many others. Each has its own container/member/type/constraint vocabulary, but the same structural pattern holds. The four formats above were chosen because they represent distinct traditions---decentralized protocol (ATProto), relational database (SQL), binary serialization (Protobuf), and API surface (GraphQL)---and because the migration problem manifests differently in each.
+::: {.callout-caution}
+## Question
+
+Which of these four languages can express that `tags` has at most 8 elements? Which cannot? What does this tell you about how migration between these languages must handle constraints?
+:::
+
+Each of these schemas is a directed graph $G = (V, E, s, t)$ where $V$ is a set of types, $E$ is a set of fields, and $s, t: E \to V$ map each field to its source and target. The post schema has three vertices (`Post`, `String`, `DateTime`) and three edges (`text`, `createdAt`, `tags`). We formalize this in @sec-schemas-have-in-common.
+
+::: {.callout-caution}
+## Question
+
+SQL has a `PRIMARY KEY` concept. Does any other language in the table above have an equivalent? What does this asymmetry mean for cross-protocol translation?
 :::
 
 
-## The Current Landscape
+## Building Schemas in panproto
 
-Developers aren't helpless here. Each protocol community has built migration and compatibility tooling:
-
-- **[Buf](https://buf.build/)** is the modern Protobuf toolchain. It lints `.proto` files, detects breaking changes between schema versions, and generates code. Its `buf breaking` command checks whether a new schema version is wire-compatible with the previous one. But it only works with Protobuf.
-
-- **[Atlas](https://atlasgo.io/)** handles SQL schema migrations. It computes diffs between database schemas, generates migration files, and applies them with safety checks. It supports PostgreSQL, MySQL, SQLite, and others. But it only works with SQL DDL.
-
-- **[Confluent Schema Registry](https://docs.confluent.io/platform/current/schema-registry/)** manages Avro, Protobuf, and JSON Schema for Kafka. It enforces compatibility rules (BACKWARD, FORWARD, FULL, NONE) when a producer tries to register a new schema version. It covers three formats, but only within the Kafka ecosystem, and its compatibility rules are coarse-grained.
-
-- **[graphql-inspector](https://the-guild.dev/graphql/inspector)** diffs GraphQL schemas, detects breaking changes, and validates operations against schema versions. It's precise and well-designed. But it only works with GraphQL.
-
-- **[Cambria](https://www.inkandswitch.com/cambria/)** [@litt2022] takes a different approach entirely: instead of checking compatibility, it uses *edit lenses* to bidirectionally transform data between schema versions. A Cambria lens describes how to convert data forward (old to new) and backward (new to old). This is powerful, but Cambria targets JSON-shaped data and doesn't generalize across protocol boundaries.
-
-Each of these tools solves the migration problem well for its target protocol. The gap is between them. If your system uses Protobuf for service-to-service communication, PostgreSQL for storage, GraphQL for client APIs, and ATProto for federation, you need four separate migration strategies, four separate compatibility checkers, four separate mental models. A field rename that's safe in Protobuf (thanks to field numbers) might be breaking in GraphQL (where clients query by field name). A constraint tightening that Schema Registry allows under FORWARD compatibility might violate Atlas's migration safety checks. There's no unified way to reason about a schema change that crosses protocol boundaries.
-
-
-## panproto's Approach
-
-panproto is a schematic version control system parameterized over algebraic theories.^[An algebraic theory is a formal declaration of the building blocks a schema language supports — its types, relationships, and laws. See @sec-schemas-have-in-common for the full explanation.] Instead of building one tool per protocol, it provides a single API that works across protocols by treating the differences between schema languages as *parameters* rather than *special cases*.
-
-The core idea: every schema language defines a vocabulary of structural concepts (containers, members, types, constraints), and every schema in that language is a specific instance (a concrete piece of data conforming to a schema) assembled from that vocabulary. panproto makes the vocabulary explicit and the instance construction uniform. When you add a new protocol, you declare its vocabulary; migration, diffing, compatibility checking, and bidirectional data transformation are derived automatically.
-
-This isn't about replacing Buf, Atlas, or Schema Registry. Those tools have deep protocol-specific knowledge that panproto leverages rather than reimplicates. panproto provides the cross-protocol layer: a single place to express "I renamed this field" or "I made this constraint stricter" and have the consequences computed for every protocol your system touches. The relationship between panproto and protocol-specific tools is analogous to the relationship between a type checker and a linter---they operate at different levels of abstraction and complement each other.
-
-
-## Building Schemas with panproto
-
-Here's what the unified API looks like in practice, using the panproto TypeScript SDK to build the same post schema for two different protocols.
+Here is the same post schema built with panproto's TypeScript SDK for two protocols.
 
 ### ATProto
 
 ```{.typescript include="../code/ts/01-atproto-schema.ts" snippet="build-schema"}
 ```
 
-In panproto's representation, schema types become **vertices** and the fields connecting them become **edges** — the graph structure from @sec-schemas-have-in-common. The builder API mirrors the Lexicon structure: vertices for the record, the inner object, and each property's type; edges connecting them; constraints attached to specific vertices. You get type checking and autocompletion, and the output is a valid Lexicon document.
+Schema types become **vertices** and the fields connecting them become **edges**: the graph structure that @sec-schemas-have-in-common makes precise. The builder API mirrors Lexicon's structure: vertices for the record, the inner object, and each property's type; edges connecting them; constraints attached to specific vertices.
 
 ### SQL
 
 ```{.typescript include="../code/ts/01-sql-schema.ts" snippet="build-schema"}
 ```
 
-Same pattern: vertices for the table and its column types, edges for the columns, constraints on the vertices. The vocabulary changes---`table` instead of `record`, `column` instead of `prop`---but the construction logic is identical.
-
-The structural similarity between these two code snippets is the point. The API doesn't paper over the differences between ATProto and SQL; it *parameterizes* over them. The ATProto builder knows about NSIDs, grapheme limits, and record keys. The SQL builder knows about column types, `NOT NULL`, and `DEFAULT`. But the shape of the construction---declare vertices, connect them with edges, attach constraints---is invariant across protocols.
-
-In @sec-schemas-have-in-common, we make this structural pattern precise and show that different schema languages need different kinds of graphs to represent their schemas. That distinction turns out to determine what migration operations are well-defined---and explains why a single-protocol tool can't easily generalize.
+Same pattern: vertices for the table and its column types, edges for the columns, constraints on the vertices. The vocabulary changes (`table` instead of `record`, `column` instead of `prop`), but the construction logic is identical. The shape of the construction (declare vertices, connect them with edges, attach constraints) is invariant across protocols. What varies is the vocabulary of vertex kinds, edge kinds, and constraint types. In @sec-schemas-have-in-common, we make this variation precise using algebraic theories.

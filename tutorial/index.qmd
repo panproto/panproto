@@ -1,25 +1,22 @@
 # Preface {.unnumbered}
 
-Every team that manages structured data eventually hits the same wall. You change a schema---add a field, rename a column, tighten a constraint---and something downstream breaks. A Protobuf client crashes on an unknown field number. A Kafka consumer rejects a message that no longer matches the registry. A SQL migration takes the database offline because it can't rewrite a table with foreign key dependents.
-
-The tools exist to handle each of these individually. [Buf](https://buf.build/) catches breaking Protobuf changes. [Atlas](https://atlasgo.io/) manages SQL DDL. [Confluent Schema Registry](https://docs.confluent.io/platform/current/schema-registry/) enforces Avro compatibility. [graphql-inspector](https://the-guild.dev/graphql/inspector) flags GraphQL regressions. But the underlying problem is identical every time: you have a source schema, a target schema, and data that needs to move from one to the other. The only thing that varies is what "schema" and "data" mean.
-
-**panproto** is a schematic version control system. Instead of hardcoding a particular schema language, it parameterizes over the *theory* (a formal description of a schema language's structural vocabulary — what kinds of entities, relationships, and constraints it supports) that defines what schemas look like and a separate theory describing what data looks like in that language. Migration validation, data transformation, bidirectional lenses, breaking-change detection---all derived from those two theories by the same algorithms, regardless of whether you are working with ATProto Lexicons, SQL DDL, Protobuf, GraphQL, or any of the [76 protocols panproto supports](appendices/C-protocol-catalog.qmd).
+panproto is a schematic version control system parameterized over algebraic theories. It derives migration validation, data transformation, bidirectional lenses, and breaking-change detection from the pair of theories that define a schema language: one theory for the shape of schemas, one for the shape of data. The same algorithms apply to ATProto Lexicons, SQL DDL, Protobuf, GraphQL, and [76 other protocols](appendices/C-protocol-catalog.qmd). This tutorial teaches you how to use them.
 
 ## What this tutorial covers
 
-The tutorial is organized in six parts:
+The tutorial is organized in seven parts:
 
-- **Part I** opens with the problem: why schema migration is hard, and why existing tools are protocol-specific.
-- **Part II** introduces the structural foundation: what all schemas have in common, and how panproto parameterizes over their differences.
-- **Part III** walks through migration end-to-end: writing, validating, and executing migrations, with bidirectional lenses and CI integration.
-- **Part IV** covers the practical toolkit: data lifting, custom protocols, schema version control, and cross-protocol translation.
-- **Part V** goes deeper: naming, automatic migration discovery, and the building-block theory library.
-- **Part VI** introduces automated lenses: protolenses (reusable lens families), automatic lens generation, and symmetric lenses for cross-schema sync.
+- **Part I**: the schema migration problem, concretely.
+- **Part II**: the structural foundation (schemas as graphs, theories, protocols as pairs of theories).
+- **Part III**: migration end-to-end (writing, validating, executing migrations; bidirectional lenses; CI integration).
+- **Part IV**: data lifting, custom protocols, schema version control, cross-protocol translation.
+- **Part V**: naming, automatic migration discovery, the building-block theory library, testing.
+- **Part VI**: automated lenses (protolenses, automatic lens generation, symmetric lenses).
+- **Part VII**: data versioning and value-dependent transforms.
 
 ## Who this is for
 
-You write software that handles structured data. You know what a Protobuf message, a SQL table, or a JSON Schema looks like. No category theory background is required---the tutorial introduces every concept it uses in practical terms, with formal foundations available in [Appendix A](appendices/A-formal-foundations.qmd) for those who want the mathematical details.
+You write software that handles structured data. You know what a Protobuf message, a SQL table, or a JSON Schema looks like. We introduce every algebraic concept as we need it; formal foundations are collected in [Appendix A](appendices/A-formal-foundations.qmd).
 
 ## Installation
 

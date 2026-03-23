@@ -1,12 +1,12 @@
 # Value-Dependent Migration {#sec-value-dependent-transforms}
 
-Structural schema transforms handle the easy cases: rename a vertex, drop an edge, wrap a field in a container. But real data is messier. Heading elements that encode level as a vertex name (`h1`, `h2`, `h3`). CSS class lists that determine which microformat a node participates in. Template names computed from integer attributes. None of these can be expressed as pure schema operations --- they depend on what the data *says*, not just what the schema *looks like*.
+Structural schema transforms handle the easy cases: rename a vertex, drop an edge, wrap a field in a container. But real data is messier. Heading elements encode level as a vertex name (`h1`, `h2`, `h3`). CSS class lists determine which microformat a node participates in. Template names are computed from integer attributes. None of these can be expressed as pure schema operations; they depend on what the data *says*, not just what the schema *looks like*.
 
-This chapter covers panproto's value-level field transform layer: the `FieldTransform` enum and `conditional_survival` predicate, which let migration logic reach inside nodes and act on their content.
+The `FieldTransform` enum and `conditional_survival` predicate form panproto's value-level field transform layer. Formally, a field transform is a partial function $f: \text{Env} \rightharpoonup \text{Env}$ where $\text{Env} = \text{FieldName} \to \text{Value}$ is the node's field environment. The `Case` variant makes this a dependent function: the choice of $f$ depends on a predicate $p: \text{Env} \to \{0, 1\}$ evaluated at runtime.
 
 ## Why structural transforms are not enough {#sec-why-value-transforms}
 
-Consider a document format that uses separate vertex types for each heading level: `h1`, `h2`, and `h3` are distinct vertices in the schema. A new version of the format collapses them into a single `heading` vertex with a `level` attribute. The structural rename is easy --- `RenameVertex("h1", "heading")` --- but that leaves you with three migrations that each produce `heading` nodes with no `level` attribute. The attribute has to come *from somewhere*.
+Consider a document format that uses separate vertex types for each heading level: `h1`, `h2`, and `h3` are distinct vertices in the schema. A new version of the format collapses them into a single `heading` vertex with a `level` attribute. The structural rename is easy (`RenameVertex("h1", "heading")`), but that leaves you with three migrations that each produce `heading` nodes with no `level` attribute. The attribute has to come *from somewhere*.
 
 Where it comes from is the original vertex name. The data says `h1`; you want `heading` with `level: 1`. That relationship is value-dependent: you need to know which old vertex name you started from in order to compute the new attribute value.
 
@@ -21,7 +21,7 @@ A node's `extra_fields` is a flat map from field names to values. But field valu
 `PathTransform` lets you apply any other field transform at a specified path within this tree:
 
 ```{.rust}
-// Rename "old_attr" → "new_attr" inside the "attrs" nested object
+// Rename "old_attr" -> "new_attr" inside the "attrs" nested object
 migration.add_path_transform(
     "heading",
     &["attrs"],
@@ -95,9 +95,15 @@ The `panproto_expr` evaluator runs the expression using `panproto_expr::EvalConf
 
 ## Case: conditional transforms based on runtime values {#sec-case-transform}
 
-`Case` is the dependent function space for field transforms: it applies different transforms depending on what the data says. Each branch is a (predicate, transforms) pair. The first branch whose predicate evaluates to `true` fires; the rest are skipped.
+`Case` is the dependent function space for field transforms. It applies different transforms depending on what the data says. Each branch is a (predicate, transforms) pair. The first branch whose predicate evaluates to `true` fires; the rest are skipped.
 
-The matchAttrs pattern --- one branch per attribute value --- is the canonical use case:
+Formally, given branches $(p_1, \vec{f}_1), \ldots, (p_k, \vec{f}_k)$ and environment $e$, the semantics are:
+
+$$\text{Case}(e) = \vec{f}_i(e) \quad \text{where } i = \min\{j : p_j(e) = \text{true}\}$$
+
+If no predicate matches, $e$ passes through unchanged.
+
+The matchAttrs pattern (one branch per attribute value) is the canonical use case:
 
 ```{.rust}
 use panproto_expr::{Expr, Literal, BuiltinOp, CaseBranch};
@@ -144,11 +150,17 @@ Predicates are evaluated with the same variable environment as `ComputeField`: a
 
 `Case` branches can contain any sequence of `FieldTransform` variants, including nested `Case` blocks and `PathTransform` wrappers. The transforms in the matching branch execute in order before moving on.
 
+::: {.callout-caution}
+## Is Case order-sensitive?
+
+Since `Case` fires the *first* matching branch, the order of branches matters. If two predicates overlap (e.g., `level < 3` and `level == 2`), the branch listed first wins. How should you order branches to avoid accidentally shadowing a more specific predicate with a more general one?
+:::
+
 ## ConditionalSurvival: value-dependent vertex survival {#sec-conditional-survival}
 
 The `FieldTransform` variants operate on nodes that have already survived the structural pass: their schema anchor vertex is in `surviving_verts`. `conditional_survival` adds a second, value-dependent gate *before* field transforms run.
 
-If a vertex has a conditional survival predicate, the predicate is evaluated against the node's `extra_fields`. If it returns `false`, the node is dropped --- treated exactly as if its anchor were not in `surviving_verts` at all. Its descendants (if any) undergo ancestor contraction just as they would for a structurally pruned node.
+If a vertex has a conditional survival predicate, the predicate is evaluated against the node's `extra_fields`. If it returns `false`, the node is dropped, treated exactly as if its anchor were not in `surviving_verts` at all. Its descendants (if any) undergo ancestor contraction just as they would for a structurally pruned node.
 
 ```{.rust}
 // Keep only "item" nodes where level == 2
@@ -165,6 +177,12 @@ migration.add_conditional_survival("item", predicate);
 This is the matchAttrs pattern at the survival level rather than the transform level. If you want to keep only those nodes of a given type that match a condition, use `add_conditional_survival`. If you want all nodes of that type to survive but behave differently depending on their values, use `add_case_transform`.
 
 The two interact cleanly: `conditional_survival` runs first. Nodes that pass the predicate then undergo `field_transforms` in the usual order.
+
+::: {.callout-caution}
+## What happens to dropped nodes' descendants?
+
+When `conditional_survival` drops a node, its children undergo ancestor contraction. If a dropped `heading` node has inline children (`strong`, `em`), do those children get re-parented to the dropped node's parent, or are they dropped recursively?
+:::
 
 ## Worked example: heading levels {#sec-heading-example}
 
@@ -198,10 +216,10 @@ migration.add_field_default("h3", "level", Value::Int(3));
 `add_field_default` uses the *source* vertex name as the key. The transform is registered against `"h1"`, which is the anchor name at the time the node is processed. The anchor is remapped to `"heading"` *after* field transforms run, so the lookup is against the original name.
 :::
 
-In the reverse direction --- migrating from the unified form back to the separate-vertex form --- the structural transforms map `heading` back to `h1`, `h2`, `h3`. But how does panproto know which heading node becomes `h1` versus `h2`? It does not, unless you add a `ConditionalSurvival` predicate for each target vertex. The full bidirectional version requires each target vertex to survive only for the matching level value:
+In the reverse direction (migrating from the unified form back to the separate-vertex form), the structural transforms map `heading` back to `h1`, `h2`, `h3`. But how does panproto know which heading node becomes `h1` versus `h2`? It doesn't, unless you add a `ConditionalSurvival` predicate for each target vertex. The full bidirectional version requires each target vertex to survive only for the matching level value:
 
 ```{.rust}
-// Reverse migration: heading → h1/h2/h3
+// Reverse migration: heading -> h1/h2/h3
 // Structural: RenameVertex("heading", "h1"), RenameVertex("heading", "h2"), ...
 // (This is actually a split, handled by the schema-level SplitVertex transform.)
 
@@ -217,6 +235,12 @@ migration.add_conditional_survival(
     ),
 );
 ```
+
+::: {.callout-caution}
+## Can ConditionalSurvival express disjunctions?
+
+The heading example uses one predicate per target vertex. If you needed a single vertex to survive when `level == 1` *or* `level == 2` (collapsing h1 and h2 into one target), can you express that with a single `ConditionalSurvival` predicate, or do you need a different mechanism?
+:::
 
 ## Worked example: CSS class-based matching {#sec-css-class-example}
 

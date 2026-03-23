@@ -1,16 +1,10 @@
 # Versioning Data with Schemas {#sec-data-versioning}
 
-Schemas evolve. Data does not evolve on its own. Every time you commit a schema version, the records written against a previous version fall out of sync. panproto versions both schemas and data, keeping them aligned through the commit DAG. This chapter covers the data versioning system that closes that gap.
+`schema migrate` walks the commit DAG, derives a protolens chain for each step, and applies the composed chain to every record. Formally, given a data set $D$ conforming to schema $S_i$ and a target schema $S_j$, the command computes the DAG path $S_i \to S_{i+1} \to \cdots \to S_j$, constructs the composed protolens chain $\pi_{j-1} \circ \cdots \circ \pi_i$, and applies the resulting lens $\ell = \text{inst}(\pi, S_i)$ to each record $d \in D$. Complements are stored so the process is reversible.
 
-## The problem: schema evolves, data stays behind {#sec-data-stays-behind}
+Consider a repository with three commits. Each commit introduced a schema change: a field was renamed, a vertex was added, an edge kind changed. Your `records/` directory still holds data written against the first schema. The data is *stale*; it conforms to a schema version that no longer matches HEAD. For three commits, manual migration is manageable. For thirty commits across five branches with merges, it is not.
 
-You have a repository with three commits. Each commit introduced a schema change: a field was renamed, a vertex was added, an edge kind changed. Your `records/` directory still holds data written against the first schema. The data is *stale*---it conforms to a schema version that no longer matches HEAD.
-
-Manual migration means deriving lenses for each schema transition and applying them in order. For three commits, that is manageable. For thirty commits across five branches with merges, it is not.
-
-`schema migrate` automates this. It walks the commit DAG from the data's schema version to HEAD, derives a protolens chain for each step, and applies the composed chain to every record in the directory. Complements are stored so the process is reversible.
-
-## `schema add --data` --- staging data alongside schema {#sec-add-data}
+## `schema add --data`: staging data alongside schema {#sec-add-data}
 
 The `--data` flag on `schema add` stages data files alongside the schema change:
 
@@ -40,7 +34,13 @@ Changes to be committed:
 
 The data snapshot is immutable. Once committed, it serves as the canonical "before" image for forward migration and as the restore target for backward migration.
 
-## `schema migrate` --- the one command you need {#sec-schema-migrate}
+::: {.callout-caution}
+## What happens if you stage data without a schema change?
+
+`schema add --data records/` snapshots data bound to the current schema version. If you haven't changed the schema, does this produce a redundant snapshot, or does the content-addressing deduplicate it?
+:::
+
+## `schema migrate`: the one command you need {#sec-schema-migrate}
 
 ```{.sh}
 schema migrate records/
@@ -64,8 +64,8 @@ schema migrate records/ --dry-run
 ```
 Dry run: 42 records in records/
   Path: abc123 -> def456 -> HEAD (2 steps)
-  Step 1: RenameVertex("userName" -> "handle") — lossless
-  Step 2: AddVertex("version", default: 1) — lossless
+  Step 1: RenameVertex("userName" -> "handle") : lossless
+  Step 2: AddVertex("version", default: 1) : lossless
   Complement: 0 bytes (all steps lossless)
   Result: 42 records migrated, 0 bytes complement stored
 ```
@@ -110,7 +110,7 @@ Backward migration fails if no complement exists for a given step. This happens 
 Complements are content-addressed. Two migrations that produce identical complement data share the same object. This deduplication keeps storage costs proportional to the actual data lost during migration, not the number of migration operations.
 :::
 
-## `schema status --data` --- knowing when data is stale {#sec-data-staleness}
+## `schema status --data`: knowing when data is stale {#sec-data-staleness}
 
 ```{.sh}
 schema status --data records/
@@ -119,7 +119,7 @@ schema status --data records/
 ```
 On branch main
 Data staleness:
-  records/ — 42 records at schema abc123 (3 commits behind HEAD)
+  records/ : 42 records at schema abc123 (3 commits behind HEAD)
     Path: abc123 -> def456 -> ghi789 -> HEAD
     Steps: RenameVertex, AddVertex, RemoveEdge
     Complement required: yes (RemoveEdge is lossy)
@@ -129,7 +129,13 @@ The `detect_staleness` function compares each data snapshot's `schema_id` agains
 
 This integrates with CI. A non-zero staleness count can fail a pipeline, ensuring data is always migrated before deployment.
 
-## `schema checkout --migrate` --- switching branches with data {#sec-checkout-migrate}
+::: {.callout-caution}
+## How does staleness interact with branches?
+
+If `records/` was migrated to HEAD on `main`, and you switch to a `feature` branch whose HEAD is three commits ahead of `main`, does `schema status --data` report staleness relative to `feature`'s HEAD or `main`'s?
+:::
+
+## `schema checkout --migrate`: switching branches with data {#sec-checkout-migrate}
 
 ```{.sh}
 schema checkout feature --migrate records/
@@ -145,7 +151,7 @@ This calls `Repository::checkout_with_data(target, data_dir)` under the hood. Th
 
 Without `--migrate`, `schema checkout` switches the schema but leaves data untouched. Subsequent `schema status --data` will show the data as stale.
 
-## `schema merge --migrate` --- merging with data {#sec-merge-migrate}
+## `schema merge --migrate`: merging with data {#sec-merge-migrate}
 
 ```{.sh}
 schema merge feature --migrate records/
@@ -178,7 +184,13 @@ repo.add(&schema)?;
 repo.commit("upgrade to ATProto v2", "alice")?;
 ```
 
-Protocol versioning matters for long-lived repositories where the metaschema itself changes over time. Without it, there is no record of *which* protocol a historical commit was validated against.
+Protocol versioning matters for long-lived repositories where the metaschema itself changes over time. Without it, there's no record of *which* protocol a historical commit was validated against.
+
+::: {.callout-caution}
+## What happens when you migrate data across a protocol boundary?
+
+If commit $C_1$ uses ATProto v1 and commit $C_2$ uses ATProto v2, does `schema migrate` compose protolens chains that span the protocol change? Or does it require separate migration steps for the protocol upgrade and the schema change?
+:::
 
 ## The full workflow {#sec-data-versioning-workflow}
 
@@ -200,7 +212,7 @@ schema commit -m "rename userName to handle, add version field"
 # Check staleness on main
 schema checkout main --migrate records/
 schema status --data records/
-# records/ is back at v1 — no staleness
+# records/ is back at v1; no staleness
 
 # Merge feature branch with data migration
 schema merge feature --migrate records/
@@ -208,7 +220,7 @@ schema merge feature --migrate records/
 
 # Verify: no staleness
 schema status --data records/
-# records/ — 42 records at schema HEAD (up to date)
+# records/ : 42 records at schema HEAD (up to date)
 
 # Backward migration if needed
 schema migrate records/ --backward

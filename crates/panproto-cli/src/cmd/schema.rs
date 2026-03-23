@@ -1137,6 +1137,10 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
             println!("Instance theory: {}", proto.instance_theory);
             println!("Object kinds: {}", proto.obj_kinds.len());
         }
+        vcs::Object::Expr(expr) => {
+            println!("expr {id}");
+            println!("{expr:?}");
+        }
     }
     Ok(())
 }
