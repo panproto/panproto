@@ -103,6 +103,9 @@ export interface WasmGlueModule {
   store_protocol_definition: WasmExports['store_protocol_definition'];
   get_protocol_definition: WasmExports['get_protocol_definition'];
   get_migration_complement: WasmExports['get_migration_complement'];
+  parse_expr: WasmExports['parse_expr'];
+  eval_func_expr: WasmExports['eval_func_expr'];
+  execute_query: WasmExports['execute_query'];
 }
 
 /**
@@ -213,6 +216,9 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       store_protocol_definition: glue.store_protocol_definition,
       get_protocol_definition: glue.get_protocol_definition,
       get_migration_complement: glue.get_migration_complement,
+      parse_expr: glue.parse_expr,
+      eval_func_expr: glue.eval_func_expr,
+      execute_query: glue.execute_query,
     };
 
     const memory: WebAssembly.Memory = initOutput.memory;

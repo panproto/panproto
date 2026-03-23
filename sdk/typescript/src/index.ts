@@ -86,6 +86,13 @@ export { SchemaEnrichment } from './enrichment.js';
 // Expression builder
 export { ExprBuilder } from './expr.js';
 
+// Expression parser and evaluator
+export { parseExpr, evalExpr, formatExpr } from './expr-parser.js';
+
+// Query engine
+export { executeQuery } from './query.js';
+export type { InstanceQuery, QueryMatch } from './query.js';
+
 // Coverage analysis
 export { MigrationAnalysis } from './coverage.js';
 
