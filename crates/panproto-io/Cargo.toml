@@ -31,19 +31,19 @@ rustc-hash = { workspace = true }
 bumpalo = { workspace = true }
 
 # SIMD-accelerated JSON parsing
-simd-json = "0.14"
+simd-json = "0.17"
 
 # Fast byte scanning
 memchr = "2.7"
 
 # XML parsing (zero-copy pull parser)
-quick-xml = "0.37"
+quick-xml = "0.39"
 
 # HTML parsing (SIMD-accelerated)
 tl = "0.7"
 
 # Markdown parsing (fast pull parser)
-pulldown-cmark = "0.12"
+pulldown-cmark = "0.13"
 
 [dev-dependencies]
 divan = { workspace = true }
