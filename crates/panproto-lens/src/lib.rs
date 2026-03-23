@@ -31,8 +31,10 @@ pub mod asymmetric;
 pub mod auto_lens;
 pub mod complement_type;
 pub mod compose;
+pub mod cost;
 pub mod diff_to_protolens;
 pub mod error;
+pub mod graph;
 pub mod laws;
 pub mod optic;
 pub mod protolens;
@@ -47,8 +49,10 @@ pub use complement_type::{
     complement_spec_at,
 };
 pub use compose::compose;
+pub use cost::{chain_cost, complement_cost};
 pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolens};
 pub use error::{LawViolation, LensError};
+pub use graph::LensGraph;
 pub use laws::{check_get_put, check_laws, check_put_get};
 pub use optic::{OpticKind, classify_transform};
 pub use protolens::{

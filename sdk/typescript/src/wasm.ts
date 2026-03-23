@@ -106,6 +106,12 @@ export interface WasmGlueModule {
   parse_expr: WasmExports['parse_expr'];
   eval_func_expr: WasmExports['eval_func_expr'];
   execute_query: WasmExports['execute_query'];
+  // Phase 12: Fiber, hom, and graph operations
+  fiber_at: WasmExports['fiber_at'];
+  fiber_decomposition_wasm: WasmExports['fiber_decomposition_wasm'];
+  poly_hom: WasmExports['poly_hom'];
+  preferred_conversion_path: WasmExports['preferred_conversion_path'];
+  conversion_distance: WasmExports['conversion_distance'];
 }
 
 /**
@@ -219,6 +225,12 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       parse_expr: glue.parse_expr,
       eval_func_expr: glue.eval_func_expr,
       execute_query: glue.execute_query,
+      // Phase 12: Fiber, hom, and graph
+      fiber_at: glue.fiber_at,
+      fiber_decomposition_wasm: glue.fiber_decomposition_wasm,
+      poly_hom: glue.poly_hom,
+      preferred_conversion_path: glue.preferred_conversion_path,
+      conversion_distance: glue.conversion_distance,
     };
 
     const memory: WebAssembly.Memory = initOutput.memory;

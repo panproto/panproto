@@ -93,6 +93,15 @@ export { parseExpr, evalExpr, formatExpr } from './expr-parser.js';
 export { executeQuery } from './query.js';
 export type { InstanceQuery, QueryMatch } from './query.js';
 
+// Fiber operations
+export { fiberAt, fiberDecomposition, type Fiber, type FiberDecomposition } from './fiber.js';
+
+// Internal hom
+export { polyHom } from './hom.js';
+
+// Graph operations
+export { preferredPath, distance, type GraphEdge, type PreferredPath } from './graph.js';
+
 // Coverage analysis
 export { MigrationAnalysis } from './coverage.js';
 

@@ -14,7 +14,7 @@ use panproto_core::{
     lens::{self, Complement},
     mig::{self, Migration},
     protocols,
-    schema::{self, SchemaBuilder},
+    schema::{self, Schema, SchemaBuilder},
     vcs::{self, Store as _},
 };
 use serde::{Deserialize, Serialize};
@@ -4224,6 +4224,9 @@ pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, Js
 ///
 /// The `query_bytes` are `MessagePack`-encoded [`inst::InstanceQuery`].
 /// The `instance_bytes` are `MessagePack`-encoded [`WInstance`].
+/// The `schema_bytes` are `MessagePack`-encoded [`Schema`]. If empty,
+/// a minimal placeholder schema is used (sufficient for queries that
+/// do not require schema-aware operations).
 /// Returns `MessagePack`-encoded query results as a list of match objects,
 /// each containing `node_id`, `anchor`, `value`, and `fields`.
 ///
@@ -4231,7 +4234,11 @@ pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, Js
 ///
 /// Returns `JsError` if deserialization fails.
 #[wasm_bindgen]
-pub fn execute_query(query_bytes: &[u8], instance_bytes: &[u8]) -> Result<Vec<u8>, JsError> {
+pub fn execute_query(
+    query_bytes: &[u8],
+    instance_bytes: &[u8],
+    schema_bytes: &[u8],
+) -> Result<Vec<u8>, JsError> {
     let query: inst::InstanceQuery =
         rmp_serde::from_slice(query_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("query: {e}"),
@@ -4242,7 +4249,23 @@ pub fn execute_query(query_bytes: &[u8], instance_bytes: &[u8]) -> Result<Vec<u8
             reason: format!("instance: {e}"),
         })?;
 
-    let matches = inst::execute_query(&query, &instance);
+    let schema: Schema = if schema_bytes.is_empty() {
+        SchemaBuilder::new(&schema::Protocol::default())
+            .vertex("_", "record", None)
+            .map_err(|e| WasmError::DeserializationFailed {
+                reason: format!("placeholder schema: {e}"),
+            })?
+            .build()
+            .map_err(|e| WasmError::DeserializationFailed {
+                reason: format!("placeholder schema: {e}"),
+            })?
+    } else {
+        rmp_serde::from_slice(schema_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("schema: {e}"),
+        })?
+    };
+
+    let matches = inst::execute_query(&query, &instance, &schema);
 
     // Convert QueryMatch results to a serializable form.
     let results: Vec<serde_json::Value> = matches
@@ -4271,6 +4294,231 @@ pub fn execute_query(query_bytes: &[u8], instance_bytes: &[u8]) -> Result<Vec<u8
         }
         .into()
     })
+}
+
+// ---------------------------------------------------------------------------
+// Fiber, hom, and graph operations (73-77)
+// ---------------------------------------------------------------------------
+
+/// Compute the fiber of a compiled migration at a specific target anchor.
+///
+/// Given a source instance and a migration, returns the IDs of all source
+/// nodes whose remapped anchor equals the given `target_anchor`.
+///
+/// Both `instance_bytes` and `migration_bytes` are `MessagePack`-encoded.
+/// Returns `MessagePack`-encoded `Vec<u32>`.
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization or serialization fails.
+#[wasm_bindgen]
+pub fn fiber_at(
+    instance_bytes: &[u8],
+    migration_bytes: &[u8],
+    target_anchor: &str,
+) -> Result<Vec<u8>, JsError> {
+    let instance: WInstance =
+        rmp_serde::from_slice(instance_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("instance: {e}"),
+        })?;
+
+    let migration: CompiledMigration =
+        rmp_serde::from_slice(migration_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("migration: {e}"),
+        })?;
+
+    let name = panproto_core::gat::Name::from(target_anchor);
+    let result = inst::fiber_at_anchor(&migration, &instance, &name);
+
+    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Compute fibers for all target anchors simultaneously.
+///
+/// Returns a map from target anchor name to source node IDs. Every source
+/// node appears in exactly one fiber (the fibers partition the source).
+///
+/// Both `instance_bytes` and `migration_bytes` are `MessagePack`-encoded.
+/// Returns `MessagePack`-encoded `HashMap<String, Vec<u32>>`.
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization or serialization fails.
+#[wasm_bindgen]
+pub fn fiber_decomposition_wasm(
+    instance_bytes: &[u8],
+    migration_bytes: &[u8],
+) -> Result<Vec<u8>, JsError> {
+    let instance: WInstance =
+        rmp_serde::from_slice(instance_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("instance: {e}"),
+        })?;
+
+    let migration: CompiledMigration =
+        rmp_serde::from_slice(migration_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("migration: {e}"),
+        })?;
+
+    let fibers = inst::fiber_decomposition(&migration, &instance);
+
+    let result: HashMap<String, Vec<u32>> = fibers
+        .into_iter()
+        .map(|(name, ids)| (name.to_string(), ids))
+        .collect();
+
+    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Construct the internal hom schema `[S, T]`.
+///
+/// For each source vertex in `S`, the hom schema contains choice vertices
+/// and backward vertices encoding all possible structure-preserving maps
+/// from `S` to `T`.
+///
+/// Both `source_schema_bytes` and `target_schema_bytes` are
+/// `MessagePack`-encoded [`Schema`](panproto_core::schema::Schema).
+/// Returns `MessagePack`-encoded `Schema`.
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization or serialization fails.
+#[wasm_bindgen]
+pub fn poly_hom(
+    source_schema_bytes: &[u8],
+    target_schema_bytes: &[u8],
+) -> Result<Vec<u8>, JsError> {
+    let source: Schema = rmp_serde::from_slice(source_schema_bytes).map_err(|e| {
+        WasmError::DeserializationFailed {
+            reason: format!("source schema: {e}"),
+        }
+    })?;
+
+    let target: Schema = rmp_serde::from_slice(target_schema_bytes).map_err(|e| {
+        WasmError::DeserializationFailed {
+            reason: format!("target schema: {e}"),
+        }
+    })?;
+
+    let hom = inst::hom_schema(&source, &target);
+
+    rmp_serde::to_vec(&hom).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// A serializable edge in a lens graph.
+#[derive(Deserialize)]
+struct GraphEdge {
+    /// Source schema name.
+    source: String,
+    /// Target schema name.
+    target: String,
+    /// `MessagePack`-encoded `ProtolensChain`.
+    chain: Vec<u8>,
+}
+
+/// Build a [`LensGraph`] from serialized edges.
+fn build_lens_graph(graph_bytes: &[u8]) -> Result<lens::LensGraph, WasmError> {
+    let edges: Vec<GraphEdge> =
+        rmp_serde::from_slice(graph_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("graph edges: {e}"),
+        })?;
+
+    let mut graph = lens::LensGraph::new();
+
+    for edge in edges {
+        let chain: lens::ProtolensChain =
+            rmp_serde::from_slice(&edge.chain).map_err(|e| WasmError::DeserializationFailed {
+                reason: format!("chain for {}->{}: {e}", edge.source, edge.target),
+            })?;
+        let src = panproto_core::gat::Name::from(edge.source.as_str());
+        let tgt = panproto_core::gat::Name::from(edge.target.as_str());
+        graph.add_lens(&src, &tgt, chain);
+    }
+
+    graph.compute_distances();
+    Ok(graph)
+}
+
+/// Find the cheapest conversion path between two schemas in a lens graph.
+///
+/// The `graph_bytes` are `MessagePack`-encoded `Vec<GraphEdge>`, where
+/// each edge has `source`, `target`, and `chain` (a `MessagePack`-encoded
+/// `ProtolensChain`).
+///
+/// Returns `MessagePack`-encoded `{ cost: f64, steps: Vec<String> }` with
+/// the total cost and the schema names along the shortest path. Returns an
+/// error if no path exists.
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization fails or no path exists.
+#[wasm_bindgen]
+pub fn preferred_conversion_path(
+    graph_bytes: &[u8],
+    source_schema: &str,
+    target_schema: &str,
+) -> Result<Vec<u8>, JsError> {
+    let graph = build_lens_graph(graph_bytes)?;
+
+    let src = panproto_core::gat::Name::from(source_schema);
+    let tgt = panproto_core::gat::Name::from(target_schema);
+
+    let (cost, chain) = graph.preferred_path(&src, &tgt).ok_or_else(|| {
+        JsError::new(&format!(
+            "no conversion path from {source_schema} to {target_schema}"
+        ))
+    })?;
+
+    let step_names: Vec<String> = chain.steps.iter().map(|s| s.name.to_string()).collect();
+
+    let result = serde_json::json!({
+        "cost": cost,
+        "steps": step_names,
+    });
+
+    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Compute the shortest distance between two schemas in a lens graph.
+///
+/// The `graph_bytes` format is the same as for
+/// [`preferred_conversion_path`]. Returns [`f64::INFINITY`] if no path
+/// exists.
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization fails.
+#[wasm_bindgen]
+pub fn conversion_distance(
+    graph_bytes: &[u8],
+    source_schema: &str,
+    target_schema: &str,
+) -> Result<f64, JsError> {
+    let graph = build_lens_graph(graph_bytes)?;
+
+    let src = panproto_core::gat::Name::from(source_schema);
+    let tgt = panproto_core::gat::Name::from(target_schema);
+
+    Ok(graph.distance(&src, &tgt))
 }
 
 /// Simplify a protolens chain by eliminating redundant steps.

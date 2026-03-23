@@ -67,9 +67,16 @@ pub struct QueryMatch {
 /// Execute a query against a W-type instance.
 ///
 /// Pipeline: anchor filter → path navigation → predicate evaluation
-/// → limit → field projection.
+/// → limit → `group_by` → field projection.
+///
+/// The `schema` parameter provides schema context for future
+/// schema-aware operations and instance-aware evaluation.
 #[must_use]
-pub fn execute(query: &InstanceQuery, instance: &WInstance) -> Vec<QueryMatch> {
+pub fn execute(
+    query: &InstanceQuery,
+    instance: &WInstance,
+    _schema: &panproto_schema::Schema,
+) -> Vec<QueryMatch> {
     let eval_config = panproto_expr::EvalConfig::default();
 
     // 1. Find all nodes matching the anchor.
@@ -87,7 +94,7 @@ pub fn execute(query: &InstanceQuery, instance: &WInstance) -> Vec<QueryMatch> {
         navigate_path(instance, &candidates, &query.path)
     };
 
-    // 3. Apply predicate.
+    // 3. Apply predicate (instance-aware evaluation for graph builtins).
     let filtered = if let Some(ref pred) = query.predicate {
         navigated
             .into_iter()
@@ -95,9 +102,15 @@ pub fn execute(query: &InstanceQuery, instance: &WInstance) -> Vec<QueryMatch> {
                 let Some(node) = instance.nodes.get(&id) else {
                     return false;
                 };
-                let env = build_node_env(node);
+                let env = build_node_env(node, instance);
                 matches!(
-                    panproto_expr::eval(pred, &env, &eval_config),
+                    crate::instance_env::eval_with_instance(
+                        pred,
+                        &env,
+                        &eval_config,
+                        instance,
+                        Some(id),
+                    ),
                     Ok(panproto_expr::Literal::Bool(true))
                 )
             })
@@ -114,7 +127,7 @@ pub fn execute(query: &InstanceQuery, instance: &WInstance) -> Vec<QueryMatch> {
     };
 
     // 5. Build results with optional projection.
-    limited
+    let mut results: Vec<QueryMatch> = limited
         .into_iter()
         .filter_map(|id| {
             let node = instance.nodes.get(&id)?;
@@ -125,7 +138,18 @@ pub fn execute(query: &InstanceQuery, instance: &WInstance) -> Vec<QueryMatch> {
                 fields: project_fields(&node.extra_fields, query.project.as_ref()),
             })
         })
-        .collect()
+        .collect();
+
+    // 6. Apply group_by: sort results by the specified field value.
+    if let Some(ref group_key) = query.group_by {
+        results.sort_by(|a, b| {
+            let va = a.fields.get(group_key).map(value_sort_key);
+            let vb = b.fields.get(group_key).map(value_sort_key);
+            va.cmp(&vb)
+        });
+    }
+
+    results
 }
 
 /// Follow a path of edge kinds from a set of starting nodes.
@@ -150,10 +174,10 @@ fn navigate_path(instance: &WInstance, start_nodes: &[u32], path: &[Name]) -> Ve
 
 /// Build an expression evaluation environment from a node's fields.
 ///
-/// Binds all `extra_fields` as variables, plus `_anchor` and `_id`
-/// metadata fields.
+/// Binds all `extra_fields` as variables, plus `_anchor`, `_id`,
+/// `_value`, and `_children_count` metadata fields.
 #[must_use]
-pub fn build_node_env(node: &Node) -> panproto_expr::Env {
+pub fn build_node_env(node: &Node, instance: &WInstance) -> panproto_expr::Env {
     let mut env = build_env_from_extra_fields(&node.extra_fields);
     env = env.extend(
         std::sync::Arc::from("_anchor"),
@@ -166,7 +190,36 @@ pub fn build_node_env(node: &Node) -> panproto_expr::Env {
     if let Some(FieldPresence::Present(ref v)) = node.value {
         env = env.extend(std::sync::Arc::from("_value"), value_to_expr_literal(v));
     }
+    // Bind _children_count: number of outgoing arcs from this node.
+    let children_count = instance
+        .arcs
+        .iter()
+        .filter(|(src, _, _)| *src == node.id)
+        .count();
+    #[allow(clippy::cast_possible_wrap)]
+    {
+        env = env.extend(
+            std::sync::Arc::from("_children_count"),
+            panproto_expr::Literal::Int(children_count as i64),
+        );
+    }
     env
+}
+
+/// Produce a sortable key from a [`Value`] for `group_by` ordering.
+///
+/// Converts each variant to a string representation so that values
+/// of the same type sort lexicographically.
+fn value_sort_key(v: &Value) -> String {
+    match v {
+        Value::Str(s) => s.clone(),
+        Value::Int(i) => i.to_string(),
+        Value::Float(f) => f.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Token(t) => t.clone(),
+        Value::Null => String::new(),
+        _ => format!("{v:?}"),
+    }
 }
 
 /// Project fields to a subset, or return all if no projection specified.
@@ -189,9 +242,27 @@ fn project_fields(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
-    use panproto_schema::Edge;
+    use panproto_schema::{Edge, Protocol, SchemaBuilder};
+
+    fn make_test_schema() -> panproto_schema::Schema {
+        let protocol = Protocol::default();
+        SchemaBuilder::new(&protocol)
+            .vertex("document", "record", None)
+            .unwrap()
+            .vertex("layer", "record", None)
+            .unwrap()
+            .vertex("annotation", "record", None)
+            .unwrap()
+            .edge("document", "layer", "layers", None)
+            .unwrap()
+            .edge("layer", "annotation", "annotations", None)
+            .unwrap()
+            .build()
+            .unwrap()
+    }
 
     fn make_test_instance() -> WInstance {
         let mut nodes = HashMap::new();
@@ -245,7 +316,7 @@ mod tests {
             anchor: Name::from("annotation"),
             ..Default::default()
         };
-        let results = execute(&query, &inst);
+        let results = execute(&query, &inst, &make_test_schema());
         assert_eq!(results.len(), 2);
     }
 
@@ -263,7 +334,7 @@ mod tests {
             )),
             ..Default::default()
         };
-        let results = execute(&query, &inst);
+        let results = execute(&query, &inst, &make_test_schema());
         assert_eq!(results.len(), 1);
         assert_eq!(
             results[0].fields.get("label"),
@@ -280,7 +351,7 @@ mod tests {
             path: vec![Name::from("layers"), Name::from("annotations")],
             ..Default::default()
         };
-        let results = execute(&query, &inst);
+        let results = execute(&query, &inst, &make_test_schema());
         // Path navigation reaches the annotation nodes (2 and 3),
         // but the anchor filter was on "document" which matched node 0,
         // then path navigated to its descendants.
@@ -295,7 +366,7 @@ mod tests {
             limit: Some(1),
             ..Default::default()
         };
-        let results = execute(&query, &inst);
+        let results = execute(&query, &inst, &make_test_schema());
         assert_eq!(results.len(), 1);
     }
 
@@ -307,7 +378,7 @@ mod tests {
             project: Some(vec!["label".into()]),
             ..Default::default()
         };
-        let results = execute(&query, &inst);
+        let results = execute(&query, &inst, &make_test_schema());
         assert_eq!(results.len(), 2);
         // Only "label" field should be present, not "confidence".
         for r in &results {
@@ -323,7 +394,75 @@ mod tests {
             anchor: Name::from("nonexistent"),
             ..Default::default()
         };
-        let results = execute(&query, &inst);
+        let results = execute(&query, &inst, &make_test_schema());
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn query_with_group_by() {
+        // Build an instance with annotations that have different categories.
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "document"));
+
+        let mut layer = Node::new(1, "layer");
+        layer
+            .extra_fields
+            .insert("kind".into(), Value::Str("span".into()));
+        nodes.insert(1, layer);
+
+        let categories = ["vegetable", "fruit", "fruit", "vegetable", "grain"];
+        for (i, cat) in categories.iter().enumerate() {
+            let id = (i as u32) + 2;
+            let mut ann = Node::new(id, "annotation");
+            ann.extra_fields
+                .insert("category".into(), Value::Str((*cat).into()));
+            ann.extra_fields
+                .insert("label".into(), Value::Str(format!("item_{i}")));
+            nodes.insert(id, ann);
+        }
+
+        let edge_layer = Edge {
+            src: Name::from("document"),
+            tgt: Name::from("layer"),
+            kind: Name::from("layers"),
+            name: None,
+        };
+        let mut arcs = vec![(0, 1, edge_layer)];
+        for i in 0..categories.len() {
+            let id = (i as u32) + 2;
+            arcs.push((
+                1,
+                id,
+                Edge {
+                    src: Name::from("layer"),
+                    tgt: Name::from("annotation"),
+                    kind: Name::from("annotations"),
+                    name: None,
+                },
+            ));
+        }
+
+        let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("document"));
+
+        let query = InstanceQuery {
+            anchor: Name::from("annotation"),
+            group_by: Some("category".into()),
+            ..Default::default()
+        };
+        let results = execute(&query, &inst, &make_test_schema());
+        assert_eq!(results.len(), 5);
+
+        // Results should be sorted by category: fruit, fruit, grain, vegetable, vegetable.
+        let categories_out: Vec<&str> = results
+            .iter()
+            .filter_map(|r| match r.fields.get("category") {
+                Some(Value::Str(s)) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            categories_out,
+            vec!["fruit", "fruit", "grain", "vegetable", "vegetable"]
+        );
     }
 }

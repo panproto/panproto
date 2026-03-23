@@ -19,6 +19,8 @@ panproto-lens = { path = "../../crates/panproto-lens" }
 panproto-check = { path = "../../crates/panproto-check" }
 panproto-protocols = { path = "../../crates/panproto-protocols" }
 panproto-core = { path = "../../crates/panproto-core" }
+panproto-expr = { path = "../../crates/panproto-expr" }
+panproto-expr-parser = { path = "../../crates/panproto-expr-parser" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }

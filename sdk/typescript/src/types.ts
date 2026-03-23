@@ -487,6 +487,12 @@ export interface WasmExports {
   parse_expr(source: string): Uint8Array;
   eval_func_expr(expr_bytes: Uint8Array, env_bytes: Uint8Array): Uint8Array;
   execute_query(query_bytes: Uint8Array, instance_bytes: Uint8Array): Uint8Array;
+  // Phase 12: Fiber, hom, and graph operations
+  fiber_at(instance_bytes: Uint8Array, migration_bytes: Uint8Array, target_anchor: string): Uint8Array;
+  fiber_decomposition_wasm(instance_bytes: Uint8Array, migration_bytes: Uint8Array): Uint8Array;
+  poly_hom(source_schema_bytes: Uint8Array, target_schema_bytes: Uint8Array): Uint8Array;
+  preferred_conversion_path(graph_bytes: Uint8Array, source_schema: string, target_schema: string): Uint8Array;
+  conversion_distance(graph_bytes: Uint8Array, source_schema: string, target_schema: string): number;
 }
 
 // ---------------------------------------------------------------------------

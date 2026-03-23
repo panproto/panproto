@@ -27,6 +27,8 @@ pub mod fan;
 pub mod functor;
 /// Graph-shaped instance representation.
 pub mod ginstance;
+/// Internal hom schema construction and evaluation.
+pub mod hom;
 /// Unified instance enum (attributed C-set).
 pub mod instance;
 /// Instance-aware expression evaluation (graph traversal builtins).
@@ -55,12 +57,16 @@ pub use error::{InstError, ParseError, RestrictError, ValidationError};
 pub use fan::Fan;
 pub use functor::{FInstance, functor_extend, functor_restrict};
 pub use ginstance::{GInstance, graph_extend, graph_restrict};
+pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use instance::Instance;
 pub use instance_env::eval_with_instance;
 pub use metadata::Node;
 pub use parse::{parse_json, to_json};
 pub use pi::{functor_pi, wtype_pi};
-pub use poly::{fiber_at_anchor, fiber_decomposition, fiber_with_predicate, group_by, join};
+pub use poly::{
+    Complement, DroppedNode, SectionEnrichment, fiber_at_anchor, fiber_at_node,
+    fiber_decomposition, fiber_with_predicate, group_by, join, restrict_with_complement, section,
+};
 pub use provenance::{Provenance, ProvenanceMap, SourceField, TransformStep, compute_provenance};
 pub use query::{InstanceQuery, QueryMatch, build_node_env, execute as execute_query};
 pub use validate::validate_wtype;

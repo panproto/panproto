@@ -26,6 +26,10 @@ pub enum InstError {
         /// Target node ID.
         tgt: u32,
     },
+
+    /// Internal hom evaluation failed.
+    #[error("eval_hom failed: {0}")]
+    EvalHom(String),
 }
 
 /// Errors from the restrict operation.

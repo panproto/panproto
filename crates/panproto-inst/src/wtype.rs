@@ -666,7 +666,11 @@ pub fn wtype_restrict(
         .nodes
         .get(&instance.root)
         .ok_or(RestrictError::RootPruned)?;
-    if !migration.surviving_verts.contains(&root_node.anchor) {
+    let root_target_anchor = migration
+        .vertex_remap
+        .get(&root_node.anchor)
+        .unwrap_or(&root_node.anchor);
+    if !migration.surviving_verts.contains(root_target_anchor) {
         return Err(RestrictError::RootPruned);
     }
 
@@ -798,7 +802,7 @@ pub fn wtype_restrict(
 ///
 /// Called during `wtype_restrict` after a node survives and its anchor
 /// is remapped. Operations are applied in order.
-fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
+pub(crate) fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
     for transform in transforms {
         match transform {
             FieldTransform::RenameField { old_key, new_key } => {
