@@ -29,6 +29,7 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 |-------|-------------|
 | [`panproto-gat`](crates/panproto-gat) | GAT engine: sorts, operations, equations, directed equations, theory morphisms, colimits, endofunctors, refinement types, and equality witnesses |
 | [`panproto-expr`](crates/panproto-expr) | Pure functional expression language: lambda calculus with closures, pattern matching, ~50 builtins, step/depth limits |
+| [`panproto-expr-parser`](crates/panproto-expr-parser) | Haskell-style surface syntax parser (logos + chumsky) with Pratt precedence and pretty printer |
 | [`panproto-schema`](crates/panproto-schema) | Schema representation with protocol-aware builder and adjacency indices |
 | [`panproto-inst`](crates/panproto-inst) | [W-type](https://ncatlab.org/nlab/show/W-type), set-valued functor, and graph instances with restrict/extend/Kan extension pipelines and value-level field transforms |
 | [`panproto-mig`](crates/panproto-mig) | Migration engine: existence checks, compilation, lift, compose, invert, coverage analysis |

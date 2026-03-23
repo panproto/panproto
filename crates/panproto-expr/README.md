@@ -13,7 +13,7 @@ A small lambda calculus with pattern matching, records, lists, and ~50 built-in 
 |------|-------------|
 | `Expr` | Expression AST: Var, Lam, App, Lit, Record, List, Field, Index, Match, Let, Builtin |
 | `Pattern` | Destructuring patterns: Wildcard, Var, Lit, Record, List, Constructor |
-| `BuiltinOp` | ~50 built-in operations across arithmetic, comparison, boolean, string, list, record, type coercion, and inspection |
+| `BuiltinOp` | ~50 built-in operations across arithmetic, comparison, boolean, string, list, record, type coercion, inspection, and graph traversal (Edge, Children, HasEdge, EdgeCount, Anchor) |
 | `Literal` | Values: Bool, Int, Float, Str, Bytes, Null, Record, List, Closure |
 | `eval` | Call-by-value evaluator with step counter, depth limit, and list length limit |
 | `EvalConfig` | Evaluation bounds: `max_steps` (default 100,000), `max_depth` (default 256), `max_list_len` (default 10,000) |

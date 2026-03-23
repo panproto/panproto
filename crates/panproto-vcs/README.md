@@ -16,7 +16,7 @@ Schemas, data snapshots, complements, and protocol definitions are content-addre
 | `MemStore` | In-memory store for tests and WASM |
 | `Store` | Trait abstracting over storage backends |
 | `ObjectId` | Blake3 content-address (32 bytes) |
-| `Object` | Enum: `Schema`, `Migration`, `Commit` |
+| `Object` | Enum: `Schema`, `Migration`, `Commit`, `Expr`, and others |
 | `CommitObject` | A point in the schema evolution DAG |
 | `HeadState` | Branch or detached HEAD |
 | `ReflogEntry` | Audit trail entry for ref mutations |
@@ -36,6 +36,7 @@ Schemas, data snapshots, complements, and protocol definitions are content-addre
 | `Repository::add_protocol` | Stage a protocol definition for versioning |
 | `Repository::checkout_with_data` | Switch branch and migrate data |
 | `Repository::merge_with_data` | Merge and migrate data |
+| `store_expr` / `load_expr` | Content-addressed expression storage via `MessagePack` + blake3 |
 
 ## Modules
 

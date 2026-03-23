@@ -82,6 +82,18 @@ schema merge feature --verbose  # show pullback overlap details
 # Fuse a multi-step chain into a single protolens
 schema lens old.json new.json --protocol atproto --fuse
 
+# Parse a Haskell-style expression and print its AST
+schema expr parse "x + 1"
+
+# Evaluate an expression
+schema expr eval "2 + 3 * 4"
+
+# Pretty-print in canonical form
+schema expr fmt "\x->x+ 1"
+
+# Check syntax without evaluating
+schema expr check "let x = 1 in x + 2"
+
 # Lift a record through a migration
 schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json record.json
 
@@ -137,6 +149,12 @@ schema merge feature --migrate records/
 | `bisect` | Binary search for breaking commit |
 | `blame` | Show which commit introduced an element |
 | `gc` | Garbage collect unreachable objects |
+| `expr parse` | Parse a Haskell-style expression and print the AST |
+| `expr eval` | Parse and evaluate an expression, print result as JSON |
+| `expr fmt` | Parse and pretty-print in canonical form |
+| `expr check` | Validate expression syntax and report errors |
+| `expr gat-eval` | Evaluate a JSON-encoded GAT term from a file |
+| `expr gat-check` | Type-check a JSON-encoded GAT term against a theory |
 
 ## License
 

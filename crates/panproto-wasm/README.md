@@ -46,6 +46,9 @@ This crate exposes the panproto API to JavaScript and TypeScript consumers via [
 | `store_protocol_definition` | Store a protocol definition |
 | `get_protocol_definition` | Retrieve a stored protocol |
 | `get_migration_complement` | Retrieve complement data |
+| `parse_expr` | Tokenize and parse Haskell-style expression source text, return MsgPack-encoded Expr |
+| `eval_func_expr` | Evaluate a MsgPack-encoded expression with environment bindings |
+| `execute_query` | Run a declarative query against an instance, return MsgPack-encoded results |
 | `free_handle` | Release a resource handle |
 
 The `*_json` variants handle all WInstance conversion internally, avoiding msgpack round-trip issues at the JS/WASM boundary.
