@@ -48,6 +48,7 @@ book:
         - chapters/27-auto-lens-pipeline.qmd
         - chapters/28-data-versioning.qmd
         - chapters/23-field-transforms.qmd
+        - chapters/29-expression-engine.qmd
     - part: "Contributing Process"
       chapters:
         - chapters/16-conventions.qmd

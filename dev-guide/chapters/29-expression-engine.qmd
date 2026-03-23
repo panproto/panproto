@@ -1,0 +1,411 @@
+# Expression Parser & Query Engine {#sec-expression-engine}
+
+panproto includes a pure functional expression language and a declarative query engine for operating on W-type instances. The expression engine spans two crates (`panproto-expr` and `panproto-expr-parser`) and integrates with the instance layer (`panproto-inst`), the VCS (`panproto-vcs`), and the WASM boundary (`panproto-wasm`).
+
+::: {.callout-note}
+For the user-facing walkthrough of value-dependent migration (which uses expressions for field transforms), see [the tutorial](https://panproto.dev/tutorial/chapters/20-value-dependent-transforms.html).
+:::
+
+## Crate layout {#sec-expr-crate-layout}
+
+The expression system is split across two crates with a clear boundary: `panproto-expr` defines the AST and evaluator (no parser dependency), while `panproto-expr-parser` defines the surface syntax.
+
+### panproto-expr
+
+This crate provides the core computational substrate. Its modules are:
+
+| Module | Contents |
+|--------|----------|
+| `expr.rs` | `Expr` enum (11 variants), `Pattern` enum (6 variants), `BuiltinOp` enum (50 operations) |
+| `literal.rs` | `Literal` type (Int, Float, Str, Bool, Null, Record, List, Closure) |
+| `eval.rs` | Call-by-value evaluator with step/depth limits (`EvalConfig`) |
+| `env.rs` | `Env` type: immutable variable bindings backed by `FxHashMap<Arc<str>, Literal>` |
+| `builtin.rs` | `apply_builtin` dispatch for all non-graph builtins |
+| `subst.rs` | `substitute`, `free_vars`, `pattern_vars` for symbolic manipulation |
+| `error.rs` | `ExprError` enum covering type mismatches, arity errors, unbound variables, and resource limits |
+
+: `panproto-expr` modules. {#tbl-expr-modules}
+
+The `Expr` enum is the canonical AST representation used throughout panproto. All variants derive `Serialize`/`Deserialize`, making expressions content-addressable and portable across the WASM boundary:
+
+```{.rust}
+pub enum Expr {
+    Var(Arc<str>),
+    Lam(Arc<str>, Box<Self>),
+    App(Box<Self>, Box<Self>),
+    Lit(Literal),
+    Record(Vec<(Arc<str>, Self)>),
+    List(Vec<Self>),
+    Field(Box<Self>, Arc<str>),
+    Index(Box<Self>, Box<Self>),
+    Match { scrutinee: Box<Self>, arms: Vec<(Pattern, Self)> },
+    Let { name: Arc<str>, value: Box<Self>, body: Box<Self> },
+    Builtin(BuiltinOp, Vec<Self>),
+}
+```
+
+### panproto-expr-parser
+
+This crate provides the Haskell-style surface syntax. It has four modules:
+
+**`token.rs`**: A `logos`-based token enum with 50+ token kinds. Keywords (`do`, `let`, `where`, `if`, `then`, `else`, `case`, `of`, `guard`, `not`, `mod`, `div`, `otherwise`) are recognized during lexing. Three virtual token kinds (`Indent`, `Dedent`, `Newline`) are reserved for the layout pass.
+
+**`lexer.rs`**: Two-pass tokenization. The first pass runs `logos` for fast regex-based tokenization. The second pass (`insert_layout`) implements GHC-style layout insertion: when a layout keyword (`let`, `where`, `do`, `of`) is followed by a newline with increased indentation, an `Indent` token is inserted. When indentation decreases, `Dedent` tokens are inserted. Equal indentation within a layout block produces `Newline` tokens. If the layout keyword is followed by `{`, layout insertion is suppressed (explicit delimiters).
+
+**`parser.rs`**: A chumsky 1.0 parser combining recursive descent with Pratt precedence parsing. Layout tokens are consumed as block delimiters alongside explicit braces.
+
+**`pretty.rs`**: Precedence-aware pretty printer that minimizes parentheses. Designed to round-trip: `parse(tokenize(pretty_print(&e))) == e` for well-formed expressions.
+
+## The BuiltinOp system {#sec-builtin-ops}
+
+`BuiltinOp` is a 50-variant enum organized into nine domains:
+
+| Domain | Count | Operations |
+|--------|-------|------------|
+| Arithmetic | 7 | `Add`, `Sub`, `Mul`, `Div`, `Mod`, `Neg`, `Abs` |
+| Rounding | 2 | `Floor`, `Ceil` |
+| Comparison | 6 | `Eq`, `Neq`, `Lt`, `Lte`, `Gt`, `Gte` |
+| Boolean | 3 | `And`, `Or`, `Not` |
+| String | 10 | `Concat`, `Len`, `Slice`, `Upper`, `Lower`, `Trim`, `Split`, `Join`, `Replace`, `Contains` |
+| List | 9 | `Map`, `Filter`, `Fold`, `Append`, `Head`, `Tail`, `Reverse`, `FlatMap`, `Length` |
+| Record | 4 | `MergeRecords`, `Keys`, `Values`, `HasField` |
+| Type coercion | 6 | `IntToFloat`, `FloatToInt`, `IntToStr`, `FloatToStr`, `StrToInt`, `StrToFloat` |
+| Type inspection | 3 | `TypeOf`, `IsNull`, `IsList` |
+| Graph traversal | 5 | `Edge`, `Children`, `HasEdge`, `EdgeCount`, `Anchor` |
+
+: `BuiltinOp` domains. {#tbl-builtin-domains}
+
+Every builtin has a fixed arity enforced by `BuiltinOp::arity()`. The arity is either 1 (unary), 2 (binary), or 3 (ternary; only `Slice`, `Replace`, and `Fold`). The evaluator checks arity before dispatch: if the argument count doesn't match, evaluation fails with `ExprError::ArityMismatch`.
+
+Higher-order builtins (`Map`, `Filter`, `Fold`, `FlatMap`) receive special treatment in the evaluator. Instead of evaluating all arguments eagerly and dispatching to `apply_builtin`, the evaluator handles them directly: it evaluates the list argument, then iterates over its elements, applying the function argument via `apply_closure` for each element. This avoids materializing closures as `Literal` values before use and enables proper step-counting per iteration.
+
+### Graph traversal builtins
+
+The five graph builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`, `Anchor`) require an instance context that the standard evaluator does not have. In the standard `panproto_expr::eval`, these return `Literal::Null`. They are meaningful only when evaluated through `eval_with_instance` in `panproto-inst`.
+
+## Instance-aware evaluation {#sec-instance-eval}
+
+`instance_env.rs` in `panproto-inst` provides `eval_with_instance`, which intercepts graph builtins and resolves them against a `WInstance`:
+
+```{.rust}
+pub fn eval_with_instance(
+    expr: &Expr,
+    env: &panproto_expr::Env,
+    config: &EvalConfig,
+    instance: &WInstance,
+    context_node_id: Option<u32>,
+) -> Result<Literal, panproto_expr::ExprError>
+```
+
+The function pattern-matches on `Expr::Builtin(op, args)` where `op` is a graph builtin. It evaluates arguments recursively (through `eval_with_instance`, so nested graph builtins work), then dispatches to `apply_graph_builtin`. For all non-graph expressions, it falls through to the standard `panproto_expr::eval`.
+
+### apply_graph_builtin
+
+Each graph builtin resolves against the instance's arc and node maps:
+
+| Builtin | Signature | Behavior |
+|---------|-----------|----------|
+| `Edge` | `(node_ref, edge_kind) -> value` | Finds the first arc matching the source node and edge kind, returns the target node as a Record literal |
+| `Children` | `(node_ref) -> [value]` | Collects all arc targets from the source node |
+| `HasEdge` | `(node_ref, edge_kind) -> bool` | Checks if any arc matches |
+| `EdgeCount` | `(node_ref) -> int` | Counts outgoing arcs |
+| `Anchor` | `(node_ref) -> string` | Returns the node's schema anchor name |
+
+: Graph builtin behavior. {#tbl-graph-builtins}
+
+### Node reference resolution
+
+`resolve_node_ref` converts a `Literal` to a `u32` node ID. It accepts two forms: an integer literal (direct node ID) or the string `"self"` (resolved to the `context_node_id` parameter). This allows expressions like `edge("self", "body")` to traverse from the current node without knowing its numeric ID.
+
+### node_to_literal
+
+`node_to_literal` converts a `WInstance` node into a `Literal::Record` for use in expression results. The record includes:
+
+- `_id`: the node's numeric ID as `Literal::Int`
+- `_anchor`: the node's schema anchor as `Literal::Str`
+- All entries from `extra_fields`, converted via `value_to_expr_literal` (the same conversion used by field transforms; see @tbl-value-to-literal in the field transforms chapter)
+
+## Polynomial operations (poly.rs) {#sec-poly-ops}
+
+`poly.rs` in `panproto-inst` exposes operations that arise from treating schemas as polynomial functors and instances as their initial algebras (W-types). These operations are derived from the adjoint triple $\Sigma \dashv \Delta \dashv \Pi$ applied to the polynomial interpretation.
+
+### fiber_at_anchor
+
+```{.rust}
+pub fn fiber_at_anchor(
+    compiled: &CompiledMigration,
+    source: &WInstance,
+    target_anchor: &Name,
+) -> Vec<u32>
+```
+
+Given a compiled migration $m : S \to T$ and a target anchor $a$ in $T$, returns all source node IDs whose remapped anchor equals $a$. This is the $\Delta_f$ operation (pullback along $f$) applied to a representable presheaf (a single point).
+
+### fiber_decomposition
+
+```{.rust}
+pub fn fiber_decomposition(
+    compiled: &CompiledMigration,
+    source: &WInstance,
+) -> FxHashMap<Name, Vec<u32>>
+```
+
+Computes fibers for all target anchors simultaneously. The result is a partition of source nodes: every node appears in exactly one fiber.
+
+### fiber_with_predicate
+
+Combines `fiber_at_anchor` with a value predicate. Computes $f^{-1}(a) \cap \{x \mid \text{pred}(x)\}$. The predicate is evaluated against each node's `extra_fields` using `build_env_from_extra_fields`. Additional variables `_value` (if present) and `_anchor` are bound for each node.
+
+### group_by
+
+```{.rust}
+pub fn group_by(
+    compiled: &CompiledMigration,
+    source: &WInstance,
+) -> FxHashMap<Name, WInstance>
+```
+
+Partitions source nodes by their migration image, returning a sub-instance for each target anchor. Internal arcs between nodes in the same fiber are preserved. This is the dependent product $\Pi_f$ computed explicitly on trees.
+
+### join
+
+```{.rust}
+pub fn join(
+    left: &WInstance,
+    right: &WInstance,
+    left_compiled: &CompiledMigration,
+    right_compiled: &CompiledMigration,
+) -> Vec<(u32, u32)>
+```
+
+Given two instances $A$ and $B$ with migrations to a shared target $C$, computes the pullback $A \times_C B$: all pairs $(a, b)$ where $a$ and $b$ map to the same target anchor. The implementation decomposes both instances into fibers, then takes the Cartesian product of fibers at each shared anchor.
+
+## Declarative query engine (query.rs) {#sec-query-engine}
+
+`query.rs` in `panproto-inst` provides a declarative query interface over W-type instances. An `InstanceQuery` describes what to find; `execute` runs the pipeline.
+
+### InstanceQuery struct
+
+```{.rust}
+pub struct InstanceQuery {
+    pub anchor: Name,                    // vertex kind to select
+    pub predicate: Option<Expr>,         // filter expression
+    pub group_by: Option<String>,        // partition field
+    pub project: Option<Vec<String>>,    // field subset
+    pub limit: Option<usize>,           // max results
+    pub path: Vec<Name>,                 // edge traversal path
+}
+```
+
+All fields except `anchor` are optional. The struct derives `Serialize`/`Deserialize`, so queries can cross the WASM boundary via MessagePack.
+
+### Execution pipeline
+
+`execute` applies five stages in order:
+
+1. **Anchor filter**: collect all nodes whose `anchor` matches `query.anchor`.
+2. **Path navigation**: if `query.path` is non-empty, follow edges. Each path element is an edge kind; `navigate_path` iterates, collecting all arc targets matching the edge kind at each step. The result replaces the candidate set.
+3. **Predicate evaluation**: for each candidate, `build_node_env` constructs an expression environment from the node's `extra_fields`, `_anchor`, `_id`, and `_value`. The predicate is evaluated via `panproto_expr::eval`. Nodes whose predicate returns anything other than `Literal::Bool(true)` are excluded.
+4. **Limit**: truncate results to `query.limit`.
+5. **Projection**: `project_fields` restricts each node's fields to the specified subset, or returns all fields if no projection is specified.
+
+### QueryMatch result
+
+```{.rust}
+pub struct QueryMatch {
+    pub node_id: u32,
+    pub anchor: Name,
+    pub value: Option<FieldPresence>,
+    pub fields: FxHashMap<String, Value>,
+}
+```
+
+### Helper functions
+
+**`navigate_path`**: iterates over a sequence of edge kinds, using the instance's arc list to follow edges. At each step, the current node set is replaced by all targets reachable via matching arcs.
+
+**`build_node_env`**: constructs a `panproto_expr::Env` by calling `build_env_from_extra_fields` (the same function used by field transforms) and adding `_anchor`, `_id`, and `_value` bindings.
+
+**`project_fields`**: when a projection list is provided, copies only the named fields into the output map. Missing fields are silently omitted.
+
+## The parser in detail {#sec-parser-detail}
+
+### Operator precedence table
+
+The Pratt parser defines nine precedence levels. Higher levels bind more tightly:
+
+| Level | Associativity | Operators | Desugars to |
+|-------|--------------|-----------|-------------|
+| 1 | Left | `&` (pipe) | `App(rhs, lhs)` (reverse application) |
+| 3 | Left | `\|\|` | `Builtin(Or, ...)` |
+| 4 | Left | `&&` | `Builtin(And, ...)` |
+| 5 | Right | `==`, `/=`, `<`, `<=`, `>`, `>=` | `Builtin(Eq\|Neq\|Lt\|Lte\|Gt\|Gte, ...)` |
+| 6 | Right | `++` | `Builtin(Concat, ...)` |
+| 7 | Left | `+`, `-` | `Builtin(Add\|Sub, ...)` |
+| 8 | Left | `*`, `/`, `%`, `mod`, `div` | `Builtin(Mul\|Div\|Mod, ...)` |
+| 9 | Prefix | `-` (unary), `not` | `Builtin(Neg\|Not, ...)` |
+| 10+ | Left | juxtaposition (application) | `App(func, arg)` or `Builtin(op, args)` |
+
+: Operator precedence table. {#tbl-operator-precedence}
+
+Postfix operations (`.field` and `->edge`) bind tighter than application. They are parsed as a left-fold over the `atom` parser, before the Pratt parser sees the expression.
+
+### Desugaring rules
+
+The parser transforms several surface syntax forms into core `Expr` constructors:
+
+**List comprehensions** desugar to nested `FlatMap` and `Match`:
+
+```
+[e | x <- xs, pred]
+```
+becomes
+```
+flatMap(xs, \x -> match pred { True -> [e]; _ -> [] })
+```
+
+Guards become pattern matches on `True`/`Wildcard`, and generators become `FlatMap` with a lambda binding. Multiple qualifiers are folded right-to-left.
+
+**Do-notation** desugars to nested `FlatMap` and `Let`:
+
+```
+do
+  x <- source
+  let y = f x
+  g x y
+```
+becomes
+```
+flatMap(source, \x -> let y = f x in g x y)
+```
+
+Bind statements (`x <- e`) become `FlatMap`; `let` statements become `Let` bindings; bare expressions become `FlatMap` with a wildcard binding.
+
+**Where clauses** desugar to `Let` bindings wrapping the main body:
+
+```
+body where x = e1; y = e2
+```
+becomes
+```
+let x = e1 in let y = e2 in body
+```
+
+**Multi-parameter lambdas** desugar to nested `Lam`:
+
+```
+\x y z -> body
+```
+becomes
+```
+Lam("x", Lam("y", Lam("z", body)))
+```
+
+Pattern parameters (anything other than `Var` or `Wildcard`) generate a fresh variable with an immediate `Match`.
+
+**If/then/else** desugars to `Match` with a Bool pattern:
+
+```
+if cond then a else b
+```
+becomes
+```
+Match { scrutinee: cond, arms: [(Lit(Bool(true)), a), (Wildcard, b)] }
+```
+
+**Infix operators** desugar to `Builtin` applications, as shown in the precedence table.
+
+**Edge traversal** `x -> y` desugars to `Builtin(Edge, [x, Lit(Str("y"))])`. This is parsed as a postfix operation on atoms, making `doc -> layers -> annotations` a left-associative chain of `Edge` calls.
+
+### Builtin name resolution
+
+When the parser encounters juxtaposition (function application), `resolve_application` checks whether the function position is a `Var` whose name matches a builtin. If so, it emits `Builtin(op, [arg])` instead of `App(Var(name), arg)`. On subsequent applications, if the `Builtin` has fewer arguments than its arity, the new argument is appended. This means `add 1 2` parses directly as `Builtin(Add, [Lit(1), Lit(2)])` without going through curried application.
+
+Both snake_case and camelCase names are accepted for multi-word builtins (e.g., `flat_map` and `flatMap` both resolve to `FlatMap`).
+
+## VCS integration {#sec-expr-vcs}
+
+Expressions participate in panproto's content-addressed object store via the `Object::Expr` variant in `panproto-vcs`.
+
+### Storage API
+
+```{.rust}
+pub fn store_expr(store: &mut dyn Store, expr: &Expr) -> Result<ObjectId, VcsError>;
+pub fn load_expr(store: &dyn Store, id: &ObjectId) -> Result<Expr, VcsError>;
+```
+
+`store_expr` wraps the expression in `Object::Expr(Box::new(expr.clone()))` and calls `store.put(&object)`. The store serializes the object with MessagePack, hashes it with blake3, and stores the bytes keyed by the hash. If an identical expression already exists, the operation returns the existing ID (content-addressing makes storage idempotent).
+
+`load_expr` retrieves the object by ID and pattern-matches on `Object::Expr`. If the object exists but has a different type, it returns `VcsError::WrongObjectType`.
+
+### Hash computation
+
+The VCS hashes `Object::Expr` via `hash::hash_expr`, which serializes the `Expr` with MessagePack and computes a blake3 digest. This means two structurally identical expressions always produce the same `ObjectId`, regardless of when or where they were created.
+
+Expressions are leaf objects in the VCS DAG: they have no outgoing references to other objects. The garbage collector (`gc.rs`) treats them as terminal nodes during reachability analysis.
+
+## WASM boundary {#sec-expr-wasm}
+
+Three WASM exports in `panproto-wasm/src/api.rs` expose the expression engine to JavaScript/TypeScript:
+
+### parse_expr
+
+```{.rust}
+#[wasm_bindgen]
+pub fn parse_expr(source: &str) -> Result<Vec<u8>, JsError>
+```
+
+Takes a surface syntax string, tokenizes it with `panproto_expr_parser::tokenize`, parses it with `panproto_expr_parser::parse`, and returns the resulting `Expr` as MessagePack bytes. Errors from either the lexer or parser are surfaced as `JsError`.
+
+### eval_func_expr
+
+```{.rust}
+#[wasm_bindgen]
+pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, JsError>
+```
+
+Evaluates a functional expression (lambda calculus with builtins) against a provided environment. Both inputs and the output are MessagePack-encoded. The environment is deserialized as `Vec<(String, Literal)>` and converted to an `Env`.
+
+This function is distinct from `eval_expr` (which evaluates GAT terms against a theory). `eval_func_expr` operates purely in the expression language; `eval_expr` operates in the schema-level term language.
+
+### execute_query
+
+```{.rust}
+#[wasm_bindgen]
+pub fn execute_query(query_bytes: &[u8], instance_bytes: &[u8]) -> Result<Vec<u8>, JsError>
+```
+
+Deserializes an `InstanceQuery` and a `WInstance` from MessagePack, runs `inst::execute_query`, and serializes the results back. Each `QueryMatch` is converted to a JSON object with `node_id`, `anchor`, `value`, and `fields` keys before MessagePack encoding.
+
+## Source locations {#sec-expr-source}
+
+The types and functions described in this chapter are spread across four crates:
+
+**`crates/panproto-expr/src/`**:
+
+- `expr.rs`: `Expr`, `Pattern`, `BuiltinOp` enums and `BuiltinOp::arity()`
+- `eval.rs`: `eval`, `EvalConfig`, step/depth-limited evaluator
+- `env.rs`: `Env` type
+- `builtin.rs`: `apply_builtin` dispatch
+
+**`crates/panproto-expr-parser/src/`**:
+
+- `token.rs`: `Token` enum, `Span`, `Spanned`
+- `lexer.rs`: `tokenize`, `insert_layout`, `LexError`
+- `parser.rs`: `parse`, `resolve_builtin`, Pratt parser, all desugaring functions
+- `pretty.rs`: `pretty_print`, precedence-aware serialization
+
+**`crates/panproto-inst/src/`**:
+
+- `instance_env.rs`: `eval_with_instance`, `apply_graph_builtin`, `resolve_node_ref`, `node_to_literal`
+- `poly.rs`: `fiber_at_anchor`, `fiber_decomposition`, `fiber_with_predicate`, `group_by`, `join`
+- `query.rs`: `InstanceQuery`, `QueryMatch`, `execute`, `navigate_path`, `build_node_env`, `project_fields`
+
+**`crates/panproto-vcs/src/`**:
+
+- `expr.rs`: `store_expr`, `load_expr`
+- `object.rs`: `Object::Expr` variant
+
+**`crates/panproto-wasm/src/`**:
+
+- `api.rs`: `parse_expr`, `eval_func_expr`, `execute_query`
