@@ -266,6 +266,40 @@ using shared = panproto.createTheory({ name: 'Shared', sorts: [{ name: 'Vertex',
 using composed = panproto.colimitTheories(thGraph, thConstraint, shared);
 ```
 
+## Expression Parser & Evaluator
+
+The SDK provides three functions for working with the expression language:
+
+- `parseExpr(source: string, wasm: WasmModule): Expr` parses Haskell-style source text into an AST.
+- `evalExpr(expr: Expr, env: Record<string, Literal> | undefined, wasm: WasmModule): Literal` evaluates an expression with optional environment bindings.
+- `formatExpr(source: string, wasm: WasmModule): string` round-trip formats an expression into canonical form.
+
+```typescript
+import { parseExpr, evalExpr, formatExpr } from '@panproto/core';
+
+const expr = parseExpr('\\x -> x + 1', wasm);
+const result = evalExpr(expr, { x: 2 }, wasm);   // 3
+const pretty = formatExpr('\\x->x+ 1', wasm);    // "\\x -> x + 1"
+```
+
+## Declarative Query API
+
+The `executeQuery` function runs a declarative query against an instance:
+
+- `executeQuery(query: InstanceQuery, instance: Instance, wasm: WasmModule): QueryMatch[]`
+- `InstanceQuery` type: `{ anchor, predicate?, groupBy?, projection?, limit?, path? }`
+- `QueryMatch` type: `{ nodeId, anchor, value, fields }`
+
+```typescript
+import { executeQuery } from '@panproto/core';
+
+const matches = executeQuery(
+  { anchor: 'post:body', predicate: { field: 'text', op: 'contains', value: 'hello' } },
+  instance,
+  wasm,
+);
+```
+
 ## VCS Integration
 
 The SDK exposes version control operations for schemas and data:

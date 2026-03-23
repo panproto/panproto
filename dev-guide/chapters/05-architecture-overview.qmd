@@ -7,6 +7,8 @@ panproto is organized into eleven crates arranged in six dependency levels. Cons
 | Level | Crates | Role |
 |-------|--------|------|
 | 0 | `panproto-gat` | The GAT engine: theories, morphisms, colimits |
+| 0.5 | `panproto-expr` | Pure expression language: AST, evaluator, builtins |
+| 0.5 | `panproto-expr-parser` | Haskell-style surface syntax parser (logos + chumsky) |
 | 1 | `panproto-schema`, `panproto-inst` | Schema graphs and instance trees |
 | 2 | `panproto-mig`, `panproto-lens`, `panproto-check` | Migration compilation, lenses, breaking-change analysis |
 | 3 | `panproto-protocols` | Protocol definitions: theory composition, schema-level presentation (the parse/emit layer that converts native format syntax to panproto's internal representation) |
@@ -45,6 +47,10 @@ graph BT
     subgraph Level 0
         gat["panproto-gat"]
     end
+    subgraph "Level 0.5"
+        expr["panproto-expr"]
+        expr-parser["panproto-expr-parser"]
+    end
     subgraph Level 1
         schema["panproto-schema"]
         inst["panproto-inst"]
@@ -66,8 +72,10 @@ graph BT
         cli["panproto-cli"]
     end
 
+    expr-parser --> expr
     schema --> gat
     inst --> gat
+    inst --> expr
     inst --> schema
     mig --> gat
     mig --> schema
@@ -92,7 +100,9 @@ graph BT
     core --> protocols
     core --> io
     wasm --> core
+    wasm --> expr-parser
     cli --> core
+    cli --> expr-parser
 ```
 
 ## Key Design Decisions

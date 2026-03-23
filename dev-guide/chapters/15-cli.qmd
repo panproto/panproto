@@ -100,6 +100,26 @@ schema lift --migration mig.json --src-schema old.json --tgt-schema new.json rec
 
 Compiles the migration, parses the input JSON as a W-type instance (auto-detecting the root vertex), applies `lift_wtype`, and writes the result as pretty-printed JSON to stdout. This command has no git equivalent; it transforms actual data through a schema change.
 
+## Expression Commands
+
+The `schema expr` subcommand group provides tools for the Haskell-style expression language.
+
+```bash
+# Parse and print AST
+schema expr parse "x + 1"
+
+# Evaluate and print result
+schema expr eval "2 + 3"
+
+# Pretty-print in canonical form
+schema expr fmt "\x->x+ 1"
+
+# Check syntax without evaluating
+schema expr check "let x = 1 in x + 2"
+```
+
+The existing GAT commands are now under `schema expr gat-eval` and `schema expr gat-check`.
+
 ## Version Control Commands
 
 These require a `.panproto/` repository (created by `schema init`). See @sec-vcs-engine for the architectural details of the object store, DAG algorithms, and merge strategy.

@@ -141,6 +141,16 @@ The WASM boundary exposes far more than the original ten entry points. The compl
 | `symmetric_lens_from_schemas` | `(s1: u32, s2: u32) -> Result<u32, JsError>` | SymmetricLens handle |
 | `symmetric_lens_sync` | `(lens: u32, dir: &str, data: &[u8], state: &[u8]) -> Result<Vec<u8>, JsError>` | MessagePack sync result |
 
+#### Expression & Query
+
+| Entry Point | Signature | Returns |
+|---|---|---|
+| `parse_expr` | `(source: &str) -> Vec<u8>` | MsgPack Expr |
+| `eval_func_expr` | `(expr: &[u8], env: &[u8]) -> Vec<u8>` | MsgPack Literal |
+| `execute_query` | `(query: &[u8], instance: &[u8]) -> Vec<u8>` | MsgPack results |
+
+`parse_expr` tokenizes and parses Haskell-style expression text into an AST. `eval_func_expr` evaluates an expression with environment bindings; note that this is distinct from `eval_expr` (which evaluates GAT terms). `execute_query` runs a declarative query against an instance.
+
 #### GAT Engine
 
 | Entry Point | Signature | Returns |
