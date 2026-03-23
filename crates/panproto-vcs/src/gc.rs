@@ -72,7 +72,7 @@ pub fn mark_reachable(
                 queue.push(src);
                 queue.push(tgt);
             }
-            Object::Schema(_) | Object::Protocol(_) => {}
+            Object::Schema(_) | Object::Protocol(_) | Object::Expr(_) => {}
             Object::Tag(tag) => {
                 queue.push(tag.target);
             }

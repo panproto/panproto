@@ -31,6 +31,7 @@ pub mod cherry_pick;
 pub mod dag;
 pub mod data_mig;
 pub mod error;
+pub mod expr;
 pub mod fs_store;
 pub mod gat_validate;
 pub mod gc;
@@ -51,6 +52,7 @@ pub mod store;
 // Re-exports for convenience.
 pub use data_mig::{StaleData, detect_staleness, migrate_backward, migrate_forward};
 pub use error::VcsError;
+pub use expr::{load_expr, store_expr};
 pub use fs_store::FsStore;
 pub use hash::ObjectId;
 pub use index::Index;

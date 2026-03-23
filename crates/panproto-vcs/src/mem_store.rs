@@ -138,6 +138,7 @@ fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
         Object::DataSet(dataset) => hash::hash_dataset(dataset),
         Object::Complement(complement) => hash::hash_complement(complement),
         Object::Protocol(protocol) => hash::hash_protocol(protocol),
+        Object::Expr(expr) => hash::hash_expr(expr),
     }
 }
 

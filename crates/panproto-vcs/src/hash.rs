@@ -403,6 +403,19 @@ pub fn hash_complement(complement: &ComplementObject) -> Result<ObjectId, VcsErr
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
+/// Compute the content-addressed ID of an expression.
+///
+/// The hash is computed from the canonical MessagePack serialization
+/// of the expression AST.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_expr(expr: &panproto_expr::Expr) -> Result<ObjectId, VcsError> {
+    let bytes = rmp_serde::to_vec(expr)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
 /// Compute the content-addressed ID of a protocol definition.
 ///
 /// The hash includes all protocol fields via direct serialization.
@@ -610,6 +623,25 @@ mod tests {
         let h1 = hash_protocol(&proto)?;
         let h2 = hash_protocol(&proto)?;
         assert_eq!(h1, h2, "same protocol should produce the same hash");
+        Ok(())
+    }
+
+    #[test]
+    fn hash_expr_stability() -> Result<(), Box<dyn std::error::Error>> {
+        let expr = panproto_expr::Expr::Lit(panproto_expr::Literal::Int(42));
+        let h1 = hash_expr(&expr)?;
+        let h2 = hash_expr(&expr)?;
+        assert_eq!(h1, h2, "same expression should produce the same hash");
+        Ok(())
+    }
+
+    #[test]
+    fn hash_expr_differs_for_different_values() -> Result<(), Box<dyn std::error::Error>> {
+        let e1 = panproto_expr::Expr::Lit(panproto_expr::Literal::Int(1));
+        let e2 = panproto_expr::Expr::Lit(panproto_expr::Literal::Int(2));
+        let h1 = hash_expr(&e1)?;
+        let h2 = hash_expr(&e2)?;
+        assert_ne!(h1, h2, "different expressions should produce different hashes");
         Ok(())
     }
 }

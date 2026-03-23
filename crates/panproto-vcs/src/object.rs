@@ -1,6 +1,6 @@
 //! Content-addressed objects stored in the VCS.
 //!
-//! The object store contains seven kinds of objects:
+//! The object store contains eight kinds of objects:
 //! - [`Object::Schema`] — a schema snapshot
 //! - [`Object::Migration`] — a morphism between two schemas
 //! - [`Object::Commit`] — a point in the schema evolution DAG
@@ -8,6 +8,7 @@
 //! - [`Object::DataSet`] — a data snapshot conforming to a schema
 //! - [`Object::Complement`] — a complement from data migration
 //! - [`Object::Protocol`] — a protocol (metaschema) definition
+//! - [`Object::Expr`] — a standalone expression (coercion, merge, default)
 
 use panproto_gat::SiteRename;
 use panproto_mig::Migration;
@@ -46,6 +47,9 @@ pub enum Object {
 
     /// A protocol (metaschema) definition.
     Protocol(Box<panproto_schema::Protocol>),
+
+    /// A standalone expression (e.g., coercion, merge, default).
+    Expr(Box<panproto_expr::Expr>),
 }
 
 impl Object {
@@ -60,6 +64,7 @@ impl Object {
             Self::DataSet(_) => "dataset",
             Self::Complement(_) => "complement",
             Self::Protocol(_) => "protocol",
+            Self::Expr(_) => "expr",
         }
     }
 }
