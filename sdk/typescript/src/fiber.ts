@@ -9,7 +9,7 @@
 
 import type { WasmModule } from './types.js';
 import { WasmError } from './types.js';
-import { packToWasm, unpackFromWasm } from './msgpack.js';
+import { unpackFromWasm } from './msgpack.js';
 
 /** Node IDs in a fiber (preimage of migration at a target anchor). */
 export type Fiber = number[];
