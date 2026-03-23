@@ -1,0 +1,586 @@
+# Querying Instances {#sec-querying-instances}
+
+Every schema instance is a graph: vertices carry data, edges encode relationships. The previous chapters showed how to build instances, version them, and migrate their data when the schema changes. But at some point you want to *ask questions* about the data: which posts got the most engagement, which annotations belong to a particular layer, which nodes satisfy some computed condition. That is what the query engine is for.
+
+panproto provides two pieces that work together. The first is a Haskell-style expression language for writing predicates, projections, and computed values. The second is a declarative query engine (`InstanceQuery`) that uses those expressions to select, filter, and reshape nodes from a schema instance. This chapter covers both.
+
+## The expression language {#sec-expression-language}
+
+The expression language is a small functional language designed to feel natural if you have written Haskell, ML, or even spreadsheet formulas. It is used everywhere panproto needs to express computation over values: query predicates, field transforms (as seen in @sec-value-dependent-transforms), computed fields, and conditional survival.
+
+### Literals {#sec-expr-literals}
+
+The basics: integers, floats, strings, booleans, and the absent value.
+
+```{.haskell}
+42
+3.125
+"hello"
+True
+False
+Nothing
+```
+
+`Nothing` represents a missing or absent value. It is distinct from an empty string or zero.
+
+### Variables and field access {#sec-expr-variables}
+
+Variables are lowercase identifiers. When an expression is evaluated against a node, the node's fields are bound as variables in the evaluation environment.
+
+```{.haskell}
+x
+name
+age
+```
+
+Dotted field access reaches into nested structures:
+
+```{.haskell}
+node.name
+doc.attrs.level
+```
+
+### Arithmetic and comparison {#sec-expr-arithmetic}
+
+Standard arithmetic operators work on integers and floats:
+
+```{.haskell}
+x + 1
+2 * y
+a - b
+total / count
+n mod 3
+```
+
+Comparisons return booleans:
+
+```{.haskell}
+x == 1
+age > 18
+score <= 100
+name /= "admin"
+```
+
+Note that inequality is `/=` (the Haskell convention), not `!=`.
+
+### Boolean logic {#sec-expr-boolean}
+
+```{.haskell}
+a && b
+x || y
+not flag
+```
+
+`not` is a keyword, not a function. `&&` and `||` are short-circuiting.
+
+### String concatenation {#sec-expr-strings}
+
+The `++` operator concatenates strings (and lists):
+
+```{.haskell}
+"hello" ++ " " ++ "world"
+```
+
+### Lambda expressions {#sec-expr-lambda}
+
+Anonymous functions use backslash syntax:
+
+```{.haskell}
+\x -> x + 1
+\x y -> x * y + 1
+```
+
+Lambdas are first class values. You can pass them to `map`, `filter`, and other higher-order builtins.
+
+### Let bindings {#sec-expr-let}
+
+Local bindings with `let ... in`:
+
+```{.haskell}
+let x = 1 in x + 2
+let
+  a = 10
+  b = 20
+in a + b
+```
+
+Indentation-based layout works the same way as in Haskell: the `let` keyword opens a layout block, and bindings at the same indentation level are grouped together.
+
+### Conditionals {#sec-expr-if}
+
+```{.haskell}
+if age > 18 then "adult" else "minor"
+```
+
+Both branches are required. The types of the two branches should agree.
+
+### Case expressions {#sec-expr-case}
+
+Pattern matching on values:
+
+```{.haskell}
+case x of
+  True  -> 1
+  False -> 0
+```
+
+Case expressions also support guards and `otherwise`:
+
+```{.haskell}
+case level of
+  1 -> "heading"
+  2 -> "subheading"
+  otherwise -> "paragraph"
+```
+
+### Records {#sec-expr-records}
+
+Record literals use curly braces with `=` for field bindings:
+
+```{.haskell}
+{ name = "alice", age = 30 }
+```
+
+Record punning lets you omit the value when the field name matches a variable in scope:
+
+```{.haskell}
+let name = "alice"
+    age = 30
+in { name, age }
+```
+
+This produces the same record as the explicit version.
+
+### Lists and comprehensions {#sec-expr-lists}
+
+List literals:
+
+```{.haskell}
+[1, 2, 3]
+["a", "b", "c"]
+```
+
+List comprehensions follow Haskell syntax, with generators (`<-`) and guards:
+
+```{.haskell}
+[ x + 1 | x <- xs, x > 0 ]
+```
+
+This reads: for each `x` drawn from `xs`, if `x > 0`, yield `x + 1`. Multiple generators and guards can be combined:
+
+```{.haskell}
+[ x ++ y | x <- prefixes, y <- suffixes, length (x ++ y) < 10 ]
+```
+
+### Edge traversal {#sec-expr-edges}
+
+The `->` operator, when used between identifiers in a graph context, navigates edges:
+
+```{.haskell}
+doc -> layers -> annotations
+```
+
+This follows the `layers` edge from `doc`, then the `annotations` edge from the result. Edge traversal is the expression-level equivalent of the `path` field in `InstanceQuery` (covered below).
+
+### Builtin functions {#sec-expr-builtins}
+
+A set of builtin functions is always available:
+
+| Function | Description |
+|----------|-------------|
+| `map f xs` | Apply `f` to every element of `xs` |
+| `filter p xs` | Keep elements where `p` returns `True` |
+| `fold f z xs` | Left fold over `xs` with initial value `z` |
+| `head xs` | First element of `xs` |
+| `tail xs` | All elements of `xs` except the first |
+| `length xs` | Number of elements in `xs` |
+| `concat xss` | Flatten a list of lists |
+| `reverse xs` | Reverse a list |
+| `take n xs` | First `n` elements of `xs` |
+| `drop n xs` | All but the first `n` elements |
+
+: {.striped}
+
+These compose naturally with lambdas:
+
+```{.haskell}
+filter (\x -> x > 0) [1, -2, 3, -4, 5]
+map (\x -> x * 2) (filter (\x -> x > 0) xs)
+fold (\acc x -> acc + x) 0 scores
+```
+
+## The declarative query engine {#sec-query-engine}
+
+The query engine operates on `WInstance` values (W-type instances, the tree-shaped data that conforms to a schema). An `InstanceQuery` is a declarative description of what you want: which vertex type to start from, which edges to follow, what conditions to check, and which fields to return. The engine evaluates the query in a fixed pipeline.
+
+### Query structure {#sec-query-structure}
+
+An `InstanceQuery` has six fields, all optional except `anchor`:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `anchor` | `Name` | Which vertex type to select (required) |
+| `path` | `[Name]` | Edge kinds to traverse before matching |
+| `predicate` | `Expr` | Boolean expression evaluated per node |
+| `group_by` | `String` | Field to partition results by |
+| `project` | `[String]` | Fields to include in each result |
+| `limit` | `usize` | Maximum number of results |
+
+: {.striped}
+
+The execution pipeline runs in this order:
+
+1. **Anchor selection**: find all nodes whose vertex type matches `anchor`.
+2. **Path navigation**: if `path` is specified, follow edges from the anchored nodes. Each element in `path` names an edge kind; the engine collects all children reachable via that edge, then continues from those children for the next path element.
+3. **Predicate filtering**: evaluate the `predicate` expression for each candidate node. The node's `extra_fields` are bound as variables, plus `_anchor` (the vertex type) and `_id` (the node identifier). Only nodes where the predicate evaluates to `True` survive.
+4. **Limit**: truncate to at most `limit` results.
+5. **Projection**: if `project` is specified, include only those fields in the output. Otherwise, all fields are returned.
+
+### Anchor selection {#sec-anchor-selection}
+
+The simplest possible query selects all nodes of a given vertex type:
+
+```{.rust}
+use panproto_inst::query::{InstanceQuery, execute};
+
+let query = InstanceQuery {
+    anchor: "post".into(),
+    ..Default::default()
+};
+let results = execute(&query, &instance);
+// results contains every node anchored to "post"
+```
+
+This is the starting point for every query. If your schema has 200 `post` nodes and 50 `comment` nodes, anchoring on `"post"` gives you the 200 posts.
+
+### Predicate filtering {#sec-predicate-filtering}
+
+Add a `predicate` to keep only the nodes that match a condition. The expression is evaluated once per candidate node, with the node's fields bound as variables.
+
+Find all posts with more than 10 likes:
+
+```{.rust}
+use panproto_expr::{Expr, Literal, BuiltinOp};
+
+let query = InstanceQuery {
+    anchor: "post".into(),
+    predicate: Some(Expr::Builtin(
+        BuiltinOp::Gt,
+        vec![
+            Expr::Var("likes".into()),
+            Expr::Lit(Literal::Int(10)),
+        ],
+    )),
+    ..Default::default()
+};
+let results = execute(&query, &instance);
+```
+
+In the surface syntax, the predicate is simply `likes > 10`. The Rust API requires building the AST explicitly, but the intent is the same: for each `post` node, check whether its `likes` field exceeds 10.
+
+### Path navigation {#sec-path-navigation}
+
+Path navigation lets you start at one vertex type and follow edges to reach a different part of the instance graph. Each element in `path` names an edge kind. The engine follows all arcs matching that edge kind from the current set of nodes, collecting the targets, then repeats for the next path element.
+
+Find all annotations reachable from the document root via the `layers` and `annotations` edges:
+
+```{.rust}
+let query = InstanceQuery {
+    anchor: "document".into(),
+    path: vec!["layers".into(), "annotations".into()],
+    ..Default::default()
+};
+let results = execute(&query, &instance);
+// results contains all annotation nodes reachable via
+// document -> layers -> annotations
+```
+
+Path navigation is especially useful when you want to scope a query to a particular subgraph. Without it, anchoring on `"annotation"` would return every annotation in the instance. With a path, you can restrict to annotations reachable through a specific edge sequence.
+
+### Projection {#sec-projection}
+
+By default, every field on a matched node is included in the result. Projection lets you ask for only the fields you care about.
+
+Get just the titles of all documents:
+
+```{.rust}
+let query = InstanceQuery {
+    anchor: "document".into(),
+    project: Some(vec!["title".into()]),
+    ..Default::default()
+};
+let results = execute(&query, &instance);
+// Each result has only the "title" field
+```
+
+This is useful when nodes carry many fields but you only need one or two. Projection does not affect filtering; the predicate still has access to all fields when it evaluates.
+
+### Combining everything {#sec-combining-query}
+
+A realistic query combines several of these pieces. Find the first 20 annotations on the `"markup"` layer with confidence above 0.8, returning only the `label` and `confidence` fields:
+
+```{.rust}
+let query = InstanceQuery {
+    anchor: "layer".into(),
+    path: vec!["annotations".into()],
+    predicate: Some(Expr::Builtin(
+        BuiltinOp::Gt,
+        vec![
+            Expr::Var("confidence".into()),
+            Expr::Lit(Literal::Float(0.8)),
+        ],
+    )),
+    project: Some(vec!["label".into(), "confidence".into()]),
+    limit: Some(20),
+    ..Default::default()
+};
+let results = execute(&query, &instance);
+```
+
+The pipeline executes left to right: anchor on `layer`, follow `annotations` edges, keep nodes where `confidence > 0.8`, take at most 20, and project to `label` and `confidence`.
+
+## Practical examples {#sec-query-examples}
+
+### Collecting field values across nodes {#sec-collecting-values}
+
+A common pattern is collecting all values of a particular field across matching nodes. Suppose you want all distinct tags used in your posts:
+
+```{.rust}
+let query = InstanceQuery {
+    anchor: "post".into(),
+    project: Some(vec!["tags".into()]),
+    ..Default::default()
+};
+let results = execute(&query, &instance);
+
+// Collect unique tags across all posts
+let all_tags: Vec<&Value> = results
+    .iter()
+    .filter_map(|r| r.fields.get("tags"))
+    .collect();
+```
+
+The query itself returns every post with only its `tags` field. The aggregation (collecting unique values) happens in your application code. The query engine handles selection and projection; your code handles aggregation.
+
+### Filtering with compound predicates {#sec-compound-predicates}
+
+Predicates can combine multiple conditions. Find posts that have more than 10 likes *and* were written by a specific author:
+
+```{.rust}
+let query = InstanceQuery {
+    anchor: "post".into(),
+    predicate: Some(Expr::Builtin(
+        BuiltinOp::And,
+        vec![
+            Expr::Builtin(
+                BuiltinOp::Gt,
+                vec![
+                    Expr::Var("likes".into()),
+                    Expr::Lit(Literal::Int(10)),
+                ],
+            ),
+            Expr::Builtin(
+                BuiltinOp::Eq,
+                vec![
+                    Expr::Var("author".into()),
+                    Expr::Lit(Literal::Str("alice".into())),
+                ],
+            ),
+        ],
+    )),
+    ..Default::default()
+};
+```
+
+In the surface syntax this would be `likes > 10 && author == "alice"`.
+
+### Using comprehensions to reshape results {#sec-comprehension-reshaping}
+
+List comprehensions in the expression language are useful for computed predicates and transforms, not just standalone evaluation. You might use a comprehension inside a `ComputeField` to derive a summary value:
+
+```{.haskell}
+let active = [ u | u <- users, u.lastLogin > cutoff ]
+in length active
+```
+
+This counts users whose `lastLogin` exceeds a cutoff. As a `ComputeField` expression, it would compute a derived metric on a summary node.
+
+## CLI usage {#sec-cli-expr}
+
+The `schema expr` subcommands let you work with expressions from the command line. These are useful for quick experiments, debugging predicates, and validating syntax before embedding expressions in migration definitions.
+
+### Parsing {#sec-cli-parse}
+
+Parse an expression and see its AST:
+
+```{.bash}
+schema expr parse "x + 1"
+```
+
+Output (abbreviated):
+
+```
+Builtin(
+    Add,
+    [
+        Var("x"),
+        Lit(Int(1)),
+    ],
+)
+```
+
+This shows you exactly how the parser interprets the surface syntax. Useful when you are not sure whether an expression parses the way you expect.
+
+### Evaluation {#sec-cli-eval}
+
+Evaluate a closed expression (one with no free variables) and see the result:
+
+```{.bash}
+schema expr eval "2 + 3"
+```
+
+Output:
+
+```json
+5
+```
+
+```{.bash}
+schema expr eval "if True then 42 else 0"
+```
+
+Output:
+
+```json
+42
+```
+
+Evaluation only works for expressions with no free variables, since the CLI does not provide an environment. For expressions that reference fields, use the REPL (`schema expr repl`) or embed them in a query.
+
+### Formatting {#sec-cli-fmt}
+
+Canonicalize expression formatting:
+
+```{.bash}
+schema expr fmt "\x->x+ 1"
+```
+
+Output:
+
+```
+\x -> x + 1
+```
+
+This is the expression equivalent of `rustfmt` or `prettier`. It parses the expression and pretty-prints it in canonical form, normalizing whitespace and parenthesization.
+
+### Syntax checking {#sec-cli-check}
+
+Validate that an expression parses without evaluating it:
+
+```{.bash}
+schema expr check "let x = 1 in x + 2"
+```
+
+Output:
+
+```
+OK
+```
+
+```{.bash}
+schema expr check "let x = in"
+```
+
+Output:
+
+```
+parse error: unexpected token 'in' at byte 10
+```
+
+This is useful in CI pipelines or editor integrations where you want to catch syntax errors early.
+
+## TypeScript SDK usage {#sec-ts-query}
+
+The TypeScript SDK wraps the WASM-compiled expression parser and query engine. The API mirrors the Rust types but uses TypeScript conventions.
+
+### Parsing expressions {#sec-ts-parse}
+
+```{.typescript}
+import { parseExpr } from '@panproto/core';
+
+const expr = parseExpr('\\x -> x + 1', panproto._wasm);
+// => { type: 'lam', param: 'x', body: { type: 'builtin', op: 'Add', ... } }
+```
+
+The returned `Expr` object is a tagged union with a `type` discriminant. You can inspect it, serialize it, or pass it to `evalExpr`.
+
+### Evaluating expressions {#sec-ts-eval}
+
+```{.typescript}
+import { evalExpr, parseExpr } from '@panproto/core';
+
+const expr = parseExpr('x + 1', panproto._wasm);
+const result = evalExpr(
+  expr,
+  { x: { type: 'int', value: 41 } },
+  panproto._wasm,
+);
+// => { type: 'int', value: 42 }
+```
+
+The second argument is the environment: a record mapping variable names to `Literal` values. Each literal is a tagged object with `type` and `value` fields.
+
+### Executing queries {#sec-ts-execute}
+
+```{.typescript}
+import { executeQuery, parseExpr } from '@panproto/core';
+
+const predicate = parseExpr('likes > 10', panproto._wasm);
+const matches = executeQuery(
+  {
+    anchor: 'post',
+    predicate,
+    projection: ['title', 'likes'],
+    limit: 50,
+  },
+  instance,
+  panproto._wasm,
+);
+
+for (const m of matches) {
+  console.log(m.fields.title, m.fields.likes);
+}
+```
+
+`executeQuery` serializes the query and instance to MessagePack, sends them to the WASM query engine, and deserializes the results. The returned `QueryMatch` objects have `nodeId`, `anchor`, `value`, and `fields` properties.
+
+::: {.callout-tip}
+## Parsing predicates from user input
+
+The `parseExpr` function accepts arbitrary expression source text. This means you can let users write query predicates as strings (`"likes > 10 && author == \"alice\""`) and parse them at runtime, rather than constructing the AST by hand. Validate with a `try/catch` around `parseExpr` to handle syntax errors gracefully.
+:::
+
+### Formatting expressions {#sec-ts-format}
+
+```{.typescript}
+import { formatExpr } from '@panproto/core';
+
+const canonical = formatExpr('\\x->x +  1', panproto._wasm);
+// => '\\x -> x + 1'
+```
+
+This is useful for normalizing user-entered expressions before storing or displaying them.
+
+## Summary {#sec-query-summary}
+
+The expression language gives you a concise, functional notation for writing predicates and computed values. The query engine gives you a declarative way to select, filter, navigate, and project over instance graphs. Together they turn a schema instance from a static data structure into something you can interrogate.
+
+The key ideas:
+
+- **Anchor** selects which vertex type to query.
+- **Path** navigates edges before matching, scoping a query to a subgraph.
+- **Predicate** filters nodes using an expression evaluated against each node's fields.
+- **Projection** controls which fields appear in the results.
+- **Limit** caps the number of results.
+
+Expressions and queries compose with everything else in panproto. A predicate used in a query is the same `Expr` type used in `ConditionalSurvival`, `Case` branches, and `ComputeField` transforms. Learn the expression language once, use it everywhere.
