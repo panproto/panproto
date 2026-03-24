@@ -45,23 +45,9 @@ jobs:
           name: wheels-${{ matrix.os }}-${{ matrix.target }}
           path: dist/*.whl
 
-  sdist:
-    name: Build source distribution
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist -m ${{ env.MATURIN_MANIFEST_PATH }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: dist/*.tar.gz
-
   publish:
     name: Publish to PyPI
-    needs: [build, sdist]
+    needs: [build]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -72,10 +58,6 @@ jobs:
           pattern: wheels-*
           path: dist
           merge-multiple: true
-      - uses: actions/download-artifact@v4
-        with:
-          name: sdist
-          path: dist
       - uses: PyO3/maturin-action@v1
         with:
           command: upload
