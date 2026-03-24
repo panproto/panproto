@@ -96,16 +96,25 @@ jobs:
       - run: cd sdk/typescript && pnpm exec tsc --noEmit
 
   python:
-    name: Python SDK
-    runs-on: ubuntu-latest
+    name: Python SDK (Native)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
-      - run: pip install wasmtime msgpack pyright pytest
-      - run: cd sdk/python && pip install -e .
-      - run: cd sdk/python && pyright src/panproto/_enrichment.py src/panproto/_expr.py src/panproto/_coverage.py src/panproto/_types.py
+          python-version: ${{ matrix.python }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: python-${{ matrix.os }}
+      - run: pip install maturin pytest
+      - run: maturin develop --manifest-path crates/panproto-py/Cargo.toml
+      - run: python -c "import panproto; print(f'panproto {panproto.__version__} loaded, {len(panproto.list_builtin_protocols())} protocols')"
       - run: cd sdk/python && python -m pytest tests/ -x
 
   semver:

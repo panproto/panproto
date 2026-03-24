@@ -40,6 +40,7 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 | [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge |
 | [`panproto-core`](crates/panproto-core) | Re-export facade |
 | [`panproto-wasm`](crates/panproto-wasm) | WASM bindings with handle-based slab allocator, MessagePack boundary, and protolens entry points |
+| [`panproto-py`](crates/panproto-py) | Native Python bindings via PyO3 with `pythonize` (serde to Python dicts) |
 | [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, convert, lens, expr, enrich, and git-style version control |
 
 ### SDKs
@@ -101,24 +102,26 @@ const result = chain.apply(record);
 ```python
 import panproto
 
-pp = panproto.Panproto.load()
-proto = pp.protocol("atproto")
+proto = panproto.get_builtin_protocol("atproto")
 
-schema = (proto.schema()
-    .vertex("post", "record", nsid="app.bsky.feed.post")
-    .vertex("post:body", "object")
-    .vertex("post:body.text", "string")
-    .edge("post", "post:body", "record-schema")
-    .edge("post:body", "post:body.text", "prop", name="text")
-    .constraint("post:body.text", "maxLength", "3000")
-    .build())
+builder = proto.schema()
+builder.vertex("post", "record", "app.bsky.feed.post")
+builder.vertex("post:body", "object")
+builder.vertex("post:body.text", "string")
+builder.edge("post", "post:body", "record-schema")
+builder.edge("post:body", "post:body.text", "prop", "text")
+builder.constraint("post:body.text", "maxLength", "3000")
+schema = builder.build()
 
-# One-liner data conversion between schema versions
-converted = pp.convert(record, old_schema, new_schema)
+# Diff two schema versions
+diff = panproto.diff_schemas(old_schema, new_schema)
+report = diff.classify(proto)
+print(report.compatible)       # True/False
+print(report.report_text())    # human-readable summary
 
-# Or build a reusable protolens chain
-chain = pp.protolens_chain(old_schema, new_schema)
-result = chain.apply(record)
+# Auto-generate a lens between two schema versions
+lens, quality = panproto.auto_generate_lens(old_schema, new_schema, proto)
+view, complement = lens.get(instance)
 ```
 
 ### CLI
@@ -193,8 +196,8 @@ wasm-pack build crates/panproto-wasm --target web
 # TypeScript SDK
 cd sdk/typescript && pnpm install && pnpm build
 
-# Python SDK
-cd sdk/python && pip install -e .
+# Python SDK (native PyO3 bindings)
+maturin develop --manifest-path crates/panproto-py/Cargo.toml
 ```
 
 ## Architecture

@@ -4,6 +4,28 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-03-24
+
+### Added — Native Python Bindings (panproto-py)
+
+- **panproto-py** (new crate): Native Python bindings via PyO3/maturin, replacing the WASM-based Python SDK. Compiles to a `cdylib` (`panproto._native`) with `pythonize` for zero-overhead serde to Python dict conversion. No wasmtime or msgpack dependencies. Produces platform-specific wheels (abi3-py313).
+- **panproto-py**: 13 Rust modules wrapping all panproto sub-crates: `schema.rs` (Protocol, Schema, SchemaBuilder, Vertex, Edge, Constraint, HyperEdge), `protocols.rs` (76 built-in protocols), `mig.rs` (Migration, MigrationBuilder, CompiledMigration, compile/compose/invert/check_existence/check_coverage), `check.rs` (SchemaDiff, CompatReport, diff/classify), `inst.rs` (Instance W-type, from_json/to_json/validate), `io.rs` (IoRegistry with 76 codecs), `lens.rs` (Lens, Complement, get/put/check_laws/auto_generate), `gat.rs` (Theory, Model, create/colimit/check_morphism/migrate/free_model/check_model), `expr.rs` (Expr, parse_expr/pretty_print), `vcs.rs` (VcsRepository), `error.rs` (10 exception classes).
+- **Python SDK**: `__init__.py` now directly re-exports from `_native`. Deleted 18 wrapper modules (~9,200 lines), the bundled WASM binary, and the wasmtime/msgpack dependencies.
+- **Python SDK**: 76 tests covering all modules (protocol registry, schema builder, schema properties, diff/classify, migration, IoRegistry, expressions, GAT, VCS, error hierarchy, vertex/edge/constraint types). All pass in 0.14s.
+- **Python SDK**: mkdocs documentation with 9 pages (index, schemas, migrations, lenses, I/O, GAT, VCS, expressions, API reference), LaTeX math for category-theoretic concepts, mkdocs-material theme.
+- **CI**: Python job updated from WASM to native `maturin develop` with ubuntu/macos matrix.
+- **CI**: New `publish-python.yml` workflow for PyPI wheel builds via `PyO3/maturin-action` (linux x86_64/aarch64, macos x86_64/aarch64, windows x86_64).
+
+### Changed
+
+- **Python SDK**: The `panproto` PyPI package now ships native compiled extensions instead of a bundled WASM binary. `import panproto` works identically; the public API surface is preserved. `WasmError` is a deprecated alias for `PanprotoError`.
+- **Python SDK**: `SchemaBuilder` methods (`vertex`, `edge`, `hyper_edge`, `constraint`) now mutate in place instead of returning new immutable copies. Call `build()` to produce the final `Schema`.
+
+### Removed
+
+- **Python SDK**: Deleted `_wasm.py`, `_msgpack.py`, `_panproto.py`, `_schema.py`, `_protocol.py`, `_migration.py`, `_check.py`, `_instance.py`, `_io.py`, `_lens.py`, `_gat.py`, `_vcs.py`, `_errors.py`, `_data.py`, `_enrichment.py`, `_coverage.py`, `_expr.py`, `_protolens.py`, `_types.py`, and the bundled `panproto_wasm_bg.wasm`.
+- **Python SDK**: Removed `wasmtime>=29.0.0` and `msgpack>=1.1.0` dependencies.
+
 ## [0.13.0] - 2026-03-23
 
 ### Added — Expression Parser, Polynomial Queries, and Lens Graphs

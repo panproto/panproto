@@ -1,0 +1,25 @@
+[package]
+name = "panproto-py"
+description = "Native Python bindings for panproto via PyO3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+panproto-core = { workspace = true }
+panproto-expr = { workspace = true }
+panproto-expr-parser = { workspace = true }
+pyo3 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+pythonize = { workspace = true }
+
+[lints]
+workspace = true

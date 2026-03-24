@@ -12,6 +12,10 @@ __pycache__/
 *.pyo
 .venv/
 *.egg-info/
+*.so
+*.abi3.so
+*.pyd
+*.dSYM/
 
 # Node
 node_modules/

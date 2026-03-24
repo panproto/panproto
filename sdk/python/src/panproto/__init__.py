@@ -1,285 +1,140 @@
-"""panproto — Universal schema migration engine for Python.
+"""panproto: schema migration engine grounded in generalized algebraic theories.
 
-Provides a type-safe, WASM-backed runtime for defining protocols,
-building schemas, compiling bidirectional migrations, and diffing
-schema versions across ATProto, SQL, Protobuf, GraphQL, and
-JSON Schema.
+Native Python bindings via PyO3. Provides protocol-aware schema construction,
+bidirectional migrations with lens laws, breaking change detection, instance
+I/O across 76 protocols, GAT operations, and schematic version control.
 """
 
-from __future__ import annotations
-
-from panproto._errors import (
+from panproto._native import (
+    # Errors
+    CheckError,
     ExistenceCheckError,
+    ExprError,
+    GatError,
+    IoError,
+    LensError,
     MigrationError,
     PanprotoError,
     SchemaValidationError,
-    WasmError,
-)
-from panproto._lens import (
-    LensHandle,
-    ProtolensChainHandle,
-    SymmetricLensHandle,
-)
-from panproto._migration import (
-    CompiledMigration,
-    MigrationBuilder,
-    check_existence,
-    compose_migrations,
-)
-from panproto._check import CompatReport, FullDiffReport, ValidationResult
-from panproto._data import DataSetHandle, StalenessResult
-from panproto._gat import (
-    TheoryBuilder,
-    TheoryHandle,
-    check_morphism as check_gat_morphism,
-    colimit as gat_colimit,
-    create_theory,
-    factorize_morphism,
-    migrate_model,
-)
-from panproto._instance import Instance
-from panproto._io import PROTOCOL_CATEGORIES, IoRegistry
-from panproto._panproto import Panproto
-from panproto._protocol import (
-    ATPROTO_SPEC,
-    BUILTIN_PROTOCOLS,
-    GRAPHQL_SPEC,
-    JSON_SCHEMA_SPEC,
-    PROTOBUF_SPEC,
-    SQL_SPEC,
+    VcsError,
+    # Schema types
+    Complement,
+    Constraint,
+    Edge,
+    HyperEdge,
     Protocol,
+    Schema,
+    SchemaBuilder,
+    Vertex,
+    # Protocol registry
     define_protocol,
     get_builtin_protocol,
-    get_protocol_names,
-)
-from panproto._protolens import (
-    CapturedField,
-    ComplementSpec,
-    DefaultRequirement,
-    ElementaryStep,
-    NaturalityResult,
-)
-from panproto._coverage import MigrationAnalysis
-from panproto._enrichment import SchemaEnrichment
-from panproto._expr import ExprBuilder
-from panproto._schema import BuiltSchema, SchemaBuilder
-from panproto._vcs import VcsRepository
-from panproto._types import (
-    BreakingChange,
-    BuiltinOp,
-    ConflictCustom,
-    ConflictFail,
-    ConflictKeepLeft,
-    ConflictKeepRight,
-    ConflictPolicy,
-    ConflictStrategy,
-    CoverageReport,
-    DirectedEquation,
-    EnrichmentSummary,
+    list_builtin_protocols,
+    # Migration
+    CompiledMigration,
+    Migration,
+    MigrationBuilder,
+    check_coverage,
+    check_existence,
+    compile_migration,
+    compose_migrations,
+    invert_migration,
+    # Check
+    CompatReport,
+    SchemaDiff,
+    diff_and_classify,
+    diff_schemas,
+    # Instance
+    Instance,
+    # I/O
+    IoRegistry,
+    # Lens
+    Lens,
+    auto_generate_lens,
+    # GAT
+    Model,
+    Theory,
+    check_model,
+    check_morphism,
+    colimit_theories,
+    create_theory,
+    free_model,
+    migrate_model,
+    # Expr
     Expr,
-    ExprApp,
-    ExprBuiltin,
-    ExprField,
-    ExprIndex,
-    ExprLam,
-    ExprLet,
-    ExprList,
-    ExprLit,
-    ExprMatch,
-    ExprRecord,
-    ExprVar,
-    GatOperation,
-    GatSort,
-    GatSortParam,
-    InstanceValidationResult,
-    LawCheckResult,
-    LiteralValue,
-    CompatReportData,
-    Compatibility,
-    Constraint,
-    ConstraintChange,
-    ConstraintDiff,
-    DiffReport,
-    Edge,
-    EdgeOptions,
-    # Re-export all TypedDicts + type aliases users need
-    EdgeRule,
-    ExistenceError,
-    ExistenceErrorKind,
-    ExistenceReport,
-    FullSchemaDiff,
-    GetResult,
-    HyperEdge,
-    JsonValue,
-    KindChange,
-    LiftResult,
-    MigrationSpec,
-    MorphismCheckResult,
-    NonBreakingChange,
-    OpticKind,
-    PartialFailure,
-    PartialReason,
-    Pattern,
-    ProtocolSpec,
-    RecursionPoint,
-    SchemaChange,
-    SchemaChangeKind,
-    SchemaData,
-    SchemaValidationIssue,
-    SortKind,
-    Span,
-    TheoryMorphism,
-    ValueKind,
-    Variant,
-    VcsBlameResult,
-    VcsLogEntry,
-    VcsOpResult,
-    VcsStatus,
-    Vertex,
-    VertexOptions,
+    parse_expr,
+    pretty_print_expr,
+    # VCS
+    VcsRepository,
 )
 
-__version__ = "0.1.0"
+# Deprecated alias
+WasmError = PanprotoError
+
+__version__ = "0.14.0"
 
 __all__ = [
-    "ATPROTO_SPEC",
-    "BUILTIN_PROTOCOLS",
-    "GRAPHQL_SPEC",
-    "JSON_SCHEMA_SPEC",
-    "PROTOBUF_SPEC",
-    "SQL_SPEC",
-    "BreakingChange",
-    "BuiltSchema",
-    "BuiltinOp",
-    # Enriched theory types
-    "ConflictCustom",
-    "ConflictFail",
-    "ConflictKeepLeft",
-    "ConflictKeepRight",
-    "ConflictPolicy",
-    "ConflictStrategy",
-    "CoverageReport",
-    # Data versioning
-    "DataSetHandle",
-    "DirectedEquation",
-    "EnrichmentSummary",
-    "Expr",
-    # Expression builder
-    "ExprBuilder",
-    "ExprApp",
-    "ExprBuiltin",
-    "ExprField",
-    "ExprIndex",
-    "ExprLam",
-    "ExprLet",
-    "ExprList",
-    "ExprLit",
-    "ExprMatch",
-    "ExprRecord",
-    "ExprVar",
-    # Protolens types
-    "CapturedField",
-    "CompatReport",
-    "CompatReportData",
-    "Compatibility",
-    "CompiledMigration",
-    "ComplementSpec",
-    "Constraint",
-    "ConstraintChange",
-    "ConstraintDiff",
-    "DefaultRequirement",
-    "DiffReport",
-    "Edge",
-    "EdgeOptions",
-    # Types
-    "EdgeRule",
-    "ElementaryStep",
-    "ExistenceCheckError",
-    "ExistenceError",
-    "ExistenceErrorKind",
-    "ExistenceReport",
-    # Check
-    "FullDiffReport",
-    "FullSchemaDiff",
-    # GAT
-    "GatOperation",
-    "GatSort",
-    "GatSortParam",
-    "GetResult",
-    "HyperEdge",
-    # Instance / I/O
-    "Instance",
-    "InstanceValidationResult",
-    "IoRegistry",
-    "JsonValue",
-    "KindChange",
-    "LawCheckResult",
-    # Lens / Protolens
-    "LensHandle",
-    "LiftResult",
-    "LiteralValue",
-    # Migration
-    "MigrationAnalysis",
-    "MigrationBuilder",
-    "MigrationError",
-    "MigrationSpec",
-    "MorphismCheckResult",
-    "NaturalityResult",
-    "NonBreakingChange",
-    "OpticKind",
-    # Main
-    "Panproto",
     # Errors
+    "CheckError",
+    "ExistenceCheckError",
+    "ExprError",
+    "GatError",
+    "IoError",
+    "LensError",
+    "MigrationError",
     "PanprotoError",
-    "PROTOCOL_CATEGORIES",
-    "PartialFailure",
-    "PartialReason",
-    "Pattern",
-    # Protocol
-    "Protocol",
-    "ProtocolSpec",
-    "ProtolensChainHandle",
-    "RecursionPoint",
-    # Schema
-    "SchemaBuilder",
-    "SchemaChange",
-    "SchemaChangeKind",
-    "SchemaData",
-    # Enrichment
-    "SchemaEnrichment",
     "SchemaValidationError",
-    "SchemaValidationIssue",
-    "SortKind",
-    "Span",
-    "StalenessResult",
-    "SymmetricLensHandle",
-    # GAT
-    "TheoryBuilder",
-    "TheoryHandle",
-    "TheoryMorphism",
-    # Validation
-    "ValidationResult",
-    "ValueKind",
-    "Variant",
-    # VCS
-    "VcsBlameResult",
-    "VcsLogEntry",
-    "VcsOpResult",
-    "VcsRepository",
-    "VcsStatus",
-    "Vertex",
-    "VertexOptions",
+    "VcsError",
     "WasmError",
-    # Version
-    "__version__",
-    "check_existence",
-    "check_gat_morphism",
-    "compose_migrations",
-    "create_theory",
+    # Schema
+    "Complement",
+    "Constraint",
+    "Edge",
+    "HyperEdge",
+    "Protocol",
+    "Schema",
+    "SchemaBuilder",
+    "Vertex",
+    # Protocol registry
     "define_protocol",
-    "factorize_morphism",
-    "gat_colimit",
     "get_builtin_protocol",
-    "get_protocol_names",
+    "list_builtin_protocols",
+    # Migration
+    "CompiledMigration",
+    "Migration",
+    "MigrationBuilder",
+    "check_coverage",
+    "check_existence",
+    "compile_migration",
+    "compose_migrations",
+    "invert_migration",
+    # Check
+    "CompatReport",
+    "SchemaDiff",
+    "diff_and_classify",
+    "diff_schemas",
+    # Instance
+    "Instance",
+    # I/O
+    "IoRegistry",
+    # Lens
+    "Lens",
+    "auto_generate_lens",
+    # GAT
+    "Model",
+    "Theory",
+    "check_model",
+    "check_morphism",
+    "colimit_theories",
+    "create_theory",
+    "free_model",
     "migrate_model",
+    # Expr
+    "Expr",
+    "parse_expr",
+    "pretty_print_expr",
+    # VCS
+    "VcsRepository",
+    # Meta
+    "__version__",
 ]

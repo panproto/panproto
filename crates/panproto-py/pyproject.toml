@@ -1,0 +1,49 @@
+[build-system]
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "panproto"
+version = "0.14.0"
+description = "Schema migration engine grounded in generalized algebraic theories"
+readme = "../../README.md"
+license = "MIT"
+requires-python = ">=3.13"
+authors = [
+    { name = "Aaron Steven White", email = "aaron.steven.white@gmail.com" },
+]
+keywords = ["schema", "migration", "gat", "lens", "category-theory"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "pyright>=1.1",
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.25",
+]
+
+[tool.maturin]
+python-source = "../../sdk/python/src"
+module-name = "panproto._native"
+features = ["pyo3/extension-module"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 99
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "TCH", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"

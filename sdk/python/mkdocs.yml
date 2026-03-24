@@ -1,0 +1,54 @@
+site_name: panproto Python SDK
+site_description: Native Python bindings for panproto, grounded in generalized algebraic theories
+repo_url: https://github.com/panproto/panproto
+repo_name: panproto/panproto
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.expand
+    - toc.integrate
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_source: false
+            show_root_heading: true
+            members_order: source
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Overview: index.md
+  - Schemas: schemas.md
+  - Migrations: migrations.md
+  - Lenses: lenses.md
+  - I/O: io.md
+  - GAT: gat.md
+  - VCS: vcs.md
+  - Expressions: expressions.md
+  - API Reference: api.md
