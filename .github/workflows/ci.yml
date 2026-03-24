@@ -112,11 +112,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: python-${{ matrix.os }}
-      - run: pip install maturin pytest
-      - run: maturin build --release --manifest-path crates/panproto-py/Cargo.toml --out dist
-      - run: pip install dist/panproto-*.whl
-      - run: python -c "import panproto; print(f'panproto {panproto.__version__} loaded, {len(panproto.list_builtin_protocols())} protocols')"
-      - run: cd sdk/python && python -m pytest tests/ -x
+      - run: python -m venv .venv && . .venv/bin/activate && pip install maturin pytest
+      - run: . .venv/bin/activate && maturin develop --manifest-path crates/panproto-py/Cargo.toml
+      - run: . .venv/bin/activate && python -c "import panproto; print(f'panproto {panproto.__version__} loaded, {len(panproto.list_builtin_protocols())} protocols')"
+      - run: . .venv/bin/activate && cd sdk/python && python -m pytest tests/ -x
 
   semver:
     name: Semver Check
