@@ -113,7 +113,8 @@ jobs:
         with:
           key: python-${{ matrix.os }}
       - run: pip install maturin pytest
-      - run: maturin develop --manifest-path crates/panproto-py/Cargo.toml
+      - run: maturin build --release --manifest-path crates/panproto-py/Cargo.toml --out dist
+      - run: pip install dist/panproto-*.whl
       - run: python -c "import panproto; print(f'panproto {panproto.__version__} loaded, {len(panproto.list_builtin_protocols())} protocols')"
       - run: cd sdk/python && python -m pytest tests/ -x
 
