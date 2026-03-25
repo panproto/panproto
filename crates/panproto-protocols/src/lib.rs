@@ -59,6 +59,8 @@ pub mod theories;
 pub mod type_system;
 /// Web and document format protocol definitions.
 pub mod web_document;
+/// Raw file protocol for non-code files (README, LICENSE, images, etc.).
+pub mod raw_file;
 
 pub use error::ProtocolError;
 

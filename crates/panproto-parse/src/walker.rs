@@ -370,7 +370,12 @@ mod tests {
             has_order: true,
             has_coproducts: false,
             has_recursion: false,
-            ..Protocol::default()
+            has_causal: false,
+            nominal_identity: false,
+            has_defaults: false,
+            has_coercions: false,
+            has_mergers: false,
+            has_policies: false,
         }
     }
 

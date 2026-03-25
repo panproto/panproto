@@ -75,7 +75,12 @@ impl LanguageParser {
             has_order: true,
             has_coproducts: false,
             has_recursion: true,
-            ..Protocol::default()
+            has_causal: false,
+            nominal_identity: false,
+            has_defaults: false,
+            has_coercions: false,
+            has_mergers: false,
+            has_policies: false,
         };
 
         Ok(Self {
@@ -133,7 +138,12 @@ impl LanguageParser {
             has_order: true,
             has_coproducts: false,
             has_recursion: true,
-            ..Protocol::default()
+            has_causal: false,
+            nominal_identity: false,
+            has_defaults: false,
+            has_coercions: false,
+            has_mergers: false,
+            has_policies: false,
         };
 
         Ok(Self {
