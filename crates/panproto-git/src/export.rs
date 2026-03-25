@@ -4,8 +4,6 @@
 //! objects. The schema is decomposed back into per-file source text via the
 //! panproto-parse emitters.
 
-use std::path::Path;
-
 use panproto_parse::ParserRegistry;
 use panproto_vcs::{Object, ObjectId, Store};
 

@@ -19,6 +19,7 @@ members = [
     "crates/panproto-parse",
     "crates/panproto-project",
     "crates/panproto-git",
+    "crates/panproto-llvm",
     "tests/integration",
 ]
 
