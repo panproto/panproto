@@ -1347,3 +1347,160 @@ pub fn register_constrained_graph_instance<S: ::std::hash::BuildHasher>(
     inst.name = instance_name.into();
     registry.insert(instance_name.into(), inst);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Full-AST building block: ThImport (cross-file edges)
+// ═══════════════════════════════════════════════════════════════════
+
+/// `ThImport`: cross-module/cross-file reference edges.
+///
+/// Sorts: `Vertex`, `Edge`.
+/// Ops: `imports : (from: Vertex) → Vertex`,
+///      `exports : (decl: Vertex) → Vertex`,
+///      `contains : (parent: Vertex) → Vertex`.
+///
+/// These operations represent edge kinds for connecting import declarations
+/// to their targets across file boundaries. `imports` connects an import
+/// vertex to the target module/type. `exports` connects an explicit export
+/// to its declaration. `contains` connects a module to its top-level items.
+///
+/// This theory is manually defined (not in any tree-sitter grammar) because
+/// cross-file relationships are a panproto concept, not a per-file parse concept.
+///
+/// Shares `Vertex` and `Edge` with `ThGraph` via colimit.
+#[must_use]
+pub fn th_import() -> Theory {
+    Theory::new(
+        "ThImport",
+        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+        vec![
+            Operation::unary("imports", "from", "Vertex", "Vertex"),
+            Operation::unary("exports", "decl", "Vertex", "Vertex"),
+            Operation::unary("contains", "parent", "Vertex", "Vertex"),
+        ],
+        vec![],
+    )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Full-AST theory registration
+// ═══════════════════════════════════════════════════════════════════
+
+/// Register a full-AST theory pair from an auto-derived theory.
+///
+/// Takes an auto-derived `Theory` (extracted from tree-sitter `node-types.json`)
+/// and composes it via colimit with the standard building blocks:
+///
+/// ```text
+/// full_ast_schema = colimit(
+///     auto_derived,        // from grammar extraction
+///     ThGraph,             // Vertex + Edge + src/tgt
+///     ThConstraint,        // Constraint(v: Vertex)
+///     ThMulti,             // MultiEdge
+///     ThInterface,         // Interface + implements
+///     ThOrder,             // Position + edge_position + succ
+///     ThImport,            // imports/exports/contains
+///     shared = Vertex ∪ Edge
+/// )
+/// ```
+///
+/// The instance theory is `ThWType` (tree-shaped instances).
+///
+/// # Arguments
+///
+/// * `registry` - The theory registry to populate.
+/// * `schema_name` - Name for the composed schema theory (e.g. `"ThTypeScriptFullAST"`).
+/// * `instance_name` - Name for the instance theory (e.g. `"ThTypeScriptFullASTInstance"`).
+/// * `auto_derived` - Theory auto-derived from tree-sitter grammar metadata.
+pub fn register_full_ast_wtype<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+    schema_name: &str,
+    instance_name: &str,
+    auto_derived: &Theory,
+) {
+    let g = th_graph();
+    let c = th_constraint();
+    let m = th_multi();
+    let iface = th_interface();
+    let ord = th_order();
+    let imp = th_import();
+    let w = th_wtype();
+
+    // Register all component theories.
+    registry
+        .entry("ThGraph".into())
+        .or_insert_with(|| g.clone());
+    registry
+        .entry("ThConstraint".into())
+        .or_insert_with(|| c.clone());
+    registry
+        .entry("ThMulti".into())
+        .or_insert_with(|| m.clone());
+    registry
+        .entry("ThInterface".into())
+        .or_insert_with(|| iface.clone());
+    registry
+        .entry("ThOrder".into())
+        .or_insert_with(|| ord.clone());
+    registry
+        .entry("ThImport".into())
+        .or_insert_with(|| imp.clone());
+    registry
+        .entry("ThWType".into())
+        .or_insert_with(|| w.clone());
+
+    // Compose via multi-step colimit, sharing Vertex and Edge at each step.
+    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
+    let shared_ve = Theory::new(
+        "ThVertexEdge",
+        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+        vec![],
+        vec![],
+    );
+
+    // Step 1: ThGraph + ThConstraint (share Vertex).
+    let gc = match colimit(&g, &c, &shared_vertex) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    // Step 2: + ThMulti (share Vertex + Edge).
+    let gcm = match colimit(&gc, &m, &shared_ve) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    // Step 3: + ThInterface (share Vertex).
+    let gcmi = match colimit(&gcm, &iface, &shared_vertex) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    // Step 4: + ThOrder (share Edge).
+    let shared_edge = Theory::new("ThEdge", vec![Sort::simple("Edge")], vec![], vec![]);
+    let gcmio = match colimit(&gcmi, &ord, &shared_edge) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    // Step 5: + ThImport (share Vertex + Edge).
+    let gcmioi = match colimit(&gcmio, &imp, &shared_ve) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    // Step 6: + auto-derived theory (share Vertex + Edge, which the auto-derived
+    // theory always includes as base sorts from extraction).
+    let mut schema_theory = match colimit(&gcmioi, auto_derived, &shared_ve) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    schema_theory.name = schema_name.into();
+    registry.insert(schema_name.into(), schema_theory);
+
+    // Instance theory is just ThWType.
+    let mut inst = w;
+    inst.name = instance_name.into();
+    registry.insert(instance_name.into(), inst);
+}
