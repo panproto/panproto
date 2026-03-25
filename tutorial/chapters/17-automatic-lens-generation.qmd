@@ -42,6 +42,12 @@ const lensC: LensHandle = chain.instantiate(schemaC);
 If the morphism between two schemas is ambiguous (multiple plausible mappings with similar scores), auto-generation may pick the wrong one. What signals should you watch for in `chain.incomplete` or the ambiguity warnings to know when to intervene?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+When the morphism between two schemas is ambiguous (multiple plausible mappings with similar scores). The `chain.incomplete` property lists steps where the engine could not determine a unique factorization. Ambiguity warnings (two morphisms within 5% of each other's quality score) signal that the engine's top choice may not be your intended mapping. Provide manual hints via the `hints` parameter to disambiguate.
+:::
+
 
 ## Morphism factorization {#sec-factorization}
 
@@ -149,6 +155,12 @@ Attempting to instantiate an incomplete chain raises an error listing the missin
 ## What happens when complement specs conflict?
 
 If two steps in a chain both require a default for the same vertex (say, because the vertex was removed and re-added), which spec wins? Does the chain enforce uniqueness, or can the two steps carry independent defaults?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+Each step in the chain carries its own complement spec independently. If two steps both require a default for the same vertex (because the vertex was removed and re-added), both defaults are stored separately. The first step's default is used during its `put` pass, and the second step's default during its own. The chain does not enforce global uniqueness of defaults across steps; each step operates on the schema as it exists at that point in the pipeline.
 :::
 
 
@@ -378,6 +390,12 @@ assert spec_a.captured_count != spec_b.captured_count
 ## Why are complements schema-dependent?
 
 A single `drop_sort("metadata")` protolens captures different numbers of fields depending on the schema it's instantiated against. If you're reusing a chain across dozens of schemas, how do you predict total complement storage cost before running the migration?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+Because the protolens operates on the schema's structure, and different schemas have different structures. A `drop_sort("metadata")` protolens captures whatever edges `metadata` has in the specific schema it is instantiated against. Schema A might have 2 metadata edges; schema B might have 5. To predict total complement storage cost before running the migration, call `chain.requirements(schema, protocol)` on each schema; it reports the exact complement size without performing the migration.
 :::
 
 

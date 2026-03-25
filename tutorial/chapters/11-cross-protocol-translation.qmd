@@ -127,6 +127,12 @@ The structural content (type names, field names, field types, enum variants, nes
 If you translate Protobuf to GraphQL and then GraphQL to OpenAPI, do you get the same result as translating Protobuf directly to OpenAPI? Under what conditions does $\mathrm{emit}_C \circ \mathrm{parse}_C \circ \mathrm{emit}_B \circ \mathrm{parse}_A = \mathrm{emit}_C \circ \mathrm{parse}_A$?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Not in general. The intermediate round-trip through format B ($\mathrm{emit}_B \circ \mathrm{parse}_B$) can lose information. If B's theory is a strict subset of A's, the first translation drops what B cannot represent, and the second translation cannot recover it. The equation holds only when the intermediate format B can represent everything that the Schema graph carries from format A. In practice, this means B's theory must be at least as expressive as A's for the relevant constructs. Within a theory group (where protocols share the same theories), the equation holds.
+:::
+
 
 ## Another example: ATProto Lexicon to ActivityPub
 
@@ -235,6 +241,8 @@ The middle column (what survives) corresponds to the structural skeleton: the gr
 
 ## The theory group advantage {#sec-theory-groups}
 
+The theory architecture explains *why* some translations are lossless and others are not.
+
 Every protocol is characterized by a pair of theories: a schema theory and an instance theory (@sec-building-protocol). Protocols whose theories are closely related produce higher-fidelity translations. This gives "structural comparability" a precise meaning.
 
 panproto's built-in protocols cluster into theory groups based on their schema and instance theories:
@@ -282,6 +290,12 @@ Group membership is determined by which building-block theories a protocol's def
 Group C and Group D differ only by $\text{ThInterface}$. Does a Group D protocol always embed losslessly into a "Group D without interfaces" representation? Or does the presence of $\text{ThInterface}$ in the colimit change the structure of sorts that existed before the interface theory was composed in?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Not always. The presence of $\text{ThInterface}$ in the colimit can introduce new equations and sort identifications. If a Group D schema uses interface types (e.g., a GraphQL `Node` interface implemented by `User` and `Post`), removing $\text{ThInterface}$ from the theory loses the subtyping relationships. The `User` and `Post` types would appear as unrelated vertices, erasing the structural information that they share a common interface. Whether this matters depends on whether the schema actively uses interface features.
+:::
+
 ### A note on "lossless"
 
 "Structurally lossless at the schema level" means the graph structure of the schema survives the round trip. It does not mean the round trip produces identical source bytes, or that all protocol-specific metadata is preserved. Protobuf field numbers, for example, aren't part of the multigraph structure; they're a surface feature of the wire format. A Protobuf-to-Avro-to-Protobuf round trip won't preserve field numbers; the emit step will assign fresh ones. The schema graph (the message names, field names, types, and relationships) will be intact.
@@ -318,7 +332,15 @@ The second difference is in the use of the IR. In pandoc, the IR exists solely f
 pandoc's fixed IR means every format author targets the same stable structure. panproto's extensible IR means theories can grow. If protocol A extends the IR with a new sort via composition, does protocol B (which was written before that extension) need to be updated? What guarantees backward compatibility of the shared IR?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+No. Protocol B targets the building-block theories it was composed from. A new sort added by protocol A via composition lives in A's theory, not in the shared building blocks. The shared IR (the building-block theories) is stable; extensions happen in individual protocol theories, not in the common base. Backward compatibility of the shared IR is guaranteed by the colimit construction: adding new sorts to a component theory does not alter the existing sorts or operations in the shared base.
+:::
+
 
 ## Further reading
 
 The functorial data migration framework that underlies cross-protocol translation is due to @spivak2012. The theory group structure is a consequence of the compositional protocol definitions described in @lynch2024. The connection between theory morphisms and information-preserving translations is developed in @cartmell1986.
+
+Cross-protocol translation works because panproto gives every schema element a structural identity, but that identity is protocol-relative. Two elements in different protocols may refer to "the same thing" under different names, and the next chapter formalizes how those naming correspondences are established, tracked, and composed.

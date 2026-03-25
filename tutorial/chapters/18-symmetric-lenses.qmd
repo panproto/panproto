@@ -1,6 +1,6 @@
 # Symmetric Lenses and Schema Merging {#sec-symmetric-lenses}
 
-A symmetric lens is a bidirectional transformation where both sides can be modified and neither side's changes take priority by default. Formally, a symmetric lens between schemas $S_1$ and $S_2$ is a span of asymmetric lenses: $S_1 \xleftarrow{\ell_1} O \xrightarrow{\ell_2} S_2$, where $O$ is the overlap schema and $\ell_1$, $\ell_2$ are the two legs. We need symmetric lenses whenever there's no natural direction between two schemas.
+A symmetric lens is a bidirectional transformation where both sides can be modified and neither side's changes take priority by default. When neither schema is a view of the other, we need a bidirectional transformation where both sides are equal peers. The construction uses an overlap (the structure both schemas share) as a meeting point, with a separate lens connecting each schema to the overlap. Formally, a symmetric lens between schemas $S_1$ and $S_2$ is a span of asymmetric lenses: $S_1 \xleftarrow{\ell_1} O \xrightarrow{\ell_2} S_2$, where $O$ is the overlap schema and $\ell_1$, $\ell_2$ are the two legs. We need symmetric lenses whenever there's no natural direction between two schemas.
 
 An ATProto post and a Mastodon status are independent representations of the same concept; neither is a view of the other. Two teams that fork a schema and evolve it independently for six months produce equally authoritative versions. A CRM and an ERP system both have "customer" records with no primary schema. In all three cases, asymmetric lenses (@sec-lenses) don't apply.
 
@@ -89,6 +89,12 @@ console.log(`B-only: ${symLens.rightComplement.length} vertices`);
 ## Can the overlap be too small?
 
 If two schemas share only a single vertex, the overlap-based symmetric lens is technically valid but nearly useless: almost all data lives in the complements. What's the minimum overlap size at which a symmetric lens produces meaningful translations?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+Technically, any non-empty overlap produces a valid symmetric lens. But a single shared vertex means almost all data lives in the complements, and translation amounts to discarding most of one side and fabricating most of the other from defaults. In practice, the overlap needs to cover the fields that both sides actually exchange. A useful heuristic: if the overlap contains less than a third of either schema's vertices, the symmetric lens will produce mostly default-filled translations, and a manual mapping may be more appropriate.
 :::
 
 
@@ -262,6 +268,12 @@ panproto detects conflicts at the schema level: two different values for the sam
 If Team A removes a vertex that Team B renamed, neither change touches the overlap directly, yet the resulting schemas are incompatible. How does panproto detect "structural divergence" conflicts that live outside the overlap?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+panproto detects structural divergence by comparing the two schemas against their last common ancestor (the merge base in the VCS DAG). If Team A removed a vertex that Team B renamed, the three-way diff from the merge base shows both a deletion and a rename on the same element. This is a `DeleteModifyVertex` conflict, reported with the same typed conflict system used by `schema merge`. These conflicts live in the schema structure, not the overlap, and are caught before symmetric lens construction begins.
+:::
+
 
 ## Lifting Across Protocols {#sec-lifting-across-protocols}
 
@@ -310,6 +322,12 @@ schema lens-lift chain.json atproto-to-sql.json --json
 ## Does lifting preserve complement structure?
 
 When you lift a protolens chain from ATProto to SQL, the complements are "preserved." But the SQL-side schema may have different cardinalities for the affected sorts. Can the lifted chain produce larger (or smaller) complements than the original, even though the structural transformation is "the same"?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+The structural transformation is preserved, but the cardinalities can differ. If an ATProto schema has 3 edges on the dropped sort and the corresponding SQL schema (after theory morphism application) has 7 columns mapping to that sort, the lifted chain captures 7 columns instead of 3 edges. The complement *structure* (a `DataCaptured` entry) is the same, but the complement *size* scales with the target schema's cardinality. Lifting preserves the transformation's semantics, not its byte count.
 :::
 
 

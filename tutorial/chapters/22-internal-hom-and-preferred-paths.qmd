@@ -92,6 +92,8 @@ Each protolens step carries a `ComplementConstructor` describing what data is lo
 
 : Complement cost assignments. {.striped}
 
+Some conversions are cheap (renaming a field loses nothing) and others are expensive (dropping a vertex loses data). The cost assignments formalize this intuition precisely enough to compute optimal routes.
+
 These costs form a Lawvere metric. That means two things:
 
 1. **Identity costs zero.** A schema mapped to itself has cost 0.

@@ -40,6 +40,12 @@ The data snapshot is immutable. Once committed, it serves as the canonical "befo
 `schema add --data records/` snapshots data bound to the current schema version. If you haven't changed the schema, does this produce a redundant snapshot, or does the content-addressing deduplicate it?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+The content-addressing deduplicates it. `schema add --data records/` computes the blake3 hash of the data snapshot. If an identical snapshot already exists in the object store (because the data has not changed since the last commit), no new object is created. The commit records the same `data_id` as before. Storage cost is zero for an unchanged data set.
+:::
+
 ## `schema migrate`: the one command you need {#sec-schema-migrate}
 
 ```{.sh}
@@ -135,6 +141,12 @@ This integrates with CI. A non-zero staleness count can fail a pipeline, ensurin
 If `records/` was migrated to HEAD on `main`, and you switch to a `feature` branch whose HEAD is three commits ahead of `main`, does `schema status --data` report staleness relative to `feature`'s HEAD or `main`'s?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Staleness is always relative to the current branch's HEAD. If `records/` was migrated to HEAD on `main` and you switch to `feature` (whose HEAD is three commits ahead), `schema status --data` reports staleness relative to `feature`'s HEAD. The schema_id stored in the data snapshot is compared against the current HEAD's schema, regardless of which branch created the snapshot.
+:::
+
 ## `schema checkout --migrate`: switching branches with data {#sec-checkout-migrate}
 
 ```{.sh}
@@ -190,6 +202,12 @@ Protocol versioning matters for long-lived repositories where the metaschema its
 ## What happens when you migrate data across a protocol boundary?
 
 If commit $C_1$ uses ATProto v1 and commit $C_2$ uses ATProto v2, does `schema migrate` compose protolens chains that span the protocol change? Or does it require separate migration steps for the protocol upgrade and the schema change?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+`schema migrate` composes protolens chains that span the protocol change. The DAG path from $C_1$ to $C_2$ includes the commit that introduced the new protocol, and that commit's migration morphism encodes the theory-level mapping between ATProto v1 and ATProto v2. The protolens chain includes both the protocol upgrade step (a theory morphism application) and any schema-level changes. No separate migration steps are required; the composed chain handles both levels.
 :::
 
 ## The full workflow {#sec-data-versioning-workflow}

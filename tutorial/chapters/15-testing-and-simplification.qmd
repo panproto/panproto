@@ -59,6 +59,12 @@ schema scaffold --protocol atproto --schema my-schema.json --depth 3 --max-terms
 Yes, for panproto's equational theories. The construction is guaranteed to terminate because the theories are purely algebraic (no recursive constraints). For theories with recursive types, the scaffolder uses an unfolding bound to ensure termination.
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Yes, for panproto's equational theories. The theories are purely algebraic (no recursive constraints), so the construction terminates: start with one element per sort, then add elements required by operations, then verify equations. For theories with recursive types, an unfolding bound prevents non-termination, and the scaffolder produces the smallest instance within that bound.
+:::
+
 
 ## Protocol-specific generation {#sec-protocol-scaffold}
 
@@ -127,6 +133,12 @@ The recommended approach: use `schema scaffold` for structural regression tests 
 ## Can scaffolded data miss migration bugs?
 
 Scaffolded data is a universal test case for *structural* correctness (equations, sorts, operations). It can't catch validation bugs (wrong `maxLength`, broken regex) or semantic bugs (mapping `email` to `username`). Use it alongside hand-crafted boundary tests.
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+Yes. Scaffolded data is a universal test case for *structural* correctness: it exercises every sort, operation, and equation. But it cannot catch validation bugs (a `maxLength` set to the wrong value), semantic bugs (mapping `email` to `username`), or boundary condition bugs (data at exactly the constraint limit). Structural tests and hand-crafted boundary tests cover different failure modes and are complementary.
 :::
 
 

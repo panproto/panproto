@@ -115,10 +115,18 @@ These four formats use different syntax, different terminology, and different op
 
 Every schema language has containers that hold named, typed members. Some members are required. Some have constraints. The differences are real (SQL has foreign keys, Protobuf has field numbers, GraphQL has nullability in its type system, Lexicon has grapheme counting), but they are parametric variations on a shared structure, not fundamentally different kinds of things.
 
+The questions below probe the limits of this shared structure: what happens when a constraint exists in one language but not another?
+
 ::: {.callout-caution}
 ## Question
 
 Which of these four languages can express that `tags` has at most 8 elements? Which cannot? What does this tell you about how migration between these languages must handle constraints?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+ATProto Lexicon (via `maxLength: 8` on the array) and JSON Schema (via `maxItems: 8`) can express this directly. SQL can approximate it with a CHECK constraint but has no native array-length syntax in the DDL. Protobuf and GraphQL cannot; they have no constraint vocabulary in their schema languages. Cross-protocol migration must either silently drop the constraint, carry it as an out-of-band annotation, or reject the translation as lossy.
 :::
 
 Each of these schemas is a directed graph $G = (V, E, s, t)$ where $V$ is a set of types, $E$ is a set of fields, and $s, t: E \to V$ map each field to its source and target. The post schema has three vertices (`Post`, `String`, `DateTime`) and three edges (`text`, `createdAt`, `tags`). We formalize this in @sec-schemas-have-in-common.
@@ -129,6 +137,13 @@ Each of these schemas is a directed graph $G = (V, E, s, t)$ where $V$ is a set 
 SQL has a `PRIMARY KEY` concept. Does any other language in the table above have an equivalent? What does this asymmetry mean for cross-protocol translation?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+None of the other three languages has a direct equivalent. GraphQL has no identity concept in the SDL. Protobuf's field numbers are wire-format metadata, not primary keys. ATProto's `key: "tid"` is the closest analog, specifying an ID generation strategy, but it is a record-level annotation rather than a structural constraint. Cross-protocol translation must either drop PRIMARY KEY information or carry it as an opaque annotation.
+:::
+
+Comparing schemas therefore requires more than syntax translation. We need a representation that can track what each language expresses and what it leaves out.
 
 ## Building Schemas in panproto
 
@@ -147,3 +162,5 @@ Schema types become **vertices** and the fields connecting them become **edges**
 ```
 
 Same pattern: vertices for the table and its column types, edges for the columns, constraints on the vertices. The vocabulary changes (`table` instead of `record`, `column` instead of `prop`), but the construction logic is identical. The shape of the construction (declare vertices, connect them with edges, attach constraints) is invariant across protocols. What varies is the vocabulary of vertex kinds, edge kinds, and constraint types. In @sec-schemas-have-in-common, we make this variation precise using algebraic theories.
+
+What exactly do these graph structures have in common, and how can we describe the variation between schema languages formally enough for an engine to compute with it?

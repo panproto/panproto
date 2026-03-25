@@ -48,6 +48,12 @@ This is analogous to how git's content-addressing (SHA) doesn't care about filen
 If element $e$ has identity $(\mathrm{scope}_1, 3)$ in theory $T_1$ and the colimit $T_1 +_S T_2$ produces a new theory, does $e$ keep the same positional index? Or does the colimit reindex elements, and if so, how does panproto maintain the correspondence?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+No. The colimit reindexes elements to produce a single consistent numbering for the merged theory. Element $e$ from $T_1$ receives a new positional index in $T_1 +_S T_2$. panproto maintains the correspondence through the *composition legs*: the theory morphisms $T_1 \to T_1 +_S T_2$ and $T_2 \to T_1 +_S T_2$ record exactly where each original element landed. The scope tag changes (from $T_1$'s scope to the colimit's scope), but the composition leg morphism provides the lookup.
+:::
+
 ### When identity breaks down
 
 The identity/name separation assumes you know that two elements across schemas are "the same thing." When you write a migration that maps v1's `Text` vertex to v2's `Text` vertex, you're asserting that these are the same structural element. panproto can verify that this assertion is *consistent* (via `check_existence`), but it can't determine whether it is *correct*. Two vertices with the same kind and the same constraints might correspond to different real-world concepts, and two vertices with different names might correspond to the same concept.
@@ -143,6 +149,12 @@ Each level is derived from the one above, not written by hand.^[This cascading d
 The cascade $F_{\mathrm{theory}} \Rightarrow F_{\mathrm{schema}} \Rightarrow F_{\mathrm{instance}}$ is claimed to be automatically derived at each level. If the theory morphism $F: T_1 \to T_2$ is not injective (two sorts in $T_1$ map to the same sort in $T_2$), what happens at the schema and instance levels? Is information lost, or does the derivation fail?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Information is lost at the schema level but the derivation does not fail. If two sorts in $T_1$ map to the same sort in $T_2$, the schema-level cascade merges all vertices of both sorts into a single sort in the target. Any data that distinguished the two sorts (e.g., different constraint vocabularies) is collapsed. The instance-level migration then operates on the merged schema, which has fewer distinctions. The cascade is well-defined; it just produces a coarser result.
+:::
+
 ### A concrete cross-protocol rename
 
 Suppose you have an ATProto schema for a post and want to express the same structure as a JSON Schema. The two protocols use different vocabularies:
@@ -208,7 +220,7 @@ The VCS computes a confidence score for each candidate rename pair based on four
 
 The maximum score is 1.0. Candidates are evaluated exhaustively over all (disappeared, appeared) vertex pairs. Conflicting assignments (one disappeared vertex matching multiple appeared vertices) are resolved by taking the highest-confidence match.
 
-### The detection in action
+### Detection output
 
 ```
 $ prot diff v1.json v2.json --detect-renames
@@ -247,6 +259,12 @@ The threshold is configurable precisely because different projects have differen
 If the VCS detects `text -> body` in commit 1 and `body -> content` in commit 2, each with confidence 1.0, what confidence should the composed rename `text -> content` have? Should confidences multiply, or is the composed rename exact because each step was individually confirmed?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+The composed rename is exact (confidence 1.0). Each step was individually confirmed (either by the heuristic above threshold or by user acceptance), and once confirmed, the rename is recorded as a first-class event in the VCS history. Composition of confirmed renames is deterministic substitution, not probabilistic inference. Confidences are relevant only at the *discovery* stage; once a rename is committed, it is a fact, and composing facts does not degrade certainty.
+:::
+
 
 ## Rename detection and VCS blame {#sec-rename-blame}
 
@@ -271,7 +289,7 @@ Every rename detected and confirmed becomes part of the VCS history (@sec-versio
 
 ## Renames and the existence checker
 
-Not all renames are valid. The existence checker (@sec-when-migrations-break) validates that a rename is consistent with the migration's structural constraints:
+The existence checker (@sec-when-migrations-break) validates that a rename is consistent with the migration's structural constraints:
 
 - **Kind consistency**: If you rename a vertex's kind from `"string"` to `"integer"`, the existence checker flags this as a kind change, not a rename. The vertex map sends a `string` vertex to a vertex with kind `integer`, which violates kind consistency unless the protocols allow it.
 - **Constraint compatibility**: If you rename a constraint sort from `"maxLength"` to `"maxSize"`, the checker verifies that the constraint's semantics are preserved (both describe an upper bound on a numeric property). Renaming `"maxLength"` to `"minLength"` would fail; the sort changed semantics, not just its name.

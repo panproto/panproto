@@ -1,5 +1,7 @@
 # Bidirectional Migration with Lenses {#sec-lenses}
 
+Migration so far has been one-directional: given a v2 record, produce a v1 record. But what if you need to go back? A lens captures both directions in a single structure, recording what was discarded so it can be restored.
+
 An asymmetric lens $\ell: S \rightleftarrows V$ consists of $\mathrm{get}: S \to (V, C)$ and $\mathrm{put}: (V, C) \to S$. The complement $C$ records everything `get` discarded so that `put` can restore it. We'll make this concrete with a store receipt analogy: when you buy an item (`get`), you receive the item and a receipt; when you return it (`put`), you hand back the item and the receipt, and the store restores its original state.
 
 The operations satisfy two laws.
@@ -18,12 +20,13 @@ $$\pi_1(\mathtt{get}(\mathtt{put}(v, c))) = v$$
 
 Together, these laws say that `get` and `put` are mutual inverses up to the complement. The complement is the "slack" that allows the source to carry more information than the view without violating invertibility.
 
-:::{.callout-note}
+::: {.callout-note}
 ## Why "lens"?
 
 The name comes from the idea of *focusing*: a lens focuses on a part of a larger structure (the view), while keeping the rest (the complement) available for reconstruction. Like an optical lens, a panproto lens lets you see a specific slice of the data while the surrounding context remains intact but out of focus.
 :::
 
+The lens laws guarantee round-tripping, but the mechanism that makes it work is the complement.
 
 ## The complement as data receipt {#sec-complement}
 
@@ -72,6 +75,13 @@ Application code should treat the complement as an opaque blob. Its internal str
 The complement for `removeField` stores the removed value. What does the complement for `renameField` store? Why?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Nothing. The complement is empty. A rename is a bijection: given the old name and the new name, you can always reconstruct the original field label without storing any additional data. The `put` operation simply renames back. This is why rename combinators are classified as lossless in the combinator table.
+:::
+
+In panproto, the abstract get/put operations map directly onto the restrict pipeline.
 
 ## Lenses in panproto
 
@@ -104,7 +114,6 @@ pub fn put(view: &WTree, complement: &Complement) -> WTree {
 ```
 
 The key property: if the view has been modified (e.g., a field value changed), the modification is preserved in the reconstructed source. The complement only fills in the *missing* parts; it does not overwrite the view's content. This is what makes the lens useful for bidirectional synchronization.
-
 
 ## Cambria-style combinators {#sec-combinators}
 
@@ -168,18 +177,14 @@ $$\mathtt{put}_{2 \circ 1}(v, (c_1, c_2)) = \mathtt{put}_1(\mathtt{put}_2(v, c_2
 
 The complement of the composite is the pair $(c_1, c_2)$: the complements from each stage.
 
-
-## Worked example: get/put in action {#sec-get-put-example}
-
-Here's a complete example showing the combinator API in use:
+## Worked example: get/put {#sec-get-put-example}
 
 ```{.typescript include="../code/ts/08-lens-combinators.ts" snippet="get-put"}
 ```
 
 The critical observation: `restored.data.legacyField` is `"old-data"` even though the view never contained it. The complement remembered it, and `put` restored it. Meanwhile, `restored.data.name` is `"Alice (updated)"` (from the modified view), not `"Alice"` (from the original source). The lens respected the view modification.
 
-This is the GetPut law in action: if we hadn't modified the view, `put(get(source))` would have returned the original source exactly. And this is the PutGet law: getting from the put result returns a view with `name = "Alice (updated)"`.
-
+The GetPut law guarantees that if we hadn't modified the view, `put(get(source))` would have returned the original source exactly. The PutGet law guarantees the converse: getting from the put result returns a view with `name = "Alice (updated)"`.
 
 ## Real-world example: a Mastodon-Bluesky bridge {#sec-bridge-example}
 
@@ -241,10 +246,15 @@ This is the pattern that makes bidirectional protocol bridges viable. Without th
 Is there a schema change where the complement is larger than the source data? If so, construct one. If not, why not?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Yes. Consider a migration that wraps every leaf field in a new container object: `wrapInObject("name", "nameWrapper")` applied to every field. The complement must store the wrapper structure for each field so that `put` can unwrap them. If the schema has many fields and each wrapper adds structural metadata (edge labels, vertex kinds), the complement's structural overhead can exceed the original flat data. In practice this is rare, but theoretically the complement is proportional to what the migration *adds*, not just what it removes.
+:::
 
 ## Complement serialization
 
-The complement needs to be stored somewhere between `get` and `put`. panproto serializes it as CBOR (Concise Binary Object Representation), which is compact and fast to parse.
+The complement must be stored somewhere between `get` and `put`. panproto serializes it as CBOR (Concise Binary Object Representation), which is compact and fast to parse.
 
 For a typical protocol evolution (removing a few fields from a 20-field schema), the serialized complement is a few hundred bytes per record. For bulk migrations, complements can be batched into a single CBOR array, compressed with zstd, and stored alongside the migrated data.
 
@@ -259,7 +269,6 @@ The storage strategy depends on the application:
 
 Because the complement consists mostly of dropped field values, which are often repetitive (e.g., many records with `likeCount = 0` or `displayName = null`), it compresses extremely well. In benchmarks on ATProto data, zstd compression reduces complement size by 85 to 95%.
 :::
-
 
 ## Lenses and the restrict pipeline
 
@@ -281,6 +290,11 @@ The `put` operation replays the steps in reverse, using the complement to undo e
 Suppose we swapped the order of steps 3 and 4 in the restrict pipeline. Would the complement still produce a correct round-trip? What property of the pipeline ensures that reversing the step order in `put` works?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+No. Step 3 (ancestor contraction) determines *which* parent-child pairs need new edge labels. Step 4 (edge resolution) assigns those labels. If you resolve edges first, you would be assigning labels to the original (pre-contraction) tree, where the parent-child relationships are different. The complement recorded during a swapped-order `get` would encode the wrong structural associations, and `put` would reconstruct an incorrect tree. The pipeline's correctness depends on each step's complement being recorded in the context established by all previous steps.
+:::
 
 ## Cambria and panproto
 

@@ -5,6 +5,8 @@ id: sec-protocols-as-parameters
 
 # Protocols as Parameters {#sec-protocols-as-parameters}
 
+When a protocol combines multiple structural concerns, it merges their descriptions into one, identifying the parts they share. The result is a single coherent theory that the engine can reason about uniformly.
+
 A *protocol* is a pair of theories: one for the shape of schemas, one for the shape of data. ATProto's schema theory is $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$. Its instance theory is $\text{ThWType}$. Migration, diffing, breaking-change detection, and bidirectional lenses are all derived from that pair.
 
 panproto supports 76 protocols organized into six theory groups.
@@ -57,6 +59,8 @@ The instance theory determines what "data" means for a given schema, and therefo
 
 ### Set-Valued Maps ($\text{ThFunctor}$) {#sec-functor-instances}
 
+Think of a set-valued map instance as a filing cabinet: each table gets a drawer, each drawer holds a set of rows, and foreign keys are cross-references between drawers.
+
 In the set-valued map model, a schema is a collection of tables (or types) connected by foreign keys (or relationships).^[Formally, an instance is a functor $I: \mathcal{C}^{\mathrm{op}} \to \mathrm{Set}$, where $\mathcal{C}$ is the schema viewed as a category. See @spivak2012 and [Appendix A](../appendices/A-formal-foundations.qmd).] An *instance* of that schema assigns to each table a set of rows, and to each foreign key a lookup function mapping rows of the source table to rows of the target table. Referential integrity (following two foreign keys in sequence gives the same result whether you compose them first or chase them one at a time) is built into the structure.
 
 **Migration** is `restrict`: given a schema morphism $f: S_1 \to S_2$ and an instance $I$ over $S_2$, you get an instance $f^* I$ over $S_1$ by looking up each old table's corresponding new table and pulling back its rows. Foreign keys compose automatically.^[In categorical language, $f^*$ is the pullback functor $\Delta_f$, with left adjoint `extend` ($\Sigma_f$) and right adjoint `complete` ($\Pi_f$).]
@@ -89,6 +93,11 @@ $\text{ThFlat}$ is the depth-1 case of $\text{ThWType}$: every flat record is tr
 Protobuf uses $\text{ThFlat}$ for its instance theory. Why not $\text{ThWType}$? Protobuf messages *can* contain nested messages. What structural property of Protobuf makes $\text{ThFlat}$ sufficient?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Protobuf messages *can* contain nested messages, but each nested message is a separately addressable, independently encoded unit with its own field numbers. The nesting is a reference, not a recursive tree structure. A Protobuf message is fully described by its immediate fields, making it depth-1 by design. $\text{ThFlat}$ captures this: migration reduces to field projection, which is cheaper than the full W-type tree surgery pipeline.
+:::
 
 ## Comparing the Three Models
 
@@ -127,6 +136,13 @@ A protocol is a record with two fields: a schema theory and an instance theory. 
 If you designed a protocol with $\text{ThHypergraph}$ for schemas and $\text{ThWType}$ for instances, what kind of data format would it describe? Can you think of a real-world format that fits?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+A format with multi-ary structural relationships (like SQL's compound foreign keys) but tree-shaped data instances (like JSON documents). This combination would describe something like a document database with compound keys and nested values. MongoDB comes close: its schemas involve multi-field indexes and compound shard keys (hyperedge structure), while its documents are nested JSON trees (W-type instances).
+:::
+
+The protocol table shows that most schema theories are assembled from smaller pieces. This is not an accident.
 
 ## Why Colimits for Schema Theories?
 
@@ -150,6 +166,8 @@ The pattern is modular. If a new protocol needs graph structure, constraints, an
 
 ## The Restrict Column
 
+The instance theory does more than describe data shape; it determines which migration operator the engine uses.
+
 The rightmost column of @tbl-protocol-table names the operation that applies a migration to data. This column is *determined by* the instance theory.
 
 **`restrict` (precomposition).** When $\mathbb{T}_I = \text{ThFunctor}$, the restriction operator is `restrict`. Given a schema morphism $f: S_1 \to S_2$ and an instance $I$ over $S_2$, the restricted instance $f^* I$ looks up each old table in the new schema and pulls back its rows.
@@ -161,7 +179,7 @@ The rightmost column of @tbl-protocol-table names the operation that applies a m
 
 ## From Table to Engine
 
-The protocol table is not just a reference chart. It is a *specification* that the engine reads at startup. When you instantiate panproto for a particular protocol, the engine:
+The protocol table is not just documentation. It is a *specification* that the engine reads at startup. When you instantiate panproto for a particular protocol, the engine:
 
 1. Parses $\mathbb{T}_S$ to determine what sorts ($\text{Vertex}$, $\text{Edge}$, $\text{Constraint}$, ...) exist and what operations connect them.
 2. Parses $\mathbb{T}_I$ to determine the data representation (set-valued map, W-type, or flat).
@@ -175,7 +193,7 @@ Steps 3 through 6 are fully automatic. The protocol author provides the two theo
 
 ## Protocols as a Design Space
 
-The two-parameter architecture gives us a way to think about the *design space* of all 76 protocols. Each point is a $(\mathbb{T}_S, \mathbb{T}_I)$ pair; the six theory groups correspond to six clusters.
+The two-parameter architecture organizes all 76 protocols into a *design space*. Each point is a $(\mathbb{T}_S, \mathbb{T}_I)$ pair; the six theory groups correspond to six clusters.
 
 ```{mermaid}
 %%| label: fig-design-space
@@ -212,3 +230,5 @@ The idea that data migration can be parameterized by algebraic structure has roo
 The W-type framework comes from type theory, where @gambino2004 showed that tree-shaped data structures arise naturally as initial algebras (the simplest data types that can represent arbitrary recursion). @abbott2005 connected this to "containers," a way of describing data shapes that panproto uses to determine how a schema's structure constrains the tree shape of its instances.
 
 The insight that these traditions can be unified (that set-valued map instances, W-type instances, and flat instances all arise as models of different instance theories, with migration derived from the theory structure, and that 76 real-world protocols fall cleanly into six theory groups under this classification) is, as far as we know, original to panproto.
+
+We now have the tools to walk through a concrete migration.

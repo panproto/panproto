@@ -1,13 +1,12 @@
 # Lifting Data Through Schema Changes {#sec-lifting-data}
 
-The `restrict` operation transforms a tree-shaped instance from one schema to another. We'll trace the full pipeline on `threadViewPost`, a recursive type where a post contains replies, each of which is a post. Formally, given a schema morphism $F: S_1 \to S_2$ and an instance $I$ of $S_2$, restriction computes the pullback instance $\Delta_F(I)$ over $S_1$.^[Restriction transforms data from one schema shape to another by walking the migration mapping in reverse. Each step in the pipeline corresponds to a specific structural change in the schema: removing a vertex prunes the corresponding subtree, contracting an ancestor reattaches orphaned children. The formal framework describes this as restriction of a recursive data structure (polynomial functor algebra) along a schema mapping [@gambino2004; @abbott2005]. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+Restriction transforms a tree-shaped instance from one schema to another by walking the migration mapping. The `restrict` operation takes an instance of the new schema and produces an instance of the old schema, discarding data that has no place in the old shape and re-parenting children whose intermediate nodes were removed. Formally, given a schema morphism $F: S_1 \to S_2$ and an instance $I$ of $S_2$, restriction computes the pullback instance $\Delta_F(I)$ over $S_1$.^[Each step in the pipeline corresponds to a specific structural change in the schema: removing a vertex prunes the corresponding subtree, contracting an ancestor reattaches orphaned children. The formal framework describes this as restriction of a recursive data structure (polynomial functor algebra) along a schema mapping [@gambino2004; @abbott2005]. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
 There are two flavors of restriction. **W-type restrict** handles tree-structured data (JSON, CBOR, protocol buffers) by walking a five-step pipeline over the instance tree. **Functor restrict** handles tabular data (SQL) by precomposition along a schema morphism. We'll spend most of our time on the W-type pipeline, since it handles the recursive, nested data formats common in protocol design.
 
-
 ## A worked example: `threadViewPost`
 
-To make the pipeline concrete, we need a schema that exercises every step. The ATProto `threadViewPost` type is a post that contains an array of replies, each of which is itself a post. The recursion means the instance is a tree of arbitrary depth.
+The ATProto `threadViewPost` type is a post that contains an array of replies, each of which is itself a post. The recursion means the instance is a tree of arbitrary depth.
 
 Suppose version 1 of the schema looks like this (simplified):
 
@@ -64,6 +63,8 @@ The W-type `restrict` algorithm transforms an instance tree in five sequential s
 
 ### Step 1: `anchor_surviving` {#sec-step-anchor}
 
+The first task is to identify which nodes in the instance have a place in the target schema.
+
 Walk every node in the instance and check whether its **anchor vertex** (the schema vertex that the node is an instance of) survives the migration's vertex map. If the anchor vertex is not in the image of the vertex map, the node is marked for removal.
 
 ```rust
@@ -97,6 +98,8 @@ Each node in an instance tree sits over a vertex in the schema. The schema verte
 
 
 ### Step 2: `reachable_from_root` {#sec-step-reachable}
+
+Step 1 marks individual nodes, but some survivors may be stranded behind pruned parents.
 
 After marking survivors, some surviving nodes may be stranded: they're still marked as surviving, but they can only be reached from the root through pruned nodes.
 
@@ -145,8 +148,16 @@ Step 2 is a no-op whenever every pruned node is a leaf or when the surviving nod
 Suppose a migration removes `postView` but keeps `text` and `author` as direct children of `threadViewPost`. After step 1, both `text` and `author` nodes survive. After step 2's BFS (which traverses only through surviving nodes), are `text` and `author` reachable or unreachable? What changes between steps 2 and 3 to rescue them?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Unreachable. After step 1, `text` and `author` nodes survive (their anchors are in the vertex map), but `postView` nodes are pruned. In step 2, the BFS starts at the root (`threadViewPost`) and traverses only surviving nodes. Since `postView` is pruned, the BFS cannot reach `text` or `author` through it. They are stranded. Step 3 (ancestor contraction) rescues them by re-parenting `text` and `author` directly to `threadViewPost`, skipping over the pruned `postView`.
+:::
+
 
 ### Step 3: `ancestor_contraction` {#sec-step-contraction}
+
+Steps 1 and 2 identified who survives and who is reachable, but surviving children of pruned parents still lack a valid parent pointer.
 
 This is the tree surgery step. When intermediate nodes are pruned, children that survived steps 1 and 2 need to be re-parented to their nearest surviving ancestor. The result is a new tree where every edge connects two surviving nodes.
 
@@ -223,6 +234,8 @@ A node's depth in the contracted tree is always less than or equal to its depth 
 
 ### Step 4: `resolve_edge` {#sec-step-resolve}
 
+Contraction gave every surviving child a new parent, but the edge connecting them still needs a label from the target schema.
+
 After contraction, each re-parented child has a new parent, but the edge connecting them needs a label from the target schema. In the original tree, the edge from A to C went through B: `A --(e1)--> B --(e2)--> C`. After removing B, we need a single edge label for the direct `A --> C` connection.
 
 In a simple graph (at most one edge between any two vertices), this is trivial: there's only one choice. But schemas are often multigraphs; multiple edges can exist between the same pair of vertices (think of an object with two fields of the same type). In that case, the choice is ambiguous.
@@ -258,8 +271,16 @@ For JSON-like schemas (which are trees, not multigraphs), resolution is always t
 Consider a schema where `threadViewPost` has two fields of type `profileViewBasic`: `author` and `moderator`. A migration removes the wrapper object that contained both. After ancestor contraction, both `profileViewBasic` nodes are re-parented to `threadViewPost`. How does the resolver table disambiguate which edge label (`author` vs. `moderator`) to assign to each?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+The resolver table carries the full contracted path as its key: `(threadViewPost, profileViewBasic, [original_intermediate_path])`. When two `profileViewBasic` nodes are re-parented, the resolver looks up each node's original path through the removed wrapper. The first node's path `threadViewPost → wrapper → author → profileViewBasic` maps to the `author` edge. The second node's path `threadViewPost → wrapper → moderator → profileViewBasic` maps to the `moderator` edge. The intermediate path distinguishes them even though the endpoints are identical.
+:::
+
 
 ### Step 5: `reconstruct_fans` {#sec-step-fans}
+
+Steps 1 through 4 handle nodes and edges one at a time. Multi-ary relationships (where one edge connects a parent to several children simultaneously) need a separate pass.
 
 The final step handles **hypergraph schemas**: schemas where an edge can connect a vertex to multiple children simultaneously. In practice, this means SQL: a table row is a hyperedge connecting a primary key to all its column values.
 
@@ -313,7 +334,7 @@ For a typical JSON schema migration (adding or removing fields), only step 1 doe
 
 ## The pipeline in sequence
 
-Tracing our `threadViewPost` example through all five steps:
+For the `threadViewPost` example, each step proceeds as follows:
 
 **Input:** An instance tree with nodes for `threadViewPost`, `postView`, `profileViewBasic`, `uri`, `author`, `did`, `handle`, `displayName`, `text`, `likeCount`, and `replies`, recursively nested to depth 3.
 
@@ -337,6 +358,14 @@ This is the common case for protocol evolution: field removal produces a simple,
 In the worked example, only step 1 does meaningful work. Construct a schema migration (describe the old schema, new schema, and what changes) where all five steps do nontrivial work. What properties must the schema have for step 5 to be nontrivial?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Start with a SQL-like schema that has a hypergraph structure: a `Person` vertex connected to `Address` and `Phone` via a compound foreign key (hyperedge). Add a `ContactInfo` wrapper vertex between `Person` and `Address`. The migration removes `ContactInfo` and drops `Phone`. Step 1 prunes `ContactInfo` and `Phone` nodes. Step 2 marks `Address` nodes as unreachable (they were only reachable through `ContactInfo`). Step 3 re-parents `Address` to `Person`. Step 4 resolves the new `Person → Address` edge label (needed if the schema is a multigraph). Step 5 reconstructs the compound foreign key fan without the `Phone` column. The schema must be a hypergraph with an intermediate wrapper and a multigraph edge for all five steps to fire.
+:::
+
+
+The W-type pipeline handles tree-shaped data. Tabular data takes a simpler path.
 
 ## Functor restrict (precomposition) {#sec-functor-restrict}
 

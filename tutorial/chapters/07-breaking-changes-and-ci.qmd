@@ -108,10 +108,14 @@ panproto avoids this problem by not classifying individual changes at all. It cl
 Suppose a schema has a required field `email: string` with `format: email`. A new version changes the format to `format: uri`. The forward migration maps old emails to the new schema, but old values like `alice@example.com` aren't valid URIs. Is this change backward compatible, breaking, or does it depend on the data? Why does panproto classify it *structurally* rather than inspecting actual values?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Breaking. panproto classifies it structurally: the format constraint changed, and existing values (`alice@example.com`) do not satisfy the new constraint (`format: uri`). The engine does not inspect actual data values; it reasons about the *space* of valid values. Since the set of valid emails is not a subset of valid URIs (and vice versa), no structural migration exists in either direction. Even though some email addresses happen to be valid URIs, the structural classification is breaking.
+:::
+
 
 ## Examples {#sec-compat-examples}
-
-Four concrete changes and how panproto classifies them.
 
 ### Example 1: Adding an optional field
 
@@ -218,6 +222,11 @@ If you *want* to change a type with a known coercion (e.g., integer to string vi
 Example 3 (tightening `maxLength` from 3000 to 300) is breaking, and Example 1 (adding an optional field with a default) is fully compatible. What's the composed classification if both changes ship in the same version? Can you determine this by taking the "worst" of the two individual classifications, or do you need to check migration existence on the composed schemas? Why?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+You must check existence on the composed schemas. The "worst of two" heuristic fails because changes can interact. Adding an optional field (fully compatible) combined with tightening a constraint (breaking) is breaking, but not because one individual change is breaking. It is because the existence checker, applied to the full old and new schemas simultaneously, finds no valid forward migration. Composition of compatibility levels is not a lattice operation.
+:::
 
 ## Composed changes {#sec-composed}
 
@@ -348,6 +357,11 @@ schema check \
 Your CI pipeline uses `--level backward-compatible`, which allows changes where the forward migration exists but the backward migration doesn't. Under what deployment ordering constraint is this safe? What could go wrong if producers deploy the new schema before consumers have updated?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Safe only if consumers deploy the new schema before producers stop sending old-format data. "Backward compatible" means old data can be read by new code (forward migration exists), but new data may be unreadable by old code (no backward migration). If a producer deploys first and starts emitting new-format data, old consumers will fail. The ordering constraint is: consumers first, then producers.
+:::
 
 ## Versioning strategies {#sec-versioning}
 

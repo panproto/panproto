@@ -38,6 +38,8 @@ We are migrating *backward*: from v2 data to v1 compatibility. This is the commo
 
 ## The Migration Morphism
 
+To make the "add a field" change precise, we need to express the relationship between the two schema versions as a mathematical object.
+
 A migration from v1 to v2 is a *schema morphism* $m: S_1 \to S_2$: a pair of maps $(f_V: V_1 \to V_2, f_E: E_1 \to E_2)$ that preserves connectivity. If edge $e$ connects vertices $u$ and $v$ in $S_1$, then $f_E(e)$ must connect $f_V(u)$ and $f_V(v)$ in $S_2$.
 
 ```{.typescript include="../code/ts/05-migration-basic.ts" snippet="migration"}
@@ -64,6 +66,11 @@ The migration morphism is an injection from $S_1$ into $S_2$. Not all migrations
 The migration morphism here is injective. Give an example of a non-injective migration morphism. What schema change would it represent?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Suppose v1 has two string types, `FirstName` and `LastName`, each with its own edge from `Person`. v2 merges them into a single `FullName` vertex. The vertex map sends both `FirstName` and `LastName` to `FullName`: two source vertices share one target. This represents a schema change that collapses two fields into one, requiring a merge function to combine the data.
+:::
 
 ## What the Maps Mean
 
@@ -74,7 +81,7 @@ The edge map says: "for each field in the old schema, here is the corresponding 
 
 ## Compiling and Lifting
 
-The raw migration morphism is a declaration of intent. Before it can be applied to data, it must be *compiled*: the engine pre-computes the data structures needed for efficient migration.
+A migration morphism is a declaration of intent. Turning it into an executable operation requires one more step: *compilation*, where the engine pre-computes the data structures needed for efficient migration.
 
 ```{.typescript include="../code/ts/05-migration-basic.ts" snippet="lift"}
 ```
@@ -91,7 +98,7 @@ The `lift` function takes a compiled migration and a v2 record and produces a v1
 
 ## Tracing the Lift
 
-Suppose we have a v2 record with the new `tags` field populated:
+With the surviving sets and remap tables in hand, the engine can walk a concrete record. Suppose we have a v2 record with the new `tags` field populated:
 
 ```json
 {
@@ -145,6 +152,11 @@ The `tags` field is cleanly removed. The surviving fields are untouched.
 What happens if you lift a v2 record with `tags: []` (empty array) through this migration? Does the output differ from a v2 record with no `tags` field at all?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+The output is identical to lifting a record with a populated `tags` field: the `tags` field is removed entirely. The lift operation prunes the `Tags` node regardless of whether the array is empty or full, because the v1 schema has no vertex corresponding to `Tags`. An empty array and a missing field both produce the same v1 record. The distinction between "field present but empty" and "field absent" exists in v2 but is erased by the migration.
+:::
 
 ## The Same Pattern in SQL
 
@@ -185,7 +197,7 @@ The ATProto and SQL versions of "add a field" produce the same observable result
 
 ## Composing Migrations
 
-Migrations compose. Given $m_{12}: S_1 \to S_2$ and $m_{23}: S_2 \to S_3$, their composite $m_{13} = m_{23} \circ m_{12}: S_1 \to S_3$ is also a valid migration.
+Schemas rarely change just once. Migrations compose. Given $m_{12}: S_1 \to S_2$ and $m_{23}: S_2 \to S_3$, their composite $m_{13} = m_{23} \circ m_{12}: S_1 \to S_3$ is also a valid migration.
 
 For our running example, suppose v3 adds a `langs` field (language codes) on top of v2:
 
@@ -202,7 +214,7 @@ Composability is what makes migration *scalable*. You maintain a chain $S_1 \to 
 
 ## Migrations That Do More Than Add Fields
 
-Adding a field is the simplest possible migration. Here is what happens for more complex schema changes.
+Adding a field is the simplest case. Here is what the same framework does with more complex structural changes.
 
 ### Renaming a Field
 
@@ -249,3 +261,5 @@ Everything in this chapter ($f_V$, $f_E$, resolvers) can be computed automatical
 : Terminology across communities. {#tbl-terminology}
 
 panproto's terminology is closest to @litt2022's Cambria project, which was an important practical inspiration. The key difference: Cambria hardcodes its schema language and migration semantics, while panproto parameterizes both by theories.
+
+This chapter's migrations all succeeded. Not every proposed migration is valid; the next chapter examines what goes wrong and how the engine detects it.

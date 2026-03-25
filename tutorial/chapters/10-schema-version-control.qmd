@@ -22,6 +22,8 @@ The important difference: git merges text and hopes the result compiles. panprot
 
 ## The object store
 
+The storage model mirrors git's.
+
 ```
 .panproto/
   objects/<hex[0..2]>/<hex[2..]>   # content-addressed objects
@@ -33,6 +35,8 @@ The important difference: git merges text and hopes the result compiles. panprot
 
 
 ## Core commands
+
+The CLI follows git's vocabulary where the concepts align.
 
 ### `schema init`
 
@@ -94,7 +98,7 @@ The `--detect-renames` flag uses structural similarity heuristics to identify ve
 
 Merges a branch into the current branch. Finds the merge base (lowest common ancestor in the DAG), computes diffs from the base to both tips, and applies all non-conflicting changes.
 
-This is where panproto diverges most from git. Git's merge operates on lines of text and produces conflict markers when the same lines were edited. panproto's merge computes the structural merge of the two divergent schemas over their common base.^[The structural merge is a categorical pushout of the two schemas over their common ancestor. For every schema element (vertices, edges, constraints, hyper-edges, variants, orderings, recursion points, usage modes) the merge classifies each side's change as unchanged, added, removed, or modified. The merge is commutative: swapping the two branches produces an identical result.]
+Merge is the largest divergence from git. Git's merge operates on lines of text and produces conflict markers when the same lines were edited. panproto's merge computes the structural merge of the two divergent schemas over their common base.^[The structural merge is a categorical pushout of the two schemas over their common ancestor. For every schema element (vertices, edges, constraints, hyper-edges, variants, orderings, recursion points, usage modes) the merge classifies each side's change as unchanged, added, removed, or modified. The merge is commutative: swapping the two branches produces an identical result.]
 
 One-sided changes are accepted. Identical changes from both sides are deduplicated. Incompatible changes produce typed conflicts: not text conflict markers, but structured conflict objects like `BothModifiedVertex`, `BothModifiedConstraint`, `DeleteModifyVertex`, and so on. If there are no conflicts, the merge is auto-committed. If there are, the conflicts are reported with their structural types.
 
@@ -127,6 +131,12 @@ schema lift --migration mig.json --src-schema v1.json --tgt-schema v2.json recor
 ## Question: Path independence
 
 If the DAG has two distinct paths from commit $A$ to commit $B$ (e.g., through different merge histories), `schema lift` claims the composed morphism is the same. What algebraic property of the migration category guarantees this?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+Functoriality. Migration morphisms compose associatively: if $f: A \to B$ and $g: B \to C$, then $g \circ f: A \to C$ is the same regardless of how the composition is parenthesized. More importantly, the DAG's commutativity constraint ensures that for any two paths from $A$ to $C$, the composed morphisms are equal. This is a coherence condition on the category of schemas: the DAG encodes not just the objects and morphisms but also the equations between composed paths.
 :::
 
 
@@ -218,6 +228,12 @@ schema cherry-pick -x abc1234...      # record source commit in message
 `schema merge` claims the structural merge is commutative: merging branch A into B produces the same schema as merging B into A. Does this imply the *migration morphisms* from the base to each merge result are also identical? Or can two merge orderings produce the same schema graph with different morphism provenance?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+The schemas are identical, but the morphism provenance can differ. Merging A into B produces composition legs $A \to M$ and $B \to M$. Merging B into A produces legs $B \to M'$ and $A \to M'$. If $M = M'$ (same merged schema), the legs are the same pair of morphisms, just listed in opposite order. The provenance metadata (which branch contributed which change) differs, but the mathematical content (the morphisms and the merged schema) is identical.
+:::
+
 
 ## Recovery
 
@@ -281,8 +297,6 @@ schema gc --dry-run                   # preview without deleting
 
 ## Quick start
 
-Putting it all together:
-
 ```bash
 schema init
 schema add schema.json
@@ -303,12 +317,18 @@ schema merge add-verification
 Each commit stores a complement $C$ for backward migration. If a forward migration $f: G_1 \to G_2$ adds a required field with no default, what does $C$ contain? Can every forward migration be reversed, or are there cases where $C$ is insufficient for a full round-trip?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+The complement $C$ is empty for this direction. In a forward migration that adds a required field, the new field's value is *provided* (via a default or explicit construction), not *discarded*. The complement records what `get` threw away, and in the forward direction nothing is thrown away: old data is augmented, not pruned. Reversal of this migration (going backward) would need to discard the added field, and *that* direction's complement would store the discarded value. Not every forward migration can be reversed; if the forward migration fabricated the required field from a default, the backward complement simply records "this field was added with default X."
+:::
+
 
 ## A note on VCS inspiration
 
 panproto's approach to schema version control draws on two traditions. The first is git itself: content-addressing, DAG-structured history, lightweight branches, and the reflog as a safety net. The second is the family of **patch-theory** version control systems, [Pijul](https://pijul.org/) and [Darcs](http://darcs.net/), which model changes as first-class mathematical objects rather than as text diffs.^[The connection runs deeper than analogy. Pijul's patches form a category where composition is associative and commutativity holds under certain conditions. panproto's migrations are morphisms in a category of schemas. Both systems benefit from the same insight: when your "diffs" are mathematical objects with well-defined composition rules, merge conflicts become algebraic problems rather than heuristic ones.]
 
-The key insight from the patch-theory tradition is that *structure-aware diffs compose better than text diffs*. A schema migration (graph morphism) composes with another schema migration to produce a valid migration. A text patch composed with another text patch might produce gibberish. This is why panproto's merge can guarantee data integrity where git's merge can only guarantee syntactic non-conflict.
+The payoff of the patch-theory tradition is that *structure-aware diffs compose better than text diffs*. A schema migration (graph morphism) composes with another schema migration to produce a valid migration. A text patch composed with another text patch might produce gibberish. This is why panproto's merge can guarantee data integrity where git's merge can only guarantee syntactic non-conflict.
 
 
 ### Remote commands (planned)

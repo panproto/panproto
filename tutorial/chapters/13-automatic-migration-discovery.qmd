@@ -1,5 +1,7 @@
 # Automatic Migration Discovery {#sec-auto-migration}
 
+Finding a migration between two schemas is a puzzle: each source type must land on a compatible target type, and each source field must land on a field connecting the right target types.
+
 Given two schemas $S_1$ and $S_2$, finding a migration between them is a constraint satisfaction problem. For a concrete example, consider two versions of a blog post schema where `text` was renamed to `body` and `createdAt` to `publishedAt`.
 
 A migration $F: S_1 \to S_2$ is a structure-preserving map (see @sec-protocols-as-parameters for the definition of migrations). The CSP formulation is:
@@ -47,13 +49,19 @@ The quality score penalizes name mismatches. If multiple migrations exist, the o
 :::{.callout-caution}
 ## What happens when the quality scores are tied?
 
-If two candidate migrations have the same quality score, which one does panproto pick? The search is deterministic (it iterates vertices in ID order), so ties are broken by vertex ordering. If you need a specific migration in ambiguous cases, provide manual hints.
+If two candidate migrations have the same quality score, which one does panproto pick?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+The search is deterministic: it iterates vertices in ID order, so ties are broken by vertex ordering. The first valid morphism found in iteration order wins. If you need a specific migration in ambiguous cases, provide manual hints via the `hints` parameter.
 :::
 
 
 ## Three ways to migrate data along a discovered mapping {#sec-three-migrations}
 
-Once we have a migration mapping $F$, panproto offers three operations to move data along it.
+A migration mapping $F$ supports three operations for moving data.
 
 ### Restrict
 
@@ -119,6 +127,12 @@ This finds the largest schema that both inputs share and uses it as the gluing p
 `discover_overlap` finds the *largest* shared sub-schema by homomorphism search. If two schemas share structure under different names (e.g., `author` vs. `creator`), the search may miss the overlap. In that case, provide an explicit overlap mapping.
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+`discover_overlap` finds shared structure by matching vertex kinds and edge patterns. If two schemas share structure under different names (e.g., `author` vs. `creator`), the kind-based search may still find a match (both are `object` vertices with similar outgoing edges). But if the kinds also differ, the search misses it entirely. In that case, provide an explicit overlap mapping that identifies the corresponding vertices by hand.
+:::
+
 
 ## Constraint enforcement {#sec-constraint-enforcement}
 
@@ -152,6 +166,12 @@ error: migration violates equation
 ## Can equation verification produce false negatives?
 
 Equation preservation checking is sound: if it passes, the equations hold. But it only checks equations *syntactically* by substitution. Two equivalent but differently written equations may not be recognized as equal. In practice, panproto's normal-form representation of equations makes this rare.
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+In principle, yes. The checker compares equation sides by syntactic equality after substitution. Two expressions that are semantically equal but syntactically different (e.g., `mul(a, b)` vs. `mul(b, a)` in a commutative theory) might not be recognized as equal. In practice, panproto's normal-form representation of equations (which canonicalizes variable ordering and operation application) makes this rare. If you suspect a false negative, you can inspect the mapped equations with `schema show --equations`.
 :::
 
 

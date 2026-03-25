@@ -1,5 +1,7 @@
 # Self-Description and Building Blocks {#sec-self-description}
 
+The previous chapters used theories, schemas, instances, and migrations as distinct concepts. This chapter reveals that they are all instances of the same framework, organized into four levels.
+
 panproto organizes into four levels. Each level is defined as a model of the level below it. For example, a concrete schema (Level 2) is a model of a theory specification (Level 1), which is itself data interpreted by the GAT engine (Level 0).
 
 The compositional approach follows [GATlab](https://algebraicjulia.github.io/GATlab.jl/) [@lynch2024].
@@ -69,9 +71,15 @@ Self-description has three practical consequences.
 **Formal guarantees at every level.** The correctness properties that panproto provides (round-tripping for lenses, completeness of existence checking, correct migration behavior) hold at every level of the hierarchy. A theory mapping between Level 1 theories satisfies the same laws as a schema mapping between Level 2 schemas. This uniformity is a direct consequence of the self-description architecture: every level is an instance of the same framework.
 
 :::{.callout-caution}
-## Does ThGAT create an infinite regress?
+## Question: Does ThGAT create an infinite regress?
 
-ThGAT is a model of itself, which sounds circular. The circularity is broken by Level 0: the GAT engine is hardcoded Rust, not data. ThGAT describes what a theory *is*, but the engine that *interprets* ThGAT is outside the self-description loop.
+ThGAT is a model of itself, which sounds circular. How is the circularity resolved?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+The circularity is broken by Level 0: the GAT engine is hardcoded Rust, not data. ThGAT describes what a theory *is*, but the engine that *interprets* ThGAT is outside the self-description loop.
 :::
 
 ### The system is closed
@@ -124,6 +132,12 @@ The distinction matters. Structural properties propagate automatically through m
 ## When should a property be structural vs. validation?
 
 If the property can be expressed as an equation between sorts and operations, make it structural. Structural properties propagate through migrations automatically. If the property requires arithmetic, string matching, or domain logic, it belongs in the validation layer.
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+If the property can be expressed as an equation between sorts and operations (e.g., "every vertex has a self-loop," "foreign key columns belong to foreign key tables"), make it structural. Structural properties propagate through migrations automatically and are checked at compose time. If the property requires arithmetic, string matching, or domain-specific logic (e.g., "length $\leq$ 3000," "matches this regex"), it belongs in the validation layer. The test is whether the property can be stated purely in terms of the theory's algebraic vocabulary.
 :::
 
 
@@ -212,3 +226,11 @@ The equations and their sort-checking:
 
 When two building blocks are composed via colimit and a sort identification makes an equation ill-typed, panproto rejects the composition at commit time. The diagnostic names the equation, the sorts involved, and which identification caused the conflict.
 :::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+panproto rejects the composition at commit time. The diagnostic names the equation, the sorts involved, and which sort identification caused the conflict. For example, if composing ThReflexiveGraph with a theory that identifies the Edge and Vertex sorts would make `src(id(v)) = v` ill-typed (because `id(v)` would need to be both an Edge and a Vertex), the error message pinpoints the identification and the broken equation.
+:::
+
+The next chapter covers testing: confirming that compositions, migrations, and lenses behave correctly on concrete data.

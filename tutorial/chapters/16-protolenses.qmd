@@ -117,6 +117,12 @@ for (const schema of schemas) {
 If a schema has already undergone the transformation (e.g., `internalId` was already removed in a prior version), instantiation will fail. This is intentional: applying the same protolens twice would violate the precondition. Use `check_applicability` to filter schemas before instantiation.
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Instantiation fails. The precondition checks whether the schema has the elements the protolens expects. If a prior transformation already removed `internalId`, the `RemoveVertex("internalId")` step's precondition is not satisfied, and instantiation reports which step failed and why. Use `check_applicability` to filter schemas before instantiation.
+:::
+
 
 ## Commutativity with migration {#sec-naturality}
 
@@ -135,6 +141,12 @@ In practice, this means we can apply a protolens at any point in a migration pip
 ## Does commutativity hold for all protolens constructors?
 
 Commutativity holds for all 11 elementary constructors and their compositions, provided the migration preserves the protolens's precondition. If the migration removes a vertex that the protolens requires, commutativity is vacuously satisfied (the protolens isn't applicable post-migration).
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+Yes, for all 11 elementary constructors and their compositions, provided the migration preserves the protolens's precondition. If the migration removes a vertex that the protolens requires, the protolens is not applicable post-migration, and the commutativity condition is vacuously satisfied (both sides fail to apply).
 :::
 
 

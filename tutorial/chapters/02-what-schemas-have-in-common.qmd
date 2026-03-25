@@ -128,10 +128,15 @@ The constraint vocabulary varies wildly. The mechanism (annotations on a graph) 
 An ATProto Lexicon has three string fields with different `maxLength` constraints. Draw the multigraph. Is `maxLength` a vertex, an edge, or something else?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+The multigraph has three vertices (`object`, `string`, `string`) and two parallel edges from `object` to `string` (one for `displayName`, one for `description`). `maxLength` is neither a vertex nor an edge; it is a *constraint annotation* on a vertex. It decorates the `string` vertex with additional metadata. This is why we need a constraint layer on top of the graph structure.
+:::
+
+We have been describing graph structures informally. To make "schemas are graphs with constraints" precise enough for an engine to act on, we need a formal language for describing structure itself.
 
 ## Theories
-
-We've been describing graph structures informally: "a set of vertices, a set of edges, two functions `src` and `tgt`." We can make this precise.
 
 A *theory* $\mathbb{T} = (\mathcal{S}, \mathcal{O}, \mathcal{E})$ consists of three components:
 
@@ -176,10 +181,15 @@ Three models: integers under addition ($\text{unit} = 0$), strings under concate
 Write out the theory for a *reflexive graph* (a directed graph where every vertex has a distinguished self-loop). How many sorts, operations, and equations?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Two sorts (`Vertex`, `Edge`), three operations (`src: Edge → Vertex`, `tgt: Edge → Vertex`, `id: Vertex → Edge`), and two equations (`src(id(v)) = v`, `tgt(id(v)) = v`). The `id` operation assigns each vertex a distinguished self-loop, and the equations ensure that self-loop starts and ends at the same vertex.
+:::
+
+The theories so far treat all vertices uniformly. But real constraints are not uniform: `maxLength` makes sense on strings, not integers. We need sorts that depend on context.
 
 ## Dependent Sorts
-
-The graph theory treats all vertices uniformly. Real schema constraints are not uniform.
 
 Consider modeling constraints as a single flat sort:
 
@@ -201,10 +211,11 @@ $\text{Constraint}(\text{stringVertex}) = \{\text{maxLength}, \text{pattern}\}$.
 
 The alternative (a flat `Constraint` sort with a runtime `appliesTo` check) is to dependent sorts what TypeScript's `any` is to precise types. Both let you write correct programs, but dependent sorts catch constraint errors structurally rather than at runtime.
 
+With sorts, operations, equations, and dependent sorts in hand, we can write down complete theories for real schema languages.
 
 ## Theories for Real Schema Languages
 
-With sorts, operations, equations, and dependent sorts in hand, here are the theories for three schema languages.
+Here are the theories for three schema languages.
 
 ### JSON Schema
 
@@ -267,6 +278,13 @@ The uniqueness equation is what makes Protobuf's wire format work. It is a Proto
 The SQL theory has two equations, both of the form $\text{table}(\text{column}(fk)) = \text{directAccessor}(fk)$. Protobuf has a disequality constraint on field numbers. JSON Schema has one equation constraining `owner` to be of type `object`. What does the *presence* of equations in a theory tell you about the structural complexity of the schema language? What would a theory with no equations imply?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Equations encode structural invariants that the schema language enforces. A theory with equations (like SQL's foreign key consistency) describes a language where certain relationships between elements are *guaranteed*, not merely possible. A theory with no equations (like the basic directed graph theory) imposes no invariants beyond connectivity: any assignment of sets and functions is a valid model. More equations means the language is more opinionated about what constitutes a well-formed schema.
+:::
+
+These mathematical definitions are not just notation; they are the data structures panproto operates on.
 
 ## The Rust Implementation
 
@@ -274,12 +292,12 @@ panproto represents theories as data structures: values you construct, inspect, 
 
 ### Sorts
 
-```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=12 end-line=18}
+```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=52 end-line=58}
 ```
 
 A `SortParam` captures the name and sort of each parameter in a dependent sort. For $\text{Constraint}(v: \text{Vertex})$, there's one `SortParam` with name `"v"` and a sort reference pointing to `Vertex`.
 
-```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=32 end-line=38}
+```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=72 end-line=81}
 ```
 
 A `Sort` has a name and a list of parameters. For `Vertex` and `Edge`, the parameter list is empty. For $\text{Constraint}(v: \text{Vertex})$, it contains one entry.
@@ -293,14 +311,14 @@ An `Operation` has a name, input sorts, and an output sort. $\text{src}: \text{E
 
 ### Theories
 
-```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=26 end-line=44}
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=50 end-line=76}
 ```
 
 The `Theory` struct holds sorts, operations, and equations. When panproto diffs two schemas, plans a migration, or generates code, it consults the theory to determine the structural shape it's working with.
 
 Here's the monoid theory constructed as an actual Rust test from the panproto-gat crate:
 
-```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=302 end-line=367}
+```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=426 end-line=478}
 ```
 
 The code mirrors the mathematical specification: sorts declared first, then operations with their input and output sorts, then equations as pairs of terms that must be equal.

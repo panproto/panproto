@@ -156,6 +156,12 @@ Predicates are evaluated with the same variable environment as `ComputeField`: a
 Since `Case` fires the *first* matching branch, the order of branches matters. If two predicates overlap (e.g., `level < 3` and `level == 2`), the branch listed first wins. How should you order branches to avoid accidentally shadowing a more specific predicate with a more general one?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Order branches from most specific to most general: put `level == 2` before `level < 3`. The `otherwise` branch (if present) should always be last, since it matches everything.
+:::
+
 ## ConditionalSurvival: value-dependent vertex survival {#sec-conditional-survival}
 
 The `FieldTransform` variants operate on nodes that have already survived the structural pass: their schema anchor vertex is in `surviving_verts`. `conditional_survival` adds a second, value-dependent gate *before* field transforms run.
@@ -182,6 +188,12 @@ The two interact cleanly: `conditional_survival` runs first. Nodes that pass the
 ## What happens to dropped nodes' descendants?
 
 When `conditional_survival` drops a node, its children undergo ancestor contraction. If a dropped `heading` node has inline children (`strong`, `em`), do those children get re-parented to the dropped node's parent, or are they dropped recursively?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+They are re-parented to the dropped node's nearest surviving ancestor. The conditional survival predicate removes only the node it targets; surviving descendants are preserved by the standard ancestor contraction mechanism. They are not dropped recursively.
 :::
 
 ## Worked example: heading levels {#sec-heading-example}
@@ -240,6 +252,12 @@ migration.add_conditional_survival(
 ## Can ConditionalSurvival express disjunctions?
 
 The heading example uses one predicate per target vertex. If you needed a single vertex to survive when `level == 1` *or* `level == 2` (collapsing h1 and h2 into one target), can you express that with a single `ConditionalSurvival` predicate, or do you need a different mechanism?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+Yes. The predicate is an arbitrary `Expr`, so you can use `BuiltinOp::Or` to combine conditions: `Expr::Builtin(BuiltinOp::Or, vec![level_eq_1, level_eq_2])`. A single `ConditionalSurvival` predicate with a disjunction is equivalent to (and simpler than) registering multiple predicates or using a `Case` transform to achieve the same effect.
 :::
 
 ## Worked example: CSS class-based matching {#sec-css-class-example}

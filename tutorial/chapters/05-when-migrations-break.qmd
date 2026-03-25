@@ -15,6 +15,7 @@ Not every pair of maps $(f_V: V_1 \to V_2,\; f_E: E_1 \to E_2)$ constitutes a va
 
 panproto refuses these migrations because the existence conditions derived from the schema theory $T_S$ and instance theory $T_I$ are violated. The conditions aren't a hardcoded list of rules; they're *derived* from the theory structure. The engine inspects the theory's sorts, operations, and axioms, then assembles the appropriate checks automatically. This is why the same engine validates migrations for SQL (foreign key consistency, hyperedge simultaneity) and ATProto (tree reachability, pushout complement uniqueness).
 
+Three categories of failure cover everything that can go wrong: the types might not match, the constraints might be violated, or the reconnection might be ambiguous. The engine checks for all three, and it derives these checks from the theory structure rather than maintaining a hardcoded rule list.
 
 ## Theory-Derived Conditions
 
@@ -42,7 +43,7 @@ If field `text` goes from `Post` to `Text` in v1, and you map `Post → Post` an
 
 **Condition**: for every constraint on a source vertex or edge, the corresponding constraint in the target must be *compatible with the migration direction*. In the backward direction (lifting v2 data to v1), the target (v2) constraint must be at least as tight as the source (v1) constraint, so all v2 data satisfies v1's constraint. In the forward direction, the condition reverses.
 
-This is where the Protobuf field-number reuse and the ATProto `maxLength` tightening get caught. panproto derives these checks from the $\mathrm{Constraint}$ sort rather than hardcoding them per protocol.
+The Protobuf field-number reuse and the ATProto `maxLength` tightening both fail this check. panproto derives these checks from the $\mathrm{Constraint}$ sort rather than hardcoding them per protocol.
 
 ### Pushout Complement Uniqueness
 
@@ -72,6 +73,11 @@ If a migration removes a vertex that lies on *every* path from the root to some 
 Design a schema change where the pushout complement is unique and one where it is not. What structural property distinguishes the two?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+*Unique*: Remove a vertex that has exactly one incoming edge and one outgoing edge, where the source and target vertices are connected by exactly one edge in the target schema. The re-parenting is forced. *Not unique*: Remove a vertex whose parent has two edges of the same kind to the same target type (a multigraph). After contraction, there are two candidate edges for re-parenting, and the engine cannot choose. The distinguishing property is whether the target schema has parallel edges between the contracted endpoints.
+:::
 
 ## The Check Pipeline
 
@@ -110,7 +116,6 @@ flowchart TD
 
 The pipeline is *data-driven*: the engine reads the theory and builds the pipeline at initialization time. Adding a new sort to a theory automatically adds the corresponding check. Removing a sort removes the check.
 
-
 ## Worked Example 1: Constraint Tightening (ATProto)
 
 ```{.typescript include="../code/ts/06-existence-check.ts" snippet="constraint-tightening"}
@@ -142,6 +147,12 @@ Constraint tightening blocks *forward* migration but permits *backward* migratio
 Suppose v1 has $\mathrm{maxLength} \le 3000$ and v2 has $\mathrm{maxLength} \le 300$. Can you provide a default value that makes the forward migration valid? Under what conditions would a default *not* help?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+Yes, if the default satisfies the tighter constraint. A default value of `""` (empty string) satisfies `maxLength ≤ 300` and makes the forward migration valid: every v1 record gets a text field within v2's limit. But a default only helps when the *new* data is acceptable. If v1 records already contain text longer than 300 characters, no default fixes that; the existing data violates v2's constraint regardless of what the engine fills in for missing records. Defaults resolve *absence*, not *violation*.
+:::
+
 
 ## Worked Example 2: Protobuf Field Number Reuse
 
@@ -160,7 +171,6 @@ ExistenceError: Kind inconsistency on vertex field_3
 ```
 
 No hardcoded rule about field numbers. The check falls out of the theory because Protobuf's $T_S$ has a $\mathrm{Kind}$ sort with strict equality semantics, and field numbers are part of the vertex identity.
-
 
 ## Worked Example 3: Required Field Missing (ATProto)
 
@@ -196,7 +206,6 @@ const migration = {
 ```
 
 With the default, the lift operation fills in `"Unknown"` for the missing `name` field, and the migration passes.
-
 
 ## Worked Example 4: Pushout Complement Ambiguity
 
@@ -247,10 +256,7 @@ With the resolver, the engine knows which edge to use, and the migration passes.
 In Worked Example 4, the resolver picks `homeAddress`. What data is lost by this choice? Could you design a resolver that preserves the distinction between home and work addresses, or does that require a different migration strategy entirely?
 :::
 
-
 ## Existence vs. Uniqueness
-
-We can distinguish two kinds of failure.
 
 **Existence failures** are fatal: no valid way to lift data through the proposed morphism exists. The engine rejects the migration and reports the error.
 
@@ -259,7 +265,6 @@ We can distinguish two kinds of failure.
 The pushout complement ambiguity (Worked Example 4) is a uniqueness failure; the migration *could* proceed by choosing either `homeAddress` or `workAddress`. It just can't proceed without being told which one. The resolver provides the missing information.
 
 Constraint tightening (Worked Example 1) and kind inconsistency (Worked Example 2) are existence failures; no resolver can fix them. The data simply doesn't fit.^[In the terminology of algebraic graph transformation, existence corresponds to the *gluing condition* and uniqueness to the *identification condition* [@ehrig2006]. Both must be satisfied for a well-defined rewriting step.]
-
 
 ## The Role of Axioms
 
@@ -270,7 +275,6 @@ For example, CQL's $T_S$ includes the category axioms (composition is associativ
 If $T_S$ includes an axiom that every vertex has a unique kind (a functionality axiom for the $\mathrm{kind}$ operation), then the kind consistency check can use equality rather than subtyping.
 
 The engine reads the axioms and parameterizes the checks accordingly. In practice, most axioms affect the *strictness* of a check rather than its *presence*: the check fires because the sort exists, and the axiom determines how strictly it fires.
-
 
 ## The Decision Procedure
 
@@ -292,4 +296,10 @@ This procedure is *total* (always terminates), *sound* (if it says the migration
 ## Question: Theory extension and completeness
 
 Suppose you add a new sort $\mathrm{Permission}$ to a schema theory. The engine doesn't yet know what check to run for it. Is the migration pipeline still sound? What's the difference between soundness and completeness in this context?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+The pipeline remains sound: if it approves a migration, the lift produces valid output. Adding an unknown sort does not break existing checks. But the pipeline becomes *incomplete*: there may be invalid migrations it fails to reject, because no check exists for the new sort's structural constraints. Soundness means "no false positives" (approved migrations are safe). Completeness means "no false negatives" (unsafe migrations are caught). Adding a sort without a check preserves soundness at the cost of completeness.
 :::

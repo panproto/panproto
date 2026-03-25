@@ -1,5 +1,7 @@
 # Building Your Own Protocol {#sec-building-protocol}
 
+Merging two theories is like merging two branches in version control: the shared base is the common ancestor, and the merge identifies everything they agree on while combining what is new from each side.
+
 A new protocol is defined by composing building-block theories via colimit. We'll define a Kubernetes CRD protocol from $\mathrm{colimit}(\text{ThConstrainedGraph}, \text{ThWType})$.
 
 Given two theories $T_1$ and $T_2$ sharing a common sub-theory $S$ via theory morphisms, the colimit $T_1 +_S T_2$ merges them with shared structure identified.^[This is a categorical pushout. See [Appendix A](../appendices/A-formal-foundations.qmd) for the formal definition.] The result contains all sorts and operations from both inputs, identifies anything from the shared base (so nothing is duplicated), and preserves all equations from both sides.
@@ -139,10 +141,16 @@ None of this required writing CRD-specific migration logic. The theory determine
 If $T_1$ and $T_2$ both impose equations on the shared sort $\mathrm{Vertex}$, what guarantees those equations remain consistent in $T_1 +_S T_2$? Under what conditions could a colimit produce a theory with contradictory equations?
 :::
 
+::: {.callout-tip collapse=true}
+## Answer
+
+The colimit preserves all equations from both sides. If $T_1$ requires `src(id(v)) = v` (every vertex has a self-loop) and $T_2$ requires that no vertex has a self-loop, the colimit contains both equations, which are contradictory: no model can satisfy both simultaneously. The colimit itself is well-formed as a theory, but it has no models. panproto detects this at commit time during equation type-checking and rejects the composition.
+:::
+
 
 ## An alternative: Terraform HCL
 
-The same approach works for any schema language. Here is the same pattern applied to [Terraform](https://www.terraform.io/) HCL, modeling infrastructure-as-code resource definitions:
+Here is the same composition applied to [Terraform](https://www.terraform.io/) HCL, modeling infrastructure-as-code resource definitions:
 
 ```typescript
 const terraformHcl = panproto.defineProtocol({
@@ -178,6 +186,12 @@ When your Terraform provider adds a new required attribute or restructures a nes
 ## Question: Shared sub-theory choice
 
 The K8s CRD and Terraform HCL protocols both use `ThConstrainedGraph` and `ThWType`. Does the choice of shared sub-theory $S$ in the colimit $T_1 +_S T_2$ affect the resulting protocol? What happens if you pick a larger or smaller $S$?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+Yes. A larger shared sub-theory $S$ identifies more structure between $T_1$ and $T_2$, producing a smaller colimit (fewer duplicate sorts). A smaller $S$ identifies less, producing a larger colimit with more independent sorts. In the extreme, $S = \emptyset$ (no shared structure) gives the disjoint union of the two theories. The choice of $S$ determines which concepts are treated as "the same thing" versus "different things that happen to look similar."
 :::
 
 
@@ -228,6 +242,12 @@ See @sec-protocol-catalog for the complete catalog of all 76 protocols with thei
 ## Question: Cross-group migration cost
 
 If Group C protocols use $\text{ThSimpleGraph}$ and Group A protocols use $\mathrm{compose}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$, migrating C to A embeds a simpler theory into a richer one. Is the reverse direction (A to C) always possible? What structural information could be lost?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+Not always. Group A schemas use multigraph structure (parallel edges, constraints, multiplicity) that Group C's simple graph theory cannot represent. Converting A to C loses parallel edges (two fields of the same type collapse into one), constraint annotations (no constraint vocabulary in ThSimpleGraph), and multiplicity metadata. If the Group A schema has no parallel edges and no constraints, the embedding into Group C is lossless. Otherwise, information is dropped at the theory level before data migration even begins.
 :::
 
 
