@@ -125,6 +125,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         }))?;
         let c1_id = store.put(&Object::Commit(CommitObject {
             schema_id: ObjectId::from_bytes([1; 32]),
@@ -138,6 +139,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         }))?;
 
         store.set_ref("refs/heads/main", c1_id)?;
@@ -166,6 +168,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         }))?;
 
         store.set_ref("refs/heads/main", c0_id)?;
@@ -191,6 +194,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         }))?;
 
         store.set_ref("refs/heads/main", c0_id)?;
@@ -216,6 +220,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         }))?;
 
         store.set_ref("refs/heads/main", c0_id)?;

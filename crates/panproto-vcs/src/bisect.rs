@@ -128,6 +128,7 @@ mod tests {
                 protocol_id: None,
                 data_ids: vec![],
                 complement_ids: vec![],
+                edit_log_ids: vec![],
             };
             let id = store.put(&Object::Commit(commit))?;
             ids.push(id);

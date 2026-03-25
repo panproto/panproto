@@ -191,6 +191,23 @@ impl Protolens {
         })
     }
 
+    /// Instantiate this protolens as an [`crate::EditLens`] at a specific schema.
+    ///
+    /// This is a convenience method that calls [`instantiate`](Self::instantiate)
+    /// and wraps the result with [`crate::EditLens::from_lens`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LensError::ProtolensError`] if instantiation fails.
+    pub fn instantiate_edit(
+        &self,
+        schema: &Schema,
+        protocol: &Protocol,
+    ) -> Result<crate::EditLens, LensError> {
+        let base_lens = self.instantiate(schema, protocol)?;
+        Ok(crate::EditLens::from_lens(base_lens, protocol.clone()))
+    }
+
     /// Compute the target schema without building a full lens.
     ///
     /// # Errors
@@ -499,6 +516,23 @@ impl ProtolensChain {
         // Fuse and instantiate as a single protolens
         let fused = self.fuse()?;
         fused.instantiate(schema, protocol)
+    }
+
+    /// Instantiate this chain as an [`crate::EditLens`] at a specific schema.
+    ///
+    /// This is a convenience method that calls [`instantiate`](Self::instantiate)
+    /// and wraps the result with [`crate::EditLens::from_lens`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LensError::ProtolensError`] if instantiation fails.
+    pub fn instantiate_edit(
+        &self,
+        schema: &Schema,
+        protocol: &Protocol,
+    ) -> Result<crate::EditLens, LensError> {
+        let base_lens = self.instantiate(schema, protocol)?;
+        Ok(crate::EditLens::from_lens(base_lens, protocol.clone()))
     }
 
     /// Returns `true` if the chain is empty (identity).

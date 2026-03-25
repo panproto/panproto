@@ -36,6 +36,18 @@ pub struct Complement {
 }
 
 impl Complement {
+    /// Create an empty complement (no data discarded).
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            dropped_nodes: HashMap::new(),
+            dropped_arcs: Vec::new(),
+            dropped_fans: Vec::new(),
+            contraction_choices: HashMap::new(),
+            original_parent: HashMap::new(),
+        }
+    }
+
     /// Returns `true` if the complement is empty (lossless transformation).
     #[must_use]
     pub fn is_empty(&self) -> bool {

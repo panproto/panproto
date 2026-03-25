@@ -36,6 +36,9 @@ Schemas, data snapshots, complements, and protocol definitions are content-addre
 | `Repository::add_protocol` | Stage a protocol definition for versioning |
 | `Repository::checkout_with_data` | Switch branch and migrate data |
 | `Repository::merge_with_data` | Merge and migrate data |
+| `EditLogObject` | Content-addressed edit sequence for incremental migration |
+| `edit_mig::incremental_migrate` | Translate a sequence of edits through an edit lens |
+| `edit_mig::encode_edit_log` / `decode_edit_log` | MessagePack serialization for edit sequences |
 | `store_expr` / `load_expr` | Content-addressed expression storage via `MessagePack` + blake3 |
 
 ## Modules

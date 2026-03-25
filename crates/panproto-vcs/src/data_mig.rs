@@ -399,6 +399,7 @@ mod tests {
             protocol_id: None,
             data_ids,
             complement_ids: vec![],
+            edit_log_ids: vec![],
         }
     }
 

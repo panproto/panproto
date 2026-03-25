@@ -327,6 +327,93 @@ The CLI uses `miette` for user-facing error diagnostics. All handlers return `mi
 
 For commands that are planned but not yet implemented, follow the remote stub pattern: add the `Command` variant and handler, but return an error immediately using `miette::bail!("remote operations are not yet supported")`. See the remote commands below for an example.
 
+## Lens Subcommands
+
+The `schema lens` command is organized into subcommands:
+
+### `schema lens generate`
+
+```bash
+schema lens generate old.json new.json --protocol atproto
+```
+
+Auto-generates a protolens chain between two schemas. The `--protocol` flag selects the protocol theory. Output is a JSON-encoded protolens chain. `-o` writes to a file instead of stdout. `--fuse` merges the chain into a single protolens.
+
+### `schema lens compose`
+
+```bash
+schema lens compose chain1.json chain2.json --protocol atproto
+```
+
+Composes two protolens chains (or lenses) into a single chain. `-o` writes the result to a file.
+
+### `schema lens apply`
+
+```bash
+schema lens apply chain.json data.json --protocol atproto
+```
+
+Applies a saved lens or protolens chain to a data file.
+
+### `schema lens verify`
+
+```bash
+schema lens verify data.json --protocol atproto
+```
+
+Verifies the GetPut and PutGet lens laws on a test instance.
+
+### `schema lens inspect`
+
+```bash
+schema lens inspect chain.json
+```
+
+Prints a human-readable summary of a protolens chain: number of steps, optic classification, complement cost, and whether the chain is lossless.
+
+## Data Subcommands
+
+The `schema data` command group handles data migration and staleness tracking:
+
+### `schema data migrate`
+
+```bash
+schema data migrate records/
+schema data migrate records/ --dry-run
+schema data migrate records/ --range HEAD~3..HEAD
+schema data migrate records/ --backward
+schema data migrate records/ -o migrated/
+```
+
+Migrates data files to match the current schema version. `--dry-run` previews the migration without writing. `--range` restricts to a commit range. `--backward` restores from stored complements. `-o` writes to a different directory.
+
+### `schema data convert`
+
+```bash
+schema data convert --src-schema old.json --tgt-schema new.json record.json
+```
+
+One-step data conversion between schemas via auto-generated protolens.
+
+### `schema data sync`
+
+```bash
+schema data sync records/
+schema data sync records/ --edits
+schema data sync records/ --target v2
+```
+
+Syncs data files to match a target schema version. With `--edits`, stores an `EditLogObject` in the VCS recording the translated edits. `--target` specifies the target ref (default: HEAD).
+
+### `schema data status`
+
+```bash
+schema data status records/
+schema data status records/ --verbose
+```
+
+Reports data staleness: how many files exist, which schema HEAD tracks, and whether any data sets are tracked. `--verbose` lists individual files.
+
 ## Remote Command Stubs
 
 The commands `remote`, `push`, `pull`, `fetch`, and `clone` are registered as `Command` variants with `clap` attributes but their handlers immediately return an error: `"schema repositories are currently local-only; remote operations are planned for a future release"`. This reserves the command names and provides a clear message to users, while keeping the implementation surface minimal.

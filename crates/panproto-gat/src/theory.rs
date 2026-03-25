@@ -415,6 +415,71 @@ fn resolve_recursive<S: std::hash::BuildHasher>(
     ))
 }
 
+/// The abstract theory of editable structures (Hofmann, Pierce, Wagner 2012).
+///
+/// An editable structure is a triple `(S, E, ·)` where `S` is a set of
+/// states, `E` is a monoid of edits, and `·` is a partial monoid action
+/// `E × S → S`.
+///
+/// This theory declares the sorts and operations without fixing any
+/// concrete model. Models of this theory are concrete edit algebras
+/// (e.g., `TreeEdit` for W-type instances, `TableEdit` for functor
+/// instances).
+#[must_use]
+pub fn th_editable_structure() -> Theory {
+    use crate::eq::{Equation, Term};
+    use crate::op::Operation;
+    use crate::sort::Sort;
+
+    let sorts = vec![Sort::simple("State"), Sort::simple("Edit")];
+
+    let ops = vec![
+        // identity() → Edit
+        Operation::new("identity", vec![], "Edit"),
+        // compose(e1: Edit, e2: Edit) → Edit
+        Operation::new(
+            "compose",
+            vec![("e1".into(), "Edit".into()), ("e2".into(), "Edit".into())],
+            "Edit",
+        ),
+        // apply(e: Edit, s: State) → State  (partial)
+        Operation::new(
+            "apply",
+            vec![("e".into(), "Edit".into()), ("s".into(), "State".into())],
+            "State",
+        ),
+    ];
+
+    let eqs = vec![
+        // apply(identity(), s) = s
+        Equation::new(
+            "identity_action",
+            Term::app("apply", vec![Term::app("identity", vec![]), Term::var("s")]),
+            Term::var("s"),
+        ),
+        // apply(compose(e1, e2), s) = apply(e2, apply(e1, s))
+        Equation::new(
+            "compose_action",
+            Term::app(
+                "apply",
+                vec![
+                    Term::app("compose", vec![Term::var("e1"), Term::var("e2")]),
+                    Term::var("s"),
+                ],
+            ),
+            Term::app(
+                "apply",
+                vec![
+                    Term::var("e2"),
+                    Term::app("apply", vec![Term::var("e1"), Term::var("s")]),
+                ],
+            ),
+        ),
+    ];
+
+    Theory::new("ThEditableStructure", sorts, ops, eqs)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {

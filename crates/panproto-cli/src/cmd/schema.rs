@@ -1040,6 +1040,59 @@ pub fn print_diff(
     }
 }
 
+fn show_commit(
+    repo: &vcs::Repository,
+    id: &vcs::ObjectId,
+    c: &vcs::CommitObject,
+    fmt: Option<&str>,
+    stat: bool,
+) -> Result<()> {
+    if let Some(fmt_str) = fmt {
+        println!("{}", format::format_commit(c, fmt_str)?);
+        return Ok(());
+    }
+
+    println!("commit {id}");
+    println!("Schema:    {}", c.schema_id);
+    println!(
+        "Parents:   {}",
+        c.parents
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if let Some(mig_id) = c.migration_id {
+        println!("Migration: {mig_id}");
+    }
+    println!("Protocol:  {}", c.protocol);
+    println!("Author:    {}", c.author);
+    println!(
+        "Date:      {}",
+        super::helpers::format_timestamp(c.timestamp)
+    );
+    println!("\n    {}", c.message);
+
+    if stat {
+        if let Some(parent_id) = c.parents.first() {
+            let parent_obj = repo.store().get(parent_id).into_diagnostic()?;
+            if let vcs::Object::Commit(parent_commit) = parent_obj {
+                let old_obj = repo
+                    .store()
+                    .get(&parent_commit.schema_id)
+                    .into_diagnostic()?;
+                let new_obj = repo.store().get(&c.schema_id).into_diagnostic()?;
+                if let (vcs::Object::Schema(old_s), vcs::Object::Schema(new_s)) = (old_obj, new_obj)
+                {
+                    let d = panproto_core::check::diff::diff(&old_s, &new_s);
+                    println!("\n {}", format::format_diff_stat(&d));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
     let repo = open_repo()?;
     let id = vcs::refs::resolve_ref(repo.store(), target)
@@ -1048,53 +1101,7 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
 
     let object = repo.store().get(&id).into_diagnostic()?;
     match object {
-        vcs::Object::Commit(c) => {
-            if let Some(fmt_str) = fmt {
-                println!("{}", format::format_commit(&c, fmt_str)?);
-                return Ok(());
-            }
-
-            println!("commit {id}");
-            println!("Schema:    {}", c.schema_id);
-            println!(
-                "Parents:   {}",
-                c.parents
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-            if let Some(mig_id) = c.migration_id {
-                println!("Migration: {mig_id}");
-            }
-            println!("Protocol:  {}", c.protocol);
-            println!("Author:    {}", c.author);
-            println!(
-                "Date:      {}",
-                super::helpers::format_timestamp(c.timestamp)
-            );
-            println!("\n    {}", c.message);
-
-            if stat {
-                // Show diff stat between parent and this commit.
-                if let Some(parent_id) = c.parents.first() {
-                    let parent_obj = repo.store().get(parent_id).into_diagnostic()?;
-                    if let vcs::Object::Commit(parent_commit) = parent_obj {
-                        let old_obj = repo
-                            .store()
-                            .get(&parent_commit.schema_id)
-                            .into_diagnostic()?;
-                        let new_obj = repo.store().get(&c.schema_id).into_diagnostic()?;
-                        if let (vcs::Object::Schema(old_s), vcs::Object::Schema(new_s)) =
-                            (old_obj, new_obj)
-                        {
-                            let d = panproto_core::check::diff::diff(&old_s, &new_s);
-                            println!("\n {}", format::format_diff_stat(&d));
-                        }
-                    }
-                }
-            }
-        }
+        vcs::Object::Commit(c) => show_commit(&repo, &id, &c, fmt, stat)?,
         vcs::Object::Schema(s) => {
             println!("schema {id}");
             println!("Protocol:  {}", s.protocol);
@@ -1140,6 +1147,14 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
         vcs::Object::Expr(expr) => {
             println!("expr {id}");
             println!("{expr:?}");
+        }
+        vcs::Object::EditLog(el) => {
+            println!("editlog {id}");
+            println!("Schema:     {}", el.schema_id);
+            println!("Data:       {}", el.data_id);
+            println!("Edits:      {}", el.edit_count);
+            println!("Complement: {}", el.final_complement);
+            println!("Size:       {} bytes", el.edits.len());
         }
     }
     Ok(())

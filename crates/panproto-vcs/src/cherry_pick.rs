@@ -145,6 +145,7 @@ pub fn cherry_pick(
         protocol_id: None,
         data_ids: vec![],
         complement_ids: vec![],
+        edit_log_ids: vec![],
     };
     let new_commit_id = store.put(&Object::Commit(new_commit))?;
 
@@ -274,6 +275,7 @@ pub fn cherry_pick_with_options(
         protocol_id: None,
         data_ids: vec![],
         complement_ids: vec![],
+        edit_log_ids: vec![],
     };
     let new_commit_id = store.put(&Object::Commit(new_commit))?;
 
@@ -391,6 +393,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
 
@@ -409,6 +412,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let c1_id = store.put(&Object::Commit(c1))?;
 

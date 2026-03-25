@@ -216,6 +216,21 @@ All 76 built-in protocols are accessible via named constants. Every protocol sup
 | `put(lens, view, complement)` → `Source` | Apply the backward direction, restoring the source. |
 | `from_combinators(steps)` → `Result<Lens, LensError>` | Build a lens from a sequence of combinators. |
 | `check_laws(lens)` → `LawReport` | Verify that a lens satisfies the get-put and put-get laws. |
+| `EditLens` | Incremental lens: translates individual `TreeEdit` values between schemas. |
+| `EditLens::get_edit(edit)` → `TreeEdit` | Translate a source edit to a view edit, updating the complement. |
+| `EditLens::put_edit(edit)` → `TreeEdit` | Translate a view edit back to a source edit. |
+| `EditProvenance` | Translation lineage: source edit, rules applied, policy consulted, totality. |
+| `check_edit_consistency` | Verify the Consistency law (incremental path agrees with batch path). |
+| `check_complement_coherence` | Verify the Complement coherence law. |
+
+### `panproto_inst` — Instance Layer (edit support)
+
+| Item | Description |
+|------|-------------|
+| `TreeEdit` | Edit monoid for W-type instances: identity, compose, apply. |
+| `TableEdit` | Edit monoid for functor instances: InsertRow, DeleteRow, UpdateCell. |
+| `ReachabilityIndex` | Incremental reachability tracking for the edit lens pipeline. |
+| `ContractionTracker` | Incremental ancestor contraction tracking for the edit lens pipeline. |
 
 ### `panproto_emit` — Emit Helpers
 

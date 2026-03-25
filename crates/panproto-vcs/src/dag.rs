@@ -580,6 +580,7 @@ mod tests {
                 protocol_id: None,
                 data_ids: vec![],
                 complement_ids: vec![],
+                edit_log_ids: vec![],
             };
             let id = store.put(&Object::Commit(commit))?;
             ids.push(id);
@@ -611,6 +612,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -626,6 +628,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -641,6 +644,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -656,6 +660,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id3 = store.put(&Object::Commit(c3))?;
 
@@ -700,6 +705,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let c2 = CommitObject {
             schema_id: ObjectId::from_bytes([2; 32]),
@@ -713,6 +719,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
         let id2 = store.put(&Object::Commit(c2))?;
@@ -821,6 +828,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -836,6 +844,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -851,6 +860,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -867,6 +877,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id3 = store.put(&Object::Commit(c3))?;
 
@@ -883,6 +894,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id4 = store.put(&Object::Commit(c4))?;
 
@@ -1017,6 +1029,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -1032,6 +1045,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -1047,6 +1061,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -1132,6 +1147,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let csrc_id = store.put(&Object::Commit(c0))?;
 
@@ -1147,6 +1163,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let ctgt_id = store.put(&Object::Commit(c1))?;
 
@@ -1202,6 +1219,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -1217,6 +1235,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -1319,6 +1338,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -1334,6 +1354,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -1349,6 +1370,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 
@@ -1449,6 +1471,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id0 = store.put(&Object::Commit(c0))?;
 
@@ -1464,6 +1487,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id1 = store.put(&Object::Commit(c1))?;
 
@@ -1479,6 +1503,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let id2 = store.put(&Object::Commit(c2))?;
 

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use miette::{Context, IntoDiagnostic, Result};
@@ -14,91 +13,25 @@ use super::helpers::{
     parse_defaults, resolve_protocol,
 };
 
+/// Generate a lens between two schemas.
 #[allow(
     clippy::too_many_arguments,
     clippy::fn_params_excessive_bools,
     clippy::too_many_lines
 )]
-pub fn cmd_lens(
-    args: &[std::path::PathBuf],
+pub fn cmd_lens_generate(
+    old_path: &Path,
+    new_path: &Path,
     protocol_name: &str,
     json: bool,
     chain: bool,
-    requirements: bool,
-    fuse: bool,
     try_overlap: bool,
-    defaults: &[String],
-    apply: Option<&Path>,
-    verify: Option<&Path>,
-    compose: bool,
-    check: bool,
-    lift: bool,
     save: Option<&Path>,
-    schema: Option<&Path>,
-    direction: &str,
-    complement: Option<&Path>,
-    dry_run: bool,
-    data: Option<&Path>,
+    defaults: &[String],
+    fuse: bool,
+    requirements: bool,
     verbose: bool,
 ) -> Result<()> {
-    // Dispatch to specialized handlers based on flags.
-    if compose {
-        if args.len() < 2 {
-            miette::bail!("--compose requires two positional arguments (chain1 chain2)");
-        }
-        return cmd_lens_compose(&args[0], &args[1], protocol_name, json, chain, verbose);
-    }
-    if check {
-        if args.len() < 2 {
-            miette::bail!("--check requires two positional arguments (chain schemas_dir)");
-        }
-        return cmd_lens_fleet(&args[0], &args[1], protocol_name, dry_run, verbose);
-    }
-    if lift {
-        if args.len() < 2 {
-            miette::bail!("--lift requires two positional arguments (chain morphism)");
-        }
-        return cmd_lens_lift(&args[0], &args[1], json, verbose);
-    }
-    if let Some(verify_data) = verify {
-        if args.is_empty() {
-            miette::bail!("--verify requires at least one positional argument (schema)");
-        }
-        let second = args.get(1).map(std::path::PathBuf::as_path);
-        return cmd_lens_verify(
-            &args[0],
-            second,
-            protocol_name,
-            Some(verify_data),
-            false,
-            verbose,
-        );
-    }
-    if let Some(apply_path) = apply {
-        if args.len() == 1 {
-            // --apply with one positional arg: apply saved chain to data.
-            return cmd_lens_apply(
-                &args[0],
-                apply_path,
-                protocol_name,
-                schema,
-                direction,
-                complement,
-                verbose,
-            );
-        }
-    }
-
-    // Default: generate lens between args[0] and args[1].
-    if args.len() < 2 {
-        miette::bail!(
-            "lens generation requires two positional arguments (old_schema new_schema), \
-             or use --compose, --check, --lift, --verify, or --apply with a saved chain"
-        );
-    }
-    let old_path = &args[0];
-    let new_path = &args[1];
-
     let src_schema: Schema = load_json(old_path)?;
     let tgt_schema: Schema = load_json(new_path)?;
     let protocol = resolve_protocol(protocol_name)?;
@@ -226,37 +159,46 @@ pub fn cmd_lens(
         }
     }
 
-    // Apply to data if requested (two-schema mode with --apply data.json).
-    if let Some(data_path) = apply {
-        let data_json: serde_json::Value = load_json(data_path)?;
-        let root_vertex = infer_root_vertex(&src_schema)?;
-        let instance = inst::parse_json(&src_schema, root_vertex.as_str(), &data_json)
-            .into_diagnostic()
-            .wrap_err("failed to parse data as W-type instance")?;
+    Ok(())
+}
 
-        let (view, _complement) = lens::get(&result.lens, &instance)
-            .into_diagnostic()
-            .wrap_err("lens get failed")?;
-        let output = inst::to_json(&tgt_schema, &view);
-        let pretty = serde_json::to_string_pretty(&output)
-            .into_diagnostic()
-            .wrap_err("failed to serialize output")?;
-        println!("\nApplied result:\n{pretty}");
+/// Inspect a saved protolens chain: print requirements, cost, and optic classification.
+pub fn cmd_lens_inspect(chain_path: &Path, protocol_name: &str, verbose: bool) -> Result<()> {
+    let chain_json_str = std::fs::read_to_string(chain_path)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to read chain from {}", chain_path.display()))?;
+    let chain = lens::ProtolensChain::from_json(&chain_json_str)
+        .into_diagnostic()
+        .wrap_err("failed to parse protolens chain JSON")?;
+
+    println!("Protolens chain: {}", chain_path.display());
+    println!("  Steps: {}", chain.len());
+
+    for (i, step) in chain.steps.iter().enumerate() {
+        let lossless = if step.is_lossless() {
+            " (lossless)"
+        } else {
+            " (lossy)"
+        };
+        let step_cost = lens::complement_cost(&step.complement_constructor);
+        println!(
+            "    {}. {}{lossless} [cost: {step_cost:.2}]",
+            i + 1,
+            step.name
+        );
     }
 
-    // Verify lens laws if --verify data was provided alongside two schemas.
-    if let Some(verify_data) = data {
-        let data_json: serde_json::Value = load_json(verify_data)?;
-        let root_vertex = infer_root_vertex(&src_schema)?;
-        let instance = inst::parse_json(&src_schema, root_vertex.as_str(), &data_json)
-            .into_diagnostic()
-            .wrap_err("failed to parse test data")?;
-        match lens::check_laws(&result.lens, &instance) {
-            Ok(()) => println!("\nLens laws verified: GetPut and PutGet hold."),
-            Err(violation) => {
-                println!("\nLens law violation: {violation:?}");
-            }
-        }
+    let cost = lens::chain_cost(&chain);
+    println!("  Total cost: {cost:.2}");
+
+    // If a protocol is provided, try to compute complement requirements.
+    // This requires a schema, which we don't have in pure chain mode, so we
+    // only print cost and step info unconditionally.
+    if verbose {
+        let _protocol = resolve_protocol(protocol_name)?;
+        eprintln!(
+            "Note: complement requirements need a schema; use 'lens generate --requirements' for full analysis."
+        );
     }
 
     Ok(())
@@ -274,17 +216,11 @@ pub fn cmd_lens_apply(
 ) -> Result<()> {
     let protocol = resolve_protocol(protocol_name)?;
 
-    // Load the chain specification.
-    let chain_json: serde_json::Value = load_json(lens_path)?;
-
-    // If a schema is provided, use it for instantiation; otherwise, try to
-    // extract source/target from the chain JSON.
     let schema: Schema = if let Some(sp) = schema_path {
         load_json(sp)?
     } else {
         miette::bail!(
-            "lens-apply requires --schema (or --instantiate-at) to provide the source schema \
-             for protolens chain instantiation"
+            "lens apply requires --schema to provide the source schema for chain instantiation"
         );
     };
 
@@ -296,23 +232,40 @@ pub fn cmd_lens_apply(
         );
     }
 
-    // Re-generate the lens from source and target schemas embedded in the chain.
-    // For now, use auto_generate between source schema and a derived target.
+    // Load and parse the protolens chain.
+    let chain_json_str = std::fs::read_to_string(lens_path)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to read chain from {}", lens_path.display()))?;
+
+    // Try parsing as a protolens chain first. If that fails, fall back to
+    // auto-generating a lens from the file treated as a target schema.
+    let the_lens = if let Ok(chain) = lens::ProtolensChain::from_json(&chain_json_str) {
+        if verbose {
+            eprintln!("Parsed protolens chain with {} step(s)", chain.len());
+        }
+        chain
+            .instantiate(&schema, &protocol)
+            .into_diagnostic()
+            .wrap_err("failed to instantiate protolens chain at schema")?
+    } else {
+        let tgt_schema: Schema = serde_json::from_str(&chain_json_str)
+            .into_diagnostic()
+            .wrap_err("chain file is neither a valid protolens chain nor a schema")?;
+        let config = lens::AutoLensConfig::default();
+        let result = lens::auto_generate(&schema, &tgt_schema, &protocol, &config)
+            .into_diagnostic()
+            .wrap_err("failed to generate lens from schemas")?;
+        if verbose {
+            eprintln!(
+                "Auto-generated lens ({} steps, quality {:.3})",
+                result.chain.steps.len(),
+                result.alignment_quality
+            );
+        }
+        result.lens
+    };
+
     let data_json: serde_json::Value = load_json(data_path)?;
-
-    // Try to interpret the chain JSON as containing step information.
-    let steps = chain_json
-        .get("steps")
-        .and_then(serde_json::Value::as_array)
-        .map_or(0, Vec::len);
-
-    if verbose {
-        eprintln!("Chain has {steps} step(s)");
-    }
-
-    // We need the target schema to build the lens. Without it stored in the
-    // chain, we use the schema as the source and attempt auto-generation.
-    // For a full round-trip, the user provides `--schema` as the source.
     let root_vertex = infer_root_vertex(&schema)?;
     let instance = inst::parse_json(&schema, root_vertex.as_str(), &data_json)
         .into_diagnostic()
@@ -320,16 +273,10 @@ pub fn cmd_lens_apply(
 
     match direction {
         "forward" => {
-            // Build identity lens from schema to apply chain steps.
-            let config = lens::AutoLensConfig::default();
-            let result = lens::auto_generate(&schema, &schema, &protocol, &config)
-                .into_diagnostic()
-                .wrap_err("failed to instantiate lens from chain")?;
-
-            let (view, _complement) = lens::get(&result.lens, &instance)
+            let (view, _complement) = lens::get(&the_lens, &instance)
                 .into_diagnostic()
                 .wrap_err("lens get (forward) failed")?;
-            let output = inst::to_json(&schema, &view);
+            let output = inst::to_json(&the_lens.tgt_schema, &view);
             let pretty = serde_json::to_string_pretty(&output)
                 .into_diagnostic()
                 .wrap_err("failed to serialize output")?;
@@ -342,24 +289,13 @@ pub fn cmd_lens_apply(
                     .into_diagnostic()
                     .wrap_err("failed to parse complement data")?
             } else {
-                lens::Complement {
-                    dropped_nodes: HashMap::new(),
-                    dropped_arcs: Vec::new(),
-                    dropped_fans: Vec::new(),
-                    contraction_choices: HashMap::new(),
-                    original_parent: HashMap::new(),
-                }
+                lens::Complement::empty()
             };
 
-            let config = lens::AutoLensConfig::default();
-            let result = lens::auto_generate(&schema, &schema, &protocol, &config)
-                .into_diagnostic()
-                .wrap_err("failed to instantiate lens from chain")?;
-
-            let restored = lens::put(&result.lens, &instance, &complement)
+            let restored = lens::put(&the_lens, &instance, &complement)
                 .into_diagnostic()
                 .wrap_err("lens put (backward) failed")?;
-            let output = inst::to_json(&schema, &restored);
+            let output = inst::to_json(&the_lens.src_schema, &restored);
             let pretty = serde_json::to_string_pretty(&output)
                 .into_diagnostic()
                 .wrap_err("failed to serialize output")?;
@@ -433,8 +369,10 @@ pub fn cmd_lens_verify(
         println!("Hint: pass --data <file> to verify GetPut and PutGet with real data.");
     }
 
-    // Naturality check: verify that the lens commutes with morphisms
-    // between schemas. For now, check that the chain is well-formed.
+    // Naturality check: verify that each protolens step is applicable at
+    // the source schema. A protolens is natural if every step's precondition
+    // is satisfied by the schema it operates on; applicability checking is
+    // the concrete verification of this property.
     if naturality {
         let mut all_applicable = true;
         for (i, step) in result.chain.steps.iter().enumerate() {

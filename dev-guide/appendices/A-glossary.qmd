@@ -141,6 +141,35 @@ GetPut law
 PutGet law
 : The round-trip law stating that `get(put(t, s)) = t` --- getting after a put yields the updated target.
 
+## Edit lens layer
+
+Edit lens
+: A lens that operates on individual edits (patches) rather than whole states, translating `TreeEdit` values between schema versions while maintaining a stateful complement. Implemented in `crates/panproto-lens/src/edit_lens.rs`.
+
+`TreeEdit`
+: An element of the edit monoid for tree-shaped (W-type) instances. Variants include `InsertNode`, `DeleteNode`, `ContractNode`, `RelabelNode`, `SetField`, `RemoveField`, `MoveSubtree`, `InsertFan`, `DeleteFan`, `JoinFeatures`, and `Sequence`. Implemented in `crates/panproto-inst/src/tree_edit.rs`.
+
+`TableEdit`
+: An element of the edit monoid for relational (functor) instances. Variants include `InsertRow`, `DeleteRow`, and `UpdateCell`. Implemented in `crates/panproto-inst/src/table_edit.rs`.
+
+Edit monoid
+: The algebraic structure on edits: a set with an associative composition operation and an identity element (the no-op edit). The monoid action on instances is given by `apply(edit, instance)`. Both `TreeEdit` and `TableEdit` form monoids.
+
+Complement state machine
+: The mode of complement operation in an edit lens. Unlike batch lenses where the complement is a snapshot, in edit lenses the complement is mutated by each `get_edit` and `put_edit` call. The state machine invariant guarantees that the complement after processing edits $e_1, \ldots, e_n$ equals the complement from a whole-state `get` on the edited source.
+
+`ReachabilityIndex`
+: An incremental data structure tracking which nodes in a W-type instance are reachable from the root. Supports `insert_edge` and `delete_edge` operations that update reachability in time proportional to the affected subtree. Used by the edit lens pipeline's step 2. Implemented in `crates/panproto-inst/src/reachability.rs`.
+
+`ContractionTracker`
+: An incremental tracker for ancestor contractions in the edit lens pipeline. Records which nodes have been contracted (absorbed into their nearest surviving ancestor) and supports individual undo via `expand`. Implemented in `crates/panproto-inst/src/contraction.rs`.
+
+`EditProvenance`
+: A record capturing the lineage of a translated edit: which source edit produced it, which translation rules fired, which complement policy was consulted, and whether the translation was total or partial. Implemented in `crates/panproto-lens/src/edit_provenance.rs`.
+
+`EditLogObject`
+: A VCS object storing a content-addressed sequence of edits for incremental migration. Contains the schema ID, data set ID, MessagePack-encoded edits, edit count, and final complement state. Stored in the commit DAG via `CommitObject.edit_log_ids`. Implemented in `crates/panproto-vcs/src/object.rs`.
+
 ## Restrict and lift operations
 
 Restrict

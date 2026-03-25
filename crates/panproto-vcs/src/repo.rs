@@ -222,6 +222,7 @@ impl Repository {
             protocol_id: index.staged_protocol,
             data_ids: index.staged_data.iter().map(|sd| sd.data_id).collect(),
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let commit_id = self.store.put(&Object::Commit(commit))?;
 
@@ -356,6 +357,7 @@ impl Repository {
                 protocol_id: None,
                 data_ids: vec![],
                 complement_ids: vec![],
+                edit_log_ids: vec![],
             };
             let merge_id = self.store.put(&Object::Commit(merge_commit))?;
             advance_head(
@@ -408,6 +410,7 @@ impl Repository {
             protocol_id: old_commit.protocol_id,
             data_ids: old_commit.data_ids,
             complement_ids: old_commit.complement_ids,
+            edit_log_ids: old_commit.edit_log_ids,
         };
         let new_id = self.store.put(&Object::Commit(new_commit))?;
 

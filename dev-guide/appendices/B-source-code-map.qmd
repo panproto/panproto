@@ -62,6 +62,11 @@ The data layer: instance representation, parsing, and validation.
 | `src/metadata.rs` | Instance metadata: timestamps, provenance |
 | `src/parse.rs` | Parse raw data (JSON, MessagePack) into W-type instances |
 | `src/validate.rs` | Validate an instance against its schema |
+| `src/tree_edit.rs` | `TreeEdit` monoid: identity, compose, apply for W-type instances |
+| `src/table_edit.rs` | `TableEdit` monoid: identity, compose, apply for functor instances |
+| `src/edit_error.rs` | `EditError` enum for edit application failures |
+| `src/reachability.rs` | `ReachabilityIndex`: incremental reachability tracking from root |
+| `src/contraction.rs` | `ContractionTracker`, `ContractionRecord`: incremental ancestor contraction |
 | `src/error.rs` | `InstError` enum |
 | `tests/integration.rs` | Per-crate integration tests |
 | `benches/inst_bench.rs` | divan benchmarks for W-type construction and restrict |
@@ -98,6 +103,11 @@ Symmetric and asymmetric lenses with law checking.
 | `src/auto_lens.rs` | `auto_generate()`, `AutoLensConfig`, `AutoLensResult`: automatic protolens generation pipeline |
 | `src/diff_to_protolens.rs` | `diff_to_protolens()`, `diff_to_lens()`, `DiffSpec`: schema diff to protolens conversion |
 | `src/laws.rs` | `check_get_put()`, `check_put_get()` law verification |
+| `src/edit_lens.rs` | `EditLens`: incremental edit translation with stateful complement |
+| `src/edit_error.rs` | `EditLensError` enum for edit lens failures |
+| `src/edit_laws.rs` | `check_edit_consistency()`, `check_complement_coherence()` law verification |
+| `src/edit_pipeline.rs` | `EditPipeline`: five-step incremental translation pipeline |
+| `src/edit_provenance.rs` | `EditProvenance`: translation lineage tracking |
 | `src/error.rs` | `LensError` enum |
 
 ## crates/panproto-check --- Breaking-change detection
@@ -182,11 +192,21 @@ JavaScript-facing API with slab allocation and MessagePack serialization.
 | `src/slab.rs` | `Slab<T>` allocator: `alloc()`, `get()`, `free()`, `slab_stats()` |
 | `src/error.rs` | `WasmError`, JavaScript-friendly error conversion |
 
+## crates/panproto-vcs --- Schematic version control
+
+See @sec-vcs-engine for the full module layout. Selected files relevant to edit lenses:
+
+| File | Description |
+|---|---|
+| `src/edit_mig.rs` | `incremental_migrate`, `encode_edit_log`, `decode_edit_log`: VCS-level incremental migration |
+| `src/object.rs` | `EditLogObject`, `CommitObject` (with `edit_log_ids` field) |
+
 ## crates/panproto-cli --- Command-line interface
 
 | File | Description |
 |---|---|
 | `src/main.rs` | CLI binary: `clap`-based argument parsing, subcommands for migrate, check, validate, etc. |
+| `src/cmd/data.rs` | `schema data sync` and `schema data status` CLI commands |
 
 ## sdk/typescript --- TypeScript SDK
 

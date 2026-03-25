@@ -67,6 +67,9 @@ pub fn mark_reachable(
                 for complement_id in commit.complement_ids {
                     queue.push(complement_id);
                 }
+                for edit_log_id in commit.edit_log_ids {
+                    queue.push(edit_log_id);
+                }
             }
             Object::Migration { src, tgt, .. } => {
                 queue.push(src);
@@ -82,6 +85,11 @@ pub fn mark_reachable(
             Object::Complement(complement) => {
                 queue.push(complement.migration_id);
                 queue.push(complement.data_id);
+            }
+            Object::EditLog(edit_log) => {
+                queue.push(edit_log.schema_id);
+                queue.push(edit_log.data_id);
+                queue.push(edit_log.final_complement);
             }
         }
     }
@@ -229,6 +237,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
 
@@ -244,6 +253,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let c1_id = store.put(&Object::Commit(c1))?;
 
@@ -272,6 +282,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;
@@ -290,6 +301,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let orphan_id = store.put(&Object::Commit(orphan))?;
 
@@ -323,6 +335,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;
@@ -376,6 +389,7 @@ mod tests {
             protocol_id: Some(protocol_id),
             data_ids: vec![data_id],
             complement_ids: vec![complement_id],
+            edit_log_ids: vec![],
         };
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;

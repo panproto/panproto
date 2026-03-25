@@ -23,20 +23,23 @@ schema diff old.json new.json
 schema diff --theory old.json new.json
 
 # One-step data conversion between schemas (auto-generates a protolens)
-schema convert --src-schema old.json --tgt-schema new.json record.json
+schema data convert --src-schema old.json --tgt-schema new.json record.json
 
 # Auto-generate a lens with human-readable summary
-schema lens --src old.json --tgt new.json
-schema lens --src old.json --tgt new.json -o lens.json
+schema lens generate old.json new.json
+schema lens generate old.json new.json -o lens.json
 
 # Apply a saved lens or protolens chain to data
-schema lens --apply --lens lens.json record.json
+schema lens apply lens.json record.json
 
 # Verify lens laws (GetPut, PutGet)
-schema lens --verify --lens lens.json --instance test.json
+schema lens verify --lens lens.json --instance test.json
 
 # Compose lenses or protolens chains
-schema lens --compose lens1.json lens2.json -o composed.json
+schema lens compose lens1.json lens2.json -o composed.json
+
+# Inspect a protolens chain
+schema lens inspect chain.json
 
 # Check applicability of a protolens chain
 schema lens --check --chain chain.json --schema schema.json
@@ -98,16 +101,20 @@ schema expr check "let x = 1 in x + 2"
 schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json record.json
 
 # Migrate data to match current schema version
-schema migrate records/ --protocol atproto
-schema migrate records/ --dry-run
-schema migrate records/ --range HEAD~3..HEAD
-schema migrate records/ --backward
+schema data migrate records/ --protocol atproto
+schema data migrate records/ --dry-run
+schema data migrate records/ --range HEAD~3..HEAD
+schema data migrate records/ --backward
+
+# Sync data with incremental edit tracking
+schema data sync records/
+schema data sync records/ --edits
+
+# Show data staleness
+schema data status records/
 
 # Stage data alongside schema
 schema add schema.json --data records/
-
-# Show data staleness
-schema status --data records/
 
 # Checkout and migrate data
 schema checkout feature --migrate records/
@@ -123,18 +130,24 @@ schema merge feature --migrate records/
 | `validate` | Validate a schema file against a protocol (also type-checks the protocol theory) |
 | `check` | Check existence conditions for a migration (`--typecheck` to also GAT-validate the morphism) |
 | `diff` | Diff two schemas and report structural changes (`--theory` to show sort/op/equation-level diff) |
-| `convert` | One-step data conversion between schemas via auto-generated protolens |
-| `lens` | Auto-generate a lens between two schemas (`--apply` to apply, `--verify` to check laws, `--compose` to combine, `--check` for applicability, `--lift` to lift across protocols, `--diff` to derive from VCS history, `--fuse` to merge steps) |
+| `data convert` | One-step data conversion between schemas via auto-generated protolens |
+| `data migrate` | Migrate data to match current schema version (`--dry-run`, `--range`, `--backward`) |
+| `data sync` | Sync data files to target schema version (`--edits` to record edit log) |
+| `data status` | Show data staleness |
+| `lens generate` | Auto-generate a lens between two schemas (`--fuse` to merge steps) |
+| `lens compose` | Compose two protolens chains |
+| `lens apply` | Apply a saved lens or protolens chain to data |
+| `lens verify` | Verify lens laws (GetPut, PutGet) |
+| `lens inspect` | Print human-readable summary of a protolens chain |
 | `lift` | Apply a migration to a record |
 | `scaffold` | Generate minimal test data from a protocol theory via free model construction |
 | `normalize` | Simplify a schema by merging equivalent elements via quotient |
 | `typecheck` | Type-check a migration between two schemas at the GAT level |
 | `verify` | Verify a schema satisfies its protocol theory's equations by model checking |
 | `init` | Initialize a `.panproto/` repository |
-| `migrate` | Migrate data to match current schema version (`--dry-run`, `--range`, `--backward`) |
 | `add` | Stage a schema for the next commit (`--data` to stage data files alongside) |
 | `commit` | Commit staged changes (`--skip-verify` to bypass GAT equation verification) |
-| `status` | Show working state (`--data` to show data staleness) |
+| `status` | Show working state |
 | `log` | Walk commit history |
 | `show` | Inspect an object |
 | `branch` | Create, list, or delete branches |

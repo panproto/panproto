@@ -46,6 +46,11 @@ This crate provides three models for concrete data instances that conform to sch
 | `Provenance` / `ProvenanceMap` | Data lineage tracking: which source fields contributed to each target field |
 | `SourceField` / `TransformStep` | Provenance detail: source references and transform chain steps |
 | `compute_provenance` | Build a provenance map from source/target nodes and a vertex remapping |
+| `TreeEdit` | Edit monoid for W-type instances: identity, compose, apply |
+| `TableEdit` | Edit monoid for functor instances: InsertRow, DeleteRow, UpdateCell |
+| `ReachabilityIndex` | Incremental reachability tracking from root for edit lens pipeline |
+| `ContractionTracker` / `ContractionRecord` | Incremental ancestor contraction tracking |
+| `EditError` | Error types for edit application |
 | `InstError` / `ParseError` / `RestrictError` | Error types |
 
 ## Example

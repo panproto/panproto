@@ -68,6 +68,10 @@ pub enum LensError {
     /// A protolens operation failed.
     #[error("protolens error: {0}")]
     ProtolensError(String),
+
+    /// An edit could not be applied during law checking.
+    #[error("edit apply error: {0}")]
+    EditApply(#[from] panproto_inst::EditError),
 }
 
 /// A violation of a round-trip lens law.

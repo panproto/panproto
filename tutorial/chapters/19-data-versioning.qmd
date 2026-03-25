@@ -1,6 +1,6 @@
 # Versioning Data with Schemas {#sec-data-versioning}
 
-`schema migrate` walks the commit DAG, derives a protolens chain for each step, and applies the composed chain to every record. Formally, given a data set $D$ conforming to schema $S_i$ and a target schema $S_j$, the command computes the DAG path $S_i \to S_{i+1} \to \cdots \to S_j$, constructs the composed protolens chain $\pi_{j-1} \circ \cdots \circ \pi_i$, and applies the resulting lens $\ell = \text{inst}(\pi, S_i)$ to each record $d \in D$. Complements are stored so the process is reversible.
+`schema data migrate` walks the commit DAG, derives a protolens chain for each step, and applies the composed chain to every record. Formally, given a data set $D$ conforming to schema $S_i$ and a target schema $S_j$, the command computes the DAG path $S_i \to S_{i+1} \to \cdots \to S_j$, constructs the composed protolens chain $\pi_{j-1} \circ \cdots \circ \pi_i$, and applies the resulting lens $\ell = \text{inst}(\pi, S_i)$ to each record $d \in D$. Complements are stored so the process is reversible.
 
 Consider a repository with three commits. Each commit introduced a schema change: a field was renamed, a vertex was added, an edge kind changed. Your `records/` directory still holds data written against the first schema. The data is *stale*; it conforms to a schema version that no longer matches HEAD. For three commits, manual migration is manageable. For thirty commits across five branches with merges, it is not.
 
@@ -20,7 +20,7 @@ This does two things:
 The snapshot is a `DataSetObject`: a blob of MessagePack-encoded instances with a `schema_id` pointing to the schema they conform to and a `record_count` for quick inspection.
 
 ```{.sh}
-schema status --data records/
+schema data status records/
 ```
 
 Output:
@@ -46,10 +46,10 @@ The data snapshot is immutable. Once committed, it serves as the canonical "befo
 The content-addressing deduplicates it. `schema add --data records/` computes the blake3 hash of the data snapshot. If an identical snapshot already exists in the object store (because the data has not changed since the last commit), no new object is created. The commit records the same `data_id` as before. Storage cost is zero for an unchanged data set.
 :::
 
-## `schema migrate`: the one command you need {#sec-schema-migrate}
+## `schema data migrate`: the one command you need {#sec-schema-migrate}
 
 ```{.sh}
-schema migrate records/
+schema data migrate records/
 ```
 
 This command:
@@ -64,7 +64,7 @@ This command:
 The `--dry-run` flag shows what *would* happen without writing anything:
 
 ```{.sh}
-schema migrate records/ --dry-run
+schema data migrate records/ --dry-run
 ```
 
 ```
@@ -79,19 +79,19 @@ Dry run: 42 records in records/
 The `--range` flag restricts migration to a specific commit range:
 
 ```{.sh}
-schema migrate records/ --range HEAD~3..HEAD
+schema data migrate records/ --range HEAD~3..HEAD
 ```
 
 The `--backward` flag migrates data in the reverse direction, restoring from stored complements:
 
 ```{.sh}
-schema migrate records/ --backward
+schema data migrate records/ --backward
 ```
 
 The `-o` flag writes migrated records to a different directory instead of overwriting:
 
 ```{.sh}
-schema migrate records/ -o migrated/
+schema data migrate records/ -o migrated/
 ```
 
 ## Complement storage: backward migration without data loss {#sec-complement-storage}
@@ -104,7 +104,7 @@ panproto stores complements as `ComplementObject` values in the same content-add
 - **`data_id`**: the `ObjectId` of the `DataSetObject` the complement was computed from.
 - **The complement data itself**: serialized as MessagePack.
 
-When you run `schema migrate records/ --backward`, the system:
+When you run `schema data migrate records/ --backward`, the system:
 
 1. Finds the complement objects associated with the current data snapshot.
 2. Applies the inverse migration, feeding complement data back into the restoration.
@@ -116,10 +116,10 @@ Backward migration fails if no complement exists for a given step. This happens 
 Complements are content-addressed. Two migrations that produce identical complement data share the same object. This deduplication keeps storage costs proportional to the actual data lost during migration, not the number of migration operations.
 :::
 
-## `schema status --data`: knowing when data is stale {#sec-data-staleness}
+## `schema data status`: knowing when data is stale {#sec-data-staleness}
 
 ```{.sh}
-schema status --data records/
+schema data status records/
 ```
 
 ```
@@ -138,13 +138,13 @@ This integrates with CI. A non-zero staleness count can fail a pipeline, ensurin
 ::: {.callout-caution}
 ## How does staleness interact with branches?
 
-If `records/` was migrated to HEAD on `main`, and you switch to a `feature` branch whose HEAD is three commits ahead of `main`, does `schema status --data` report staleness relative to `feature`'s HEAD or `main`'s?
+If `records/` was migrated to HEAD on `main`, and you switch to a `feature` branch whose HEAD is three commits ahead of `main`, does `schema data status` report staleness relative to `feature`'s HEAD or `main`'s?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Staleness is always relative to the current branch's HEAD. If `records/` was migrated to HEAD on `main` and you switch to `feature` (whose HEAD is three commits ahead), `schema status --data` reports staleness relative to `feature`'s HEAD. The schema_id stored in the data snapshot is compared against the current HEAD's schema, regardless of which branch created the snapshot.
+Staleness is always relative to the current branch's HEAD. If `records/` was migrated to HEAD on `main` and you switch to `feature` (whose HEAD is three commits ahead), `schema data status` reports staleness relative to `feature`'s HEAD. The schema_id stored in the data snapshot is compared against the current HEAD's schema, regardless of which branch created the snapshot.
 :::
 
 ## `schema checkout --migrate`: switching branches with data {#sec-checkout-migrate}
@@ -161,7 +161,7 @@ This calls `Repository::checkout_with_data(target, data_dir)` under the hood. Th
 4. Switch HEAD to the target branch.
 5. Write migrated records to `data_dir`.
 
-Without `--migrate`, `schema checkout` switches the schema but leaves data untouched. Subsequent `schema status --data` will show the data as stale.
+Without `--migrate`, `schema checkout` switches the schema but leaves data untouched. Subsequent `schema data status` will show the data as stale.
 
 ## `schema merge --migrate`: merging with data {#sec-merge-migrate}
 
@@ -201,13 +201,13 @@ Protocol versioning matters for long-lived repositories where the metaschema its
 ::: {.callout-caution}
 ## What happens when you migrate data across a protocol boundary?
 
-If commit $C_1$ uses ATProto v1 and commit $C_2$ uses ATProto v2, does `schema migrate` compose protolens chains that span the protocol change? Or does it require separate migration steps for the protocol upgrade and the schema change?
+If commit $C_1$ uses ATProto v1 and commit $C_2$ uses ATProto v2, does `schema data migrate` compose protolens chains that span the protocol change? Or does it require separate migration steps for the protocol upgrade and the schema change?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-`schema migrate` composes protolens chains that span the protocol change. The DAG path from $C_1$ to $C_2$ includes the commit that introduced the new protocol, and that commit's migration morphism encodes the theory-level mapping between ATProto v1 and ATProto v2. The protolens chain includes both the protocol upgrade step (a theory morphism application) and any schema-level changes. No separate migration steps are required; the composed chain handles both levels.
+`schema data migrate` composes protolens chains that span the protocol change. The DAG path from $C_1$ to $C_2$ includes the commit that introduced the new protocol, and that commit's migration morphism encodes the theory-level mapping between ATProto v1 and ATProto v2. The protolens chain includes both the protocol upgrade step (a theory morphism application) and any schema-level changes. No separate migration steps are required; the composed chain handles both levels.
 :::
 
 ## The full workflow {#sec-data-versioning-workflow}
@@ -229,7 +229,7 @@ schema commit -m "rename userName to handle, add version field"
 
 # Check staleness on main
 schema checkout main --migrate records/
-schema status --data records/
+schema data status records/
 # records/ is back at v1; no staleness
 
 # Merge feature branch with data migration
@@ -237,13 +237,31 @@ schema merge feature --migrate records/
 # records/ now conforms to the merged schema
 
 # Verify: no staleness
-schema status --data records/
+schema data status records/
 # records/ : 42 records at schema HEAD (up to date)
 
 # Backward migration if needed
-schema migrate records/ --backward
+schema data migrate records/ --backward
 # records/ restored to pre-merge state using stored complements
 ```
+
+## Incremental migration with `schema data sync` {#sec-data-sync}
+
+Batch migration (`schema data migrate`) re-processes every record. For live systems where edits arrive one at a time, `schema data sync` provides incremental migration:
+
+```{.sh}
+schema data sync records/
+```
+
+With the `--edits` flag, the command records an `EditLogObject` in the VCS, capturing the translated edit sequence:
+
+```{.sh}
+schema data sync records/ --edits
+```
+
+The `EditLogObject` stores the schema ID, data set ID, the MessagePack-encoded edits, the edit count, and the final complement state. This enables replaying the incremental migration or auditing which edits were applied.
+
+For the theory behind incremental migration (the `EditLens`, the `TreeEdit` monoid, and the edit lens laws), see @sec-edit-lenses.
 
 ## Exercises {#sec-data-versioning-exercises}
 
@@ -251,8 +269,8 @@ schema migrate records/ --backward
 
 2. Create a branch that renames a field and another branch that adds a field. Merge them with `--migrate` and inspect the resulting records. What does the complement contain?
 
-3. Use `schema migrate --dry-run` to estimate complement sizes for a chain of five schema changes. Which steps are lossless? Which produce complements?
+3. Use `schema data migrate --dry-run` to estimate complement sizes for a chain of five schema changes. Which steps are lossless? Which produce complements?
 
 4. Stage a protocol definition with `schema add --protocol` and inspect the resulting commit with `schema show`. Where does the `protocol_id` appear?
 
-5. Write a CI script that runs `schema status --data records/` and fails the build if any data is stale.
+5. Write a CI script that runs `schema data status records/` and fails the build if any data is stale.
