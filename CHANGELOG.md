@@ -4,6 +4,40 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-03-25
+
+### Added — Edit Lenses and CLI Restructure
+
+- **panproto-inst**: `TreeEdit` enum (11 variants) and `TableEdit` enum (5 variants) implementing the edit monoid from Hofmann, Pierce, Wagner 2012. Full `apply` (partial monoid action on `WInstance`/`FInstance`), `identity`, and `compose` operations.
+- **panproto-inst**: `ReachabilityIndex` for incremental reachability tracking. Supports `insert_edge`/`delete_edge` with BFS cascading in time proportional to the affected subtree.
+- **panproto-inst**: `ContractionTracker` for incremental ancestor contraction bookkeeping. Records and undoes contractions with children and edge preservation.
+- **panproto-gat**: `th_editable_structure()` building-block theory with sorts `State`/`Edit` and monoid action equations.
+- **panproto-lens**: `EditLens` struct with `get_edit`/`put_edit` for incremental edit translation through migrations. Supports structural remap, field transforms, conditional survival predicates, and complement policy dispatch.
+- **panproto-lens**: `EditPipeline` mirroring the five steps of `wtype_restrict` incrementally (anchor survival, reachability, ancestor contraction, edge resolution, fan reconstruction).
+- **panproto-lens**: Edit lens law verification (`check_edit_consistency`, `check_complement_coherence`).
+- **panproto-lens**: Optics dispatch (`optic_kind()`) for Iso/Lens/Prism/Affine translation strategies.
+- **panproto-lens**: `EditProvenance` for tracking which translation rules fired per edit.
+- **panproto-lens**: Refinement type checking against target schema constraints during `get_edit`.
+- **panproto-lens**: `Protolens::instantiate_edit` and `ProtolensChain::instantiate_edit` for producing `EditLens` from protolens specifications.
+- **panproto-vcs**: `EditLogObject` (9th object type) for content-addressed edit log storage. `edit_log_ids` on `CommitObject`.
+- **panproto-vcs**: `incremental_migrate`, `encode_edit_log`, `decode_edit_log` for edit stream processing.
+- **panproto-cli**: `schema lens` restructured into 7 subcommands: `generate`, `apply`, `compose`, `verify`, `inspect`, `check`, `lift`.
+- **panproto-cli**: `schema data` group with 4 subcommands: `migrate`, `convert`, `sync`, `status`. `schema data sync --edits` stores `EditLogObject` in the VCS.
+- **Tutorial**: Chapter 23, "Edit Lenses: Incremental Migration".
+- **Dev-guide**: Chapter 31, "Edit Lens Internals".
+
+### Changed
+
+- **panproto-cli**: `schema migrate` moved to `schema data migrate`. `schema convert` moved to `schema data convert`. `schema status --data` moved to `schema data status`.
+- **panproto-cli**: `schema lens` monolithic command (16+ flags) replaced by subcommands. `schema lens old.json new.json --protocol p` becomes `schema lens generate old.json new.json --protocol p`.
+- **panproto-inst**: `apply_field_transforms` promoted from `pub(crate)` to `pub` for use by edit lens translation.
+- **Python SDK**: README rewritten for the native PyO3 API.
+
+### Removed
+
+- **panproto-cli**: Top-level `schema migrate` and `schema convert` commands (replaced by `schema data` subcommands).
+- **panproto-cli**: Monolithic `schema lens` flag-based dispatch (replaced by subcommands).
+
 ## [0.14.0] - 2026-03-24
 
 ### Added — Native Python Bindings (panproto-py)
