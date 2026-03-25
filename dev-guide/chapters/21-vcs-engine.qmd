@@ -33,12 +33,17 @@ crates/panproto-vcs/src/
 
 ## Object Store
 
-`ObjectId` is a blake3 hash of the canonical MessagePack serialization. Canonical forms use `BTreeMap` instead of `HashMap` and exclude precomputed indices, which are derived data. Four object types live in the store:
+`ObjectId` is a blake3 hash of the canonical MessagePack serialization. Canonical forms use `BTreeMap` instead of `HashMap` and exclude precomputed indices, which are derived data. The following object types live in the store:
 
 - `Object::Schema(Schema)`: a schema snapshot
 - `Object::Migration { src, tgt, mapping }`: a morphism between two schemas
 - `Object::Commit(CommitObject)`: a point in the DAG
 - `Object::Tag(TagObject)`: an annotated tag storing target object ID, tagger name, timestamp, and message
+- `Object::DataSet(DataSetObject)`: a content-addressed data snapshot bound to a schema version
+- `Object::Complement(ComplementObject)`: complement from data migration for backward restoration
+- `Object::Protocol(Protocol)`: a protocol definition
+- `Object::Expr(Expr)`: a standalone expression
+- `Object::EditLog(EditLogObject)`: a sequence of edits for incremental migration
 
 ```rust
 pub struct CommitObject {
@@ -49,6 +54,11 @@ pub struct CommitObject {
     pub author: String,
     pub timestamp: u64,
     pub message: String,
+    pub renames: Vec<SiteRename>,
+    pub protocol_id: Option<ObjectId>,
+    pub data_ids: Vec<ObjectId>,
+    pub complement_ids: Vec<ObjectId>,
+    pub edit_log_ids: Vec<ObjectId>,  // references to EditLogObject values
 }
 ```
 

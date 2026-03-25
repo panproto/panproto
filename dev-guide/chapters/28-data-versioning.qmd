@@ -206,6 +206,21 @@ The retrieval algorithm in `migrate_backward` is:
 
 The path is computed by `dag::find_path`, which returns a sequence of `(CommitObject, Direction)` pairs. `Direction::Forward` means the migration at this commit should be applied as-is. `Direction::Backward` means the migration should be inverted.
 
+## `schema data sync` pipeline {#sec-data-sync-pipeline}
+
+The `schema data sync` command (implemented in `crates/panproto-cli/src/cmd/data.rs`) synchronizes data files to match a target schema version:
+
+1. Open the repository and resolve the old and new schema versions (from HEAD's parent and HEAD, or a specific target ref).
+2. If the schemas are identical, report "already in sync" and return.
+3. Load both schemas and the protocol. Call `auto_generate` to derive a lens.
+4. Read JSON files from the data directory.
+5. Apply the lens to each file (forward direction).
+6. If `--edits` is set, construct an `EditLogObject` with the new schema ID, the old schema ID as data reference, an empty edits vector (the batch lens was used, not edit-by-edit), the migrated file count, and a zero complement ID. Store the object in the VCS.
+
+The `schema data status` command reads the HEAD commit, counts JSON files in the data directory, and reports the HEAD schema ID and number of tracked data sets.
+
+Both commands are in the `cmd::data` module and use shared helpers from `cmd::helpers` and `cmd::migrate`.
+
 ## checkout_with_data / merge_with_data integration {#sec-checkout-merge-integration}
 
 **File**: `crates/panproto-vcs/src/repo.rs`

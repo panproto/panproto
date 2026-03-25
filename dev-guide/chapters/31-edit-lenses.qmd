@@ -1,0 +1,237 @@
+# Edit Lens Internals {#sec-edit-lenses-internals}
+
+The edit lens subsystem translates individual edits (patches) between schema versions, maintaining a stateful complement. This chapter covers the internal architecture: the `EditLens` struct, the five-step translation pipeline, complement state machine transitions, law verification, provenance tracking, and VCS integration.
+
+For the user-facing tutorial, see the [tutorial's edit lenses chapter](https://panproto.dev/tutorial/chapters/23-edit-lenses.html).
+
+## `EditLens` struct
+
+**File**: `crates/panproto-lens/src/edit_lens.rs`
+
+```{.rust include="../../crates/panproto-lens/src/edit_lens.rs" start-line=31 end-line=52}
+```
+
+The fields:
+
+- **`compiled`**: the `CompiledMigration` from the underlying state-based lens. Carries the surviving vertex/edge sets, vertex remap, edge remap, resolver, and field transforms.
+- **`src_schema` / `tgt_schema`**: the source and target schemas.
+- **`complement`**: the current complement state, mutated by every `get_edit` and `put_edit` call.
+- **`protocol`**: the protocol definition, used to access directed equations and complement policies.
+- **`reverse_vertex_remap` / `reverse_edge_remap`**: precomputed inverse maps for the `put_edit` direction.
+- **`pipeline`**: an optional `EditPipeline` for the per-step incremental translation. Initialized by `initialize()`.
+
+### Construction and initialization
+
+`EditLens::from_lens(lens, protocol)` constructs the edit lens from an existing state-based `Lens`. It builds the reverse remap tables by inverting the compiled migration's vertex and edge maps. The complement starts empty.
+
+`initialize(source)` performs a whole-state `get` on the source instance to populate the initial complement and creates the `EditPipeline`:
+
+```{.rust include="../../crates/panproto-lens/src/edit_lens.rs" start-line=82 end-line=98}
+```
+
+## The `get_edit` translation
+
+**File**: `crates/panproto-lens/src/edit_lens.rs`
+
+Each `get_edit` call dispatches on the `TreeEdit` variant and applies the translation pipeline:
+
+1. **Anchor survival**: for `InsertNode`, check whether the node's anchor (after vertex remap) is in `surviving_verts`. If not, the node and its edge are added to the complement, and `Identity` is returned.
+2. **Conditional survival**: evaluate value-dependent predicates from `conditional_survival` on the node's `extra_fields`. If the predicate returns `false`, the node is dropped to complement.
+3. **Structural remap**: remap the node's anchor via `vertex_remap` and the edge via `edge_remap`. Apply `FieldTransform` operations to surviving nodes' fields.
+4. **Field transforms**: for `SetField` edits, translate the field name (honoring `RenameField` transforms) and apply `ApplyExpr` transforms to values.
+5. **Complement update**: update the complement based on which data was absorbed or released.
+
+For `SetField` targeting a complement node, the edit updates the complement's copy of the node and returns `Identity`. For `DeleteNode` targeting a complement node, the node is removed from the complement.
+
+For `RelabelNode`, the lens handles four cases:
+
+| Was in complement? | New anchor survives? | Result |
+|---|---|---|
+| Yes | Yes | Remove from complement, emit `InsertNode` |
+| Yes | No | Update complement node's anchor, emit `Identity` |
+| No | Yes | Emit `RelabelNode` with remapped anchor |
+| No | No | Emit `DeleteNode` |
+
+## The `put_edit` translation
+
+`put_edit` reverses `get_edit` using the precomputed `reverse_vertex_remap` and `reverse_edge_remap`. For `InsertNode`, the node and edge are un-remapped to source-schema coordinates. For `SetField`, the field name is translated backward through field transforms.
+
+`put_edit` does not need to check anchor survival (the edit is already in view-schema coordinates, so all anchors are surviving by definition).
+
+## The five-step `EditPipeline`
+
+**File**: `crates/panproto-lens/src/edit_pipeline.rs`
+
+```{.rust include="../../crates/panproto-lens/src/edit_pipeline.rs" start-line=19 end-line=37}
+```
+
+The `EditPipeline` mirrors the five stages of `wtype_restrict` but operates incrementally on individual edits rather than whole instances.
+
+### Step 1: anchor survival
+
+Checks whether the edit targets a surviving vertex. Non-surviving `InsertNode` edits are absorbed into the complement. `DeleteNode` edits for complement nodes remove them from the complement. `SetField` edits for complement nodes update the complement's copy.
+
+### Step 2: reachability
+
+Uses the `ReachabilityIndex` to track which nodes can reach the root:
+
+- `InsertNode`: calls `insert_edge(parent, child)`, which BFS-marks the child's subtree as reachable.
+- `DeleteNode`: calls `delete_edge(parent, child)`, which BFS-marks the subtree as unreachable if no alternate path to root exists.
+- `MoveSubtree`: removes the old edge and inserts the new one, cascading reachability updates.
+
+**File**: `crates/panproto-inst/src/reachability.rs`
+
+The `ReachabilityIndex` maintains a `reachable` set (backed by `FxHashSet`), plus parent/children adjacency maps. Updates are proportional to the affected subtree, not the whole instance.
+
+### Step 3: ancestor contraction
+
+Uses the `ContractionTracker` to record which nodes have been contracted:
+
+- `ContractNode`: records the contraction via `ContractionTracker::contract`, including the original parent, children, and edge.
+- `InsertNode`: if the child was previously contracted, calls `expand` to undo the contraction.
+
+**File**: `crates/panproto-inst/src/contraction.rs`
+
+The `ContractionTracker` maps each contracted node to its `ContractionRecord` and tracks which surviving nodes absorbed which contracted nodes via the `absorptions` map.
+
+### Step 4: edge resolution
+
+For edits that create arcs with `kind = "contracted"` (from contraction), the pipeline resolves the correct schema edge using `panproto_inst::resolve_edge` with the compiled migration's resolver.
+
+### Step 5: fan reconstruction
+
+Fans with dropped participants (parent or child in the complement) are absorbed into `complement.dropped_fans`. Fans whose participants all survive pass through.
+
+### Forward and reverse
+
+`translate_get` runs steps 1 through 5 in order. `translate_put` runs them in reverse order (5, 4, 3, 2, 1), mirroring the `put` operation's reverse-step reconstruction.
+
+## Complement state machine transitions
+
+The complement is a `Complement` struct (from `panproto-lens/src/asymmetric.rs`) whose fields are mutated by each edit:
+
+| Edit | Complement effect |
+|---|---|
+| `InsertNode` (non-surviving) | Node added to `dropped_nodes`, edge added to `dropped_arcs` |
+| `DeleteNode` (in complement) | Node removed from `dropped_nodes` |
+| `SetField` (complement node) | Node's `extra_fields` updated |
+| `RelabelNode` (complement -> surviving) | Node removed from complement, emitted as insert |
+| `InsertFan` (dropped participant) | Fan added to `dropped_fans` |
+| `DeleteFan` (in complement) | Fan removed from `dropped_fans` |
+
+The state machine invariant: after processing a sequence of edits $e_1, \ldots, e_n$, the complement state is identical to the complement produced by applying all edits to the source and running a whole-state `get`.
+
+## Edit lens law verification
+
+**File**: `crates/panproto-lens/src/edit_laws.rs`
+
+### `check_edit_consistency`
+
+Verifies the Consistency law by comparing two paths:
+
+1. **Path 1** (incremental): call `get_edit(edit)` on a clone of the lens, apply the result to the current view.
+2. **Path 2** (batch): apply `edit` to the source, then run a whole-state `get`.
+
+Compares the resulting views node by node. Returns `EditLawViolation::Consistency` if node counts or anchors diverge.
+
+### `check_complement_coherence`
+
+Verifies the Complement coherence law:
+
+1. **Path 1**: call `get_edit(edit)` on a clone, inspect the resulting complement.
+2. **Path 2**: apply `edit` to the source, run a whole-state `get`, inspect the complement.
+
+Compares `dropped_nodes` counts. Returns `EditLawViolation::ComplementCoherence` on mismatch.
+
+## Optics dispatch
+
+The `optic_kind()` classification from `panproto-lens/src/optic.rs` determines how the edit lens translates structural edits:
+
+| `OpticKind` | Translation strategy |
+|---|---|
+| `Iso` | Direct remap (no complement interaction) |
+| `Lens` | Anchor survival + complement tracking |
+| `Prism` | Variant tag routing |
+| `Affine` | Lens + Prism combined |
+| `Traversal` | Array element mapping |
+
+For `Iso` transformations, `get_edit` skips complement checks entirely.
+
+## `EditProvenance`
+
+**File**: `crates/panproto-lens/src/edit_provenance.rs`
+
+```{.rust include="../../crates/panproto-lens/src/edit_provenance.rs" start-line=16 end-line=26}
+```
+
+Provenance is populated by `get_edit_with_provenance`, which wraps `get_edit` and records which rules fired. The `rules_applied` vector captures named rules (e.g., `"structural_remap"`, `"field_text"`). The `policy_consulted` field records which complement policy (from the schema's policy sorts) was used. The `was_total` flag is `false` when a refinement constraint failed, indicating a partial translation.
+
+`EditProvenance` derives `Serialize` and `Deserialize`, so provenance records can be stored alongside edit logs for auditing.
+
+## VCS integration
+
+### `EditLogObject`
+
+**File**: `crates/panproto-vcs/src/object.rs`
+
+```{.rust include="../../crates/panproto-vcs/src/object.rs" start-line=148 end-line=165}
+```
+
+An `EditLogObject` is a content-addressed VCS object storing:
+
+- `schema_id`: the schema the edits apply to
+- `data_id`: the data set the edits were applied to
+- `edits`: MessagePack-encoded `Vec<TreeEdit>`
+- `edit_count`: number of edits in the log
+- `final_complement`: the `ObjectId` of the complement state after all edits
+
+`CommitObject` includes an `edit_log_ids: Vec<ObjectId>` field referencing any edit logs generated at that commit.
+
+### `incremental_migrate`
+
+**File**: `crates/panproto-vcs/src/edit_mig.rs`
+
+```{.rust include="../../crates/panproto-vcs/src/edit_mig.rs" start-line=13 end-line=37}
+```
+
+Translates a sequence of source edits through an edit lens. Non-identity results are collected into the output. Returns `VcsError::DataMigrationFailed` if any translation fails.
+
+### `encode_edit_log` / `decode_edit_log`
+
+Serialize and deserialize edit sequences as MessagePack bytes:
+
+```{.rust include="../../crates/panproto-vcs/src/edit_mig.rs" start-line=39 end-line=55}
+```
+
+These are used by the CLI `schema data sync --edits` command to store edit logs in the VCS object store.
+
+## Error types
+
+**File**: `crates/panproto-lens/src/edit_error.rs`
+
+`EditLensError` covers translation failures:
+
+| Variant | When |
+|---|---|
+| `TranslationFailed` | General translation failure |
+| `PolicyConflict` | Complement policy conflict for a vertex kind |
+| `NoInverse` | A directed equation has no inverse, needed for `put_edit` |
+| `ComplementInconsistent` | Complement state does not match expected state |
+| `Restrict` | Underlying `wtype_restrict` failed |
+| `EditApply` | An edit could not be applied to the instance |
+
+## Module map
+
+| Module | File | Purpose |
+|---|---|---|
+| `edit_lens` | `crates/panproto-lens/src/edit_lens.rs` | `EditLens` struct, `get_edit`, `put_edit` |
+| `edit_pipeline` | `crates/panproto-lens/src/edit_pipeline.rs` | Five-step incremental pipeline |
+| `edit_laws` | `crates/panproto-lens/src/edit_laws.rs` | Consistency and coherence law verification |
+| `edit_provenance` | `crates/panproto-lens/src/edit_provenance.rs` | Translation lineage tracking |
+| `edit_error` | `crates/panproto-lens/src/edit_error.rs` | Error types |
+| `tree_edit` | `crates/panproto-inst/src/tree_edit.rs` | `TreeEdit` monoid for W-type instances |
+| `table_edit` | `crates/panproto-inst/src/table_edit.rs` | `TableEdit` monoid for functor instances |
+| `reachability` | `crates/panproto-inst/src/reachability.rs` | Incremental `ReachabilityIndex` |
+| `contraction` | `crates/panproto-inst/src/contraction.rs` | Incremental `ContractionTracker` |
+| `edit_mig` | `crates/panproto-vcs/src/edit_mig.rs` | VCS-level incremental migration |
+| `cmd/data` | `crates/panproto-cli/src/cmd/data.rs` | `schema data sync` and `schema data status` CLI commands |

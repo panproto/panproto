@@ -64,6 +64,7 @@ pub fn stash_push(
         protocol_id: None,
         data_ids: vec![],
         complement_ids: vec![],
+        edit_log_ids: vec![],
     };
     let stash_id = store.put(&Object::Commit(stash_commit))?;
 
@@ -236,6 +237,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let head_id = store.put(&Object::Commit(head_commit))?;
         store.set_ref("refs/heads/main", head_id)?;
@@ -275,6 +277,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let head_id = store.put(&Object::Commit(head_commit))?;
         store.set_ref("refs/heads/main", head_id)?;

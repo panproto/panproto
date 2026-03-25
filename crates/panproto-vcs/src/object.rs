@@ -1,6 +1,6 @@
 //! Content-addressed objects stored in the VCS.
 //!
-//! The object store contains eight kinds of objects:
+//! The object store contains nine kinds of objects:
 //! - [`Object::Schema`] — a schema snapshot
 //! - [`Object::Migration`] — a morphism between two schemas
 //! - [`Object::Commit`] — a point in the schema evolution DAG
@@ -9,6 +9,7 @@
 //! - [`Object::Complement`] — a complement from data migration
 //! - [`Object::Protocol`] — a protocol (metaschema) definition
 //! - [`Object::Expr`] — a standalone expression (coercion, merge, default)
+//! - [`Object::EditLog`] — an edit log for incremental migration
 
 use panproto_gat::SiteRename;
 use panproto_mig::Migration;
@@ -50,6 +51,9 @@ pub enum Object {
 
     /// A standalone expression (e.g., coercion, merge, default).
     Expr(Box<panproto_expr::Expr>),
+
+    /// An edit log recording incremental edits against a schema.
+    EditLog(EditLogObject),
 }
 
 impl Object {
@@ -65,6 +69,7 @@ impl Object {
             Self::Complement(_) => "complement",
             Self::Protocol(_) => "protocol",
             Self::Expr(_) => "expr",
+            Self::EditLog(_) => "editlog",
         }
     }
 }
@@ -112,6 +117,10 @@ pub struct CommitObject {
     /// Object IDs of complements from the migration at this commit.
     #[serde(default)]
     pub complement_ids: Vec<ObjectId>,
+
+    /// Object IDs of edit logs for incremental migration at this commit.
+    #[serde(default)]
+    pub edit_log_ids: Vec<ObjectId>,
 }
 
 /// A data snapshot stored in the VCS.
@@ -134,6 +143,25 @@ pub struct ComplementObject {
     pub data_id: ObjectId,
     /// MessagePack-encoded Complement data.
     pub complement: Vec<u8>,
+}
+
+/// An edit log: a sequence of edits applied to a data set.
+///
+/// Edit logs are content-addressed by hashing the sequence of edits.
+/// Two edit logs with the same edits hash to the same object, enabling
+/// deduplication.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EditLogObject {
+    /// The schema these edits apply to.
+    pub schema_id: ObjectId,
+    /// The data set these edits were applied to.
+    pub data_id: ObjectId,
+    /// MessagePack-encoded `Vec<TreeEdit>`.
+    pub edits: Vec<u8>,
+    /// Number of edits in the log.
+    pub edit_count: u64,
+    /// Object ID of the complement state after all edits.
+    pub final_complement: ObjectId,
 }
 
 /// An annotated tag object.
@@ -187,6 +215,50 @@ mod tests {
         assert_eq!(comp.migration_id, comp2.migration_id);
         assert_eq!(comp.data_id, comp2.data_id);
         assert_eq!(comp.complement, comp2.complement);
+        Ok(())
+    }
+
+    #[test]
+    fn edit_log_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        let el = EditLogObject {
+            schema_id: ObjectId::from_bytes([1; 32]),
+            data_id: ObjectId::from_bytes([2; 32]),
+            edits: vec![42, 43, 44],
+            edit_count: 3,
+            final_complement: ObjectId::from_bytes([3; 32]),
+        };
+        let bytes = rmp_serde::to_vec(&el)?;
+        let el2: EditLogObject = rmp_serde::from_slice(&bytes)?;
+        assert_eq!(el.schema_id, el2.schema_id);
+        assert_eq!(el.data_id, el2.data_id);
+        assert_eq!(el.edits, el2.edits);
+        assert_eq!(el.edit_count, el2.edit_count);
+        assert_eq!(el.final_complement, el2.final_complement);
+        Ok(())
+    }
+
+    #[test]
+    fn commit_with_edit_logs() -> Result<(), Box<dyn std::error::Error>> {
+        let commit = CommitObject {
+            schema_id: ObjectId::ZERO,
+            parents: vec![],
+            migration_id: None,
+            protocol: "test".into(),
+            author: "test".into(),
+            timestamp: 0,
+            message: "test".into(),
+            renames: vec![],
+            protocol_id: None,
+            data_ids: vec![],
+            complement_ids: vec![],
+            edit_log_ids: vec![
+                ObjectId::from_bytes([10; 32]),
+                ObjectId::from_bytes([11; 32]),
+            ],
+        };
+        let bytes = rmp_serde::to_vec(&commit)?;
+        let commit2: CommitObject = rmp_serde::from_slice(&bytes)?;
+        assert_eq!(commit.edit_log_ids, commit2.edit_log_ids);
         Ok(())
     }
 }

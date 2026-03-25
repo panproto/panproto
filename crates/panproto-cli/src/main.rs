@@ -644,143 +644,18 @@ enum Command {
         path: Option<PathBuf>,
     },
 
-    // -- Data migration --
-    /// Migrate data to match the current schema version.
-    ///
-    /// Examples:
-    ///   schema migrate records/
-    ///   schema migrate records/ --range HEAD~3..HEAD
-    ///   schema migrate records/ --dry-run
-    ///   schema migrate records/ --backward
-    ///   schema migrate records/ -o migrated/
-    Migrate {
-        /// Data directory containing JSON files.
-        data: PathBuf,
-        /// Protocol name (inferred from HEAD commit if omitted).
-        #[arg(long)]
-        protocol: Option<String>,
-        /// Migrate between specific commits (default: parent..HEAD).
-        #[arg(long)]
-        range: Option<String>,
-        /// Preview without modifying files.
-        #[arg(long)]
-        dry_run: bool,
-        /// Output directory (default: overwrite in place).
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        /// Migrate backward (requires stored complement).
-        #[arg(long)]
-        backward: bool,
-        /// Apply migration and print coverage statistics.
-        #[arg(long)]
-        coverage: bool,
-    },
-
-    /// Convert data between schemas. Works on single files or directories.
-    ///
-    /// Examples:
-    ///   schema convert record.json --from old.json --to new.json --protocol atproto
-    ///   schema convert records/ --from old.json --to new.json -o migrated/ --protocol atproto
-    ///   schema convert records/ --chain policy.json -o migrated/ --protocol atproto
-    Convert {
-        /// Data file or directory of JSON files.
-        data: PathBuf,
-        /// Source schema (required unless --chain is used).
-        #[arg(long)]
-        from: Option<PathBuf>,
-        /// Target schema (required unless --chain is used).
-        #[arg(long)]
-        to: Option<PathBuf>,
-        /// Protocol name.
-        #[arg(long)]
-        protocol: String,
-        /// Pre-built protolens chain JSON (alternative to --from/--to).
-        #[arg(long)]
-        chain: Option<PathBuf>,
-        /// Output file or directory (default: stdout for single file).
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        /// Direction: "forward" or "backward".
-        #[arg(long, default_value = "forward")]
-        direction: String,
-        /// Default values as key=value pairs.
-        #[arg(long, value_delimiter = ',')]
-        defaults: Vec<String>,
+    // -- Data operations --
+    /// Data operations: migrate, convert, sync, and status.
+    Data {
+        #[command(subcommand)]
+        action: DataAction,
     },
 
     // -- Lens operations --
-    /// Generate, inspect, and manage bidirectional lenses.
-    ///
-    /// By default, generates a lens between two schemas and prints a
-    /// human-readable summary. Use flags for other operations.
-    ///
-    /// Examples:
-    ///   schema lens old.json new.json --protocol atproto
-    ///   schema lens old.json new.json --protocol atproto --apply data.json
-    ///   schema lens old.json new.json --protocol atproto --chain > chain.json
-    ///   schema lens --apply chain.json data.json --protocol atproto
-    ///   schema lens --compose chain1.json chain2.json --protocol atproto
-    ///   schema lens --verify chain.json --data test.json --protocol atproto
-    ///   schema lens --check chain.json schemas/ --protocol atproto
-    ///   schema lens --lift chain.json morphism.json --protocol atproto
+    /// Bidirectional lens operations.
     Lens {
-        /// Positional arguments (schemas, chains, or morphisms depending on mode).
-        args: Vec<PathBuf>,
-        /// Protocol name.
-        #[arg(long)]
-        protocol: String,
-        /// Output as JSON.
-        #[arg(long)]
-        json: bool,
-        /// Output a reusable protolens chain (JSON to stdout).
-        #[arg(long)]
-        chain: bool,
-        /// Show complement requirements (defaults/data needed).
-        #[arg(long)]
-        requirements: bool,
-        /// Fuse multi-step chain into single protolens.
-        #[arg(long)]
-        fuse: bool,
-        /// Try overlap-based alignment when direct morphism fails.
-        #[arg(long)]
-        try_overlap: bool,
-        /// Default values as key=value pairs.
-        #[arg(long, value_delimiter = ',')]
-        defaults: Vec<String>,
-        /// Apply lens to data: --apply data.json (with two schemas)
-        /// or positional chain + data (with --apply alone).
-        #[arg(long)]
-        apply: Option<PathBuf>,
-        /// Verify lens laws on test data.
-        #[arg(long)]
-        verify: Option<PathBuf>,
-        /// Compose two chains (positional args are the two chain files).
-        #[arg(long)]
-        compose: bool,
-        /// Check applicability against schemas in a directory.
-        #[arg(long)]
-        check: bool,
-        /// Lift a chain along a theory morphism.
-        #[arg(long)]
-        lift: bool,
-        /// Save the generated protolens chain to a file.
-        #[arg(long)]
-        save: Option<PathBuf>,
-        /// Schema for chain instantiation (with --apply on a saved chain).
-        #[arg(long)]
-        schema: Option<PathBuf>,
-        /// Direction for --apply: "forward" or "backward".
-        #[arg(long, default_value = "forward")]
-        direction: String,
-        /// Complement data for backward --apply.
-        #[arg(long)]
-        complement: Option<PathBuf>,
-        /// Dry-run for --check (report only, don't instantiate).
-        #[arg(long)]
-        dry_run: bool,
-        /// Test data for --verify.
-        #[arg(long)]
-        data: Option<PathBuf>,
+        #[command(subcommand)]
+        action: LensAction,
     },
 }
 
@@ -925,6 +800,188 @@ enum EnrichAction {
     },
 }
 
+/// Lens sub-operations.
+#[derive(Subcommand, Debug)]
+enum LensAction {
+    /// Generate a lens between two schemas.
+    Generate {
+        /// Path to the old/source schema.
+        old: PathBuf,
+        /// Path to the new/target schema.
+        new: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Output a reusable protolens chain (JSON to stdout).
+        #[arg(long)]
+        chain: bool,
+        /// Try overlap-based alignment when direct morphism fails.
+        #[arg(long)]
+        try_overlap: bool,
+        /// Save the generated protolens chain to a file.
+        #[arg(long)]
+        save: Option<PathBuf>,
+        /// Default values as key=value pairs.
+        #[arg(long, value_delimiter = ',')]
+        defaults: Vec<String>,
+        /// Fuse multi-step chain into single protolens.
+        #[arg(long)]
+        fuse: bool,
+        /// Show complement requirements (defaults/data needed).
+        #[arg(long)]
+        requirements: bool,
+    },
+    /// Apply a saved lens chain to data.
+    Apply {
+        /// Path to the protolens chain JSON.
+        chain: PathBuf,
+        /// Path to the data file.
+        data: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Direction: "forward" or "backward".
+        #[arg(long, default_value = "forward")]
+        direction: String,
+        /// Complement data for backward apply.
+        #[arg(long)]
+        complement: Option<PathBuf>,
+        /// Schema for chain instantiation.
+        #[arg(long)]
+        schema: Option<PathBuf>,
+    },
+    /// Compose two protolens chains or schemas.
+    Compose {
+        /// First chain or schema file.
+        chain1: PathBuf,
+        /// Second chain or schema file.
+        chain2: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Output in chain format.
+        #[arg(long)]
+        chain: bool,
+    },
+    /// Verify lens laws on test data.
+    Verify {
+        /// Path to test data file.
+        data: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Schema file (second schema is optional).
+        schema: Option<PathBuf>,
+    },
+    /// Inspect a saved protolens chain.
+    Inspect {
+        /// Path to the protolens chain JSON.
+        chain: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+    },
+    /// Check applicability of a chain against schemas in a directory.
+    Check {
+        /// Path to the protolens chain JSON.
+        chain: PathBuf,
+        /// Directory containing schema JSON files.
+        schemas_dir: PathBuf,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Report only, do not instantiate.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Lift a chain along a theory morphism.
+    Lift {
+        /// Path to the protolens chain JSON.
+        chain: PathBuf,
+        /// Path to the theory morphism JSON.
+        morphism: PathBuf,
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// Data sub-operations.
+#[derive(Subcommand, Debug)]
+enum DataAction {
+    /// Migrate data to match the current schema version.
+    Migrate {
+        /// Data directory containing JSON files.
+        data: PathBuf,
+        /// Protocol name (inferred from HEAD commit if omitted).
+        #[arg(long)]
+        protocol: Option<String>,
+        /// Migrate between specific commits (default: parent..HEAD).
+        #[arg(long)]
+        range: Option<String>,
+        /// Preview without modifying files.
+        #[arg(long)]
+        dry_run: bool,
+        /// Output directory (default: overwrite in place).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Migrate backward (requires stored complement).
+        #[arg(long)]
+        backward: bool,
+        /// Apply migration and print coverage statistics.
+        #[arg(long)]
+        coverage: bool,
+    },
+    /// Convert data between schemas.
+    Convert {
+        /// Data file or directory of JSON files.
+        data: PathBuf,
+        /// Source schema.
+        #[arg(long)]
+        from: Option<PathBuf>,
+        /// Target schema.
+        #[arg(long)]
+        to: Option<PathBuf>,
+        /// Protocol name.
+        #[arg(long)]
+        protocol: String,
+        /// Pre-built protolens chain JSON (alternative to --from/--to).
+        #[arg(long)]
+        chain: Option<PathBuf>,
+        /// Output file or directory.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Direction: "forward" or "backward".
+        #[arg(long, default_value = "forward")]
+        direction: String,
+        /// Default values as key=value pairs.
+        #[arg(long, value_delimiter = ',')]
+        defaults: Vec<String>,
+    },
+    /// Sync data to match a target schema version via VCS.
+    Sync {
+        /// Data directory.
+        data_dir: PathBuf,
+        /// Store an edit log object in the VCS.
+        #[arg(long)]
+        edits: bool,
+        /// Target ref (default: HEAD).
+        #[arg(long)]
+        target: Option<String>,
+    },
+    /// Report data staleness relative to the current schema version.
+    Status {
+        /// Data directory.
+        data_dir: PathBuf,
+    },
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     dispatch(cli.command, cli.verbose)
@@ -943,10 +1000,13 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
         | Command::Scaffold { .. }
         | Command::Normalize { .. }
         | Command::Typecheck { .. }
-        | Command::Verify { .. }
-        | Command::Convert { .. }
-        | Command::Migrate { .. }
-        | Command::Lens { .. }) => dispatch_schema_commands(command, verbose),
+        | Command::Verify { .. }) => dispatch_schema_commands(command, verbose),
+
+        // Lens operations.
+        Command::Lens { action } => dispatch_lens_commands(action, verbose),
+
+        // Data operations.
+        Command::Data { action } => dispatch_data_commands(action, verbose),
 
         // Core VCS commands.
         Command::Init {
@@ -1129,97 +1189,6 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             monic,
             json,
         } => cmd::schema::cmd_auto_migrate(&old, &new, monic, json, verbose),
-        Command::Migrate {
-            data,
-            protocol,
-            range,
-            dry_run,
-            output,
-            backward,
-            coverage,
-        } => cmd::migrate::cmd_migrate(
-            &data,
-            protocol.as_deref(),
-            range.as_deref(),
-            dry_run,
-            output.as_deref(),
-            backward,
-            verbose,
-        )
-        .and_then(|()| {
-            if coverage {
-                cmd::migrate::cmd_migrate_coverage(
-                    &data,
-                    protocol.as_deref(),
-                    range.as_deref(),
-                    verbose,
-                )
-            } else {
-                Ok(())
-            }
-        }),
-        Command::Convert {
-            data,
-            from,
-            to,
-            protocol,
-            chain,
-            output,
-            direction,
-            defaults,
-        } => cmd::convert::cmd_convert(
-            &data,
-            from.as_deref(),
-            to.as_deref(),
-            &protocol,
-            chain.as_deref(),
-            output.as_deref(),
-            &direction,
-            &defaults,
-            verbose,
-        ),
-        Command::Lens {
-            args,
-            protocol,
-            json,
-            chain,
-            requirements,
-            fuse,
-            try_overlap,
-            defaults,
-            apply,
-            verify,
-            compose,
-            check,
-            lift,
-            save,
-            schema,
-            direction,
-            complement,
-            dry_run,
-            data,
-        } => cmd::lens::cmd_lens(
-            &args,
-            &protocol,
-            json,
-            chain,
-            requirements,
-            fuse,
-            try_overlap,
-            &defaults,
-            apply.as_deref(),
-            verify.as_deref(),
-            compose,
-            check,
-            lift,
-            save.as_deref(),
-            schema.as_deref(),
-            &direction,
-            complement.as_deref(),
-            dry_run,
-            data.as_deref(),
-            verbose,
-        ),
         _ => unreachable!(),
     }
 }
@@ -1381,5 +1350,137 @@ fn dispatch_enrich_commands(action: EnrichAction, verbose: bool) -> Result<()> {
         }
         EnrichAction::List => cmd::enrich::cmd_enrich_list(verbose),
         EnrichAction::Remove { name } => cmd::enrich::cmd_enrich_remove(&name, verbose),
+    }
+}
+
+/// Dispatch lens subcommands.
+fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
+    match action {
+        LensAction::Generate {
+            old,
+            new,
+            protocol,
+            json,
+            chain,
+            try_overlap,
+            save,
+            defaults,
+            fuse,
+            requirements,
+        } => cmd::lens::cmd_lens_generate(
+            &old,
+            &new,
+            &protocol,
+            json,
+            chain,
+            try_overlap,
+            save.as_deref(),
+            &defaults,
+            fuse,
+            requirements,
+            verbose,
+        ),
+        LensAction::Apply {
+            chain,
+            data,
+            protocol,
+            direction,
+            complement,
+            schema,
+        } => cmd::lens::cmd_lens_apply(
+            &chain,
+            &data,
+            &protocol,
+            schema.as_deref(),
+            &direction,
+            complement.as_deref(),
+            verbose,
+        ),
+        LensAction::Compose {
+            chain1,
+            chain2,
+            protocol,
+            json,
+            chain,
+        } => cmd::lens::cmd_lens_compose(&chain1, &chain2, &protocol, json, chain, verbose),
+        LensAction::Verify {
+            data,
+            protocol,
+            schema,
+        } => cmd::lens::cmd_lens_verify(&data, schema.as_deref(), &protocol, None, false, verbose),
+        LensAction::Inspect { chain, protocol } => {
+            cmd::lens::cmd_lens_inspect(&chain, &protocol, verbose)
+        }
+        LensAction::Check {
+            chain,
+            schemas_dir,
+            protocol,
+            dry_run,
+        } => cmd::lens::cmd_lens_fleet(&chain, &schemas_dir, &protocol, dry_run, verbose),
+        LensAction::Lift {
+            chain,
+            morphism,
+            json,
+        } => cmd::lens::cmd_lens_lift(&chain, &morphism, json, verbose),
+    }
+}
+
+/// Dispatch data subcommands.
+fn dispatch_data_commands(action: DataAction, verbose: bool) -> Result<()> {
+    match action {
+        DataAction::Migrate {
+            data,
+            protocol,
+            range,
+            dry_run,
+            output,
+            backward,
+            coverage,
+        } => {
+            cmd::migrate::cmd_migrate(
+                &data,
+                protocol.as_deref(),
+                range.as_deref(),
+                dry_run,
+                output.as_deref(),
+                backward,
+                verbose,
+            )?;
+            if coverage {
+                cmd::migrate::cmd_migrate_coverage(
+                    &data,
+                    protocol.as_deref(),
+                    range.as_deref(),
+                    verbose,
+                )?;
+            }
+            Ok(())
+        }
+        DataAction::Convert {
+            data,
+            from,
+            to,
+            protocol,
+            chain,
+            output,
+            direction,
+            defaults,
+        } => cmd::convert::cmd_convert(
+            &data,
+            from.as_deref(),
+            to.as_deref(),
+            &protocol,
+            chain.as_deref(),
+            output.as_deref(),
+            &direction,
+            &defaults,
+            verbose,
+        ),
+        DataAction::Sync {
+            data_dir,
+            edits,
+            target,
+        } => cmd::data::cmd_data_sync(&data_dir, edits, target.as_deref(), verbose),
+        DataAction::Status { data_dir } => cmd::data::cmd_data_status(&data_dir, verbose),
     }
 }

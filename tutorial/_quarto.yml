@@ -58,6 +58,7 @@ book:
         - chapters/20-value-dependent-transforms.qmd
         - chapters/21-querying-instances.qmd
         - chapters/22-internal-hom-and-preferred-paths.qmd
+        - chapters/23-edit-lenses.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-formal-foundations.qmd

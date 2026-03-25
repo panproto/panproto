@@ -19,6 +19,10 @@
 
 /// Generic attributed C-set trait unifying all instance shapes.
 pub mod acset;
+/// Incremental contraction tracker for ancestor contraction.
+pub mod contraction;
+/// Edit errors for tree and table edits.
+pub mod edit_error;
 /// Error types for instance operations.
 pub mod error;
 /// Hyperedge fan representation.
@@ -45,6 +49,12 @@ pub mod poly;
 pub mod provenance;
 /// Declarative query engine for W-type instances.
 pub mod query;
+/// Incremental reachability index for W-type instances.
+pub mod reachability;
+/// Edit algebra for functor (table-shaped) instances.
+pub mod table_edit;
+/// Edit algebra for W-type (tree-shaped) instances.
+pub mod tree_edit;
 /// Validation of W-type instances against schemas.
 pub mod validate;
 /// Value types and field presence.
@@ -53,6 +63,8 @@ pub mod wtype;
 
 // Re-exports for convenience.
 pub use acset::AcsetOps;
+pub use contraction::{ContractionRecord, ContractionTracker};
+pub use edit_error::EditError;
 pub use error::{InstError, ParseError, RestrictError, ValidationError};
 pub use fan::Fan;
 pub use functor::{FInstance, functor_extend, functor_restrict};
@@ -69,6 +81,9 @@ pub use poly::{
 };
 pub use provenance::{Provenance, ProvenanceMap, SourceField, TransformStep, compute_provenance};
 pub use query::{InstanceQuery, QueryMatch, build_node_env, execute as execute_query};
+pub use reachability::ReachabilityIndex;
+pub use table_edit::TableEdit;
+pub use tree_edit::TreeEdit;
 pub use validate::validate_wtype;
 pub use value::{FieldPresence, Value};
 pub use wtype::{

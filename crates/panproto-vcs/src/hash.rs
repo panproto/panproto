@@ -16,7 +16,7 @@ use panproto_schema::{
 use serde::{Deserialize, Serialize};
 
 use crate::error::VcsError;
-use crate::object::{CommitObject, ComplementObject, DataSetObject, TagObject};
+use crate::object::{CommitObject, ComplementObject, DataSetObject, EditLogObject, TagObject};
 
 /// A content-addressed object identifier: a blake3 hash (32 bytes).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -428,6 +428,28 @@ pub fn hash_protocol(protocol: &panproto_schema::Protocol) -> Result<ObjectId, V
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
+/// Compute the content-addressed ID of an edit log.
+///
+/// Uses a canonical `BTreeMap` form to ensure deterministic hashing.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_edit_log(edit_log: &EditLogObject) -> Result<ObjectId, VcsError> {
+    let canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
+        ("schema_id", rmp_serde::to_vec(&edit_log.schema_id)?),
+        ("data_id", rmp_serde::to_vec(&edit_log.data_id)?),
+        ("edits", rmp_serde::to_vec(&edit_log.edits)?),
+        ("edit_count", rmp_serde::to_vec(&edit_log.edit_count)?),
+        (
+            "final_complement",
+            rmp_serde::to_vec(&edit_log.final_complement)?,
+        ),
+    ]);
+    let bytes = rmp_serde::to_vec(&canonical)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,6 +587,7 @@ mod tests {
             protocol_id: None,
             data_ids: vec![],
             complement_ids: vec![],
+            edit_log_ids: vec![],
         };
         let h1 = hash_commit(&commit)?;
         let h2 = hash_commit(&commit)?;

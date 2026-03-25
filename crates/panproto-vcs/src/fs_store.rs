@@ -299,6 +299,7 @@ fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
         Object::Complement(complement) => hash::hash_complement(complement),
         Object::Protocol(protocol) => hash::hash_protocol(protocol),
         Object::Expr(expr) => hash::hash_expr(expr),
+        Object::EditLog(edit_log) => hash::hash_edit_log(edit_log),
     }
 }
 

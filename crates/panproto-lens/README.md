@@ -64,6 +64,21 @@ A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a conc
 | `SymmetricLens::from_protolens_chains` | Build a symmetric lens from two protolens chains |
 | `SymmetricLens::auto_symmetric` | Automatically generate a symmetric lens between two schemas |
 
+### Edit lenses
+
+| Item | Description |
+|------|-------------|
+| `EditLens` | Incremental edit lens: translates individual `TreeEdit` values through a migration |
+| `EditLens::from_lens` | Construct from a state-based `Lens` and protocol |
+| `EditLens::initialize` | Populate initial complement from a whole-state `get` |
+| `EditLens::get_edit` | Translate a source edit to a view edit, updating complement |
+| `EditLens::put_edit` | Translate a view edit back to a source edit |
+| `EditPipeline` | Five-step incremental translation pipeline (anchor survival, reachability, contraction, edge resolution, fan reconstruction) |
+| `EditProvenance` | Translation lineage: source edit, rules applied, policy consulted, totality |
+| `check_edit_consistency` | Verify the Consistency law (incremental vs batch agreement) |
+| `check_complement_coherence` | Verify the Complement coherence law |
+| `EditLensError` | Error types for edit lens operations |
+
 ### Verification
 
 | Item | Description |

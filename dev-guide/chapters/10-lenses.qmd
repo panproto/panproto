@@ -301,6 +301,16 @@ In batch scenarios where the same lens is applied to many instances, construct t
 
 The complement size is the primary cost driver. A lens that drops a single leaf field produces a small complement (one node, one arc). A lens that removes an entire subtree produces a complement proportional to the subtree size. When designing lens-based APIs, consider whether the complement can be compressed or whether a more targeted lens (removing only the specific fields needed) would reduce overhead.
 
+## Batch Mode and Incremental Mode
+
+The `panproto-lens` crate supports two modes of operation. **Batch mode** (the `Lens` struct with `get`/`put`) operates on whole instances: the forward direction projects an entire source instance to a view and complement, and the backward direction restores the source from a modified view and stored complement. This is the mode used by VCS data migration (`schema data migrate`), format conversion, and law verification.
+
+**Incremental mode** (the `EditLens` struct with `get_edit`/`put_edit`) operates on individual edits (`TreeEdit` values). Each edit flows through the lens, and the complement updates as a state machine. This mode is used by `schema data sync --edits` for live synchronization scenarios where re-migrating the entire data set on every edit would be impractical.
+
+Both modes share the same compiled migration, vertex/edge remap tables, and complement structure. `EditLens` wraps a `Lens` and adds the incremental translation pipeline. The edit lens laws (Consistency and Complement coherence) guarantee that the incremental mode agrees with the batch mode.
+
+For full details on the `EditLens` architecture, the five-step `EditPipeline`, complement state machine transitions, and law verification, see @sec-edit-lenses-internals.
+
 ## Error Handling
 
 The `panproto-lens` error types cover failures in both the combinator and primitive layers:

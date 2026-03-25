@@ -30,6 +30,7 @@ pub mod blame;
 pub mod cherry_pick;
 pub mod dag;
 pub mod data_mig;
+pub mod edit_mig;
 pub mod error;
 pub mod expr;
 pub mod fs_store;
@@ -51,12 +52,13 @@ pub mod store;
 
 // Re-exports for convenience.
 pub use data_mig::{StaleData, detect_staleness, migrate_backward, migrate_forward};
+pub use edit_mig::{decode_edit_log, encode_edit_log, incremental_migrate};
 pub use error::VcsError;
 pub use expr::{load_expr, store_expr};
 pub use fs_store::FsStore;
 pub use hash::ObjectId;
 pub use index::Index;
 pub use mem_store::MemStore;
-pub use object::{CommitObject, ComplementObject, DataSetObject, Object, TagObject};
+pub use object::{CommitObject, ComplementObject, DataSetObject, EditLogObject, Object, TagObject};
 pub use repo::{CommitOptions, Repository};
 pub use store::{HeadState, ReflogEntry, Store};

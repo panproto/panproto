@@ -1,0 +1,230 @@
+# Edit Lenses: Incremental Migration {#sec-edit-lenses}
+
+Batch migration works well when you need to move entire data sets from one schema version to another. But consider a different scenario: two systems share a synchronized data set, each operating under a different schema version. When one system modifies a single record (inserts a field, updates a value), you do not want to re-migrate the entire data set. You want to translate the individual edit itself.
+
+This is the problem edit lenses solve. An edit lens sees changes (patches) rather than before/after snapshots. It translates individual edits between schema versions, updating its internal state incrementally.
+
+## The problem: translating patches
+
+Suppose you maintain a Bluesky issue tracker where issues are assigned to a single person:
+
+```{.rust}
+// Schema v1: single assignee
+pub struct Issue {
+    pub title: String,
+    pub assignee: String,
+}
+```
+
+A new schema version replaces `assignee` with a list of `assignees`:
+
+```{.rust}
+// Schema v2: multiple assignees
+pub struct Issue {
+    pub title: String,
+    pub assignees: Vec<String>,
+}
+```
+
+A batch lens can convert an entire v1 `Issue` to v2 and back. But what happens when a collaborator on v1 sends you a patch: "set `assignee` to `alice`"? You need to translate that into "append `alice` to `assignees`" in v2. The batch lens has no concept of this; it only sees full records.
+
+## The `TreeEdit` monoid
+
+An edit is an element of a monoid: a set with an associative binary operation (composition) and an identity element (the no-op edit). panproto defines `TreeEdit` for tree-shaped instances and `TableEdit` for relational instances.
+
+`TreeEdit` has the following variants:
+
+| Variant | Effect |
+|---------|--------|
+| `Identity` | No change |
+| `InsertNode { parent, child_id, node, edge }` | Add a child node under a parent |
+| `DeleteNode { id }` | Remove a leaf node |
+| `ContractNode { id }` | Remove a node, reattaching its children to its parent |
+| `RelabelNode { id, new_anchor }` | Change a node's schema anchor |
+| `SetField { node_id, field, value }` | Set or update a field value |
+| `RemoveField { node_id, field }` | Remove a field from a node |
+| `MoveSubtree { node_id, new_parent, edge }` | Reparent a subtree |
+| `InsertFan { fan }` / `DeleteFan { hyper_edge_id }` | Manipulate hyper-edge fans |
+| `JoinFeatures { primary, joined, produce }` | Merge co-located annotations |
+| `Sequence(Vec<TreeEdit>)` | A sequence of edits |
+
+The monoid laws hold:
+
+$$\mathrm{apply}(\mathrm{identity}, s) = s$$
+$$\mathrm{apply}(\mathrm{compose}(e_1, e_2), s) = \mathrm{apply}(e_2, \mathrm{apply}(e_1, s))$$
+
+Composition is associative. Nested sequences are flattened and identity elements are elided.
+
+### Concrete example
+
+Returning to the ATProto issue tracker, the patch "set `assignee` to `alice`" is:
+
+```{.rust}
+TreeEdit::SetField {
+    node_id: 1,
+    field: Name::from("assignee"),
+    value: Value::Str("alice".into()),
+}
+```
+
+The `TableEdit` monoid provides the relational counterpart: `InsertRow`, `DeleteRow`, and `UpdateCell`.
+
+## `EditLens`: wrapping a state-based lens
+
+An `EditLens` wraps a state-based `Lens` (the batch lens from @sec-lenses) and adds two operations:
+
+- `get_edit(edit) -> TreeEdit`: translate a source edit to a view edit
+- `put_edit(edit) -> TreeEdit`: translate a view edit back to a source edit
+
+Construction starts with `EditLens::from_lens(lens, protocol)`, which builds reverse remap tables from the compiled migration's vertex and edge mappings. Before translating edits, you call `initialize(source)` to perform a whole-state `get` that populates the initial complement.
+
+```{.rust}
+let lens = auto_generate(&old_schema, &new_schema, &protocol, &config)?;
+let mut edit_lens = EditLens::from_lens(lens.lens, protocol);
+edit_lens.initialize(&source_instance)?;
+```
+
+After initialization, each call to `get_edit` or `put_edit` translates one edit and incrementally updates the complement.
+
+## The complement as a state machine {#sec-complement-state-machine}
+
+In batch lenses (@sec-complement), the complement is a snapshot: it captures what `get` discarded, and `put` consumes it. In edit lenses, the complement is a *state machine*. Each edit transition updates the complement incrementally:
+
+- When `get_edit` absorbs a non-surviving edit (the edit targets a node that does not exist in the view schema), the edit's data is added to the complement.
+- When `get_edit` encounters a `DeleteNode` for a node already in the complement, the node is removed from the complement.
+- When `put_edit` receives an insert from the view, the reverse remap is applied and any complement data for that node is consumed.
+
+The complement state after processing a sequence of edits is the same complement you would get from applying all edits to the source and then running a whole-state `get`. This is the complement coherence law (see below).
+
+::: {.callout-note}
+## Why a state machine?
+
+A snapshot complement requires a full `get` pass over the entire instance. For large data sets (millions of records) where edits arrive one at a time, rerunning `get` on every edit is prohibitively expensive. The state machine complement processes each edit in time proportional to the edit itself, not the instance size.
+:::
+
+## The five-step translation pipeline
+
+Edit translation mirrors the five steps of the batch `wtype_restrict` pipeline, applied incrementally via `EditPipeline`:
+
+1. **Anchor survival**: does the edit target a node whose schema anchor survives the migration? If not, the edit is absorbed into the complement.
+2. **Reachability**: the `ReachabilityIndex` tracks which nodes can reach the root. Inserting an edge may make a subtree reachable; deleting an edge may make one unreachable.
+3. **Ancestor contraction**: the `ContractionTracker` records which non-surviving nodes have been contracted (removed with children reattached to the nearest surviving ancestor).
+4. **Edge resolution**: when contraction creates new arcs, the resolver determines which schema edge to assign.
+5. **Fan reconstruction**: fans (hyper-edge instances) with dropped participants are absorbed into the complement.
+
+At each step, the edit may be transformed, split into multiple edits, or collapsed to `Identity` (absorbed).
+
+```{.rust}
+let mut pipeline = EditPipeline::from_lens_and_instance(&edit_lens, &instance);
+let mut complement = edit_lens.complement.clone();
+
+let view_edit = pipeline.translate_get(&source_edit, &mut complement)?;
+```
+
+::: {.callout-tip}
+For identity lenses (where source and target schemas are the same), edits pass through all five steps unchanged. The pipeline adds no overhead beyond a survival check per edit.
+:::
+
+## CLI: `schema data sync --edits`
+
+The `schema data sync` command migrates data files to match the current schema version. With the `--edits` flag, it records an `EditLogObject` in the VCS:
+
+```{.sh}
+schema data sync records/ --edits
+```
+
+The `EditLogObject` stores the translated edit sequence as MessagePack-encoded bytes, along with the schema ID, data set ID, edit count, and the final complement state. This enables replaying the incremental migration later or auditing which edits were applied.
+
+For batch migration (without `--edits`), use:
+
+```{.sh}
+schema data migrate records/
+```
+
+And for checking data staleness:
+
+```{.sh}
+schema data status records/
+```
+
+## `EditProvenance`: tracking translation lineage
+
+Each translated edit can carry an `EditProvenance` record that captures:
+
+- **`source_edit_desc`**: a description of the original source edit
+- **`rules_applied`**: which translation rules fired during `get_edit` (e.g., `"structural_remap"`, `"field_text"`)
+- **`policy_consulted`**: which complement policy was used, if any
+- **`was_total`**: whether the translation was total (all constraints satisfied) or partial
+
+```{.rust}
+let (view_edit, provenance) = edit_lens.get_edit_with_provenance(source_edit)?;
+assert!(provenance.was_total);
+assert!(provenance.rules_applied.iter().any(|r| r.as_ref() == "structural_remap"));
+```
+
+Provenance is serializable (via `serde`), so it can be stored alongside the translated edits for auditing.
+
+## Edit lens laws
+
+Edit lenses satisfy two laws from Hofmann, Pierce, and Wagner's edit lens framework.
+
+### Consistency
+
+Translating a source edit through the lens and applying it to the view produces the same result as applying the edit to the source and then doing a whole-state `get`:
+
+$$\mathrm{apply}(\mathrm{get\_edit}(e), \mathrm{get}(s)) = \mathrm{get}(\mathrm{apply}(e, s))$$
+
+This says the incremental path (translate then apply) and the batch path (apply then get) agree.
+
+### Complement coherence
+
+The complement state after `get_edit` is consistent with the complement that a whole-state `get` would produce on the edited source:
+
+$$c'_{\mathrm{incremental}} = c'_{\mathrm{batch}}$$
+
+where $c'_{\mathrm{incremental}}$ is the complement after calling `get_edit(e)`, and $c'_{\mathrm{batch}}$ is the complement from calling `get$ on the source with $e$ applied.
+
+This says the state machine complement tracks the batch complement exactly. If it drifts, `put` may reconstruct incorrect data.
+
+::: {.callout-caution}
+## Question: When does consistency fail?
+
+If a `SetField` edit targets a node that the migration conditionally drops (via a value-dependent predicate), under what circumstances could the Consistency law be violated?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
+
+If the `SetField` changes the value that the conditional-survival predicate evaluates, the edit might cause the node to transition from surviving to dropped (or vice versa). The incremental path must detect this transition and update the complement accordingly. If the edit lens fails to re-evaluate the predicate after the field change, it produces an incorrect view edit, violating Consistency. The implementation handles this by checking `conditional_survival` predicates on every `InsertNode` and `RelabelNode` edit.
+:::
+
+### Verification
+
+panproto provides two functions for law checking:
+
+```{.rust}
+use panproto_lens::edit_laws::{check_edit_consistency, check_complement_coherence};
+
+check_edit_consistency(&mut edit_lens, &edit, &source)?;
+check_complement_coherence(&mut edit_lens, &edit, &source)?;
+```
+
+Both compare the incremental path against the batch path and return `EditLawViolation` if a mismatch is detected. The violation includes a detail string describing which field or node count diverged.
+
+## Cross-references
+
+- For the batch lens framework (state-based `get`/`put` with complement), see @sec-lenses.
+- For data versioning commands (`schema data migrate`, `schema data status`), see @sec-data-versioning.
+- For the developer-level architecture of edit lenses, see the [edit lens internals chapter](https://panproto.dev/dev-guide/chapters/31-edit-lenses.html).
+
+## Exercises
+
+1. Create two schema versions where v2 renames a field. Initialize an `EditLens`, send a `SetField` edit targeting the renamed field, and verify that `get_edit` produces an edit with the new field name.
+
+2. Create a projection lens that drops a vertex. Send an `InsertNode` edit for a node anchored at the dropped vertex. Verify that the edit is absorbed (returns `Identity`) and the node appears in the complement.
+
+3. Use `check_edit_consistency` to verify the Consistency law for a sequence of five edits against an identity lens. Then repeat with a projection lens and confirm the law still holds.
+
+4. Run `schema data sync records/ --edits` on a repository with two schema versions. Inspect the stored `EditLogObject` with `schema show`.
+
+5. Write a test that sends a `RelabelNode` edit causing a node to transition from non-surviving to surviving. Verify that the complement state machine correctly releases the node from the complement.

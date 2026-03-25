@@ -802,7 +802,7 @@ pub fn wtype_restrict(
 ///
 /// Called during `wtype_restrict` after a node survives and its anchor
 /// is remapped. Operations are applied in order.
-pub(crate) fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
+pub fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
     for transform in transforms {
         match transform {
             FieldTransform::RenameField { old_key, new_key } => {
