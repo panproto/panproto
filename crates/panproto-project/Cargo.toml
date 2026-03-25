@@ -1,0 +1,24 @@
+[package]
+name = "panproto-project"
+description = "Multi-file project assembly via schema coproduct for panproto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+panproto-gat = { workspace = true }
+panproto-schema = { workspace = true }
+panproto-protocols = { workspace = true }
+panproto-parse = { workspace = true }
+
+thiserror = { workspace = true }
+miette = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
