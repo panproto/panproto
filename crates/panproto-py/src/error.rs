@@ -70,6 +70,24 @@ create_exception!(
     PanprotoError,
     "Diff or compatibility classification failed."
 );
+create_exception!(
+    panproto._native,
+    ParseError,
+    PanprotoError,
+    "Full-AST parsing or emission failed."
+);
+create_exception!(
+    panproto._native,
+    ProjectError,
+    PanprotoError,
+    "Project assembly failed."
+);
+create_exception!(
+    panproto._native,
+    GitBridgeError,
+    PanprotoError,
+    "Git bridge operation failed."
+);
 
 // -- Conversion helpers --
 //
@@ -120,5 +138,11 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add("ExprError", parent.py().get_type::<ExprError>())?;
     parent.add("GatError", parent.py().get_type::<GatError>())?;
     parent.add("CheckError", parent.py().get_type::<CheckError>())?;
+    parent.add("ParseError", parent.py().get_type::<ParseError>())?;
+    parent.add("ProjectError", parent.py().get_type::<ProjectError>())?;
+    parent.add(
+        "GitBridgeError",
+        parent.py().get_type::<GitBridgeError>(),
+    )?;
     Ok(())
 }

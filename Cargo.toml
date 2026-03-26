@@ -99,6 +99,7 @@ panproto-expr-parser = { version = "0.15.0", path = "crates/panproto-expr-parser
 panproto-parse = { version = "0.15.0", path = "crates/panproto-parse" }
 panproto-project = { version = "0.15.0", path = "crates/panproto-project" }
 panproto-git = { version = "0.15.0", path = "crates/panproto-git" }
+panproto-llvm = { version = "0.15.0", path = "crates/panproto-llvm", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

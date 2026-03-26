@@ -15,7 +15,12 @@ path = "src/main.rs"
 panproto-core = { workspace = true }
 panproto-expr = { workspace = true }
 panproto-expr-parser = { workspace = true }
+panproto-parse = { workspace = true }
+panproto-project = { workspace = true }
+panproto-git = { workspace = true }
+panproto-llvm = { workspace = true }
 clap = { workspace = true }
+git2 = "0.20"
 miette = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

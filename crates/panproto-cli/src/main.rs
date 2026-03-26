@@ -657,6 +657,20 @@ enum Command {
         #[command(subcommand)]
         action: LensAction,
     },
+
+    // -- Full-AST parsing --
+    /// Parse source files into full-AST schemas via tree-sitter.
+    Parse {
+        #[command(subcommand)]
+        action: ParseAction,
+    },
+
+    // -- Git bridge --
+    /// Import/export between git repositories and panproto-vcs.
+    Git {
+        #[command(subcommand)]
+        action: GitAction,
+    },
 }
 
 /// Remote sub-operations.
@@ -982,6 +996,48 @@ enum DataAction {
     },
 }
 
+/// Parse sub-operations.
+#[derive(Subcommand, Debug)]
+enum ParseAction {
+    /// Parse a single source file into a full-AST schema.
+    File {
+        /// Path to the source file.
+        path: PathBuf,
+    },
+    /// Parse all files in a directory into a unified project schema.
+    Project {
+        /// Path to the project directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+    /// Parse a file and emit it back to source (round-trip test).
+    Emit {
+        /// Path to the source file.
+        path: PathBuf,
+    },
+}
+
+/// Git bridge sub-operations.
+#[derive(Subcommand, Debug)]
+enum GitAction {
+    /// Import a git repository's history into panproto-vcs.
+    Import {
+        /// Path to the git repository.
+        repo: PathBuf,
+        /// Git revspec (e.g. "HEAD", "main", "HEAD~10..HEAD").
+        #[arg(default_value = "HEAD")]
+        revspec: String,
+    },
+    /// Export panproto-vcs history to a git repository.
+    Export {
+        /// Path to the panproto repository (default: current directory).
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// Destination path for the git repository.
+        dest: PathBuf,
+    },
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     dispatch(cli.command, cli.verbose)
@@ -1122,6 +1178,12 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
         | Command::Pull { .. }
         | Command::Fetch { .. }
         | Command::Clone { .. }) => dispatch_history_commands(command),
+
+        // Parse commands.
+        Command::Parse { action } => dispatch_parse_commands(action, verbose),
+
+        // Git bridge commands.
+        Command::Git { action } => dispatch_git_commands(action, verbose),
     }
 }
 
@@ -1482,5 +1544,26 @@ fn dispatch_data_commands(action: DataAction, verbose: bool) -> Result<()> {
             target,
         } => cmd::data::cmd_data_sync(&data_dir, edits, target.as_deref(), verbose),
         DataAction::Status { data_dir } => cmd::data::cmd_data_status(&data_dir, verbose),
+    }
+}
+
+/// Dispatch parse commands.
+fn dispatch_parse_commands(action: ParseAction, verbose: bool) -> Result<()> {
+    match action {
+        ParseAction::File { path } => cmd::parse::cmd_parse_file(&path, verbose),
+        ParseAction::Project { path } => cmd::parse::cmd_parse_project(&path, verbose),
+        ParseAction::Emit { path } => cmd::parse::cmd_emit(&path, verbose),
+    }
+}
+
+/// Dispatch git bridge commands.
+fn dispatch_git_commands(action: GitAction, verbose: bool) -> Result<()> {
+    match action {
+        GitAction::Import { repo, revspec } => {
+            cmd::git_bridge::cmd_git_import(&repo, &revspec, verbose)
+        }
+        GitAction::Export { repo, dest } => {
+            cmd::git_bridge::cmd_git_export(&repo, &dest, verbose)
+        }
     }
 }
