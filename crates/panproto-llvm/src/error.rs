@@ -3,6 +3,7 @@
 use miette::Diagnostic;
 
 /// Errors from LLVM IR protocol operations.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum LlvmError {
     /// LLVM IR parsing failed.

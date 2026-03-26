@@ -3,6 +3,7 @@
 use miette::Diagnostic;
 
 /// Errors from git ↔ panproto-vcs translation.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum GitBridgeError {
     /// A git operation failed.

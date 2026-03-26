@@ -10,6 +10,7 @@ use std::sync::Arc;
 use panproto_expr::{BuiltinOp, Expr, Literal};
 
 /// Classification of how an `Expr` maps to LLVM IR.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprMapping {
     /// Maps to an LLVM constant value.
@@ -64,6 +65,7 @@ pub enum ExprMapping {
 }
 
 /// LLVM type classification for the JIT value representation.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlvmType {
     /// 64-bit integer.
@@ -93,8 +95,12 @@ pub fn classify_expr(expr: &Expr) -> ExprMapping {
             var_name: name.clone(),
         },
         Expr::App(_, _) => ExprMapping::FunctionCall { is_indirect: false },
-        Expr::Lam(_, body) => {
-            let captures = count_free_vars(body);
+        Expr::Lam(param, body) => {
+            let mut free = std::collections::HashSet::new();
+            let mut bound = std::collections::HashSet::new();
+            bound.insert(param.to_string());
+            collect_free_vars(body, &bound, &mut free);
+            let captures = free.len();
             ExprMapping::Closure {
                 capture_count: captures,
             }
@@ -212,57 +218,57 @@ fn classify_builtin(op: BuiltinOp) -> ExprMapping {
     }
 }
 
-/// Count the approximate number of free variables in an expression.
-fn count_free_vars(expr: &Expr) -> usize {
-    let mut vars = std::collections::HashSet::new();
-    collect_vars(expr, &mut vars);
-    vars.len()
-}
-
-/// Collect all variable references in an expression.
-fn collect_vars(expr: &Expr, vars: &mut std::collections::HashSet<String>) {
+/// Collect all free variable references in an expression.
+fn collect_free_vars(expr: &Expr, bound: &std::collections::HashSet<String>, free: &mut std::collections::HashSet<String>) {
     match expr {
         Expr::Var(name) => {
-            vars.insert(name.to_string());
+            let name_str = name.to_string();
+            if !bound.contains(&name_str) {
+                free.insert(name_str);
+            }
         }
         Expr::Lit(_) => {}
         Expr::App(f, arg) => {
-            collect_vars(f, vars);
-            collect_vars(arg, vars);
+            collect_free_vars(f, bound, free);
+            collect_free_vars(arg, bound, free);
         }
-        Expr::Lam(_, body) => {
-            collect_vars(body, vars);
+        Expr::Lam(param, body) => {
+            let mut inner_bound = bound.clone();
+            inner_bound.insert(param.to_string());
+            collect_free_vars(body, &inner_bound, free);
         }
         Expr::Record(fields) => {
             for (_, val) in fields {
-                collect_vars(val, vars);
+                collect_free_vars(val, bound, free);
             }
         }
         Expr::List(elems) => {
             for elem in elems {
-                collect_vars(elem, vars);
+                collect_free_vars(elem, bound, free);
             }
         }
         Expr::Field(base, _) => {
-            collect_vars(base, vars);
+            collect_free_vars(base, bound, free);
         }
         Expr::Index(base, idx) => {
-            collect_vars(base, vars);
-            collect_vars(idx, vars);
+            collect_free_vars(base, bound, free);
+            collect_free_vars(idx, bound, free);
         }
         Expr::Match { scrutinee, arms } => {
-            collect_vars(scrutinee, vars);
+            collect_free_vars(scrutinee, bound, free);
             for (_, body) in arms {
-                collect_vars(body, vars);
+                collect_free_vars(body, bound, free);
             }
         }
-        Expr::Let { value, body, .. } => {
-            collect_vars(value, vars);
-            collect_vars(body, vars);
+        Expr::Let { name, value, body } => {
+            collect_free_vars(value, bound, free);
+            let mut inner_bound = bound.clone();
+            inner_bound.insert(name.to_string());
+            collect_free_vars(body, &inner_bound, free);
         }
         Expr::Builtin(_, args) => {
             for arg in args {
-                collect_vars(arg, vars);
+                collect_free_vars(arg, bound, free);
             }
         }
     }
@@ -379,8 +385,8 @@ mod tests {
         let mapping = classify_expr(&expr);
         match mapping {
             ExprMapping::Closure { capture_count } => {
-                // "f" and "x" are referenced.
-                assert_eq!(capture_count, 2);
+                // Only "f" is free; "x" is bound by the lambda.
+                assert_eq!(capture_count, 1);
             }
             other => panic!("expected Closure, got {other:?}"),
         }

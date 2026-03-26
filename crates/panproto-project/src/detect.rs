@@ -8,21 +8,9 @@ use std::path::Path;
 /// fall back to the `raw_file` protocol).
 #[must_use]
 pub fn detect_language(path: &Path) -> Option<&'static str> {
-    // Try extension first.
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        if let Some(lang) = language_from_extension(ext) {
-            return Some(lang);
-        }
-    }
-
-    // Try well-known filenames without extensions.
-    if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
-        if let Some(lang) = language_from_filename(filename) {
-            return Some(lang);
-        }
-    }
-
-    None
+    path.extension()
+        .and_then(|e| e.to_str())
+        .and_then(|ext| language_from_extension(ext))
 }
 
 /// Check if a file should be treated as binary (not parsed as text).
@@ -78,13 +66,6 @@ fn language_from_extension(ext: &str) -> Option<&'static str> {
         "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some("cpp"),
         _ => None,
     }
-}
-
-/// Map well-known filenames (without extensions) to protocol name.
-fn language_from_filename(_filename: &str) -> Option<&'static str> {
-    // No well-known filenames map to language protocols.
-    // Files like Makefile, Dockerfile, etc. use the raw_file protocol.
-    None
 }
 
 #[cfg(test)]

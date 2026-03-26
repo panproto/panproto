@@ -1,11 +1,11 @@
 //! Export panproto-vcs repositories to git.
 //!
 //! Takes a panproto-vcs commit and creates corresponding git tree and commit
-//! objects. The schema is decomposed back into per-file source text via the
-//! panproto-parse emitters.
+//! objects. The schema is serialized as JSON (the authoritative structural
+//! representation) alongside any cached source text from the import.
 
-use panproto_parse::ParserRegistry;
 use panproto_vcs::{Object, ObjectId, Store};
+use rustc_hash::FxHashMap;
 
 use crate::error::GitBridgeError;
 
@@ -20,16 +20,23 @@ pub struct ExportResult {
 
 /// Export a panproto-vcs commit as a git commit.
 ///
-/// Loads the project schema from the panproto commit, runs emitters on each
-/// file's sub-schema to produce source text, and creates git tree + commit objects.
+/// Loads the schema from the panproto commit and serializes it into the git tree.
+/// If a `parent_map` is provided (mapping panproto parent commit IDs to git OIDs),
+/// the exported git commit will have the correct parent pointers, preserving the
+/// DAG structure.
+///
+/// The schema is stored as a JSON file in the git tree. This is the authoritative
+/// representation; source text reconstruction requires re-parsing with the
+/// appropriate language parser.
 ///
 /// # Errors
 ///
-/// Returns [`GitBridgeError`] if VCS operations, emission, or git operations fail.
+/// Returns [`GitBridgeError`] if VCS operations or git operations fail.
 pub fn export_to_git<S: Store>(
     panproto_store: &S,
     git_repo: &git2::Repository,
     commit_id: ObjectId,
+    parent_map: &FxHashMap<ObjectId, git2::Oid>,
 ) -> Result<ExportResult, GitBridgeError> {
     // Load the commit.
     let commit_obj = panproto_store.get(&commit_id)?;
@@ -55,30 +62,93 @@ pub fn export_to_git<S: Store>(
         }
     };
 
-    let registry = ParserRegistry::new();
-
-    // For now, export the entire schema as a single file.
-    // A full implementation would decompose by file_map from ProjectSchema,
-    // but the schema doesn't carry file_map information. We export what we can.
-    //
-    // Try to emit using each registered protocol until one succeeds.
+    // Build the git tree.
+    // The schema is serialized as JSON, which is the authoritative structural
+    // representation of the project. Each vertex, edge, and constraint is preserved.
     let mut tree_builder = git_repo.treebuilder(None)?;
     let mut file_count = 0;
 
-    // Attempt to emit the schema as source code for the protocol it was parsed with.
-    let protocol = &commit.protocol;
-    match registry.emit_with_protocol(protocol, schema) {
-        Ok(content) => {
-            let blob_oid = git_repo.blob(&content)?;
-            tree_builder.insert("schema_output", blob_oid, 0o100644)?;
-            file_count += 1;
+    // Serialize the schema as pretty-printed JSON.
+    let schema_json = serde_json::to_vec_pretty(schema.as_ref()).map_err(|e| {
+        GitBridgeError::ObjectRead {
+            oid: commit.schema_id.to_string(),
+            reason: format!("JSON serialization failed: {e}"),
         }
-        Err(_) => {
-            // If emission fails, store the schema as serialized JSON.
-            let json = serde_json::to_vec_pretty(schema.as_ref())
-                .unwrap_or_else(|_| b"(serialization failed)".to_vec());
-            let blob_oid = git_repo.blob(&json)?;
-            tree_builder.insert("schema.json", blob_oid, 0o100644)?;
+    })?;
+    let blob_oid = git_repo.blob(&schema_json)?;
+    tree_builder.insert("schema.json", blob_oid, 0o100644)?;
+    file_count += 1;
+
+    // Also store commit metadata.
+    let commit_json = serde_json::to_vec_pretty(commit).map_err(|e| {
+        GitBridgeError::ObjectRead {
+            oid: commit_id.to_string(),
+            reason: format!("commit JSON serialization failed: {e}"),
+        }
+    })?;
+    let commit_blob = git_repo.blob(&commit_json)?;
+    tree_builder.insert("commit.json", commit_blob, 0o100644)?;
+    file_count += 1;
+
+    // Extract leaf node literal values to reconstruct approximate source.
+    // Group vertices by their file prefix (before the first "::").
+    let mut files_content: FxHashMap<String, Vec<(usize, String)>> = FxHashMap::default();
+    for (name, _vertex) in &schema.vertices {
+        if let Some(constraints) = schema.constraints.get(name) {
+            let start_byte = constraints
+                .iter()
+                .find(|c| c.sort.as_ref() == "start-byte")
+                .and_then(|c| c.value.parse::<usize>().ok());
+            let literal = constraints
+                .iter()
+                .find(|c| c.sort.as_ref() == "literal-value")
+                .map(|c| c.value.clone());
+
+            if let (Some(start), Some(text)) = (start_byte, literal) {
+                // Extract file prefix from vertex ID (e.g., "src/main.ts::greet" → "src/main.ts").
+                let name_str = name.as_ref();
+                let file_prefix = name_str
+                    .find("::")
+                    .map(|pos| &name_str[..pos])
+                    .unwrap_or(name_str);
+                files_content
+                    .entry(file_prefix.to_owned())
+                    .or_default()
+                    .push((start, text));
+            }
+        }
+    }
+
+    // Write reconstructed source files.
+    for (file_path, mut leaves) in files_content {
+        leaves.sort_by_key(|(s, _)| *s);
+        let mut content = Vec::new();
+        let mut cursor = 0;
+        for (start, text) in &leaves {
+            if *start > cursor {
+                let gap = start - cursor;
+                if gap <= 2 {
+                    for _ in 0..gap {
+                        content.push(b' ');
+                    }
+                } else {
+                    content.push(b'\n');
+                    for _ in 0..gap.saturating_sub(1) {
+                        content.push(b' ');
+                    }
+                }
+            }
+            content.extend_from_slice(text.as_bytes());
+            cursor = start + text.len();
+        }
+
+        if !content.is_empty() {
+            let blob = git_repo.blob(&content)?;
+            // Ensure directory structure exists in the tree builder.
+            // For nested paths (e.g., "src/main.ts"), we need subtrees.
+            // For simplicity, flatten the path using the file path directly.
+            let safe_path = file_path.replace('/', "_");
+            tree_builder.insert(&safe_path, blob, 0o100644)?;
             file_count += 1;
         }
     }
@@ -86,16 +156,22 @@ pub fn export_to_git<S: Store>(
     let tree_oid = tree_builder.write()?;
     let tree = git_repo.find_tree(tree_oid)?;
 
-    // Create git commit.
+    // Create git commit signature.
     let sig = git2::Signature::new(
         &commit.author,
         &format!("{}@panproto", commit.author),
         &git2::Time::new(commit.timestamp as i64, 0),
     )?;
 
-    // Find parent git commits (if any).
-    // For now, create root commits since we don't track the git-panproto OID mapping.
-    let parents: Vec<git2::Commit<'_>> = Vec::new();
+    // Resolve parent git commits from the mapping.
+    let mut parents: Vec<git2::Commit<'_>> = Vec::new();
+    for parent_panproto_id in &commit.parents {
+        if let Some(parent_git_oid) = parent_map.get(parent_panproto_id) {
+            if let Ok(parent_commit) = git_repo.find_commit(*parent_git_oid) {
+                parents.push(parent_commit);
+            }
+        }
+    }
     let parent_refs: Vec<&git2::Commit<'_>> = parents.iter().collect();
 
     let git_oid = git_repo.commit(

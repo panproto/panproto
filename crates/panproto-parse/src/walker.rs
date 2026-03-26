@@ -82,8 +82,10 @@ impl Default for WalkerConfig {
 pub struct AstWalker<'a> {
     /// The source code bytes (needed for extracting text of leaf nodes).
     source: &'a [u8],
-    /// The auto-derived theory metadata (used for protocol validation context).
-    _theory_meta: &'a ExtractedTheoryMeta,
+    /// The auto-derived theory metadata. The `vertex_kinds` set is used to
+    /// filter anonymous/internal tree-sitter nodes that are not part of the
+    /// language's public grammar.
+    theory_meta: &'a ExtractedTheoryMeta,
     /// The protocol definition (for SchemaBuilder validation).
     protocol: &'a Protocol,
     /// Per-language configuration.
@@ -119,7 +121,7 @@ impl<'a> AstWalker<'a> {
 
         Self {
             source,
-            _theory_meta: theory_meta,
+            theory_meta,
             protocol,
             config,
             scope_kinds,
@@ -182,13 +184,22 @@ impl<'a> AstWalker<'a> {
             id_gen.anonymous_id()
         };
 
-        // Emit vertex. If the kind is not in the protocol's obj_kinds, use a generic "node" kind.
-        let effective_kind =
-            if self.protocol.obj_kinds.is_empty() || self.protocol.obj_kinds.iter().any(|k| k == kind) {
-                kind
-            } else {
-                "node"
-            };
+        // Determine the effective vertex kind. If the theory has extracted vertex kinds,
+        // use those for validation. If the kind is unknown to the theory AND the protocol
+        // has a closed obj_kinds list, fall back to "node".
+        let effective_kind = if self.protocol.obj_kinds.is_empty() {
+            // Open protocol: accept all kinds.
+            kind
+        } else if self.protocol.obj_kinds.iter().any(|k| k == kind) {
+            kind
+        } else if !self.theory_meta.vertex_kinds.is_empty()
+            && self.theory_meta.vertex_kinds.iter().any(|k| k == kind)
+        {
+            // Known in the auto-derived theory even if not in the protocol's obj_kinds.
+            kind
+        } else {
+            "node"
+        };
 
         builder = builder
             .vertex(&vertex_id, effective_kind, None)
@@ -222,8 +233,20 @@ impl<'a> AstWalker<'a> {
                 })?;
         }
 
+        // Store byte range for position-aware emission.
+        builder = builder.constraint(
+            &vertex_id,
+            "start-byte",
+            &node.start_byte().to_string(),
+        );
+        builder = builder.constraint(
+            &vertex_id,
+            "end-byte",
+            &node.end_byte().to_string(),
+        );
+
         // Emit constraints for leaf nodes (literals, identifiers, operators).
-        if node.child_count() == 0 || !node.is_named() {
+        if node.named_child_count() == 0 {
             if let Ok(text) = node.utf8_text(self.source) {
                 builder = builder.constraint(&vertex_id, "literal-value", text);
             }

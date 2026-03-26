@@ -3,6 +3,7 @@
 use miette::Diagnostic;
 
 /// Errors from multi-file project assembly.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum ProjectError {
     /// A file could not be parsed.

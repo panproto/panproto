@@ -3,6 +3,7 @@
 use miette::Diagnostic;
 
 /// Errors from JIT compilation of panproto expressions.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum JitError {
     /// The expression contains an unsupported construct.

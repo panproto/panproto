@@ -1412,12 +1412,17 @@ pub fn th_import() -> Theory {
 /// * `schema_name` - Name for the composed schema theory (e.g. `"ThTypeScriptFullAST"`).
 /// * `instance_name` - Name for the instance theory (e.g. `"ThTypeScriptFullASTInstance"`).
 /// * `auto_derived` - Theory auto-derived from tree-sitter grammar metadata.
+///
+/// # Errors
+///
+/// Returns [`GatError`](panproto_gat::GatError) if any colimit step fails
+/// due to sort or operation conflicts between the building-block theories.
 pub fn register_full_ast_wtype<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
     instance_name: &str,
     auto_derived: &Theory,
-) {
+) -> Result<(), panproto_gat::GatError> {
     let g = th_graph();
     let c = th_constraint();
     let m = th_multi();
@@ -1461,39 +1466,39 @@ pub fn register_full_ast_wtype<S: ::std::hash::BuildHasher>(
     // Step 1: ThGraph + ThConstraint (share Vertex).
     let gc = match colimit(&g, &c, &shared_vertex) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => return Err(e),
     };
 
     // Step 2: + ThMulti (share Vertex + Edge).
     let gcm = match colimit(&gc, &m, &shared_ve) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => return Err(e),
     };
 
     // Step 3: + ThInterface (share Vertex).
     let gcmi = match colimit(&gcm, &iface, &shared_vertex) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => return Err(e),
     };
 
     // Step 4: + ThOrder (share Edge).
     let shared_edge = Theory::new("ThEdge", vec![Sort::simple("Edge")], vec![], vec![]);
     let gcmio = match colimit(&gcmi, &ord, &shared_edge) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => return Err(e),
     };
 
     // Step 5: + ThImport (share Vertex + Edge).
     let gcmioi = match colimit(&gcmio, &imp, &shared_ve) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => return Err(e),
     };
 
     // Step 6: + auto-derived theory (share Vertex + Edge, which the auto-derived
     // theory always includes as base sorts from extraction).
     let mut schema_theory = match colimit(&gcmioi, auto_derived, &shared_ve) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => return Err(e),
     };
 
     schema_theory.name = schema_name.into();
@@ -1503,4 +1508,6 @@ pub fn register_full_ast_wtype<S: ::std::hash::BuildHasher>(
     let mut inst = w;
     inst.name = instance_name.into();
     registry.insert(instance_name.into(), inst);
+
+    Ok(())
 }

@@ -101,11 +101,19 @@ impl ProjectBuilder {
         let (schema, protocol_name) = if let Some(protocol) = detect::detect_language(path) {
             match self.registry.parse_with_protocol(protocol, content, &path_str) {
                 Ok(schema) => (schema, protocol.to_owned()),
-                Err(e) => {
-                    return Err(ProjectError::ParseFailed {
-                        path: path_str,
-                        reason: e.to_string(),
-                    });
+                Err(_) => {
+                    // Fall back to raw file parsing if the language parser fails
+                    // (e.g., Kotlin's tree-sitter grammar is ABI-incompatible).
+                    let text = std::str::from_utf8(content).map_err(|e| ProjectError::ParseFailed {
+                        path: path_str.clone(),
+                        reason: format!("UTF-8 decode: {e}"),
+                    })?;
+                    let schema = raw_file::parse_text(text, &path_str)
+                        .map_err(|e| ProjectError::ParseFailed {
+                            path: path_str.clone(),
+                            reason: e.to_string(),
+                        })?;
+                    (schema, "raw_file".to_owned())
                 }
             }
         } else if detect::is_binary_extension(path) {

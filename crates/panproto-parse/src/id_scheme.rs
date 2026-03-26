@@ -48,12 +48,10 @@ impl IdGenerator {
     /// Anonymous scopes appear in the ID with a positional index:
     /// `file.rs::function_name::$3::...`
     pub fn push_anonymous_scope(&mut self) -> u32 {
-        let parent_counter = self
-            .child_counter
-            .last_mut()
-            .expect("child_counter should never be empty");
-        let idx = *parent_counter;
-        *parent_counter += 1;
+        let idx = self.child_counter.last().copied().unwrap_or(0);
+        if let Some(counter) = self.child_counter.last_mut() {
+            *counter += 1;
+        }
 
         self.scope_stack.push(format!("${idx}"));
         self.child_counter.push(0);
@@ -85,12 +83,10 @@ impl IdGenerator {
     /// The index is auto-incremented within the current scope.
     /// Returns the full scope-qualified ID (e.g. `"src/main.rs::parse_input::$3"`).
     pub fn anonymous_id(&mut self) -> String {
-        let parent_counter = self
-            .child_counter
-            .last_mut()
-            .expect("child_counter should never be empty");
-        let idx = *parent_counter;
-        *parent_counter += 1;
+        let idx = self.child_counter.last().copied().unwrap_or(0);
+        if let Some(counter) = self.child_counter.last_mut() {
+            *counter += 1;
+        }
 
         format!("{}::${idx}", self.current_prefix())
     }

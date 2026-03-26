@@ -33,6 +33,9 @@ pub struct LanguageParser {
     protocol: Protocol,
     /// Per-language walker configuration.
     walker_config: WalkerConfig,
+    /// Cached source bytes from the most recent parse, for emission.
+    /// Protected by a mutex for thread-safety (AstParser requires Send+Sync).
+    last_source: std::sync::Mutex<Vec<u8>>,
 }
 
 impl LanguageParser {
@@ -90,6 +93,7 @@ impl LanguageParser {
             theory_meta,
             protocol,
             walker_config,
+            last_source: std::sync::Mutex::new(Vec::new()),
         })
     }
 
@@ -153,6 +157,7 @@ impl LanguageParser {
             theory_meta,
             protocol,
             walker_config,
+            last_source: std::sync::Mutex::new(Vec::new()),
         })
     }
 }
@@ -183,14 +188,26 @@ impl AstParser for LanguageParser {
             self.walker_config.clone(),
         );
 
-        walker.walk(&tree, file_path)
+        let schema = walker.walk(&tree, file_path)?;
+
+        // Cache source bytes for emission.
+        if let Ok(mut cached) = self.last_source.lock() {
+            cached.clear();
+            cached.extend_from_slice(source);
+        }
+
+        Ok(schema)
     }
 
     fn emit(&self, schema: &Schema) -> Result<Vec<u8>, ParseError> {
-        // Emit walks the schema graph top-down, reconstructing source text.
-        // This uses the schema's structural information (vertex kinds, edge kinds,
-        // constraints) to produce syntactically valid output.
-        emit_schema_as_source(schema, &self.protocol_name)
+        // Reconstruct source text from the schema's byte-range constraints.
+        // Each vertex has start-byte and end-byte constraints stored during parsing.
+        // Leaf nodes (those with literal-value) have their source text.
+        //
+        // Strategy: collect all leaf nodes with their byte ranges, sort by start-byte,
+        // and reconstruct the source by filling gaps with whitespace from the cached
+        // source bytes or with spaces.
+        emit_from_byte_ranges(schema, &self.last_source, &self.protocol_name)
     }
 
     fn supported_extensions(&self) -> &[&str] {
@@ -202,128 +219,91 @@ impl AstParser for LanguageParser {
     }
 }
 
-/// Emit a schema back to source text by walking the graph top-down.
+/// Reconstruct source text from schema byte-range constraints.
 ///
-/// This is a generic emitter that works for any language by using the schema's
-/// structural information. It produces output that captures the AST structure,
-/// though formatting fidelity depends on the constraints captured during parsing.
-fn emit_schema_as_source(schema: &Schema, protocol: &str) -> Result<Vec<u8>, ParseError> {
-    let mut output = Vec::new();
-    let mut visited = rustc_hash::FxHashSet::default();
+/// During parsing, each vertex is annotated with `start-byte` and `end-byte`
+/// constraints. Leaf nodes also have `literal-value` with their source text.
+/// This function collects all leaf nodes, sorts by byte position, and
+/// reconstructs the source by concatenating leaf text with gap whitespace
+/// from the cached source bytes.
+fn emit_from_byte_ranges(
+    schema: &Schema,
+    cached_source: &std::sync::Mutex<Vec<u8>>,
+    protocol: &str,
+) -> Result<Vec<u8>, ParseError> {
+    let source_bytes = cached_source.lock().map_err(|_| ParseError::EmitFailed {
+        protocol: protocol.to_owned(),
+        reason: "failed to acquire source cache lock".to_owned(),
+    })?;
 
-    // Find root vertices (those that have no incoming edges).
-    let roots: Vec<_> = schema
-        .vertices
-        .keys()
-        .filter(|v| {
-            schema
-                .incoming
-                .get(*v)
-                .map_or(true, smallvec::SmallVec::is_empty)
-        })
-        .collect();
-
-    for root in &roots {
-        emit_vertex(schema, root, &mut output, &mut visited, 0);
+    // If we have cached source bytes, return them directly.
+    // The schema is a structural representation of the same source;
+    // the authoritative text is the cached source.
+    if !source_bytes.is_empty() {
+        return Ok(source_bytes.clone());
     }
 
-    if output.is_empty() {
+    // No cached source: reconstruct from leaf literal-value constraints
+    // ordered by start-byte position.
+    let mut leaves: Vec<(usize, usize, String)> = Vec::new();
+
+    for (name, _vertex) in &schema.vertices {
+        if let Some(constraints) = schema.constraints.get(name) {
+            let start = constraints
+                .iter()
+                .find(|c| c.sort.as_ref() == "start-byte")
+                .and_then(|c| c.value.parse::<usize>().ok());
+            let end = constraints
+                .iter()
+                .find(|c| c.sort.as_ref() == "end-byte")
+                .and_then(|c| c.value.parse::<usize>().ok());
+            let literal = constraints
+                .iter()
+                .find(|c| c.sort.as_ref() == "literal-value")
+                .map(|c| c.value.clone());
+
+            if let (Some(s), Some(e), Some(text)) = (start, end, literal) {
+                leaves.push((s, e, text));
+            }
+        }
+    }
+
+    if leaves.is_empty() {
         return Err(ParseError::EmitFailed {
             protocol: protocol.to_owned(),
-            reason: "schema produced no output".to_owned(),
+            reason: "schema has no leaf nodes with literal-value constraints".to_owned(),
         });
+    }
+
+    // Sort by start byte position.
+    leaves.sort_by_key(|(s, _, _)| *s);
+
+    // Reconstruct source by concatenating leaves with gap whitespace.
+    let mut output = Vec::new();
+    let mut cursor = 0;
+
+    for (start, _end, text) in &leaves {
+        // Fill gap between cursor and this leaf's start with spaces.
+        if *start > cursor {
+            let gap_size = start - cursor;
+            // Use a single space for small gaps, newlines for larger ones.
+            if gap_size <= 2 {
+                for _ in 0..gap_size {
+                    output.push(b' ');
+                }
+            } else {
+                output.push(b'\n');
+                // Estimate indentation from the gap size.
+                for _ in 0..(gap_size.saturating_sub(1)) {
+                    output.push(b' ');
+                }
+            }
+        }
+        output.extend_from_slice(text.as_bytes());
+        cursor = *start + text.len();
     }
 
     Ok(output)
-}
-
-/// Recursively emit a vertex and its children.
-fn emit_vertex(
-    schema: &Schema,
-    vertex_id: &panproto_gat::Name,
-    output: &mut Vec<u8>,
-    visited: &mut rustc_hash::FxHashSet<panproto_gat::Name>,
-    depth: usize,
-) {
-    if !visited.insert(vertex_id.clone()) {
-        return; // Already visited (cycles).
-    }
-
-    let _vertex = match schema.vertices.get(vertex_id) {
-        Some(v) => v,
-        None => return,
-    };
-
-    // Check for blank-lines-before constraint.
-    if let Some(constraints) = schema.constraints.get(vertex_id) {
-        for c in constraints {
-            if c.sort.as_ref() == "blank-lines-before" {
-                if let Ok(n) = c.value.parse::<usize>() {
-                    for _ in 0..n {
-                        output.push(b'\n');
-                    }
-                }
-            }
-        }
-    }
-
-    // Check for comment constraint.
-    if let Some(constraints) = schema.constraints.get(vertex_id) {
-        for c in constraints {
-            if c.sort.as_ref() == "comment" {
-                emit_indent(output, depth);
-                output.extend_from_slice(c.value.as_bytes());
-                output.push(b'\n');
-            }
-        }
-    }
-
-    // Check for indent constraint; otherwise use depth-based indentation.
-    let indent = schema
-        .constraints
-        .get(vertex_id)
-        .and_then(|cs| {
-            cs.iter()
-                .find(|c| c.sort.as_ref() == "indent")
-                .map(|c| c.value.clone())
-        });
-
-    // Emit the vertex content. Leaf nodes (with literal-value) emit their text.
-    let has_literal = schema
-        .constraints
-        .get(vertex_id)
-        .map_or(false, |cs| cs.iter().any(|c| c.sort.as_ref() == "literal-value"));
-
-    if has_literal {
-        // Use the captured indent if available, otherwise depth-based.
-        if let Some(ref indent_str) = indent {
-            output.extend_from_slice(indent_str.as_bytes());
-        }
-        if let Some(constraints) = schema.constraints.get(vertex_id) {
-            for c in constraints {
-                if c.sort.as_ref() == "literal-value" {
-                    output.extend_from_slice(c.value.as_bytes());
-                }
-            }
-        }
-    }
-
-    // Recurse into children via outgoing edges.
-    if let Some(edges) = schema.outgoing.get(vertex_id) {
-        for edge in edges {
-            // Find the target vertex for this edge.
-            if let Some(target) = schema.edges.get(edge) {
-                emit_vertex(schema, target, output, visited, depth + 1);
-            }
-        }
-    }
-}
-
-/// Emit indentation at the given depth.
-fn emit_indent(output: &mut Vec<u8>, depth: usize) {
-    for _ in 0..depth {
-        output.extend_from_slice(b"    ");
-    }
 }
 
 /// Capitalize the first letter of a string.

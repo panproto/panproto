@@ -62,6 +62,7 @@ impl ParserRegistry {
 
         // Register all 10 language parsers.
         registry.register(Box::new(crate::languages::typescript::TypeScriptParser::new()));
+        registry.register(Box::new(crate::languages::typescript::TsxParser::new()));
         registry.register(Box::new(crate::languages::python::PythonParser::new()));
         registry.register(Box::new(crate::languages::rust_lang::RustParser::new()));
         registry.register(Box::new(crate::languages::java::JavaParser::new()));

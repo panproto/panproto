@@ -3,6 +3,7 @@
 use miette::Diagnostic;
 
 /// Errors from full-AST parse and emit operations.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum ParseError {
     /// Tree-sitter failed to parse the source file.

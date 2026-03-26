@@ -204,7 +204,11 @@ pub fn emit_text(schema: &Schema) -> Result<String, ProtocolError> {
     lines.sort_by_key(|(num, _)| *num);
 
     let text: Vec<&str> = lines.iter().map(|(_, content)| content.as_str()).collect();
-    Ok(text.join("\n"))
+    let mut result = text.join("\n");
+    if !result.is_empty() {
+        result.push('\n');
+    }
+    Ok(result)
 }
 
 /// Detect MIME type from file path extension.
@@ -292,7 +296,7 @@ mod tests {
 
     #[test]
     fn parse_and_emit_roundtrip() {
-        let input = "line one\nline two\nline three";
+        let input = "line one\nline two\nline three\n";
         let schema = parse_text(input, "test.txt").unwrap();
         let output = emit_text(&schema).unwrap();
         assert_eq!(output, input);
