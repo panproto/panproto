@@ -152,38 +152,22 @@ mod inner {
                     self.compile_match(scrutinee, arms, builder, env)
                 }
 
-                Expr::Record(fields) => {
-                    // Records are not directly representable as a single LLVM value.
-                    // For JIT purposes, we evaluate the last field's value.
-                    if let Some((_, last)) = fields.last() {
-                        self.compile_expr(last, builder, env)
-                    } else {
-                        Ok(self.context.i64_type().const_int(0, false).into())
-                    }
-                }
-
-                Expr::List(elems) => {
-                    // Lists: evaluate the last element.
-                    if let Some(last) = elems.last() {
-                        self.compile_expr(last, builder, env)
-                    } else {
-                        Ok(self.context.i64_type().const_int(0, false).into())
-                    }
-                }
-
-                Expr::Field(base, _field) => {
-                    // Field access on a non-record value: evaluate the base.
-                    self.compile_expr(base, builder, env)
-                }
-
-                Expr::Index(base, _idx) => {
-                    // Index access: evaluate the base.
-                    self.compile_expr(base, builder, env)
+                Expr::Record(_) | Expr::List(_) | Expr::Field(_, _) | Expr::Index(_, _) => {
+                    Err(JitError::Unsupported {
+                        reason: format!(
+                            "compound types (record, list, field access, indexing) require \
+                             heap-allocated runtime representations not available in the JIT; \
+                             use the interpreter for expressions containing these constructs"
+                        ),
+                    })
                 }
 
                 Expr::App(_, _) | Expr::Lam(_, _) => {
                     Err(JitError::Unsupported {
-                        reason: "lambda/application requires closure compilation (not yet implemented in JIT)".to_owned(),
+                        reason: "lambda/application requires closure compilation \
+                                 (captures, function pointers) not available in the JIT; \
+                                 use the interpreter for higher-order expressions"
+                            .to_owned(),
                     })
                 }
             }
@@ -345,31 +329,66 @@ mod inner {
                         .into())
                 }
 
-                // Rounding: convert float to int (truncation approximates floor for positive values).
+                // Rounding: use comparison + arithmetic to implement correctly.
+                // floor(x) for integer results: if x >= 0 or x is exact int, trunc(x); else trunc(x) - 1
+                // For the JIT's primary use case (field transforms on integer data),
+                // the input is typically already integer, making this exact.
                 BuiltinOp::Floor => {
                     let arg = self.compile_unary_arg(args, builder, env)?;
                     let val = self.coerce_to_f64(builder, arg)?;
-                    // floor(x) via float-to-int truncation (correct for positive values;
-                    // for negative values this truncates toward zero, not negative infinity,
-                    // which is an acceptable approximation for migration field transforms).
+                    let truncated = builder
+                        .build_float_to_signed_int(val, self.context.i64_type(), "trunc")
+                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
+                    let back_to_float = builder
+                        .build_signed_int_to_float(truncated, self.context.f64_type(), "back")
+                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
+                    // If truncation moved the value toward zero (positive direction for negatives),
+                    // we need to subtract 1.
+                    let needs_adjust = builder
+                        .build_float_compare(
+                            inkwell::FloatPredicate::OGT,
+                            back_to_float,
+                            val,
+                            "needs_floor_adjust",
+                        )
+                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
+                    let one = self.context.i64_type().const_int(1, false);
+                    let adjusted = builder
+                        .build_int_sub(truncated, one, "floor_adjusted")
+                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
                     Ok(builder
-                        .build_float_to_signed_int(val, self.context.i64_type(), "floor")
+                        .build_select(needs_adjust, adjusted, truncated, "floor")
                         .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
+                        .into_int_value()
                         .into())
                 }
                 BuiltinOp::Ceil => {
                     let arg = self.compile_unary_arg(args, builder, env)?;
                     let val = self.coerce_to_f64(builder, arg)?;
-                    // ceil(x) ≈ -floor(-x) = -(int)(-x)
-                    let neg = builder
-                        .build_float_neg(val, "neg")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
                     let truncated = builder
-                        .build_float_to_signed_int(neg, self.context.i64_type(), "trunc")
+                        .build_float_to_signed_int(val, self.context.i64_type(), "trunc")
+                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
+                    let back_to_float = builder
+                        .build_signed_int_to_float(truncated, self.context.f64_type(), "back")
+                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
+                    // If truncation moved the value toward zero (negative direction for positives),
+                    // we need to add 1.
+                    let needs_adjust = builder
+                        .build_float_compare(
+                            inkwell::FloatPredicate::OLT,
+                            back_to_float,
+                            val,
+                            "needs_ceil_adjust",
+                        )
+                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
+                    let one = self.context.i64_type().const_int(1, false);
+                    let adjusted = builder
+                        .build_int_add(truncated, one, "ceil_adjusted")
                         .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
                     Ok(builder
-                        .build_int_neg(truncated, "ceil")
+                        .build_select(needs_adjust, adjusted, truncated, "ceil")
                         .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
+                        .into_int_value()
                         .into())
                 }
 

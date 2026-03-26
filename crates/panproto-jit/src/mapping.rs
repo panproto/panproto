@@ -148,7 +148,7 @@ fn classify_builtin(op: BuiltinOp) -> ExprMapping {
         BuiltinOp::Div => ExprMapping::ArithmeticOp { instruction: "sdiv" },
         BuiltinOp::Mod => ExprMapping::ArithmeticOp { instruction: "srem" },
         BuiltinOp::Neg => ExprMapping::ArithmeticOp { instruction: "neg" },
-        BuiltinOp::Abs => ExprMapping::RuntimeCall { function: "panproto_rt_abs" },
+        BuiltinOp::Abs => ExprMapping::ArithmeticOp { instruction: "select" },
 
         // Rounding.
         BuiltinOp::Floor => ExprMapping::RuntimeCall { function: "floor" },
@@ -256,8 +256,10 @@ fn collect_free_vars(expr: &Expr, bound: &std::collections::HashSet<String>, fre
         }
         Expr::Match { scrutinee, arms } => {
             collect_free_vars(scrutinee, bound, free);
-            for (_, body) in arms {
-                collect_free_vars(body, bound, free);
+            for (pattern, body) in arms {
+                let mut arm_bound = bound.clone();
+                collect_pattern_bindings(pattern, &mut arm_bound);
+                collect_free_vars(body, &arm_bound, free);
             }
         }
         Expr::Let { name, value, body } => {
@@ -269,6 +271,34 @@ fn collect_free_vars(expr: &Expr, bound: &std::collections::HashSet<String>, fre
         Expr::Builtin(_, args) => {
             for arg in args {
                 collect_free_vars(arg, bound, free);
+            }
+        }
+    }
+}
+
+/// Extract variable names bound by a pattern and add them to the bound set.
+fn collect_pattern_bindings(
+    pattern: &panproto_expr::Pattern,
+    bound: &mut std::collections::HashSet<String>,
+) {
+    match pattern {
+        panproto_expr::Pattern::Wildcard | panproto_expr::Pattern::Lit(_) => {}
+        panproto_expr::Pattern::Var(name) => {
+            bound.insert(name.to_string());
+        }
+        panproto_expr::Pattern::Record(fields) => {
+            for (_, sub_pat) in fields {
+                collect_pattern_bindings(sub_pat, bound);
+            }
+        }
+        panproto_expr::Pattern::List(elems) => {
+            for sub_pat in elems {
+                collect_pattern_bindings(sub_pat, bound);
+            }
+        }
+        panproto_expr::Pattern::Constructor(_, args) => {
+            for sub_pat in args {
+                collect_pattern_bindings(sub_pat, bound);
             }
         }
     }

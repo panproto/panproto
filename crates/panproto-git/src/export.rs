@@ -90,12 +90,23 @@ pub fn export_to_git<S: Store>(
     tree_builder.insert("commit.json", commit_blob, 0o100644)?;
     file_count += 1;
 
-    // Extract leaf node literal values to reconstruct source per file.
-    // Group vertices by their file prefix (before the first "::").
-    let mut files_content: FxHashMap<String, Vec<(usize, String)>> = FxHashMap::default();
+    // Collect ALL text fragments (leaf literals AND interstitial text) per file,
+    // sorted by byte position. This mirrors the emitter in panproto-parse/common.rs
+    // and produces complete source with keywords, punctuation, and whitespace.
+    let mut files_fragments: FxHashMap<String, Vec<(usize, String)>> = FxHashMap::default();
     let mut file_blobs: FxHashMap<String, git2::Oid> = FxHashMap::default();
+
     for (name, _vertex) in &schema.vertices {
         if let Some(constraints) = schema.constraints.get(name) {
+            // Extract file prefix from vertex ID.
+            let name_str = name.as_ref();
+            let file_prefix = name_str
+                .find("::")
+                .map(|pos| &name_str[..pos])
+                .unwrap_or(name_str)
+                .to_owned();
+
+            // Collect leaf literal-value with start-byte.
             let start_byte = constraints
                 .iter()
                 .find(|c| c.sort.as_ref() == "start-byte")
@@ -104,48 +115,42 @@ pub fn export_to_git<S: Store>(
                 .iter()
                 .find(|c| c.sort.as_ref() == "literal-value")
                 .map(|c| c.value.clone());
-
             if let (Some(start), Some(text)) = (start_byte, literal) {
-                // Extract file prefix from vertex ID (e.g., "src/main.ts::greet" → "src/main.ts").
-                let name_str = name.as_ref();
-                let file_prefix = name_str
-                    .find("::")
-                    .map(|pos| &name_str[..pos])
-                    .unwrap_or(name_str);
-                files_content
-                    .entry(file_prefix.to_owned())
-                    .or_default()
-                    .push((start, text));
+                files_fragments.entry(file_prefix.clone()).or_default().push((start, text));
+            }
+
+            // Collect interstitial text fragments with their byte positions.
+            for c in constraints {
+                let sort_str = c.sort.as_ref();
+                if sort_str.starts_with("interstitial-") && !sort_str.ends_with("-start-byte") {
+                    let pos_sort = format!("{sort_str}-start-byte");
+                    let pos = constraints
+                        .iter()
+                        .find(|c2| c2.sort.as_ref() == pos_sort.as_str())
+                        .and_then(|c2| c2.value.parse::<usize>().ok());
+                    if let Some(p) = pos {
+                        files_fragments.entry(file_prefix.clone()).or_default().push((p, c.value.clone()));
+                    }
+                }
             }
         }
     }
 
     // Write reconstructed source files.
-    for (file_path, mut leaves) in files_content {
-        leaves.sort_by_key(|(s, _)| *s);
+    for (file_path, mut fragments) in files_fragments {
+        fragments.sort_by_key(|(s, _)| *s);
+
         let mut content = Vec::new();
         let mut cursor = 0;
-        for (start, text) in &leaves {
-            if *start > cursor {
-                let gap = start - cursor;
-                if gap <= 2 {
-                    for _ in 0..gap {
-                        content.push(b' ');
-                    }
-                } else {
-                    content.push(b'\n');
-                    for _ in 0..gap.saturating_sub(1) {
-                        content.push(b' ');
-                    }
-                }
+        for (pos, text) in &fragments {
+            if *pos >= cursor {
+                content.extend_from_slice(text.as_bytes());
+                cursor = pos + text.len();
             }
-            content.extend_from_slice(text.as_bytes());
-            cursor = start + text.len();
         }
 
         if !content.is_empty() {
             let blob_oid = git_repo.blob(&content)?;
-            // Track file path → blob OID for nested tree construction.
             file_blobs.insert(file_path, blob_oid);
             file_count += 1;
         }
@@ -266,22 +271,3 @@ fn build_subtree(
     Ok(builder.write()?)
 }
 
-/// Detect the appropriate file extension for a protocol name.
-#[must_use]
-pub fn extension_for_protocol(protocol: &str) -> &'static str {
-    match protocol {
-        "typescript" => "ts",
-        "tsx" => "tsx",
-        "python" => "py",
-        "rust" => "rs",
-        "java" => "java",
-        "go" => "go",
-        "swift" => "swift",
-        "kotlin" => "kt",
-        "csharp" => "cs",
-        "c" => "c",
-        "cpp" => "cpp",
-        "raw_file" => "txt",
-        _ => "txt",
-    }
-}
