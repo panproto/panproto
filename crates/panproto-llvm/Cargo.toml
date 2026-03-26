@@ -8,27 +8,28 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = []
-# Enable inkwell-based LLVM IR parsing, emission, and JIT compilation.
-# Requires LLVM to be installed and the LLVM_SYS_<version>_PREFIX env var set.
-# Example: cargo build -p panproto-llvm --features=inkwell-backend
+default = ["inkwell-backend"]
 inkwell-backend = ["dep:inkwell"]
 
 [dependencies]
 panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-protocols = { workspace = true }
-
-# Optional: LLVM bindings via inkwell.
-# Requires LLVM installed locally. Feature-gated to avoid breaking WASM builds
-# and CI environments without LLVM.
-inkwell = { version = "0.5", features = ["llvm18-0"], optional = true }
-
+inkwell = { version = "0.8", features = ["llvm20-1"], optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 miette = { workspace = true }
 rustc-hash = { workspace = true }
 
-[lints]
-workspace = true
+[lints.rust]
+# LLVM IR parsing via inkwell requires unsafe FFI calls.
+unsafe_code = "allow"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"

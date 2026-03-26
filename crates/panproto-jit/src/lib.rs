@@ -39,5 +39,12 @@ pub mod error;
 /// Compilation mapping from `Expr` to LLVM IR constructs.
 pub mod mapping;
 
+/// LLVM IR code generation and JIT compilation via inkwell.
+#[cfg(feature = "inkwell-jit")]
+pub mod codegen;
+
 pub use error::JitError;
 pub use mapping::ExprMapping;
+
+#[cfg(feature = "inkwell-jit")]
+pub use codegen::{CompiledExpr, JitCompiler};

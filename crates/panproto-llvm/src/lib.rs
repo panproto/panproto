@@ -37,6 +37,13 @@ pub mod protocol;
 /// Theory morphisms from language ASTs to LLVM IR.
 pub mod lowering;
 
+/// LLVM IR text parsing into panproto schemas via inkwell.
+#[cfg(feature = "inkwell-backend")]
+pub mod parse_ir;
+
 pub use error::LlvmError;
 pub use lowering::all_lowering_morphisms;
 pub use protocol::protocol as llvm_ir_protocol;
+
+#[cfg(feature = "inkwell-backend")]
+pub use parse_ir::parse_llvm_ir;
