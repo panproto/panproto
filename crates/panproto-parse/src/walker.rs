@@ -82,8 +82,8 @@ impl Default for WalkerConfig {
 pub struct AstWalker<'a> {
     /// The source code bytes (needed for extracting text of leaf nodes).
     source: &'a [u8],
-    /// The auto-derived theory metadata.
-    theory_meta: &'a ExtractedTheoryMeta,
+    /// The auto-derived theory metadata (used for protocol validation context).
+    _theory_meta: &'a ExtractedTheoryMeta,
     /// The protocol definition (for SchemaBuilder validation).
     protocol: &'a Protocol,
     /// Per-language configuration.
@@ -119,7 +119,7 @@ impl<'a> AstWalker<'a> {
 
         Self {
             source,
-            theory_meta,
+            _theory_meta: theory_meta,
             protocol,
             config,
             scope_kinds,
