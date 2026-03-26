@@ -1,0 +1,90 @@
+# LLVM Integration: Compilation as Theory Morphism {#sec-llvm-integration}
+
+Compilation is a theory morphism. When a TypeScript function becomes LLVM IR instructions, the structural relationships (parameter passing, control flow, data dependencies) are preserved. panproto makes this explicit: lowering from a language AST to LLVM IR is a `TheoryMorphism` in the GAT system.
+
+## LLVM IR as a protocol
+
+LLVM IR has a well-defined structure that maps naturally to GATs:
+
+| LLVM IR concept | panproto vertex kind |
+|---|---|
+| Module | `module` |
+| Function | `function` |
+| Basic block | `basic-block` |
+| Instruction | `instruction` |
+| Parameter | `parameter` |
+| Global variable | `global-variable` |
+| Type | `integer-type`, `float-type`, `pointer-type`, etc. |
+
+Edge kinds capture structural relationships:
+
+- `contains-function`: module to function containment
+- `contains-block`: function to basic block
+- `contains-instruction`: basic block to instruction (ordered via `ThOrder`)
+- `operand`: SSA use-def chain (instruction to value)
+- `successor`: control flow edge (basic block to basic block)
+- `type-of`: value to type
+
+## Parsing LLVM IR
+
+With the `inkwell-backend` feature enabled, panproto can parse `.ll` text files directly:
+
+```rust
+use panproto_llvm::parse_llvm_ir;
+
+let schema = parse_llvm_ir(r#"
+define i32 @add(i32 %a, i32 %b) {
+entry:
+  %result = add i32 %a, %b
+  ret i32 %result
+}
+"#, "add_module")?;
+```
+
+The parser walks the LLVM module via inkwell, creating vertices for functions, parameters, basic blocks, and instructions, with edges for containment, data flow, and control flow.
+
+## Lowering morphisms
+
+A lowering morphism maps AST sorts and operations to LLVM IR sorts and operations:
+
+```rust
+use panproto_llvm::lowering::lower_typescript;
+
+let morph = lower_typescript();
+// morph.sort_map: function_declaration → function
+// morph.sort_map: binary_expression → instruction
+// morph.op_map: body → entry-block
+// morph.op_map: condition → operand
+```
+
+Because these are theory morphisms, they compose with schema migrations:
+
+$$\mathrm{restrict}(\mathrm{lower} \circ \mathrm{mig}) = \mathrm{restrict}(\mathrm{lower}) \circ \mathrm{restrict}(\mathrm{mig})$$
+
+Change a TypeScript type, and the LLVM IR migration is automatically derived via functoriality.
+
+## JIT compilation of expressions
+
+The `panproto-jit` crate compiles `panproto-expr` expressions to native code:
+
+```rust
+use panproto_jit::JitCompiler;
+use panproto_expr::{Expr, Literal, BuiltinOp};
+
+let jit = JitCompiler::new();
+let expr = Expr::Builtin(
+    BuiltinOp::Add,
+    vec![Expr::Lit(Literal::Int(10)), Expr::Lit(Literal::Int(32))],
+);
+let result = jit.compile(&expr)?;
+assert_eq!(result.call(), 42);
+```
+
+The JIT compiles arithmetic, comparison, boolean, type coercions, rounding, let bindings, and pattern matching to LLVM IR, then executes natively. Operations requiring heap allocation (strings, lists, records) fall back to the interpreter.
+
+## Exercises
+
+1. Parse a simple LLVM IR function and inspect the panproto schema. How many vertices does `define i32 @add(i32 %a, i32 %b) { ... }` produce?
+2. Apply the TypeScript lowering morphism to a parsed TypeScript file. What happens to `function_declaration` vertices? What about `binary_expression`?
+3. JIT-compile a complex arithmetic expression and verify the result matches the interpreter: `let x = 10 in let y = 20 in (x + y) * 2`.
+4. Compare the execution time of the JIT-compiled expression vs. the interpreter for 1 million evaluations.

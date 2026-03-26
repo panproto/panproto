@@ -59,6 +59,10 @@ book:
         - chapters/21-querying-instances.qmd
         - chapters/22-internal-hom-and-preferred-paths.qmd
         - chapters/23-edit-lenses.qmd
+    - part: "Full-AST Parsing and LLVM"
+      chapters:
+        - chapters/24-full-ast-parsing.qmd
+        - chapters/25-llvm-integration.qmd
     - part: "Appendices"
       chapters:
         - appendices/A-formal-foundations.qmd

@@ -51,6 +51,9 @@ book:
         - chapters/29-expression-engine.qmd
         - chapters/30-polynomial-operations.qmd
         - chapters/31-edit-lenses.qmd
+        - chapters/32-parse-engine.qmd
+        - chapters/33-project-assembly.qmd
+        - chapters/34-llvm-jit.qmd
     - part: "Contributing Process"
       chapters:
         - chapters/16-conventions.qmd

@@ -1,0 +1,77 @@
+# Parse Engine Internals {#sec-parse-engine}
+
+The `panproto-parse` crate provides full-AST parsing for 10 programming languages via tree-sitter. This chapter covers the internal architecture: theory extraction, the generic walker, interstitial text capture, and the emission pipeline.
+
+## Module map
+
+| Module | Purpose |
+|--------|---------|
+| `theory_extract` | Auto-derive GAT theories from `node-types.json` |
+| `walker` | Generic `AstWalker` converting tree-sitter ASTs to schemas |
+| `id_scheme` | Scope-aware vertex ID generation |
+| `registry` | `ParserRegistry` with language detection by extension |
+| `languages/common` | Shared `LanguageParser` infrastructure |
+| `languages/*` | Per-language config (scope hints, block kinds) |
+
+## Theory extraction pipeline
+
+`extract_theory_from_node_types` parses tree-sitter's `node-types.json` and produces an `ExtractedTheoryMeta` containing:
+
+- A `Theory` with sorts for each named node type and operations for each field
+- Supertype/subtype relationships
+- Sets of optional and ordered fields (for `ThPartial`/`ThOrder` composition)
+- Vertex kinds and edge kinds lists for protocol definition
+
+The extraction also works at runtime via `extract_theory_from_language`, which uses the `Language` introspection API (`node_kind_count`, `field_count`, `supertypes`). However, this path cannot determine field optionality or multiplicity; prefer the JSON path.
+
+## Generic walker architecture
+
+`AstWalker::walk_node` performs a depth-first traversal of the tree-sitter AST. For each named node:
+
+1. Generate a vertex ID via `IdGenerator` (scope-aware: file, function, block, positional)
+2. Emit a vertex with the node's `kind()` as the vertex kind
+3. Emit an edge from parent to child with the tree-sitter field name as edge kind
+4. Store `start-byte` and `end-byte` constraints for position-aware emission
+5. Store `literal-value` on leaf nodes (named children count = 0)
+6. Capture interstitial text between named children
+
+The walker delegates child traversal to `walk_children_with_interstitials`, which iterates named children and calls `capture_interstitial` for each gap between them.
+
+## Interstitial text capture
+
+Named children in a tree-sitter AST skip anonymous tokens (keywords, punctuation, operators). The source text between consecutive named children contains these tokens. The walker captures each gap as an `interstitial-N` constraint with a companion `interstitial-N-start-byte` constraint storing the byte position.
+
+Example: for `function add(a, b) { return a + b; }`, the function_declaration node's named children might be `add`, `formal_parameters`, `statement_block`. The interstitials are:
+
+- `interstitial-0`: `"function "` (before `add`, position 0)
+- `interstitial-1`: `""` (between `add` and `formal_parameters`, adjacent)
+- `interstitial-2`: `" "` (between `formal_parameters` and `statement_block`)
+- `interstitial-3`: `""` (trailing, if any)
+
+## Emission pipeline
+
+`emit_from_schema` collects ALL text fragments from the schema:
+
+1. Leaf `literal-value` constraints with their `start-byte` positions
+2. `interstitial-N` constraints with their `interstitial-N-start-byte` positions
+
+Fragments are sorted by byte position and concatenated. Overlapping fragments (where a parent's interstitial covers a child's literal range) are deduplicated by tracking a cursor position.
+
+## `LanguageParser` infrastructure
+
+All 10 language parsers share the `LanguageParser` struct, which holds:
+
+- The tree-sitter `Language` object
+- The auto-derived `ExtractedTheoryMeta`
+- The panproto `Protocol` definition
+- A `WalkerConfig` with per-language scope and block kind hints
+
+`LanguageParser::new` converts a `LanguageFn` to a `Language`; `from_language` accepts a pre-constructed `Language` (used by Kotlin, which has an older tree-sitter API).
+
+## Design decisions
+
+**Why auto-derive theories instead of hand-writing them?** Hand-written vertex kind lists drift from the grammar. Auto-derivation ensures the theory is always in sync. Adding a new language is: `cargo add tree-sitter-<lang>` + extract.
+
+**Why interstitial text instead of anonymous token vertices?** Creating vertices for every `{`, `}`, `(`, `)`, `;`, keyword would massively increase schema size. Interstitial text is compact (one string per gap) and sufficient for exact round-trip emission.
+
+**Why `#[rustfmt::skip]` on classification functions?** The `classify_jittable_builtin` and `classify_runtime_builtin` functions are large match expressions mapping 50 enum variants. `rustfmt` expands single-line arms to 3 lines, pushing the function over clippy's line limit. `#[rustfmt::skip]` keeps them compact without hiding real code.

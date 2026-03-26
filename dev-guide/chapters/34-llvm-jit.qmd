@@ -1,0 +1,81 @@
+# LLVM Integration and JIT Compilation {#sec-llvm-jit}
+
+The `panproto-llvm` and `panproto-jit` crates provide LLVM IR as a panproto protocol and JIT compilation of panproto expressions.
+
+## panproto-llvm
+
+### Module map
+
+| Module | Purpose |
+|--------|---------|
+| `protocol` | LLVM IR protocol definition (31 vertex kinds, 13 edge rules, 56 opcodes) |
+| `lowering` | Theory morphisms: language AST to LLVM IR |
+| `parse_ir` | inkwell-based `.ll` text parser (feature-gated) |
+| `error` | `LlvmError` |
+
+### Protocol definition
+
+The LLVM IR protocol is composed from `colimit(ThGraph, ThConstraint, ThOrder)` with vertex kinds for:
+
+- **Module level**: `module`, `function`, `global-variable`, `alias`
+- **Function level**: `basic-block`, `parameter`
+- **Instructions**: `instruction` with `opcode` constraint sort
+- **Types**: `void-type`, `integer-type`, `float-type`, `pointer-type`, `array-type`, `vector-type`, `struct-type`, `function-type`
+- **Values**: `constant`, `undef`, `poison`, `null`, `zero-initializer`
+
+### Lowering morphisms
+
+Three lowering morphisms are defined:
+
+- `lower_typescript()`: `ThTypeScriptFullAST` to `ThLLVMIRSchema`
+- `lower_python()`: `ThPythonFullAST` to `ThLLVMIRSchema`
+- `lower_rust()`: `ThRustFullAST` to `ThLLVMIRSchema`
+
+Each maps AST sorts to LLVM IR sorts (e.g., `function_declaration` to `function`, `binary_expression` to `instruction`) and edge kinds (e.g., `body` to `entry-block`, `condition` to `operand`).
+
+### inkwell IR parser
+
+`parse_llvm_ir` creates an inkwell `Context`, parses the IR text via `MemoryBuffer::create_from_memory_range_copy`, and walks the module:
+
+1. Root `module` vertex with `target-triple` constraint
+2. Functions with `linkage` constraint
+3. Parameters with `type-of` constraint
+4. Basic blocks with `block-label` constraint and `entry-block` edge
+5. Instructions with `opcode` and `ssa-name` constraints
+
+## panproto-jit
+
+### Module map
+
+| Module | Purpose |
+|--------|---------|
+| `codegen` | `JitCompiler` and `CompiledExpr` (feature-gated) |
+| `mapping` | `classify_expr` and `ExprMapping` classification |
+| `error` | `JitError` |
+
+### JIT compiler architecture
+
+`JitCompiler::new` leaks an LLVM `Context` (intentional; reuse the compiler across expressions). `compile(&expr)` creates a module, builds a function `__panproto_eval() -> i64`, compiles the expression body, and JIT-executes via ORC.
+
+Key codegen methods:
+
+- `compile_expr`: dispatches on `Expr` variant
+- `compile_builtin`: dispatches on `BuiltinOp`, delegates to `compile_int_binop` (shared binary arithmetic), `compile_int_cmp` (shared comparison), `compile_round` (shared floor/ceil)
+- `compile_match`: cascading `br` with phi node for pattern matching
+- `compile_literal`: `i64`/`f64`/`i1` constants (i64 uses `from_ne_bytes` for sign-safe casting)
+
+### Compilation mapping
+
+`classify_expr` statically classifies each expression node into an `ExprMapping`:
+
+- `ArithmeticOp`: maps to a single LLVM instruction (add, sub, icmp, etc.)
+- `ArrayLoop`: compiles to a loop (map, filter, fold, flat_map)
+- `RuntimeCall`: requires a runtime support function (string ops, list ops, etc.)
+- `Closure`: lambda with captured variables
+- `LetBinding`, `PatternMatch`, `Constant`, `EnvLoad`: structural codegen
+
+`classify_jittable_builtin` (const fn) handles the 22 builtins compilable to direct LLVM instructions. `classify_runtime_builtin` handles the remaining 33 that need runtime functions.
+
+### Lint configuration
+
+`panproto-jit` uses per-crate lints instead of workspace lints because LLVM FFI requires `unsafe_code = "allow"`. All other lint levels match the workspace (pedantic, nursery, `unwrap_used = "deny"`).

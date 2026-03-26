@@ -38,10 +38,15 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 | [`panproto-protocols`](crates/panproto-protocols) | 77 built-in protocol definitions composed from 34 building-block theories |
 | [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs (JSON, XML, tabular, web documents) |
 | [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge |
-| [`panproto-core`](crates/panproto-core) | Re-export facade |
+| [`panproto-parse`](crates/panproto-parse) | Tree-sitter full-AST parsing for 10 languages with auto-derived GAT theories and interstitial text emission |
+| [`panproto-project`](crates/panproto-project) | Multi-file project assembly via schema coproduct with cross-file import resolution |
+| [`panproto-git`](crates/panproto-git) | Bidirectional git to panproto-vcs translation bridge (import/export with DAG preservation) |
+| [`panproto-llvm`](crates/panproto-llvm) | LLVM IR protocol definition, language AST lowering morphisms, and inkwell-based IR parsing |
+| [`panproto-jit`](crates/panproto-jit) | LLVM JIT compilation of panproto expressions via inkwell for accelerated data migration |
+| [`panproto-core`](crates/panproto-core) | Re-export facade (feature-gated: `full-parse`, `project`, `git`, `llvm`, `jit`) |
 | [`panproto-wasm`](crates/panproto-wasm) | WASM bindings with handle-based slab allocator, MessagePack boundary, and protolens entry points |
 | [`panproto-py`](crates/panproto-py) | Native Python bindings via PyO3 with `pythonize` (serde to Python dicts) |
-| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, convert, lens, expr, enrich, and git-style version control |
+| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, convert, lens, expr, enrich, parse, git bridge, and version control |
 
 ### SDKs
 
@@ -157,6 +162,15 @@ schema lens --check --chain chain.json --schema schema.json
 # Lift a protolens chain to another protocol
 schema lens --lift --chain chain.json --morphism morphism.json
 
+# Full-AST parsing
+schema parse file src/main.ts                # Parse a source file into structural schema
+schema parse project ./src                   # Parse a directory into a unified project schema
+schema parse emit src/main.ts                # Round-trip: parse then emit back to source
+
+# Git bridge
+schema git import /path/to/repo HEAD         # Import git history into panproto-vcs
+schema git export --repo . /path/to/dest     # Export panproto-vcs to a git repository
+
 # Derive a lens from VCS commit history
 schema lens --diff HEAD~1 HEAD
 
@@ -215,6 +229,14 @@ panproto implements a four-level architecture rooted in category theory. The GAT
 **Data versioning** stores instance data, complements, and protocol definitions as content-addressed objects alongside schemas in the commit DAG. `schema migrate` automatically generates lenses from the schema history and applies them to data files. Complements are persisted so backward migration never loses data. `schema checkout --migrate` and `schema merge --migrate` handle data migration as part of normal VCS operations.
 
 **Automatic migration discovery** finds schema morphisms via backtracking CSP with MRV heuristic, discovers overlaps between schemas, and computes schema-level pushouts for merging disparate formats.
+
+**Full-AST parsing** (`panproto-parse`) treats programs as schemas. Tree-sitter grammars are theory presentations: `node-types.json` is structurally isomorphic to a GAT. The theory extraction pipeline auto-derives sorts from node types and operations from field names. A single generic walker handles all 10 languages; interstitial text capture (keywords, punctuation, whitespace between named children) enables exact round-trip emission.
+
+**Multi-file assembly** (`panproto-project`) constructs the project-level schema as a categorical coproduct of per-file schemas, with path-prefixed vertex IDs and cross-file import edges from `ThImport`.
+
+**Git bridge** (`panproto-git`) translates between git repositories and panproto-vcs stores. Import walks the commit DAG topologically, parsing each tree through `panproto-project`. Export reconstructs source files from schema fragments and builds nested git trees. DAG structure is preserved functorially.
+
+**LLVM integration** spans two crates. `panproto-llvm` defines the LLVM IR protocol (31 vertex kinds, 56 instruction opcodes) and theory morphisms lowering language ASTs to LLVM IR (compilation as structure-preserving maps). `panproto-jit` compiles panproto expressions to native code via inkwell for accelerated data migration.
 
 ## Safety guarantees
 

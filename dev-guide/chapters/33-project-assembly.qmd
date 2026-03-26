@@ -1,0 +1,66 @@
+# Project Assembly and Git Bridge {#sec-project-assembly}
+
+The `panproto-project` and `panproto-git` crates handle multi-file projects and bidirectional translation with git repositories.
+
+## panproto-project
+
+### Module map
+
+| Module | Purpose |
+|--------|---------|
+| `lib` | `ProjectBuilder`, `ProjectSchema`, coproduct construction |
+| `detect` | Language detection by file extension |
+| `error` | `ProjectError` with diagnostic support |
+
+### Coproduct construction
+
+The project schema is the categorical coproduct of per-file schemas. Each file's vertices are prefixed with the file path to ensure uniqueness:
+
+```
+src/main.ts::program
+src/main.ts::program::$0        (first top-level declaration)
+src/utils.ts::program
+src/utils.ts::program::$0
+README.md                       (raw_file root vertex)
+README.md::line_0
+```
+
+Edges within a file retain their local structure. The coproduct `Schema` is built by iterating all files' vertices and edges, applying the prefix.
+
+### Fallback behavior
+
+If a language parser fails (e.g., Kotlin's tree-sitter grammar is ABI-incompatible), the `ProjectBuilder` falls back to `raw_file` parsing. This ensures every file in the project is represented, even if structural parsing is unavailable.
+
+## panproto-git
+
+### Module map
+
+| Module | Purpose |
+|--------|---------|
+| `import` | `import_git_repo`: git DAG to panproto-vcs |
+| `export` | `export_to_git`: panproto-vcs to git trees |
+| `error` | `GitBridgeError` |
+
+### Import pipeline
+
+1. `git2::Repository::revwalk` with `TOPOLOGICAL | REVERSE` ordering (parents before children)
+2. For each commit: `git2::Tree::iter` walks blobs and subtrees
+3. Each blob is passed to `ProjectBuilder::add_file`
+4. `ProjectBuilder::build` produces the `ProjectSchema`
+5. Schema stored via `Store::put(Object::Schema(...))`
+6. `CommitObject` created with mapped parent IDs, author, timestamp, message
+7. Commit stored via `Store::put(Object::Commit(...))`
+
+### Export pipeline
+
+1. Load `CommitObject` and its `Schema` from the panproto-vcs store
+2. `collect_file_fragments` groups vertices by file prefix, collecting `literal-value` and `interstitial-*` constraints with byte positions
+3. Per-file fragments are sorted and concatenated into source bytes
+4. `build_nested_tree` creates recursive git `TreeBuilder` objects for proper directory hierarchy
+5. Git commit is created with `parent_map` for DAG preservation
+
+### Design decisions
+
+**Why `MemStore` in tests?** Git bridge tests create temporary git repositories via `git2::Repository::init` in `tempfile::tempdir`. The panproto side uses `MemStore` (in-memory, no filesystem) for speed and isolation.
+
+**Why not store source bytes in the schema?** Binary content can be arbitrarily large. The schema stores a blake3 content hash on `chunk` vertices; actual bytes are tracked by the VCS object store.
