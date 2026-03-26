@@ -1,0 +1,28 @@
+[package]
+name = "panproto-jit"
+description = "LLVM JIT compilation of panproto expressions for accelerated data migration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Enable inkwell-based LLVM JIT compilation.
+# Requires LLVM to be installed and the LLVM_SYS_<version>_PREFIX env var set.
+# Example: cargo build -p panproto-jit --features=inkwell-jit
+inkwell-jit = ["dep:inkwell"]
+
+[dependencies]
+panproto-expr = { workspace = true }
+
+# Optional: LLVM JIT via inkwell.
+# Feature-gated to avoid breaking WASM builds and CI without LLVM.
+inkwell = { version = "0.5", features = ["llvm18-0"], optional = true }
+
+thiserror = { workspace = true }
+miette = { workspace = true }
+
+[lints]
+workspace = true
