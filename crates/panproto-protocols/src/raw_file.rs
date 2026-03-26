@@ -60,6 +60,8 @@ pub fn protocol() -> Protocol {
             "encoding".into(),
             "line-number".into(),
             "content".into(),
+            "content-length".into(),
+            "content-hash".into(),
         ],
         has_order: true,
         has_coproducts: false,

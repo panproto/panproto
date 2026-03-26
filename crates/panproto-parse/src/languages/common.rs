@@ -48,51 +48,7 @@ impl LanguageParser {
         node_types_json: &[u8],
         walker_config: WalkerConfig,
     ) -> Result<Self, ParseError> {
-        let theory_name = format!("Th{}FullAST", capitalize_first(protocol_name));
-        let theory_meta = extract_theory_from_node_types(&theory_name, node_types_json)?;
-
-        let protocol = Protocol {
-            name: protocol_name.into(),
-            schema_theory: theory_name.clone().into(),
-            instance_theory: format!("Th{}FullASTInstance", capitalize_first(protocol_name)).into(),
-            obj_kinds: vec![],
-            edge_rules: vec![],
-            constraint_sorts: vec![
-                "literal-value".into(),
-                "literal-type".into(),
-                "operator".into(),
-                "visibility".into(),
-                "mutability".into(),
-                "async".into(),
-                "static".into(),
-                "generator".into(),
-                "comment".into(),
-                "indent".into(),
-                "trailing-comma".into(),
-                "semicolon".into(),
-                "blank-lines-before".into(),
-                "start-byte".into(),
-                "end-byte".into(),
-            ],
-            has_order: true,
-            has_coproducts: false,
-            has_recursion: true,
-            has_causal: false,
-            nominal_identity: false,
-            has_defaults: false,
-            has_coercions: false,
-            has_mergers: false,
-            has_policies: false,
-        };
-
-        Ok(Self {
-            protocol_name: protocol_name.to_owned(),
-            extensions,
-            language: language_fn.into(),
-            theory_meta,
-            protocol,
-            walker_config,
-        })
+        Self::from_language(protocol_name, extensions, language_fn.into(), node_types_json, walker_config)
     }
 
     /// Create a new language parser from a pre-constructed [`Language`](tree_sitter::Language).
@@ -112,40 +68,7 @@ impl LanguageParser {
     ) -> Result<Self, ParseError> {
         let theory_name = format!("Th{}FullAST", capitalize_first(protocol_name));
         let theory_meta = extract_theory_from_node_types(&theory_name, node_types_json)?;
-
-        let protocol = Protocol {
-            name: protocol_name.into(),
-            schema_theory: theory_name.clone().into(),
-            instance_theory: format!("Th{}FullASTInstance", capitalize_first(protocol_name)).into(),
-            obj_kinds: vec![],
-            edge_rules: vec![],
-            constraint_sorts: vec![
-                "literal-value".into(),
-                "literal-type".into(),
-                "operator".into(),
-                "visibility".into(),
-                "mutability".into(),
-                "async".into(),
-                "static".into(),
-                "generator".into(),
-                "comment".into(),
-                "indent".into(),
-                "trailing-comma".into(),
-                "semicolon".into(),
-                "blank-lines-before".into(),
-                "start-byte".into(),
-                "end-byte".into(),
-            ],
-            has_order: true,
-            has_coproducts: false,
-            has_recursion: true,
-            has_causal: false,
-            nominal_identity: false,
-            has_defaults: false,
-            has_coercions: false,
-            has_mergers: false,
-            has_policies: false,
-        };
+        let protocol = build_full_ast_protocol(protocol_name, &theory_name);
 
         Ok(Self {
             protocol_name: protocol_name.to_owned(),
@@ -286,6 +209,46 @@ fn emit_from_schema(schema: &Schema, protocol: &str) -> Result<Vec<u8>, ParseErr
     }
 
     Ok(output)
+}
+
+/// Build the standard Protocol for a full-AST language parser.
+///
+/// Shared by `LanguageParser::new` and `LanguageParser::from_language`
+/// to avoid duplicating the constraint sorts and flag definitions.
+fn build_full_ast_protocol(protocol_name: &str, theory_name: &str) -> Protocol {
+    Protocol {
+        name: protocol_name.into(),
+        schema_theory: theory_name.into(),
+        instance_theory: format!("{theory_name}Instance").into(),
+        obj_kinds: vec![],
+        edge_rules: vec![],
+        constraint_sorts: vec![
+            "literal-value".into(),
+            "literal-type".into(),
+            "operator".into(),
+            "visibility".into(),
+            "mutability".into(),
+            "async".into(),
+            "static".into(),
+            "generator".into(),
+            "comment".into(),
+            "indent".into(),
+            "trailing-comma".into(),
+            "semicolon".into(),
+            "blank-lines-before".into(),
+            "start-byte".into(),
+            "end-byte".into(),
+        ],
+        has_order: true,
+        has_coproducts: false,
+        has_recursion: true,
+        has_causal: false,
+        nominal_identity: false,
+        has_defaults: false,
+        has_coercions: false,
+        has_mergers: false,
+        has_policies: false,
+    }
 }
 
 /// Capitalize the first letter of a string.
