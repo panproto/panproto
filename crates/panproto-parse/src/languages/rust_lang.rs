@@ -114,4 +114,17 @@ impl fmt::Display for Point {
         let meta = parser.theory_meta();
         assert!(meta.vertex_kinds.len() > 80, "expected 80+ vertex kinds, got {}", meta.vertex_kinds.len());
     }
+
+    #[test]
+    fn emit_roundtrip_rust() {
+        let parser = RustParser::new();
+        let source = b"fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n";
+        let schema = parser.parse(source, "add.rs").unwrap();
+        let emitted = parser.emit(&schema).unwrap();
+        assert_eq!(
+            std::str::from_utf8(&emitted).unwrap(),
+            std::str::from_utf8(source).unwrap(),
+            "Rust emit(parse(source)) should reproduce the original source"
+        );
+    }
 }

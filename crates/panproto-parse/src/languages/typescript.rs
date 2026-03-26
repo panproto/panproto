@@ -233,4 +233,41 @@ function App() {
         let schema = parser.parse(source, "app.tsx").unwrap();
         assert!(schema.vertices.len() > 15, "expected rich JSX AST, got {} vertices", schema.vertices.len());
     }
+
+    #[test]
+    fn emit_roundtrip_typescript() {
+        let parser = TypeScriptParser::new();
+        let source = b"function add(a: number, b: number): number {\n    return a + b;\n}\n";
+        let schema = parser.parse(source, "add.ts").unwrap();
+        let emitted = parser.emit(&schema).unwrap();
+        assert_eq!(
+            std::str::from_utf8(&emitted).unwrap(),
+            std::str::from_utf8(source).unwrap(),
+            "emit(parse(source)) should reproduce the original source"
+        );
+    }
+
+    #[test]
+    fn emit_roundtrip_complex() {
+        let parser = TypeScriptParser::new();
+        let source = br#"interface Shape {
+    area(): number;
+}
+
+class Circle implements Shape {
+    constructor(private radius: number) {}
+
+    area(): number {
+        return Math.PI * this.radius * this.radius;
+    }
+}
+"#;
+        let schema = parser.parse(source, "shape.ts").unwrap();
+        let emitted = parser.emit(&schema).unwrap();
+        assert_eq!(
+            std::str::from_utf8(&emitted).unwrap(),
+            std::str::from_utf8(source).unwrap(),
+            "complex TypeScript should round-trip through parse/emit"
+        );
+    }
 }

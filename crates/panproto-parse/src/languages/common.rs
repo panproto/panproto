@@ -33,9 +33,6 @@ pub struct LanguageParser {
     protocol: Protocol,
     /// Per-language walker configuration.
     walker_config: WalkerConfig,
-    /// Cached source bytes from the most recent parse, for emission.
-    /// Protected by a mutex for thread-safety (AstParser requires Send+Sync).
-    last_source: std::sync::Mutex<Vec<u8>>,
 }
 
 impl LanguageParser {
@@ -74,6 +71,8 @@ impl LanguageParser {
                 "trailing-comma".into(),
                 "semicolon".into(),
                 "blank-lines-before".into(),
+                "start-byte".into(),
+                "end-byte".into(),
             ],
             has_order: true,
             has_coproducts: false,
@@ -93,7 +92,6 @@ impl LanguageParser {
             theory_meta,
             protocol,
             walker_config,
-            last_source: std::sync::Mutex::new(Vec::new()),
         })
     }
 
@@ -115,14 +113,11 @@ impl LanguageParser {
         let theory_name = format!("Th{}FullAST", capitalize_first(protocol_name));
         let theory_meta = extract_theory_from_node_types(&theory_name, node_types_json)?;
 
-        // Build an open protocol from the extracted theory.
-        // An open protocol (empty obj_kinds) accepts all vertex kinds,
-        // which is what we want since the walker emits the grammar's own node kinds.
         let protocol = Protocol {
             name: protocol_name.into(),
             schema_theory: theory_name.clone().into(),
             instance_theory: format!("Th{}FullASTInstance", capitalize_first(protocol_name)).into(),
-            obj_kinds: vec![], // Open protocol: accept all kinds from grammar.
+            obj_kinds: vec![],
             edge_rules: vec![],
             constraint_sorts: vec![
                 "literal-value".into(),
@@ -138,6 +133,8 @@ impl LanguageParser {
                 "trailing-comma".into(),
                 "semicolon".into(),
                 "blank-lines-before".into(),
+                "start-byte".into(),
+                "end-byte".into(),
             ],
             has_order: true,
             has_coproducts: false,
@@ -157,7 +154,6 @@ impl LanguageParser {
             theory_meta,
             protocol,
             walker_config,
-            last_source: std::sync::Mutex::new(Vec::new()),
         })
     }
 }
@@ -188,26 +184,20 @@ impl AstParser for LanguageParser {
             self.walker_config.clone(),
         );
 
-        let schema = walker.walk(&tree, file_path)?;
-
-        // Cache source bytes for emission.
-        if let Ok(mut cached) = self.last_source.lock() {
-            cached.clear();
-            cached.extend_from_slice(source);
-        }
-
-        Ok(schema)
+        walker.walk(&tree, file_path)
     }
 
     fn emit(&self, schema: &Schema) -> Result<Vec<u8>, ParseError> {
-        // Reconstruct source text from the schema's byte-range constraints.
-        // Each vertex has start-byte and end-byte constraints stored during parsing.
-        // Leaf nodes (those with literal-value) have their source text.
+        // Reconstruct source text from the schema's structural information.
         //
-        // Strategy: collect all leaf nodes with their byte ranges, sort by start-byte,
-        // and reconstruct the source by filling gaps with whitespace from the cached
-        // source bytes or with spaces.
-        emit_from_byte_ranges(schema, &self.last_source, &self.protocol_name)
+        // The walker stores two types of text constraints:
+        // 1. `literal-value` on leaf nodes: the source text of identifiers, literals, etc.
+        // 2. `interstitial-N` on parent nodes: the text between named children, which
+        //    contains keywords, punctuation, whitespace, and comments.
+        //
+        // The emitter walks the schema tree depth-first, interleaving interstitial text
+        // with child emissions to reconstruct the full source.
+        emit_from_schema(schema, &self.protocol_name)
     }
 
     fn supported_extensions(&self) -> &[&str] {
@@ -219,88 +209,80 @@ impl AstParser for LanguageParser {
     }
 }
 
-/// Reconstruct source text from schema byte-range constraints.
+/// Reconstruct source text from a schema using interstitial text and leaf literals.
 ///
-/// During parsing, each vertex is annotated with `start-byte` and `end-byte`
-/// constraints. Leaf nodes also have `literal-value` with their source text.
-/// This function collects all leaf nodes, sorts by byte position, and
-/// reconstructs the source by concatenating leaf text with gap whitespace
-/// from the cached source bytes.
-fn emit_from_byte_ranges(
-    schema: &Schema,
-    cached_source: &std::sync::Mutex<Vec<u8>>,
-    protocol: &str,
-) -> Result<Vec<u8>, ParseError> {
-    let source_bytes = cached_source.lock().map_err(|_| ParseError::EmitFailed {
-        protocol: protocol.to_owned(),
-        reason: "failed to acquire source cache lock".to_owned(),
-    })?;
-
-    // If we have cached source bytes, return them directly.
-    // The schema is a structural representation of the same source;
-    // the authoritative text is the cached source.
-    if !source_bytes.is_empty() {
-        return Ok(source_bytes.clone());
-    }
-
-    // No cached source: reconstruct from leaf literal-value constraints
-    // ordered by start-byte position.
-    let mut leaves: Vec<(usize, usize, String)> = Vec::new();
+/// The walker stores two types of text data:
+/// - `literal-value` on leaf nodes: identifiers, literals, keywords that are named nodes
+/// - `interstitial-N` on parent nodes: text between named children (keywords, punctuation,
+///   whitespace, comments from anonymous/unnamed tokens)
+///
+/// The emitter reconstructs source by collecting ALL text fragments (both interstitials
+/// and leaf literals) and sorting them by their byte position in the original source.
+/// This produces exact round-trip fidelity: `emit(parse(source))` = `source`.
+fn emit_from_schema(schema: &Schema, protocol: &str) -> Result<Vec<u8>, ParseError> {
+    // Collect all text fragments with their byte positions.
+    // Each fragment is (start_byte, text).
+    let mut fragments: Vec<(usize, String)> = Vec::new();
 
     for (name, _vertex) in &schema.vertices {
         if let Some(constraints) = schema.constraints.get(name) {
-            let start = constraints
+            // Get start-byte for this vertex.
+            let start_byte = constraints
                 .iter()
                 .find(|c| c.sort.as_ref() == "start-byte")
                 .and_then(|c| c.value.parse::<usize>().ok());
-            let end = constraints
-                .iter()
-                .find(|c| c.sort.as_ref() == "end-byte")
-                .and_then(|c| c.value.parse::<usize>().ok());
+
+            // Collect literal-value from leaf nodes.
             let literal = constraints
                 .iter()
                 .find(|c| c.sort.as_ref() == "literal-value")
                 .map(|c| c.value.clone());
 
-            if let (Some(s), Some(e), Some(text)) = (start, end, literal) {
-                leaves.push((s, e, text));
+            if let (Some(start), Some(text)) = (start_byte, literal) {
+                fragments.push((start, text));
+            }
+
+            // Collect interstitial text fragments.
+            // Each interstitial has a byte position derived from its parent and index.
+            for c in constraints {
+                let sort_str = c.sort.as_ref();
+                if sort_str.starts_with("interstitial-") {
+                    // The interstitial's position is encoded in a companion constraint.
+                    // We stored interstitial-N-start-byte alongside interstitial-N.
+                    let pos_sort = format!("{sort_str}-start-byte");
+                    let pos = constraints
+                        .iter()
+                        .find(|c2| c2.sort.as_ref() == pos_sort.as_str())
+                        .and_then(|c2| c2.value.parse::<usize>().ok());
+
+                    if let Some(p) = pos {
+                        fragments.push((p, c.value.clone()));
+                    }
+                }
             }
         }
     }
 
-    if leaves.is_empty() {
+    if fragments.is_empty() {
         return Err(ParseError::EmitFailed {
             protocol: protocol.to_owned(),
-            reason: "schema has no leaf nodes with literal-value constraints".to_owned(),
+            reason: "schema has no text fragments".to_owned(),
         });
     }
 
-    // Sort by start byte position.
-    leaves.sort_by_key(|(s, _, _)| *s);
+    // Sort by byte position and concatenate.
+    fragments.sort_by_key(|(pos, _)| *pos);
 
-    // Reconstruct source by concatenating leaves with gap whitespace.
+    // Deduplicate overlapping fragments (parent interstitials may overlap with
+    // child literals). Keep the first fragment at each position.
     let mut output = Vec::new();
     let mut cursor = 0;
 
-    for (start, _end, text) in &leaves {
-        // Fill gap between cursor and this leaf's start with spaces.
-        if *start > cursor {
-            let gap_size = start - cursor;
-            // Use a single space for small gaps, newlines for larger ones.
-            if gap_size <= 2 {
-                for _ in 0..gap_size {
-                    output.push(b' ');
-                }
-            } else {
-                output.push(b'\n');
-                // Estimate indentation from the gap size.
-                for _ in 0..(gap_size.saturating_sub(1)) {
-                    output.push(b' ');
-                }
-            }
+    for (pos, text) in &fragments {
+        if *pos >= cursor {
+            output.extend_from_slice(text.as_bytes());
+            cursor = pos + text.len();
         }
-        output.extend_from_slice(text.as_bytes());
-        cursor = *start + text.len();
     }
 
     Ok(output)

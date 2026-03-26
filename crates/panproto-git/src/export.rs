@@ -90,9 +90,10 @@ pub fn export_to_git<S: Store>(
     tree_builder.insert("commit.json", commit_blob, 0o100644)?;
     file_count += 1;
 
-    // Extract leaf node literal values to reconstruct approximate source.
+    // Extract leaf node literal values to reconstruct source per file.
     // Group vertices by their file prefix (before the first "::").
     let mut files_content: FxHashMap<String, Vec<(usize, String)>> = FxHashMap::default();
+    let mut file_blobs: FxHashMap<String, git2::Oid> = FxHashMap::default();
     for (name, _vertex) in &schema.vertices {
         if let Some(constraints) = schema.constraints.get(name) {
             let start_byte = constraints
@@ -143,15 +144,16 @@ pub fn export_to_git<S: Store>(
         }
 
         if !content.is_empty() {
-            let blob = git_repo.blob(&content)?;
-            // Ensure directory structure exists in the tree builder.
-            // For nested paths (e.g., "src/main.ts"), we need subtrees.
-            // For simplicity, flatten the path using the file path directly.
-            let safe_path = file_path.replace('/', "_");
-            tree_builder.insert(&safe_path, blob, 0o100644)?;
+            let blob_oid = git_repo.blob(&content)?;
+            // Track file path → blob OID for nested tree construction.
+            file_blobs.insert(file_path, blob_oid);
             file_count += 1;
         }
     }
+
+    // Build nested git tree structure from file paths.
+    // Group files by their directory prefix and create subtrees.
+    build_nested_tree(git_repo, &mut tree_builder, &file_blobs)?;
 
     let tree_oid = tree_builder.write()?;
     let tree = git_repo.find_tree(tree_oid)?;
@@ -187,6 +189,81 @@ pub fn export_to_git<S: Store>(
         git_oid,
         file_count,
     })
+}
+
+/// Build a nested git tree structure from a flat map of file paths to blob OIDs.
+///
+/// For paths like `"src/main.ts"`, this creates a subtree `"src"` containing
+/// the blob `"main.ts"`. Deeply nested paths create multiple levels of subtrees.
+fn build_nested_tree(
+    repo: &git2::Repository,
+    root_builder: &mut git2::TreeBuilder<'_>,
+    file_blobs: &FxHashMap<String, git2::Oid>,
+) -> Result<(), GitBridgeError> {
+    // Group files by top-level directory.
+    let mut dirs: FxHashMap<String, Vec<(String, git2::Oid)>> = FxHashMap::default();
+    let mut root_files: Vec<(String, git2::Oid)> = Vec::new();
+
+    for (path, oid) in file_blobs {
+        if let Some(slash_pos) = path.find('/') {
+            let dir = &path[..slash_pos];
+            let rest = &path[slash_pos + 1..];
+            dirs.entry(dir.to_owned())
+                .or_default()
+                .push((rest.to_owned(), *oid));
+        } else {
+            root_files.push((path.clone(), *oid));
+        }
+    }
+
+    // Insert root-level files directly.
+    for (name, oid) in &root_files {
+        root_builder.insert(name, *oid, 0o100644)?;
+    }
+
+    // Recursively build subtrees for directories.
+    for (dir_name, entries) in &dirs {
+        let subtree_oid = build_subtree(repo, entries)?;
+        root_builder.insert(dir_name, subtree_oid, 0o040000)?;
+    }
+
+    Ok(())
+}
+
+/// Recursively build a git subtree from a list of (relative_path, blob_oid) entries.
+fn build_subtree(
+    repo: &git2::Repository,
+    entries: &[(String, git2::Oid)],
+) -> Result<git2::Oid, GitBridgeError> {
+    let mut builder = repo.treebuilder(None)?;
+
+    // Separate files from subdirectories.
+    let mut subdirs: FxHashMap<String, Vec<(String, git2::Oid)>> = FxHashMap::default();
+    let mut files: Vec<(String, git2::Oid)> = Vec::new();
+
+    for (path, oid) in entries {
+        if let Some(slash_pos) = path.find('/') {
+            let dir = &path[..slash_pos];
+            let rest = &path[slash_pos + 1..];
+            subdirs
+                .entry(dir.to_owned())
+                .or_default()
+                .push((rest.to_owned(), *oid));
+        } else {
+            files.push((path.clone(), *oid));
+        }
+    }
+
+    for (name, oid) in &files {
+        builder.insert(name, *oid, 0o100644)?;
+    }
+
+    for (dir_name, sub_entries) in &subdirs {
+        let subtree_oid = build_subtree(repo, sub_entries)?;
+        builder.insert(dir_name, subtree_oid, 0o040000)?;
+    }
+
+    Ok(builder.write()?)
 }
 
 /// Detect the appropriate file extension for a protocol name.

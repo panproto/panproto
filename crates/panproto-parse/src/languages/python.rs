@@ -121,4 +121,17 @@ async def process(items):
         assert!(meta.vertex_kinds.len() > 50, "expected 50+ vertex kinds, got {}", meta.vertex_kinds.len());
         assert!(meta.edge_kinds.len() > 20, "expected 20+ edge kinds, got {}", meta.edge_kinds.len());
     }
+
+    #[test]
+    fn emit_roundtrip_python() {
+        let parser = PythonParser::new();
+        let source = b"def add(a, b):\n    return a + b\n";
+        let schema = parser.parse(source, "add.py").unwrap();
+        let emitted = parser.emit(&schema).unwrap();
+        assert_eq!(
+            std::str::from_utf8(&emitted).unwrap(),
+            std::str::from_utf8(source).unwrap(),
+            "Python emit(parse(source)) should reproduce the original source"
+        );
+    }
 }

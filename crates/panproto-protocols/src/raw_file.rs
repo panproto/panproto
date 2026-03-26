@@ -136,7 +136,7 @@ pub fn parse_text(input: &str, file_path: &str) -> Result<Schema, ProtocolError>
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if schema construction fails.
-pub fn parse_binary(file_path: &str) -> Result<Schema, ProtocolError> {
+pub fn parse_binary(file_path: &str, content: &[u8]) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 
@@ -148,6 +148,7 @@ pub fn parse_binary(file_path: &str) -> Result<Schema, ProtocolError> {
     let mime = mime_from_path(file_path);
     builder = builder.constraint(file_id, "mime-type", &mime);
     builder = builder.constraint(file_id, "encoding", "binary");
+    builder = builder.constraint(file_id, "content-length", &content.len().to_string());
 
     let chunk_id = format!("{file_id}::chunk_0");
     builder = builder
@@ -157,6 +158,12 @@ pub fn parse_binary(file_path: &str) -> Result<Schema, ProtocolError> {
     builder = builder
         .edge(file_id, &chunk_id, "chunk-of", None)
         .map_err(|e| ProtocolError::Parse(format!("chunk-of edge: {e}")))?;
+
+    // Store a content hash on the chunk vertex so the schema tracks identity
+    // of the binary content. The actual bytes are stored by the VCS object store,
+    // not inline in the schema (binary data can be arbitrarily large).
+    let hash = blake3::hash(content);
+    builder = builder.constraint(&chunk_id, "content-hash", &hash.to_hex().to_string());
 
     builder
         .build()
@@ -312,7 +319,7 @@ mod tests {
 
     #[test]
     fn parse_binary_file() {
-        let schema = parse_binary("image.png").unwrap();
+        let schema = parse_binary("image.png", &[0x89, 0x50, 0x4E, 0x47]).unwrap();
         assert_eq!(schema.vertices.len(), 2); // file + chunk
 
         let file_name: panproto_gat::Name = "image.png".into();

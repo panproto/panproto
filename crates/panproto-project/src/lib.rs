@@ -117,7 +117,7 @@ impl ProjectBuilder {
                 }
             }
         } else if detect::is_binary_extension(path) {
-            let schema = raw_file::parse_binary(&path_str)
+            let schema = raw_file::parse_binary(&path_str, content)
                 .map_err(|e| ProjectError::ParseFailed {
                     path: path_str.clone(),
                     reason: e.to_string(),

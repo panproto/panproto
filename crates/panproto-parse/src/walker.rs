@@ -277,41 +277,52 @@ impl<'a> AstWalker<'a> {
             false
         };
 
-        // Recurse into named children, collecting comments to attach to
-        // the next non-comment sibling.
+        // Capture interstitial text: the source bytes between named children,
+        // which contains keywords, punctuation, whitespace, and comments.
+        // This enables the emitter to reconstruct the full source text.
         let cursor = &mut node.walk();
         let children: Vec<_> = node.named_children(cursor).collect();
-        let mut pending_comments: Vec<String> = Vec::new();
+        let mut interstitial_idx = 0;
+        let mut prev_end = node.start_byte();
 
-        for child in children {
-            if self.config.capture_comments && child.kind() == "comment" {
-                if let Ok(text) = child.utf8_text(self.source) {
-                    pending_comments.push(text.to_owned());
+        for child in &children {
+            // Capture interstitial text before this child (keywords, punctuation, whitespace).
+            let gap_start = prev_end;
+            let gap_end = child.start_byte();
+            if gap_end > gap_start && gap_end <= self.source.len() {
+                if let Ok(gap_text) = std::str::from_utf8(&self.source[gap_start..gap_end]) {
+                    if !gap_text.is_empty() {
+                        let sort = format!("interstitial-{interstitial_idx}");
+                        builder = builder.constraint(&vertex_id, &sort, gap_text);
+                        // Store the byte position of this interstitial for the emitter.
+                        builder = builder.constraint(
+                            &vertex_id,
+                            &format!("{sort}-start-byte"),
+                            &gap_start.to_string(),
+                        );
+                        interstitial_idx += 1;
+                    }
                 }
-                continue;
             }
 
-            builder = self.walk_node(child, builder, id_gen, Some(&vertex_id))?;
-
-            // Attach pending comments to the vertex that was just created for this child.
-            if !pending_comments.is_empty() {
-                // The child's vertex ID is the most recently added vertex. We reconstruct
-                // it by looking at what the id_gen would have produced. Since walk_node
-                // already created it, we find the last vertex that was added by looking
-                // at the builder's current state. However, SchemaBuilder doesn't expose
-                // iteration, so we use a simpler approach: attach to the parent vertex.
-                // This is semantically correct (comments are part of the parent's scope)
-                // and avoids complex lookahead.
-                let comment_text = pending_comments.join("\n");
-                builder = builder.constraint(&vertex_id, "comment", &comment_text);
-                pending_comments.clear();
-            }
+            builder = self.walk_node(*child, builder, id_gen, Some(&vertex_id))?;
+            prev_end = child.end_byte();
         }
 
-        // Any trailing comments (no following sibling) attach to the parent.
-        if !pending_comments.is_empty() {
-            let comment_text = pending_comments.join("\n");
-            builder = builder.constraint(&vertex_id, "comment", &comment_text);
+        // Capture trailing interstitial text after the last child.
+        let trailing_end = node.end_byte();
+        if trailing_end > prev_end && trailing_end <= self.source.len() {
+            if let Ok(gap_text) = std::str::from_utf8(&self.source[prev_end..trailing_end]) {
+                if !gap_text.is_empty() {
+                    let sort = format!("interstitial-{interstitial_idx}");
+                    builder = builder.constraint(&vertex_id, &sort, gap_text);
+                    builder = builder.constraint(
+                        &vertex_id,
+                        &format!("{sort}-start-byte"),
+                        &prev_end.to_string(),
+                    );
+                }
+            }
         }
 
         // Exit scope.
