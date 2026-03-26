@@ -19,7 +19,9 @@ tree-sitter-rust = { workspace = true }
 tree-sitter-java = { workspace = true }
 tree-sitter-go = { workspace = true }
 tree-sitter-swift = { workspace = true }
-tree-sitter-kotlin = { workspace = true }
+# tree-sitter-kotlin omitted: 0.3.x depends on tree-sitter 0.20 which causes
+# duplicate symbol errors in cdylib targets. Kotlin node-types.json is embedded
+# directly in src/languages/kotlin-node-types.json for theory extraction.
 tree-sitter-c-sharp = { workspace = true }
 tree-sitter-c = { workspace = true }
 tree-sitter-cpp = { workspace = true }

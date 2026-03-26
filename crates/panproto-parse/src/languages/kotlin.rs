@@ -28,7 +28,7 @@ impl KotlinParser {
     pub fn new() -> Self {
         let theory_meta = match extract_theory_from_node_types(
             "ThKotlinFullAST",
-            tree_sitter_kotlin::NODE_TYPES.as_bytes(),
+            include_bytes!("kotlin-node-types.json"),
         ) {
             Ok(meta) => meta,
             Err(e) => panic!("Kotlin grammar theory extraction failed: {e}"),

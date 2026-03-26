@@ -281,28 +281,8 @@ mod inner {
                 BuiltinOp::Mod => {
                     self.compile_int_binop(args, builder, env, Builder::build_int_signed_rem, "mod")
                 }
-                BuiltinOp::Neg => {
-                    let arg = self.compile_unary_arg(args, builder, env)?;
-                    let val = self.coerce_to_i64(builder, arg)?;
-                    Ok(builder
-                        .build_int_neg(val, "neg")
-                        .map_err(Self::cg_err)?
-                        .into())
-                }
-                BuiltinOp::Abs => {
-                    let arg = self.compile_unary_arg(args, builder, env)?;
-                    let val = self.coerce_to_i64(builder, arg)?;
-                    let zero = self.context.i64_type().const_int(0, false);
-                    let is_neg = builder
-                        .build_int_compare(inkwell::IntPredicate::SLT, val, zero, "is_neg")
-                        .map_err(Self::cg_err)?;
-                    let neg_val = builder.build_int_neg(val, "neg").map_err(Self::cg_err)?;
-                    Ok(builder
-                        .build_select(is_neg, neg_val, val, "abs")
-                        .map_err(Self::cg_err)?
-                        .into_int_value()
-                        .into())
-                }
+                BuiltinOp::Neg => self.compile_neg(args, builder, env),
+                BuiltinOp::Abs => self.compile_abs(args, builder, env),
 
                 BuiltinOp::Eq => {
                     self.compile_int_cmp(inkwell::IntPredicate::EQ, args, builder, env)
@@ -322,35 +302,15 @@ mod inner {
                 BuiltinOp::Gte => {
                     self.compile_int_cmp(inkwell::IntPredicate::SGE, args, builder, env)
                 }
-
                 BuiltinOp::And => {
                     self.compile_int_binop(args, builder, env, Builder::build_and, "and")
                 }
                 BuiltinOp::Or => {
                     self.compile_int_binop(args, builder, env, Builder::build_or, "or")
                 }
-                BuiltinOp::Not => {
-                    let arg = self.compile_unary_arg(args, builder, env)?;
-                    let val = self.coerce_to_i64(builder, arg)?;
-                    Ok(builder.build_not(val, "not").map_err(Self::cg_err)?.into())
-                }
-
-                BuiltinOp::IntToFloat => {
-                    let arg = self.compile_unary_arg(args, builder, env)?;
-                    let val = self.coerce_to_i64(builder, arg)?;
-                    Ok(builder
-                        .build_signed_int_to_float(val, self.context.f64_type(), "itof")
-                        .map_err(Self::cg_err)?
-                        .into())
-                }
-                BuiltinOp::FloatToInt => {
-                    let arg = self.compile_unary_arg(args, builder, env)?;
-                    let val = self.coerce_to_f64(builder, arg)?;
-                    Ok(builder
-                        .build_float_to_signed_int(val, self.context.i64_type(), "ftoi")
-                        .map_err(Self::cg_err)?
-                        .into())
-                }
+                BuiltinOp::Not => self.compile_not(args, builder, env),
+                BuiltinOp::IntToFloat => self.compile_int_to_float(args, builder, env),
+                BuiltinOp::FloatToInt => self.compile_float_to_int(args, builder, env),
 
                 BuiltinOp::Floor => self.compile_round(
                     args,
@@ -375,6 +335,84 @@ mod inner {
                     ),
                 }),
             }
+        }
+
+        /// Compile integer negation.
+        fn compile_neg<'ctx>(
+            &self,
+            args: &[Expr],
+            builder: &Builder<'ctx>,
+            env: &mut HashMap<String, BasicValueEnum<'ctx>>,
+        ) -> Result<BasicValueEnum<'ctx>, JitError> {
+            let arg = self.compile_unary_arg(args, builder, env)?;
+            let val = self.coerce_to_i64(builder, arg)?;
+            Ok(builder
+                .build_int_neg(val, "neg")
+                .map_err(Self::cg_err)?
+                .into())
+        }
+
+        /// Compile absolute value: `abs(x) = x >= 0 ? x : -x`.
+        fn compile_abs<'ctx>(
+            &self,
+            args: &[Expr],
+            builder: &Builder<'ctx>,
+            env: &mut HashMap<String, BasicValueEnum<'ctx>>,
+        ) -> Result<BasicValueEnum<'ctx>, JitError> {
+            let arg = self.compile_unary_arg(args, builder, env)?;
+            let val = self.coerce_to_i64(builder, arg)?;
+            let zero = self.context.i64_type().const_int(0, false);
+            let is_neg = builder
+                .build_int_compare(inkwell::IntPredicate::SLT, val, zero, "is_neg")
+                .map_err(Self::cg_err)?;
+            let neg_val = builder.build_int_neg(val, "neg").map_err(Self::cg_err)?;
+            Ok(builder
+                .build_select(is_neg, neg_val, val, "abs")
+                .map_err(Self::cg_err)?
+                .into_int_value()
+                .into())
+        }
+
+        /// Compile bitwise NOT.
+        fn compile_not<'ctx>(
+            &self,
+            args: &[Expr],
+            builder: &Builder<'ctx>,
+            env: &mut HashMap<String, BasicValueEnum<'ctx>>,
+        ) -> Result<BasicValueEnum<'ctx>, JitError> {
+            let arg = self.compile_unary_arg(args, builder, env)?;
+            let val = self.coerce_to_i64(builder, arg)?;
+            Ok(builder.build_not(val, "not").map_err(Self::cg_err)?.into())
+        }
+
+        /// Compile integer to float conversion.
+        fn compile_int_to_float<'ctx>(
+            &self,
+            args: &[Expr],
+            builder: &Builder<'ctx>,
+            env: &mut HashMap<String, BasicValueEnum<'ctx>>,
+        ) -> Result<BasicValueEnum<'ctx>, JitError> {
+            let arg = self.compile_unary_arg(args, builder, env)?;
+            let val = self.coerce_to_i64(builder, arg)?;
+            Ok(builder
+                .build_signed_int_to_float(val, self.context.f64_type(), "itof")
+                .map_err(Self::cg_err)?
+                .into())
+        }
+
+        /// Compile float to integer conversion.
+        fn compile_float_to_int<'ctx>(
+            &self,
+            args: &[Expr],
+            builder: &Builder<'ctx>,
+            env: &mut HashMap<String, BasicValueEnum<'ctx>>,
+        ) -> Result<BasicValueEnum<'ctx>, JitError> {
+            let arg = self.compile_unary_arg(args, builder, env)?;
+            let val = self.coerce_to_f64(builder, arg)?;
+            Ok(builder
+                .build_float_to_signed_int(val, self.context.i64_type(), "ftoi")
+                .map_err(Self::cg_err)?
+                .into())
         }
 
         /// Compile a match expression.
