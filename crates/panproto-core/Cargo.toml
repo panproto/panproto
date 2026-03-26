@@ -7,6 +7,20 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Enable full-AST tree-sitter parsing for 10 languages.
+# Adds C compilation dependencies (tree-sitter grammars).
+full-parse = ["dep:panproto-parse"]
+# Enable multi-file project assembly.
+project = ["dep:panproto-project", "full-parse"]
+# Enable git bridge for bidirectional git ↔ panproto-vcs translation.
+git = ["dep:panproto-git", "project"]
+# Enable LLVM IR protocol and lowering morphisms.
+llvm = ["dep:panproto-llvm"]
+# Enable LLVM JIT compilation of expressions.
+jit = ["dep:panproto-jit"]
+
 [dependencies]
 panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
@@ -17,6 +31,13 @@ panproto-check = { workspace = true }
 panproto-protocols = { workspace = true }
 panproto-io = { workspace = true }
 panproto-vcs = { workspace = true }
+
+# Optional cospan-support crates (feature-gated).
+panproto-parse = { workspace = true, optional = true }
+panproto-project = { workspace = true, optional = true }
+panproto-git = { workspace = true, optional = true }
+panproto-llvm = { version = "0.15.0", path = "../panproto-llvm", optional = true }
+panproto-jit = { version = "0.15.0", path = "../panproto-jit", optional = true }
 
 [lints]
 workspace = true
