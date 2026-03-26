@@ -93,7 +93,7 @@ impl PyProjectSchema {
     }
 }
 
-/// Build a ProjectSchema from a ProjectBuilder.
+/// Build a `ProjectSchema` from a `ProjectBuilder`.
 #[pyfunction]
 fn build_project(builder: &mut PyProjectBuilder) -> PyResult<PyProjectSchema> {
     // We need to take ownership, so swap with a fresh builder.
@@ -104,7 +104,7 @@ fn build_project(builder: &mut PyProjectBuilder) -> PyResult<PyProjectSchema> {
     Ok(PyProjectSchema { inner: project })
 }
 
-/// Parse a directory into a ProjectSchema (convenience function).
+/// Parse a directory into a `ProjectSchema` (convenience function).
 #[pyfunction]
 fn parse_project(directory: &str) -> PyResult<PyProjectSchema> {
     let mut builder = ProjectBuilder::new();

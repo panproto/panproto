@@ -18,7 +18,7 @@ pub struct PyGitImportResult {
 impl PyGitImportResult {
     /// Number of commits imported.
     #[getter]
-    fn commit_count(&self) -> usize {
+    const fn commit_count(&self) -> usize {
         self.commit_count
     }
 

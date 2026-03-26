@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["inkwell-backend"]
+default = []
 inkwell-backend = ["dep:inkwell"]
 
 [dependencies]
