@@ -1,12 +1,12 @@
 //! Common language parser implementation shared by all tree-sitter-based parsers.
 //!
-//! Since the generic [`AstWalker`] handles all languages uniformly (the node kind
-//! IS the vertex kind, the field name IS the edge kind), per-language parsers are
-//! thin wrappers that provide:
+//! Since the generic [`AstWalker`](crate::walker::AstWalker) handles all languages
+//! uniformly (the node kind IS the vertex kind, the field name IS the edge kind),
+//! per-language parsers are thin wrappers that provide:
 //!
 //! 1. The tree-sitter Language object
 //! 2. The embedded `NODE_TYPES` JSON
-//! 3. Language-specific [`WalkerConfig`] overrides
+//! 3. Language-specific [`WalkerConfig`](crate::walker::WalkerConfig) overrides
 //! 4. File extension mapping
 
 use panproto_schema::{Protocol, Schema};

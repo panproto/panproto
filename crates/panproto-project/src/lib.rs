@@ -9,7 +9,7 @@
 //! ## Two-pass approach
 //!
 //! 1. **Parse pass**: For each file, detect language, parse via
-//!    [`ParserRegistry`](panproto_parse::ParserRegistry), prefix vertex IDs
+//!    `ParserRegistry`, prefix vertex IDs
 //!    with the file path.
 //! 2. **Resolve pass** (future): Walk `import` vertices, match against exports
 //!    in other file schemas, emit `imports` edges connecting them.
@@ -18,7 +18,7 @@
 //!
 //! The schema-level coproduct prefixes each file's vertex names with the file
 //! path. Edges within a file retain their local structure. The result is a
-//! single [`Schema`](panproto_schema::Schema) spanning the entire project.
+//! single [`Schema`] spanning the entire project.
 //!
 //! The coproduct is universal: any morphism out of the project schema restricts
 //! to per-file morphisms. This means per-file diffs compose into project-level

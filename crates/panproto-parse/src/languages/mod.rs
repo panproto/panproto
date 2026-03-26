@@ -1,13 +1,13 @@
 //! Per-language parser and emitter implementations.
 //!
 //! Each module provides a tree-sitter-based parser and schema emitter for a
-//! specific programming language. All parsers use the shared [`LanguageParser`]
-//! infrastructure from [`common`], which delegates to the generic
-//! [`AstWalker`](crate::walker::AstWalker) with an auto-derived theory.
+//! specific programming language. All parsers use the shared `LanguageParser`
+//! infrastructure from `common`, which delegates to the generic
+//! `AstWalker` with an auto-derived theory.
 //!
 //! Per-language customization is limited to:
 //! - The tree-sitter grammar (Language + `NODE_TYPES`)
-//! - [`WalkerConfig`](crate::walker::WalkerConfig) overrides for scope/block detection
+//! - `WalkerConfig` overrides for scope/block detection
 //! - File extension mapping
 
 /// Shared language parser implementation.

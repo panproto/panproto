@@ -5,7 +5,7 @@
 //! enable cross-level migration (change a TypeScript type, and the
 //! LLVM IR migration is automatically derived via functoriality).
 //!
-//! Each language lowering defines a [`TheoryMorphism`] mapping AST sorts
+//! Each language lowering defines a `TheoryMorphism` mapping AST sorts
 //! and operations to LLVM IR sorts and operations.
 
 use std::sync::Arc;

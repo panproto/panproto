@@ -4,8 +4,8 @@
 //!
 //! Enables `git push cospan main` by translating between git repositories
 //! and panproto-vcs stores. On import, git trees are parsed through
-//! [`panproto-project`] to produce structural schemas. On export, schemas
-//! are emitted back to source text via [`panproto-parse`] emitters.
+//! `panproto-project` to produce structural schemas. On export, schemas
+//! are emitted back to source text via `panproto-parse` emitters.
 //!
 //! ## Import flow (git → panproto)
 //!

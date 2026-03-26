@@ -233,7 +233,7 @@ pub fn extract_theory_from_entries(
     })
 }
 
-/// Extract a theory at runtime from a tree-sitter [`Language`] object.
+/// Extract a theory at runtime from a tree-sitter `Language` object.
 ///
 /// This uses the Language introspection API (`node_kind_count`, `field_count`,
 /// `node_kind_is_named`, `supertypes()`) rather than parsing `node-types.json`.
