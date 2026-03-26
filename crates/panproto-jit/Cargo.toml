@@ -1,0 +1,31 @@
+[package]
+name = "panproto-jit"
+description = "LLVM JIT compilation of panproto expressions for accelerated data migration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["inkwell-jit"]
+inkwell-jit = ["dep:inkwell"]
+
+[dependencies]
+panproto-expr = { workspace = true }
+inkwell = { version = "0.8", features = ["llvm20-1"], optional = true }
+thiserror = { workspace = true }
+miette = { workspace = true }
+
+[lints.rust]
+# JIT compilation requires unsafe FFI calls to LLVM via inkwell.
+# This is inherent to the domain and cannot be avoided.
+unsafe_code = "allow"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"

@@ -1,0 +1,40 @@
+[package]
+name = "panproto-parse"
+description = "Tree-sitter full-AST parsers and emitters for panproto language protocols"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+panproto-gat = { workspace = true }
+panproto-schema = { workspace = true }
+panproto-protocols = { workspace = true }
+
+tree-sitter = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-python = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-java = { workspace = true }
+tree-sitter-go = { workspace = true }
+tree-sitter-swift = { workspace = true }
+tree-sitter-kotlin = { workspace = true }
+tree-sitter-c-sharp = { workspace = true }
+tree-sitter-c = { workspace = true }
+tree-sitter-cpp = { workspace = true }
+
+tree-sitter-language = "0.1"
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+miette = { workspace = true }
+rustc-hash = { workspace = true }
+smallvec = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

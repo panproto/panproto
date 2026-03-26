@@ -1,0 +1,444 @@
+//! # panproto-project
+//!
+//! Multi-file project assembly via schema coproduct for panproto.
+//!
+//! Orchestrates parsing all files in a project directory into a unified
+//! project-level schema. The project schema is the coproduct (disjoint union)
+//! of per-file schemas, with cross-file edges for imports and type references.
+//!
+//! ## Two-pass approach
+//!
+//! 1. **Parse pass**: For each file, detect language, parse via
+//!    [`ParserRegistry`](panproto_parse::ParserRegistry), prefix vertex IDs
+//!    with the file path.
+//! 2. **Resolve pass** (future): Walk `import` vertices, match against exports
+//!    in other file schemas, emit `imports` edges connecting them.
+//!
+//! ## Coproduct construction
+//!
+//! The schema-level coproduct prefixes each file's vertex names with the file
+//! path. Edges within a file retain their local structure. The result is a
+//! single [`Schema`](panproto_schema::Schema) spanning the entire project.
+//!
+//! The coproduct is universal: any morphism out of the project schema restricts
+//! to per-file morphisms. This means per-file diffs compose into project-level
+//! diffs automatically.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use panproto_parse::ParserRegistry;
+use panproto_protocols::raw_file;
+use panproto_schema::Schema;
+use rustc_hash::FxHashMap;
+
+/// Error types for project assembly.
+pub mod error;
+
+/// Language detection by file extension.
+pub mod detect;
+
+pub use error::ProjectError;
+
+/// A parsed project containing a unified schema and per-file metadata.
+#[derive(Debug, Clone)]
+pub struct ProjectSchema {
+    /// The unified coproduct schema spanning all files.
+    pub schema: Schema,
+    /// Mapping from file path to the root vertex IDs belonging to that file.
+    pub file_map: HashMap<PathBuf, Vec<panproto_gat::Name>>,
+    /// Mapping from file path to the protocol used to parse it.
+    pub protocol_map: HashMap<PathBuf, String>,
+}
+
+/// Builder for assembling a multi-file project into a unified schema.
+///
+/// Files are added one at a time (or by scanning a directory), then assembled
+/// into a [`ProjectSchema`] via coproduct construction.
+pub struct ProjectBuilder {
+    /// The parser registry for all supported languages.
+    registry: ParserRegistry,
+    /// Per-file parsed schemas, keyed by file path.
+    file_schemas: FxHashMap<PathBuf, Schema>,
+    /// Per-file protocol names.
+    protocol_map: FxHashMap<PathBuf, String>,
+}
+
+impl ProjectBuilder {
+    /// Create a new project builder with the default parser registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            registry: ParserRegistry::new(),
+            file_schemas: FxHashMap::default(),
+            protocol_map: FxHashMap::default(),
+        }
+    }
+
+    /// Create a new project builder with a custom parser registry.
+    #[must_use]
+    pub fn with_registry(registry: ParserRegistry) -> Self {
+        Self {
+            registry,
+            file_schemas: FxHashMap::default(),
+            protocol_map: FxHashMap::default(),
+        }
+    }
+
+    /// Add a single file to the project.
+    ///
+    /// The file's language is detected from its path. If the language is
+    /// recognized, the file is parsed via tree-sitter. Otherwise, it is
+    /// parsed as a raw file (text or binary).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProjectError::ParseFailed`] if parsing fails.
+    pub fn add_file(&mut self, path: &Path, content: &[u8]) -> Result<(), ProjectError> {
+        let path_str = path.display().to_string();
+
+        // Detect language and parse.
+        let (schema, protocol_name) = if let Some(protocol) = detect::detect_language(path) {
+            match self.registry.parse_with_protocol(protocol, content, &path_str) {
+                Ok(schema) => (schema, protocol.to_owned()),
+                Err(_) => {
+                    // Fall back to raw file parsing if the language parser fails
+                    // (e.g., Kotlin's tree-sitter grammar is ABI-incompatible).
+                    let text = std::str::from_utf8(content).map_err(|e| ProjectError::ParseFailed {
+                        path: path_str.clone(),
+                        reason: format!("UTF-8 decode: {e}"),
+                    })?;
+                    let schema = raw_file::parse_text(text, &path_str)
+                        .map_err(|e| ProjectError::ParseFailed {
+                            path: path_str.clone(),
+                            reason: e.to_string(),
+                        })?;
+                    (schema, "raw_file".to_owned())
+                }
+            }
+        } else if detect::is_binary_extension(path) {
+            let schema = raw_file::parse_binary(&path_str, content)
+                .map_err(|e| ProjectError::ParseFailed {
+                    path: path_str.clone(),
+                    reason: e.to_string(),
+                })?;
+            (schema, "raw_file".to_owned())
+        } else {
+            // Parse as text raw file.
+            let text = std::str::from_utf8(content).map_err(|e| ProjectError::ParseFailed {
+                path: path_str.clone(),
+                reason: format!("UTF-8 decode: {e}"),
+            })?;
+            let schema = raw_file::parse_text(text, &path_str)
+                .map_err(|e| ProjectError::ParseFailed {
+                    path: path_str.clone(),
+                    reason: e.to_string(),
+                })?;
+            (schema, "raw_file".to_owned())
+        };
+
+        self.file_schemas.insert(path.to_owned(), schema);
+        self.protocol_map.insert(path.to_owned(), protocol_name);
+        Ok(())
+    }
+
+    /// Add all files in a directory (recursively).
+    ///
+    /// Skips hidden directories (starting with `.`) and common build/output
+    /// directories (`target`, `node_modules`, `__pycache__`, `.git`, etc.).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProjectError`] if any file fails to read or parse.
+    pub fn add_directory(&mut self, dir: &Path) -> Result<(), ProjectError> {
+        self.walk_directory(dir)
+    }
+
+    /// Recursively walk a directory, adding all files.
+    fn walk_directory(&mut self, dir: &Path) -> Result<(), ProjectError> {
+        let entries = std::fs::read_dir(dir)?;
+
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            let file_name = entry.file_name();
+            let name_str = file_name.to_string_lossy();
+
+            // Skip hidden files/directories and common build directories.
+            if name_str.starts_with('.')
+                || name_str == "target"
+                || name_str == "node_modules"
+                || name_str == "__pycache__"
+                || name_str == "build"
+                || name_str == "dist"
+                || name_str == ".git"
+                || name_str == "vendor"
+                || name_str == "Pods"
+            {
+                continue;
+            }
+
+            if path.is_dir() {
+                self.walk_directory(&path)?;
+            } else if path.is_file() {
+                let content = std::fs::read(&path)?;
+                self.add_file(&path, &content)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get the number of files added to the builder.
+    #[must_use]
+    pub fn file_count(&self) -> usize {
+        self.file_schemas.len()
+    }
+
+    /// Build the project schema by constructing the coproduct of all file schemas.
+    ///
+    /// Each file's vertices are prefixed with the file path to ensure uniqueness
+    /// in the coproduct. Edges within a file retain their local structure.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProjectError::CoproductFailed`] if construction fails.
+    pub fn build(self) -> Result<ProjectSchema, ProjectError> {
+        if self.file_schemas.is_empty() {
+            return Err(ProjectError::CoproductFailed {
+                reason: "no files added to project".to_owned(),
+            });
+        }
+
+        // For single-file projects, return the schema as-is.
+        if self.file_schemas.len() == 1 {
+            let (path, schema) = self.file_schemas.into_iter().next()
+                .ok_or_else(|| ProjectError::CoproductFailed {
+                    reason: "internal error: empty after length check".to_owned(),
+                })?;
+
+            let root_vertices: Vec<panproto_gat::Name> = schema.vertices.keys().cloned().collect();
+            let mut file_map = HashMap::new();
+            file_map.insert(path, root_vertices);
+
+            let protocol_map: HashMap<PathBuf, String> = self.protocol_map.into_iter().collect();
+
+            return Ok(ProjectSchema {
+                schema,
+                file_map,
+                protocol_map,
+            });
+        }
+
+        // Multi-file coproduct: build a new schema containing all vertices/edges
+        // from all file schemas, with path-prefixed names.
+        //
+        // We use the "raw_file" protocol for the coproduct since it's the most
+        // permissive (empty obj_kinds = open protocol). The coproduct schema
+        // contains vertices from multiple protocols.
+        let coproduct_protocol = panproto_schema::Protocol {
+            name: "project".into(),
+            schema_theory: "ThProjectSchema".into(),
+            instance_theory: "ThProjectInstance".into(),
+            edge_rules: vec![],
+            obj_kinds: vec![],  // Open protocol.
+            constraint_sorts: vec![],
+            has_order: true,
+            has_coproducts: false,
+            has_recursion: false,
+            has_causal: false,
+            nominal_identity: false,
+            has_defaults: false,
+            has_coercions: false,
+            has_mergers: false,
+            has_policies: false,
+        };
+
+        let mut builder = panproto_schema::SchemaBuilder::new(&coproduct_protocol);
+        let mut file_map: HashMap<PathBuf, Vec<panproto_gat::Name>> = HashMap::new();
+
+        for (path, schema) in &self.file_schemas {
+            let prefix = path.display().to_string();
+            let mut file_vertices = Vec::new();
+
+            // Copy vertices with path prefix.
+            for (name, vertex) in &schema.vertices {
+                let prefixed_name = format!("{prefix}::{name}");
+                builder = builder
+                    .vertex(&prefixed_name, vertex.kind.as_ref(), None)
+                    .map_err(|e| ProjectError::CoproductFailed {
+                        reason: format!("vertex {prefixed_name}: {e}"),
+                    })?;
+                file_vertices.push(panproto_gat::Name::from(prefixed_name.as_str()));
+
+                // Copy constraints.
+                if let Some(constraints) = schema.constraints.get(name) {
+                    for c in constraints {
+                        builder = builder.constraint(
+                            &prefixed_name,
+                            c.sort.as_ref(),
+                            &c.value,
+                        );
+                    }
+                }
+            }
+
+            // Copy edges with prefixed source and target.
+            for (edge, _target) in &schema.edges {
+                let prefixed_src = format!("{prefix}::{}", edge.src);
+                let prefixed_tgt = format!("{prefix}::{}", edge.tgt);
+                let edge_name = edge.name.as_ref().map(|n| {
+                    let prefixed = format!("{prefix}::{n}");
+                    prefixed
+                });
+                builder = builder
+                    .edge(
+                        &prefixed_src,
+                        &prefixed_tgt,
+                        edge.kind.as_ref(),
+                        edge_name.as_deref(),
+                    )
+                    .map_err(|e| ProjectError::CoproductFailed {
+                        reason: format!("edge {prefixed_src} -> {prefixed_tgt}: {e}"),
+                    })?;
+            }
+
+            file_map.insert(path.clone(), file_vertices);
+        }
+
+        let schema = builder.build().map_err(|e| ProjectError::CoproductFailed {
+            reason: format!("build: {e}"),
+        })?;
+
+        let protocol_map: HashMap<PathBuf, String> = self.protocol_map.into_iter().collect();
+
+        Ok(ProjectSchema {
+            schema,
+            file_map,
+            protocol_map,
+        })
+    }
+}
+
+impl Default for ProjectBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_file_project() {
+        let mut builder = ProjectBuilder::new();
+        builder
+            .add_file(
+                Path::new("main.ts"),
+                b"function hello(): string { return 'Hello'; }",
+            )
+            .unwrap();
+
+        assert_eq!(builder.file_count(), 1);
+
+        let project = builder.build().unwrap();
+        assert!(!project.schema.vertices.is_empty());
+        assert_eq!(project.file_map.len(), 1);
+        assert_eq!(project.protocol_map.len(), 1);
+        assert_eq!(
+            project.protocol_map.get(Path::new("main.ts")),
+            Some(&"typescript".to_owned())
+        );
+    }
+
+    #[test]
+    fn multi_file_project() {
+        let mut builder = ProjectBuilder::new();
+
+        builder
+            .add_file(
+                Path::new("src/main.ts"),
+                b"function main(): void { console.log('hello'); }",
+            )
+            .unwrap();
+
+        builder
+            .add_file(
+                Path::new("src/utils.ts"),
+                b"export function add(a: number, b: number): number { return a + b; }",
+            )
+            .unwrap();
+
+        assert_eq!(builder.file_count(), 2);
+
+        let project = builder.build().unwrap();
+        assert!(project.schema.vertices.len() > 5);
+        assert_eq!(project.file_map.len(), 2);
+    }
+
+    #[test]
+    fn raw_file_fallback() {
+        let mut builder = ProjectBuilder::new();
+
+        builder
+            .add_file(Path::new("README.md"), b"# Hello\n\nThis is a project.\n")
+            .unwrap();
+
+        let project = builder.build().unwrap();
+        assert_eq!(
+            project.protocol_map.get(Path::new("README.md")),
+            Some(&"raw_file".to_owned())
+        );
+    }
+
+    #[test]
+    fn mixed_languages() {
+        let mut builder = ProjectBuilder::new();
+
+        builder
+            .add_file(Path::new("main.py"), b"def main():\n    print('hello')\n")
+            .unwrap();
+
+        builder
+            .add_file(Path::new("lib.rs"), b"pub fn add(a: i32, b: i32) -> i32 { a + b }")
+            .unwrap();
+
+        builder
+            .add_file(Path::new("README.md"), b"# Mixed project\n")
+            .unwrap();
+
+        assert_eq!(builder.file_count(), 3);
+
+        let project = builder.build().unwrap();
+        assert_eq!(project.file_map.len(), 3);
+        assert_eq!(
+            project.protocol_map.get(Path::new("main.py")),
+            Some(&"python".to_owned())
+        );
+        assert_eq!(
+            project.protocol_map.get(Path::new("lib.rs")),
+            Some(&"rust".to_owned())
+        );
+        assert_eq!(
+            project.protocol_map.get(Path::new("README.md")),
+            Some(&"raw_file".to_owned())
+        );
+    }
+
+    #[test]
+    fn empty_project_errors() {
+        let builder = ProjectBuilder::new();
+        let result = builder.build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn language_detection() {
+        assert_eq!(detect::detect_language(Path::new("a.ts")), Some("typescript"));
+        assert_eq!(detect::detect_language(Path::new("b.py")), Some("python"));
+        assert_eq!(detect::detect_language(Path::new("c.rs")), Some("rust"));
+        assert_eq!(detect::detect_language(Path::new("d.md")), None);
+    }
+}

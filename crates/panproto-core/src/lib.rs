@@ -23,3 +23,25 @@ pub use panproto_protocols as protocols;
 pub use panproto_schema as schema;
 /// Re-export of `panproto-vcs` for schematic version control.
 pub use panproto_vcs as vcs;
+
+// -- Feature-gated cospan-support crates --
+
+/// Re-export of `panproto-parse` for full-AST tree-sitter parsing (10 languages).
+#[cfg(feature = "full-parse")]
+pub use panproto_parse as parse;
+
+/// Re-export of `panproto-project` for multi-file project assembly via coproduct.
+#[cfg(feature = "project")]
+pub use panproto_project as project;
+
+/// Re-export of `panproto-git` for bidirectional git ↔ panproto-vcs translation.
+#[cfg(feature = "git")]
+pub use panproto_git as git;
+
+/// Re-export of `panproto-llvm` for LLVM IR protocol and lowering morphisms.
+#[cfg(feature = "llvm")]
+pub use panproto_llvm as llvm;
+
+/// Re-export of `panproto-jit` for LLVM JIT compilation of expressions.
+#[cfg(feature = "jit")]
+pub use panproto_jit as jit;

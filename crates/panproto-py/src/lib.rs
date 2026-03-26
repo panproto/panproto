@@ -22,10 +22,13 @@ mod convert;
 mod error;
 mod expr;
 mod gat;
+mod git;
 mod inst;
 mod io;
 mod lens;
 mod mig;
+mod parse;
+mod project;
 mod protocols;
 mod schema;
 mod vcs;
@@ -69,6 +72,15 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // VCS: VcsRepository
     vcs::register(m)?;
+
+    // Parse: AstParserRegistry, parse_source_file
+    parse::register(m)?;
+
+    // Project: ProjectBuilder, ProjectSchema, build_project, parse_project
+    project::register(m)?;
+
+    // Git: GitImportResult, git_import
+    git::register(m)?;
 
     Ok(())
 }

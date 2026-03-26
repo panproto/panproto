@@ -1,6 +1,6 @@
 [package]
-name = "panproto-protocols"
-description = "Built-in protocol definitions for panproto"
+name = "panproto-git"
+description = "Bidirectional git ↔ panproto-vcs translation bridge"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,15 +10,20 @@ repository.workspace = true
 [dependencies]
 panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
-panproto-inst = { workspace = true }
-serde = { workspace = true }
+panproto-protocols = { workspace = true }
+panproto-parse = { workspace = true }
+panproto-project = { workspace = true }
+panproto-vcs = { workspace = true }
+
+git2 = "0.20"
+
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+miette = { workspace = true }
 rustc-hash = { workspace = true }
-blake3 = { workspace = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+tempfile = "3"
 
 [lints]
 workspace = true

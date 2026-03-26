@@ -16,6 +16,11 @@ members = [
     "crates/panproto-expr",
     "crates/panproto-expr-parser",
     "crates/panproto-py",
+    "crates/panproto-parse",
+    "crates/panproto-project",
+    "crates/panproto-git",
+    "crates/panproto-llvm",
+    "crates/panproto-jit",
     "tests/integration",
 ]
 
@@ -65,6 +70,19 @@ blake3 = "1"
 # Benchmarking
 divan = "0.1.21"
 
+# Tree-sitter parsing
+tree-sitter = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-rust = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-swift = "0.6"
+tree-sitter-kotlin = "0.3"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23"
+
 # Workspace crates
 panproto-gat = { version = "0.15.0", path = "crates/panproto-gat" }
 panproto-schema = { version = "0.15.0", path = "crates/panproto-schema" }
@@ -78,6 +96,10 @@ panproto-io = { version = "0.15.0", path = "crates/panproto-io" }
 panproto-vcs = { version = "0.15.0", path = "crates/panproto-vcs" }
 panproto-expr = { version = "0.15.0", path = "crates/panproto-expr" }
 panproto-expr-parser = { version = "0.15.0", path = "crates/panproto-expr-parser" }
+panproto-parse = { version = "0.15.0", path = "crates/panproto-parse" }
+panproto-project = { version = "0.15.0", path = "crates/panproto-project" }
+panproto-git = { version = "0.15.0", path = "crates/panproto-git" }
+panproto-llvm = { version = "0.15.0", path = "crates/panproto-llvm", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

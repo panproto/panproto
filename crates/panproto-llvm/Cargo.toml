@@ -1,0 +1,35 @@
+[package]
+name = "panproto-llvm"
+description = "LLVM IR protocol definition and lowering morphisms for panproto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["inkwell-backend"]
+inkwell-backend = ["dep:inkwell"]
+
+[dependencies]
+panproto-gat = { workspace = true }
+panproto-schema = { workspace = true }
+panproto-protocols = { workspace = true }
+inkwell = { version = "0.8", features = ["llvm20-1"], optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+miette = { workspace = true }
+rustc-hash = { workspace = true }
+
+[lints.rust]
+# LLVM IR parsing via inkwell requires unsafe FFI calls.
+unsafe_code = "allow"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
