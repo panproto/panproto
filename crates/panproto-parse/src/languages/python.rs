@@ -35,25 +35,46 @@ impl PythonParser {
             capture_formatting: true,
         };
 
-        let inner = LanguageParser::new(
+        let inner = match LanguageParser::new(
             "python",
             vec!["py", "pyi"],
             tree_sitter_python::LANGUAGE,
             tree_sitter_python::NODE_TYPES.as_bytes(),
             config,
-        )
-        .expect("Python grammar theory extraction must not fail");
+        ) {
+            Ok(v) => v,
+            Err(e) => panic!("grammar theory extraction failed: {e}"),
+        };
 
         Self { inner }
     }
 }
 
+impl Default for PythonParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl crate::registry::AstParser for PythonParser {
-    fn protocol_name(&self) -> &str { self.inner.protocol_name() }
-    fn parse(&self, source: &[u8], file_path: &str) -> Result<panproto_schema::Schema, crate::ParseError> { self.inner.parse(source, file_path) }
-    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> { self.inner.emit(schema) }
-    fn supported_extensions(&self) -> &[&str] { self.inner.supported_extensions() }
-    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta { self.inner.theory_meta() }
+    fn protocol_name(&self) -> &str {
+        self.inner.protocol_name()
+    }
+    fn parse(
+        &self,
+        source: &[u8],
+        file_path: &str,
+    ) -> Result<panproto_schema::Schema, crate::ParseError> {
+        self.inner.parse(source, file_path)
+    }
+    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> {
+        self.inner.emit(schema)
+    }
+    fn supported_extensions(&self) -> &[&str] {
+        self.inner.supported_extensions()
+    }
+    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta {
+        self.inner.theory_meta()
+    }
 }
 
 #[cfg(test)]
@@ -65,14 +86,18 @@ mod tests {
     #[test]
     fn parse_python_function() {
         let parser = PythonParser::new();
-        let source = br#"
+        let source = br"
 def fibonacci(n: int) -> int:
     if n <= 1:
         return n
     return fibonacci(n - 1) + fibonacci(n - 2)
-"#;
+";
         let schema = parser.parse(source, "fib.py").unwrap();
-        assert!(schema.vertices.len() > 10, "got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 10,
+            "got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
@@ -96,30 +121,46 @@ class User:
         return User(name=name, age=age)
 "#;
         let schema = parser.parse(source, "user.py").unwrap();
-        assert!(schema.vertices.len() > 20, "got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 20,
+            "got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
     fn parse_python_comprehensions() {
         let parser = PythonParser::new();
-        let source = br#"
+        let source = br"
 squares = [x**2 for x in range(10) if x % 2 == 0]
 mapping = {k: v for k, v in items.items() if v is not None}
 
 async def process(items):
     results = await asyncio.gather(*[fetch(item) for item in items])
     return results
-"#;
+";
         let schema = parser.parse(source, "comp.py").unwrap();
-        assert!(schema.vertices.len() > 15, "got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 15,
+            "got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
     fn python_theory_extraction() {
         let parser = PythonParser::new();
         let meta = parser.theory_meta();
-        assert!(meta.vertex_kinds.len() > 50, "expected 50+ vertex kinds, got {}", meta.vertex_kinds.len());
-        assert!(meta.edge_kinds.len() > 20, "expected 20+ edge kinds, got {}", meta.edge_kinds.len());
+        assert!(
+            meta.vertex_kinds.len() > 50,
+            "expected 50+ vertex kinds, got {}",
+            meta.vertex_kinds.len()
+        );
+        assert!(
+            meta.edge_kinds.len() > 20,
+            "expected 20+ edge kinds, got {}",
+            meta.edge_kinds.len()
+        );
     }
 
     #[test]

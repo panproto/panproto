@@ -204,7 +204,11 @@ fn edge_rules() -> Vec<EdgeRule> {
         },
         EdgeRule {
             edge_kind: "element-type".into(),
-            src_kinds: vec!["array-type".into(), "vector-type".into(), "pointer-type".into()],
+            src_kinds: vec![
+                "array-type".into(),
+                "vector-type".into(),
+                "pointer-type".into(),
+            ],
             tgt_kinds: vec![], // Any type
         },
         EdgeRule {
@@ -230,28 +234,79 @@ fn edge_rules() -> Vec<EdgeRule> {
 pub fn instruction_opcodes() -> Vec<&'static str> {
     vec![
         // Terminator instructions
-        "ret", "br", "switch", "indirectbr", "invoke", "resume",
-        "unreachable", "cleanupret", "catchret", "catchswitch", "callbr",
+        "ret",
+        "br",
+        "switch",
+        "indirectbr",
+        "invoke",
+        "resume",
+        "unreachable",
+        "cleanupret",
+        "catchret",
+        "catchswitch",
+        "callbr",
         // Unary operators
         "fneg",
         // Binary operators
-        "add", "fadd", "sub", "fsub", "mul", "fmul", "udiv", "sdiv", "fdiv",
-        "urem", "srem", "frem",
+        "add",
+        "fadd",
+        "sub",
+        "fsub",
+        "mul",
+        "fmul",
+        "udiv",
+        "sdiv",
+        "fdiv",
+        "urem",
+        "srem",
+        "frem",
         // Bitwise binary operators
-        "shl", "lshr", "ashr", "and", "or", "xor",
+        "shl",
+        "lshr",
+        "ashr",
+        "and",
+        "or",
+        "xor",
         // Memory instructions
-        "alloca", "load", "store", "fence", "cmpxchg", "atomicrmw",
+        "alloca",
+        "load",
+        "store",
+        "fence",
+        "cmpxchg",
+        "atomicrmw",
         "getelementptr",
         // Conversion instructions
-        "trunc", "zext", "sext", "fptrunc", "fpext", "fptoui", "fptosi",
-        "uitofp", "sitofp", "ptrtoint", "inttoptr", "bitcast", "addrspacecast",
+        "trunc",
+        "zext",
+        "sext",
+        "fptrunc",
+        "fpext",
+        "fptoui",
+        "fptosi",
+        "uitofp",
+        "sitofp",
+        "ptrtoint",
+        "inttoptr",
+        "bitcast",
+        "addrspacecast",
         // Other instructions
-        "icmp", "fcmp", "phi", "select", "freeze", "call",
-        "va_arg", "landingpad", "catchpad", "cleanuppad",
+        "icmp",
+        "fcmp",
+        "phi",
+        "select",
+        "freeze",
+        "call",
+        "va_arg",
+        "landingpad",
+        "catchpad",
+        "cleanuppad",
         // Aggregate instructions
-        "extractvalue", "insertvalue",
+        "extractvalue",
+        "insertvalue",
         // Vector instructions
-        "extractelement", "insertelement", "shufflevector",
+        "extractelement",
+        "insertelement",
+        "shufflevector",
     ]
 }
 
@@ -265,7 +320,10 @@ mod tests {
         assert_eq!(proto.name, "llvm_ir");
         assert!(proto.obj_kinds.len() > 20, "expected 20+ vertex kinds");
         assert!(proto.edge_rules.len() > 10, "expected 10+ edge rules");
-        assert!(proto.constraint_sorts.len() > 15, "expected 15+ constraint sorts");
+        assert!(
+            proto.constraint_sorts.len() > 15,
+            "expected 15+ constraint sorts"
+        );
         assert!(proto.has_order);
     }
 
@@ -281,7 +339,11 @@ mod tests {
     fn instruction_opcode_coverage() {
         let opcodes = instruction_opcodes();
         // LLVM has ~60 instruction opcodes.
-        assert!(opcodes.len() > 50, "expected 50+ opcodes, got {}", opcodes.len());
+        assert!(
+            opcodes.len() > 50,
+            "expected 50+ opcodes, got {}",
+            opcodes.len()
+        );
         assert!(opcodes.contains(&"add"));
         assert!(opcodes.contains(&"ret"));
         assert!(opcodes.contains(&"phi"));

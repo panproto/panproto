@@ -25,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -84,22 +84,22 @@ tree-sitter-c = "0.23"
 tree-sitter-cpp = "0.23"
 
 # Workspace crates
-panproto-gat = { version = "0.15.0", path = "crates/panproto-gat" }
-panproto-schema = { version = "0.15.0", path = "crates/panproto-schema" }
-panproto-inst = { version = "0.15.0", path = "crates/panproto-inst" }
-panproto-mig = { version = "0.15.0", path = "crates/panproto-mig" }
-panproto-lens = { version = "0.15.0", path = "crates/panproto-lens" }
-panproto-check = { version = "0.15.0", path = "crates/panproto-check" }
-panproto-protocols = { version = "0.15.0", path = "crates/panproto-protocols" }
-panproto-core = { version = "0.15.0", path = "crates/panproto-core" }
-panproto-io = { version = "0.15.0", path = "crates/panproto-io" }
-panproto-vcs = { version = "0.15.0", path = "crates/panproto-vcs" }
-panproto-expr = { version = "0.15.0", path = "crates/panproto-expr" }
-panproto-expr-parser = { version = "0.15.0", path = "crates/panproto-expr-parser" }
-panproto-parse = { version = "0.15.0", path = "crates/panproto-parse" }
-panproto-project = { version = "0.15.0", path = "crates/panproto-project" }
-panproto-git = { version = "0.15.0", path = "crates/panproto-git" }
-panproto-llvm = { version = "0.15.0", path = "crates/panproto-llvm", default-features = false }
+panproto-gat = { version = "0.16.0", path = "crates/panproto-gat" }
+panproto-schema = { version = "0.16.0", path = "crates/panproto-schema" }
+panproto-inst = { version = "0.16.0", path = "crates/panproto-inst" }
+panproto-mig = { version = "0.16.0", path = "crates/panproto-mig" }
+panproto-lens = { version = "0.16.0", path = "crates/panproto-lens" }
+panproto-check = { version = "0.16.0", path = "crates/panproto-check" }
+panproto-protocols = { version = "0.16.0", path = "crates/panproto-protocols" }
+panproto-core = { version = "0.16.0", path = "crates/panproto-core" }
+panproto-io = { version = "0.16.0", path = "crates/panproto-io" }
+panproto-vcs = { version = "0.16.0", path = "crates/panproto-vcs" }
+panproto-expr = { version = "0.16.0", path = "crates/panproto-expr" }
+panproto-expr-parser = { version = "0.16.0", path = "crates/panproto-expr-parser" }
+panproto-parse = { version = "0.16.0", path = "crates/panproto-parse" }
+panproto-project = { version = "0.16.0", path = "crates/panproto-project" }
+panproto-git = { version = "0.16.0", path = "crates/panproto-git" }
+panproto-llvm = { version = "0.16.0", path = "crates/panproto-llvm", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

@@ -35,25 +35,46 @@ impl CParser {
             capture_formatting: true,
         };
 
-        let inner = LanguageParser::new(
+        let inner = match LanguageParser::new(
             "c",
             vec!["c", "h"],
             tree_sitter_c::LANGUAGE,
             tree_sitter_c::NODE_TYPES.as_bytes(),
             config,
-        )
-        .expect("C grammar theory extraction must not fail");
+        ) {
+            Ok(v) => v,
+            Err(e) => panic!("grammar theory extraction failed: {e}"),
+        };
 
         Self { inner }
     }
 }
 
+impl Default for CParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl crate::registry::AstParser for CParser {
-    fn protocol_name(&self) -> &str { self.inner.protocol_name() }
-    fn parse(&self, source: &[u8], file_path: &str) -> Result<panproto_schema::Schema, crate::ParseError> { self.inner.parse(source, file_path) }
-    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> { self.inner.emit(schema) }
-    fn supported_extensions(&self) -> &[&str] { self.inner.supported_extensions() }
-    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta { self.inner.theory_meta() }
+    fn protocol_name(&self) -> &str {
+        self.inner.protocol_name()
+    }
+    fn parse(
+        &self,
+        source: &[u8],
+        file_path: &str,
+    ) -> Result<panproto_schema::Schema, crate::ParseError> {
+        self.inner.parse(source, file_path)
+    }
+    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> {
+        self.inner.emit(schema)
+    }
+    fn supported_extensions(&self) -> &[&str] {
+        self.inner.supported_extensions()
+    }
+    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta {
+        self.inner.theory_meta()
+    }
 }
 
 #[cfg(test)]
@@ -88,13 +109,21 @@ int main(int argc, char** argv) {
 }
 "#;
         let schema = parser.parse(source, "main.c").unwrap();
-        assert!(schema.vertices.len() > 25, "got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 25,
+            "got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
     fn c_theory_extraction() {
         let parser = CParser::new();
         let meta = parser.theory_meta();
-        assert!(meta.vertex_kinds.len() > 40, "expected 40+ vertex kinds, got {}", meta.vertex_kinds.len());
+        assert!(
+            meta.vertex_kinds.len() > 40,
+            "expected 40+ vertex kinds, got {}",
+            meta.vertex_kinds.len()
+        );
     }
 }

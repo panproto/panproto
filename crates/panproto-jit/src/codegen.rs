@@ -7,11 +7,11 @@
 mod inner {
     use std::collections::HashMap;
 
+    use inkwell::OptimizationLevel;
     use inkwell::builder::Builder;
     use inkwell::context::Context;
     use inkwell::execution_engine::{ExecutionEngine, JitFunction};
     use inkwell::values::{BasicValueEnum, FloatValue, IntValue};
-    use inkwell::OptimizationLevel;
 
     use panproto_expr::{BuiltinOp, Expr, Literal};
 
@@ -35,6 +35,7 @@ mod inner {
         /// # Safety
         ///
         /// The execution engine must still be alive and the compiled code valid.
+        #[must_use]
         pub fn call(&self) -> i64 {
             // SAFETY: The execution engine is held by this struct, so the function
             // pointer remains valid for the lifetime of CompiledExpr.
@@ -94,11 +95,11 @@ mod inner {
 
             // Convert result to i64 for the return type.
             let ret_val = self.coerce_to_i64(&builder, result)?;
-            builder.build_return(Some(&ret_val)).map_err(|e| {
-                JitError::CodegenFailed {
+            builder
+                .build_return(Some(&ret_val))
+                .map_err(|e| JitError::CodegenFailed {
                     reason: format!("build_return: {e}"),
-                }
-            })?;
+                })?;
 
             // Create the execution engine and JIT-compile.
             let engine = module
@@ -133,9 +134,11 @@ mod inner {
                 Expr::Lit(lit) => self.compile_literal(lit),
 
                 Expr::Var(name) => {
-                    env.get(name.as_ref()).copied().ok_or_else(|| JitError::CodegenFailed {
-                        reason: format!("unbound variable: {name}"),
-                    })
+                    env.get(name.as_ref())
+                        .copied()
+                        .ok_or_else(|| JitError::CodegenFailed {
+                            reason: format!("unbound variable: {name}"),
+                        })
                 }
 
                 Expr::Let { name, value, body } => {
@@ -154,51 +157,104 @@ mod inner {
 
                 Expr::Record(_) | Expr::List(_) | Expr::Field(_, _) | Expr::Index(_, _) => {
                     Err(JitError::Unsupported {
-                        reason: format!(
-                            "compound types (record, list, field access, indexing) require \
+                        reason: "compound types (record, list, field access, indexing) require \
                              heap-allocated runtime representations not available in the JIT; \
                              use the interpreter for expressions containing these constructs"
-                        ),
-                    })
-                }
-
-                Expr::App(_, _) | Expr::Lam(_, _) => {
-                    Err(JitError::Unsupported {
-                        reason: "lambda/application requires closure compilation \
-                                 (captures, function pointers) not available in the JIT; \
-                                 use the interpreter for higher-order expressions"
                             .to_owned(),
                     })
                 }
+
+                Expr::App(_, _) | Expr::Lam(_, _) => Err(JitError::Unsupported {
+                    reason: "lambda/application requires closure compilation \
+                                 (captures, function pointers) not available in the JIT; \
+                                 use the interpreter for higher-order expressions"
+                        .to_owned(),
+                }),
             }
         }
 
         /// Compile a literal to an LLVM constant.
-        fn compile_literal<'ctx>(
-            &self,
-            lit: &Literal,
-        ) -> Result<BasicValueEnum<'ctx>, JitError> {
+        fn compile_literal<'ctx>(&self, lit: &Literal) -> Result<BasicValueEnum<'ctx>, JitError> {
             match lit {
                 Literal::Int(n) => {
-                    Ok(self.context.i64_type().const_int(*n as u64, true).into())
+                    // Reinterpret i64 bits as u64 for LLVM's const_int (sign_extend=true
+                    // tells LLVM to treat the value as signed).
+                    let bits = u64::from_ne_bytes(n.to_ne_bytes());
+                    Ok(self.context.i64_type().const_int(bits, true).into())
                 }
-                Literal::Float(f) => {
-                    Ok(self.context.f64_type().const_float(*f).into())
-                }
-                Literal::Bool(b) => {
-                    Ok(self
-                        .context
-                        .bool_type()
-                        .const_int(u64::from(*b), false)
-                        .into())
-                }
-                Literal::Null => {
-                    Ok(self.context.i64_type().const_int(0, false).into())
-                }
+                Literal::Float(f) => Ok(self.context.f64_type().const_float(*f).into()),
+                Literal::Bool(b) => Ok(self
+                    .context
+                    .bool_type()
+                    .const_int(u64::from(*b), false)
+                    .into()),
+                Literal::Null => Ok(self.context.i64_type().const_int(0, false).into()),
                 _ => Err(JitError::Unsupported {
                     reason: format!("literal type not supported in JIT: {lit:?}"),
                 }),
             }
+        }
+
+        /// Helper to convert inkwell builder errors to [`JitError`].
+        fn cg_err(e: impl std::fmt::Display) -> JitError {
+            JitError::CodegenFailed {
+                reason: e.to_string(),
+            }
+        }
+
+        /// Compile a binary integer operation.
+        fn compile_int_binop<'ctx>(
+            &self,
+            args: &[Expr],
+            builder: &Builder<'ctx>,
+            env: &mut HashMap<String, BasicValueEnum<'ctx>>,
+            build_fn: fn(
+                &Builder<'ctx>,
+                IntValue<'ctx>,
+                IntValue<'ctx>,
+                &str,
+            ) -> Result<IntValue<'ctx>, inkwell::builder::BuilderError>,
+            name: &str,
+        ) -> Result<BasicValueEnum<'ctx>, JitError> {
+            let (lhs, rhs) = self.compile_binary_args(args, builder, env)?;
+            let (l, r) = self.coerce_both_to_i64(builder, lhs, rhs)?;
+            Ok(build_fn(builder, l, r, name).map_err(Self::cg_err)?.into())
+        }
+
+        /// Compile a rounding operation (floor or ceil).
+        fn compile_round<'ctx>(
+            &self,
+            args: &[Expr],
+            builder: &Builder<'ctx>,
+            env: &mut HashMap<String, BasicValueEnum<'ctx>>,
+            pred: inkwell::FloatPredicate,
+            adjust_fn: fn(
+                &Builder<'ctx>,
+                IntValue<'ctx>,
+                IntValue<'ctx>,
+                &str,
+            ) -> Result<IntValue<'ctx>, inkwell::builder::BuilderError>,
+            name: &str,
+        ) -> Result<BasicValueEnum<'ctx>, JitError> {
+            let arg = self.compile_unary_arg(args, builder, env)?;
+            let val = self.coerce_to_f64(builder, arg)?;
+            let truncated = builder
+                .build_float_to_signed_int(val, self.context.i64_type(), "trunc")
+                .map_err(Self::cg_err)?;
+            let back = builder
+                .build_signed_int_to_float(truncated, self.context.f64_type(), "back")
+                .map_err(Self::cg_err)?;
+            let needs_adjust = builder
+                .build_float_compare(pred, back, val, &format!("needs_{name}_adjust"))
+                .map_err(Self::cg_err)?;
+            let one = self.context.i64_type().const_int(1, false);
+            let adjusted = adjust_fn(builder, truncated, one, &format!("{name}_adjusted"))
+                .map_err(Self::cg_err)?;
+            Ok(builder
+                .build_select(needs_adjust, adjusted, truncated, name)
+                .map_err(Self::cg_err)?
+                .into_int_value()
+                .into())
         }
 
         /// Compile a builtin operation.
@@ -210,114 +266,81 @@ mod inner {
             env: &mut HashMap<String, BasicValueEnum<'ctx>>,
         ) -> Result<BasicValueEnum<'ctx>, JitError> {
             match op {
-                // Binary arithmetic on integers.
                 BuiltinOp::Add => {
-                    let (lhs, rhs) = self.compile_binary_args(args, builder, env)?;
-                    let (l, r) = self.coerce_both_to_i64(builder, lhs, rhs)?;
-                    Ok(builder
-                        .build_int_add(l, r, "add")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into())
+                    self.compile_int_binop(args, builder, env, Builder::build_int_add, "add")
                 }
                 BuiltinOp::Sub => {
-                    let (lhs, rhs) = self.compile_binary_args(args, builder, env)?;
-                    let (l, r) = self.coerce_both_to_i64(builder, lhs, rhs)?;
-                    Ok(builder
-                        .build_int_sub(l, r, "sub")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into())
+                    self.compile_int_binop(args, builder, env, Builder::build_int_sub, "sub")
                 }
                 BuiltinOp::Mul => {
-                    let (lhs, rhs) = self.compile_binary_args(args, builder, env)?;
-                    let (l, r) = self.coerce_both_to_i64(builder, lhs, rhs)?;
-                    Ok(builder
-                        .build_int_mul(l, r, "mul")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into())
+                    self.compile_int_binop(args, builder, env, Builder::build_int_mul, "mul")
                 }
                 BuiltinOp::Div => {
-                    let (lhs, rhs) = self.compile_binary_args(args, builder, env)?;
-                    let (l, r) = self.coerce_both_to_i64(builder, lhs, rhs)?;
-                    Ok(builder
-                        .build_int_signed_div(l, r, "div")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into())
+                    self.compile_int_binop(args, builder, env, Builder::build_int_signed_div, "div")
                 }
                 BuiltinOp::Mod => {
-                    let (lhs, rhs) = self.compile_binary_args(args, builder, env)?;
-                    let (l, r) = self.coerce_both_to_i64(builder, lhs, rhs)?;
-                    Ok(builder
-                        .build_int_signed_rem(l, r, "mod")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into())
+                    self.compile_int_binop(args, builder, env, Builder::build_int_signed_rem, "mod")
                 }
                 BuiltinOp::Neg => {
                     let arg = self.compile_unary_arg(args, builder, env)?;
                     let val = self.coerce_to_i64(builder, arg)?;
                     Ok(builder
                         .build_int_neg(val, "neg")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
+                        .map_err(Self::cg_err)?
                         .into())
                 }
                 BuiltinOp::Abs => {
                     let arg = self.compile_unary_arg(args, builder, env)?;
                     let val = self.coerce_to_i64(builder, arg)?;
-                    // abs(x) = x >= 0 ? x : -x
                     let zero = self.context.i64_type().const_int(0, false);
                     let is_neg = builder
                         .build_int_compare(inkwell::IntPredicate::SLT, val, zero, "is_neg")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
-                    let neg_val = builder
-                        .build_int_neg(val, "neg")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
+                        .map_err(Self::cg_err)?;
+                    let neg_val = builder.build_int_neg(val, "neg").map_err(Self::cg_err)?;
                     Ok(builder
                         .build_select(is_neg, neg_val, val, "abs")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
+                        .map_err(Self::cg_err)?
                         .into_int_value()
                         .into())
                 }
 
-                // Comparison operators.
-                BuiltinOp::Eq => self.compile_int_cmp(inkwell::IntPredicate::EQ, args, builder, env),
-                BuiltinOp::Neq => self.compile_int_cmp(inkwell::IntPredicate::NE, args, builder, env),
-                BuiltinOp::Lt => self.compile_int_cmp(inkwell::IntPredicate::SLT, args, builder, env),
-                BuiltinOp::Lte => self.compile_int_cmp(inkwell::IntPredicate::SLE, args, builder, env),
-                BuiltinOp::Gt => self.compile_int_cmp(inkwell::IntPredicate::SGT, args, builder, env),
-                BuiltinOp::Gte => self.compile_int_cmp(inkwell::IntPredicate::SGE, args, builder, env),
+                BuiltinOp::Eq => {
+                    self.compile_int_cmp(inkwell::IntPredicate::EQ, args, builder, env)
+                }
+                BuiltinOp::Neq => {
+                    self.compile_int_cmp(inkwell::IntPredicate::NE, args, builder, env)
+                }
+                BuiltinOp::Lt => {
+                    self.compile_int_cmp(inkwell::IntPredicate::SLT, args, builder, env)
+                }
+                BuiltinOp::Lte => {
+                    self.compile_int_cmp(inkwell::IntPredicate::SLE, args, builder, env)
+                }
+                BuiltinOp::Gt => {
+                    self.compile_int_cmp(inkwell::IntPredicate::SGT, args, builder, env)
+                }
+                BuiltinOp::Gte => {
+                    self.compile_int_cmp(inkwell::IntPredicate::SGE, args, builder, env)
+                }
 
-                // Boolean operators.
                 BuiltinOp::And => {
-                    let (lhs, rhs) = self.compile_binary_args(args, builder, env)?;
-                    let (l, r) = self.coerce_both_to_i64(builder, lhs, rhs)?;
-                    Ok(builder
-                        .build_and(l, r, "and")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into())
+                    self.compile_int_binop(args, builder, env, Builder::build_and, "and")
                 }
                 BuiltinOp::Or => {
-                    let (lhs, rhs) = self.compile_binary_args(args, builder, env)?;
-                    let (l, r) = self.coerce_both_to_i64(builder, lhs, rhs)?;
-                    Ok(builder
-                        .build_or(l, r, "or")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into())
+                    self.compile_int_binop(args, builder, env, Builder::build_or, "or")
                 }
                 BuiltinOp::Not => {
                     let arg = self.compile_unary_arg(args, builder, env)?;
                     let val = self.coerce_to_i64(builder, arg)?;
-                    Ok(builder
-                        .build_not(val, "not")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into())
+                    Ok(builder.build_not(val, "not").map_err(Self::cg_err)?.into())
                 }
 
-                // Type coercions that map to LLVM instructions.
                 BuiltinOp::IntToFloat => {
                     let arg = self.compile_unary_arg(args, builder, env)?;
                     let val = self.coerce_to_i64(builder, arg)?;
                     Ok(builder
                         .build_signed_int_to_float(val, self.context.f64_type(), "itof")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
+                        .map_err(Self::cg_err)?
                         .into())
                 }
                 BuiltinOp::FloatToInt => {
@@ -325,76 +348,31 @@ mod inner {
                     let val = self.coerce_to_f64(builder, arg)?;
                     Ok(builder
                         .build_float_to_signed_int(val, self.context.i64_type(), "ftoi")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
+                        .map_err(Self::cg_err)?
                         .into())
                 }
 
-                // Rounding: use comparison + arithmetic to implement correctly.
-                // floor(x) for integer results: if x >= 0 or x is exact int, trunc(x); else trunc(x) - 1
-                // For the JIT's primary use case (field transforms on integer data),
-                // the input is typically already integer, making this exact.
-                BuiltinOp::Floor => {
-                    let arg = self.compile_unary_arg(args, builder, env)?;
-                    let val = self.coerce_to_f64(builder, arg)?;
-                    let truncated = builder
-                        .build_float_to_signed_int(val, self.context.i64_type(), "trunc")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
-                    let back_to_float = builder
-                        .build_signed_int_to_float(truncated, self.context.f64_type(), "back")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
-                    // If truncation moved the value toward zero (positive direction for negatives),
-                    // we need to subtract 1.
-                    let needs_adjust = builder
-                        .build_float_compare(
-                            inkwell::FloatPredicate::OGT,
-                            back_to_float,
-                            val,
-                            "needs_floor_adjust",
-                        )
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
-                    let one = self.context.i64_type().const_int(1, false);
-                    let adjusted = builder
-                        .build_int_sub(truncated, one, "floor_adjusted")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
-                    Ok(builder
-                        .build_select(needs_adjust, adjusted, truncated, "floor")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into_int_value()
-                        .into())
-                }
-                BuiltinOp::Ceil => {
-                    let arg = self.compile_unary_arg(args, builder, env)?;
-                    let val = self.coerce_to_f64(builder, arg)?;
-                    let truncated = builder
-                        .build_float_to_signed_int(val, self.context.i64_type(), "trunc")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
-                    let back_to_float = builder
-                        .build_signed_int_to_float(truncated, self.context.f64_type(), "back")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
-                    // If truncation moved the value toward zero (negative direction for positives),
-                    // we need to add 1.
-                    let needs_adjust = builder
-                        .build_float_compare(
-                            inkwell::FloatPredicate::OLT,
-                            back_to_float,
-                            val,
-                            "needs_ceil_adjust",
-                        )
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
-                    let one = self.context.i64_type().const_int(1, false);
-                    let adjusted = builder
-                        .build_int_add(truncated, one, "ceil_adjusted")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
-                    Ok(builder
-                        .build_select(needs_adjust, adjusted, truncated, "ceil")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
-                        .into_int_value()
-                        .into())
-                }
+                BuiltinOp::Floor => self.compile_round(
+                    args,
+                    builder,
+                    env,
+                    inkwell::FloatPredicate::OGT,
+                    Builder::build_int_sub,
+                    "floor",
+                ),
+                BuiltinOp::Ceil => self.compile_round(
+                    args,
+                    builder,
+                    env,
+                    inkwell::FloatPredicate::OLT,
+                    Builder::build_int_add,
+                    "ceil",
+                ),
 
-                // Everything else is unsupported in the JIT (requires runtime).
                 other => Err(JitError::Unsupported {
-                    reason: format!("builtin {other:?} requires runtime support functions (string, list, record, graph ops)"),
+                    reason: format!(
+                        "builtin {other:?} requires runtime support functions (string, list, record, graph ops)"
+                    ),
                 }),
             }
         }
@@ -412,14 +390,15 @@ mod inner {
             // For simple literal pattern matching, use cascading comparisons.
             let function = builder
                 .get_insert_block()
-                .and_then(|b| b.get_parent())
+                .and_then(inkwell::basic_block::BasicBlock::get_parent)
                 .ok_or_else(|| JitError::CodegenFailed {
                     reason: "no current function".to_owned(),
                 })?;
 
             let merge_bb = self.context.append_basic_block(function, "match_merge");
             let i64_type = self.context.i64_type();
-            let mut results: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
+            let mut results: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> =
+                Vec::new();
 
             for (i, (pattern, body)) in arms.iter().enumerate() {
                 match pattern {
@@ -429,13 +408,16 @@ mod inner {
                             env.insert(name.to_string(), scrut_val);
                         }
                         let result = self.compile_expr(body, builder, env)?;
-                        let current_bb = builder.get_insert_block().ok_or_else(|| {
-                            JitError::CodegenFailed { reason: "no insert block".to_owned() }
-                        })?;
+                        let current_bb =
+                            builder
+                                .get_insert_block()
+                                .ok_or_else(|| JitError::CodegenFailed {
+                                    reason: "no insert block".to_owned(),
+                                })?;
                         results.push((result, current_bb));
-                        builder.build_unconditional_branch(merge_bb).map_err(|e| {
-                            JitError::CodegenFailed { reason: e.to_string() }
-                        })?;
+                        builder
+                            .build_unconditional_branch(merge_bb)
+                            .map_err(Self::cg_err)?;
                         break; // Wildcard is always last.
                     }
                     panproto_expr::Pattern::Lit(lit) => {
@@ -443,24 +425,36 @@ mod inner {
                         let scrut_i64 = self.coerce_to_i64(builder, scrut_val)?;
                         let lit_i64 = self.coerce_to_i64(builder, lit_val)?;
                         let cmp = builder
-                            .build_int_compare(inkwell::IntPredicate::EQ, scrut_i64, lit_i64, &format!("cmp_{i}"))
-                            .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
+                            .build_int_compare(
+                                inkwell::IntPredicate::EQ,
+                                scrut_i64,
+                                lit_i64,
+                                &format!("cmp_{i}"),
+                            )
+                            .map_err(Self::cg_err)?;
 
-                        let then_bb = self.context.append_basic_block(function, &format!("arm_{i}"));
-                        let else_bb = self.context.append_basic_block(function, &format!("next_{i}"));
-                        builder.build_conditional_branch(cmp, then_bb, else_bb).map_err(|e| {
-                            JitError::CodegenFailed { reason: e.to_string() }
-                        })?;
+                        let then_bb = self
+                            .context
+                            .append_basic_block(function, &format!("arm_{i}"));
+                        let else_bb = self
+                            .context
+                            .append_basic_block(function, &format!("next_{i}"));
+                        builder
+                            .build_conditional_branch(cmp, then_bb, else_bb)
+                            .map_err(Self::cg_err)?;
 
                         builder.position_at_end(then_bb);
                         let result = self.compile_expr(body, builder, env)?;
-                        let then_end = builder.get_insert_block().ok_or_else(|| {
-                            JitError::CodegenFailed { reason: "no insert block".to_owned() }
-                        })?;
+                        let then_end =
+                            builder
+                                .get_insert_block()
+                                .ok_or_else(|| JitError::CodegenFailed {
+                                    reason: "no insert block".to_owned(),
+                                })?;
                         results.push((result, then_end));
-                        builder.build_unconditional_branch(merge_bb).map_err(|e| {
-                            JitError::CodegenFailed { reason: e.to_string() }
-                        })?;
+                        builder
+                            .build_unconditional_branch(merge_bb)
+                            .map_err(Self::cg_err)?;
 
                         builder.position_at_end(else_bb);
                     }
@@ -473,20 +467,22 @@ mod inner {
             }
 
             // If we fell through all arms without matching, return 0.
-            let current_bb = builder.get_insert_block().ok_or_else(|| {
-                JitError::CodegenFailed { reason: "no insert block".to_owned() }
-            })?;
+            let current_bb = builder
+                .get_insert_block()
+                .ok_or_else(|| JitError::CodegenFailed {
+                    reason: "no insert block".to_owned(),
+                })?;
             let default_val = i64_type.const_int(0, false);
             results.push((default_val.into(), current_bb));
-            builder.build_unconditional_branch(merge_bb).map_err(|e| {
-                JitError::CodegenFailed { reason: e.to_string() }
-            })?;
+            builder
+                .build_unconditional_branch(merge_bb)
+                .map_err(Self::cg_err)?;
 
             // Build phi node in merge block.
             builder.position_at_end(merge_bb);
-            let phi = builder.build_phi(i64_type, "match_result").map_err(|e| {
-                JitError::CodegenFailed { reason: e.to_string() }
-            })?;
+            let phi = builder
+                .build_phi(i64_type, "match_result")
+                .map_err(Self::cg_err)?;
             for (val, bb) in &results {
                 let i64_val = self.coerce_to_i64(builder, *val)?;
                 phi.add_incoming(&[(&i64_val, *bb)]);
@@ -538,11 +534,11 @@ mod inner {
             let (l, r) = self.coerce_both_to_i64(builder, lhs, rhs)?;
             let cmp = builder
                 .build_int_compare(pred, l, r, "cmp")
-                .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?;
+                .map_err(Self::cg_err)?;
             // Extend bool to i64.
             Ok(builder
                 .build_int_z_extend(cmp, self.context.i64_type(), "ext")
-                .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?
+                .map_err(Self::cg_err)?
                 .into())
         }
 
@@ -558,14 +554,12 @@ mod inner {
                     } else {
                         Ok(builder
                             .build_int_z_extend(i, self.context.i64_type(), "ext")
-                            .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?)
+                            .map_err(Self::cg_err)?)
                     }
                 }
-                BasicValueEnum::FloatValue(f) => {
-                    Ok(builder
-                        .build_float_to_signed_int(f, self.context.i64_type(), "ftoi")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?)
-                }
+                BasicValueEnum::FloatValue(f) => Ok(builder
+                    .build_float_to_signed_int(f, self.context.i64_type(), "ftoi")
+                    .map_err(Self::cg_err)?),
                 _ => Err(JitError::CodegenFailed {
                     reason: format!("cannot coerce {val:?} to i64"),
                 }),
@@ -579,11 +573,9 @@ mod inner {
         ) -> Result<FloatValue<'ctx>, JitError> {
             match val {
                 BasicValueEnum::FloatValue(f) => Ok(f),
-                BasicValueEnum::IntValue(i) => {
-                    Ok(builder
-                        .build_signed_int_to_float(i, self.context.f64_type(), "itof")
-                        .map_err(|e| JitError::CodegenFailed { reason: e.to_string() })?)
-                }
+                BasicValueEnum::IntValue(i) => Ok(builder
+                    .build_signed_int_to_float(i, self.context.f64_type(), "itof")
+                    .map_err(Self::cg_err)?),
                 _ => Err(JitError::CodegenFailed {
                     reason: format!("cannot coerce {val:?} to f64"),
                 }),
@@ -616,26 +608,26 @@ mod inner {
 
         #[test]
         fn jit_literal_int() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             let expr = Expr::Lit(Literal::Int(42));
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 42);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 42);
         }
 
         #[test]
         fn jit_add() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             let expr = Expr::Builtin(
                 BuiltinOp::Add,
                 vec![Expr::Lit(Literal::Int(10)), Expr::Lit(Literal::Int(32))],
             );
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 42);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 42);
         }
 
         #[test]
         fn jit_arithmetic_chain() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             // (10 + 5) * 3 - 1 = 44
             let expr = Expr::Builtin(
                 BuiltinOp::Sub,
@@ -653,49 +645,49 @@ mod inner {
                     Expr::Lit(Literal::Int(1)),
                 ],
             );
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 44);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 44);
         }
 
         #[test]
         fn jit_comparison() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             // 5 < 10 → 1 (true)
             let expr = Expr::Builtin(
                 BuiltinOp::Lt,
                 vec![Expr::Lit(Literal::Int(5)), Expr::Lit(Literal::Int(10))],
             );
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 1);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 1);
 
             // 10 < 5 → 0 (false)
             let expr2 = Expr::Builtin(
                 BuiltinOp::Lt,
                 vec![Expr::Lit(Literal::Int(10)), Expr::Lit(Literal::Int(5))],
             );
-            let compiled2 = compiler.compile(&expr2).unwrap();
-            assert_eq!(compiled2.call(), 0);
+            let result2 = jit.compile(&expr2).unwrap();
+            assert_eq!(result2.call(), 0);
         }
 
         #[test]
         fn jit_negation() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             let expr = Expr::Builtin(BuiltinOp::Neg, vec![Expr::Lit(Literal::Int(42))]);
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), -42);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), -42);
         }
 
         #[test]
         fn jit_abs() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             let expr = Expr::Builtin(BuiltinOp::Abs, vec![Expr::Lit(Literal::Int(-42))]);
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 42);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 42);
         }
 
         #[test]
         fn jit_let_binding() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             // let x = 10 in let y = 32 in x + y
             let expr = Expr::Let {
                 name: "x".into(),
@@ -709,29 +701,35 @@ mod inner {
                     )),
                 }),
             };
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 42);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 42);
         }
 
         #[test]
         fn jit_match_literal() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             // match 2 { 1 => 10, 2 => 20, _ => 0 }
             let expr = Expr::Match {
                 scrutinee: Box::new(Expr::Lit(Literal::Int(2))),
                 arms: vec![
-                    (panproto_expr::Pattern::Lit(Literal::Int(1)), Expr::Lit(Literal::Int(10))),
-                    (panproto_expr::Pattern::Lit(Literal::Int(2)), Expr::Lit(Literal::Int(20))),
+                    (
+                        panproto_expr::Pattern::Lit(Literal::Int(1)),
+                        Expr::Lit(Literal::Int(10)),
+                    ),
+                    (
+                        panproto_expr::Pattern::Lit(Literal::Int(2)),
+                        Expr::Lit(Literal::Int(20)),
+                    ),
                     (panproto_expr::Pattern::Wildcard, Expr::Lit(Literal::Int(0))),
                 ],
             };
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 20);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 20);
         }
 
         #[test]
         fn jit_boolean_logic() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             // (1 AND 1) OR 0 = 1
             let expr = Expr::Builtin(
                 BuiltinOp::Or,
@@ -743,25 +741,25 @@ mod inner {
                     Expr::Lit(Literal::Int(0)),
                 ],
             );
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 1);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 1);
         }
 
         #[test]
         fn jit_mod() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             // 17 % 5 = 2
             let expr = Expr::Builtin(
                 BuiltinOp::Mod,
                 vec![Expr::Lit(Literal::Int(17)), Expr::Lit(Literal::Int(5))],
             );
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 2);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 2);
         }
 
         #[test]
         fn jit_complex_expression() {
-            let compiler = JitCompiler::new();
+            let jit = JitCompiler::new();
             // let a = 100 in let b = 58 in a - b
             let expr = Expr::Let {
                 name: "a".into(),
@@ -775,8 +773,8 @@ mod inner {
                     )),
                 }),
             };
-            let compiled = compiler.compile(&expr).unwrap();
-            assert_eq!(compiled.call(), 42);
+            let result = jit.compile(&expr).unwrap();
+            assert_eq!(result.call(), 42);
         }
     }
 }

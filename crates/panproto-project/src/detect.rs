@@ -18,10 +18,11 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
 pub fn is_binary_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .map_or(false, |ext| {
+        .is_some_and(|ext| {
             matches!(
                 ext.to_lowercase().as_str(),
-                "png" | "jpg"
+                "png"
+                    | "jpg"
                     | "jpeg"
                     | "gif"
                     | "webp"
@@ -74,7 +75,10 @@ mod tests {
 
     #[test]
     fn detect_common_languages() {
-        assert_eq!(detect_language(Path::new("src/main.ts")), Some("typescript"));
+        assert_eq!(
+            detect_language(Path::new("src/main.ts")),
+            Some("typescript")
+        );
         assert_eq!(detect_language(Path::new("app.tsx")), Some("tsx"));
         assert_eq!(detect_language(Path::new("lib.py")), Some("python"));
         assert_eq!(detect_language(Path::new("main.rs")), Some("rust"));

@@ -72,16 +72,20 @@ pub fn import_git_repo<S: Store>(
             // Empty tree (initial commit with no files). Create a minimal schema.
             let proto = panproto_protocols::raw_file::protocol();
             let builder = panproto_schema::SchemaBuilder::new(&proto);
-            let schema = builder
+
+            builder
                 .vertex("root", "file", None)
-                .map_err(|e| GitBridgeError::Project(panproto_project::ProjectError::CoproductFailed {
-                    reason: format!("empty tree schema: {e}"),
-                }))?
+                .map_err(|e| {
+                    GitBridgeError::Project(panproto_project::ProjectError::CoproductFailed {
+                        reason: format!("empty tree schema: {e}"),
+                    })
+                })?
                 .build()
-                .map_err(|e| GitBridgeError::Project(panproto_project::ProjectError::CoproductFailed {
-                    reason: format!("empty tree build: {e}"),
-                }))?;
-            schema
+                .map_err(|e| {
+                    GitBridgeError::Project(panproto_project::ProjectError::CoproductFailed {
+                        reason: format!("empty tree build: {e}"),
+                    })
+                })?
         } else {
             project_builder.build()?.schema
         };
@@ -98,11 +102,8 @@ pub fn import_git_repo<S: Store>(
         // Extract author info.
         let author_sig = git_commit.author();
         let author = author_sig.name().unwrap_or("unknown").to_owned();
-        let timestamp = author_sig.when().seconds() as u64;
-        let message = git_commit
-            .message()
-            .unwrap_or("(no message)")
-            .to_owned();
+        let timestamp = u64::try_from(author_sig.when().seconds()).unwrap_or(0);
+        let message = git_commit.message().unwrap_or("(no message)").to_owned();
 
         // Create panproto-vcs commit.
         let commit = CommitObject {
@@ -160,10 +161,10 @@ fn collect_ancestors(
 fn walk_git_tree(
     repo: &git2::Repository,
     tree: &git2::Tree<'_>,
-    prefix: &PathBuf,
+    prefix: &std::path::Path,
     builder: &mut ProjectBuilder,
 ) -> Result<(), GitBridgeError> {
-    for entry in tree.iter() {
+    for entry in tree {
         let name = entry.name().unwrap_or("(unnamed)");
         let path = prefix.join(name);
 

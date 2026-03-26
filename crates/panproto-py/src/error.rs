@@ -140,9 +140,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add("CheckError", parent.py().get_type::<CheckError>())?;
     parent.add("ParseError", parent.py().get_type::<ParseError>())?;
     parent.add("ProjectError", parent.py().get_type::<ProjectError>())?;
-    parent.add(
-        "GitBridgeError",
-        parent.py().get_type::<GitBridgeError>(),
-    )?;
+    parent.add("GitBridgeError", parent.py().get_type::<GitBridgeError>())?;
     Ok(())
 }

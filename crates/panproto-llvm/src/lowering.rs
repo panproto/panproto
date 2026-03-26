@@ -190,11 +190,7 @@ pub fn lower_rust() -> TheoryMorphism {
 /// Get all registered lowering morphisms.
 #[must_use]
 pub fn all_lowering_morphisms() -> Vec<TheoryMorphism> {
-    vec![
-        lower_typescript(),
-        lower_python(),
-        lower_rust(),
-    ]
+    vec![lower_typescript(), lower_python(), lower_rust()]
 }
 
 #[cfg(test)]

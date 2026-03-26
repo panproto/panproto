@@ -137,7 +137,10 @@ mod tests {
         let mut id_gen = IdGenerator::new("src/lib.rs");
         id_gen.push_named_scope("Parser");
         id_gen.push_named_scope("parse");
-        assert_eq!(id_gen.named_id("config"), "src/lib.rs::Parser::parse::config");
+        assert_eq!(
+            id_gen.named_id("config"),
+            "src/lib.rs::Parser::parse::config"
+        );
         id_gen.pop_scope();
         assert_eq!(id_gen.named_id("new"), "src/lib.rs::Parser::new");
     }

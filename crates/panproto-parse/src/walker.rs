@@ -86,7 +86,7 @@ pub struct AstWalker<'a> {
     /// filter anonymous/internal tree-sitter nodes that are not part of the
     /// language's public grammar.
     theory_meta: &'a ExtractedTheoryMeta,
-    /// The protocol definition (for SchemaBuilder validation).
+    /// The protocol definition (for `SchemaBuilder` validation).
     protocol: &'a Protocol,
     /// Per-language configuration.
     config: WalkerConfig,
@@ -141,11 +141,9 @@ impl<'a> AstWalker<'a> {
 
         let builder = self.walk_node(root, builder, &mut id_gen, None)?;
 
-        builder
-            .build()
-            .map_err(|e| ParseError::SchemaConstruction {
-                reason: e.to_string(),
-            })
+        builder.build().map_err(|e| ParseError::SchemaConstruction {
+            reason: e.to_string(),
+        })
     }
 
     /// Recursively walk a single node, emitting vertices and edges.
@@ -166,12 +164,15 @@ impl<'a> AstWalker<'a> {
         // Skip the root "program"/"source_file"/"module" wrapper if it just wraps children.
         // We still process it to emit its children, but do so by iterating directly.
         let is_root_wrapper = parent_vertex_id.is_none()
-            && (kind == "program" || kind == "source_file" || kind == "module" || kind == "translation_unit");
+            && (kind == "program"
+                || kind == "source_file"
+                || kind == "module"
+                || kind == "translation_unit");
 
         // Determine vertex ID.
         let vertex_id = if is_root_wrapper {
             // Root wrappers get the file path as their ID.
-            id_gen.current_prefix().to_string()
+            id_gen.current_prefix()
         } else if self.scope_kinds.contains(kind) {
             // Scope-introducing nodes use their name child for the ID.
             let name = self.extract_scope_name(&node);
@@ -218,7 +219,9 @@ impl<'a> AstWalker<'a> {
                     for i in 0..p.child_count() {
                         if let Some(child) = p.child(i) {
                             if child.id() == node.id() {
-                                return p.field_name_for_child(i as u32);
+                                return u32::try_from(i)
+                                    .ok()
+                                    .and_then(|idx| p.field_name_for_child(idx));
                             }
                         }
                     }
@@ -234,16 +237,8 @@ impl<'a> AstWalker<'a> {
         }
 
         // Store byte range for position-aware emission.
-        builder = builder.constraint(
-            &vertex_id,
-            "start-byte",
-            &node.start_byte().to_string(),
-        );
-        builder = builder.constraint(
-            &vertex_id,
-            "end-byte",
-            &node.end_byte().to_string(),
-        );
+        builder = builder.constraint(&vertex_id, "start-byte", &node.start_byte().to_string());
+        builder = builder.constraint(&vertex_id, "end-byte", &node.end_byte().to_string());
 
         // Emit constraints for leaf nodes (literals, identifiers, operators).
         if node.named_child_count() == 0 {
@@ -259,17 +254,13 @@ impl<'a> AstWalker<'a> {
 
         // Enter scope if this is a scope-introducing node.
         let entered_scope = if self.scope_kinds.contains(kind) && !is_root_wrapper {
-            let name = self.extract_scope_name(&node);
-            match name {
-                Some(n) => {
-                    id_gen.push_named_scope(&n);
-                    true
-                }
+            match self.extract_scope_name(&node) {
+                Some(n) => id_gen.push_named_scope(&n),
                 None => {
                     id_gen.push_anonymous_scope();
-                    true
                 }
             }
+            true
         } else if self.block_kinds.contains(kind) {
             id_gen.push_anonymous_scope();
             true
@@ -277,60 +268,78 @@ impl<'a> AstWalker<'a> {
             false
         };
 
-        // Capture interstitial text: the source bytes between named children,
-        // which contains keywords, punctuation, whitespace, and comments.
-        // This enables the emitter to reconstruct the full source text.
+        builder = self.walk_children_with_interstitials(node, builder, id_gen, &vertex_id)?;
+
+        if entered_scope {
+            id_gen.pop_scope();
+        }
+
+        Ok(builder)
+    }
+
+    /// Walk named children, capturing interstitial text between them.
+    fn walk_children_with_interstitials(
+        &self,
+        node: tree_sitter::Node<'_>,
+        mut builder: SchemaBuilder,
+        id_gen: &mut IdGenerator,
+        vertex_id: &str,
+    ) -> Result<SchemaBuilder, ParseError> {
         let cursor = &mut node.walk();
         let children: Vec<_> = node.named_children(cursor).collect();
         let mut interstitial_idx = 0;
         let mut prev_end = node.start_byte();
 
         for child in &children {
-            // Capture interstitial text before this child (keywords, punctuation, whitespace).
             let gap_start = prev_end;
             let gap_end = child.start_byte();
-            if gap_end > gap_start && gap_end <= self.source.len() {
-                if let Ok(gap_text) = std::str::from_utf8(&self.source[gap_start..gap_end]) {
-                    if !gap_text.is_empty() {
-                        let sort = format!("interstitial-{interstitial_idx}");
-                        builder = builder.constraint(&vertex_id, &sort, gap_text);
-                        // Store the byte position of this interstitial for the emitter.
-                        builder = builder.constraint(
-                            &vertex_id,
-                            &format!("{sort}-start-byte"),
-                            &gap_start.to_string(),
-                        );
-                        interstitial_idx += 1;
-                    }
-                }
-            }
-
-            builder = self.walk_node(*child, builder, id_gen, Some(&vertex_id))?;
+            builder = self.capture_interstitial(
+                builder,
+                vertex_id,
+                gap_start,
+                gap_end,
+                &mut interstitial_idx,
+            );
+            builder = self.walk_node(*child, builder, id_gen, Some(vertex_id))?;
             prev_end = child.end_byte();
         }
 
-        // Capture trailing interstitial text after the last child.
-        let trailing_end = node.end_byte();
-        if trailing_end > prev_end && trailing_end <= self.source.len() {
-            if let Ok(gap_text) = std::str::from_utf8(&self.source[prev_end..trailing_end]) {
+        // Trailing interstitial after the last child.
+        builder = self.capture_interstitial(
+            builder,
+            vertex_id,
+            prev_end,
+            node.end_byte(),
+            &mut interstitial_idx,
+        );
+
+        Ok(builder)
+    }
+
+    /// Capture interstitial text between `gap_start` and `gap_end` as a constraint.
+    fn capture_interstitial(
+        &self,
+        mut builder: SchemaBuilder,
+        vertex_id: &str,
+        gap_start: usize,
+        gap_end: usize,
+        idx: &mut usize,
+    ) -> SchemaBuilder {
+        if gap_end > gap_start && gap_end <= self.source.len() {
+            if let Ok(gap_text) = std::str::from_utf8(&self.source[gap_start..gap_end]) {
                 if !gap_text.is_empty() {
-                    let sort = format!("interstitial-{interstitial_idx}");
-                    builder = builder.constraint(&vertex_id, &sort, gap_text);
+                    let sort = format!("interstitial-{}", *idx);
+                    builder = builder.constraint(vertex_id, &sort, gap_text);
                     builder = builder.constraint(
-                        &vertex_id,
+                        vertex_id,
                         &format!("{sort}-start-byte"),
-                        &prev_end.to_string(),
+                        &gap_start.to_string(),
                     );
+                    *idx += 1;
                 }
             }
         }
-
-        // Exit scope.
-        if entered_scope {
-            id_gen.pop_scope();
-        }
-
-        Ok(builder)
+        builder
     }
 
     /// Extract the name of a scope-introducing node by looking for name/identifier children.
@@ -376,10 +385,13 @@ impl<'a> AstWalker<'a> {
             let gap_end = node.start_byte();
             if gap_start < gap_end && gap_end <= self.source.len() {
                 let gap = &self.source[gap_start..gap_end];
-                let blank_lines = gap.iter().filter(|&&b| b == b'\n').count().saturating_sub(1);
+                let blank_lines = memchr::memchr_iter(b'\n', gap).count().saturating_sub(1);
                 if blank_lines > 0 {
-                    builder =
-                        builder.constraint(vertex_id, "blank-lines-before", &blank_lines.to_string());
+                    builder = builder.constraint(
+                        vertex_id,
+                        "blank-lines-before",
+                        &blank_lines.to_string(),
+                    );
                 }
             }
         }
@@ -398,7 +410,7 @@ mod tests {
             name: "test".into(),
             schema_theory: "ThTest".into(),
             instance_theory: "ThTestInst".into(),
-            obj_kinds: vec![],  // Empty = open protocol, accepts all kinds.
+            obj_kinds: vec![], // Empty = open protocol, accepts all kinds.
             edge_rules: vec![],
             constraint_sorts: vec![],
             has_order: true,
@@ -431,7 +443,9 @@ mod tests {
         let source = b"function greet(name: string): string { return name; }";
 
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let protocol = make_test_protocol();
@@ -460,7 +474,9 @@ mod tests {
         let source = b"def add(a, b):\n    return a + b\n";
 
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_python::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let protocol = make_test_protocol();
@@ -481,7 +497,9 @@ mod tests {
         let source = b"fn main() { let x = 42; println!(\"{}\", x); }";
 
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let protocol = make_test_protocol();

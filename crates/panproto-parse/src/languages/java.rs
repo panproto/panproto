@@ -33,25 +33,46 @@ impl JavaParser {
             capture_formatting: true,
         };
 
-        let inner = LanguageParser::new(
+        let inner = match LanguageParser::new(
             "java",
             vec!["java"],
             tree_sitter_java::LANGUAGE,
             tree_sitter_java::NODE_TYPES.as_bytes(),
             config,
-        )
-        .expect("Java grammar theory extraction must not fail");
+        ) {
+            Ok(v) => v,
+            Err(e) => panic!("grammar theory extraction failed: {e}"),
+        };
 
         Self { inner }
     }
 }
 
+impl Default for JavaParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl crate::registry::AstParser for JavaParser {
-    fn protocol_name(&self) -> &str { self.inner.protocol_name() }
-    fn parse(&self, source: &[u8], file_path: &str) -> Result<panproto_schema::Schema, crate::ParseError> { self.inner.parse(source, file_path) }
-    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> { self.inner.emit(schema) }
-    fn supported_extensions(&self) -> &[&str] { self.inner.supported_extensions() }
-    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta { self.inner.theory_meta() }
+    fn protocol_name(&self) -> &str {
+        self.inner.protocol_name()
+    }
+    fn parse(
+        &self,
+        source: &[u8],
+        file_path: &str,
+    ) -> Result<panproto_schema::Schema, crate::ParseError> {
+        self.inner.parse(source, file_path)
+    }
+    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> {
+        self.inner.emit(schema)
+    }
+    fn supported_extensions(&self) -> &[&str] {
+        self.inner.supported_extensions()
+    }
+    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta {
+        self.inner.theory_meta()
+    }
 }
 
 #[cfg(test)]
@@ -63,7 +84,7 @@ mod tests {
     #[test]
     fn parse_java_class() {
         let parser = JavaParser::new();
-        let source = br#"
+        let source = br"
 public class Calculator {
     private int memory;
 
@@ -79,15 +100,23 @@ public class Calculator {
         this.memory = value;
     }
 }
-"#;
+";
         let schema = parser.parse(source, "Calculator.java").unwrap();
-        assert!(schema.vertices.len() > 20, "got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 20,
+            "got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
     fn java_theory_extraction() {
         let parser = JavaParser::new();
         let meta = parser.theory_meta();
-        assert!(meta.vertex_kinds.len() > 60, "expected 60+ vertex kinds, got {}", meta.vertex_kinds.len());
+        assert!(
+            meta.vertex_kinds.len() > 60,
+            "expected 60+ vertex kinds, got {}",
+            meta.vertex_kinds.len()
+        );
     }
 }

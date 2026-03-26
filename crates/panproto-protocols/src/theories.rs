@@ -1464,42 +1464,24 @@ pub fn register_full_ast_wtype<S: ::std::hash::BuildHasher>(
     );
 
     // Step 1: ThGraph + ThConstraint (share Vertex).
-    let gc = match colimit(&g, &c, &shared_vertex) {
-        Ok(t) => t,
-        Err(e) => return Err(e),
-    };
+    let gc = colimit(&g, &c, &shared_vertex)?;
 
     // Step 2: + ThMulti (share Vertex + Edge).
-    let gcm = match colimit(&gc, &m, &shared_ve) {
-        Ok(t) => t,
-        Err(e) => return Err(e),
-    };
+    let gcm = colimit(&gc, &m, &shared_ve)?;
 
     // Step 3: + ThInterface (share Vertex).
-    let gcmi = match colimit(&gcm, &iface, &shared_vertex) {
-        Ok(t) => t,
-        Err(e) => return Err(e),
-    };
+    let gcmi = colimit(&gcm, &iface, &shared_vertex)?;
 
     // Step 4: + ThOrder (share Edge).
     let shared_edge = Theory::new("ThEdge", vec![Sort::simple("Edge")], vec![], vec![]);
-    let gcmio = match colimit(&gcmi, &ord, &shared_edge) {
-        Ok(t) => t,
-        Err(e) => return Err(e),
-    };
+    let gcmio = colimit(&gcmi, &ord, &shared_edge)?;
 
     // Step 5: + ThImport (share Vertex + Edge).
-    let gcmioi = match colimit(&gcmio, &imp, &shared_ve) {
-        Ok(t) => t,
-        Err(e) => return Err(e),
-    };
+    let gcmioi = colimit(&gcmio, &imp, &shared_ve)?;
 
     // Step 6: + auto-derived theory (share Vertex + Edge, which the auto-derived
     // theory always includes as base sorts from extraction).
-    let mut schema_theory = match colimit(&gcmioi, auto_derived, &shared_ve) {
-        Ok(t) => t,
-        Err(e) => return Err(e),
-    };
+    let mut schema_theory = colimit(&gcmioi, auto_derived, &shared_ve)?;
 
     schema_theory.name = schema_name.into();
     registry.insert(schema_name.into(), schema_theory);

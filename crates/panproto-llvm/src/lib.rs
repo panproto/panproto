@@ -26,7 +26,7 @@
 //!
 //! - `restrict(lower) ∘ restrict(mig) = restrict(lower ∘ mig)` (functoriality)
 //! - The complement of the lowering captures source-level info lost in IR
-//! - LLVM passes (DCE, inlining) are protolenses on ThLLVMIR
+//! - LLVM passes (DCE, inlining) are protolenses on `ThLLVMIR`
 
 /// Error types for LLVM IR operations.
 pub mod error;

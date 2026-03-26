@@ -61,7 +61,9 @@ impl ParserRegistry {
         };
 
         // Register all 10 language parsers.
-        registry.register(Box::new(crate::languages::typescript::TypeScriptParser::new()));
+        registry.register(Box::new(
+            crate::languages::typescript::TypeScriptParser::new(),
+        ));
         registry.register(Box::new(crate::languages::typescript::TsxParser::new()));
         registry.register(Box::new(crate::languages::python::PythonParser::new()));
         registry.register(Box::new(crate::languages::rust_lang::RustParser::new()));
@@ -80,8 +82,7 @@ impl ParserRegistry {
     pub fn register(&mut self, parser: Box<dyn AstParser>) {
         let name = parser.protocol_name().to_owned();
         for ext in parser.supported_extensions() {
-            self.extension_map
-                .insert((*ext).to_owned(), name.clone());
+            self.extension_map.insert((*ext).to_owned(), name.clone());
         }
         self.parsers.insert(name, parser);
     }
@@ -105,15 +106,15 @@ impl ParserRegistry {
     /// Returns [`ParseError::UnknownLanguage`] if the file extension is not recognized.
     /// Returns other [`ParseError`] variants if parsing fails.
     pub fn parse_file(&self, path: &Path, content: &[u8]) -> Result<Schema, ParseError> {
-        let protocol = self.detect_language(path).ok_or_else(|| {
-            ParseError::UnknownLanguage {
+        let protocol = self
+            .detect_language(path)
+            .ok_or_else(|| ParseError::UnknownLanguage {
                 extension: path
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_owned(),
-            }
-        })?;
+            })?;
 
         self.parse_with_protocol(protocol, content, &path.display().to_string())
     }
@@ -129,11 +130,12 @@ impl ParserRegistry {
         content: &[u8],
         file_path: &str,
     ) -> Result<Schema, ParseError> {
-        let parser = self.parsers.get(protocol).ok_or_else(|| {
-            ParseError::UnknownLanguage {
+        let parser = self
+            .parsers
+            .get(protocol)
+            .ok_or_else(|| ParseError::UnknownLanguage {
                 extension: protocol.to_owned(),
-            }
-        })?;
+            })?;
 
         parser.parse(content, file_path)
     }
@@ -148,11 +150,12 @@ impl ParserRegistry {
         protocol: &str,
         schema: &Schema,
     ) -> Result<Vec<u8>, ParseError> {
-        let parser = self.parsers.get(protocol).ok_or_else(|| {
-            ParseError::UnknownLanguage {
+        let parser = self
+            .parsers
+            .get(protocol)
+            .ok_or_else(|| ParseError::UnknownLanguage {
                 extension: protocol.to_owned(),
-            }
-        })?;
+            })?;
 
         parser.emit(schema)
     }

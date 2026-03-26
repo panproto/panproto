@@ -1,7 +1,7 @@
 {
   "name": "@panproto/core",
-  "version": "0.15.0",
-  "description": "TypeScript SDK for panproto — protocol-aware schema migration via generalized algebraic theories",
+  "version": "0.16.0",
+  "description": "Schematic version control with panproto (TypeScript SDK)",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

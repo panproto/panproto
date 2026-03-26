@@ -29,7 +29,7 @@ pub struct LanguageParser {
     language: tree_sitter::Language,
     /// The auto-derived theory metadata.
     theory_meta: ExtractedTheoryMeta,
-    /// The panproto protocol definition (used for SchemaBuilder validation).
+    /// The panproto protocol definition (used for `SchemaBuilder` validation).
     protocol: Protocol,
     /// Per-language walker configuration.
     walker_config: WalkerConfig,
@@ -48,7 +48,13 @@ impl LanguageParser {
         node_types_json: &[u8],
         walker_config: WalkerConfig,
     ) -> Result<Self, ParseError> {
-        Self::from_language(protocol_name, extensions, language_fn.into(), node_types_json, walker_config)
+        Self::from_language(
+            protocol_name,
+            extensions,
+            language_fn.into(),
+            node_types_json,
+            walker_config,
+        )
     }
 
     /// Create a new language parser from a pre-constructed [`Language`](tree_sitter::Language).
@@ -147,7 +153,7 @@ fn emit_from_schema(schema: &Schema, protocol: &str) -> Result<Vec<u8>, ParseErr
     // Each fragment is (start_byte, text).
     let mut fragments: Vec<(usize, String)> = Vec::new();
 
-    for (name, _vertex) in &schema.vertices {
+    for name in schema.vertices.keys() {
         if let Some(constraints) = schema.constraints.get(name) {
             // Get start-byte for this vertex.
             let start_byte = constraints
@@ -219,7 +225,7 @@ fn build_full_ast_protocol(protocol_name: &str, theory_name: &str) -> Protocol {
     Protocol {
         name: protocol_name.into(),
         schema_theory: theory_name.into(),
-        instance_theory: format!("{theory_name}Instance").into(),
+        instance_theory: format!("{theory_name}Instance"),
         obj_kinds: vec![],
         edge_rules: vec![],
         constraint_sorts: vec![
@@ -254,8 +260,7 @@ fn build_full_ast_protocol(protocol_name: &str, theory_name: &str) -> Protocol {
 /// Capitalize the first letter of a string.
 fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-    }
+    chars.next().map_or_else(String::new, |c| {
+        c.to_uppercase().collect::<String>() + chars.as_str()
+    })
 }

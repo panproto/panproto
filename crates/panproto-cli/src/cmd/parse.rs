@@ -14,9 +14,7 @@ pub fn cmd_parse_file(file_path: &Path, verbose: bool) -> Result<()> {
 
     let registry = ParserRegistry::new();
 
-    let language = registry
-        .detect_language(file_path)
-        .unwrap_or("raw_file");
+    let language = registry.detect_language(file_path).unwrap_or("raw_file");
 
     if verbose {
         eprintln!("Detected language: {language}");
@@ -92,7 +90,7 @@ pub fn cmd_emit(file_path: &Path, verbose: bool) -> Result<()> {
         .ok_or_else(|| miette::miette!("unknown language for {}", file_path.display()))?;
 
     if verbose {
-        eprintln!("Parsing {file_path:?} as {protocol}...");
+        eprintln!("Parsing {} as {protocol}...", file_path.display());
     }
 
     let schema = registry

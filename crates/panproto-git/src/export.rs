@@ -32,11 +32,11 @@ pub struct ExportResult {
 /// # Errors
 ///
 /// Returns [`GitBridgeError`] if VCS operations or git operations fail.
-pub fn export_to_git<S: Store>(
+pub fn export_to_git<S: Store, H: std::hash::BuildHasher>(
     panproto_store: &S,
     git_repo: &git2::Repository,
     commit_id: ObjectId,
-    parent_map: &FxHashMap<ObjectId, git2::Oid>,
+    parent_map: &std::collections::HashMap<ObjectId, git2::Oid, H>,
 ) -> Result<ExportResult, GitBridgeError> {
     // Load the commit.
     let commit_obj = panproto_store.get(&commit_id)?;
@@ -69,72 +69,27 @@ pub fn export_to_git<S: Store>(
     let mut file_count = 0;
 
     // Serialize the schema as pretty-printed JSON.
-    let schema_json = serde_json::to_vec_pretty(schema.as_ref()).map_err(|e| {
-        GitBridgeError::ObjectRead {
+    let schema_json =
+        serde_json::to_vec_pretty(schema.as_ref()).map_err(|e| GitBridgeError::ObjectRead {
             oid: commit.schema_id.to_string(),
             reason: format!("JSON serialization failed: {e}"),
-        }
-    })?;
+        })?;
     let blob_oid = git_repo.blob(&schema_json)?;
-    tree_builder.insert("schema.json", blob_oid, 0o100644)?;
+    tree_builder.insert("schema.json", blob_oid, 0o100_644)?;
     file_count += 1;
 
     // Also store commit metadata.
-    let commit_json = serde_json::to_vec_pretty(commit).map_err(|e| {
-        GitBridgeError::ObjectRead {
+    let commit_json =
+        serde_json::to_vec_pretty(commit).map_err(|e| GitBridgeError::ObjectRead {
             oid: commit_id.to_string(),
             reason: format!("commit JSON serialization failed: {e}"),
-        }
-    })?;
+        })?;
     let commit_blob = git_repo.blob(&commit_json)?;
-    tree_builder.insert("commit.json", commit_blob, 0o100644)?;
+    tree_builder.insert("commit.json", commit_blob, 0o100_644)?;
     file_count += 1;
 
-    // Collect ALL text fragments (leaf literals AND interstitial text) per file,
-    // sorted by byte position. This mirrors the emitter in panproto-parse/common.rs
-    // and produces complete source with keywords, punctuation, and whitespace.
-    let mut files_fragments: FxHashMap<String, Vec<(usize, String)>> = FxHashMap::default();
+    let files_fragments = collect_file_fragments(schema);
     let mut file_blobs: FxHashMap<String, git2::Oid> = FxHashMap::default();
-
-    for (name, _vertex) in &schema.vertices {
-        if let Some(constraints) = schema.constraints.get(name) {
-            // Extract file prefix from vertex ID.
-            let name_str = name.as_ref();
-            let file_prefix = name_str
-                .find("::")
-                .map(|pos| &name_str[..pos])
-                .unwrap_or(name_str)
-                .to_owned();
-
-            // Collect leaf literal-value with start-byte.
-            let start_byte = constraints
-                .iter()
-                .find(|c| c.sort.as_ref() == "start-byte")
-                .and_then(|c| c.value.parse::<usize>().ok());
-            let literal = constraints
-                .iter()
-                .find(|c| c.sort.as_ref() == "literal-value")
-                .map(|c| c.value.clone());
-            if let (Some(start), Some(text)) = (start_byte, literal) {
-                files_fragments.entry(file_prefix.clone()).or_default().push((start, text));
-            }
-
-            // Collect interstitial text fragments with their byte positions.
-            for c in constraints {
-                let sort_str = c.sort.as_ref();
-                if sort_str.starts_with("interstitial-") && !sort_str.ends_with("-start-byte") {
-                    let pos_sort = format!("{sort_str}-start-byte");
-                    let pos = constraints
-                        .iter()
-                        .find(|c2| c2.sort.as_ref() == pos_sort.as_str())
-                        .and_then(|c2| c2.value.parse::<usize>().ok());
-                    if let Some(p) = pos {
-                        files_fragments.entry(file_prefix.clone()).or_default().push((p, c.value.clone()));
-                    }
-                }
-            }
-        }
-    }
 
     // Write reconstructed source files.
     for (file_path, mut fragments) in files_fragments {
@@ -167,7 +122,7 @@ pub fn export_to_git<S: Store>(
     let sig = git2::Signature::new(
         &commit.author,
         &format!("{}@panproto", commit.author),
-        &git2::Time::new(commit.timestamp as i64, 0),
+        &git2::Time::new(i64::try_from(commit.timestamp).unwrap_or(i64::MAX), 0),
     )?;
 
     // Resolve parent git commits from the mapping.
@@ -200,6 +155,58 @@ pub fn export_to_git<S: Store>(
 ///
 /// For paths like `"src/main.ts"`, this creates a subtree `"src"` containing
 /// the blob `"main.ts"`. Deeply nested paths create multiple levels of subtrees.
+/// Collect all text fragments (leaf literals + interstitial text) per file
+/// from a schema, grouped by file prefix.
+fn collect_file_fragments(
+    schema: &panproto_schema::Schema,
+) -> FxHashMap<String, Vec<(usize, String)>> {
+    let mut files_fragments: FxHashMap<String, Vec<(usize, String)>> = FxHashMap::default();
+
+    for name in schema.vertices.keys() {
+        if let Some(constraints) = schema.constraints.get(name) {
+            let name_str = name.as_ref();
+            let file_prefix = name_str
+                .find("::")
+                .map_or(name_str, |pos| &name_str[..pos])
+                .to_owned();
+
+            let start_byte = constraints
+                .iter()
+                .find(|c| c.sort.as_ref() == "start-byte")
+                .and_then(|c| c.value.parse::<usize>().ok());
+            let literal = constraints
+                .iter()
+                .find(|c| c.sort.as_ref() == "literal-value")
+                .map(|c| c.value.clone());
+            if let (Some(start), Some(text)) = (start_byte, literal) {
+                files_fragments
+                    .entry(file_prefix.clone())
+                    .or_default()
+                    .push((start, text));
+            }
+
+            for c in constraints {
+                let sort_str = c.sort.as_ref();
+                if sort_str.starts_with("interstitial-") && !sort_str.ends_with("-start-byte") {
+                    let pos_sort = format!("{sort_str}-start-byte");
+                    let pos = constraints
+                        .iter()
+                        .find(|c2| c2.sort.as_ref() == pos_sort.as_str())
+                        .and_then(|c2| c2.value.parse::<usize>().ok());
+                    if let Some(p) = pos {
+                        files_fragments
+                            .entry(file_prefix.clone())
+                            .or_default()
+                            .push((p, c.value.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    files_fragments
+}
+
 fn build_nested_tree(
     repo: &git2::Repository,
     root_builder: &mut git2::TreeBuilder<'_>,
@@ -223,19 +230,19 @@ fn build_nested_tree(
 
     // Insert root-level files directly.
     for (name, oid) in &root_files {
-        root_builder.insert(name, *oid, 0o100644)?;
+        root_builder.insert(name, *oid, 0o100_644)?;
     }
 
     // Recursively build subtrees for directories.
     for (dir_name, entries) in &dirs {
         let subtree_oid = build_subtree(repo, entries)?;
-        root_builder.insert(dir_name, subtree_oid, 0o040000)?;
+        root_builder.insert(dir_name, subtree_oid, 0o040_000)?;
     }
 
     Ok(())
 }
 
-/// Recursively build a git subtree from a list of (relative_path, blob_oid) entries.
+/// Recursively build a git subtree from a list of (`relative_path`, `blob_oid`) entries.
 fn build_subtree(
     repo: &git2::Repository,
     entries: &[(String, git2::Oid)],
@@ -260,14 +267,13 @@ fn build_subtree(
     }
 
     for (name, oid) in &files {
-        builder.insert(name, *oid, 0o100644)?;
+        builder.insert(name, *oid, 0o100_644)?;
     }
 
     for (dir_name, sub_entries) in &subdirs {
         let subtree_oid = build_subtree(repo, sub_entries)?;
-        builder.insert(dir_name, subtree_oid, 0o040000)?;
+        builder.insert(dir_name, subtree_oid, 0o040_000)?;
     }
 
     Ok(builder.write()?)
 }
-

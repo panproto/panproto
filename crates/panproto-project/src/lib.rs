@@ -99,29 +99,33 @@ impl ProjectBuilder {
 
         // Detect language and parse.
         let (schema, protocol_name) = if let Some(protocol) = detect::detect_language(path) {
-            match self.registry.parse_with_protocol(protocol, content, &path_str) {
-                Ok(schema) => (schema, protocol.to_owned()),
-                Err(_) => {
-                    // Fall back to raw file parsing if the language parser fails
-                    // (e.g., Kotlin's tree-sitter grammar is ABI-incompatible).
-                    let text = std::str::from_utf8(content).map_err(|e| ProjectError::ParseFailed {
+            if let Ok(schema) = self
+                .registry
+                .parse_with_protocol(protocol, content, &path_str)
+            {
+                (schema, protocol.to_owned())
+            } else {
+                // Fall back to raw file parsing if the language parser fails
+                // (e.g., Kotlin's tree-sitter grammar is ABI-incompatible).
+                let text = std::str::from_utf8(content).map_err(|e| ProjectError::ParseFailed {
+                    path: path_str.clone(),
+                    reason: format!("UTF-8 decode: {e}"),
+                })?;
+                let schema = raw_file::parse_text(text, &path_str).map_err(|e| {
+                    ProjectError::ParseFailed {
                         path: path_str.clone(),
-                        reason: format!("UTF-8 decode: {e}"),
-                    })?;
-                    let schema = raw_file::parse_text(text, &path_str)
-                        .map_err(|e| ProjectError::ParseFailed {
-                            path: path_str.clone(),
-                            reason: e.to_string(),
-                        })?;
-                    (schema, "raw_file".to_owned())
-                }
+                        reason: e.to_string(),
+                    }
+                })?;
+                (schema, "raw_file".to_owned())
             }
         } else if detect::is_binary_extension(path) {
-            let schema = raw_file::parse_binary(&path_str, content)
-                .map_err(|e| ProjectError::ParseFailed {
+            let schema = raw_file::parse_binary(&path_str, content).map_err(|e| {
+                ProjectError::ParseFailed {
                     path: path_str.clone(),
                     reason: e.to_string(),
-                })?;
+                }
+            })?;
             (schema, "raw_file".to_owned())
         } else {
             // Parse as text raw file.
@@ -129,8 +133,8 @@ impl ProjectBuilder {
                 path: path_str.clone(),
                 reason: format!("UTF-8 decode: {e}"),
             })?;
-            let schema = raw_file::parse_text(text, &path_str)
-                .map_err(|e| ProjectError::ParseFailed {
+            let schema =
+                raw_file::parse_text(text, &path_str).map_err(|e| ProjectError::ParseFailed {
                     path: path_str.clone(),
                     reason: e.to_string(),
                 })?;
@@ -212,10 +216,11 @@ impl ProjectBuilder {
 
         // For single-file projects, return the schema as-is.
         if self.file_schemas.len() == 1 {
-            let (path, schema) = self.file_schemas.into_iter().next()
-                .ok_or_else(|| ProjectError::CoproductFailed {
+            let (path, schema) = self.file_schemas.into_iter().next().ok_or_else(|| {
+                ProjectError::CoproductFailed {
                     reason: "internal error: empty after length check".to_owned(),
-                })?;
+                }
+            })?;
 
             let root_vertices: Vec<panproto_gat::Name> = schema.vertices.keys().cloned().collect();
             let mut file_map = HashMap::new();
@@ -241,7 +246,7 @@ impl ProjectBuilder {
             schema_theory: "ThProjectSchema".into(),
             instance_theory: "ThProjectInstance".into(),
             edge_rules: vec![],
-            obj_kinds: vec![],  // Open protocol.
+            obj_kinds: vec![], // Open protocol.
             constraint_sorts: vec![],
             has_order: true,
             has_coproducts: false,
@@ -274,17 +279,13 @@ impl ProjectBuilder {
                 // Copy constraints.
                 if let Some(constraints) = schema.constraints.get(name) {
                     for c in constraints {
-                        builder = builder.constraint(
-                            &prefixed_name,
-                            c.sort.as_ref(),
-                            &c.value,
-                        );
+                        builder = builder.constraint(&prefixed_name, c.sort.as_ref(), &c.value);
                     }
                 }
             }
 
             // Copy edges with prefixed source and target.
-            for (edge, _target) in &schema.edges {
+            for edge in schema.edges.keys() {
                 let prefixed_src = format!("{prefix}::{}", edge.src);
                 let prefixed_tgt = format!("{prefix}::{}", edge.tgt);
                 let edge_name = edge.name.as_ref().map(|n| {
@@ -402,7 +403,10 @@ mod tests {
             .unwrap();
 
         builder
-            .add_file(Path::new("lib.rs"), b"pub fn add(a: i32, b: i32) -> i32 { a + b }")
+            .add_file(
+                Path::new("lib.rs"),
+                b"pub fn add(a: i32, b: i32) -> i32 { a + b }",
+            )
             .unwrap();
 
         builder
@@ -436,7 +440,10 @@ mod tests {
 
     #[test]
     fn language_detection() {
-        assert_eq!(detect::detect_language(Path::new("a.ts")), Some("typescript"));
+        assert_eq!(
+            detect::detect_language(Path::new("a.ts")),
+            Some("typescript")
+        );
         assert_eq!(detect::detect_language(Path::new("b.py")), Some("python"));
         assert_eq!(detect::detect_language(Path::new("c.rs")), Some("rust"));
         assert_eq!(detect::detect_language(Path::new("d.md")), None);

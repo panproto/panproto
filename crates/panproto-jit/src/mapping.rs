@@ -124,102 +124,102 @@ pub fn classify_expr(expr: &Expr) -> ExprMapping {
 }
 
 /// Classify the LLVM type for a literal.
-fn classify_literal_type(lit: &Literal) -> LlvmType {
+const fn classify_literal_type(lit: &Literal) -> LlvmType {
     match lit {
         Literal::Int(_) => LlvmType::I64,
         Literal::Float(_) => LlvmType::F64,
         Literal::Bool(_) => LlvmType::I1,
-        Literal::Str(_) => LlvmType::Ptr,
-        Literal::Bytes(_) => LlvmType::Ptr,
-        Literal::Null => LlvmType::Ptr,
-        Literal::Record(_) => LlvmType::Ptr,
-        Literal::List(_) => LlvmType::Ptr,
-        Literal::Closure { .. } => LlvmType::Ptr,
+        Literal::Str(_)
+        | Literal::Bytes(_)
+        | Literal::Null
+        | Literal::Record(_)
+        | Literal::List(_)
+        | Literal::Closure { .. } => LlvmType::Ptr,
     }
 }
 
-/// Classify a builtin operation.
+/// Classify a builtin: dispatch to JIT-compiled or runtime-call classification.
 fn classify_builtin(op: BuiltinOp) -> ExprMapping {
+    classify_jittable_builtin(op).unwrap_or_else(|| classify_runtime_builtin(op))
+}
+
+/// Builtins that compile to LLVM instructions or array loops.
+#[rustfmt::skip]
+const fn classify_jittable_builtin(op: BuiltinOp) -> Option<ExprMapping> {
     match op {
-        // Arithmetic (direct LLVM instructions).
-        BuiltinOp::Add => ExprMapping::ArithmeticOp { instruction: "add" },
-        BuiltinOp::Sub => ExprMapping::ArithmeticOp { instruction: "sub" },
-        BuiltinOp::Mul => ExprMapping::ArithmeticOp { instruction: "mul" },
-        BuiltinOp::Div => ExprMapping::ArithmeticOp { instruction: "sdiv" },
-        BuiltinOp::Mod => ExprMapping::ArithmeticOp { instruction: "srem" },
-        BuiltinOp::Neg => ExprMapping::ArithmeticOp { instruction: "neg" },
-        BuiltinOp::Abs => ExprMapping::ArithmeticOp { instruction: "select" },
+        BuiltinOp::Add => Some(ExprMapping::ArithmeticOp { instruction: "add" }),
+        BuiltinOp::Sub => Some(ExprMapping::ArithmeticOp { instruction: "sub" }),
+        BuiltinOp::Mul => Some(ExprMapping::ArithmeticOp { instruction: "mul" }),
+        BuiltinOp::Div => Some(ExprMapping::ArithmeticOp { instruction: "sdiv" }),
+        BuiltinOp::Mod => Some(ExprMapping::ArithmeticOp { instruction: "srem" }),
+        BuiltinOp::Neg => Some(ExprMapping::ArithmeticOp { instruction: "neg" }),
+        BuiltinOp::Abs => Some(ExprMapping::ArithmeticOp { instruction: "select" }),
+        BuiltinOp::Eq  => Some(ExprMapping::ArithmeticOp { instruction: "icmp eq" }),
+        BuiltinOp::Neq => Some(ExprMapping::ArithmeticOp { instruction: "icmp ne" }),
+        BuiltinOp::Lt  => Some(ExprMapping::ArithmeticOp { instruction: "icmp slt" }),
+        BuiltinOp::Lte => Some(ExprMapping::ArithmeticOp { instruction: "icmp sle" }),
+        BuiltinOp::Gt  => Some(ExprMapping::ArithmeticOp { instruction: "icmp sgt" }),
+        BuiltinOp::Gte => Some(ExprMapping::ArithmeticOp { instruction: "icmp sge" }),
+        BuiltinOp::And => Some(ExprMapping::ArithmeticOp { instruction: "and" }),
+        BuiltinOp::Or  => Some(ExprMapping::ArithmeticOp { instruction: "or" }),
+        BuiltinOp::Not => Some(ExprMapping::ArithmeticOp { instruction: "xor" }),
+        BuiltinOp::IntToFloat => Some(ExprMapping::ArithmeticOp { instruction: "sitofp" }),
+        BuiltinOp::FloatToInt => Some(ExprMapping::ArithmeticOp { instruction: "fptosi" }),
+        BuiltinOp::Map     => Some(ExprMapping::ArrayLoop { operation: "map" }),
+        BuiltinOp::Filter  => Some(ExprMapping::ArrayLoop { operation: "filter" }),
+        BuiltinOp::Fold    => Some(ExprMapping::ArrayLoop { operation: "fold" }),
+        BuiltinOp::FlatMap => Some(ExprMapping::ArrayLoop { operation: "flat_map" }),
+        _ => None,
+    }
+}
 
-        // Rounding.
-        BuiltinOp::Floor => ExprMapping::RuntimeCall { function: "floor" },
-        BuiltinOp::Ceil => ExprMapping::RuntimeCall { function: "ceil" },
-
-        // Comparison (icmp/fcmp instructions).
-        BuiltinOp::Eq => ExprMapping::ArithmeticOp { instruction: "icmp eq" },
-        BuiltinOp::Neq => ExprMapping::ArithmeticOp { instruction: "icmp ne" },
-        BuiltinOp::Lt => ExprMapping::ArithmeticOp { instruction: "icmp slt" },
-        BuiltinOp::Lte => ExprMapping::ArithmeticOp { instruction: "icmp sle" },
-        BuiltinOp::Gt => ExprMapping::ArithmeticOp { instruction: "icmp sgt" },
-        BuiltinOp::Gte => ExprMapping::ArithmeticOp { instruction: "icmp sge" },
-
-        // Boolean (LLVM and/or/xor).
-        BuiltinOp::And => ExprMapping::ArithmeticOp { instruction: "and" },
-        BuiltinOp::Or => ExprMapping::ArithmeticOp { instruction: "or" },
-        BuiltinOp::Not => ExprMapping::ArithmeticOp { instruction: "xor" },
-
-        // String operations (runtime calls).
-        BuiltinOp::Concat => ExprMapping::RuntimeCall { function: "panproto_rt_str_concat" },
-        BuiltinOp::Len => ExprMapping::RuntimeCall { function: "panproto_rt_str_len" },
-        BuiltinOp::Slice => ExprMapping::RuntimeCall { function: "panproto_rt_str_slice" },
-        BuiltinOp::Upper => ExprMapping::RuntimeCall { function: "panproto_rt_str_upper" },
-        BuiltinOp::Lower => ExprMapping::RuntimeCall { function: "panproto_rt_str_lower" },
-        BuiltinOp::Trim => ExprMapping::RuntimeCall { function: "panproto_rt_str_trim" },
-        BuiltinOp::Split => ExprMapping::RuntimeCall { function: "panproto_rt_str_split" },
-        BuiltinOp::Join => ExprMapping::RuntimeCall { function: "panproto_rt_str_join" },
-        BuiltinOp::Replace => ExprMapping::RuntimeCall { function: "panproto_rt_str_replace" },
-        BuiltinOp::Contains => ExprMapping::RuntimeCall { function: "panproto_rt_str_contains" },
-
-        // List operations (array loops).
-        BuiltinOp::Map => ExprMapping::ArrayLoop { operation: "map" },
-        BuiltinOp::Filter => ExprMapping::ArrayLoop { operation: "filter" },
-        BuiltinOp::Fold => ExprMapping::ArrayLoop { operation: "fold" },
-        BuiltinOp::FlatMap => ExprMapping::ArrayLoop { operation: "flat_map" },
-        BuiltinOp::Head => ExprMapping::RuntimeCall { function: "panproto_rt_head" },
-        BuiltinOp::Tail => ExprMapping::RuntimeCall { function: "panproto_rt_tail" },
-        BuiltinOp::Reverse => ExprMapping::RuntimeCall { function: "panproto_rt_reverse" },
-        BuiltinOp::Append => ExprMapping::RuntimeCall { function: "panproto_rt_append" },
-        BuiltinOp::Length => ExprMapping::RuntimeCall { function: "panproto_rt_length" },
-
-        // Record operations.
+/// Builtins that require runtime support functions.
+#[rustfmt::skip]
+fn classify_runtime_builtin(op: BuiltinOp) -> ExprMapping {
+    match op {
+        BuiltinOp::Floor       => ExprMapping::RuntimeCall { function: "floor" },
+        BuiltinOp::Ceil        => ExprMapping::RuntimeCall { function: "ceil" },
+        BuiltinOp::Concat      => ExprMapping::RuntimeCall { function: "panproto_rt_str_concat" },
+        BuiltinOp::Len         => ExprMapping::RuntimeCall { function: "panproto_rt_str_len" },
+        BuiltinOp::Slice       => ExprMapping::RuntimeCall { function: "panproto_rt_str_slice" },
+        BuiltinOp::Upper       => ExprMapping::RuntimeCall { function: "panproto_rt_str_upper" },
+        BuiltinOp::Lower       => ExprMapping::RuntimeCall { function: "panproto_rt_str_lower" },
+        BuiltinOp::Trim        => ExprMapping::RuntimeCall { function: "panproto_rt_str_trim" },
+        BuiltinOp::Split       => ExprMapping::RuntimeCall { function: "panproto_rt_str_split" },
+        BuiltinOp::Join        => ExprMapping::RuntimeCall { function: "panproto_rt_str_join" },
+        BuiltinOp::Replace     => ExprMapping::RuntimeCall { function: "panproto_rt_str_replace" },
+        BuiltinOp::Contains    => ExprMapping::RuntimeCall { function: "panproto_rt_str_contains" },
+        BuiltinOp::Head        => ExprMapping::RuntimeCall { function: "panproto_rt_head" },
+        BuiltinOp::Tail        => ExprMapping::RuntimeCall { function: "panproto_rt_tail" },
+        BuiltinOp::Reverse     => ExprMapping::RuntimeCall { function: "panproto_rt_reverse" },
+        BuiltinOp::Append      => ExprMapping::RuntimeCall { function: "panproto_rt_append" },
+        BuiltinOp::Length      => ExprMapping::RuntimeCall { function: "panproto_rt_length" },
         BuiltinOp::MergeRecords => ExprMapping::RuntimeCall { function: "panproto_rt_record_merge" },
-        BuiltinOp::Keys => ExprMapping::RuntimeCall { function: "panproto_rt_keys" },
-        BuiltinOp::Values => ExprMapping::RuntimeCall { function: "panproto_rt_values" },
-        BuiltinOp::HasField => ExprMapping::RuntimeCall { function: "panproto_rt_has_field" },
-
-        // Type coercions.
-        BuiltinOp::IntToFloat => ExprMapping::ArithmeticOp { instruction: "sitofp" },
-        BuiltinOp::FloatToInt => ExprMapping::ArithmeticOp { instruction: "fptosi" },
-        BuiltinOp::IntToStr => ExprMapping::RuntimeCall { function: "panproto_rt_int_to_str" },
-        BuiltinOp::StrToInt => ExprMapping::RuntimeCall { function: "panproto_rt_str_to_int" },
-        BuiltinOp::FloatToStr => ExprMapping::RuntimeCall { function: "panproto_rt_float_to_str" },
-        BuiltinOp::StrToFloat => ExprMapping::RuntimeCall { function: "panproto_rt_str_to_float" },
-
-        // Type inspection.
-        BuiltinOp::TypeOf => ExprMapping::RuntimeCall { function: "panproto_rt_type_of" },
-        BuiltinOp::IsNull => ExprMapping::RuntimeCall { function: "panproto_rt_is_null" },
-        BuiltinOp::IsList => ExprMapping::RuntimeCall { function: "panproto_rt_is_list" },
-
-        // Graph traversal.
-        BuiltinOp::Edge => ExprMapping::RuntimeCall { function: "panproto_rt_edge" },
-        BuiltinOp::Children => ExprMapping::RuntimeCall { function: "panproto_rt_children" },
-        BuiltinOp::HasEdge => ExprMapping::RuntimeCall { function: "panproto_rt_has_edge" },
-        BuiltinOp::EdgeCount => ExprMapping::RuntimeCall { function: "panproto_rt_edge_count" },
-        BuiltinOp::Anchor => ExprMapping::RuntimeCall { function: "panproto_rt_anchor" },
+        BuiltinOp::Keys        => ExprMapping::RuntimeCall { function: "panproto_rt_keys" },
+        BuiltinOp::Values      => ExprMapping::RuntimeCall { function: "panproto_rt_values" },
+        BuiltinOp::HasField    => ExprMapping::RuntimeCall { function: "panproto_rt_has_field" },
+        BuiltinOp::IntToStr    => ExprMapping::RuntimeCall { function: "panproto_rt_int_to_str" },
+        BuiltinOp::StrToInt    => ExprMapping::RuntimeCall { function: "panproto_rt_str_to_int" },
+        BuiltinOp::FloatToStr  => ExprMapping::RuntimeCall { function: "panproto_rt_float_to_str" },
+        BuiltinOp::StrToFloat  => ExprMapping::RuntimeCall { function: "panproto_rt_str_to_float" },
+        BuiltinOp::TypeOf      => ExprMapping::RuntimeCall { function: "panproto_rt_type_of" },
+        BuiltinOp::IsNull      => ExprMapping::RuntimeCall { function: "panproto_rt_is_null" },
+        BuiltinOp::IsList      => ExprMapping::RuntimeCall { function: "panproto_rt_is_list" },
+        BuiltinOp::Edge        => ExprMapping::RuntimeCall { function: "panproto_rt_edge" },
+        BuiltinOp::Children    => ExprMapping::RuntimeCall { function: "panproto_rt_children" },
+        BuiltinOp::HasEdge     => ExprMapping::RuntimeCall { function: "panproto_rt_has_edge" },
+        BuiltinOp::EdgeCount   => ExprMapping::RuntimeCall { function: "panproto_rt_edge_count" },
+        BuiltinOp::Anchor      => ExprMapping::RuntimeCall { function: "panproto_rt_anchor" },
+        _ => unreachable!(),
     }
 }
 
 /// Collect all free variable references in an expression.
-fn collect_free_vars(expr: &Expr, bound: &std::collections::HashSet<String>, free: &mut std::collections::HashSet<String>) {
+fn collect_free_vars(
+    expr: &Expr,
+    bound: &std::collections::HashSet<String>,
+    free: &mut std::collections::HashSet<String>,
+) {
     match expr {
         Expr::Var(name) => {
             let name_str = name.to_string();
@@ -313,7 +313,9 @@ mod tests {
         let expr = Expr::Lit(Literal::Int(42));
         assert_eq!(
             classify_expr(&expr),
-            ExprMapping::Constant { llvm_type: LlvmType::I64 }
+            ExprMapping::Constant {
+                llvm_type: LlvmType::I64
+            }
         );
     }
 
@@ -322,16 +324,18 @@ mod tests {
         let expr = Expr::Lit(Literal::Str("hello".into()));
         assert_eq!(
             classify_expr(&expr),
-            ExprMapping::Constant { llvm_type: LlvmType::Ptr }
+            ExprMapping::Constant {
+                llvm_type: LlvmType::Ptr
+            }
         );
     }
 
     #[test]
     fn classify_add() {
-        let expr = Expr::Builtin(BuiltinOp::Add, vec![
-            Expr::Lit(Literal::Int(1)),
-            Expr::Lit(Literal::Int(2)),
-        ]);
+        let expr = Expr::Builtin(
+            BuiltinOp::Add,
+            vec![Expr::Lit(Literal::Int(1)), Expr::Lit(Literal::Int(2))],
+        );
         assert_eq!(
             classify_expr(&expr),
             ExprMapping::ArithmeticOp { instruction: "add" }
@@ -340,22 +344,30 @@ mod tests {
 
     #[test]
     fn classify_string_concat() {
-        let expr = Expr::Builtin(BuiltinOp::Concat, vec![
-            Expr::Lit(Literal::Str("a".into())),
-            Expr::Lit(Literal::Str("b".into())),
-        ]);
+        let expr = Expr::Builtin(
+            BuiltinOp::Concat,
+            vec![
+                Expr::Lit(Literal::Str("a".into())),
+                Expr::Lit(Literal::Str("b".into())),
+            ],
+        );
         assert_eq!(
             classify_expr(&expr),
-            ExprMapping::RuntimeCall { function: "panproto_rt_str_concat" }
+            ExprMapping::RuntimeCall {
+                function: "panproto_rt_str_concat"
+            }
         );
     }
 
     #[test]
     fn classify_map_loop() {
-        let expr = Expr::Builtin(BuiltinOp::Map, vec![
-            Expr::Lam("x".into(), Box::new(Expr::Var("x".into()))),
-            Expr::List(vec![Expr::Lit(Literal::Int(1))]),
-        ]);
+        let expr = Expr::Builtin(
+            BuiltinOp::Map,
+            vec![
+                Expr::Lam("x".into(), Box::new(Expr::Var("x".into()))),
+                Expr::List(vec![Expr::Lit(Literal::Int(1))]),
+            ],
+        );
         assert_eq!(
             classify_expr(&expr),
             ExprMapping::ArrayLoop { operation: "map" }
@@ -367,8 +379,14 @@ mod tests {
         let expr = Expr::Match {
             scrutinee: Box::new(Expr::Var("x".into())),
             arms: vec![
-                (panproto_expr::Pattern::Lit(Literal::Int(0)), Expr::Lit(Literal::Str("zero".into()))),
-                (panproto_expr::Pattern::Wildcard, Expr::Lit(Literal::Str("other".into()))),
+                (
+                    panproto_expr::Pattern::Lit(Literal::Int(0)),
+                    Expr::Lit(Literal::Str("zero".into())),
+                ),
+                (
+                    panproto_expr::Pattern::Wildcard,
+                    Expr::Lit(Literal::Str("other".into())),
+                ),
             ],
         };
         assert_eq!(
@@ -379,22 +397,62 @@ mod tests {
 
     #[test]
     fn classify_all_builtins() {
-        // Verify every builtin has a classification (no panics).
         let builtins = vec![
-            BuiltinOp::Add, BuiltinOp::Sub, BuiltinOp::Mul, BuiltinOp::Div, BuiltinOp::Mod,
-            BuiltinOp::Neg, BuiltinOp::Abs,
-            BuiltinOp::Floor, BuiltinOp::Ceil,
-            BuiltinOp::Eq, BuiltinOp::Neq, BuiltinOp::Lt, BuiltinOp::Lte, BuiltinOp::Gt, BuiltinOp::Gte,
-            BuiltinOp::And, BuiltinOp::Or, BuiltinOp::Not,
-            BuiltinOp::Concat, BuiltinOp::Len, BuiltinOp::Slice, BuiltinOp::Upper, BuiltinOp::Lower,
-            BuiltinOp::Trim, BuiltinOp::Split, BuiltinOp::Join, BuiltinOp::Replace, BuiltinOp::Contains,
-            BuiltinOp::Map, BuiltinOp::Filter, BuiltinOp::Fold, BuiltinOp::FlatMap,
-            BuiltinOp::Head, BuiltinOp::Tail, BuiltinOp::Reverse, BuiltinOp::Append, BuiltinOp::Length,
-            BuiltinOp::MergeRecords, BuiltinOp::Keys, BuiltinOp::Values, BuiltinOp::HasField,
-            BuiltinOp::IntToFloat, BuiltinOp::FloatToInt,
-            BuiltinOp::IntToStr, BuiltinOp::StrToInt, BuiltinOp::FloatToStr, BuiltinOp::StrToFloat,
-            BuiltinOp::TypeOf, BuiltinOp::IsNull, BuiltinOp::IsList,
-            BuiltinOp::Edge, BuiltinOp::Children, BuiltinOp::HasEdge, BuiltinOp::EdgeCount, BuiltinOp::Anchor,
+            BuiltinOp::Add,
+            BuiltinOp::Sub,
+            BuiltinOp::Mul,
+            BuiltinOp::Div,
+            BuiltinOp::Mod,
+            BuiltinOp::Neg,
+            BuiltinOp::Abs,
+            BuiltinOp::Floor,
+            BuiltinOp::Ceil,
+            BuiltinOp::Eq,
+            BuiltinOp::Neq,
+            BuiltinOp::Lt,
+            BuiltinOp::Lte,
+            BuiltinOp::Gt,
+            BuiltinOp::Gte,
+            BuiltinOp::And,
+            BuiltinOp::Or,
+            BuiltinOp::Not,
+            BuiltinOp::Concat,
+            BuiltinOp::Len,
+            BuiltinOp::Slice,
+            BuiltinOp::Upper,
+            BuiltinOp::Lower,
+            BuiltinOp::Trim,
+            BuiltinOp::Split,
+            BuiltinOp::Join,
+            BuiltinOp::Replace,
+            BuiltinOp::Contains,
+            BuiltinOp::Map,
+            BuiltinOp::Filter,
+            BuiltinOp::Fold,
+            BuiltinOp::FlatMap,
+            BuiltinOp::Head,
+            BuiltinOp::Tail,
+            BuiltinOp::Reverse,
+            BuiltinOp::Append,
+            BuiltinOp::Length,
+            BuiltinOp::MergeRecords,
+            BuiltinOp::Keys,
+            BuiltinOp::Values,
+            BuiltinOp::HasField,
+            BuiltinOp::IntToFloat,
+            BuiltinOp::FloatToInt,
+            BuiltinOp::IntToStr,
+            BuiltinOp::StrToInt,
+            BuiltinOp::FloatToStr,
+            BuiltinOp::StrToFloat,
+            BuiltinOp::TypeOf,
+            BuiltinOp::IsNull,
+            BuiltinOp::IsList,
+            BuiltinOp::Edge,
+            BuiltinOp::Children,
+            BuiltinOp::HasEdge,
+            BuiltinOp::EdgeCount,
+            BuiltinOp::Anchor,
         ];
 
         for op in builtins {

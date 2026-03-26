@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "panproto"
-version = "0.15.0"
-description = "Universal schema migration engine (Python SDK)"
+version = "0.16.0"
+description = "Schematic version control with panproto (Python SDK)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"

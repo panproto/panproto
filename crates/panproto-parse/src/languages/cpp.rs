@@ -38,25 +38,46 @@ impl CppParser {
             capture_formatting: true,
         };
 
-        let inner = LanguageParser::new(
+        let inner = match LanguageParser::new(
             "cpp",
             vec!["cpp", "cc", "cxx", "hpp", "hh", "hxx"],
             tree_sitter_cpp::LANGUAGE,
             tree_sitter_cpp::NODE_TYPES.as_bytes(),
             config,
-        )
-        .expect("C++ grammar theory extraction must not fail");
+        ) {
+            Ok(v) => v,
+            Err(e) => panic!("grammar theory extraction failed: {e}"),
+        };
 
         Self { inner }
     }
 }
 
+impl Default for CppParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl crate::registry::AstParser for CppParser {
-    fn protocol_name(&self) -> &str { self.inner.protocol_name() }
-    fn parse(&self, source: &[u8], file_path: &str) -> Result<panproto_schema::Schema, crate::ParseError> { self.inner.parse(source, file_path) }
-    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> { self.inner.emit(schema) }
-    fn supported_extensions(&self) -> &[&str] { self.inner.supported_extensions() }
-    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta { self.inner.theory_meta() }
+    fn protocol_name(&self) -> &str {
+        self.inner.protocol_name()
+    }
+    fn parse(
+        &self,
+        source: &[u8],
+        file_path: &str,
+    ) -> Result<panproto_schema::Schema, crate::ParseError> {
+        self.inner.parse(source, file_path)
+    }
+    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> {
+        self.inner.emit(schema)
+    }
+    fn supported_extensions(&self) -> &[&str] {
+        self.inner.supported_extensions()
+    }
+    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta {
+        self.inner.theory_meta()
+    }
 }
 
 #[cfg(test)]
@@ -68,7 +89,7 @@ mod tests {
     #[test]
     fn parse_cpp_class() {
         let parser = CppParser::new();
-        let source = br#"
+        let source = br"
 #include <string>
 #include <vector>
 #include <memory>
@@ -99,15 +120,23 @@ int main() {
     stack->push(42);
     return stack->pop();
 }
-"#;
+";
         let schema = parser.parse(source, "stack.cpp").unwrap();
-        assert!(schema.vertices.len() > 30, "got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 30,
+            "got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
     fn cpp_theory_extraction() {
         let parser = CppParser::new();
         let meta = parser.theory_meta();
-        assert!(meta.vertex_kinds.len() > 60, "expected 60+ vertex kinds, got {}", meta.vertex_kinds.len());
+        assert!(
+            meta.vertex_kinds.len() > 60,
+            "expected 60+ vertex kinds, got {}",
+            meta.vertex_kinds.len()
+        );
     }
 }

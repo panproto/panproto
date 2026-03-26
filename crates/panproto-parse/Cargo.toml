@@ -32,6 +32,7 @@ thiserror = { workspace = true }
 miette = { workspace = true }
 rustc-hash = { workspace = true }
 smallvec = { workspace = true }
+memchr = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

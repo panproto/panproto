@@ -84,9 +84,9 @@ pub struct ExtractedTheoryMeta {
     pub supertypes: FxHashSet<String>,
     /// Mapping from supertype name to its concrete subtypes.
     pub subtype_map: Vec<(String, Vec<String>)>,
-    /// Fields that are optional (for ThPartial composition).
+    /// Fields that are optional (for `ThPartial` composition).
     pub optional_fields: FxHashSet<String>,
-    /// Fields that are ordered (for ThOrder composition).
+    /// Fields that are ordered (for `ThOrder` composition).
     pub ordered_fields: FxHashSet<String>,
     /// All named node types (vertex kinds for the protocol).
     pub vertex_kinds: Vec<String>,
@@ -265,7 +265,9 @@ pub fn extract_theory_from_language(
     // Enumerate all named node types as sorts.
     let node_count = language.node_kind_count();
     for id in 0..node_count {
-        let id_u16 = id as u16;
+        let Ok(id_u16) = u16::try_from(id) else {
+            continue;
+        };
         if language.node_kind_is_named(id_u16) {
             if let Some(name) = language.node_kind_for_id(id_u16) {
                 // Skip internal hidden nodes (prefixed with _).
@@ -284,7 +286,10 @@ pub fn extract_theory_from_language(
     // Enumerate all field names as operations (edge kinds).
     let field_count = language.field_count();
     for id in 1..=field_count {
-        if let Some(name) = language.field_name_for_id(id as u16) {
+        let Ok(id_u16) = u16::try_from(id) else {
+            continue;
+        };
+        if let Some(name) = language.field_name_for_id(id_u16) {
             if edge_kind_set.insert(name.to_owned()) {
                 ops.push(Operation::unary(name, "parent", "Vertex", "Vertex"));
             }
@@ -313,13 +318,12 @@ pub fn extract_theory_from_language(
 // ─── helpers ──────────────────────────────────────────────────────────────
 
 /// Parse a field specification from the JSON value in node-types.json.
-fn parse_field_spec(
-    name: &str,
-    value: &serde_json::Value,
-) -> Result<FieldSpec, ParseError> {
-    let obj = value.as_object().ok_or_else(|| ParseError::TheoryExtraction {
-        reason: format!("field '{name}' is not an object"),
-    })?;
+fn parse_field_spec(name: &str, value: &serde_json::Value) -> Result<FieldSpec, ParseError> {
+    let obj = value
+        .as_object()
+        .ok_or_else(|| ParseError::TheoryExtraction {
+            reason: format!("field '{name}' is not an object"),
+        })?;
 
     let required = obj
         .get("required")

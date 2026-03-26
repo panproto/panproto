@@ -26,22 +26,34 @@ impl KotlinParser {
     /// Panics if theory extraction from the embedded `NODE_TYPES` fails.
     #[must_use]
     pub fn new() -> Self {
-        let theory_meta = extract_theory_from_node_types(
+        let theory_meta = match extract_theory_from_node_types(
             "ThKotlinFullAST",
             tree_sitter_kotlin::NODE_TYPES.as_bytes(),
-        )
-        .expect("Kotlin grammar theory extraction must not fail");
+        ) {
+            Ok(meta) => meta,
+            Err(e) => panic!("Kotlin grammar theory extraction failed: {e}"),
+        };
 
         Self { theory_meta }
     }
 }
 
+impl Default for KotlinParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AstParser for KotlinParser {
-    fn protocol_name(&self) -> &str {
+    fn protocol_name(&self) -> &'static str {
         "kotlin"
     }
 
-    fn parse(&self, _source: &[u8], file_path: &str) -> Result<panproto_schema::Schema, ParseError> {
+    fn parse(
+        &self,
+        _source: &[u8],
+        file_path: &str,
+    ) -> Result<panproto_schema::Schema, ParseError> {
         Err(ParseError::TreeSitterParse {
             path: format!(
                 "{file_path}: tree-sitter-kotlin 0.3.x depends on tree-sitter 0.20, \

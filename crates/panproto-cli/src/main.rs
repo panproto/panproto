@@ -1562,8 +1562,6 @@ fn dispatch_git_commands(action: GitAction, verbose: bool) -> Result<()> {
         GitAction::Import { repo, revspec } => {
             cmd::git_bridge::cmd_git_import(&repo, &revspec, verbose)
         }
-        GitAction::Export { repo, dest } => {
-            cmd::git_bridge::cmd_git_export(&repo, &dest, verbose)
-        }
+        GitAction::Export { repo, dest } => cmd::git_bridge::cmd_git_export(&repo, &dest, verbose),
     }
 }

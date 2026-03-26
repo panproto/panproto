@@ -4,6 +4,20 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-03-26
+
+### Added — Full-AST Parsing, LLVM Integration, Git Bridge
+
+- **panproto-parse** (new crate): Tree-sitter full-AST parsing for 10 languages (TypeScript, TSX, Python, Rust, Java, Go, Swift, Kotlin, C#, C, C++) with auto-derived GAT theories from grammar metadata. Generic `AstWalker` uses node kinds as vertex kinds and field names as edge kinds. Interstitial text capture enables exact source round-trip (`emit(parse(source)) == source`). `ParserRegistry` with language detection by file extension. `IdGenerator` for scope-aware vertex IDs.
+- **panproto-project** (new crate): Multi-file project assembly via schema coproduct. `ProjectBuilder` parses all files in a directory, detects languages, and produces a unified `ProjectSchema` with path-prefixed vertex IDs and cross-file edge support. Falls back to `raw_file` protocol for non-code files and ABI-incompatible grammars.
+- **panproto-git** (new crate): Bidirectional git to panproto-vcs translation bridge. `import_git_repo` walks the git commit DAG topologically, parses each commit's file tree via `panproto-project`, and creates panproto-vcs commits preserving authorship, timestamps, and parent structure. `export_to_git` creates nested git trees from panproto schemas with proper directory hierarchy.
+- **panproto-llvm** (new crate): LLVM IR protocol definition (31 vertex kinds, 13 edge rules, 22 constraint sorts, 56 instruction opcodes). Theory morphisms lowering TypeScript, Python, and Rust ASTs to LLVM IR (compilation as structure-preserving maps). inkwell-based LLVM IR text parser (`parse_llvm_ir`) tested against LLVM 20.1.1.
+- **panproto-jit** (new crate): LLVM JIT compilation of panproto expressions via inkwell. `JitCompiler` compiles `Expr` ASTs to native code: arithmetic, comparison, boolean, type coercions, rounding (correct floor/ceil via comparison+adjust), let bindings, pattern matching with literal and wildcard patterns. Compilation mapping classifies all 50 builtins. Tested against LLVM 20.1.1.
+- **panproto-protocols**: `raw_file` protocol for non-code files (text as ordered line vertices, binary as chunk vertices with blake3 content hash). `ThImport` building-block theory for cross-file edges. `register_full_ast_wtype()` composes auto-derived theories with structural modifiers via colimit (returns `Result` for proper error propagation).
+- **panproto-core**: Feature-gated re-exports for new crates (`full-parse`, `project`, `git`, `llvm`, `jit`).
+- **panproto-cli**: `schema parse file`, `schema parse project`, `schema parse emit` subcommands for full-AST parsing. `schema git import`, `schema git export` subcommands for git bridge.
+- **panproto-py**: PyO3 bindings for `AstParserRegistry`, `ProjectBuilder`, `ProjectSchema`, `git_import()`, and convenience functions `parse_source_file()`, `parse_project()`, `build_project()`. New exception types `ParseError`, `ProjectError`, `GitBridgeError`.
+
 ## [0.15.0] - 2026-03-25
 
 ### Added — Edit Lenses and CLI Restructure

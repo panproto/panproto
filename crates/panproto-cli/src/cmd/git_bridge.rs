@@ -76,21 +76,20 @@ pub fn cmd_git_export(repo_path: &Path, dest_path: &Path, verbose: bool) -> Resu
         .wrap_err("failed to read HEAD")?;
 
     let head_ref = match head_state {
-        panproto_core::vcs::HeadState::Branch(name) => {
-            panproto_repo
-                .store()
-                .get_ref(&format!("refs/heads/{name}"))
-                .into_diagnostic()
-                .wrap_err("failed to resolve HEAD branch")?
-                .ok_or_else(|| miette::miette!("HEAD branch {name} has no commits"))?
-        }
+        panproto_core::vcs::HeadState::Branch(name) => panproto_repo
+            .store()
+            .get_ref(&format!("refs/heads/{name}"))
+            .into_diagnostic()
+            .wrap_err("failed to resolve HEAD branch")?
+            .ok_or_else(|| miette::miette!("HEAD branch {name} has no commits"))?,
         panproto_core::vcs::HeadState::Detached(id) => id,
     };
 
     let parent_map = rustc_hash::FxHashMap::default();
-    let result = panproto_git::export_to_git(panproto_repo.store(), &git_repo, head_ref, &parent_map)
-        .into_diagnostic()
-        .wrap_err("git export failed")?;
+    let result =
+        panproto_git::export_to_git(panproto_repo.store(), &git_repo, head_ref, &parent_map)
+            .into_diagnostic()
+            .wrap_err("git export failed")?;
 
     println!(
         "Exported {} file(s) to {}",

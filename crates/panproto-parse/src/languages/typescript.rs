@@ -23,34 +23,52 @@ impl TypeScriptParser {
                 "generator_function_declaration".to_owned(),
                 "type_alias_declaration".to_owned(),
             ],
-            extra_block_kinds: vec![
-                "switch_body".to_owned(),
-                "template_string".to_owned(),
-            ],
+            extra_block_kinds: vec!["switch_body".to_owned(), "template_string".to_owned()],
             name_fields: vec!["name".to_owned(), "identifier".to_owned()],
             capture_comments: true,
             capture_formatting: true,
         };
 
-        let inner = LanguageParser::new(
+        let inner = match LanguageParser::new(
             "typescript",
             vec!["ts"],
             tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
             tree_sitter_typescript::TYPESCRIPT_NODE_TYPES.as_bytes(),
             config,
-        )
-        .expect("TypeScript grammar theory extraction must not fail");
+        ) {
+            Ok(v) => v,
+            Err(e) => panic!("grammar theory extraction failed: {e}"),
+        };
 
         Self { inner }
     }
 }
 
+impl Default for TypeScriptParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl crate::registry::AstParser for TypeScriptParser {
-    fn protocol_name(&self) -> &str { self.inner.protocol_name() }
-    fn parse(&self, source: &[u8], file_path: &str) -> Result<panproto_schema::Schema, crate::ParseError> { self.inner.parse(source, file_path) }
-    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> { self.inner.emit(schema) }
-    fn supported_extensions(&self) -> &[&str] { self.inner.supported_extensions() }
-    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta { self.inner.theory_meta() }
+    fn protocol_name(&self) -> &str {
+        self.inner.protocol_name()
+    }
+    fn parse(
+        &self,
+        source: &[u8],
+        file_path: &str,
+    ) -> Result<panproto_schema::Schema, crate::ParseError> {
+        self.inner.parse(source, file_path)
+    }
+    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> {
+        self.inner.emit(schema)
+    }
+    fn supported_extensions(&self) -> &[&str] {
+        self.inner.supported_extensions()
+    }
+    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta {
+        self.inner.theory_meta()
+    }
 }
 
 /// Full-AST parser for TSX source files.
@@ -72,34 +90,52 @@ impl TsxParser {
                 "jsx_element".to_owned(),
                 "jsx_self_closing_element".to_owned(),
             ],
-            extra_block_kinds: vec![
-                "switch_body".to_owned(),
-                "jsx_expression".to_owned(),
-            ],
+            extra_block_kinds: vec!["switch_body".to_owned(), "jsx_expression".to_owned()],
             name_fields: vec!["name".to_owned(), "identifier".to_owned()],
             capture_comments: true,
             capture_formatting: true,
         };
 
-        let inner = LanguageParser::new(
+        let inner = match LanguageParser::new(
             "tsx",
             vec!["tsx"],
             tree_sitter_typescript::LANGUAGE_TSX,
             tree_sitter_typescript::TSX_NODE_TYPES.as_bytes(),
             config,
-        )
-        .expect("TSX grammar theory extraction must not fail");
+        ) {
+            Ok(v) => v,
+            Err(e) => panic!("grammar theory extraction failed: {e}"),
+        };
 
         Self { inner }
     }
 }
 
+impl Default for TsxParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl crate::registry::AstParser for TsxParser {
-    fn protocol_name(&self) -> &str { self.inner.protocol_name() }
-    fn parse(&self, source: &[u8], file_path: &str) -> Result<panproto_schema::Schema, crate::ParseError> { self.inner.parse(source, file_path) }
-    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> { self.inner.emit(schema) }
-    fn supported_extensions(&self) -> &[&str] { self.inner.supported_extensions() }
-    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta { self.inner.theory_meta() }
+    fn protocol_name(&self) -> &str {
+        self.inner.protocol_name()
+    }
+    fn parse(
+        &self,
+        source: &[u8],
+        file_path: &str,
+    ) -> Result<panproto_schema::Schema, crate::ParseError> {
+        self.inner.parse(source, file_path)
+    }
+    fn emit(&self, schema: &panproto_schema::Schema) -> Result<Vec<u8>, crate::ParseError> {
+        self.inner.emit(schema)
+    }
+    fn supported_extensions(&self) -> &[&str] {
+        self.inner.supported_extensions()
+    }
+    fn theory_meta(&self) -> &crate::theory_extract::ExtractedTheoryMeta {
+        self.inner.theory_meta()
+    }
 }
 
 #[cfg(test)]
@@ -119,13 +155,17 @@ function greet(name: string): string {
 const add = (a: number, b: number): number => a + b;
 "#;
         let schema = parser.parse(source, "test.ts").unwrap();
-        assert!(schema.vertices.len() > 10, "expected rich AST, got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 10,
+            "expected rich AST, got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
     fn parse_typescript_class() {
         let parser = TypeScriptParser::new();
-        let source = br#"
+        let source = br"
 class User {
     private name: string;
     private age: number;
@@ -139,9 +179,13 @@ class User {
         return `Hello, I'm ${this.name}`;
     }
 }
-"#;
+";
         let schema = parser.parse(source, "user.ts").unwrap();
-        assert!(schema.vertices.len() > 20, "expected rich class AST, got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 20,
+            "expected rich class AST, got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
@@ -162,13 +206,17 @@ enum Color {
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 "#;
         let schema = parser.parse(source, "types.ts").unwrap();
-        assert!(schema.vertices.len() > 15, "expected rich type AST, got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 15,
+            "expected rich type AST, got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
     fn parse_typescript_control_flow() {
         let parser = TypeScriptParser::new();
-        let source = br#"
+        let source = br"
 function process(items: string[]): void {
     for (const item of items) {
         if (item.length > 5) {
@@ -186,15 +234,19 @@ function process(items: string[]): void {
         cleanup();
     }
 }
-"#;
+";
         let schema = parser.parse(source, "flow.ts").unwrap();
-        assert!(schema.vertices.len() > 25, "expected rich control flow AST, got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 25,
+            "expected rich control flow AST, got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
     fn parse_typescript_imports() {
         let parser = TypeScriptParser::new();
-        let source = br#"
+        let source = br"
 import { useState, useEffect } from 'react';
 import type { User } from './types';
 
@@ -202,9 +254,13 @@ export function App(): JSX.Element {
     const [count, setCount] = useState(0);
     return count;
 }
-"#;
+";
         let schema = parser.parse(source, "app.ts").unwrap();
-        assert!(schema.vertices.len() > 10, "expected import/export AST, got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 10,
+            "expected import/export AST, got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
@@ -212,9 +268,17 @@ export function App(): JSX.Element {
         let parser = TypeScriptParser::new();
         let meta = parser.theory_meta();
         // TypeScript grammar has ~180+ named node types.
-        assert!(meta.vertex_kinds.len() > 100, "expected 100+ vertex kinds, got {}", meta.vertex_kinds.len());
+        assert!(
+            meta.vertex_kinds.len() > 100,
+            "expected 100+ vertex kinds, got {}",
+            meta.vertex_kinds.len()
+        );
         // TypeScript grammar has ~60+ field names.
-        assert!(meta.edge_kinds.len() > 30, "expected 30+ edge kinds, got {}", meta.edge_kinds.len());
+        assert!(
+            meta.edge_kinds.len() > 30,
+            "expected 30+ edge kinds, got {}",
+            meta.edge_kinds.len()
+        );
     }
 
     #[test]
@@ -231,7 +295,11 @@ function App() {
 }
 "#;
         let schema = parser.parse(source, "app.tsx").unwrap();
-        assert!(schema.vertices.len() > 15, "expected rich JSX AST, got {} vertices", schema.vertices.len());
+        assert!(
+            schema.vertices.len() > 15,
+            "expected rich JSX AST, got {} vertices",
+            schema.vertices.len()
+        );
     }
 
     #[test]
@@ -250,7 +318,7 @@ function App() {
     #[test]
     fn emit_roundtrip_complex() {
         let parser = TypeScriptParser::new();
-        let source = br#"interface Shape {
+        let source = br"interface Shape {
     area(): number;
 }
 
@@ -261,7 +329,7 @@ class Circle implements Shape {
         return Math.PI * this.radius * this.radius;
     }
 }
-"#;
+";
         let schema = parser.parse(source, "shape.ts").unwrap();
         let emitted = parser.emit(&schema).unwrap();
         assert_eq!(

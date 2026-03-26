@@ -26,11 +26,11 @@ mod inner {
     pub fn parse_llvm_ir(ir_text: &str, module_name: &str) -> Result<Schema, LlvmError> {
         let context = Context::create();
         let buffer = MemoryBuffer::create_from_memory_range_copy(ir_text.as_bytes(), module_name);
-        let module = context.create_module_from_ir(buffer).map_err(|e| {
-            LlvmError::ParseFailed {
+        let module = context
+            .create_module_from_ir(buffer)
+            .map_err(|e| LlvmError::ParseFailed {
                 reason: e.to_string(),
-            }
-        })?;
+            })?;
 
         walk_module(&module, module_name)
     }
@@ -74,8 +74,8 @@ mod inner {
     }
 
     /// Walk a function and emit vertices for its basic blocks and instructions.
-    fn walk_function<'ctx>(
-        func: FunctionValue<'ctx>,
+    fn walk_function(
+        func: FunctionValue<'_>,
         module_name: &str,
         mut builder: SchemaBuilder,
     ) -> Result<SchemaBuilder, LlvmError> {
@@ -147,13 +147,13 @@ mod inner {
 
         #[test]
         fn parse_simple_ir() {
-            let ir = r#"
+            let ir = r"
 define i32 @add(i32 %a, i32 %b) {
 entry:
   %result = add i32 %a, %b
   ret i32 %result
 }
-"#;
+";
             let schema = parse_llvm_ir(ir, "test_module").unwrap();
             assert!(!schema.vertices.is_empty(), "schema should have vertices");
 
@@ -167,7 +167,7 @@ entry:
 
         #[test]
         fn parse_multi_function_ir() {
-            let ir = r#"
+            let ir = r"
 define i32 @add(i32 %a, i32 %b) {
 entry:
   %result = add i32 %a, %b
@@ -181,7 +181,7 @@ entry:
 }
 
 @global_var = global i32 42
-"#;
+";
             let schema = parse_llvm_ir(ir, "multi_fn").unwrap();
             // 1 module + 2 functions + 4 params + 2 basic blocks + 4 instructions + 1 global = 14.
             assert!(
@@ -193,7 +193,7 @@ entry:
 
         #[test]
         fn parse_branching_ir() {
-            let ir = r#"
+            let ir = r"
 define i32 @max(i32 %a, i32 %b) {
 entry:
   %cmp = icmp sgt i32 %a, %b
@@ -205,7 +205,7 @@ then:
 else:
   ret i32 %b
 }
-"#;
+";
             let schema = parse_llvm_ir(ir, "branch_test").unwrap();
             // 1 module + 1 function + 2 params + 3 basic blocks + 4 instructions = 11.
             assert!(

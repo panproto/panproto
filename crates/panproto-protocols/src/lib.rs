@@ -51,6 +51,8 @@ pub mod domain;
 pub mod emit;
 /// Error types for protocol operations.
 pub mod error;
+/// Raw file protocol for non-code files (README, LICENSE, images, etc.).
+pub mod raw_file;
 /// Serialization and IDL protocol definitions.
 pub mod serialization;
 /// Shared component theory definitions (building-block GATs).
@@ -59,8 +61,6 @@ pub mod theories;
 pub mod type_system;
 /// Web and document format protocol definitions.
 pub mod web_document;
-/// Raw file protocol for non-code files (README, LICENSE, images, etc.).
-pub mod raw_file;
 
 pub use error::ProtocolError;
 

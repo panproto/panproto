@@ -165,7 +165,8 @@ pub fn parse_binary(file_path: &str, content: &[u8]) -> Result<Schema, ProtocolE
     // of the binary content. The actual bytes are stored by the VCS object store,
     // not inline in the schema (binary data can be arbitrarily large).
     let hash = blake3::hash(content);
-    builder = builder.constraint(&chunk_id, "content-hash", &hash.to_hex().to_string());
+    let hex = hash.to_hex();
+    builder = builder.constraint(&chunk_id, "content-hash", hex.as_str());
 
     builder
         .build()
