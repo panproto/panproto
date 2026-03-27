@@ -268,6 +268,80 @@ pub fn horizontal_compose(
     })
 }
 
+/// Check the interchange law for 2-categorical structure.
+///
+/// Given four natural transformations forming a 2x2 grid:
+///
+/// ```text
+///   alpha: F => G     beta: G => H
+///   alpha': F' => G'  beta': G' => H'
+/// ```
+///
+/// The interchange law states:
+///
+/// ```text
+///   (beta' • alpha') * (beta • alpha) = (beta' * beta) • (alpha' * alpha)
+/// ```
+///
+/// where `•` is vertical composition and `*` is horizontal composition.
+///
+/// # Errors
+///
+/// Returns [`GatError`] if any composition fails or the interchange law
+/// is violated.
+#[allow(clippy::too_many_arguments)]
+pub fn check_interchange(
+    alpha: &NaturalTransformation,
+    beta: &NaturalTransformation,
+    alpha_prime: &NaturalTransformation,
+    beta_prime: &NaturalTransformation,
+    f: &TheoryMorphism,
+    g: &TheoryMorphism,
+    h: &TheoryMorphism,
+    f_prime: &TheoryMorphism,
+    g_prime: &TheoryMorphism,
+    _h_prime: &TheoryMorphism,
+    domain: &Theory,
+    middle: &Theory,
+) -> Result<(), GatError> {
+    // LHS: (beta' • alpha') * (beta • alpha)
+    let beta_alpha = vertical_compose(alpha, beta, domain)?;
+    let beta_prime_alpha_prime = vertical_compose(alpha_prime, beta_prime, middle)?;
+    let lhs = horizontal_compose(
+        &beta_alpha,
+        &beta_prime_alpha_prime,
+        f,
+        h,
+        f_prime,
+        domain,
+    )?;
+
+    // RHS: (beta' * beta) • (alpha' * alpha)
+    let alpha_star = horizontal_compose(alpha, alpha_prime, f, g, f_prime, domain)?;
+    let beta_star = horizontal_compose(beta, beta_prime, g, h, g_prime, domain)?;
+    let rhs = vertical_compose(&alpha_star, &beta_star, domain)?;
+
+    // Compare components.
+    for sort in &domain.sorts {
+        let lhs_comp = lhs.components.get(&sort.name).ok_or_else(|| {
+            GatError::MissingNatTransComponent(sort.name.to_string())
+        })?;
+        let rhs_comp = rhs.components.get(&sort.name).ok_or_else(|| {
+            GatError::MissingNatTransComponent(sort.name.to_string())
+        })?;
+
+        if !alpha_equivalent(lhs_comp, rhs_comp) {
+            return Err(GatError::NaturalityViolation {
+                op: format!("interchange at sort {}", sort.name),
+                lhs: format!("{lhs_comp:?}"),
+                rhs: format!("{rhs_comp:?}"),
+            });
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,5 +616,34 @@ mod tests {
             matches!(result, Err(GatError::NatTransComposeMismatch { .. })),
             "expected NatTransComposeMismatch, got {result:?}"
         );
+    }
+
+    /// Interchange law for identity natural transformations.
+    /// All four nat trans are identities, all morphisms are identities.
+    #[test]
+    fn interchange_law_identities() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = two_sort_theory();
+        let id_morph = identity_morphism(&theory, "id");
+
+        let alpha = identity_nat_trans(&theory, "id", "id", "alpha");
+        let beta = identity_nat_trans(&theory, "id", "id", "beta");
+        let alpha_prime = identity_nat_trans(&theory, "id", "id", "alpha_prime");
+        let beta_prime = identity_nat_trans(&theory, "id", "id", "beta_prime");
+
+        check_interchange(
+            &alpha,
+            &beta,
+            &alpha_prime,
+            &beta_prime,
+            &id_morph,
+            &id_morph,
+            &id_morph,
+            &id_morph,
+            &id_morph,
+            &id_morph,
+            &theory,
+            &theory,
+        )?;
+        Ok(())
     }
 }
