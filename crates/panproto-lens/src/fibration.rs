@@ -109,20 +109,20 @@ pub fn verify_cartesian_universal(
     let fib = WTypeFibration;
 
     // Get (opcartesian lift)
-    let (view, complement) = fib
-        .opcartesian_lift(lens, instance)
-        .map_err(|e| CartesianViolation {
-            law: "opcartesian_lift (get)",
-            detail: format!("{e}"),
-        })?;
+    let (view, complement) =
+        fib.opcartesian_lift(lens, instance)
+            .map_err(|e| CartesianViolation {
+                law: "opcartesian_lift (get)",
+                detail: format!("{e}"),
+            })?;
 
     // Put (cartesian lift)
-    let restored = fib
-        .cartesian_lift(lens, &view, &complement)
-        .map_err(|e| CartesianViolation {
-            law: "cartesian_lift (put)",
-            detail: format!("{e}"),
-        })?;
+    let restored =
+        fib.cartesian_lift(lens, &view, &complement)
+            .map_err(|e| CartesianViolation {
+                law: "cartesian_lift (put)",
+                detail: format!("{e}"),
+            })?;
 
     // PutGet: restored should have same structure as original.
     if restored.node_count() != instance.node_count() {

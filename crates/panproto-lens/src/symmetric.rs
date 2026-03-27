@@ -151,8 +151,7 @@ impl SymmetricLens {
             if let Ok((right_view, right_complement)) = get(&self.right, middle_instance) {
                 // Round-trip through right.
                 if let Ok(middle_restored) = put(&self.right, &right_view, &right_complement) {
-                    if let Ok((_left_view_2, left_complement_2)) =
-                        get(&self.left, &middle_restored)
+                    if let Ok((_left_view_2, left_complement_2)) = get(&self.left, &middle_restored)
                     {
                         if left_complement.dropped_nodes.len()
                             != left_complement_2.dropped_nodes.len()

@@ -57,10 +57,7 @@ fn typescript_config() -> WalkerConfig {
             "generator_function_declaration".to_owned(),
             "type_alias_declaration".to_owned(),
         ],
-        extra_block_kinds: vec![
-            "switch_body".to_owned(),
-            "template_string".to_owned(),
-        ],
+        extra_block_kinds: vec!["switch_body".to_owned(), "template_string".to_owned()],
         name_fields: vec!["name".to_owned(), "identifier".to_owned()],
         capture_comments: true,
         capture_formatting: true,
@@ -74,10 +71,7 @@ fn tsx_config() -> WalkerConfig {
             "jsx_element".to_owned(),
             "jsx_self_closing_element".to_owned(),
         ],
-        extra_block_kinds: vec![
-            "switch_body".to_owned(),
-            "jsx_expression".to_owned(),
-        ],
+        extra_block_kinds: vec!["switch_body".to_owned(), "jsx_expression".to_owned()],
         name_fields: vec!["name".to_owned(), "identifier".to_owned()],
         capture_comments: true,
         capture_formatting: true,

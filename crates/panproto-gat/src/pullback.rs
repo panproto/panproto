@@ -200,12 +200,7 @@ fn pair_eqs(
 
             // Compare mapped equations up to α-equivalence, since equations
             // are universally quantified and variable names are bound.
-            if !alpha_equivalent_equation(
-                &lhs_via_m1,
-                &rhs_via_m1,
-                &lhs_via_m2,
-                &rhs_via_m2,
-            ) {
+            if !alpha_equivalent_equation(&lhs_via_m1, &rhs_via_m1, &lhs_via_m2, &rhs_via_m2) {
                 continue;
             }
 

@@ -65,8 +65,7 @@ impl ParserRegistry {
         };
 
         for grammar in panproto_grammars::grammars() {
-            let config =
-                crate::languages::walker_configs::walker_config_for(grammar.name);
+            let config = crate::languages::walker_configs::walker_config_for(grammar.name);
             match crate::languages::common::LanguageParser::from_language(
                 grammar.name,
                 grammar.extensions.to_vec(),

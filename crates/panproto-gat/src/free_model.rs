@@ -57,7 +57,8 @@ pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<Model, Ga
 /// ordered before the dependent sorts that reference them. Returns sort
 /// names in dependency order.
 fn topological_sort_sorts(theory: &Theory) -> Vec<Arc<str>> {
-    let sort_names: FxHashSet<Arc<str>> = theory.sorts.iter().map(|s| Arc::clone(&s.name)).collect();
+    let sort_names: FxHashSet<Arc<str>> =
+        theory.sorts.iter().map(|s| Arc::clone(&s.name)).collect();
     let mut in_degree: FxHashMap<Arc<str>, usize> = FxHashMap::default();
     let mut dependents: FxHashMap<Arc<str>, Vec<Arc<str>>> = FxHashMap::default();
 

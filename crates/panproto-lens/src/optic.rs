@@ -397,7 +397,10 @@ mod tests {
         let instance = three_node_instance();
 
         let result = check_optic_laws(OpticKind::Iso, &lens, &instance);
-        assert!(result.is_ok(), "identity lens should satisfy Iso laws: {result:?}");
+        assert!(
+            result.is_ok(),
+            "identity lens should satisfy Iso laws: {result:?}"
+        );
     }
 
     #[test]

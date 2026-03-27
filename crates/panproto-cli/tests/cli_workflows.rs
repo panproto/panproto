@@ -964,12 +964,7 @@ fn cli_validate_valid_schema() {
 #[test]
 fn cli_validate_invalid_schema() {
     let tmp = tempfile::tempdir().unwrap();
-    write_protocol_schema(
-        tmp.path(),
-        "bad.json",
-        "atproto",
-        &[("root", "bogus_kind")],
-    );
+    write_protocol_schema(tmp.path(), "bad.json", "atproto", &[("root", "bogus_kind")]);
 
     schema_cmd()
         .args(["validate", "--protocol", "atproto", "bad.json"])
@@ -1657,18 +1652,8 @@ fn cli_lift_string_identity() {
 #[test]
 fn cli_lift_integer_identity() {
     let tmp = tempfile::tempdir().unwrap();
-    write_protocol_schema(
-        tmp.path(),
-        "src.json",
-        "atproto",
-        &[("root", "integer")],
-    );
-    write_protocol_schema(
-        tmp.path(),
-        "tgt.json",
-        "atproto",
-        &[("root", "integer")],
-    );
+    write_protocol_schema(tmp.path(), "src.json", "atproto", &[("root", "integer")]);
+    write_protocol_schema(tmp.path(), "tgt.json", "atproto", &[("root", "integer")]);
     write_migration(tmp.path(), "mig.json", &[("root", "root")]);
 
     std::fs::write(tmp.path().join("record.json"), "42").unwrap();

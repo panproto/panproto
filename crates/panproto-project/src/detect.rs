@@ -60,7 +60,10 @@ mod tests {
         // group-core: python, javascript, typescript, java, csharp, cpp, php, bash, c, go, rust
         assert_eq!(detect_language(Path::new("lib.py")), Some("python"));
         assert_eq!(detect_language(Path::new("app.js")), Some("javascript"));
-        assert_eq!(detect_language(Path::new("src/main.ts")), Some("typescript"));
+        assert_eq!(
+            detect_language(Path::new("src/main.ts")),
+            Some("typescript")
+        );
         assert_eq!(detect_language(Path::new("App.java")), Some("java"));
         assert_eq!(detect_language(Path::new("Program.cs")), Some("csharp"));
         assert_eq!(detect_language(Path::new("stack.cpp")), Some("cpp"));

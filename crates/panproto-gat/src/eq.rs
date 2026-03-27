@@ -234,10 +234,7 @@ impl AlphaChecker {
 /// variables are the variables in `pattern`, and they are matched against
 /// subterms of `term`.
 #[must_use]
-pub fn match_pattern(
-    pattern: &Term,
-    term: &Term,
-) -> Option<rustc_hash::FxHashMap<Arc<str>, Term>> {
+pub fn match_pattern(pattern: &Term, term: &Term) -> Option<rustc_hash::FxHashMap<Arc<str>, Term>> {
     let mut subst = rustc_hash::FxHashMap::default();
     if match_pattern_inner(pattern, term, &mut subst) {
         Some(subst)
@@ -287,11 +284,7 @@ fn match_pattern_inner(
 /// Continues until no more rules apply (fixed point) or `max_steps` rewrites
 /// have been performed.
 #[must_use]
-pub fn normalize(
-    term: &Term,
-    directed_eqs: &[DirectedEquation],
-    max_steps: usize,
-) -> Term {
+pub fn normalize(term: &Term, directed_eqs: &[DirectedEquation], max_steps: usize) -> Term {
     let mut current = term.clone();
     let mut steps = 0;
     loop {
@@ -460,7 +453,10 @@ mod tests {
 
     #[test]
     fn alpha_eq_different_structure() {
-        let t1 = Term::app("f", vec![Term::var("x"), Term::app("g", vec![Term::var("y")])]);
+        let t1 = Term::app(
+            "f",
+            vec![Term::var("x"), Term::app("g", vec![Term::var("y")])],
+        );
         let t2 = Term::app("f", vec![Term::var("x"), Term::var("y")]);
         assert!(!alpha_equivalent(&t1, &t2));
     }

@@ -1,3 +1,4 @@
+#![allow(clippy::future_not_send)]
 //! Git remote helper for `cospan://` URLs.
 //!
 //! Git calls this binary as `git-remote-cospan` when encountering a remote URL

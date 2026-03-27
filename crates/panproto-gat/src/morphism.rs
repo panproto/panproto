@@ -180,9 +180,10 @@ pub fn check_morphism(
         // up to α-equivalence (consistent variable renaming). Equations are
         // universally quantified, so variable names are bound and must not
         // affect identity.
-        let preserved = codomain.eqs.iter().any(|ceq| {
-            alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_lhs, &mapped_rhs)
-        });
+        let preserved = codomain
+            .eqs
+            .iter()
+            .any(|ceq| alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_lhs, &mapped_rhs));
 
         if !preserved {
             return Err(GatError::EquationNotPreserved {
@@ -197,9 +198,10 @@ pub fn check_morphism(
         let mapped_lhs = m.apply_to_term(&de.lhs);
         let mapped_rhs = m.apply_to_term(&de.rhs);
 
-        let preserved = codomain.directed_eqs.iter().any(|cde| {
-            alpha_equivalent_equation(&cde.lhs, &cde.rhs, &mapped_lhs, &mapped_rhs)
-        });
+        let preserved = codomain
+            .directed_eqs
+            .iter()
+            .any(|cde| alpha_equivalent_equation(&cde.lhs, &cde.rhs, &mapped_lhs, &mapped_rhs));
 
         if !preserved {
             return Err(GatError::DirectedEquationNotPreserved {

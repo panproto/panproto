@@ -307,14 +307,7 @@ pub fn check_interchange(
     // LHS: (beta' • alpha') * (beta • alpha)
     let beta_alpha = vertical_compose(alpha, beta, domain)?;
     let beta_prime_alpha_prime = vertical_compose(alpha_prime, beta_prime, middle)?;
-    let lhs = horizontal_compose(
-        &beta_alpha,
-        &beta_prime_alpha_prime,
-        f,
-        h,
-        f_prime,
-        domain,
-    )?;
+    let lhs = horizontal_compose(&beta_alpha, &beta_prime_alpha_prime, f, h, f_prime, domain)?;
 
     // RHS: (beta' * beta) • (alpha' * alpha)
     let alpha_star = horizontal_compose(alpha, alpha_prime, f, g, f_prime, domain)?;
@@ -323,12 +316,14 @@ pub fn check_interchange(
 
     // Compare components.
     for sort in &domain.sorts {
-        let lhs_comp = lhs.components.get(&sort.name).ok_or_else(|| {
-            GatError::MissingNatTransComponent(sort.name.to_string())
-        })?;
-        let rhs_comp = rhs.components.get(&sort.name).ok_or_else(|| {
-            GatError::MissingNatTransComponent(sort.name.to_string())
-        })?;
+        let lhs_comp = lhs
+            .components
+            .get(&sort.name)
+            .ok_or_else(|| GatError::MissingNatTransComponent(sort.name.to_string()))?;
+        let rhs_comp = rhs
+            .components
+            .get(&sort.name)
+            .ok_or_else(|| GatError::MissingNatTransComponent(sort.name.to_string()))?;
 
         if !alpha_equivalent(lhs_comp, rhs_comp) {
             return Err(GatError::NaturalityViolation {
@@ -590,7 +585,10 @@ mod tests {
         // RHS: h(h(h(x))) -- also normalizes to h(x)
         // Both equal after normalization.
         let mut components = HashMap::new();
-        components.insert(Arc::from("A"), Term::app("h", vec![Term::app("h", vec![Term::var("x")])]));
+        components.insert(
+            Arc::from("A"),
+            Term::app("h", vec![Term::app("h", vec![Term::var("x")])]),
+        );
         let nt = NaturalTransformation {
             name: Arc::from("alpha"),
             source: Arc::from("F"),

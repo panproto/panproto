@@ -64,7 +64,7 @@ impl NodeClient {
         self
     }
 
-    /// Parse a `cospan://did/repo` URL into (base_url, did, repo).
+    /// Parse a `cospan://did/repo` URL into (`base_url`, `did`, `repo`).
     ///
     /// The base URL defaults to `https://node.cospan.dev` unless overridden
     /// by the `COSPAN_NODE_URL` environment variable.
@@ -285,7 +285,7 @@ impl NodeClient {
             "did": self.did,
             "repo": self.repo,
             "ref": ref_name,
-            "oldTarget": old_target.map(|id| id.to_string()),
+            "oldTarget": old_target.map(ToString::to_string),
             "newTarget": new_target.to_string(),
             "protocol": protocol,
             "commitCount": commit_count,

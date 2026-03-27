@@ -45,8 +45,7 @@ pub fn grammars() -> Vec<Grammar> {
                 // a valid `TSLanguage*` pointer from the compiled C grammar. We cast the
                 // raw pointer back to the correct function pointer type. This is the
                 // standard tree-sitter FFI pattern used by every grammar crate.
-                let f: unsafe extern "C" fn() -> *const () =
-                    std::mem::transmute(e.language_fn_ptr);
+                let f: unsafe extern "C" fn() -> *const () = std::mem::transmute(e.language_fn_ptr);
                 tree_sitter_language::LanguageFn::from_raw(f).into()
             };
             Grammar {

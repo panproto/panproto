@@ -21,11 +21,11 @@ pub enum XrpcError {
         body: String,
     },
 
-    /// MessagePack deserialization failed.
+    /// `MessagePack` deserialization failed.
     #[error("msgpack decode failed: {0}")]
     MsgpackDecode(#[from] rmp_serde::decode::Error),
 
-    /// MessagePack serialization failed.
+    /// `MessagePack` serialization failed.
     #[error("msgpack encode failed: {0}")]
     MsgpackEncode(#[from] rmp_serde::encode::Error),
 

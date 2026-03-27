@@ -388,12 +388,15 @@ mod tests {
                 ("body".into(), "post".into()),
                 ("body.text".into(), "post.text".into()),
             ]),
-            edge_remap: HashMap::from([(edge_text, Edge {
-                src: "post".into(),
-                tgt: "post.text".into(),
-                kind: "prop".into(),
-                name: Some("text".into()),
-            })]),
+            edge_remap: HashMap::from([(
+                edge_text,
+                Edge {
+                    src: "post".into(),
+                    tgt: "post.text".into(),
+                    kind: "prop".into(),
+                    name: Some("text".into()),
+                },
+            )]),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
