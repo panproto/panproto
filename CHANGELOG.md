@@ -16,6 +16,10 @@ All notable changes to panproto will be documented in this file.
 - **panproto-mig** (F8): added functoriality integration tests for `lift_wtype_sigma()` (left Kan extension). Tests verify that lifting along a composed migration equals sequential lifting (`Σ(m2 ∘ m1, I) = Σ(m2, Σ(m1, I))`), and that identity migration preserves instances.
 - **panproto-lens** (F9): documented that `classify_transform()` assumes elementary transforms are lawful by construction. Added `check_optic_laws()` for runtime verification that the classified optic kind's laws hold on concrete instances, and `OpticLawViolation` error type.
 
+### Added — Mathematical Correctness Enhancements
+
+- **panproto-gat** (F10): added `check_interchange()` to verify the interchange law for natural transformation compositions, the fundamental coherence condition for 2-categories: `(β' • α') * (β • α) = (β' * β) • (α' * α)`. Compares both sides component-wise using α-equivalence.
+
 ### Added — XRPC Remote Operations and Git Remote Helper
 
 - **panproto-xrpc** (new crate): XRPC client for cospan node VCS operations. Implements all `dev.cospan.node.*` endpoints (getObject, putObject, getRef, setRef, listRefs, getHead, negotiate, getRepoInfo). High-level `push()` and `pull()` methods handle full have/want negotiation. Auth via Bearer token.

@@ -58,7 +58,8 @@ pub use ident::{Ident, Name, NameSite, ScopeTag, SiteRename};
 pub use model::{Model, ModelValue, migrate_model};
 pub use morphism::{TheoryMorphism, check_morphism};
 pub use nat_transform::{
-    NaturalTransformation, check_natural_transformation, horizontal_compose, vertical_compose,
+    NaturalTransformation, check_interchange, check_natural_transformation, horizontal_compose,
+    vertical_compose,
 };
 pub use op::Operation;
 pub use pullback::{PullbackResult, pullback};
