@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added — XRPC Remote Operations and Git Remote Helper
+
+- **panproto-xrpc** (new crate): XRPC client for cospan node VCS operations. Implements all `dev.cospan.node.*` endpoints (getObject, putObject, getRef, setRef, listRefs, getHead, negotiate, getRepoInfo). High-level `push()` and `pull()` methods handle full have/want negotiation. Auth via Bearer token.
+- **git-remote-cospan** (new crate): Git remote helper binary enabling `git clone cospan://did/repo`, `git push cospan main`, `git pull cospan`. Implements the git remote-helper stdin/stdout protocol (capabilities, list, fetch, push). Fetch exports panproto objects to git via `panproto-git::export_to_git`. Push imports git objects via `panproto-git::import_git_repo`.
+- **panproto-cli**: `push`, `pull`, `fetch`, `clone` commands now use `panproto-xrpc::NodeClient` for remote operations against cospan nodes via `cospan://` URLs.
+
 ## [0.16.0] - 2026-03-26
 
 ### Added — Full-AST Parsing, LLVM Integration, Git Bridge
