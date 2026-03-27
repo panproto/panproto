@@ -12,6 +12,7 @@ All notable changes to panproto will be documented in this file.
 - **panproto-gat** (F4): `check_morphism()` now verifies that directed equations are preserved under the morphism. For each domain directed equation, the mapped terms must appear as a directed equation in the codomain (checked via α-equivalence). Added `DirectedEquationNotPreserved` error variant.
 - **panproto-gat** (F5): pullback construction now pairs directed equations from both source theories when they agree in the codomain (via α-equivalence). Added `pair_directed_eqs()` following the same pattern as `pair_eqs()`. The pullback theory uses `Theory::full()` to include paired directed equations.
 - **panproto-gat** (F6): free model construction now topologically sorts the theory's sorts by dependency, ensuring parameter sorts are populated before dependent sorts. Added `topological_sort_sorts()`. Term generation iterates in dependency order so dependent sorts like `Hom(a: Ob, b: Ob)` correctly find terms for their parameter sorts.
+- **panproto-lens** (F7): added `SymmetricLens::verify_complement_coherence()` to verify that round-tripping through one direction does not disturb the complement of the other direction (Hofmann-Pierce-Wagner complement coherence condition). Returns a list of `CoherenceViolation`s. Previously, complement coherence was only tested on identity lenses.
 
 ### Added — XRPC Remote Operations and Git Remote Helper
 
