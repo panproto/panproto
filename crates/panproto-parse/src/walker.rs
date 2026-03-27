@@ -438,14 +438,21 @@ mod tests {
         }
     }
 
+    /// Helper to get a grammar Language by name from panproto-grammars.
+    fn get_language(name: &str) -> tree_sitter::Language {
+        panproto_grammars::grammars()
+            .into_iter()
+            .find(|g| g.name == name)
+            .unwrap_or_else(|| panic!("grammar '{name}' not enabled in features"))
+            .language
+    }
+
     #[test]
     fn walk_simple_typescript() {
         let source = b"function greet(name: string): string { return name; }";
 
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
-            .unwrap();
+        parser.set_language(&get_language("typescript")).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let protocol = make_test_protocol();
@@ -474,9 +481,7 @@ mod tests {
         let source = b"def add(a, b):\n    return a + b\n";
 
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_python::LANGUAGE.into())
-            .unwrap();
+        parser.set_language(&get_language("python")).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let protocol = make_test_protocol();
@@ -497,9 +502,7 @@ mod tests {
         let source = b"fn main() { let x = 42; println!(\"{}\", x); }";
 
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_rust::LANGUAGE.into())
-            .unwrap();
+        parser.set_language(&get_language("rust")).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let protocol = make_test_protocol();

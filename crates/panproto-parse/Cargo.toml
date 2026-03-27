@@ -11,22 +11,9 @@ repository.workspace = true
 panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-protocols = { workspace = true }
+panproto-grammars = { workspace = true }
 
 tree-sitter = { workspace = true }
-tree-sitter-typescript = { workspace = true }
-tree-sitter-python = { workspace = true }
-tree-sitter-rust = { workspace = true }
-tree-sitter-java = { workspace = true }
-tree-sitter-go = { workspace = true }
-tree-sitter-swift = { workspace = true }
-# tree-sitter-kotlin omitted: 0.3.x depends on tree-sitter 0.20 which causes
-# duplicate symbol errors in cdylib targets. Kotlin node-types.json is embedded
-# directly in src/languages/kotlin-node-types.json for theory extraction.
-tree-sitter-c-sharp = { workspace = true }
-tree-sitter-c = { workspace = true }
-tree-sitter-cpp = { workspace = true }
-
-tree-sitter-language = "0.1"
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -38,6 +25,19 @@ memchr = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+
+[features]
+default = ["panproto-grammars/default"]
+group-core = ["panproto-grammars/group-core"]
+group-web = ["panproto-grammars/group-web"]
+group-systems = ["panproto-grammars/group-systems"]
+group-jvm = ["panproto-grammars/group-jvm"]
+group-scripting = ["panproto-grammars/group-scripting"]
+group-data = ["panproto-grammars/group-data"]
+group-functional = ["panproto-grammars/group-functional"]
+group-devops = ["panproto-grammars/group-devops"]
+group-mobile = ["panproto-grammars/group-mobile"]
+group-all = ["panproto-grammars/group-all"]
 
 [lints]
 workspace = true

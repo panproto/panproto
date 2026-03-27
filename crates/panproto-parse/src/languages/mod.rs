@@ -1,35 +1,14 @@
-//! Per-language parser and emitter implementations.
+//! Language parser infrastructure.
 //!
-//! Each module provides a tree-sitter-based parser and schema emitter for a
-//! specific programming language. All parsers use the shared `LanguageParser`
-//! infrastructure from `common`, which delegates to the generic
-//! `AstWalker` with an auto-derived theory.
+//! The shared `LanguageParser` from `common` handles all tree-sitter grammars
+//! uniformly: the node kind IS the vertex kind, the field name IS the edge kind.
+//! Grammar sources and `Language` objects come from `panproto-grammars`.
 //!
-//! Per-language customization is limited to:
-//! - The tree-sitter grammar (Language + `NODE_TYPES`)
-//! - `WalkerConfig` overrides for scope/block detection
-//! - File extension mapping
+//! Per-language `WalkerConfig` overrides (extra scope/block kinds) are stored
+//! in `walker_configs`. Languages without overrides use the default config.
 
 /// Shared language parser implementation.
 pub mod common;
 
-/// C full-AST parser.
-pub mod c_lang;
-/// C++ full-AST parser.
-pub mod cpp;
-/// C# full-AST parser.
-pub mod csharp;
-/// Go full-AST parser.
-pub mod go_lang;
-/// Java full-AST parser.
-pub mod java;
-/// Kotlin full-AST parser.
-pub mod kotlin;
-/// Python full-AST parser.
-pub mod python;
-/// Rust full-AST parser.
-pub mod rust_lang;
-/// Swift full-AST parser.
-pub mod swift;
-/// TypeScript and TSX full-AST parsers.
-pub mod typescript;
+/// Per-language `WalkerConfig` overrides.
+pub mod walker_configs;

@@ -36,31 +36,7 @@ pub struct LanguageParser {
 }
 
 impl LanguageParser {
-    /// Create a new language parser from a [`LanguageFn`](tree_sitter_language::LanguageFn).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ParseError`] if theory extraction from `node_types_json` fails.
-    pub fn new(
-        protocol_name: &str,
-        extensions: Vec<&'static str>,
-        language_fn: tree_sitter_language::LanguageFn,
-        node_types_json: &[u8],
-        walker_config: WalkerConfig,
-    ) -> Result<Self, ParseError> {
-        Self::from_language(
-            protocol_name,
-            extensions,
-            language_fn.into(),
-            node_types_json,
-            walker_config,
-        )
-    }
-
     /// Create a new language parser from a pre-constructed [`Language`](tree_sitter::Language).
-    ///
-    /// Used by grammar crates (like Kotlin) that expose a `fn language() -> Language`
-    /// instead of a `LANGUAGE` constant.
     ///
     /// # Errors
     ///

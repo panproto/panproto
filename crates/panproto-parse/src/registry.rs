@@ -52,7 +52,11 @@ pub struct ParserRegistry {
 }
 
 impl ParserRegistry {
-    /// Create a new registry populated with all built-in language parsers.
+    /// Create a new registry populated with all enabled language parsers.
+    ///
+    /// The set of languages depends on which `panproto-grammars` feature flags
+    /// are enabled. The default is `group-core` (GitHub's top 10 languages).
+    /// Use `group-all` for all 248 supported languages.
     #[must_use]
     pub fn new() -> Self {
         let mut registry = Self {
@@ -60,20 +64,26 @@ impl ParserRegistry {
             extension_map: FxHashMap::default(),
         };
 
-        // Register all 10 language parsers.
-        registry.register(Box::new(
-            crate::languages::typescript::TypeScriptParser::new(),
-        ));
-        registry.register(Box::new(crate::languages::typescript::TsxParser::new()));
-        registry.register(Box::new(crate::languages::python::PythonParser::new()));
-        registry.register(Box::new(crate::languages::rust_lang::RustParser::new()));
-        registry.register(Box::new(crate::languages::java::JavaParser::new()));
-        registry.register(Box::new(crate::languages::go_lang::GoParser::new()));
-        registry.register(Box::new(crate::languages::swift::SwiftParser::new()));
-        registry.register(Box::new(crate::languages::kotlin::KotlinParser::new()));
-        registry.register(Box::new(crate::languages::csharp::CSharpParser::new()));
-        registry.register(Box::new(crate::languages::c_lang::CParser::new()));
-        registry.register(Box::new(crate::languages::cpp::CppParser::new()));
+        for grammar in panproto_grammars::grammars() {
+            let config =
+                crate::languages::walker_configs::walker_config_for(grammar.name);
+            match crate::languages::common::LanguageParser::from_language(
+                grammar.name,
+                grammar.extensions.to_vec(),
+                grammar.language,
+                grammar.node_types,
+                config,
+            ) {
+                Ok(p) => registry.register(Box::new(p)),
+                Err(err) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "warning: grammar '{}' theory extraction failed: {err}",
+                        grammar.name
+                    );
+                }
+            }
+        }
 
         registry
     }
