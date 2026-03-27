@@ -305,6 +305,196 @@ mod tests {
         );
     }
 
+    /// Test functoriality of Σ (left Kan extension): lifting along a
+    /// composed migration should equal sequential lifting.
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn sigma_functoriality() {
+        let edge_text = Edge {
+            src: "body".into(),
+            tgt: "body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+
+        // Schema 1: body + body.text + body.createdAt (source, not used directly)
+        let _s1 = test_schema(
+            &[
+                ("body", "object"),
+                ("body.text", "string"),
+                ("body.createdAt", "string"),
+            ],
+            &[
+                edge_text.clone(),
+                Edge {
+                    src: "body".into(),
+                    tgt: "body.createdAt".into(),
+                    kind: "prop".into(),
+                    name: Some("createdAt".into()),
+                },
+            ],
+        );
+
+        // Schema 2: body + body.text (drop createdAt)
+        let s2 = test_schema(
+            &[("body", "object"), ("body.text", "string")],
+            std::slice::from_ref(&edge_text),
+        );
+
+        // Schema 3: post + post.text (rename body -> post)
+        let edge_text_renamed = Edge {
+            src: "post".into(),
+            tgt: "post.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+        let s3 = test_schema(
+            &[("post", "object"), ("post.text", "string")],
+            std::slice::from_ref(&edge_text_renamed),
+        );
+
+        // Migration m1: s1 -> s2 (drop createdAt)
+        let m1 = CompiledMigration {
+            surviving_verts: HashSet::from(["body".into(), "body.text".into()]),
+            surviving_edges: HashSet::from([edge_text.clone()]),
+            vertex_remap: HashMap::new(),
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+        };
+
+        // Migration m2: s2 -> s3 (rename body->post, body.text->post.text)
+        let m2 = CompiledMigration {
+            surviving_verts: HashSet::from(["post".into(), "post.text".into()]),
+            surviving_edges: HashSet::from([edge_text_renamed.clone()]),
+            vertex_remap: HashMap::from([
+                ("body".into(), "post".into()),
+                ("body.text".into(), "post.text".into()),
+            ]),
+            edge_remap: HashMap::from([(edge_text.clone(), edge_text_renamed.clone())]),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+        };
+
+        // Composed m12: s1 -> s3 directly
+        let m12 = CompiledMigration {
+            surviving_verts: HashSet::from(["post".into(), "post.text".into()]),
+            surviving_edges: HashSet::from([edge_text_renamed]),
+            vertex_remap: HashMap::from([
+                ("body".into(), "post".into()),
+                ("body.text".into(), "post.text".into()),
+            ]),
+            edge_remap: HashMap::from([(edge_text, Edge {
+                src: "post".into(),
+                tgt: "post.text".into(),
+                kind: "prop".into(),
+                name: Some("text".into()),
+            })]),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+        };
+
+        // Build instance on s1.
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "body"));
+        nodes.insert(
+            1,
+            Node::new(1, "body.text")
+                .with_value(FieldPresence::Present(Value::Str("hello".into()))),
+        );
+        nodes.insert(
+            2,
+            Node::new(2, "body.createdAt")
+                .with_value(FieldPresence::Present(Value::Str("2024-01-01".into()))),
+        );
+        let arcs = vec![
+            (
+                0,
+                1,
+                Edge {
+                    src: "body".into(),
+                    tgt: "body.text".into(),
+                    kind: "prop".into(),
+                    name: Some("text".into()),
+                },
+            ),
+            (
+                0,
+                2,
+                Edge {
+                    src: "body".into(),
+                    tgt: "body.createdAt".into(),
+                    kind: "prop".into(),
+                    name: Some("createdAt".into()),
+                },
+            ),
+        ];
+        let instance = WInstance::new(nodes, arcs, vec![], 0, panproto_gat::Name::from("body"));
+
+        // Sequential: lift_sigma(m2, lift_sigma(m1, I))
+        let step1 = lift_wtype_sigma(&m1, &s2, &instance).unwrap();
+        let sequential = lift_wtype_sigma(&m2, &s3, &step1).unwrap();
+
+        // Direct: lift_sigma(m12, I)
+        let direct = lift_wtype_sigma(&m12, &s3, &instance).unwrap();
+
+        // Both should have the same node count.
+        assert_eq!(
+            sequential.node_count(),
+            direct.node_count(),
+            "Σ functoriality: sequential and direct should have same node count"
+        );
+    }
+
+    /// Test that Σ on identity migration preserves the instance.
+    #[test]
+    fn sigma_identity_preserves_instance() {
+        let edge_text = Edge {
+            src: "body".into(),
+            tgt: "body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+        let schema = test_schema(
+            &[("body", "object"), ("body.text", "string")],
+            std::slice::from_ref(&edge_text),
+        );
+
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "body"));
+        nodes.insert(
+            1,
+            Node::new(1, "body.text")
+                .with_value(FieldPresence::Present(Value::Str("hello".into()))),
+        );
+        let arcs = vec![(0, 1, edge_text.clone())];
+        let instance = WInstance::new(nodes, arcs, vec![], 0, panproto_gat::Name::from("body"));
+
+        let id_migration = CompiledMigration {
+            surviving_verts: HashSet::from(["body".into(), "body.text".into()]),
+            surviving_edges: HashSet::from([edge_text]),
+            vertex_remap: HashMap::new(),
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+        };
+
+        let result = lift_wtype_sigma(&id_migration, &schema, &instance).unwrap();
+        assert_eq!(
+            result.node_count(),
+            instance.node_count(),
+            "Σ on identity should preserve node count"
+        );
+    }
+
     #[test]
     fn recursive_projection_via_wtype_restrict() {
         // Test 3: Recursive schema with nested children. Drop intermediate
