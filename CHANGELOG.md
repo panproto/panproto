@@ -4,10 +4,10 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed — Mathematical Correctness (F1): α-Equivalence in Equation Preservation
+### Fixed — Mathematical Correctness Review
 
-- **panproto-gat**: equation preservation in `check_morphism()` now uses α-equivalence instead of syntactic equality, correctly treating universally quantified variable names as bound. Added `alpha_equivalent()` and `alpha_equivalent_equation()` to `Term`. Fixes false negatives when codomain equations use different variable names than the mapped domain equations.
-- **panproto-gat**: pullback equation pairing in `pair_eqs()` now uses α-equivalence, allowing equations with renamed variables to be correctly paired across theories.
+- **panproto-gat** (F1): equation preservation in `check_morphism()` now uses α-equivalence instead of syntactic equality, correctly treating universally quantified variable names as bound. Added `alpha_equivalent()` and `alpha_equivalent_equation()` to `Term`. Pullback equation pairing in `pair_eqs()` also updated.
+- **panproto-gat** (F2): naturality square verification in `check_natural_transformation()` now normalizes both sides via the codomain's directed equations (rewrite rules) before comparison. Added `match_pattern()` for first-order pattern matching and `normalize()` for innermost-first term rewriting to fixed point. Naturality checks that depend on the codomain's equational theory no longer produce spurious violations.
 
 ### Added — XRPC Remote Operations and Git Remote Helper
 
