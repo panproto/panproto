@@ -62,13 +62,13 @@ pub mod json_pathway;
 /// Arena allocation helpers for zero-copy hot paths.
 pub mod arena;
 
-/// Generic JSON-based codec reused by ~30 protocols.
+/// Generic JSON-based codec reused by many protocols.
 pub mod json_codec;
 
 /// Zero-copy XML pathway for schema-guided instance parsing via `quick-xml`.
 pub mod xml_pathway;
 
-/// Generic XML-based codec reused by ~14 protocols.
+/// Generic XML-based codec reused by several protocols.
 pub mod xml_codec;
 
 /// Shared tabular pathway for line/field-delimited formats via `memchr`.
@@ -81,23 +81,21 @@ pub mod tabular_codec;
 
 /// Linguistic annotation protocols (brat, CoNLL-U, NAF, etc.).
 pub mod annotation;
-/// API specification protocols (GraphQL, OpenAPI, AsyncAPI, JSON:API, RAML).
+/// API specification protocols (OpenAPI, AsyncAPI, JSON:API, RAML).
 pub mod api;
-/// Configuration protocols (CloudFormation, Ansible, K8s CRD, HCL).
+/// Configuration protocols (CloudFormation, Ansible, K8s CRD).
 pub mod config;
-/// Data schema protocols (JSON Schema, YAML Schema, TOML Schema, etc.).
+/// Data schema protocols (CDDL, BSON).
 pub mod data_schema;
 /// Data science protocols (DataFrame, Parquet, Arrow).
 pub mod data_science;
-/// Database protocols (MongoDB, DynamoDB, Cassandra, Neo4j, SQL, Redis).
+/// Database protocols (MongoDB, DynamoDB, Cassandra, Neo4j, Redis).
 pub mod database;
 /// Domain-specific protocols (GeoJSON, FHIR, RSS/Atom, vCard/iCal, etc.).
 pub mod domain;
-/// Serialization protocols (Protobuf, Avro, Thrift, Cap'n Proto, etc.).
+/// Serialization protocols (Avro, FlatBuffers, ASN.1, Bond, MsgPack).
 pub mod serialization;
-/// Type system protocols (TypeScript, Python, Rust, Java, Go, etc.).
-pub mod type_system;
-/// Web and document protocols (ATProto, HTML, Markdown, CSS, etc.).
+/// Web and document protocols (ATProto, DOCX, ODF).
 pub mod web_document;
 
 // Re-exports for convenience.
@@ -114,7 +112,7 @@ pub use traits::{InstanceEmitter, InstanceParser, NativeRepr};
 ///
 /// ```ignore
 /// let registry = panproto_io::default_registry();
-/// let instance = registry.parse_wtype("graphql", &schema, &bytes)?;
+/// let instance = registry.parse_wtype("openapi", &schema, &bytes)?;
 /// ```
 #[must_use]
 pub fn default_registry() -> ProtocolRegistry {
@@ -127,7 +125,6 @@ pub fn default_registry() -> ProtocolRegistry {
     database::register_all(&mut registry);
     domain::register_all(&mut registry);
     serialization::register_all(&mut registry);
-    type_system::register_all(&mut registry);
     web_document::register_all(&mut registry);
     registry
 }
@@ -140,52 +137,32 @@ mod tests {
     fn default_registry_has_expected_protocols() {
         let registry = default_registry();
 
-        // All 77 protocols.
+        // All 50 protocols.
         let expected = [
-            // API (5)
-            "graphql",
+            // API (4)
             "openapi",
             "asyncapi",
             "jsonapi",
             "raml",
-            // Data schema (7)
-            "json_schema",
-            "yaml_schema",
-            "toml_schema",
+            // Data schema (2)
             "cddl",
             "bson",
-            "csv_table",
-            "ini_schema",
-            // Database (6)
+            // Database (5)
             "mongodb",
             "dynamodb",
             "cassandra",
             "neo4j",
-            "sql",
             "redis",
-            // Type system (8)
-            "typescript",
-            "python",
-            "rust_serde",
-            "java",
-            "go_struct",
-            "kotlin",
-            "csharp",
-            "swift",
-            // Config (4)
+            // Config (3)
             "cloudformation",
             "ansible",
             "k8s_crd",
-            "hcl",
             // Data science (3)
             "dataframe",
             "parquet",
             "arrow",
-            // Serialization (8)
-            "protobuf",
+            // Serialization (5)
             "avro",
-            "thrift",
-            "capnproto",
             "flatbuffers",
             "asn1",
             "bond",
@@ -212,15 +189,8 @@ mod tests {
             "amr",
             "concrete",
             "nif",
-            // Web/Document (10)
+            // Web/Document (3)
             "atproto",
-            "jsx",
-            "vue",
-            "svelte",
-            "css",
-            "html",
-            "markdown",
-            "xml_xsd",
             "docx",
             "odf",
             // Domain (6)

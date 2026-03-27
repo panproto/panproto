@@ -88,9 +88,22 @@ fn parse_source_file(path: &str, content: &[u8]) -> PyResult<PySchema> {
     })
 }
 
+/// List all available tree-sitter grammar languages.
+///
+/// Returns the names of all grammars enabled by feature flags.
+/// With ``group-all``, this is 240+ languages.
+#[pyfunction]
+fn available_grammars() -> Vec<String> {
+    panproto_grammars::grammars()
+        .into_iter()
+        .map(|g| g.name.to_owned())
+        .collect()
+}
+
 /// Register parse types on the parent module.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_class::<PyAstParserRegistry>()?;
     parent.add_function(wrap_pyfunction!(parse_source_file, parent)?)?;
+    parent.add_function(wrap_pyfunction!(available_grammars, parent)?)?;
     Ok(())
 }

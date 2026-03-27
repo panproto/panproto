@@ -234,7 +234,7 @@ pub struct PyProtocol {
 
 #[pymethods]
 impl PyProtocol {
-    /// Human-readable protocol name (e.g., ``"sql"``, ``"atproto"``).
+    /// Human-readable protocol name (e.g., ``"atproto"``, ``"brat"``).
     #[getter]
     fn name(&self) -> &str {
         &self.inner.name

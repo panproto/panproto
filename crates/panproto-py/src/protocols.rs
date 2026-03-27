@@ -1,8 +1,11 @@
 //! Python bindings for the built-in protocol registry.
 //!
-//! Provides access to all 76+ built-in protocol definitions across
-//! 10 categories (annotation, api, config, `data_schema`, `data_science`,
-//! database, domain, serialization, `type_system`, `web_document`).
+//! Provides access to the remaining semantic protocol definitions across
+//! 9 categories (annotation, api, config, data_schema, data_science,
+//! database, domain, serialization, web_document).
+//!
+//! Programming language and data format protocols are handled by tree-sitter
+//! grammars via `panproto-grammars`.
 
 use panproto_core::protocols;
 use panproto_core::schema::Protocol;
@@ -35,35 +38,27 @@ fn lookup(name: &str) -> Option<Protocol> {
         "amr" => protocols::annotation::amr::protocol(),
         "concrete" => protocols::annotation::concrete::protocol(),
         "nif" => protocols::annotation::nif::protocol(),
-        // api (5)
-        "graphql" => protocols::api::graphql::protocol(),
+        // api (4)
         "openapi" => protocols::api::openapi::protocol(),
         "asyncapi" => protocols::api::asyncapi::protocol(),
         "jsonapi" => protocols::api::jsonapi::protocol(),
         "raml" => protocols::api::raml::protocol(),
-        // config (4)
+        // config (3)
         "cloudformation" => protocols::config::cloudformation::protocol(),
         "ansible" => protocols::config::ansible::protocol(),
         "k8s_crd" => protocols::config::k8s_crd::protocol(),
-        "hcl" => protocols::config::hcl::protocol(),
-        // data_schema (7)
-        "json_schema" => protocols::data_schema::json_schema::protocol(),
-        "yaml_schema" => protocols::data_schema::yaml_schema::protocol(),
-        "toml_schema" => protocols::data_schema::toml_schema::protocol(),
+        // data_schema (2)
         "cddl" => protocols::data_schema::cddl::protocol(),
         "bson" => protocols::data_schema::bson::protocol(),
-        "csv_table" => protocols::data_schema::csv_table::protocol(),
-        "ini_schema" => protocols::data_schema::ini_schema::protocol(),
         // data_science (3)
         "dataframe" => protocols::data_science::dataframe::protocol(),
         "parquet" => protocols::data_science::parquet::protocol(),
         "arrow" => protocols::data_science::arrow::protocol(),
-        // database (6)
+        // database (5)
         "mongodb" => protocols::database::mongodb::protocol(),
         "dynamodb" => protocols::database::dynamodb::protocol(),
         "cassandra" => protocols::database::cassandra::protocol(),
         "neo4j" => protocols::database::neo4j::protocol(),
-        "sql" => protocols::database::sql::protocol(),
         "redis" => protocols::database::redis::protocol(),
         // domain (6)
         "geojson" => protocols::domain::geojson::protocol(),
@@ -72,33 +67,14 @@ fn lookup(name: &str) -> Option<Protocol> {
         "vcard_ical" => protocols::domain::vcard_ical::protocol(),
         "swift_mt" => protocols::domain::swift_mt::protocol(),
         "edi_x12" => protocols::domain::edi_x12::protocol(),
-        // serialization (8)
-        "protobuf" => protocols::serialization::protobuf::protocol(),
+        // serialization (5)
         "avro" => protocols::serialization::avro::protocol(),
-        "thrift" => protocols::serialization::thrift::protocol(),
-        "capnproto" => protocols::serialization::capnproto::protocol(),
         "flatbuffers" => protocols::serialization::flatbuffers::protocol(),
         "asn1" => protocols::serialization::asn1::protocol(),
         "bond" => protocols::serialization::bond::protocol(),
         "msgpack_schema" => protocols::serialization::msgpack_schema::protocol(),
-        // type_system (8)
-        "typescript" => protocols::type_system::typescript::protocol(),
-        "python" => protocols::type_system::python::protocol(),
-        "rust_serde" => protocols::type_system::rust_serde::protocol(),
-        "java" => protocols::type_system::java::protocol(),
-        "go_struct" => protocols::type_system::go_struct::protocol(),
-        "kotlin" => protocols::type_system::kotlin::protocol(),
-        "csharp" => protocols::type_system::csharp::protocol(),
-        "swift" => protocols::type_system::swift::protocol(),
-        // web_document (10)
+        // web_document (3)
         "atproto" => protocols::web_document::atproto::protocol(),
-        "jsx" => protocols::web_document::jsx::protocol(),
-        "vue" => protocols::web_document::vue::protocol(),
-        "svelte" => protocols::web_document::svelte::protocol(),
-        "css" => protocols::web_document::css::protocol(),
-        "html" => protocols::web_document::html::protocol(),
-        "markdown" => protocols::web_document::markdown::protocol(),
-        "xml_xsd" => protocols::web_document::xml_xsd::protocol(),
         "docx" => protocols::web_document::docx::protocol(),
         "odf" => protocols::web_document::odf::protocol(),
         _ => return None,
@@ -128,7 +104,6 @@ const BUILTIN_NAMES: &[&str] = &[
     "concrete",
     "nif",
     // api
-    "graphql",
     "openapi",
     "asyncapi",
     "jsonapi",
@@ -137,15 +112,9 @@ const BUILTIN_NAMES: &[&str] = &[
     "cloudformation",
     "ansible",
     "k8s_crd",
-    "hcl",
     // data_schema
-    "json_schema",
-    "yaml_schema",
-    "toml_schema",
     "cddl",
     "bson",
-    "csv_table",
-    "ini_schema",
     // data_science
     "dataframe",
     "parquet",
@@ -155,7 +124,6 @@ const BUILTIN_NAMES: &[&str] = &[
     "dynamodb",
     "cassandra",
     "neo4j",
-    "sql",
     "redis",
     // domain
     "geojson",
@@ -165,32 +133,13 @@ const BUILTIN_NAMES: &[&str] = &[
     "swift_mt",
     "edi_x12",
     // serialization
-    "protobuf",
     "avro",
-    "thrift",
-    "capnproto",
     "flatbuffers",
     "asn1",
     "bond",
     "msgpack_schema",
-    // type_system
-    "typescript",
-    "python",
-    "rust_serde",
-    "java",
-    "go_struct",
-    "kotlin",
-    "csharp",
-    "swift",
     // web_document
     "atproto",
-    "jsx",
-    "vue",
-    "svelte",
-    "css",
-    "html",
-    "markdown",
-    "xml_xsd",
     "docx",
     "odf",
 ];
@@ -210,7 +159,7 @@ pub fn list_builtin_protocols() -> Vec<String> {
 /// Parameters
 /// ----------
 /// name : str
-///     Protocol name (e.g., ``"sql"``, ``"protobuf"``, ``"graphql"``).
+///     Protocol name (e.g., ``"atproto"``, ``"brat"``).
 ///
 /// Returns
 /// -------

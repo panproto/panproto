@@ -18,22 +18,12 @@ import panproto
 class TestProtocolRegistry:
     """Tests for the built-in protocol registry."""
 
-    def test_list_builtin_protocols_returns_76(self) -> None:
+    def test_list_builtin_protocols_returns_50(self) -> None:
         names = panproto.list_builtin_protocols()
-        assert len(names) == 76
-
-    def test_list_contains_sql(self) -> None:
-        assert "sql" in panproto.list_builtin_protocols()
+        assert len(names) == 50
 
     def test_list_contains_atproto(self) -> None:
         assert "atproto" in panproto.list_builtin_protocols()
-
-    def test_list_contains_protobuf(self) -> None:
-        assert "protobuf" in panproto.list_builtin_protocols()
-
-    def test_get_builtin_protocol_sql(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        assert sql.name == "sql"
 
     def test_get_builtin_protocol_atproto(self) -> None:
         proto = panproto.get_builtin_protocol("atproto")
@@ -44,13 +34,13 @@ class TestProtocolRegistry:
             panproto.get_builtin_protocol("nonexistent")
 
     def test_protocol_obj_kinds(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        assert "table" in sql.obj_kinds
+        proto = panproto.get_builtin_protocol("atproto")
+        assert "object" in proto.obj_kinds
 
     def test_protocol_schema_theory(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        assert isinstance(sql.schema_theory, str)
-        assert len(sql.schema_theory) > 0
+        proto = panproto.get_builtin_protocol("atproto")
+        assert isinstance(proto.schema_theory, str)
+        assert len(proto.schema_theory) > 0
 
     def test_define_custom_protocol(self) -> None:
         custom = panproto.define_protocol({
@@ -73,17 +63,17 @@ class TestSchemaBuilder:
     """Tests for schema construction via Protocol.schema()."""
 
     def test_build_minimal_schema(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
-        b.vertex("t", "table")
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("t", "object")
         schema = b.build()
         assert schema.vertex_count == 1
         assert schema.edge_count == 0
 
     def test_build_with_edges(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
-        b.vertex("t", "table")
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("t", "object")
         b.vertex("c", "integer")
         b.edge("t", "c", "prop", "col")
         schema = b.build()
@@ -91,40 +81,40 @@ class TestSchemaBuilder:
         assert schema.edge_count == 1
 
     def test_build_with_constraint(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
-        b.vertex("t", "table")
-        b.vertex("c", "integer")
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("t", "object")
+        b.vertex("c", "string")
         b.edge("t", "c", "prop", "id")
-        b.constraint("c", "primary_key", "")
+        b.constraint("c", "format", "at-uri")
         schema = b.build()
         constraints = schema.constraints_for("c")
         assert len(constraints) == 1
-        assert constraints[0].sort == "primary_key"
+        assert constraints[0].sort == "format"
 
     def test_duplicate_vertex_raises(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
-        b.vertex("t", "table")
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("t", "object")
         with pytest.raises(panproto.SchemaValidationError, match="duplicate"):
-            b.vertex("t", "table")
+            b.vertex("t", "object")
 
     def test_unknown_vertex_kind_raises(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
         with pytest.raises(panproto.SchemaValidationError, match="unknown vertex kind"):
             b.vertex("x", "BOGUS_KIND")
 
     def test_edge_to_missing_vertex_raises(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
-        b.vertex("t", "table")
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("t", "object")
         with pytest.raises(panproto.SchemaValidationError, match="not found"):
             b.edge("t", "missing", "prop")
 
     def test_empty_schema_raises(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
         with pytest.raises(panproto.SchemaValidationError, match="no vertices"):
             b.build()
 
@@ -138,77 +128,77 @@ class TestSchema:
     """Tests for Schema objects."""
 
     @pytest.fixture
-    def sql_schema(self) -> panproto.Schema:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
-        b.vertex("users", "table")
-        b.vertex("users.id", "integer")
-        b.vertex("users.name", "string")
-        b.edge("users", "users.id", "prop", "id")
-        b.edge("users", "users.name", "prop", "name")
-        b.constraint("users.id", "primary_key", "")
+    def atproto_schema(self) -> panproto.Schema:
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("profile", "object")
+        b.vertex("profile.handle", "string")
+        b.vertex("profile.displayName", "string")
+        b.edge("profile", "profile.handle", "prop", "handle")
+        b.edge("profile", "profile.displayName", "prop", "displayName")
+        b.constraint("profile.handle", "format", "handle")
         return b.build()
 
-    def test_protocol(self, sql_schema: panproto.Schema) -> None:
-        assert sql_schema.protocol == "sql"
+    def test_protocol(self, atproto_schema: panproto.Schema) -> None:
+        assert atproto_schema.protocol == "atproto"
 
-    def test_vertex_count(self, sql_schema: panproto.Schema) -> None:
-        assert sql_schema.vertex_count == 3
+    def test_vertex_count(self, atproto_schema: panproto.Schema) -> None:
+        assert atproto_schema.vertex_count == 3
 
-    def test_edge_count(self, sql_schema: panproto.Schema) -> None:
-        assert sql_schema.edge_count == 2
+    def test_edge_count(self, atproto_schema: panproto.Schema) -> None:
+        assert atproto_schema.edge_count == 2
 
-    def test_vertices_list(self, sql_schema: panproto.Schema) -> None:
-        ids = {v.id for v in sql_schema.vertices}
-        assert ids == {"users", "users.id", "users.name"}
+    def test_vertices_list(self, atproto_schema: panproto.Schema) -> None:
+        ids = {v.id for v in atproto_schema.vertices}
+        assert ids == {"profile", "profile.handle", "profile.displayName"}
 
-    def test_vertex_lookup(self, sql_schema: panproto.Schema) -> None:
-        v = sql_schema.vertex("users.id")
+    def test_vertex_lookup(self, atproto_schema: panproto.Schema) -> None:
+        v = atproto_schema.vertex("profile.handle")
         assert v is not None
-        assert v.kind == "integer"
+        assert v.kind == "string"
 
-    def test_vertex_lookup_missing(self, sql_schema: panproto.Schema) -> None:
-        assert sql_schema.vertex("nonexistent") is None
+    def test_vertex_lookup_missing(self, atproto_schema: panproto.Schema) -> None:
+        assert atproto_schema.vertex("nonexistent") is None
 
-    def test_has_vertex(self, sql_schema: panproto.Schema) -> None:
-        assert sql_schema.has_vertex("users")
-        assert not sql_schema.has_vertex("nonexistent")
+    def test_has_vertex(self, atproto_schema: panproto.Schema) -> None:
+        assert atproto_schema.has_vertex("profile")
+        assert not atproto_schema.has_vertex("nonexistent")
 
-    def test_outgoing_edges(self, sql_schema: panproto.Schema) -> None:
-        out = sql_schema.outgoing_edges("users")
+    def test_outgoing_edges(self, atproto_schema: panproto.Schema) -> None:
+        out = atproto_schema.outgoing_edges("profile")
         assert len(out) == 2
 
-    def test_incoming_edges(self, sql_schema: panproto.Schema) -> None:
-        inc = sql_schema.incoming_edges("users.id")
+    def test_incoming_edges(self, atproto_schema: panproto.Schema) -> None:
+        inc = atproto_schema.incoming_edges("profile.handle")
         assert len(inc) == 1
 
-    def test_normalize(self, sql_schema: panproto.Schema) -> None:
-        normalized = sql_schema.normalize()
-        assert normalized.vertex_count == sql_schema.vertex_count
+    def test_normalize(self, atproto_schema: panproto.Schema) -> None:
+        normalized = atproto_schema.normalize()
+        assert normalized.vertex_count == atproto_schema.vertex_count
 
-    def test_validate(self, sql_schema: panproto.Schema) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        issues = sql_schema.validate(sql)
+    def test_validate(self, atproto_schema: panproto.Schema) -> None:
+        proto = panproto.get_builtin_protocol("atproto")
+        issues = atproto_schema.validate(proto)
         assert isinstance(issues, list)
 
-    def test_to_json_roundtrip(self, sql_schema: panproto.Schema) -> None:
-        json_str = sql_schema.to_json()
+    def test_to_json_roundtrip(self, atproto_schema: panproto.Schema) -> None:
+        json_str = atproto_schema.to_json()
         restored = panproto.Schema.from_json(json_str)
-        assert restored.vertex_count == sql_schema.vertex_count
-        assert restored.edge_count == sql_schema.edge_count
+        assert restored.vertex_count == atproto_schema.vertex_count
+        assert restored.edge_count == atproto_schema.edge_count
 
-    def test_to_dict(self, sql_schema: panproto.Schema) -> None:
-        d = sql_schema.to_dict()
+    def test_to_dict(self, atproto_schema: panproto.Schema) -> None:
+        d = atproto_schema.to_dict()
         assert isinstance(d, dict)
         assert "vertices" in d
         assert "protocol" in d
 
-    def test_len(self, sql_schema: panproto.Schema) -> None:
-        assert len(sql_schema) == 3
+    def test_len(self, atproto_schema: panproto.Schema) -> None:
+        assert len(atproto_schema) == 3
 
-    def test_repr(self, sql_schema: panproto.Schema) -> None:
-        r = repr(sql_schema)
-        assert "sql" in r
+    def test_repr(self, atproto_schema: panproto.Schema) -> None:
+        r = repr(atproto_schema)
+        assert "atproto" in r
         assert "3" in r
 
 
@@ -222,15 +212,15 @@ class TestDiffAndClassify:
 
     @pytest.fixture
     def schemas(self) -> tuple[panproto.Schema, panproto.Schema]:
-        sql = panproto.get_builtin_protocol("sql")
-        b1 = sql.schema()
-        b1.vertex("t", "table")
+        proto = panproto.get_builtin_protocol("atproto")
+        b1 = proto.schema()
+        b1.vertex("t", "object")
         b1.vertex("c", "integer")
         b1.edge("t", "c", "prop", "id")
         s1 = b1.build()
 
-        b2 = sql.schema()
-        b2.vertex("t", "table")
+        b2 = proto.schema()
+        b2.vertex("t", "object")
         b2.vertex("c", "integer")
         b2.vertex("e", "string")
         b2.edge("t", "c", "prop", "id")
@@ -250,18 +240,18 @@ class TestDiffAndClassify:
         self, schemas: tuple[panproto.Schema, panproto.Schema]
     ) -> None:
         s1, s2 = schemas
-        sql = panproto.get_builtin_protocol("sql")
+        proto = panproto.get_builtin_protocol("atproto")
         diff = panproto.diff_schemas(s1, s2)
-        report = diff.classify(sql)
+        report = diff.classify(proto)
         assert report.compatible is True
 
     def test_report_text(
         self, schemas: tuple[panproto.Schema, panproto.Schema]
     ) -> None:
         s1, s2 = schemas
-        sql = panproto.get_builtin_protocol("sql")
+        proto = panproto.get_builtin_protocol("atproto")
         diff = panproto.diff_schemas(s1, s2)
-        report = diff.classify(sql)
+        report = diff.classify(proto)
         text = report.report_text()
         assert "COMPATIBLE" in text
 
@@ -269,8 +259,8 @@ class TestDiffAndClassify:
         self, schemas: tuple[panproto.Schema, panproto.Schema]
     ) -> None:
         s1, s2 = schemas
-        sql = panproto.get_builtin_protocol("sql")
-        report = panproto.diff_and_classify(s1, s2, sql)
+        proto = panproto.get_builtin_protocol("atproto")
+        report = panproto.diff_and_classify(s1, s2, proto)
         assert report.compatible is True
 
 
@@ -290,13 +280,13 @@ class TestMigration:
         assert "b" in d["vertex_map"].values()
 
     def test_compile_migration(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b1 = sql.schema()
-        b1.vertex("t", "table")
+        proto = panproto.get_builtin_protocol("atproto")
+        b1 = proto.schema()
+        b1.vertex("t", "object")
         s1 = b1.build()
 
-        b2 = sql.schema()
-        b2.vertex("t", "table")
+        b2 = proto.schema()
+        b2.vertex("t", "object")
         s2 = b2.build()
 
         mb = panproto.MigrationBuilder()
@@ -329,17 +319,16 @@ class TestIoRegistry:
 
     def test_create_registry(self) -> None:
         io = panproto.IoRegistry()
-        assert len(io) == 76
+        assert len(io) == 50
 
     def test_list_protocols(self) -> None:
         io = panproto.IoRegistry()
         protos = io.list_protocols()
-        assert "graphql" in protos
-        assert "sql" in protos
+        assert "atproto" in protos
 
     def test_repr(self) -> None:
         io = panproto.IoRegistry()
-        assert "76" in repr(io)
+        assert "50" in repr(io)
 
 
 # ---------------------------------------------------------------------------
@@ -464,9 +453,9 @@ class TestVcs:
         assert repo is not None
 
     def test_add_schema(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
-        b.vertex("t", "table")
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("t", "object")
         schema = b.build()
 
         repo = panproto.VcsRepository()
@@ -518,8 +507,8 @@ class TestErrors:
         assert panproto.WasmError is panproto.PanprotoError
 
     def test_schema_validation_error_catchable(self) -> None:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
         with pytest.raises(panproto.SchemaValidationError):
             b.vertex("x", "BOGUS")
 
@@ -542,12 +531,12 @@ class TestVertexEdgeConstraint:
 
     @pytest.fixture
     def schema(self) -> panproto.Schema:
-        sql = panproto.get_builtin_protocol("sql")
-        b = sql.schema()
-        b.vertex("t", "table")
-        b.vertex("c", "integer")
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("t", "object")
+        b.vertex("c", "string")
         b.edge("t", "c", "prop", "col")
-        b.constraint("c", "primary_key", "")
+        b.constraint("c", "format", "at-uri")
         return b.build()
 
     def test_vertex_id(self, schema: panproto.Schema) -> None:
@@ -558,12 +547,12 @@ class TestVertexEdgeConstraint:
     def test_vertex_kind(self, schema: panproto.Schema) -> None:
         v = schema.vertex("t")
         assert v is not None
-        assert v.kind == "table"
+        assert v.kind == "object"
 
     def test_vertex_repr(self, schema: panproto.Schema) -> None:
         v = schema.vertex("t")
         assert v is not None
-        assert "table" in repr(v)
+        assert "object" in repr(v)
 
     def test_edge_src_tgt_kind(self, schema: panproto.Schema) -> None:
         edges = schema.edges
@@ -581,9 +570,9 @@ class TestVertexEdgeConstraint:
     def test_constraint_sort_value(self, schema: panproto.Schema) -> None:
         cs = schema.constraints_for("c")
         assert len(cs) == 1
-        assert cs[0].sort == "primary_key"
-        assert cs[0].value == ""
+        assert cs[0].sort == "format"
+        assert cs[0].value == "at-uri"
 
     def test_constraint_repr(self, schema: panproto.Schema) -> None:
         c = schema.constraints_for("c")[0]
-        assert "primary_key" in repr(c)
+        assert "format" in repr(c)
