@@ -84,12 +84,32 @@ def fetch_grammar(name: str, spec: dict, dry_run: bool = False) -> bool:
             print(f"FAILED (clone: {result.stderr.strip()})")
             return False
 
-        src_dir = clone_dir / directory / "src" if directory else clone_dir / "src"
+        grammar_root = clone_dir / directory if directory else clone_dir
+        src_dir = grammar_root / "src"
         parser_c = src_dir / "parser.c"
         node_types = src_dir / "node-types.json"
 
+        # If parser.c is missing, run tree-sitter generate to produce it.
         if not parser_c.exists():
-            print(f"FAILED (no src/parser.c in {directory or 'root'})")
+            grammar_js = grammar_root / "grammar.js"
+            grammar_json = grammar_root / "grammar.json"
+            if grammar_js.exists() or grammar_json.exists():
+                print("(generating) ", end="", flush=True)
+                gen_result = subprocess.run(
+                    ["tree-sitter", "generate"],
+                    cwd=str(grammar_root),
+                    capture_output=True,
+                    text=True,
+                )
+                if gen_result.returncode != 0:
+                    print(f"FAILED (tree-sitter generate: {gen_result.stderr.strip()[:200]})")
+                    return False
+            else:
+                print(f"FAILED (no src/parser.c or grammar.js in {directory or 'root'})")
+                return False
+
+        if not parser_c.exists():
+            print(f"FAILED (parser.c not generated)")
             return False
 
         if not node_types.exists():
@@ -98,15 +118,22 @@ def fetch_grammar(name: str, spec: dict, dry_run: bool = False) -> bool:
 
         dest.mkdir(parents=True, exist_ok=True)
 
-        shutil.copy2(parser_c, dest / "parser.c")
         shutil.copy2(node_types, dest / "node-types.json")
 
-        scanner_c = src_dir / "scanner.c"
-        scanner_cc = src_dir / "scanner.cc"
-        if scanner_c.exists():
-            shutil.copy2(scanner_c, dest / "scanner.c")
-        if scanner_cc.exists():
-            shutil.copy2(scanner_cc, dest / "scanner.cc")
+        # Copy all C/C++ source files, headers, and subdirectories from src/.
+        # This captures parser.c, scanner.c, scanner.cc, auxiliary .c files
+        # (e.g., yaml's schema.core.c), headers (e.g., html's tag.h), and
+        # subdirectories with include files (e.g., comment's tree_sitter_comment/).
+        for item in src_dir.iterdir():
+            if item.name == "tree_sitter":
+                continue  # Handled separately below
+            dest_item = dest / item.name
+            if item.is_dir():
+                if dest_item.exists():
+                    shutil.rmtree(dest_item)
+                shutil.copytree(item, dest_item)
+            elif item.suffix in (".c", ".cc", ".h", ".json"):
+                shutil.copy2(item, dest_item)
 
         ts_dir = src_dir / "tree_sitter"
         if ts_dir.is_dir():
@@ -201,10 +228,74 @@ def main() -> None:
         else:
             failed.append(name)
 
+    if not args.dry_run:
+        resolve_cross_grammar_deps()
+
     print(f"\nDone: {success}/{total} succeeded")
     if failed:
         print(f"Failed ({len(failed)}): {', '.join(failed)}")
         sys.exit(1)
+
+
+def resolve_cross_grammar_deps() -> None:
+    """Make each grammar self-contained by copying missing headers from siblings.
+
+    After all grammars are fetched, scan each grammar's C/C++ source files for
+    #include "header.h" directives that reference files not present locally.
+    For each missing header, search all sibling grammars' src/ directories and
+    copy the header into the grammar's own src/. This ensures each grammar
+    directory is fully self-contained and compiles with only -I on its own src/.
+    """
+    import re
+
+    print("\nResolving cross-grammar header dependencies...")
+
+    # Build index: header_name -> list of grammar src/ paths that contain it.
+    header_index: dict[str, list[Path]] = {}
+    for grammar_dir in sorted(GRAMMARS_DIR.iterdir()):
+        src_dir = grammar_dir / "src"
+        if not src_dir.is_dir():
+            continue
+        for header in src_dir.glob("*.h"):
+            if header.name in ("parser.h", "alloc.h", "array.h"):
+                continue  # Skip standard tree-sitter headers (in tree_sitter/)
+            header_index.setdefault(header.name, []).append(src_dir)
+
+    include_re = re.compile(r'#include\s+"([^"]+)"')
+    copied_count = 0
+
+    for grammar_dir in sorted(GRAMMARS_DIR.iterdir()):
+        src_dir = grammar_dir / "src"
+        if not src_dir.is_dir():
+            continue
+
+        for src_name in ("scanner.c", "scanner.cc", "parser.c"):
+            src_file = src_dir / src_name
+            if not src_file.exists():
+                continue
+
+            content = src_file.read_text(errors="replace")
+            for match in include_re.finditer(content):
+                header_path = match.group(1)
+                if header_path.startswith("tree_sitter/"):
+                    continue
+                # Check if the header exists locally.
+                if (src_dir / header_path).exists():
+                    continue
+                # Look up the header basename in our index.
+                header_basename = Path(header_path).name
+                sources = header_index.get(header_basename, [])
+                donor = next((s for s in sources if s != src_dir), None)
+                if donor:
+                    dest_header = src_dir / header_basename
+                    shutil.copy2(donor / header_basename, dest_header)
+                    copied_count += 1
+                    print(f"  {grammar_dir.name}: copied {header_basename} from {donor.parent.name}")
+
+    if copied_count:
+        print(f"  Resolved {copied_count} cross-grammar dependencies")
+    else:
+        print("  No cross-grammar dependencies found")
 
 
 if __name__ == "__main__":
