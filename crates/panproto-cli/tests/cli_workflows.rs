@@ -848,10 +848,11 @@ fn cli_blame_vertex() {
 // ===========================================================================
 
 #[test]
-fn cli_remote_not_implemented() {
+fn cli_remote_stubs_complete() {
     let tmp = tempfile::tempdir().unwrap();
     init_repo(tmp.path());
 
+    // remote list is not yet implemented (stored remotes).
     schema_cmd()
         .args(["remote", "list"])
         .current_dir(tmp.path())
@@ -861,28 +862,30 @@ fn cli_remote_not_implemented() {
 }
 
 #[test]
-fn cli_push_not_implemented() {
+fn cli_push_requires_url() {
     let tmp = tempfile::tempdir().unwrap();
     init_repo(tmp.path());
 
+    // push without a URL fails with a helpful message.
     schema_cmd()
         .args(["push"])
         .current_dir(tmp.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not yet implemented"));
+        .stderr(predicate::str::contains("remote URL required"));
 }
 
 #[test]
-fn cli_clone_not_implemented() {
+fn cli_clone_requires_cospan_url() {
     let tmp = tempfile::tempdir().unwrap();
 
+    // clone with a non-cospan:// URL fails.
     schema_cmd()
         .args(["clone", "https://example.com/repo"])
         .current_dir(tmp.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not yet implemented"));
+        .stderr(predicate::str::contains("cospan://"));
 }
 
 // ===========================================================================
@@ -1585,25 +1588,25 @@ fn cli_stash_drop() {
 }
 
 #[test]
-fn cli_remote_stubs_complete() {
+fn cli_pull_fetch_require_url() {
     let tmp = tempfile::tempdir().unwrap();
     init_repo(tmp.path());
 
-    // Pull stub.
+    // Pull without URL.
     schema_cmd()
         .args(["pull"])
         .current_dir(tmp.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not yet implemented"));
+        .stderr(predicate::str::contains("remote URL required"));
 
-    // Fetch stub.
+    // Fetch without URL.
     schema_cmd()
         .args(["fetch"])
         .current_dir(tmp.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not yet implemented"));
+        .stderr(predicate::str::contains("remote URL required"));
 }
 
 // ===========================================================================
