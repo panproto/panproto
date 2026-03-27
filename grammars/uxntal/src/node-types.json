@@ -1,0 +1,1545 @@
+[
+  {
+    "type": "absolute_pad_operation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "brackets",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "brackets",
+          "named": true
+        },
+        {
+          "type": "hex_literal",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "opcode",
+          "named": true
+        },
+        {
+          "type": "raw_ascii",
+          "named": true
+        },
+        {
+          "type": "relative_pad_operation",
+          "named": true
+        },
+        {
+          "type": "rune",
+          "named": true
+        },
+        {
+          "type": "sublabel_reference",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "hex_literal",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "hex_lit_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "include",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "label",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "macro",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "brackets",
+          "named": true
+        },
+        {
+          "type": "hex_literal",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "opcode",
+          "named": true
+        },
+        {
+          "type": "raw_ascii",
+          "named": true
+        },
+        {
+          "type": "relative_pad_operation",
+          "named": true
+        },
+        {
+          "type": "rune",
+          "named": true
+        },
+        {
+          "type": "sublabel_reference",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "memory_execution",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "absolute_pad_operation",
+          "named": true
+        },
+        {
+          "type": "brackets",
+          "named": true
+        },
+        {
+          "type": "hex_literal",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "opcode",
+          "named": true
+        },
+        {
+          "type": "raw_ascii",
+          "named": true
+        },
+        {
+          "type": "relative_pad_operation",
+          "named": true
+        },
+        {
+          "type": "rune",
+          "named": true
+        },
+        {
+          "type": "sublabel_reference",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "opcode",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "program",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "include",
+          "named": true
+        },
+        {
+          "type": "macro",
+          "named": true
+        },
+        {
+          "type": "memory_execution",
+          "named": true
+        },
+        {
+          "type": "subroutine",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "raw_ascii",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "relative_pad_operation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "rune",
+    "named": true,
+    "fields": {
+      "rune_start": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "rune_char",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "rune_char",
+          "named": true
+        },
+        {
+          "type": "sublabel_reference",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "rune_char",
+    "named": true,
+    "fields": {
+      "absolute": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": ";",
+            "named": false
+          },
+          {
+            "type": "=",
+            "named": false
+          }
+        ]
+      },
+      "immediate": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "!",
+            "named": false
+          },
+          {
+            "type": "?",
+            "named": false
+          }
+        ]
+      },
+      "relative": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "_",
+            "named": false
+          }
+        ]
+      },
+      "sublabel": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "&",
+            "named": false
+          }
+        ]
+      },
+      "zero_page": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "-",
+            "named": false
+          },
+          {
+            "type": ".",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "sublabel_reference",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "subroutine",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "brackets",
+          "named": true
+        },
+        {
+          "type": "hex_literal",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "label",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "opcode",
+          "named": true
+        },
+        {
+          "type": "raw_ascii",
+          "named": true
+        },
+        {
+          "type": "relative_pad_operation",
+          "named": true
+        },
+        {
+          "type": "rune",
+          "named": true
+        },
+        {
+          "type": "sublabel_reference",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "!",
+    "named": false
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "#",
+    "named": false
+  },
+  {
+    "type": "$",
+    "named": false
+  },
+  {
+    "type": "%",
+    "named": false
+  },
+  {
+    "type": "&",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "?",
+    "named": false
+  },
+  {
+    "type": "@",
+    "named": false
+  },
+  {
+    "type": "ADD",
+    "named": false
+  },
+  {
+    "type": "ADD2",
+    "named": false
+  },
+  {
+    "type": "ADD2k",
+    "named": false
+  },
+  {
+    "type": "ADD2kr",
+    "named": false
+  },
+  {
+    "type": "ADD2r",
+    "named": false
+  },
+  {
+    "type": "ADDk",
+    "named": false
+  },
+  {
+    "type": "ADDkr",
+    "named": false
+  },
+  {
+    "type": "ADDr",
+    "named": false
+  },
+  {
+    "type": "AND",
+    "named": false
+  },
+  {
+    "type": "AND2",
+    "named": false
+  },
+  {
+    "type": "AND2k",
+    "named": false
+  },
+  {
+    "type": "AND2kr",
+    "named": false
+  },
+  {
+    "type": "AND2r",
+    "named": false
+  },
+  {
+    "type": "ANDk",
+    "named": false
+  },
+  {
+    "type": "ANDkr",
+    "named": false
+  },
+  {
+    "type": "ANDr",
+    "named": false
+  },
+  {
+    "type": "BRK",
+    "named": false
+  },
+  {
+    "type": "DEI",
+    "named": false
+  },
+  {
+    "type": "DEI2",
+    "named": false
+  },
+  {
+    "type": "DEI2k",
+    "named": false
+  },
+  {
+    "type": "DEI2kr",
+    "named": false
+  },
+  {
+    "type": "DEI2r",
+    "named": false
+  },
+  {
+    "type": "DEIk",
+    "named": false
+  },
+  {
+    "type": "DEIkr",
+    "named": false
+  },
+  {
+    "type": "DEIr",
+    "named": false
+  },
+  {
+    "type": "DEO",
+    "named": false
+  },
+  {
+    "type": "DEO2",
+    "named": false
+  },
+  {
+    "type": "DEO2k",
+    "named": false
+  },
+  {
+    "type": "DEO2kr",
+    "named": false
+  },
+  {
+    "type": "DEO2r",
+    "named": false
+  },
+  {
+    "type": "DEOk",
+    "named": false
+  },
+  {
+    "type": "DEOkr",
+    "named": false
+  },
+  {
+    "type": "DEOr",
+    "named": false
+  },
+  {
+    "type": "DIV",
+    "named": false
+  },
+  {
+    "type": "DIV2",
+    "named": false
+  },
+  {
+    "type": "DIV2k",
+    "named": false
+  },
+  {
+    "type": "DIV2kr",
+    "named": false
+  },
+  {
+    "type": "DIV2r",
+    "named": false
+  },
+  {
+    "type": "DIVk",
+    "named": false
+  },
+  {
+    "type": "DIVkr",
+    "named": false
+  },
+  {
+    "type": "DIVr",
+    "named": false
+  },
+  {
+    "type": "DUP",
+    "named": false
+  },
+  {
+    "type": "DUP2",
+    "named": false
+  },
+  {
+    "type": "DUP2k",
+    "named": false
+  },
+  {
+    "type": "DUP2kr",
+    "named": false
+  },
+  {
+    "type": "DUP2r",
+    "named": false
+  },
+  {
+    "type": "DUPk",
+    "named": false
+  },
+  {
+    "type": "DUPkr",
+    "named": false
+  },
+  {
+    "type": "DUPr",
+    "named": false
+  },
+  {
+    "type": "EOR",
+    "named": false
+  },
+  {
+    "type": "EOR2",
+    "named": false
+  },
+  {
+    "type": "EOR2k",
+    "named": false
+  },
+  {
+    "type": "EOR2kr",
+    "named": false
+  },
+  {
+    "type": "EOR2r",
+    "named": false
+  },
+  {
+    "type": "EORk",
+    "named": false
+  },
+  {
+    "type": "EORkr",
+    "named": false
+  },
+  {
+    "type": "EORr",
+    "named": false
+  },
+  {
+    "type": "EQU",
+    "named": false
+  },
+  {
+    "type": "EQU2",
+    "named": false
+  },
+  {
+    "type": "EQU2k",
+    "named": false
+  },
+  {
+    "type": "EQU2kr",
+    "named": false
+  },
+  {
+    "type": "EQU2r",
+    "named": false
+  },
+  {
+    "type": "EQUk",
+    "named": false
+  },
+  {
+    "type": "EQUkr",
+    "named": false
+  },
+  {
+    "type": "EQUr",
+    "named": false
+  },
+  {
+    "type": "GTH",
+    "named": false
+  },
+  {
+    "type": "GTH2",
+    "named": false
+  },
+  {
+    "type": "GTH2k",
+    "named": false
+  },
+  {
+    "type": "GTH2kr",
+    "named": false
+  },
+  {
+    "type": "GTH2r",
+    "named": false
+  },
+  {
+    "type": "GTHk",
+    "named": false
+  },
+  {
+    "type": "GTHkr",
+    "named": false
+  },
+  {
+    "type": "GTHr",
+    "named": false
+  },
+  {
+    "type": "INC",
+    "named": false
+  },
+  {
+    "type": "INC2",
+    "named": false
+  },
+  {
+    "type": "INC2k",
+    "named": false
+  },
+  {
+    "type": "INC2kr",
+    "named": false
+  },
+  {
+    "type": "INC2r",
+    "named": false
+  },
+  {
+    "type": "INCk",
+    "named": false
+  },
+  {
+    "type": "INCkr",
+    "named": false
+  },
+  {
+    "type": "INCr",
+    "named": false
+  },
+  {
+    "type": "JCI",
+    "named": false
+  },
+  {
+    "type": "JCN",
+    "named": false
+  },
+  {
+    "type": "JCN2",
+    "named": false
+  },
+  {
+    "type": "JCN2k",
+    "named": false
+  },
+  {
+    "type": "JCN2kr",
+    "named": false
+  },
+  {
+    "type": "JCN2r",
+    "named": false
+  },
+  {
+    "type": "JCNk",
+    "named": false
+  },
+  {
+    "type": "JCNkr",
+    "named": false
+  },
+  {
+    "type": "JCNr",
+    "named": false
+  },
+  {
+    "type": "JMI",
+    "named": false
+  },
+  {
+    "type": "JMP",
+    "named": false
+  },
+  {
+    "type": "JMP2",
+    "named": false
+  },
+  {
+    "type": "JMP2k",
+    "named": false
+  },
+  {
+    "type": "JMP2kr",
+    "named": false
+  },
+  {
+    "type": "JMP2r",
+    "named": false
+  },
+  {
+    "type": "JMPk",
+    "named": false
+  },
+  {
+    "type": "JMPkr",
+    "named": false
+  },
+  {
+    "type": "JMPr",
+    "named": false
+  },
+  {
+    "type": "JSI",
+    "named": false
+  },
+  {
+    "type": "JSR",
+    "named": false
+  },
+  {
+    "type": "JSR2",
+    "named": false
+  },
+  {
+    "type": "JSR2k",
+    "named": false
+  },
+  {
+    "type": "JSR2kr",
+    "named": false
+  },
+  {
+    "type": "JSR2r",
+    "named": false
+  },
+  {
+    "type": "JSRk",
+    "named": false
+  },
+  {
+    "type": "JSRkr",
+    "named": false
+  },
+  {
+    "type": "JSRr",
+    "named": false
+  },
+  {
+    "type": "LDA",
+    "named": false
+  },
+  {
+    "type": "LDA2",
+    "named": false
+  },
+  {
+    "type": "LDA2k",
+    "named": false
+  },
+  {
+    "type": "LDA2kr",
+    "named": false
+  },
+  {
+    "type": "LDA2r",
+    "named": false
+  },
+  {
+    "type": "LDAk",
+    "named": false
+  },
+  {
+    "type": "LDAkr",
+    "named": false
+  },
+  {
+    "type": "LDAr",
+    "named": false
+  },
+  {
+    "type": "LDR",
+    "named": false
+  },
+  {
+    "type": "LDR2",
+    "named": false
+  },
+  {
+    "type": "LDR2k",
+    "named": false
+  },
+  {
+    "type": "LDR2kr",
+    "named": false
+  },
+  {
+    "type": "LDR2r",
+    "named": false
+  },
+  {
+    "type": "LDRk",
+    "named": false
+  },
+  {
+    "type": "LDRkr",
+    "named": false
+  },
+  {
+    "type": "LDRr",
+    "named": false
+  },
+  {
+    "type": "LDZ",
+    "named": false
+  },
+  {
+    "type": "LDZ2",
+    "named": false
+  },
+  {
+    "type": "LDZ2k",
+    "named": false
+  },
+  {
+    "type": "LDZ2kr",
+    "named": false
+  },
+  {
+    "type": "LDZ2r",
+    "named": false
+  },
+  {
+    "type": "LDZk",
+    "named": false
+  },
+  {
+    "type": "LDZkr",
+    "named": false
+  },
+  {
+    "type": "LDZr",
+    "named": false
+  },
+  {
+    "type": "LIT",
+    "named": false
+  },
+  {
+    "type": "LIT2",
+    "named": false
+  },
+  {
+    "type": "LIT2r",
+    "named": false
+  },
+  {
+    "type": "LITr",
+    "named": false
+  },
+  {
+    "type": "LTH",
+    "named": false
+  },
+  {
+    "type": "LTH2",
+    "named": false
+  },
+  {
+    "type": "LTH2k",
+    "named": false
+  },
+  {
+    "type": "LTH2kr",
+    "named": false
+  },
+  {
+    "type": "LTH2r",
+    "named": false
+  },
+  {
+    "type": "LTHk",
+    "named": false
+  },
+  {
+    "type": "LTHkr",
+    "named": false
+  },
+  {
+    "type": "LTHr",
+    "named": false
+  },
+  {
+    "type": "MUL",
+    "named": false
+  },
+  {
+    "type": "MUL2",
+    "named": false
+  },
+  {
+    "type": "MUL2k",
+    "named": false
+  },
+  {
+    "type": "MUL2kr",
+    "named": false
+  },
+  {
+    "type": "MUL2r",
+    "named": false
+  },
+  {
+    "type": "MULk",
+    "named": false
+  },
+  {
+    "type": "MULkr",
+    "named": false
+  },
+  {
+    "type": "MULr",
+    "named": false
+  },
+  {
+    "type": "NEQ",
+    "named": false
+  },
+  {
+    "type": "NEQ2",
+    "named": false
+  },
+  {
+    "type": "NEQ2k",
+    "named": false
+  },
+  {
+    "type": "NEQ2kr",
+    "named": false
+  },
+  {
+    "type": "NEQ2r",
+    "named": false
+  },
+  {
+    "type": "NEQk",
+    "named": false
+  },
+  {
+    "type": "NEQkr",
+    "named": false
+  },
+  {
+    "type": "NEQr",
+    "named": false
+  },
+  {
+    "type": "NIP",
+    "named": false
+  },
+  {
+    "type": "NIP2",
+    "named": false
+  },
+  {
+    "type": "NIP2k",
+    "named": false
+  },
+  {
+    "type": "NIP2kr",
+    "named": false
+  },
+  {
+    "type": "NIP2r",
+    "named": false
+  },
+  {
+    "type": "NIPk",
+    "named": false
+  },
+  {
+    "type": "NIPkr",
+    "named": false
+  },
+  {
+    "type": "NIPr",
+    "named": false
+  },
+  {
+    "type": "ORA",
+    "named": false
+  },
+  {
+    "type": "ORA2",
+    "named": false
+  },
+  {
+    "type": "ORA2k",
+    "named": false
+  },
+  {
+    "type": "ORA2kr",
+    "named": false
+  },
+  {
+    "type": "ORA2r",
+    "named": false
+  },
+  {
+    "type": "ORAk",
+    "named": false
+  },
+  {
+    "type": "ORAkr",
+    "named": false
+  },
+  {
+    "type": "ORAr",
+    "named": false
+  },
+  {
+    "type": "OVR",
+    "named": false
+  },
+  {
+    "type": "OVR2",
+    "named": false
+  },
+  {
+    "type": "OVR2k",
+    "named": false
+  },
+  {
+    "type": "OVR2kr",
+    "named": false
+  },
+  {
+    "type": "OVR2r",
+    "named": false
+  },
+  {
+    "type": "OVRk",
+    "named": false
+  },
+  {
+    "type": "OVRkr",
+    "named": false
+  },
+  {
+    "type": "OVRr",
+    "named": false
+  },
+  {
+    "type": "POP",
+    "named": false
+  },
+  {
+    "type": "POP2",
+    "named": false
+  },
+  {
+    "type": "POP2k",
+    "named": false
+  },
+  {
+    "type": "POP2kr",
+    "named": false
+  },
+  {
+    "type": "POP2r",
+    "named": false
+  },
+  {
+    "type": "POPk",
+    "named": false
+  },
+  {
+    "type": "POPkr",
+    "named": false
+  },
+  {
+    "type": "POPr",
+    "named": false
+  },
+  {
+    "type": "ROT",
+    "named": false
+  },
+  {
+    "type": "ROT2",
+    "named": false
+  },
+  {
+    "type": "ROT2k",
+    "named": false
+  },
+  {
+    "type": "ROT2kr",
+    "named": false
+  },
+  {
+    "type": "ROT2r",
+    "named": false
+  },
+  {
+    "type": "ROTk",
+    "named": false
+  },
+  {
+    "type": "ROTkr",
+    "named": false
+  },
+  {
+    "type": "ROTr",
+    "named": false
+  },
+  {
+    "type": "SFT",
+    "named": false
+  },
+  {
+    "type": "SFT2",
+    "named": false
+  },
+  {
+    "type": "SFT2k",
+    "named": false
+  },
+  {
+    "type": "SFT2kr",
+    "named": false
+  },
+  {
+    "type": "SFT2r",
+    "named": false
+  },
+  {
+    "type": "SFTk",
+    "named": false
+  },
+  {
+    "type": "SFTkr",
+    "named": false
+  },
+  {
+    "type": "SFTr",
+    "named": false
+  },
+  {
+    "type": "STA",
+    "named": false
+  },
+  {
+    "type": "STA2",
+    "named": false
+  },
+  {
+    "type": "STA2k",
+    "named": false
+  },
+  {
+    "type": "STA2kr",
+    "named": false
+  },
+  {
+    "type": "STA2r",
+    "named": false
+  },
+  {
+    "type": "STAk",
+    "named": false
+  },
+  {
+    "type": "STAkr",
+    "named": false
+  },
+  {
+    "type": "STAr",
+    "named": false
+  },
+  {
+    "type": "STH",
+    "named": false
+  },
+  {
+    "type": "STH2",
+    "named": false
+  },
+  {
+    "type": "STH2k",
+    "named": false
+  },
+  {
+    "type": "STH2kr",
+    "named": false
+  },
+  {
+    "type": "STH2r",
+    "named": false
+  },
+  {
+    "type": "STHk",
+    "named": false
+  },
+  {
+    "type": "STHkr",
+    "named": false
+  },
+  {
+    "type": "STHr",
+    "named": false
+  },
+  {
+    "type": "STR",
+    "named": false
+  },
+  {
+    "type": "STR2",
+    "named": false
+  },
+  {
+    "type": "STR2k",
+    "named": false
+  },
+  {
+    "type": "STR2kr",
+    "named": false
+  },
+  {
+    "type": "STR2r",
+    "named": false
+  },
+  {
+    "type": "STRk",
+    "named": false
+  },
+  {
+    "type": "STRkr",
+    "named": false
+  },
+  {
+    "type": "STRr",
+    "named": false
+  },
+  {
+    "type": "STZ",
+    "named": false
+  },
+  {
+    "type": "STZ2",
+    "named": false
+  },
+  {
+    "type": "STZ2k",
+    "named": false
+  },
+  {
+    "type": "STZ2kr",
+    "named": false
+  },
+  {
+    "type": "STZ2r",
+    "named": false
+  },
+  {
+    "type": "STZk",
+    "named": false
+  },
+  {
+    "type": "STZkr",
+    "named": false
+  },
+  {
+    "type": "STZr",
+    "named": false
+  },
+  {
+    "type": "SUB",
+    "named": false
+  },
+  {
+    "type": "SUB2",
+    "named": false
+  },
+  {
+    "type": "SUB2k",
+    "named": false
+  },
+  {
+    "type": "SUB2kr",
+    "named": false
+  },
+  {
+    "type": "SUB2r",
+    "named": false
+  },
+  {
+    "type": "SUBk",
+    "named": false
+  },
+  {
+    "type": "SUBkr",
+    "named": false
+  },
+  {
+    "type": "SUBr",
+    "named": false
+  },
+  {
+    "type": "SWP",
+    "named": false
+  },
+  {
+    "type": "SWP2",
+    "named": false
+  },
+  {
+    "type": "SWP2k",
+    "named": false
+  },
+  {
+    "type": "SWP2kr",
+    "named": false
+  },
+  {
+    "type": "SWP2r",
+    "named": false
+  },
+  {
+    "type": "SWPk",
+    "named": false
+  },
+  {
+    "type": "SWPkr",
+    "named": false
+  },
+  {
+    "type": "SWPr",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "_",
+    "named": false
+  },
+  {
+    "type": "comment",
+    "named": true
+  },
+  {
+    "type": "hex_lit_value",
+    "named": true
+  },
+  {
+    "type": "identifier",
+    "named": true
+  },
+  {
+    "type": "number",
+    "named": true
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "|",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  },
+  {
+    "type": "~",
+    "named": false
+  }
+]

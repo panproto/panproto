@@ -1,0 +1,3 @@
+# Mark vendored tree-sitter grammar sources as generated/vendored.
+# This keeps GitHub language stats clean and collapses diffs in PRs.
+grammars/** linguist-vendored linguist-generated

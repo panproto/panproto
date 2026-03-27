@@ -39,6 +39,7 @@ pub mod edit_lens;
 pub mod edit_pipeline;
 pub mod edit_provenance;
 pub mod error;
+pub mod fibration;
 pub mod graph;
 pub mod laws;
 pub mod optic;
@@ -54,7 +55,7 @@ pub use complement_type::{
     complement_spec_at,
 };
 pub use compose::compose;
-pub use cost::{chain_cost, complement_cost};
+pub use cost::{chain_cost, complement_cost, verify_identity_cost, verify_subadditivity};
 pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolens};
 pub use edit_error::EditLensError;
 pub use edit_lens::EditLens;
@@ -70,7 +71,7 @@ pub use protolens::{
     lift_protolens, vertical_compose as protolens_vertical,
 };
 pub use symbolic::{SymbolicStep, simplify_steps};
-pub use symmetric::SymmetricLens;
+pub use symmetric::{CoherenceViolation, SymmetricLens};
 
 use panproto_inst::CompiledMigration;
 use panproto_schema::Schema;

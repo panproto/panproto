@@ -1,0 +1,387 @@
+[
+  {
+    "type": "argument",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "env_var",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "extras",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "package",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "file",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "global_opt",
+          "named": true
+        },
+        {
+          "type": "path",
+          "named": true
+        },
+        {
+          "type": "requirement",
+          "named": true
+        },
+        {
+          "type": "url",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "global_opt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "argument",
+          "named": true
+        },
+        {
+          "type": "option",
+          "named": true
+        },
+        {
+          "type": "path",
+          "named": true
+        },
+        {
+          "type": "quoted_string",
+          "named": true
+        },
+        {
+          "type": "url",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "linebreak",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "marker_op",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "marker_spec",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "marker_op",
+          "named": true
+        },
+        {
+          "type": "marker_var",
+          "named": true
+        },
+        {
+          "type": "quoted_string",
+          "named": true
+        },
+        {
+          "type": "version_cmp",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "marker_var",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "path",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "quoted_string",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "requirement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "extras",
+          "named": true
+        },
+        {
+          "type": "marker_spec",
+          "named": true
+        },
+        {
+          "type": "package",
+          "named": true
+        },
+        {
+          "type": "requirement_opt",
+          "named": true
+        },
+        {
+          "type": "url_spec",
+          "named": true
+        },
+        {
+          "type": "version_spec",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "requirement_opt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "argument",
+          "named": true
+        },
+        {
+          "type": "option",
+          "named": true
+        },
+        {
+          "type": "quoted_string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "url",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "env_var",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "url_spec",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "url",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "version_spec",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "version",
+          "named": true
+        },
+        {
+          "type": "version_cmp",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "${",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "@",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "\\",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "comment",
+    "named": true
+  },
+  {
+    "type": "extra",
+    "named": false
+  },
+  {
+    "type": "implementation_name",
+    "named": false
+  },
+  {
+    "type": "implementation_version",
+    "named": false
+  },
+  {
+    "type": "in",
+    "named": false
+  },
+  {
+    "type": "not",
+    "named": false
+  },
+  {
+    "type": "option",
+    "named": true
+  },
+  {
+    "type": "os_name",
+    "named": false
+  },
+  {
+    "type": "package",
+    "named": true
+  },
+  {
+    "type": "platform_machine",
+    "named": false
+  },
+  {
+    "type": "platform_python_implementation",
+    "named": false
+  },
+  {
+    "type": "platform_release",
+    "named": false
+  },
+  {
+    "type": "platform_system",
+    "named": false
+  },
+  {
+    "type": "platform_version",
+    "named": false
+  },
+  {
+    "type": "python_full_version",
+    "named": false
+  },
+  {
+    "type": "python_version",
+    "named": false
+  },
+  {
+    "type": "sys_platform",
+    "named": false
+  },
+  {
+    "type": "version",
+    "named": true
+  },
+  {
+    "type": "version_cmp",
+    "named": true
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]

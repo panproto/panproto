@@ -1,0 +1,733 @@
+[
+  {
+    "type": "assignment",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "ATTR",
+            "named": false
+          },
+          {
+            "type": "ENV",
+            "named": false
+          },
+          {
+            "type": "GOTO",
+            "named": false
+          },
+          {
+            "type": "GROUP",
+            "named": false
+          },
+          {
+            "type": "IMPORT",
+            "named": false
+          },
+          {
+            "type": "LABEL",
+            "named": false
+          },
+          {
+            "type": "MODE",
+            "named": false
+          },
+          {
+            "type": "NAME",
+            "named": false
+          },
+          {
+            "type": "OPTIONS",
+            "named": false
+          },
+          {
+            "type": "OWNER",
+            "named": false
+          },
+          {
+            "type": "RUN",
+            "named": false
+          },
+          {
+            "type": "SECLABEL",
+            "named": false
+          },
+          {
+            "type": "SYMLINK",
+            "named": false
+          },
+          {
+            "type": "SYSCTL",
+            "named": false
+          },
+          {
+            "type": "TAG",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "assignment_op",
+          "named": true
+        },
+        {
+          "type": "attribute",
+          "named": true
+        },
+        {
+          "type": "env_var",
+          "named": true
+        },
+        {
+          "type": "import_type",
+          "named": true
+        },
+        {
+          "type": "kernel_param",
+          "named": true
+        },
+        {
+          "type": "match_op",
+          "named": true
+        },
+        {
+          "type": "run_type",
+          "named": true
+        },
+        {
+          "type": "seclabel",
+          "named": true
+        },
+        {
+          "type": "value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "attribute",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "fmt_sub",
+          "named": true
+        },
+        {
+          "type": "pattern",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "c_escape",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "content",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "c_escape",
+          "named": true
+        },
+        {
+          "type": "fmt_sub",
+          "named": true
+        },
+        {
+          "type": "pattern",
+          "named": true
+        },
+        {
+          "type": "var_sub",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "env_var",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "fmt_sub",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "attribute",
+          "named": true
+        },
+        {
+          "type": "env_var",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "kernel_param",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "match",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "ACTION",
+            "named": false
+          },
+          {
+            "type": "ATTR",
+            "named": false
+          },
+          {
+            "type": "ATTRS",
+            "named": false
+          },
+          {
+            "type": "CONST",
+            "named": false
+          },
+          {
+            "type": "DEVPATH",
+            "named": false
+          },
+          {
+            "type": "DRIVER",
+            "named": false
+          },
+          {
+            "type": "DRIVERS",
+            "named": false
+          },
+          {
+            "type": "ENV",
+            "named": false
+          },
+          {
+            "type": "KERNEL",
+            "named": false
+          },
+          {
+            "type": "KERNELS",
+            "named": false
+          },
+          {
+            "type": "NAME",
+            "named": false
+          },
+          {
+            "type": "PROGRAM",
+            "named": false
+          },
+          {
+            "type": "RESULT",
+            "named": false
+          },
+          {
+            "type": "SUBSYSTEM",
+            "named": false
+          },
+          {
+            "type": "SUBSYSTEMS",
+            "named": false
+          },
+          {
+            "type": "SYMLINK",
+            "named": false
+          },
+          {
+            "type": "SYSCTL",
+            "named": false
+          },
+          {
+            "type": "TAG",
+            "named": false
+          },
+          {
+            "type": "TAGS",
+            "named": false
+          },
+          {
+            "type": "TEST",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "assignment_op",
+          "named": true
+        },
+        {
+          "type": "attribute",
+          "named": true
+        },
+        {
+          "type": "env_var",
+          "named": true
+        },
+        {
+          "type": "kernel_param",
+          "named": true
+        },
+        {
+          "type": "match_op",
+          "named": true
+        },
+        {
+          "type": "octal",
+          "named": true
+        },
+        {
+          "type": "system_const",
+          "named": true
+        },
+        {
+          "type": "value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "pattern",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "rule",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "assignment",
+          "named": true
+        },
+        {
+          "type": "match",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "rules",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "rule",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "var_sub",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "attribute",
+          "named": true
+        },
+        {
+          "type": "env_var",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "$$",
+    "named": false
+  },
+  {
+    "type": "$attr",
+    "named": false
+  },
+  {
+    "type": "$devnode",
+    "named": false
+  },
+  {
+    "type": "$devpath",
+    "named": false
+  },
+  {
+    "type": "$driver",
+    "named": false
+  },
+  {
+    "type": "$env",
+    "named": false
+  },
+  {
+    "type": "$id",
+    "named": false
+  },
+  {
+    "type": "$kernel",
+    "named": false
+  },
+  {
+    "type": "$links",
+    "named": false
+  },
+  {
+    "type": "$major",
+    "named": false
+  },
+  {
+    "type": "$minor",
+    "named": false
+  },
+  {
+    "type": "$name",
+    "named": false
+  },
+  {
+    "type": "$number",
+    "named": false
+  },
+  {
+    "type": "$parent",
+    "named": false
+  },
+  {
+    "type": "$result",
+    "named": false
+  },
+  {
+    "type": "$root",
+    "named": false
+  },
+  {
+    "type": "$sys",
+    "named": false
+  },
+  {
+    "type": "%%",
+    "named": false
+  },
+  {
+    "type": "%E",
+    "named": false
+  },
+  {
+    "type": "%M",
+    "named": false
+  },
+  {
+    "type": "%N",
+    "named": false
+  },
+  {
+    "type": "%P",
+    "named": false
+  },
+  {
+    "type": "%S",
+    "named": false
+  },
+  {
+    "type": "%b",
+    "named": false
+  },
+  {
+    "type": "%c",
+    "named": false
+  },
+  {
+    "type": "%k",
+    "named": false
+  },
+  {
+    "type": "%m",
+    "named": false
+  },
+  {
+    "type": "%n",
+    "named": false
+  },
+  {
+    "type": "%p",
+    "named": false
+  },
+  {
+    "type": "%r",
+    "named": false
+  },
+  {
+    "type": "%s",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "+",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "?",
+    "named": false
+  },
+  {
+    "type": "ACTION",
+    "named": false
+  },
+  {
+    "type": "ATTR",
+    "named": false
+  },
+  {
+    "type": "ATTRS",
+    "named": false
+  },
+  {
+    "type": "CONST",
+    "named": false
+  },
+  {
+    "type": "DEVPATH",
+    "named": false
+  },
+  {
+    "type": "DRIVER",
+    "named": false
+  },
+  {
+    "type": "DRIVERS",
+    "named": false
+  },
+  {
+    "type": "ENV",
+    "named": false
+  },
+  {
+    "type": "GOTO",
+    "named": false
+  },
+  {
+    "type": "GROUP",
+    "named": false
+  },
+  {
+    "type": "IMPORT",
+    "named": false
+  },
+  {
+    "type": "KERNEL",
+    "named": false
+  },
+  {
+    "type": "KERNELS",
+    "named": false
+  },
+  {
+    "type": "LABEL",
+    "named": false
+  },
+  {
+    "type": "MODE",
+    "named": false
+  },
+  {
+    "type": "NAME",
+    "named": false
+  },
+  {
+    "type": "OPTIONS",
+    "named": false
+  },
+  {
+    "type": "OWNER",
+    "named": false
+  },
+  {
+    "type": "PROGRAM",
+    "named": false
+  },
+  {
+    "type": "RESULT",
+    "named": false
+  },
+  {
+    "type": "RUN",
+    "named": false
+  },
+  {
+    "type": "SECLABEL",
+    "named": false
+  },
+  {
+    "type": "SUBSYSTEM",
+    "named": false
+  },
+  {
+    "type": "SUBSYSTEMS",
+    "named": false
+  },
+  {
+    "type": "SYMLINK",
+    "named": false
+  },
+  {
+    "type": "SYSCTL",
+    "named": false
+  },
+  {
+    "type": "TAG",
+    "named": false
+  },
+  {
+    "type": "TAGS",
+    "named": false
+  },
+  {
+    "type": "TEST",
+    "named": false
+  },
+  {
+    "type": "\\\"",
+    "named": false
+  },
+  {
+    "type": "assignment_op",
+    "named": true
+  },
+  {
+    "type": "comment",
+    "named": true
+  },
+  {
+    "type": "e",
+    "named": false
+  },
+  {
+    "type": "import_type",
+    "named": true
+  },
+  {
+    "type": "linebreak",
+    "named": true,
+    "extra": true
+  },
+  {
+    "type": "match_op",
+    "named": true
+  },
+  {
+    "type": "number",
+    "named": true
+  },
+  {
+    "type": "octal",
+    "named": true
+  },
+  {
+    "type": "run_type",
+    "named": true
+  },
+  {
+    "type": "seclabel",
+    "named": true
+  },
+  {
+    "type": "system_const",
+    "named": true
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "|",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]

@@ -1,0 +1,1543 @@
+[
+  {
+    "type": "admonition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "admonition_caution",
+          "named": true
+        },
+        {
+          "type": "admonition_important",
+          "named": true
+        },
+        {
+          "type": "admonition_note",
+          "named": true
+        },
+        {
+          "type": "admonition_tip",
+          "named": true
+        },
+        {
+          "type": "admonition_warning",
+          "named": true
+        },
+        {
+          "type": "line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "attr_name",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "attribute_name",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "attribute_value",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "author",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "email",
+          "named": true
+        },
+        {
+          "type": "firstname",
+          "named": true
+        },
+        {
+          "type": "lastname",
+          "named": true
+        },
+        {
+          "type": "middlename",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "author_line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "author",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block_comment",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block_comment_end_marker",
+          "named": true
+        },
+        {
+          "type": "block_comment_start_marker",
+          "named": true
+        },
+        {
+          "type": "body",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block_element",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "block_comment",
+          "named": true
+        },
+        {
+          "type": "document_attr",
+          "named": true
+        },
+        {
+          "type": "document_title",
+          "named": true
+        },
+        {
+          "type": "line_comment",
+          "named": true
+        },
+        {
+          "type": "section_block",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block_macro",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block_macro_attr",
+          "named": true
+        },
+        {
+          "type": "block_macro_name",
+          "named": true
+        },
+        {
+          "type": "target",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block_macro_attr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "attribute_name",
+          "named": true
+        },
+        {
+          "type": "attribute_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block_title",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block_title_marker",
+          "named": true
+        },
+        {
+          "type": "line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "body",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "breaks",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "breaks_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "callout_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "callout_list_item",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "callout_list_item",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block_element",
+          "named": true
+        },
+        {
+          "type": "callout_list_marker",
+          "named": true
+        },
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "list_continuation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "checked_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "checked_list_item",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "checked_list_item",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block_element",
+          "named": true
+        },
+        {
+          "type": "checked_list_marker",
+          "named": true
+        },
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "list_continuation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "checked_list_marker",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "checked_list_marker_checked",
+          "named": true
+        },
+        {
+          "type": "checked_list_marker_unchecked",
+          "named": true
+        },
+        {
+          "type": "unordered_list_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "delimited_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delimited_block_end_marker",
+          "named": true
+        },
+        {
+          "type": "delimited_block_start_marker",
+          "named": true
+        },
+        {
+          "type": "section_block",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "document",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block_element",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "document_attr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "attr_name",
+          "named": true
+        },
+        {
+          "type": "document_attr_marker",
+          "named": true
+        },
+        {
+          "type": "line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "document_title",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "author_line",
+          "named": true
+        },
+        {
+          "type": "block_macro",
+          "named": true
+        },
+        {
+          "type": "document_attr",
+          "named": true
+        },
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "revision_line",
+          "named": true
+        },
+        {
+          "type": "title_h0_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "element_attr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "attr_value",
+          "named": true
+        },
+        {
+          "type": "element_attr_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "firstname",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "ident_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "callout_list",
+          "named": true
+        },
+        {
+          "type": "ident_block_line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ident_block_line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "callout_marker",
+          "named": true
+        },
+        {
+          "type": "ident_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "lastname",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "hard_wrap",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "line_comment",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "body",
+          "named": true
+        },
+        {
+          "type": "line_comment_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "checked_list",
+          "named": true
+        },
+        {
+          "type": "ordered_list",
+          "named": true
+        },
+        {
+          "type": "unordered_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "listing_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "callout_list",
+          "named": true
+        },
+        {
+          "type": "listing_block_body",
+          "named": true
+        },
+        {
+          "type": "listing_block_end_marker",
+          "named": true
+        },
+        {
+          "type": "listing_block_start_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "listing_block_body",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block_macro",
+          "named": true
+        },
+        {
+          "type": "callout_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "literal_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "callout_list",
+          "named": true
+        },
+        {
+          "type": "literal_block_body",
+          "named": true
+        },
+        {
+          "type": "literal_block_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "literal_block_body",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block_macro",
+          "named": true
+        },
+        {
+          "type": "callout_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "middlename",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "ntable_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "element_attr",
+          "named": true
+        },
+        {
+          "type": "ntable_block_marker",
+          "named": true
+        },
+        {
+          "type": "ntable_cell",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ntable_cell",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "section_block",
+          "named": true
+        },
+        {
+          "type": "table_cell_attr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "open_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "open_block_marker",
+          "named": true
+        },
+        {
+          "type": "section_block",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ordered_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ordered_list_item",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ordered_list_item",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block_element",
+          "named": true
+        },
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "list_continuation",
+          "named": true
+        },
+        {
+          "type": "ordered_list_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ordered_list_marker",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "list_marker_alpha",
+          "named": true
+        },
+        {
+          "type": "list_marker_digit",
+          "named": true
+        },
+        {
+          "type": "list_marker_dot",
+          "named": true
+        },
+        {
+          "type": "list_marker_geek",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "quoted_line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "passthrough_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "listing_block_body",
+          "named": true
+        },
+        {
+          "type": "passthrough_block_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "quoted_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "quoted_block",
+          "named": true
+        },
+        {
+          "type": "quoted_block_end_marker",
+          "named": true
+        },
+        {
+          "type": "quoted_block_start_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "quoted_line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "quoted_paragraph_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "quoted_md_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "quoted_block_md_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "revdate",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "revision_line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "revdate",
+          "named": true
+        },
+        {
+          "type": "revnumber",
+          "named": true
+        },
+        {
+          "type": "revremark",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "revnumber",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "revremark",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "section_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "admonition",
+          "named": true
+        },
+        {
+          "type": "block_macro",
+          "named": true
+        },
+        {
+          "type": "block_title",
+          "named": true
+        },
+        {
+          "type": "breaks",
+          "named": true
+        },
+        {
+          "type": "delimited_block",
+          "named": true
+        },
+        {
+          "type": "element_attr",
+          "named": true
+        },
+        {
+          "type": "ident_block",
+          "named": true
+        },
+        {
+          "type": "list",
+          "named": true
+        },
+        {
+          "type": "listing_block",
+          "named": true
+        },
+        {
+          "type": "literal_block",
+          "named": true
+        },
+        {
+          "type": "open_block",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "passthrough_block",
+          "named": true
+        },
+        {
+          "type": "quoted_block",
+          "named": true
+        },
+        {
+          "type": "quoted_md_block",
+          "named": true
+        },
+        {
+          "type": "sidebar_block",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "title1",
+          "named": true
+        },
+        {
+          "type": "title2",
+          "named": true
+        },
+        {
+          "type": "title3",
+          "named": true
+        },
+        {
+          "type": "title4",
+          "named": true
+        },
+        {
+          "type": "title5",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "sidebar_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "section_block",
+          "named": true
+        },
+        {
+          "type": "sidebar_block_end_marker",
+          "named": true
+        },
+        {
+          "type": "sidebar_block_start_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "table_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ntable_block",
+          "named": true
+        },
+        {
+          "type": "table_block_marker",
+          "named": true
+        },
+        {
+          "type": "table_cell",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "table_cell",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "list_continuation",
+          "named": true
+        },
+        {
+          "type": "section_block",
+          "named": true
+        },
+        {
+          "type": "table_cell_attr",
+          "named": true
+        },
+        {
+          "type": "table_cell_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "table_cell_content",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "target",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "title1",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "title_h1_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "title2",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "title_h2_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "title3",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "title_h3_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "title4",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "title_h4_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "title5",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "title_h5_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unordered_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "unordered_list_item",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unordered_list_item",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block_element",
+          "named": true
+        },
+        {
+          "type": "line",
+          "named": true
+        },
+        {
+          "type": "list_continuation",
+          "named": true
+        },
+        {
+          "type": "unordered_list_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unordered_list_marker",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "list_marker_hyphen",
+          "named": true
+        },
+        {
+          "type": "list_marker_star",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": " ",
+    "named": false
+  },
+  {
+    "type": "!",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "::",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "<",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "\\ ",
+    "named": false
+  },
+  {
+    "type": "\\!",
+    "named": false
+  },
+  {
+    "type": "\\,",
+    "named": false
+  },
+  {
+    "type": "\\:",
+    "named": false
+  },
+  {
+    "type": "\\;",
+    "named": false
+  },
+  {
+    "type": "\\=",
+    "named": false
+  },
+  {
+    "type": "\\[",
+    "named": false
+  },
+  {
+    "type": "\\]",
+    "named": false
+  },
+  {
+    "type": "\\|",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "admonition_caution",
+    "named": true
+  },
+  {
+    "type": "admonition_important",
+    "named": true
+  },
+  {
+    "type": "admonition_note",
+    "named": true
+  },
+  {
+    "type": "admonition_tip",
+    "named": true
+  },
+  {
+    "type": "admonition_warning",
+    "named": true
+  },
+  {
+    "type": "attr_value",
+    "named": true
+  },
+  {
+    "type": "block_comment_end_marker",
+    "named": true
+  },
+  {
+    "type": "block_comment_start_marker",
+    "named": true
+  },
+  {
+    "type": "block_macro_name",
+    "named": true
+  },
+  {
+    "type": "block_title_marker",
+    "named": true
+  },
+  {
+    "type": "breaks_marker",
+    "named": true
+  },
+  {
+    "type": "callout_list_marker",
+    "named": true
+  },
+  {
+    "type": "callout_marker",
+    "named": true
+  },
+  {
+    "type": "checked_list_marker_checked",
+    "named": true
+  },
+  {
+    "type": "checked_list_marker_unchecked",
+    "named": true
+  },
+  {
+    "type": "delimited_block_end_marker",
+    "named": true
+  },
+  {
+    "type": "delimited_block_start_marker",
+    "named": true
+  },
+  {
+    "type": "document_attr_marker",
+    "named": true
+  },
+  {
+    "type": "element_attr_marker",
+    "named": true
+  },
+  {
+    "type": "email",
+    "named": true
+  },
+  {
+    "type": "hard_wrap",
+    "named": true
+  },
+  {
+    "type": "ident_marker",
+    "named": true
+  },
+  {
+    "type": "line_comment_marker",
+    "named": true
+  },
+  {
+    "type": "list_continuation",
+    "named": true
+  },
+  {
+    "type": "list_marker_alpha",
+    "named": true
+  },
+  {
+    "type": "list_marker_digit",
+    "named": true
+  },
+  {
+    "type": "list_marker_dot",
+    "named": true
+  },
+  {
+    "type": "list_marker_geek",
+    "named": true
+  },
+  {
+    "type": "list_marker_hyphen",
+    "named": true
+  },
+  {
+    "type": "list_marker_star",
+    "named": true
+  },
+  {
+    "type": "listing_block_end_marker",
+    "named": true
+  },
+  {
+    "type": "listing_block_start_marker",
+    "named": true
+  },
+  {
+    "type": "literal_block_marker",
+    "named": true
+  },
+  {
+    "type": "ntable_block_marker",
+    "named": true
+  },
+  {
+    "type": "open_block_marker",
+    "named": true
+  },
+  {
+    "type": "passthrough_block_marker",
+    "named": true
+  },
+  {
+    "type": "quoted_block_end_marker",
+    "named": true
+  },
+  {
+    "type": "quoted_block_md_marker",
+    "named": true
+  },
+  {
+    "type": "quoted_block_start_marker",
+    "named": true
+  },
+  {
+    "type": "quoted_paragraph_marker",
+    "named": true
+  },
+  {
+    "type": "sidebar_block_end_marker",
+    "named": true
+  },
+  {
+    "type": "sidebar_block_start_marker",
+    "named": true
+  },
+  {
+    "type": "table_block_marker",
+    "named": true
+  },
+  {
+    "type": "table_cell_attr",
+    "named": true
+  },
+  {
+    "type": "title_h0_marker",
+    "named": true
+  },
+  {
+    "type": "title_h1_marker",
+    "named": true
+  },
+  {
+    "type": "title_h2_marker",
+    "named": true
+  },
+  {
+    "type": "title_h3_marker",
+    "named": true
+  },
+  {
+    "type": "title_h4_marker",
+    "named": true
+  },
+  {
+    "type": "title_h5_marker",
+    "named": true
+  },
+  {
+    "type": "|",
+    "named": false
+  }
+]

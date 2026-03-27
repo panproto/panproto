@@ -48,14 +48,18 @@ pub use check_model::{
 pub use colimit::colimit;
 pub use factorize::{Factorization, factorize, validate_factorization};
 
-pub use eq::{DirectedEquation, Equation, Term};
+pub use eq::{
+    DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation, match_pattern,
+    normalize,
+};
 pub use error::GatError;
 pub use free_model::{FreeModelConfig, free_model};
 pub use ident::{Ident, Name, NameSite, ScopeTag, SiteRename};
 pub use model::{Model, ModelValue, migrate_model};
 pub use morphism::{TheoryMorphism, check_morphism};
 pub use nat_transform::{
-    NaturalTransformation, check_natural_transformation, horizontal_compose, vertical_compose,
+    NaturalTransformation, check_interchange, check_natural_transformation, horizontal_compose,
+    vertical_compose,
 };
 pub use op::Operation;
 pub use pullback::{PullbackResult, pullback};

@@ -10,6 +10,5 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     registry.register(JsonCodec::new("dynamodb"));
     registry.register(JsonCodec::new("cassandra"));
     registry.register(JsonCodec::new("neo4j"));
-    registry.register(TabularCodec::tsv("sql", "result_set"));
     registry.register(TabularCodec::with_delimiter("redis", "entries", b' '));
 }

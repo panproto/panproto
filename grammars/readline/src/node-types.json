@@ -1,0 +1,565 @@
+[
+  {
+    "type": "alternative",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "conditional_construct",
+          "named": true
+        },
+        {
+          "type": "include_directive",
+          "named": true
+        },
+        {
+          "type": "key_binding",
+          "named": true
+        },
+        {
+          "type": "variable_setting",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bell_value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "ERROR",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bool_value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "ERROR",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bool_variable",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "comment",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "conditional_construct",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "alternative",
+          "named": true
+        },
+        {
+          "type": "consequence",
+          "named": true
+        },
+        {
+          "type": "test",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "consequence",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "conditional_construct",
+          "named": true
+        },
+        {
+          "type": "include_directive",
+          "named": true
+        },
+        {
+          "type": "key_binding",
+          "named": true
+        },
+        {
+          "type": "variable_setting",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "edit_mode_value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "ERROR",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "include_directive",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "file_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "key_binding",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "function_name",
+          "named": true
+        },
+        {
+          "type": "keyname",
+          "named": true
+        },
+        {
+          "type": "keyseq",
+          "named": true
+        },
+        {
+          "type": "macro",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "keymap_value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "ERROR",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "keyname",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "key_literal",
+          "named": true
+        },
+        {
+          "type": "symbolic_character_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "keyseq",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "escape_sequence",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "macro",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "escape_sequence",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "number_value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "ERROR",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "number_variable",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "source",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "conditional_construct",
+          "named": true
+        },
+        {
+          "type": "include_directive",
+          "named": true
+        },
+        {
+          "type": "key_binding",
+          "named": true
+        },
+        {
+          "type": "variable_setting",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "string_value",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "string_variable",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "symbolic_character_name",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "test",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "application_name",
+          "named": true
+        },
+        {
+          "type": "bell_value",
+          "named": true
+        },
+        {
+          "type": "bell_variable",
+          "named": true
+        },
+        {
+          "type": "bool_value",
+          "named": true
+        },
+        {
+          "type": "bool_variable",
+          "named": true
+        },
+        {
+          "type": "edit_mode_value",
+          "named": true
+        },
+        {
+          "type": "edit_mode_variable",
+          "named": true
+        },
+        {
+          "type": "keymap_value",
+          "named": true
+        },
+        {
+          "type": "keymap_variable",
+          "named": true
+        },
+        {
+          "type": "number_value",
+          "named": true
+        },
+        {
+          "type": "number_variable",
+          "named": true
+        },
+        {
+          "type": "string_value",
+          "named": true
+        },
+        {
+          "type": "string_variable",
+          "named": true
+        },
+        {
+          "type": "term_name",
+          "named": true
+        },
+        {
+          "type": "version_number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "variable_setting",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "bell_value",
+          "named": true
+        },
+        {
+          "type": "bell_variable",
+          "named": true
+        },
+        {
+          "type": "bool_value",
+          "named": true
+        },
+        {
+          "type": "bool_variable",
+          "named": true
+        },
+        {
+          "type": "edit_mode_value",
+          "named": true
+        },
+        {
+          "type": "edit_mode_variable",
+          "named": true
+        },
+        {
+          "type": "keymap_value",
+          "named": true
+        },
+        {
+          "type": "keymap_variable",
+          "named": true
+        },
+        {
+          "type": "number_value",
+          "named": true
+        },
+        {
+          "type": "number_variable",
+          "named": true
+        },
+        {
+          "type": "string_value",
+          "named": true
+        },
+        {
+          "type": "string_variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "!=",
+    "named": false
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "$else",
+    "named": false
+  },
+  {
+    "type": "$endif",
+    "named": false
+  },
+  {
+    "type": "$if",
+    "named": false
+  },
+  {
+    "type": "$include",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": "1",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "<",
+    "named": false
+  },
+  {
+    "type": "<=",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "==",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": ">=",
+    "named": false
+  },
+  {
+    "type": "ERROR",
+    "named": true
+  },
+  {
+    "type": "application_name",
+    "named": true
+  },
+  {
+    "type": "bell_variable",
+    "named": true
+  },
+  {
+    "type": "edit_mode_variable",
+    "named": true
+  },
+  {
+    "type": "escape_sequence",
+    "named": true
+  },
+  {
+    "type": "file_path",
+    "named": true
+  },
+  {
+    "type": "function_name",
+    "named": true
+  },
+  {
+    "type": "key_literal",
+    "named": true
+  },
+  {
+    "type": "keymap_variable",
+    "named": true
+  },
+  {
+    "type": "mode",
+    "named": false
+  },
+  {
+    "type": "set",
+    "named": false
+  },
+  {
+    "type": "term",
+    "named": false
+  },
+  {
+    "type": "term_name",
+    "named": true
+  },
+  {
+    "type": "version",
+    "named": false
+  },
+  {
+    "type": "version_number",
+    "named": true
+  }
+]

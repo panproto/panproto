@@ -1,4 +1,4 @@
-//! Round-trip tests with real fixture data for all 77 protocols.
+//! Round-trip tests with real fixture data for all 50 protocols.
 //!
 //! Each test verifies the presentation functor's faithfulness:
 //! `parse(emit(parse(input))) ≅ parse(input)` — structural equality
@@ -181,14 +181,9 @@ macro_rules! tabular_functor_roundtrip {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// API (5)
+// API (4)
 // ═══════════════════════════════════════════════════════════════════════
 
-json_wtype_roundtrip!(
-    roundtrip_graphql,
-    "graphql",
-    "../fixtures/api/graphql_response.json"
-);
 json_wtype_roundtrip!(
     roundtrip_openapi,
     "openapi",
@@ -207,24 +202,9 @@ json_wtype_roundtrip!(
 json_wtype_roundtrip!(roundtrip_raml, "raml", "../fixtures/api/raml_response.json");
 
 // ═══════════════════════════════════════════════════════════════════════
-// Data Schema (7)
+// Data Schema (2)
 // ═══════════════════════════════════════════════════════════════════════
 
-json_wtype_roundtrip!(
-    roundtrip_json_schema,
-    "json_schema",
-    "../fixtures/data_schema/json_schema_instance.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_yaml_schema,
-    "yaml_schema",
-    "../fixtures/data_schema/yaml_schema_instance.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_toml_schema,
-    "toml_schema",
-    "../fixtures/data_schema/toml_schema_instance.json"
-);
 json_wtype_roundtrip!(
     roundtrip_cddl,
     "cddl",
@@ -235,21 +215,9 @@ json_wtype_roundtrip!(
     "bson",
     "../fixtures/data_schema/bson_instance.json"
 );
-tabular_functor_roundtrip!(
-    roundtrip_csv_table,
-    "csv_table",
-    "../fixtures/data_schema/csv_data.csv",
-    "rows"
-);
-tabular_functor_roundtrip!(
-    roundtrip_ini_schema,
-    "ini_schema",
-    "../fixtures/data_schema/ini_config.ini",
-    "sections"
-);
 
 // ═══════════════════════════════════════════════════════════════════════
-// Database (6)
+// Database (5)
 // ═══════════════════════════════════════════════════════════════════════
 
 json_wtype_roundtrip!(
@@ -273,12 +241,6 @@ json_wtype_roundtrip!(
     "../fixtures/database/neo4j_result.json"
 );
 tabular_functor_roundtrip!(
-    roundtrip_sql,
-    "sql",
-    "../fixtures/database/sql_result.tsv",
-    "result_set"
-);
-tabular_functor_roundtrip!(
     roundtrip_redis,
     "redis",
     "../fixtures/database/redis_resp.txt",
@@ -286,52 +248,7 @@ tabular_functor_roundtrip!(
 );
 
 // ═══════════════════════════════════════════════════════════════════════
-// Type System (8)
-// ═══════════════════════════════════════════════════════════════════════
-
-json_wtype_roundtrip!(
-    roundtrip_typescript,
-    "typescript",
-    "../fixtures/type_system/typescript_instance.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_python,
-    "python",
-    "../fixtures/type_system/python_instance.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_rust_serde,
-    "rust_serde",
-    "../fixtures/type_system/rust_serde_instance.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_java,
-    "java",
-    "../fixtures/type_system/java_instance.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_go_struct,
-    "go_struct",
-    "../fixtures/type_system/go_instance.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_kotlin,
-    "kotlin",
-    "../fixtures/type_system/kotlin_instance.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_csharp,
-    "csharp",
-    "../fixtures/type_system/csharp_instance.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_swift,
-    "swift",
-    "../fixtures/type_system/swift_instance.json"
-);
-
-// ═══════════════════════════════════════════════════════════════════════
-// Config (4)
+// Config (3)
 // ═══════════════════════════════════════════════════════════════════════
 
 json_wtype_roundtrip!(
@@ -349,7 +266,6 @@ json_wtype_roundtrip!(
     "k8s_crd",
     "../fixtures/config/k8s_crd.json"
 );
-json_wtype_roundtrip!(roundtrip_hcl, "hcl", "../fixtures/config/hcl_config.json");
 
 // ═══════════════════════════════════════════════════════════════════════
 // Data Science (3)
@@ -372,28 +288,13 @@ json_wtype_roundtrip!(
 );
 
 // ═══════════════════════════════════════════════════════════════════════
-// Serialization (8)
+// Serialization (5)
 // ═══════════════════════════════════════════════════════════════════════
 
-json_wtype_roundtrip!(
-    roundtrip_protobuf,
-    "protobuf",
-    "../fixtures/serialization/protobuf_message.json"
-);
 json_wtype_roundtrip!(
     roundtrip_avro,
     "avro",
     "../fixtures/serialization/avro_record.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_thrift,
-    "thrift",
-    "../fixtures/serialization/thrift_struct.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_capnproto,
-    "capnproto",
-    "../fixtures/serialization/capnproto_message.json"
 );
 json_wtype_roundtrip!(
     roundtrip_flatbuffers,
@@ -563,38 +464,13 @@ tabular_functor_roundtrip!(
 );
 
 // ═══════════════════════════════════════════════════════════════════════
-// Web/Document (10)
+// Web/Document (3)
 // ═══════════════════════════════════════════════════════════════════════
 
 json_wtype_roundtrip!(
     roundtrip_atproto,
     "atproto",
     "../fixtures/web_document/atproto_record.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_jsx,
-    "jsx",
-    "../fixtures/web_document/jsx_ast.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_vue,
-    "vue",
-    "../fixtures/web_document/vue_sfc.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_svelte,
-    "svelte",
-    "../fixtures/web_document/svelte_component.json"
-);
-json_wtype_roundtrip!(
-    roundtrip_css,
-    "css",
-    "../fixtures/web_document/css_stylesheet.json"
-);
-xml_wtype_roundtrip!(
-    roundtrip_xml_xsd,
-    "xml_xsd",
-    "../fixtures/web_document/xml_xsd_document.xml"
 );
 xml_wtype_roundtrip!(
     roundtrip_docx,
@@ -606,73 +482,6 @@ xml_wtype_roundtrip!(
     "odf",
     "../fixtures/web_document/odf_content.xml"
 );
-
-#[test]
-fn roundtrip_html() {
-    let reg = registry();
-    let schema = open_schema("html");
-    let input = include_bytes!("../fixtures/web_document/sample.html");
-
-    let instance = reg.parse_wtype("html", &schema, input).expect("parse html");
-
-    assert!(
-        instance.node_count() >= 10,
-        "HTML fixture should have many nodes, got {}",
-        instance.node_count()
-    );
-
-    let emitted = reg
-        .emit_wtype("html", &schema, &instance)
-        .expect("emit html");
-
-    assert!(!emitted.is_empty(), "emitted HTML should be non-empty");
-
-    // Real Wikipedia HTML round-trips may not be exact (HTML normalization,
-    // entity encoding, whitespace handling), but re-parsing must succeed.
-    let instance2 = reg
-        .parse_wtype("html", &schema, &emitted)
-        .expect("re-parse html");
-
-    assert!(
-        instance2.node_count() >= 10,
-        "re-parsed HTML should have many nodes, got {}",
-        instance2.node_count()
-    );
-}
-
-#[test]
-fn roundtrip_markdown() {
-    let reg = registry();
-    let schema = open_schema("markdown");
-    let input = include_bytes!("../fixtures/web_document/sample.md");
-
-    let instance = reg
-        .parse_wtype("markdown", &schema, input)
-        .expect("parse markdown");
-
-    assert!(
-        instance.node_count() >= 10,
-        "Markdown fixture should have many nodes, got {}",
-        instance.node_count()
-    );
-
-    let emitted = reg
-        .emit_wtype("markdown", &schema, &instance)
-        .expect("emit markdown");
-
-    assert!(!emitted.is_empty(), "emitted markdown should be non-empty");
-
-    // Markdown round-trips are not byte-identical (formatting normalization),
-    // but re-parsing the emitted output must succeed.
-    let instance2 = reg
-        .parse_wtype("markdown", &schema, &emitted)
-        .expect("re-parse markdown");
-
-    assert!(
-        instance2.node_count() >= 1,
-        "re-parsed markdown should have nodes"
-    );
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Domain (6)
@@ -722,8 +531,8 @@ fn all_protocols_have_roundtrip_tests() {
     let reg = registry();
     assert_eq!(
         reg.len(),
-        76,
-        "registry should have 76 protocols; if you add a protocol, add a round-trip test"
+        50,
+        "registry should have 50 protocols; if you add a protocol, add a round-trip test"
     );
 }
 
@@ -732,19 +541,7 @@ fn all_protocols_report_correct_native_repr() {
     let reg = registry();
 
     // WType protocols should support parse_wtype
-    let wtype_protocols = [
-        "graphql",
-        "openapi",
-        "html",
-        "markdown",
-        "atproto",
-        "brat",
-        "naf",
-        "tei",
-        "protobuf",
-        "json_schema",
-        "typescript",
-    ];
+    let wtype_protocols = ["openapi", "atproto", "brat", "naf", "tei", "avro", "cddl"];
     for p in &wtype_protocols {
         assert_eq!(
             reg.native_repr(p).unwrap(),
@@ -754,7 +551,7 @@ fn all_protocols_report_correct_native_repr() {
     }
 
     // Functor protocols should support parse_functor
-    let functor_protocols = ["conllu", "csv_table", "sql", "amr"];
+    let functor_protocols = ["conllu", "amr"];
     for p in &functor_protocols {
         assert_eq!(
             reg.native_repr(p).unwrap(),

@@ -44,7 +44,7 @@ impl PyIoRegistry {
     /// Parameters
     /// ----------
     /// protocol : str
-    ///     Protocol name (e.g., ``"json"``, ``"sql"``, ``"protobuf"``).
+    ///     Protocol name (e.g., ``"atproto"``, ``"brat"``, ``"avro"``).
     /// schema : Schema
     ///     The schema the instance should conform to.
     /// data : bytes

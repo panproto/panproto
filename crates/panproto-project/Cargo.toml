@@ -12,6 +12,7 @@ panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-protocols = { workspace = true }
 panproto-parse = { workspace = true }
+panproto-grammars = { workspace = true }
 
 thiserror = { workspace = true }
 miette = { workspace = true }

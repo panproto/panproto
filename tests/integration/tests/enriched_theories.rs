@@ -1519,36 +1519,14 @@ fn theory_morphism_preserves_equations() -> Result<(), Box<dyn std::error::Error
 
 #[test]
 fn all_building_block_theories_well_formed() {
-    // Verify all 27 building-block theories have valid structure.
+    // Verify all 5 building-block theories have valid structure.
     type TheoryEntry<'a> = (&'a str, fn() -> Theory);
     let theory_fns: Vec<TheoryEntry<'_>> = vec![
         ("ThGraph", theories::th_graph),
-        ("ThSimpleGraph", theories::th_simple_graph),
-        ("ThHypergraph", theories::th_hypergraph),
         ("ThConstraint", theories::th_constraint),
         ("ThMulti", theories::th_multi),
-        ("ThInterface", theories::th_interface),
         ("ThWType", theories::th_wtype),
         ("ThMeta", theories::th_meta),
-        ("ThFunctor", theories::th_functor),
-        ("ThFlat", theories::th_flat),
-        ("ThOrder", theories::th_order),
-        ("ThCoproduct", theories::th_coproduct),
-        ("ThRecursion", theories::th_recursion),
-        ("ThSpan", theories::th_span),
-        ("ThCospan", theories::th_cospan),
-        ("ThPartial", theories::th_partial),
-        ("ThLinear", theories::th_linear),
-        ("ThNominal", theories::th_nominal),
-        ("ThReflexiveGraph", theories::th_reflexive_graph),
-        ("ThSymmetricGraph", theories::th_symmetric_graph),
-        ("ThPetriNet", theories::th_petri_net),
-        ("ThGraphInstance", theories::th_graph_instance),
-        ("ThAnnotation", theories::th_annotation),
-        ("ThCausal", theories::th_causal),
-        ("ThOperad", theories::th_operad),
-        ("ThTracedMonoidal", theories::th_traced_monoidal),
-        ("ThSimplicial", theories::th_simplicial),
     ];
 
     for (name, build_fn) in &theory_fns {

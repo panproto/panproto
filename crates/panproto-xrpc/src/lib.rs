@@ -1,3 +1,4 @@
+#![allow(clippy::future_not_send)]
 //! # panproto-xrpc
 //!
 //! XRPC client for cospan node VCS operations.

@@ -10,7 +10,7 @@ use std::path::Path;
 pub fn detect_language(path: &Path) -> Option<&'static str> {
     path.extension()
         .and_then(|e| e.to_str())
-        .and_then(|ext| language_from_extension(ext))
+        .and_then(panproto_grammars::extension_to_language)
 }
 
 /// Check if a file should be treated as binary (not parsed as text).
@@ -51,55 +51,33 @@ pub fn is_binary_extension(path: &Path) -> bool {
         })
 }
 
-/// Map file extension to protocol name.
-fn language_from_extension(ext: &str) -> Option<&'static str> {
-    match ext.to_lowercase().as_str() {
-        "ts" => Some("typescript"),
-        "tsx" => Some("tsx"),
-        "py" | "pyi" => Some("python"),
-        "rs" => Some("rust"),
-        "java" => Some("java"),
-        "go" => Some("go"),
-        "swift" => Some("swift"),
-        "kt" | "kts" => Some("kotlin"),
-        "cs" => Some("csharp"),
-        "c" | "h" => Some("c"),
-        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some("cpp"),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn detect_common_languages() {
+    fn detect_core_languages() {
+        // group-core: python, javascript, typescript, java, csharp, cpp, php, bash, c, go, rust
+        assert_eq!(detect_language(Path::new("lib.py")), Some("python"));
+        assert_eq!(detect_language(Path::new("app.js")), Some("javascript"));
         assert_eq!(
             detect_language(Path::new("src/main.ts")),
             Some("typescript")
         );
-        assert_eq!(detect_language(Path::new("app.tsx")), Some("tsx"));
-        assert_eq!(detect_language(Path::new("lib.py")), Some("python"));
-        assert_eq!(detect_language(Path::new("main.rs")), Some("rust"));
         assert_eq!(detect_language(Path::new("App.java")), Some("java"));
-        assert_eq!(detect_language(Path::new("main.go")), Some("go"));
-        assert_eq!(detect_language(Path::new("Point.swift")), Some("swift"));
-        assert_eq!(detect_language(Path::new("User.kt")), Some("kotlin"));
         assert_eq!(detect_language(Path::new("Program.cs")), Some("csharp"));
-        assert_eq!(detect_language(Path::new("main.c")), Some("c"));
         assert_eq!(detect_language(Path::new("stack.cpp")), Some("cpp"));
-        assert_eq!(detect_language(Path::new("utils.h")), Some("c"));
-        assert_eq!(detect_language(Path::new("utils.hpp")), Some("cpp"));
+        assert_eq!(detect_language(Path::new("index.php")), Some("php"));
+        assert_eq!(detect_language(Path::new("run.sh")), Some("bash"));
+        assert_eq!(detect_language(Path::new("main.c")), Some("c"));
+        assert_eq!(detect_language(Path::new("main.go")), Some("go"));
+        assert_eq!(detect_language(Path::new("main.rs")), Some("rust"));
     }
 
     #[test]
     fn detect_unknown_returns_none() {
-        assert_eq!(detect_language(Path::new("README.md")), None);
         assert_eq!(detect_language(Path::new("LICENSE")), None);
-        assert_eq!(detect_language(Path::new(".gitignore")), None);
         assert_eq!(detect_language(Path::new("Makefile")), None);
-        assert_eq!(detect_language(Path::new("data.json")), None);
     }
 
     #[test]

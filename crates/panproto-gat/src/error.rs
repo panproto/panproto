@@ -43,6 +43,15 @@ pub enum GatError {
         detail: String,
     },
 
+    /// A directed equation is not preserved by a morphism.
+    #[error("directed equation {equation} not preserved: {detail}")]
+    DirectedEquationNotPreserved {
+        /// The directed equation that failed preservation.
+        equation: String,
+        /// Details about the failure.
+        detail: String,
+    },
+
     /// Sort conflict during colimit computation.
     #[error("sort conflict in colimit: {name} has incompatible definitions")]
     SortConflict {
@@ -61,6 +70,20 @@ pub enum GatError {
     #[error("equation conflict in colimit: {name}")]
     EqConflict {
         /// The conflicting equation name.
+        name: String,
+    },
+
+    /// Directed equation conflict during colimit computation.
+    #[error("directed equation conflict in colimit: {name}")]
+    DirectedEqConflict {
+        /// The conflicting directed equation name.
+        name: String,
+    },
+
+    /// Conflict policy conflict during colimit computation.
+    #[error("conflict policy conflict in colimit: {name}")]
+    PolicyConflict {
+        /// The conflicting policy name.
         name: String,
     },
 

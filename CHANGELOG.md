@@ -4,6 +4,43 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-03-27
+
+### Added — 248 Tree-Sitter Language Support
+
+- **panproto-grammars** (new crate): pre-compiled tree-sitter grammars for 248 languages, vendored from C sources. Each grammar is feature-gated (`lang-python`, `lang-rust`, etc.) with group features (`group-core`, `group-web`, `group-all`). Default is `group-core` (Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, Rust). `build.rs` compiles all C/C++ sources via the `cc` crate. Grammars that extend other grammars (Angular extending HTML, etc.) are made self-contained at fetch time.
+- **tools/fetch-grammars.py**: script to fetch grammar sources from git repos based on `grammars.toml`. Runs `tree-sitter generate` when `parser.c` is missing. Copies all source files, headers, and subdirectories to make each grammar self-contained. Resolves cross-grammar header dependencies. Verifies permissive licensing.
+- **grammars.toml**: manifest of all 248 tree-sitter languages with repo URLs, file extensions, C symbol names, and subdirectory overrides.
+
+### Changed — Unified Tree-Sitter Architecture
+
+- **panproto-parse**: replaced 10 per-language wrapper files with a single data-driven `ParserRegistry::new()` that loops over `panproto_grammars::grammars()`. Custom `WalkerConfig` overrides consolidated into `walker_configs.rs`. Removed `LanguageParser::new()` (which took `LanguageFn`); use `from_language()` directly.
+- **panproto-project**: `detect.rs` now delegates to `panproto_grammars::extension_to_language()` instead of a hand-maintained match statement.
+- **tree-sitter**: bumped from 0.24 to 0.25 for ABI version 15 support (required by latest grammars).
+
+### Removed — Protocol Implementations Replaced by Tree-Sitter
+
+- **panproto-protocols**: deleted 26 hand-written protocol parsers now covered by tree-sitter grammars: all 8 type system protocols (Python, TypeScript, Rust, Java, Go, Swift, Kotlin, C#), SQL, GraphQL, HCL, Protobuf, Thrift, Cap'n Proto, JSON Schema, YAML Schema, TOML Schema, INI Schema, CSV/Table Schema, CSS, HTML, JSX, Markdown, Svelte, Vue, XML/XSD.
+- **panproto-protocols**: deleted 29 unused theory building-block functions. Kept 5 public GATs (ThGraph, ThConstraint, ThMulti, ThWType, ThMeta) and 6 registration helpers still used by remaining semantic protocols.
+
+### Fixed — Mathematical Correctness Review
+
+- **panproto-gat** (F1): equation preservation in `check_morphism()` now uses α-equivalence instead of syntactic equality, correctly treating universally quantified variable names as bound. Added `alpha_equivalent()` and `alpha_equivalent_equation()` to `Term`. Pullback equation pairing in `pair_eqs()` also updated.
+- **panproto-gat** (F2): naturality square verification in `check_natural_transformation()` now normalizes both sides via the codomain's directed equations (rewrite rules) before comparison. Added `match_pattern()` for first-order pattern matching and `normalize()` for innermost-first term rewriting to fixed point. Naturality checks that depend on the codomain's equational theory no longer produce spurious violations.
+- **panproto-gat** (F3): theory colimit (`colimit()`) now propagates directed equations and conflict policies from both input theories. Previously these were silently dropped, causing composed protocols to lose rewrite rules essential to the edit lens pipeline. Conflict detection uses α-equivalence for directed equation compatibility. Added `DirectedEqConflict` and `PolicyConflict` error variants.
+- **panproto-gat** (F4): `check_morphism()` now verifies that directed equations are preserved under the morphism. For each domain directed equation, the mapped terms must appear as a directed equation in the codomain (checked via α-equivalence). Added `DirectedEquationNotPreserved` error variant.
+- **panproto-gat** (F5): pullback construction now pairs directed equations from both source theories when they agree in the codomain (via α-equivalence). Added `pair_directed_eqs()` following the same pattern as `pair_eqs()`. The pullback theory uses `Theory::full()` to include paired directed equations.
+- **panproto-gat** (F6): free model construction now topologically sorts the theory's sorts by dependency, ensuring parameter sorts are populated before dependent sorts. Added `topological_sort_sorts()`. Term generation iterates in dependency order so dependent sorts like `Hom(a: Ob, b: Ob)` correctly find terms for their parameter sorts.
+- **panproto-lens** (F7): added `SymmetricLens::verify_complement_coherence()` to verify that round-tripping through one direction does not disturb the complement of the other direction (Hofmann-Pierce-Wagner complement coherence condition). Returns a list of `CoherenceViolation`s. Previously, complement coherence was only tested on identity lenses.
+- **panproto-mig** (F8): added functoriality integration tests for `lift_wtype_sigma()` (left Kan extension). Tests verify that lifting along a composed migration equals sequential lifting (`Σ(m2 ∘ m1, I) = Σ(m2, Σ(m1, I))`), and that identity migration preserves instances.
+- **panproto-lens** (F9): documented that `classify_transform()` assumes elementary transforms are lawful by construction. Added `check_optic_laws()` for runtime verification that the classified optic kind's laws hold on concrete instances, and `OpticLawViolation` error type.
+
+### Added — Mathematical Correctness Enhancements
+
+- **panproto-gat** (F10): added `check_interchange()` to verify the interchange law for natural transformation compositions, the fundamental coherence condition for 2-categories: `(β' • α') * (β • α) = (β' * β) • (α' * α)`. Compares both sides component-wise using α-equivalence.
+- **panproto-lens** (F11): added `fibration` module formalizing the Grothendieck fibration structure underlying the protolens framework. `Fibration` trait with `cartesian_lift` (put) and `opcartesian_lift` (get). `WTypeFibration` implementation connecting to Johnson-Rosebrugh delta lenses. `verify_cartesian_universal()` checks the universal property (reduces to get-put/put-get laws).
+- **panproto-lens** (F12): formalized the complement cost model as a Lawvere metric space `([0, ∞], ≥, +)`. Added `verify_identity_cost()`, `verify_subadditivity()` to `cost` module, and `LensGraph::verify_metric()` checking identity and triangle inequality axioms on the distance matrix. Added `MetricViolation` enum. Expanded module documentation connecting the enrichment structure to the "shortest path = minimal information loss" heuristic.
+
 ### Added — XRPC Remote Operations and Git Remote Helper
 
 - **panproto-xrpc** (new crate): XRPC client for cospan node VCS operations. Implements all `dev.cospan.node.*` endpoints (getObject, putObject, getRef, setRef, listRefs, getHead, negotiate, getRepoInfo). High-level `push()` and `pull()` methods handle full have/want negotiation. Auth via Bearer token.

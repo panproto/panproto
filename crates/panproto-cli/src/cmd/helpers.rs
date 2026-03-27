@@ -24,13 +24,7 @@ pub fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
 pub fn resolve_protocol(name: &str) -> Result<Protocol> {
     match name {
         "atproto" => Ok(protocols::atproto::protocol()),
-        "sql" => Ok(protocols::sql::protocol()),
-        "protobuf" => Ok(protocols::protobuf::protocol()),
-        "graphql" => Ok(protocols::graphql::protocol()),
-        "json-schema" | "jsonschema" => Ok(protocols::json_schema::protocol()),
-        _ => miette::bail!(
-            "unknown protocol: {name:?}. Supported: atproto, sql, protobuf, graphql, json-schema"
-        ),
+        _ => miette::bail!("unknown protocol: {name:?}. Supported: atproto"),
     }
 }
 
@@ -39,12 +33,8 @@ pub fn build_theory_registry(protocol_name: &str) -> Result<HashMap<String, Theo
     let mut registry = HashMap::new();
     match protocol_name {
         "atproto" => protocols::atproto::register_theories(&mut registry),
-        "sql" => protocols::sql::register_theories(&mut registry),
-        "protobuf" => protocols::protobuf::register_theories(&mut registry),
-        "graphql" => protocols::graphql::register_theories(&mut registry),
-        "json-schema" | "jsonschema" => protocols::json_schema::register_theories(&mut registry),
         _ => miette::bail!(
-            "unknown protocol for theory registry: {protocol_name:?}. Supported: atproto, sql, protobuf, graphql, json-schema"
+            "unknown protocol for theory registry: {protocol_name:?}. Supported: atproto"
         ),
     }
     Ok(registry)

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::eq::Equation;
+use crate::eq::{DirectedEquation, Equation, alpha_equivalent_equation};
 use crate::error::GatError;
 use crate::morphism::TheoryMorphism;
 use crate::op::Operation;
@@ -198,7 +198,9 @@ fn pair_eqs(
             let lhs_via_m2 = m2.apply_to_term(&eq2.lhs);
             let rhs_via_m2 = m2.apply_to_term(&eq2.rhs);
 
-            if lhs_via_m1 != lhs_via_m2 || rhs_via_m1 != rhs_via_m2 {
+            // Compare mapped equations up to α-equivalence, since equations
+            // are universally quantified and variable names are bound.
+            if !alpha_equivalent_equation(&lhs_via_m1, &rhs_via_m1, &lhs_via_m2, &rhs_via_m2) {
                 continue;
             }
 
@@ -213,6 +215,49 @@ fn pair_eqs(
     }
 
     eqs
+}
+
+/// Pair directed equations that agree when mapped into the codomain.
+fn pair_directed_eqs(
+    t1: &Theory,
+    t2: &Theory,
+    m1: &TheoryMorphism,
+    m2: &TheoryMorphism,
+    op_triples: &[Triple],
+) -> Vec<DirectedEquation> {
+    let pb_op_rename: HashMap<Arc<str>, Arc<str>> = op_triples
+        .iter()
+        .map(|(o1, _o2, pb)| (Arc::clone(o1), Arc::clone(pb)))
+        .collect();
+
+    let mut directed_eqs = Vec::new();
+
+    for de1 in &t1.directed_eqs {
+        let lhs_via_m1 = m1.apply_to_term(&de1.lhs);
+        let rhs_via_m1 = m1.apply_to_term(&de1.rhs);
+
+        for de2 in &t2.directed_eqs {
+            let lhs_via_m2 = m2.apply_to_term(&de2.lhs);
+            let rhs_via_m2 = m2.apply_to_term(&de2.rhs);
+
+            if !alpha_equivalent_equation(&lhs_via_m1, &rhs_via_m1, &lhs_via_m2, &rhs_via_m2) {
+                continue;
+            }
+
+            let pb_lhs = de1.lhs.rename_ops(&pb_op_rename);
+            let pb_rhs = de1.rhs.rename_ops(&pb_op_rename);
+
+            directed_eqs.push(DirectedEquation {
+                name: paired_name(&de1.name, &de2.name),
+                lhs: pb_lhs,
+                rhs: pb_rhs,
+                impl_term: de1.impl_term.clone(),
+                inverse: de1.inverse.clone(),
+            });
+        }
+    }
+
+    directed_eqs
 }
 
 /// Compute the pullback of two theories over a common codomain.
@@ -242,9 +287,18 @@ pub fn pullback(
     let pb_sorts = build_sorts(t1, &sort_triples);
     let (pb_ops, op_triples) = pair_ops(t1, t2, m1, &m2_op_rev, &sort_pair_map);
     let pb_eqs = pair_eqs(t1, t2, m1, m2, &op_triples);
+    let pb_directed_eqs = pair_directed_eqs(t1, t2, m1, m2, &op_triples);
 
     let pb_name: Arc<str> = format!("{}_{}_pullback", t1.name, t2.name).into();
-    let pb_theory = Theory::new(pb_name, pb_sorts, pb_ops, pb_eqs);
+    let pb_theory = Theory::full(
+        pb_name,
+        Vec::new(),
+        pb_sorts,
+        pb_ops,
+        pb_eqs,
+        pb_directed_eqs,
+        Vec::new(),
+    );
 
     // Build projection morphisms.
     let mut proj1_sort = HashMap::new();
@@ -532,6 +586,179 @@ mod tests {
         // Projections validate.
         check_morphism(&result.proj1, &result.theory, &t1)?;
         check_morphism(&result.proj2, &result.theory, &t2)?;
+        Ok(())
+    }
+
+    /// Equations that differ only in variable names should still be paired
+    /// in the pullback, thanks to α-equivalence.
+    #[test]
+    fn equation_pairing_with_renamed_vars() -> Result<(), Box<dyn std::error::Error>> {
+        let t1 = Theory::new(
+            "T1",
+            vec![Sort::simple("S")],
+            vec![Operation::new(
+                "f",
+                vec![("a".into(), "S".into()), ("b".into(), "S".into())],
+                "S",
+            )],
+            vec![Equation::new(
+                "comm1",
+                Term::app("f", vec![Term::var("a"), Term::var("b")]),
+                Term::app("f", vec![Term::var("b"), Term::var("a")]),
+            )],
+        );
+
+        // t2 has the same equation but with variables x, y.
+        let t2 = Theory::new(
+            "T2",
+            vec![Sort::simple("T")],
+            vec![Operation::new(
+                "g",
+                vec![("x".into(), "T".into()), ("y".into(), "T".into())],
+                "T",
+            )],
+            vec![Equation::new(
+                "comm2",
+                Term::app("g", vec![Term::var("x"), Term::var("y")]),
+                Term::app("g", vec![Term::var("y"), Term::var("x")]),
+            )],
+        );
+
+        let m1 = TheoryMorphism::new(
+            "m1",
+            "T1",
+            "Target",
+            HashMap::from([(Arc::from("S"), Arc::from("U"))]),
+            HashMap::from([(Arc::from("f"), Arc::from("h"))]),
+        );
+        let m2 = TheoryMorphism::new(
+            "m2",
+            "T2",
+            "Target",
+            HashMap::from([(Arc::from("T"), Arc::from("U"))]),
+            HashMap::from([(Arc::from("g"), Arc::from("h"))]),
+        );
+
+        let result = pullback(&t1, &t2, &m1, &m2)?;
+
+        // The equations should be paired despite different variable names.
+        assert_eq!(result.theory.eqs.len(), 1);
+        assert!(result.theory.find_eq("comm1=comm2").is_some());
+
+        check_morphism(&result.proj1, &result.theory, &t1)?;
+        check_morphism(&result.proj2, &result.theory, &t2)?;
+        Ok(())
+    }
+
+    /// Directed equations that agree in the codomain should be paired.
+    #[test]
+    fn pullback_pairs_directed_eqs() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::eq::DirectedEquation;
+
+        let t1 = Theory::full(
+            "T1",
+            Vec::new(),
+            vec![Sort::simple("S")],
+            vec![Operation::unary("f", "x", "S", "S")],
+            Vec::new(),
+            vec![DirectedEquation::new(
+                "rule1",
+                Term::app("f", vec![Term::app("f", vec![Term::var("x")])]),
+                Term::app("f", vec![Term::var("x")]),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            Vec::new(),
+        );
+
+        let t2 = Theory::full(
+            "T2",
+            Vec::new(),
+            vec![Sort::simple("T")],
+            vec![Operation::unary("g", "y", "T", "T")],
+            Vec::new(),
+            vec![DirectedEquation::new(
+                "rule2",
+                Term::app("g", vec![Term::app("g", vec![Term::var("y")])]),
+                Term::app("g", vec![Term::var("y")]),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            Vec::new(),
+        );
+
+        let m1 = TheoryMorphism::new(
+            "m1",
+            "T1",
+            "Target",
+            HashMap::from([(Arc::from("S"), Arc::from("U"))]),
+            HashMap::from([(Arc::from("f"), Arc::from("h"))]),
+        );
+        let m2 = TheoryMorphism::new(
+            "m2",
+            "T2",
+            "Target",
+            HashMap::from([(Arc::from("T"), Arc::from("U"))]),
+            HashMap::from([(Arc::from("g"), Arc::from("h"))]),
+        );
+
+        let result = pullback(&t1, &t2, &m1, &m2)?;
+
+        assert_eq!(result.theory.directed_eqs.len(), 1);
+        assert!(result.theory.find_directed_eq("rule1=rule2").is_some());
+        Ok(())
+    }
+
+    /// Directed equations that don't agree in the codomain produce no pairs.
+    #[test]
+    fn pullback_no_directed_eq_match() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::eq::DirectedEquation;
+
+        let t1 = Theory::full(
+            "T1",
+            Vec::new(),
+            vec![Sort::simple("S")],
+            vec![Operation::unary("f", "x", "S", "S")],
+            Vec::new(),
+            vec![DirectedEquation::new(
+                "rule1",
+                Term::app("f", vec![Term::var("x")]),
+                Term::var("x"),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            Vec::new(),
+        );
+
+        let t2 = Theory::full(
+            "T2",
+            Vec::new(),
+            vec![Sort::simple("T")],
+            vec![Operation::unary("g", "y", "T", "T")],
+            Vec::new(),
+            vec![DirectedEquation::new(
+                "rule2",
+                Term::var("y"),
+                Term::app("g", vec![Term::var("y")]),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            Vec::new(),
+        );
+
+        let m1 = TheoryMorphism::new(
+            "m1",
+            "T1",
+            "Target",
+            HashMap::from([(Arc::from("S"), Arc::from("U"))]),
+            HashMap::from([(Arc::from("f"), Arc::from("h"))]),
+        );
+        let m2 = TheoryMorphism::new(
+            "m2",
+            "T2",
+            "Target",
+            HashMap::from([(Arc::from("T"), Arc::from("U"))]),
+            HashMap::from([(Arc::from("g"), Arc::from("h"))]),
+        );
+
+        let result = pullback(&t1, &t2, &m1, &m2)?;
+        assert_eq!(result.theory.directed_eqs.len(), 0);
         Ok(())
     }
 

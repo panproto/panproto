@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::eq::alpha_equivalent_equation;
 use crate::error::GatError;
 use crate::theory::Theory;
 
@@ -90,8 +91,52 @@ pub fn colimit(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatE
         }
     }
 
+    // Same for directed equations.
+    let mut directed_eqs = t1.directed_eqs.clone();
+
+    for de in &t2.directed_eqs {
+        if let Some(t1_de) = t1.find_directed_eq(&de.name) {
+            if shared.find_directed_eq(&de.name).is_some() {
+                continue;
+            }
+            if !alpha_equivalent_equation(&t1_de.lhs, &t1_de.rhs, &de.lhs, &de.rhs) {
+                return Err(GatError::DirectedEqConflict {
+                    name: de.name.to_string(),
+                });
+            }
+        } else {
+            directed_eqs.push(de.clone());
+        }
+    }
+
+    // Same for conflict policies.
+    let mut policies = t1.policies.clone();
+
+    for pol in &t2.policies {
+        if let Some(t1_pol) = t1.find_policy(&pol.name) {
+            if shared.find_policy(&pol.name).is_some() {
+                continue;
+            }
+            if t1_pol.value_kind != pol.value_kind || t1_pol.strategy != pol.strategy {
+                return Err(GatError::PolicyConflict {
+                    name: pol.name.to_string(),
+                });
+            }
+        } else {
+            policies.push(pol.clone());
+        }
+    }
+
     let name: Arc<str> = format!("{}_{}_colimit", t1.name, t2.name).into();
-    Ok(Theory::new(name, sorts, ops, eqs))
+    Ok(Theory::full(
+        name,
+        Vec::new(),
+        sorts,
+        ops,
+        eqs,
+        directed_eqs,
+        policies,
+    ))
 }
 
 #[cfg(test)]
@@ -213,6 +258,215 @@ mod tests {
 
         let result = colimit(&t1, &t2, &shared).unwrap();
         assert_eq!(result.sorts.len(), 1);
+    }
+
+    #[test]
+    fn colimit_merges_directed_eqs() {
+        use crate::eq::{DirectedEquation, Term};
+
+        let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
+
+        let t1 = Theory::full(
+            "T1",
+            Vec::new(),
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            Vec::new(),
+            vec![DirectedEquation::new(
+                "rule1",
+                Term::app("f", vec![Term::app("f", vec![Term::var("x")])]),
+                Term::app("f", vec![Term::var("x")]),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            Vec::new(),
+        );
+
+        let t2 = Theory::full(
+            "T2",
+            Vec::new(),
+            vec![Sort::simple("A")],
+            vec![
+                Operation::unary("f", "x", "A", "A"),
+                Operation::nullary("c", "A"),
+            ],
+            Vec::new(),
+            vec![DirectedEquation::new(
+                "rule2",
+                Term::app("f", vec![Term::constant("c")]),
+                Term::constant("c"),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            Vec::new(),
+        );
+
+        let result = colimit(&t1, &t2, &shared).unwrap();
+        assert_eq!(result.directed_eqs.len(), 2);
+        assert!(result.find_directed_eq("rule1").is_some());
+        assert!(result.find_directed_eq("rule2").is_some());
+    }
+
+    #[test]
+    fn colimit_shared_directed_eq_not_duplicated() {
+        use crate::eq::{DirectedEquation, Term};
+
+        let de = DirectedEquation::new(
+            "shared_rule",
+            Term::app("f", vec![Term::var("x")]),
+            Term::var("x"),
+            panproto_expr::Expr::Var("_".into()),
+        );
+
+        let shared = Theory::full(
+            "Shared",
+            Vec::new(),
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            Vec::new(),
+            vec![de.clone()],
+            Vec::new(),
+        );
+
+        let t1 = Theory::full(
+            "T1",
+            Vec::new(),
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            Vec::new(),
+            vec![de.clone()],
+            Vec::new(),
+        );
+        let t2 = Theory::full(
+            "T2",
+            Vec::new(),
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            Vec::new(),
+            vec![de],
+            Vec::new(),
+        );
+
+        let result = colimit(&t1, &t2, &shared).unwrap();
+        assert_eq!(result.directed_eqs.len(), 1);
+    }
+
+    #[test]
+    fn colimit_directed_eq_conflict() {
+        use crate::eq::{DirectedEquation, Term};
+
+        let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
+
+        let t1 = Theory::full(
+            "T1",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![DirectedEquation::new(
+                "rule",
+                Term::var("x"),
+                Term::var("y"),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            Vec::new(),
+        );
+
+        let t2 = Theory::full(
+            "T2",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![DirectedEquation::new(
+                "rule",
+                Term::constant("a"),
+                Term::constant("b"),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            Vec::new(),
+        );
+
+        let result = colimit(&t1, &t2, &shared);
+        assert!(matches!(result, Err(GatError::DirectedEqConflict { .. })));
+    }
+
+    #[test]
+    fn colimit_merges_policies() {
+        use crate::sort::ValueKind;
+        use crate::theory::{ConflictPolicy, ConflictStrategy};
+
+        let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
+
+        let t1 = Theory::full(
+            "T1",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![ConflictPolicy {
+                name: "p1".into(),
+                value_kind: ValueKind::Str,
+                strategy: ConflictStrategy::KeepLeft,
+            }],
+        );
+
+        let t2 = Theory::full(
+            "T2",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![ConflictPolicy {
+                name: "p2".into(),
+                value_kind: ValueKind::Int,
+                strategy: ConflictStrategy::Fail,
+            }],
+        );
+
+        let result = colimit(&t1, &t2, &shared).unwrap();
+        assert_eq!(result.policies.len(), 2);
+        assert!(result.find_policy("p1").is_some());
+        assert!(result.find_policy("p2").is_some());
+    }
+
+    #[test]
+    fn colimit_policy_conflict() {
+        use crate::sort::ValueKind;
+        use crate::theory::{ConflictPolicy, ConflictStrategy};
+
+        let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
+
+        let t1 = Theory::full(
+            "T1",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![ConflictPolicy {
+                name: "p".into(),
+                value_kind: ValueKind::Str,
+                strategy: ConflictStrategy::KeepLeft,
+            }],
+        );
+
+        let t2 = Theory::full(
+            "T2",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![ConflictPolicy {
+                name: "p".into(),
+                value_kind: ValueKind::Str,
+                strategy: ConflictStrategy::KeepRight, // Different strategy
+            }],
+        );
+
+        let result = colimit(&t1, &t2, &shared);
+        assert!(matches!(result, Err(GatError::PolicyConflict { .. })));
     }
 
     #[test]

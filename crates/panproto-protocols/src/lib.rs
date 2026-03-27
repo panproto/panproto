@@ -23,15 +23,14 @@
 //!
 //! ## Protocol Categories
 //!
-//! - **Serialization**: Protobuf, Avro, Thrift, Cap'n Proto, `FlatBuffers`, ASN.1, Bond, `MsgPack`
-//! - **Data Schema**: JSON Schema, XML/XSD, CSV/Table Schema, YAML, TOML, CDDL, INI, BSON
-//! - **API**: GraphQL, `OpenAPI`, `AsyncAPI`, RAML, JSON:API
-//! - **Database**: SQL, `MongoDB`, Cassandra, `DynamoDB`, Neo4j, Redis
-//! - **Type System**: TypeScript, Python, Rust, Java, Go, Swift, Kotlin, C#
-//! - **Web/Document**: `ATProto`, HTML, CSS, DOCX, ODF, Markdown, JSX, Vue, Svelte
+//! - **Serialization**: Avro, `FlatBuffers`, ASN.1, Bond, `MsgPack`
+//! - **Data Schema**: CDDL, BSON
+//! - **API**: `OpenAPI`, `AsyncAPI`, RAML, JSON:API
+//! - **Database**: `MongoDB`, Cassandra, `DynamoDB`, Neo4j, Redis
+//! - **Web/Document**: `ATProto`, DOCX, ODF
 //! - **Data Science**: Parquet, Arrow, `DataFrame`
 //! - **Domain**: `GeoJSON`, FHIR, RSS/Atom, vCard/iCal, EDI X12, SWIFT MT
-//! - **Config**: HCL, K8s CRD, Docker Compose, `CloudFormation`, Ansible
+//! - **Config**: K8s CRD, Docker Compose, `CloudFormation`, Ansible
 
 /// Linguistic annotation format protocol definitions.
 pub mod annotation;
@@ -57,16 +56,10 @@ pub mod raw_file;
 pub mod serialization;
 /// Shared component theory definitions (building-block GATs).
 pub mod theories;
-/// Programming language type system protocol definitions.
-pub mod type_system;
 /// Web and document format protocol definitions.
 pub mod web_document;
 
 pub use error::ProtocolError;
 
 // Re-export existing protocols at crate root for backward compatibility.
-pub use api::graphql;
-pub use data_schema::json_schema;
-pub use database::sql;
-pub use serialization::protobuf;
 pub use web_document::atproto;

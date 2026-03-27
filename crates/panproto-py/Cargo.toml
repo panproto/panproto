@@ -16,6 +16,7 @@ crate-type = ["cdylib"]
 panproto-core = { workspace = true }
 panproto-expr = { workspace = true }
 panproto-expr-parser = { workspace = true }
+panproto-grammars = { workspace = true }
 panproto-parse = { workspace = true }
 panproto-project = { workspace = true }
 panproto-git = { workspace = true }

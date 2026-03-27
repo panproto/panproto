@@ -29,8 +29,8 @@ impl<T: InstanceParser + InstanceEmitter> ProtocolCodec for T {}
 /// let mut registry = ProtocolRegistry::new();
 /// // register protocol codecs...
 ///
-/// let instance = registry.parse_wtype("json_schema", &schema, &bytes)?;
-/// let emitted = registry.emit_wtype("json_schema", &schema, &instance)?;
+/// let instance = registry.parse_wtype("openapi", &schema, &bytes)?;
+/// let emitted = registry.emit_wtype("openapi", &schema, &instance)?;
 /// ```
 pub struct ProtocolRegistry {
     codecs: HashMap<String, Box<dyn ProtocolCodec>>,
