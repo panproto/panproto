@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::eq::Term;
+use crate::eq::{Term, alpha_equivalent_equation};
 use crate::error::GatError;
 use crate::ident::{NameSite, SiteRename};
 use crate::theory::Theory;
@@ -175,11 +175,13 @@ pub fn check_morphism(
         let mapped_lhs = m.apply_to_term(&eq.lhs);
         let mapped_rhs = m.apply_to_term(&eq.rhs);
 
-        // Check that the codomain has an equation matching the mapped terms.
-        let preserved = codomain
-            .eqs
-            .iter()
-            .any(|ceq| ceq.lhs == mapped_lhs && ceq.rhs == mapped_rhs);
+        // Check that the codomain has an equation matching the mapped terms
+        // up to α-equivalence (consistent variable renaming). Equations are
+        // universally quantified, so variable names are bound and must not
+        // affect identity.
+        let preserved = codomain.eqs.iter().any(|ceq| {
+            alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_lhs, &mapped_rhs)
+        });
 
         if !preserved {
             return Err(GatError::EquationNotPreserved {
@@ -414,6 +416,107 @@ mod tests {
         let m = TheoryMorphism::new("bad", "D", "C", sort_map, op_map);
         let result = check_morphism(&m, &domain, &codomain);
         assert!(matches!(result, Err(GatError::OpTypeMismatch { .. })));
+    }
+
+    /// Morphism between theories where the codomain equation uses different
+    /// variable names. This would fail with syntactic comparison but succeeds
+    /// with α-equivalence.
+    #[test]
+    fn morphism_with_renamed_equation_vars() {
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("S")],
+            vec![Operation::new(
+                "f",
+                vec![("a".into(), "S".into()), ("b".into(), "S".into())],
+                "S",
+            )],
+            vec![Equation::new(
+                "comm",
+                Term::app("f", vec![Term::var("a"), Term::var("b")]),
+                Term::app("f", vec![Term::var("b"), Term::var("a")]),
+            )],
+        );
+
+        // Codomain has the same equation but with variables x, y instead of a, b.
+        let codomain = Theory::new(
+            "C",
+            vec![Sort::simple("S")],
+            vec![Operation::new(
+                "f",
+                vec![("x".into(), "S".into()), ("y".into(), "S".into())],
+                "S",
+            )],
+            vec![Equation::new(
+                "comm",
+                Term::app("f", vec![Term::var("x"), Term::var("y")]),
+                Term::app("f", vec![Term::var("y"), Term::var("x")]),
+            )],
+        );
+
+        let sort_map = HashMap::from([(Arc::from("S"), Arc::from("S"))]);
+        let op_map = HashMap::from([(Arc::from("f"), Arc::from("f"))]);
+
+        let m = TheoryMorphism::new("id", "D", "C", sort_map, op_map);
+        assert!(
+            check_morphism(&m, &domain, &codomain).is_ok(),
+            "morphism should be valid: equations are α-equivalent"
+        );
+    }
+
+    /// Morphism where equation variable multiplicity differs should fail.
+    /// Domain: f(x, x) = g(x). Codomain: f(a, b) = g(a).
+    /// These are NOT α-equivalent because x maps to both a and b.
+    #[test]
+    fn morphism_equation_multiplicity_mismatch_fails() {
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("S")],
+            vec![
+                Operation::new(
+                    "f",
+                    vec![("a".into(), "S".into()), ("b".into(), "S".into())],
+                    "S",
+                ),
+                Operation::unary("g", "x", "S", "S"),
+            ],
+            vec![Equation::new(
+                "eq1",
+                Term::app("f", vec![Term::var("x"), Term::var("x")]),
+                Term::app("g", vec![Term::var("x")]),
+            )],
+        );
+
+        // Codomain has f(a, b) = g(a) which is not α-equivalent to f(x,x) = g(x).
+        let codomain = Theory::new(
+            "C",
+            vec![Sort::simple("S")],
+            vec![
+                Operation::new(
+                    "f",
+                    vec![("a".into(), "S".into()), ("b".into(), "S".into())],
+                    "S",
+                ),
+                Operation::unary("g", "x", "S", "S"),
+            ],
+            vec![Equation::new(
+                "eq1",
+                Term::app("f", vec![Term::var("a"), Term::var("b")]),
+                Term::app("g", vec![Term::var("a")]),
+            )],
+        );
+
+        let sort_map = HashMap::from([(Arc::from("S"), Arc::from("S"))]);
+        let op_map = HashMap::from([
+            (Arc::from("f"), Arc::from("f")),
+            (Arc::from("g"), Arc::from("g")),
+        ]);
+
+        let m = TheoryMorphism::new("bad", "D", "C", sort_map, op_map);
+        assert!(
+            check_morphism(&m, &domain, &codomain).is_err(),
+            "morphism should fail: equations have different variable multiplicity"
+        );
     }
 
     /// Test 4: reverse-mul morphism on a commutative monoid.

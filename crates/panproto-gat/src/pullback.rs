@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::eq::Equation;
+use crate::eq::{Equation, alpha_equivalent_equation};
 use crate::error::GatError;
 use crate::morphism::TheoryMorphism;
 use crate::op::Operation;
@@ -198,7 +198,14 @@ fn pair_eqs(
             let lhs_via_m2 = m2.apply_to_term(&eq2.lhs);
             let rhs_via_m2 = m2.apply_to_term(&eq2.rhs);
 
-            if lhs_via_m1 != lhs_via_m2 || rhs_via_m1 != rhs_via_m2 {
+            // Compare mapped equations up to α-equivalence, since equations
+            // are universally quantified and variable names are bound.
+            if !alpha_equivalent_equation(
+                &lhs_via_m1,
+                &rhs_via_m1,
+                &lhs_via_m2,
+                &rhs_via_m2,
+            ) {
                 continue;
             }
 
@@ -530,6 +537,67 @@ mod tests {
         assert!(result.theory.find_eq("idem1=idem2").is_some());
 
         // Projections validate.
+        check_morphism(&result.proj1, &result.theory, &t1)?;
+        check_morphism(&result.proj2, &result.theory, &t2)?;
+        Ok(())
+    }
+
+    /// Equations that differ only in variable names should still be paired
+    /// in the pullback, thanks to α-equivalence.
+    #[test]
+    fn equation_pairing_with_renamed_vars() -> Result<(), Box<dyn std::error::Error>> {
+        let t1 = Theory::new(
+            "T1",
+            vec![Sort::simple("S")],
+            vec![Operation::new(
+                "f",
+                vec![("a".into(), "S".into()), ("b".into(), "S".into())],
+                "S",
+            )],
+            vec![Equation::new(
+                "comm1",
+                Term::app("f", vec![Term::var("a"), Term::var("b")]),
+                Term::app("f", vec![Term::var("b"), Term::var("a")]),
+            )],
+        );
+
+        // t2 has the same equation but with variables x, y.
+        let t2 = Theory::new(
+            "T2",
+            vec![Sort::simple("T")],
+            vec![Operation::new(
+                "g",
+                vec![("x".into(), "T".into()), ("y".into(), "T".into())],
+                "T",
+            )],
+            vec![Equation::new(
+                "comm2",
+                Term::app("g", vec![Term::var("x"), Term::var("y")]),
+                Term::app("g", vec![Term::var("y"), Term::var("x")]),
+            )],
+        );
+
+        let m1 = TheoryMorphism::new(
+            "m1",
+            "T1",
+            "Target",
+            HashMap::from([(Arc::from("S"), Arc::from("U"))]),
+            HashMap::from([(Arc::from("f"), Arc::from("h"))]),
+        );
+        let m2 = TheoryMorphism::new(
+            "m2",
+            "T2",
+            "Target",
+            HashMap::from([(Arc::from("T"), Arc::from("U"))]),
+            HashMap::from([(Arc::from("g"), Arc::from("h"))]),
+        );
+
+        let result = pullback(&t1, &t2, &m1, &m2)?;
+
+        // The equations should be paired despite different variable names.
+        assert_eq!(result.theory.eqs.len(), 1);
+        assert!(result.theory.find_eq("comm1=comm2").is_some());
+
         check_morphism(&result.proj1, &result.theory, &t1)?;
         check_morphism(&result.proj2, &result.theory, &t2)?;
         Ok(())
