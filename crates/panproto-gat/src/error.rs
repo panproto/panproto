@@ -64,6 +64,20 @@ pub enum GatError {
         name: String,
     },
 
+    /// Directed equation conflict during colimit computation.
+    #[error("directed equation conflict in colimit: {name}")]
+    DirectedEqConflict {
+        /// The conflicting directed equation name.
+        name: String,
+    },
+
+    /// Conflict policy conflict during colimit computation.
+    #[error("conflict policy conflict in colimit: {name}")]
+    PolicyConflict {
+        /// The conflicting policy name.
+        name: String,
+    },
+
     /// A morphism is missing a sort mapping.
     #[error("morphism missing sort mapping for: {0}")]
     MissingSortMapping(String),
