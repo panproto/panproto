@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "panproto"
-version = "0.17.2"
+version = "0.17.3"
 description = "Schematic version control with panproto (Python SDK)"
 readme = "README.md"
 license = "MIT"

@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-03-27
+
+### Fixed
+
+- **panproto-grammars**: link the C++ standard library (`libstdc++` on Linux, `libc++` on macOS) when any grammar uses a C++ scanner (`scanner.cc`). Without this, Linux builds fail with `relocation refers to a symbol in a discarded section: DW.ref.__gxx_personality_v0`. Affects ~20-30 grammars including C++, TypeScript, HTML, PHP, Haskell, and Ruby.
+
 ## [0.17.2] - 2026-03-27
 
 ### Fixed
