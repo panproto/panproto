@@ -43,6 +43,15 @@ pub enum GatError {
         detail: String,
     },
 
+    /// A directed equation is not preserved by a morphism.
+    #[error("directed equation {equation} not preserved: {detail}")]
+    DirectedEquationNotPreserved {
+        /// The directed equation that failed preservation.
+        equation: String,
+        /// Details about the failure.
+        detail: String,
+    },
+
     /// Sort conflict during colimit computation.
     #[error("sort conflict in colimit: {name} has incompatible definitions")]
     SortConflict {
