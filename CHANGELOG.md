@@ -4,6 +4,25 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-03-27
+
+### Added — 248 Tree-Sitter Language Support
+
+- **panproto-grammars** (new crate): pre-compiled tree-sitter grammars for 248 languages, vendored from C sources. Each grammar is feature-gated (`lang-python`, `lang-rust`, etc.) with group features (`group-core`, `group-web`, `group-all`). Default is `group-core` (Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, Rust). `build.rs` compiles all C/C++ sources via the `cc` crate. Grammars that extend other grammars (Angular extending HTML, etc.) are made self-contained at fetch time.
+- **tools/fetch-grammars.py**: script to fetch grammar sources from git repos based on `grammars.toml`. Runs `tree-sitter generate` when `parser.c` is missing. Copies all source files, headers, and subdirectories to make each grammar self-contained. Resolves cross-grammar header dependencies. Verifies permissive licensing.
+- **grammars.toml**: manifest of all 248 tree-sitter languages with repo URLs, file extensions, C symbol names, and subdirectory overrides.
+
+### Changed — Unified Tree-Sitter Architecture
+
+- **panproto-parse**: replaced 10 per-language wrapper files with a single data-driven `ParserRegistry::new()` that loops over `panproto_grammars::grammars()`. Custom `WalkerConfig` overrides consolidated into `walker_configs.rs`. Removed `LanguageParser::new()` (which took `LanguageFn`); use `from_language()` directly.
+- **panproto-project**: `detect.rs` now delegates to `panproto_grammars::extension_to_language()` instead of a hand-maintained match statement.
+- **tree-sitter**: bumped from 0.24 to 0.25 for ABI version 15 support (required by latest grammars).
+
+### Removed — Protocol Implementations Replaced by Tree-Sitter
+
+- **panproto-protocols**: deleted 26 hand-written protocol parsers now covered by tree-sitter grammars: all 8 type system protocols (Python, TypeScript, Rust, Java, Go, Swift, Kotlin, C#), SQL, GraphQL, HCL, Protobuf, Thrift, Cap'n Proto, JSON Schema, YAML Schema, TOML Schema, INI Schema, CSV/Table Schema, CSS, HTML, JSX, Markdown, Svelte, Vue, XML/XSD.
+- **panproto-protocols**: deleted 29 unused theory building-block functions. Kept 5 public GATs (ThGraph, ThConstraint, ThMulti, ThWType, ThMeta) and 6 registration helpers still used by remaining semantic protocols.
+
 ### Fixed — Mathematical Correctness Review
 
 - **panproto-gat** (F1): equation preservation in `check_morphism()` now uses α-equivalence instead of syntactic equality, correctly treating universally quantified variable names as bound. Added `alpha_equivalent()` and `alpha_equivalent_equation()` to `Term`. Pullback equation pairing in `pair_eqs()` also updated.
