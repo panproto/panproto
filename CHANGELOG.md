@@ -13,6 +13,7 @@ All notable changes to panproto will be documented in this file.
 - **panproto-gat** (F5): pullback construction now pairs directed equations from both source theories when they agree in the codomain (via α-equivalence). Added `pair_directed_eqs()` following the same pattern as `pair_eqs()`. The pullback theory uses `Theory::full()` to include paired directed equations.
 - **panproto-gat** (F6): free model construction now topologically sorts the theory's sorts by dependency, ensuring parameter sorts are populated before dependent sorts. Added `topological_sort_sorts()`. Term generation iterates in dependency order so dependent sorts like `Hom(a: Ob, b: Ob)` correctly find terms for their parameter sorts.
 - **panproto-lens** (F7): added `SymmetricLens::verify_complement_coherence()` to verify that round-tripping through one direction does not disturb the complement of the other direction (Hofmann-Pierce-Wagner complement coherence condition). Returns a list of `CoherenceViolation`s. Previously, complement coherence was only tested on identity lenses.
+- **panproto-mig** (F8): added functoriality integration tests for `lift_wtype_sigma()` (left Kan extension). Tests verify that lifting along a composed migration equals sequential lifting (`Σ(m2 ∘ m1, I) = Σ(m2, Σ(m1, I))`), and that identity migration preserves instances.
 
 ### Added — XRPC Remote Operations and Git Remote Helper
 
