@@ -35,7 +35,32 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", grammars_toml_path.display());
 
-    let toml_str = fs::read_to_string(&grammars_toml_path).expect("failed to read grammars.toml");
+    // When published to crates.io, grammars.toml and grammars/ are not available
+    // (they live at the workspace root, not inside this crate). In that case,
+    // generate an empty grammar table. Users should depend on this crate via
+    // the workspace path, not from crates.io directly.
+    let toml_str = match fs::read_to_string(&grammars_toml_path) {
+        Ok(s) => s,
+        Err(_) => {
+            let out_file = out_dir.join("grammar_table.rs");
+            fs::write(
+                &out_file,
+                "// No grammars available (published crate without workspace context).\n\
+                 pub(crate) struct GrammarEntry {\n\
+                 \x20   pub name: &'static str,\n\
+                 \x20   pub extensions: &'static [&'static str],\n\
+                 \x20   pub language_fn_ptr: *const (),\n\
+                 \x20   pub node_types: &'static [u8],\n\
+                 }\n\
+                 unsafe impl Send for GrammarEntry {}\n\
+                 unsafe impl Sync for GrammarEntry {}\n\
+                 pub(crate) fn enabled_grammars() -> Vec<GrammarEntry> { Vec::new() }\n\
+                 pub(crate) fn ext_to_lang(_ext: &str) -> Option<&'static str> { None }\n",
+            )
+            .expect("failed to write grammar_table.rs");
+            return;
+        }
+    };
     let manifest: BTreeMap<String, GrammarSpec> =
         toml::from_str(&toml_str).expect("failed to parse grammars.toml");
 
