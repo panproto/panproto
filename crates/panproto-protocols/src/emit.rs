@@ -70,16 +70,6 @@ pub fn vertex_constraints<'a>(schema: &'a Schema, vertex_id: &str) -> Vec<&'a Co
         .unwrap_or_default()
 }
 
-/// Find the target vertex of an outgoing edge with a given kind from a vertex.
-#[must_use]
-pub fn resolve_type<'a>(schema: &'a Schema, field_id: &str) -> Option<&'a Vertex> {
-    schema
-        .outgoing_edges(field_id)
-        .iter()
-        .find(|e| e.kind == "type-of")
-        .and_then(|e| schema.vertices.get(&e.tgt))
-}
-
 /// An indented text writer for emitting nested format text.
 ///
 /// Provides a simple API for building indented, line-oriented output
