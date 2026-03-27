@@ -18,9 +18,9 @@ import panproto
 class TestProtocolRegistry:
     """Tests for the built-in protocol registry."""
 
-    def test_list_builtin_protocols_returns_50(self) -> None:
+    def test_list_builtin_protocols_returns_76(self) -> None:
         names = panproto.list_builtin_protocols()
-        assert len(names) == 50
+        assert len(names) == 76
 
     def test_list_contains_atproto(self) -> None:
         assert "atproto" in panproto.list_builtin_protocols()
@@ -319,7 +319,7 @@ class TestIoRegistry:
 
     def test_create_registry(self) -> None:
         io = panproto.IoRegistry()
-        assert len(io) == 50
+        assert len(io) == 76
 
     def test_list_protocols(self) -> None:
         io = panproto.IoRegistry()
@@ -328,7 +328,7 @@ class TestIoRegistry:
 
     def test_repr(self) -> None:
         io = panproto.IoRegistry()
-        assert "50" in repr(io)
+        assert "76" in repr(io)
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use serde::Deserialize;
 
@@ -87,6 +88,10 @@ fn main() {
         compiled_flags.push(compile_grammar(name, spec, &lang_dir));
     }
 
+    // Post-process each grammar's static library to localize internal symbols,
+    // preventing duplicate-symbol linker errors across grammars.
+    localize_internal_symbols(&enabled, &compiled_flags);
+
     // Only include successfully compiled grammars in the bindings.
     let compiled: Vec<&(String, GrammarSpec)> = enabled
         .iter()
@@ -135,12 +140,14 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
     }
 
     // Use try_compile to gracefully handle compilation failures.
-    if let Err(e) = build.try_compile(&format!("tree_sitter_{c_symbol}")) {
+    let lib_name = format!("tree_sitter_{c_symbol}");
+    if let Err(e) = build.try_compile(&lib_name) {
         println!("cargo:warning=Grammar '{name}' failed to compile: {e}");
         return false;
     }
 
     // Compile C++ scanner separately if present.
+    let scanner_lib_name = format!("tree_sitter_{c_symbol}_scanner");
     if scanner_cc.exists() {
         println!("cargo:rerun-if-changed={}", scanner_cc.display());
 
@@ -153,13 +160,153 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
             .warnings(false)
             .cargo_warnings(false);
 
-        if let Err(e) = cpp_build.try_compile(&format!("tree_sitter_{c_symbol}_scanner")) {
+        if let Err(e) = cpp_build.try_compile(&scanner_lib_name) {
             println!("cargo:warning=Grammar '{name}' C++ scanner failed: {e}");
             return false;
         }
     }
 
     true
+}
+
+/// After all grammars are compiled, localize non-`tree_sitter_*` symbols in
+/// each static library to prevent duplicate-symbol linker errors. Hand-written
+/// scanner.c files reuse common internal names (e.g., `scan_comment` appears
+/// in 16+ grammars); localizing makes them file-scoped in the archive.
+///
+/// On macOS: uses `ld -r -exported_symbol` to create a relocatable object with
+/// only `tree_sitter_*` symbols exported, then re-archives.
+/// On Linux: uses `objcopy --keep-global-symbol` with wildcard matching.
+fn localize_internal_symbols(enabled: &[(String, GrammarSpec)], compiled_flags: &[bool]) {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+
+    for (i, (name, spec)) in enabled.iter().enumerate() {
+        if !compiled_flags[i] {
+            continue;
+        }
+        let c_symbol = spec.c_symbol.as_deref().unwrap_or(name.as_str());
+
+        let mut libs = vec![format!("tree_sitter_{c_symbol}")];
+        let scanner_lib = format!("tree_sitter_{c_symbol}_scanner");
+        if out_dir.join(format!("lib{scanner_lib}.a")).exists() {
+            libs.push(scanner_lib);
+        }
+
+        for lib in &libs {
+            let lib_path = out_dir.join(format!("lib{lib}.a"));
+            if !lib_path.exists() {
+                continue;
+            }
+
+            let ok = if target_os == "macos" || target_os.is_empty() {
+                localize_macos(&lib_path, lib, &out_dir, &target_arch)
+            } else {
+                localize_linux(&lib_path)
+            };
+
+            if !ok {
+                println!(
+                    "cargo:warning=Failed to localize symbols in {}, \
+                     duplicate-symbol errors may occur",
+                    lib_path.display()
+                );
+            }
+        }
+    }
+}
+
+/// macOS: extract .o files from the archive, use `ld -r -exported_symbol` to
+/// produce a single relocatable object with only `_tree_sitter_*` global, then
+/// re-archive.
+fn localize_macos(lib_path: &Path, lib_name: &str, out_dir: &Path, target_arch: &str) -> bool {
+    let work_dir = out_dir.join(format!("{lib_name}_localize"));
+    let _ = fs::remove_dir_all(&work_dir);
+    if fs::create_dir_all(&work_dir).is_err() {
+        return false;
+    }
+
+    // Extract .o files from the archive.
+    let ar_status = Command::new("ar")
+        .args(["x"])
+        .arg(lib_path)
+        .current_dir(&work_dir)
+        .status();
+    if !ar_status.is_ok_and(|s| s.success()) {
+        return false;
+    }
+
+    // Collect extracted .o files.
+    let objects: Vec<PathBuf> = fs::read_dir(&work_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "o"))
+        .map(|e| e.path())
+        .collect();
+
+    if objects.is_empty() {
+        return true;
+    }
+
+    let arch = match target_arch {
+        "aarch64" => "arm64",
+        "x86_64" => "x86_64",
+        other => other,
+    };
+
+    // Partial-link all .o files into one relocatable object, exporting only
+    // tree_sitter_* symbols. All other globals become file-local.
+    let merged = work_dir.join("merged.o");
+    let mut ld_cmd = Command::new("xcrun");
+    ld_cmd
+        .args([
+            "ld",
+            "-r",
+            "-arch",
+            arch,
+            "-exported_symbol",
+            "_tree_sitter_*",
+            "-o",
+        ])
+        .arg(&merged);
+    for obj in &objects {
+        ld_cmd.arg(obj);
+    }
+
+    let ld_status = ld_cmd.status();
+    if !ld_status.is_ok_and(|s| s.success()) {
+        return false;
+    }
+
+    // Replace the original archive with one containing only the merged object.
+    let _ = fs::remove_file(lib_path);
+    let ar_status = Command::new("ar")
+        .args(["rcs"])
+        .arg(lib_path)
+        .arg(&merged)
+        .status();
+
+    let _ = fs::remove_dir_all(&work_dir);
+    ar_status.is_ok_and(|s| s.success())
+}
+
+/// Linux: use objcopy (or llvm-objcopy) with wildcard to keep only
+/// `tree_sitter_*` symbols global in each archive member.
+fn localize_linux(lib_path: &Path) -> bool {
+    // Try objcopy first (GNU binutils), then llvm-objcopy.
+    for tool in &["objcopy", "llvm-objcopy"] {
+        let status = Command::new(tool)
+            .args(["--wildcard", "--keep-global-symbol=tree_sitter_*"])
+            .arg(lib_path)
+            .status();
+
+        if status.is_ok_and(|s| s.success()) {
+            return true;
+        }
+    }
+    false
 }
 
 fn generate_rust_bindings(enabled: &[&(String, GrammarSpec)], grammars_dir: &Path) -> String {
