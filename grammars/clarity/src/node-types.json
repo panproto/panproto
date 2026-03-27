@@ -1,0 +1,2358 @@
+[
+  {
+    "type": "ascii_string_lit",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "ascii_string_type",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "basic_native_form",
+    "named": true,
+    "fields": {
+      "operator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "native_identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bool_lit",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "buffer_lit",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "buffer_type",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "constant_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "contract_function_call",
+    "named": true,
+    "fields": {
+      "operator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "contract_principal_lit",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "private_function",
+          "named": true
+        },
+        {
+          "type": "public_function",
+          "named": true
+        },
+        {
+          "type": "read_only_function",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_parameter",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "parameter_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_signature",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "function_parameter",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_signature_for_trait",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "native_type",
+          "named": true
+        },
+        {
+          "type": "parameter_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "fungible_token_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "global",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "int_lit",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "let_expression",
+    "named": true,
+    "fields": {
+      "operator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "local_binding",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "list_lit",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "list_lit_token",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "list_lit_token",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "list_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "parameter_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "local_binding",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "mapping_definition",
+    "named": true,
+    "fields": {
+      "key_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "native_type",
+            "named": true
+          },
+          {
+            "type": "tuple_type",
+            "named": true
+          }
+        ]
+      },
+      "value_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "native_type",
+            "named": true
+          },
+          {
+            "type": "tuple_type",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "native_identifier",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "native_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "ascii_string_type",
+          "named": true
+        },
+        {
+          "type": "buffer_type",
+          "named": true
+        },
+        {
+          "type": "list_type",
+          "named": true
+        },
+        {
+          "type": "optional_type",
+          "named": true
+        },
+        {
+          "type": "response_type",
+          "named": true
+        },
+        {
+          "type": "tuple_type",
+          "named": true
+        },
+        {
+          "type": "tuple_type_for_trait",
+          "named": true
+        },
+        {
+          "type": "utf8_string_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "non_fungible_token_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "native_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "optional_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "native_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameter_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "native_type",
+          "named": true
+        },
+        {
+          "type": "trait_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "private_function",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "function_signature",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "public_function",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "function_signature",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "read_only_function",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "function_signature",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "response_lit",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "response_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "native_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "some_lit",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "source",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "constant_definition",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "mapping_definition",
+          "named": true
+        },
+        {
+          "type": "token_definition",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "trait_implementation",
+          "named": true
+        },
+        {
+          "type": "trait_usage",
+          "named": true
+        },
+        {
+          "type": "variable_definition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "standard_principal_lit",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "token_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "fungible_token_definition",
+          "named": true
+        },
+        {
+          "type": "non_fungible_token_definition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "trait_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "function_signature_for_trait",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "trait_implementation",
+    "named": true,
+    "fields": {
+      "trait_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "trait_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "trait_usage",
+    "named": true,
+    "fields": {
+      "trait_alias": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "trait_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "tuple_lit",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "ascii_string_lit",
+            "named": true
+          },
+          {
+            "type": "basic_native_form",
+            "named": true
+          },
+          {
+            "type": "bool_lit",
+            "named": true
+          },
+          {
+            "type": "buffer_lit",
+            "named": true
+          },
+          {
+            "type": "contract_function_call",
+            "named": true
+          },
+          {
+            "type": "contract_principal_lit",
+            "named": true
+          },
+          {
+            "type": "global",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "int_lit",
+            "named": true
+          },
+          {
+            "type": "let_expression",
+            "named": true
+          },
+          {
+            "type": "list_lit",
+            "named": true
+          },
+          {
+            "type": "none_lit",
+            "named": true
+          },
+          {
+            "type": "response_lit",
+            "named": true
+          },
+          {
+            "type": "some_lit",
+            "named": true
+          },
+          {
+            "type": "standard_principal_lit",
+            "named": true
+          },
+          {
+            "type": "tuple_lit",
+            "named": true
+          },
+          {
+            "type": "uint_lit",
+            "named": true
+          },
+          {
+            "type": "utf8_string_lit",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "tuple_type",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value_type": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "parameter_type",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "tuple_type_for_trait",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value_type": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "native_type",
+            "named": true
+          },
+          {
+            "type": "trait_type",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "utf8_string_type",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "variable_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ascii_string_lit",
+          "named": true
+        },
+        {
+          "type": "basic_native_form",
+          "named": true
+        },
+        {
+          "type": "bool_lit",
+          "named": true
+        },
+        {
+          "type": "buffer_lit",
+          "named": true
+        },
+        {
+          "type": "contract_function_call",
+          "named": true
+        },
+        {
+          "type": "contract_principal_lit",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "int_lit",
+          "named": true
+        },
+        {
+          "type": "let_expression",
+          "named": true
+        },
+        {
+          "type": "list_lit",
+          "named": true
+        },
+        {
+          "type": "native_type",
+          "named": true
+        },
+        {
+          "type": "none_lit",
+          "named": true
+        },
+        {
+          "type": "response_lit",
+          "named": true
+        },
+        {
+          "type": "some_lit",
+          "named": true
+        },
+        {
+          "type": "standard_principal_lit",
+          "named": true
+        },
+        {
+          "type": "tuple_lit",
+          "named": true
+        },
+        {
+          "type": "uint_lit",
+          "named": true
+        },
+        {
+          "type": "utf8_string_lit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "+",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": "0x",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "<",
+    "named": false
+  },
+  {
+    "type": "<=",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": ">=",
+    "named": false
+  },
+  {
+    "type": "and",
+    "named": false
+  },
+  {
+    "type": "append",
+    "named": false
+  },
+  {
+    "type": "as-contract",
+    "named": false
+  },
+  {
+    "type": "as-max-len?",
+    "named": false
+  },
+  {
+    "type": "asserts!",
+    "named": false
+  },
+  {
+    "type": "at-block",
+    "named": false
+  },
+  {
+    "type": "begin",
+    "named": false
+  },
+  {
+    "type": "bit-and",
+    "named": false
+  },
+  {
+    "type": "bit-not",
+    "named": false
+  },
+  {
+    "type": "bit-or",
+    "named": false
+  },
+  {
+    "type": "bit-shift-left",
+    "named": false
+  },
+  {
+    "type": "bit-shift-right",
+    "named": false
+  },
+  {
+    "type": "bit-xor",
+    "named": false
+  },
+  {
+    "type": "block-height",
+    "named": false
+  },
+  {
+    "type": "block-reward",
+    "named": false
+  },
+  {
+    "type": "bool",
+    "named": false
+  },
+  {
+    "type": "buff",
+    "named": false
+  },
+  {
+    "type": "buff-to-int-be",
+    "named": false
+  },
+  {
+    "type": "buff-to-int-le",
+    "named": false
+  },
+  {
+    "type": "buff-to-uint-be",
+    "named": false
+  },
+  {
+    "type": "buff-to-uint-le",
+    "named": false
+  },
+  {
+    "type": "burn-block-height",
+    "named": false
+  },
+  {
+    "type": "burnchain-header-hash",
+    "named": false
+  },
+  {
+    "type": "chain-id",
+    "named": false
+  },
+  {
+    "type": "comment",
+    "named": true
+  },
+  {
+    "type": "concat",
+    "named": false
+  },
+  {
+    "type": "contract-call?",
+    "named": false
+  },
+  {
+    "type": "contract-caller",
+    "named": false
+  },
+  {
+    "type": "contract-hash?",
+    "named": false
+  },
+  {
+    "type": "contract-of",
+    "named": false
+  },
+  {
+    "type": "current-contract",
+    "named": false
+  },
+  {
+    "type": "default-to",
+    "named": false
+  },
+  {
+    "type": "define-constant",
+    "named": false
+  },
+  {
+    "type": "define-data-var",
+    "named": false
+  },
+  {
+    "type": "define-fungible-token",
+    "named": false
+  },
+  {
+    "type": "define-map",
+    "named": false
+  },
+  {
+    "type": "define-non-fungible-token",
+    "named": false
+  },
+  {
+    "type": "define-private",
+    "named": false
+  },
+  {
+    "type": "define-public",
+    "named": false
+  },
+  {
+    "type": "define-read-only",
+    "named": false
+  },
+  {
+    "type": "define-trait",
+    "named": false
+  },
+  {
+    "type": "element-at",
+    "named": false
+  },
+  {
+    "type": "element-at?",
+    "named": false
+  },
+  {
+    "type": "err",
+    "named": false
+  },
+  {
+    "type": "false",
+    "named": false
+  },
+  {
+    "type": "filter",
+    "named": false
+  },
+  {
+    "type": "fold",
+    "named": false
+  },
+  {
+    "type": "from-consensus-buff?",
+    "named": false
+  },
+  {
+    "type": "ft-burn?",
+    "named": false
+  },
+  {
+    "type": "ft-get-balance",
+    "named": false
+  },
+  {
+    "type": "ft-get-supply",
+    "named": false
+  },
+  {
+    "type": "ft-mint?",
+    "named": false
+  },
+  {
+    "type": "ft-transfer?",
+    "named": false
+  },
+  {
+    "type": "get",
+    "named": false
+  },
+  {
+    "type": "get-block-info?",
+    "named": false
+  },
+  {
+    "type": "get-burn-block-info?",
+    "named": false
+  },
+  {
+    "type": "get-stacks-block-info?",
+    "named": false
+  },
+  {
+    "type": "get-tenure-info?",
+    "named": false
+  },
+  {
+    "type": "hash160",
+    "named": false
+  },
+  {
+    "type": "header-hash",
+    "named": false
+  },
+  {
+    "type": "id-header-hash",
+    "named": false
+  },
+  {
+    "type": "identifier",
+    "named": true
+  },
+  {
+    "type": "if",
+    "named": false
+  },
+  {
+    "type": "impl-trait",
+    "named": false
+  },
+  {
+    "type": "index-of",
+    "named": false
+  },
+  {
+    "type": "index-of?",
+    "named": false
+  },
+  {
+    "type": "int",
+    "named": false
+  },
+  {
+    "type": "int-to-ascii",
+    "named": false
+  },
+  {
+    "type": "int-to-utf8",
+    "named": false
+  },
+  {
+    "type": "is-eq",
+    "named": false
+  },
+  {
+    "type": "is-err",
+    "named": false
+  },
+  {
+    "type": "is-in-mainnet",
+    "named": false
+  },
+  {
+    "type": "is-in-regtest",
+    "named": false
+  },
+  {
+    "type": "is-none",
+    "named": false
+  },
+  {
+    "type": "is-ok",
+    "named": false
+  },
+  {
+    "type": "is-some",
+    "named": false
+  },
+  {
+    "type": "is-standard",
+    "named": false
+  },
+  {
+    "type": "keccak256",
+    "named": false
+  },
+  {
+    "type": "len",
+    "named": false
+  },
+  {
+    "type": "let",
+    "named": false
+  },
+  {
+    "type": "list",
+    "named": false
+  },
+  {
+    "type": "log2",
+    "named": false
+  },
+  {
+    "type": "map",
+    "named": false
+  },
+  {
+    "type": "map-delete",
+    "named": false
+  },
+  {
+    "type": "map-get?",
+    "named": false
+  },
+  {
+    "type": "map-insert",
+    "named": false
+  },
+  {
+    "type": "map-set",
+    "named": false
+  },
+  {
+    "type": "match",
+    "named": false
+  },
+  {
+    "type": "merge",
+    "named": false
+  },
+  {
+    "type": "miner-address",
+    "named": false
+  },
+  {
+    "type": "miner-spend-total",
+    "named": false
+  },
+  {
+    "type": "miner-spend-winner",
+    "named": false
+  },
+  {
+    "type": "mod",
+    "named": false
+  },
+  {
+    "type": "nft-burn?",
+    "named": false
+  },
+  {
+    "type": "nft-get-owner?",
+    "named": false
+  },
+  {
+    "type": "nft-mint?",
+    "named": false
+  },
+  {
+    "type": "nft-transfer?",
+    "named": false
+  },
+  {
+    "type": "none_lit",
+    "named": true
+  },
+  {
+    "type": "not",
+    "named": false
+  },
+  {
+    "type": "ok",
+    "named": false
+  },
+  {
+    "type": "optional",
+    "named": false
+  },
+  {
+    "type": "or",
+    "named": false
+  },
+  {
+    "type": "pow",
+    "named": false
+  },
+  {
+    "type": "pox-addrs",
+    "named": false
+  },
+  {
+    "type": "principal",
+    "named": false
+  },
+  {
+    "type": "principal-construct?",
+    "named": false
+  },
+  {
+    "type": "principal-destruct?",
+    "named": false
+  },
+  {
+    "type": "principal-of?",
+    "named": false
+  },
+  {
+    "type": "print",
+    "named": false
+  },
+  {
+    "type": "replace-at?",
+    "named": false
+  },
+  {
+    "type": "response",
+    "named": false
+  },
+  {
+    "type": "restrict-assets?",
+    "named": false
+  },
+  {
+    "type": "secp256k1-recover?",
+    "named": false
+  },
+  {
+    "type": "secp256k1-verify",
+    "named": false
+  },
+  {
+    "type": "secp256r1-verify",
+    "named": false
+  },
+  {
+    "type": "sha256",
+    "named": false
+  },
+  {
+    "type": "sha512",
+    "named": false
+  },
+  {
+    "type": "sha512/256",
+    "named": false
+  },
+  {
+    "type": "slice?",
+    "named": false
+  },
+  {
+    "type": "some",
+    "named": false
+  },
+  {
+    "type": "sqrti",
+    "named": false
+  },
+  {
+    "type": "stacks-block-height",
+    "named": false
+  },
+  {
+    "type": "stacks-block-time",
+    "named": false
+  },
+  {
+    "type": "string-ascii",
+    "named": false
+  },
+  {
+    "type": "string-to-int?",
+    "named": false
+  },
+  {
+    "type": "string-to-uint?",
+    "named": false
+  },
+  {
+    "type": "string-utf8",
+    "named": false
+  },
+  {
+    "type": "stx-account",
+    "named": false
+  },
+  {
+    "type": "stx-burn?",
+    "named": false
+  },
+  {
+    "type": "stx-get-balance",
+    "named": false
+  },
+  {
+    "type": "stx-liquid-supply",
+    "named": false
+  },
+  {
+    "type": "stx-transfer-memo?",
+    "named": false
+  },
+  {
+    "type": "stx-transfer?",
+    "named": false
+  },
+  {
+    "type": "tenure-height",
+    "named": false
+  },
+  {
+    "type": "time",
+    "named": false
+  },
+  {
+    "type": "to-ascii?",
+    "named": false
+  },
+  {
+    "type": "to-consensus-buff?",
+    "named": false
+  },
+  {
+    "type": "to-int",
+    "named": false
+  },
+  {
+    "type": "to-uint",
+    "named": false
+  },
+  {
+    "type": "true",
+    "named": false
+  },
+  {
+    "type": "try!",
+    "named": false
+  },
+  {
+    "type": "tuple",
+    "named": false
+  },
+  {
+    "type": "tx-sender",
+    "named": false
+  },
+  {
+    "type": "tx-sponsor?",
+    "named": false
+  },
+  {
+    "type": "uint",
+    "named": false
+  },
+  {
+    "type": "uint_lit",
+    "named": true
+  },
+  {
+    "type": "unwrap!",
+    "named": false
+  },
+  {
+    "type": "unwrap-err!",
+    "named": false
+  },
+  {
+    "type": "unwrap-err-panic",
+    "named": false
+  },
+  {
+    "type": "unwrap-panic",
+    "named": false
+  },
+  {
+    "type": "use-trait",
+    "named": false
+  },
+  {
+    "type": "utf8_string_lit",
+    "named": true
+  },
+  {
+    "type": "var-get",
+    "named": false
+  },
+  {
+    "type": "var-set",
+    "named": false
+  },
+  {
+    "type": "vrf-seed",
+    "named": false
+  },
+  {
+    "type": "xor",
+    "named": false
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]

@@ -949,12 +949,12 @@ fn cli_validate_valid_schema() {
     write_protocol_schema(
         tmp.path(),
         "schema.json",
-        "json-schema",
+        "atproto",
         &[("root", "object"), ("root.name", "string")],
     );
 
     schema_cmd()
-        .args(["validate", "--protocol", "json-schema", "schema.json"])
+        .args(["validate", "--protocol", "atproto", "schema.json"])
         .current_dir(tmp.path())
         .assert()
         .success()
@@ -967,12 +967,12 @@ fn cli_validate_invalid_schema() {
     write_protocol_schema(
         tmp.path(),
         "bad.json",
-        "json-schema",
+        "atproto",
         &[("root", "bogus_kind")],
     );
 
     schema_cmd()
-        .args(["validate", "--protocol", "json-schema", "bad.json"])
+        .args(["validate", "--protocol", "atproto", "bad.json"])
         .current_dir(tmp.path())
         .assert()
         .failure()
@@ -985,13 +985,13 @@ fn cli_check_valid_migration() {
     write_protocol_schema(
         tmp.path(),
         "src.json",
-        "json-schema",
+        "atproto",
         &[("a", "object"), ("b", "string")],
     );
     write_protocol_schema(
         tmp.path(),
         "tgt.json",
-        "json-schema",
+        "atproto",
         &[("a", "object"), ("b", "string"), ("c", "integer")],
     );
     write_migration(tmp.path(), "mig.json", &[("a", "a"), ("b", "b")]);
@@ -1017,8 +1017,8 @@ fn cli_lift_identity() {
     let tmp = tempfile::tempdir().unwrap();
 
     // Use a single-vertex schema (string) for a simple identity lift.
-    write_protocol_schema(tmp.path(), "src.json", "json-schema", &[("root", "string")]);
-    write_protocol_schema(tmp.path(), "tgt.json", "json-schema", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "src.json", "atproto", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "tgt.json", "atproto", &[("root", "string")]);
 
     // Identity migration: root -> root, no edges.
     write_migration(tmp.path(), "mig.json", &[("root", "root")]);
@@ -1625,8 +1625,8 @@ fn cli_pull_fetch_require_url() {
 #[test]
 fn cli_lift_string_identity() {
     let tmp = tempfile::tempdir().unwrap();
-    write_protocol_schema(tmp.path(), "src.json", "json-schema", &[("root", "string")]);
-    write_protocol_schema(tmp.path(), "tgt.json", "json-schema", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "src.json", "atproto", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "tgt.json", "atproto", &[("root", "string")]);
     write_migration(tmp.path(), "mig.json", &[("root", "root")]);
 
     let record = serde_json::json!("Hello, world!");
@@ -1660,13 +1660,13 @@ fn cli_lift_integer_identity() {
     write_protocol_schema(
         tmp.path(),
         "src.json",
-        "json-schema",
+        "atproto",
         &[("root", "integer")],
     );
     write_protocol_schema(
         tmp.path(),
         "tgt.json",
-        "json-schema",
+        "atproto",
         &[("root", "integer")],
     );
     write_migration(tmp.path(), "mig.json", &[("root", "root")]);
@@ -1694,8 +1694,8 @@ fn cli_lift_integer_identity() {
 #[test]
 fn cli_lift_verbose() {
     let tmp = tempfile::tempdir().unwrap();
-    write_protocol_schema(tmp.path(), "src.json", "json-schema", &[("root", "string")]);
-    write_protocol_schema(tmp.path(), "tgt.json", "json-schema", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "src.json", "atproto", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "tgt.json", "atproto", &[("root", "string")]);
     write_migration(tmp.path(), "mig.json", &[("root", "root")]);
 
     std::fs::write(
@@ -1739,8 +1739,8 @@ fn cli_lift_verbose() {
 #[test]
 fn cli_lift_bad_migration_fails() {
     let tmp = tempfile::tempdir().unwrap();
-    write_protocol_schema(tmp.path(), "src.json", "json-schema", &[("root", "string")]);
-    write_protocol_schema(tmp.path(), "tgt.json", "json-schema", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "src.json", "atproto", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "tgt.json", "atproto", &[("root", "string")]);
     // Migration maps root to "nonexistent" — not present in target schema.
     write_migration(tmp.path(), "mig.json", &[("root", "nonexistent")]);
 

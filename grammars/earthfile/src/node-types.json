@@ -1,0 +1,2898 @@
+[
+  {
+    "type": "_immediate_escape_sequence",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "arg_command",
+    "named": true,
+    "fields": {
+      "default_value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "arg_command",
+          "named": true
+        },
+        {
+          "type": "build_command",
+          "named": true
+        },
+        {
+          "type": "cache_command",
+          "named": true
+        },
+        {
+          "type": "cmd_command",
+          "named": true
+        },
+        {
+          "type": "copy_command",
+          "named": true
+        },
+        {
+          "type": "do_command",
+          "named": true
+        },
+        {
+          "type": "entrypoint_command",
+          "named": true
+        },
+        {
+          "type": "env_command",
+          "named": true
+        },
+        {
+          "type": "expose_command",
+          "named": true
+        },
+        {
+          "type": "for_command",
+          "named": true
+        },
+        {
+          "type": "from_command",
+          "named": true
+        },
+        {
+          "type": "from_dockerfile_command",
+          "named": true
+        },
+        {
+          "type": "function_command",
+          "named": true
+        },
+        {
+          "type": "git_clone_command",
+          "named": true
+        },
+        {
+          "type": "host_command",
+          "named": true
+        },
+        {
+          "type": "if_command",
+          "named": true
+        },
+        {
+          "type": "import_command",
+          "named": true
+        },
+        {
+          "type": "label_command",
+          "named": true
+        },
+        {
+          "type": "let_command",
+          "named": true
+        },
+        {
+          "type": "locally_command",
+          "named": true
+        },
+        {
+          "type": "project_command",
+          "named": true
+        },
+        {
+          "type": "run_command",
+          "named": true
+        },
+        {
+          "type": "save_artifact_command",
+          "named": true
+        },
+        {
+          "type": "save_image_command",
+          "named": true
+        },
+        {
+          "type": "set_command",
+          "named": true
+        },
+        {
+          "type": "try_command",
+          "named": true
+        },
+        {
+          "type": "user_command",
+          "named": true
+        },
+        {
+          "type": "volume_command",
+          "named": true
+        },
+        {
+          "type": "wait_command",
+          "named": true
+        },
+        {
+          "type": "with_docker_command",
+          "named": true
+        },
+        {
+          "type": "workdir_command",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "branch",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "build_arg",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "build_arg_deprecated",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "build_args",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "build_arg",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "build_command",
+    "named": true,
+    "fields": {
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "build_args",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "target_ref",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "cache_command",
+    "named": true,
+    "fields": {
+      "mount_point": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "cache_from",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "cache_id",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "chmod",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "chown",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "cmd_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "shell_fragment",
+          "named": true
+        },
+        {
+          "type": "string_array",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "compose",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "copy_command",
+    "named": true,
+    "fields": {
+      "dest": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      },
+      "src": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "target_artifact",
+            "named": true
+          },
+          {
+            "type": "target_artifact_build_args",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "do_command",
+    "named": true,
+    "fields": {
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "build_args",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "function_ref",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "docker_build_arg",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "docker_file",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "target_artifact",
+            "named": true
+          },
+          {
+            "type": "target_artifact_build_args",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "docker_target",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "double_quoted_string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "escape_sequence",
+          "named": true
+        },
+        {
+          "type": "expansion",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "earthfile_ref",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "escape_sequence",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "elif_block",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "shell_fragment",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "else_block",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "entrypoint_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "shell_fragment",
+          "named": true
+        },
+        {
+          "type": "string_array",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "env_command",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "escape_sequence",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "expansion",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "shell_fragment",
+          "named": true
+        },
+        {
+          "type": "variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "expose_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "for_command",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      },
+      "values": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "strings",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "from",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "from_command",
+    "named": true,
+    "fields": {
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "build_args",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "image_spec",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "target_ref",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "from_dockerfile_command",
+    "named": true,
+    "fields": {
+      "context": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "target_artifact",
+            "named": true
+          },
+          {
+            "type": "target_artifact_build_args",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_ref",
+    "named": true,
+    "fields": {
+      "earthfile": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "earthfile_ref",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "git_clone_command",
+    "named": true,
+    "fields": {
+      "dest": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      },
+      "url": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "host_command",
+    "named": true,
+    "fields": {
+      "ip": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "id",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "identifier",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "if_command",
+    "named": true,
+    "fields": {
+      "alternative": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "elif_block",
+            "named": true
+          },
+          {
+            "type": "else_block",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "shell_fragment",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "image_digest",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "image_name",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "image_spec",
+    "named": true,
+    "fields": {
+      "digest": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "image_digest",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "image_name",
+            "named": true
+          }
+        ]
+      },
+      "tag": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "image_tag",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "image_tag",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "images",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "image_spec",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "import_command",
+    "named": true,
+    "fields": {
+      "alias": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "earthfile_ref",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "interactive",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "label",
+    "named": true,
+    "fields": {
+      "label": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "label_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "label",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "let_command",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "load",
+    "named": true,
+    "fields": {
+      "image": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "image_spec",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "target": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "target_ref",
+            "named": true
+          },
+          {
+            "type": "target_ref_with_build_args",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "locally_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "mount",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "oidc",
+    "named": true,
+    "fields": {
+      "spec": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "options",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "allow_privileged",
+          "named": true
+        },
+        {
+          "type": "auto_skip",
+          "named": true
+        },
+        {
+          "type": "aws",
+          "named": true
+        },
+        {
+          "type": "branch",
+          "named": true
+        },
+        {
+          "type": "build_arg_deprecated",
+          "named": true
+        },
+        {
+          "type": "cache_from",
+          "named": true
+        },
+        {
+          "type": "cache_hint",
+          "named": true
+        },
+        {
+          "type": "cache_id",
+          "named": true
+        },
+        {
+          "type": "chmod",
+          "named": true
+        },
+        {
+          "type": "chown",
+          "named": true
+        },
+        {
+          "type": "compose",
+          "named": true
+        },
+        {
+          "type": "dir",
+          "named": true
+        },
+        {
+          "type": "docker_build_arg",
+          "named": true
+        },
+        {
+          "type": "docker_file",
+          "named": true
+        },
+        {
+          "type": "docker_target",
+          "named": true
+        },
+        {
+          "type": "entrypoint",
+          "named": true
+        },
+        {
+          "type": "feature_flag",
+          "named": true
+        },
+        {
+          "type": "force",
+          "named": true
+        },
+        {
+          "type": "from",
+          "named": true
+        },
+        {
+          "type": "global",
+          "named": true
+        },
+        {
+          "type": "id",
+          "named": true
+        },
+        {
+          "type": "if_exists",
+          "named": true
+        },
+        {
+          "type": "interactive",
+          "named": true
+        },
+        {
+          "type": "keep_own",
+          "named": true
+        },
+        {
+          "type": "keep_ts",
+          "named": true
+        },
+        {
+          "type": "load",
+          "named": true
+        },
+        {
+          "type": "mount",
+          "named": true
+        },
+        {
+          "type": "network_none",
+          "named": true
+        },
+        {
+          "type": "no_cache",
+          "named": true
+        },
+        {
+          "type": "oidc",
+          "named": true
+        },
+        {
+          "type": "pass_args",
+          "named": true
+        },
+        {
+          "type": "persist",
+          "named": true
+        },
+        {
+          "type": "platform",
+          "named": true
+        },
+        {
+          "type": "privileged",
+          "named": true
+        },
+        {
+          "type": "pull",
+          "named": true
+        },
+        {
+          "type": "push",
+          "named": true
+        },
+        {
+          "type": "raw_output",
+          "named": true
+        },
+        {
+          "type": "required",
+          "named": true
+        },
+        {
+          "type": "secret",
+          "named": true
+        },
+        {
+          "type": "sep",
+          "named": true
+        },
+        {
+          "type": "service",
+          "named": true
+        },
+        {
+          "type": "sharing",
+          "named": true
+        },
+        {
+          "type": "ssh",
+          "named": true
+        },
+        {
+          "type": "symlink_no_follow",
+          "named": true
+        },
+        {
+          "type": "unknown_option",
+          "named": true
+        },
+        {
+          "type": "without_earthly_labels",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "platform",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "project_command",
+    "named": true,
+    "fields": {
+      "org_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "project_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "pull",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "image_spec",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "run_command",
+    "named": true,
+    "fields": {
+      "command": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "shell_fragment",
+            "named": true
+          },
+          {
+            "type": "string_array",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "save_artifact_command",
+    "named": true,
+    "fields": {
+      "dest": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "local_dest": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      },
+      "src": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "save_image_command",
+    "named": true,
+    "fields": {
+      "images": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "images",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "secret",
+    "named": true,
+    "fields": {
+      "id": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "var": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "sep",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "service",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "set_command",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "sharing",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "shell_fragment",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "_immediate_escape_sequence",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "single_quoted_string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "escape_sequence",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "source_file",
+    "named": true,
+    "root": true,
+    "fields": {
+      "base_target": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "target",
+          "named": true
+        },
+        {
+          "type": "version_command",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "double_quoted_string",
+          "named": true
+        },
+        {
+          "type": "single_quoted_string",
+          "named": true
+        },
+        {
+          "type": "unquoted_string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "string_array",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "double_quoted_string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "strings",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "target",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "target_artifact",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "target_ref",
+          "named": true
+        },
+        {
+          "type": "unquoted_string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "target_artifact_build_args",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "build_args",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "target_ref",
+          "named": true
+        },
+        {
+          "type": "unquoted_string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "target_ref",
+    "named": true,
+    "fields": {
+      "earthfile": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "earthfile_ref",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "target_ref_with_build_args",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "build_args",
+          "named": true
+        },
+        {
+          "type": "target_ref",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "try_command",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      },
+      "finally": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unknown_option",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "unquoted_string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "escape_sequence",
+          "named": true
+        },
+        {
+          "type": "expansion",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "user_command",
+    "named": true,
+    "fields": {
+      "group": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "number",
+            "named": true
+          }
+        ]
+      },
+      "user": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "number",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "variable",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "version_command",
+    "named": true,
+    "fields": {
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      },
+      "version": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "version_major_minor",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "volume_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "string_array",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "wait_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "with_docker_command",
+    "named": true,
+    "fields": {
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "options",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "run_command",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "workdir_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "\u0000",
+    "named": false
+  },
+  {
+    "type": "\n",
+    "named": false,
+    "extra": true
+  },
+  {
+    "type": "\f",
+    "named": false,
+    "extra": true
+  },
+  {
+    "type": "\r\n",
+    "named": false,
+    "extra": true
+  },
+  {
+    "type": " ",
+    "named": false
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "$",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": "+",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": "--",
+    "named": false
+  },
+  {
+    "type": "-- ",
+    "named": false
+  },
+  {
+    "type": "--branch",
+    "named": false
+  },
+  {
+    "type": "--build-arg",
+    "named": false
+  },
+  {
+    "type": "--cache-from",
+    "named": false
+  },
+  {
+    "type": "--cache-id",
+    "named": false
+  },
+  {
+    "type": "--chmod",
+    "named": false
+  },
+  {
+    "type": "--chown",
+    "named": false
+  },
+  {
+    "type": "--compose",
+    "named": false
+  },
+  {
+    "type": "--from",
+    "named": false
+  },
+  {
+    "type": "--id",
+    "named": false
+  },
+  {
+    "type": "--interactive",
+    "named": false
+  },
+  {
+    "type": "--interactive-keep",
+    "named": false
+  },
+  {
+    "type": "--load",
+    "named": false
+  },
+  {
+    "type": "--mount",
+    "named": false
+  },
+  {
+    "type": "--oidc",
+    "named": false
+  },
+  {
+    "type": "--platform",
+    "named": false
+  },
+  {
+    "type": "--pull",
+    "named": false
+  },
+  {
+    "type": "--secret",
+    "named": false
+  },
+  {
+    "type": "--sep",
+    "named": false
+  },
+  {
+    "type": "--service",
+    "named": false
+  },
+  {
+    "type": "--sharing",
+    "named": false
+  },
+  {
+    "type": "--target",
+    "named": false
+  },
+  {
+    "type": "-f",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "@",
+    "named": false
+  },
+  {
+    "type": "ARG",
+    "named": false
+  },
+  {
+    "type": "AS",
+    "named": false
+  },
+  {
+    "type": "AS LOCAL",
+    "named": false
+  },
+  {
+    "type": "BUILD",
+    "named": false
+  },
+  {
+    "type": "CACHE",
+    "named": false
+  },
+  {
+    "type": "CMD",
+    "named": false
+  },
+  {
+    "type": "COMMAND",
+    "named": false
+  },
+  {
+    "type": "COPY",
+    "named": false
+  },
+  {
+    "type": "DO",
+    "named": false
+  },
+  {
+    "type": "ELSE",
+    "named": false
+  },
+  {
+    "type": "ELSE IF",
+    "named": false
+  },
+  {
+    "type": "END",
+    "named": false
+  },
+  {
+    "type": "ENTRYPOINT",
+    "named": false
+  },
+  {
+    "type": "ENV",
+    "named": false
+  },
+  {
+    "type": "EXPOSE",
+    "named": false
+  },
+  {
+    "type": "FINALLY",
+    "named": false
+  },
+  {
+    "type": "FOR",
+    "named": false
+  },
+  {
+    "type": "FROM",
+    "named": false
+  },
+  {
+    "type": "FROM DOCKERFILE",
+    "named": false
+  },
+  {
+    "type": "FUNCTION",
+    "named": false
+  },
+  {
+    "type": "GIT CLONE",
+    "named": false
+  },
+  {
+    "type": "HOST",
+    "named": false
+  },
+  {
+    "type": "IF",
+    "named": false
+  },
+  {
+    "type": "IMPORT",
+    "named": false
+  },
+  {
+    "type": "IN",
+    "named": false
+  },
+  {
+    "type": "LABEL",
+    "named": false
+  },
+  {
+    "type": "LET",
+    "named": false
+  },
+  {
+    "type": "LOCALLY",
+    "named": false
+  },
+  {
+    "type": "PROJECT",
+    "named": false
+  },
+  {
+    "type": "RUN",
+    "named": false
+  },
+  {
+    "type": "SAVE ARTIFACT",
+    "named": false
+  },
+  {
+    "type": "SAVE IMAGE",
+    "named": false
+  },
+  {
+    "type": "SET",
+    "named": false
+  },
+  {
+    "type": "TRY",
+    "named": false
+  },
+  {
+    "type": "USER",
+    "named": false
+  },
+  {
+    "type": "VERSION",
+    "named": false
+  },
+  {
+    "type": "VOLUME",
+    "named": false
+  },
+  {
+    "type": "WAIT",
+    "named": false
+  },
+  {
+    "type": "WITH DOCKER",
+    "named": false
+  },
+  {
+    "type": "WORKDIR",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "allow_privileged",
+    "named": true
+  },
+  {
+    "type": "auto_skip",
+    "named": true
+  },
+  {
+    "type": "aws",
+    "named": true
+  },
+  {
+    "type": "cache_hint",
+    "named": true
+  },
+  {
+    "type": "comment",
+    "named": true,
+    "extra": true
+  },
+  {
+    "type": "dir",
+    "named": true
+  },
+  {
+    "type": "entrypoint",
+    "named": true
+  },
+  {
+    "type": "feature_flag",
+    "named": true
+  },
+  {
+    "type": "force",
+    "named": true
+  },
+  {
+    "type": "global",
+    "named": true
+  },
+  {
+    "type": "if_exists",
+    "named": true
+  },
+  {
+    "type": "keep_own",
+    "named": true
+  },
+  {
+    "type": "keep_ts",
+    "named": true
+  },
+  {
+    "type": "line_continuation",
+    "named": true,
+    "extra": true
+  },
+  {
+    "type": "line_continuation_comment",
+    "named": true,
+    "extra": true
+  },
+  {
+    "type": "network_none",
+    "named": true
+  },
+  {
+    "type": "no_cache",
+    "named": true
+  },
+  {
+    "type": "number",
+    "named": true
+  },
+  {
+    "type": "pass_args",
+    "named": true
+  },
+  {
+    "type": "persist",
+    "named": true
+  },
+  {
+    "type": "privileged",
+    "named": true
+  },
+  {
+    "type": "push",
+    "named": true
+  },
+  {
+    "type": "raw_output",
+    "named": true
+  },
+  {
+    "type": "required",
+    "named": true
+  },
+  {
+    "type": "ssh",
+    "named": true
+  },
+  {
+    "type": "symlink_no_follow",
+    "named": true
+  },
+  {
+    "type": "version_major_minor",
+    "named": true
+  },
+  {
+    "type": "without_earthly_labels",
+    "named": true
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]

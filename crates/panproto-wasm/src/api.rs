@@ -3610,20 +3610,20 @@ fn build_theory_registry(protocol_name: &str) -> Result<HashMap<String, Theory>,
     let mut registry = HashMap::new();
     match protocol_name {
         "atproto" => protocols::atproto::register_theories(&mut registry),
-        "sql" => protocols::sql::register_theories(&mut registry),
-        "protobuf" => protocols::protobuf::register_theories(&mut registry),
-        "graphql" => protocols::graphql::register_theories(&mut registry),
-        "json-schema" | "jsonschema" => protocols::json_schema::register_theories(&mut registry),
         _ => {
             return Err(format!(
-                "unknown protocol: {protocol_name:?}. Supported: atproto, sql, protobuf, graphql, json-schema"
+                "unknown protocol: {protocol_name:?}. Supported: atproto"
             ));
         }
     }
     Ok(registry)
 }
 
-/// Return the names of all built-in protocols (76 total).
+/// Return the names of all built-in semantic protocols.
+///
+/// Programming language and data format protocols are handled by tree-sitter
+/// grammars via `panproto-grammars`. This list covers only the domain-specific
+/// semantic protocols that require custom theory composition.
 fn builtin_protocol_names() -> Vec<String> {
     vec![
         // annotation (19)
@@ -3646,35 +3646,27 @@ fn builtin_protocol_names() -> Vec<String> {
         "amr",
         "concrete",
         "nif",
-        // api (5)
-        "graphql",
+        // api (4)
         "openapi",
         "asyncapi",
         "jsonapi",
         "raml",
-        // config (4)
+        // config (3)
         "cloudformation",
         "ansible",
         "k8s_crd",
-        "hcl",
-        // data_schema (7)
-        "json_schema",
-        "yaml_schema",
-        "toml_schema",
+        // data_schema (2)
         "cddl",
         "bson",
-        "csv_table",
-        "ini_schema",
         // data_science (3)
         "dataframe",
         "parquet",
         "arrow",
-        // database (6)
+        // database (5)
         "mongodb",
         "dynamodb",
         "cassandra",
         "neo4j",
-        "sql",
         "redis",
         // domain (6)
         "geojson",
@@ -3683,33 +3675,14 @@ fn builtin_protocol_names() -> Vec<String> {
         "vcard_ical",
         "swift_mt",
         "edi_x12",
-        // serialization (8)
-        "protobuf",
+        // serialization (5)
         "avro",
-        "thrift",
-        "capnproto",
         "flatbuffers",
         "asn1",
         "bond",
         "msgpack_schema",
-        // type_system (8)
-        "typescript",
-        "python",
-        "rust_serde",
-        "java",
-        "go_struct",
-        "kotlin",
-        "csharp",
-        "swift",
-        // web_document (10)
+        // web_document (3)
         "atproto",
-        "jsx",
-        "vue",
-        "svelte",
-        "css",
-        "html",
-        "markdown",
-        "xml_xsd",
         "docx",
         "odf",
     ]
@@ -3743,7 +3716,6 @@ fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schema::Protocol
         "concrete" => protocols::annotation::concrete::protocol(),
         "nif" => protocols::annotation::nif::protocol(),
         // api
-        "graphql" => protocols::api::graphql::protocol(),
         "openapi" => protocols::api::openapi::protocol(),
         "asyncapi" => protocols::api::asyncapi::protocol(),
         "jsonapi" => protocols::api::jsonapi::protocol(),
@@ -3752,15 +3724,9 @@ fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schema::Protocol
         "cloudformation" => protocols::config::cloudformation::protocol(),
         "ansible" => protocols::config::ansible::protocol(),
         "k8s_crd" => protocols::config::k8s_crd::protocol(),
-        "hcl" => protocols::config::hcl::protocol(),
         // data_schema
-        "json_schema" => protocols::data_schema::json_schema::protocol(),
-        "yaml_schema" => protocols::data_schema::yaml_schema::protocol(),
-        "toml_schema" => protocols::data_schema::toml_schema::protocol(),
         "cddl" => protocols::data_schema::cddl::protocol(),
         "bson" => protocols::data_schema::bson::protocol(),
-        "csv_table" => protocols::data_schema::csv_table::protocol(),
-        "ini_schema" => protocols::data_schema::ini_schema::protocol(),
         // data_science
         "dataframe" => protocols::data_science::dataframe::protocol(),
         "parquet" => protocols::data_science::parquet::protocol(),
@@ -3770,7 +3736,6 @@ fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schema::Protocol
         "dynamodb" => protocols::database::dynamodb::protocol(),
         "cassandra" => protocols::database::cassandra::protocol(),
         "neo4j" => protocols::database::neo4j::protocol(),
-        "sql" => protocols::database::sql::protocol(),
         "redis" => protocols::database::redis::protocol(),
         // domain
         "geojson" => protocols::domain::geojson::protocol(),
@@ -3780,32 +3745,13 @@ fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schema::Protocol
         "swift_mt" => protocols::domain::swift_mt::protocol(),
         "edi_x12" => protocols::domain::edi_x12::protocol(),
         // serialization
-        "protobuf" => protocols::serialization::protobuf::protocol(),
         "avro" => protocols::serialization::avro::protocol(),
-        "thrift" => protocols::serialization::thrift::protocol(),
-        "capnproto" => protocols::serialization::capnproto::protocol(),
         "flatbuffers" => protocols::serialization::flatbuffers::protocol(),
         "asn1" => protocols::serialization::asn1::protocol(),
         "bond" => protocols::serialization::bond::protocol(),
         "msgpack_schema" => protocols::serialization::msgpack_schema::protocol(),
-        // type_system
-        "typescript" => protocols::type_system::typescript::protocol(),
-        "python" => protocols::type_system::python::protocol(),
-        "rust_serde" => protocols::type_system::rust_serde::protocol(),
-        "java" => protocols::type_system::java::protocol(),
-        "go_struct" => protocols::type_system::go_struct::protocol(),
-        "kotlin" => protocols::type_system::kotlin::protocol(),
-        "csharp" => protocols::type_system::csharp::protocol(),
-        "swift" => protocols::type_system::swift::protocol(),
         // web_document
         "atproto" => protocols::web_document::atproto::protocol(),
-        "jsx" => protocols::web_document::jsx::protocol(),
-        "vue" => protocols::web_document::vue::protocol(),
-        "svelte" => protocols::web_document::svelte::protocol(),
-        "css" => protocols::web_document::css::protocol(),
-        "html" => protocols::web_document::html::protocol(),
-        "markdown" => protocols::web_document::markdown::protocol(),
-        "xml_xsd" => protocols::web_document::xml_xsd::protocol(),
         "docx" => protocols::web_document::docx::protocol(),
         "odf" => protocols::web_document::odf::protocol(),
         _ => return None,

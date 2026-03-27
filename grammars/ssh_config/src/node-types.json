@@ -1,0 +1,1674 @@
+[
+  {
+    "type": "bytes",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "condition",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "pattern",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "criteria": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "canonical",
+            "named": false
+          },
+          {
+            "type": "exec",
+            "named": false
+          },
+          {
+            "type": "final",
+            "named": false
+          },
+          {
+            "type": "host",
+            "named": false
+          },
+          {
+            "type": "localnetwork",
+            "named": false
+          },
+          {
+            "type": "localuser",
+            "named": false
+          },
+          {
+            "type": "originalhost",
+            "named": false
+          },
+          {
+            "type": "tagged",
+            "named": false
+          },
+          {
+            "type": "user",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "config",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "host_declaration",
+          "named": true
+        },
+        {
+          "type": "match_declaration",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "host_declaration",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "!",
+            "named": false
+          },
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": "pattern",
+            "named": true
+          }
+        ]
+      },
+      "keyword": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "Host",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "match_declaration",
+    "named": true,
+    "fields": {
+      "keyword": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "Match",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "condition",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "number",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "parameter",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": "*",
+            "named": false
+          },
+          {
+            "type": "+",
+            "named": false
+          },
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "-",
+            "named": false
+          },
+          {
+            "type": ":",
+            "named": false
+          },
+          {
+            "type": "=",
+            "named": false
+          },
+          {
+            "type": "?",
+            "named": false
+          },
+          {
+            "type": "SSH_AUTH_SOCK",
+            "named": false
+          },
+          {
+            "type": "^",
+            "named": false
+          },
+          {
+            "type": "accept-new",
+            "named": false
+          },
+          {
+            "type": "always",
+            "named": false
+          },
+          {
+            "type": "any",
+            "named": false
+          },
+          {
+            "type": "ask",
+            "named": false
+          },
+          {
+            "type": "authentication",
+            "named": true
+          },
+          {
+            "type": "auto",
+            "named": false
+          },
+          {
+            "type": "autoask",
+            "named": false
+          },
+          {
+            "type": "bytes",
+            "named": true
+          },
+          {
+            "type": "cipher",
+            "named": true
+          },
+          {
+            "type": "confirm",
+            "named": false
+          },
+          {
+            "type": "default",
+            "named": false
+          },
+          {
+            "type": "ethernet",
+            "named": false
+          },
+          {
+            "type": "facility",
+            "named": true
+          },
+          {
+            "type": "force",
+            "named": false
+          },
+          {
+            "type": "host-bound",
+            "named": false
+          },
+          {
+            "type": "inet",
+            "named": false
+          },
+          {
+            "type": "inet6",
+            "named": false
+          },
+          {
+            "type": "ipqos",
+            "named": true
+          },
+          {
+            "type": "kex",
+            "named": true
+          },
+          {
+            "type": "key_sig",
+            "named": true
+          },
+          {
+            "type": "mac",
+            "named": true
+          },
+          {
+            "type": "md5",
+            "named": false
+          },
+          {
+            "type": "no",
+            "named": false
+          },
+          {
+            "type": "none",
+            "named": false
+          },
+          {
+            "type": "number",
+            "named": true
+          },
+          {
+            "type": "off",
+            "named": false
+          },
+          {
+            "type": "pattern",
+            "named": true
+          },
+          {
+            "type": "point-to-point",
+            "named": false
+          },
+          {
+            "type": "sha256",
+            "named": false
+          },
+          {
+            "type": "sig",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "subsystem",
+            "named": false
+          },
+          {
+            "type": "time",
+            "named": true
+          },
+          {
+            "type": "unbound",
+            "named": false
+          },
+          {
+            "type": "variable",
+            "named": true
+          },
+          {
+            "type": "verbosity",
+            "named": true
+          },
+          {
+            "type": "yes",
+            "named": false
+          }
+        ]
+      },
+      "bind_address": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": "*",
+            "named": false
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "file": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "*",
+            "named": false
+          },
+          {
+            "type": "?",
+            "named": false
+          }
+        ]
+      },
+      "function": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "*",
+            "named": false
+          },
+          {
+            "type": "?",
+            "named": false
+          }
+        ]
+      },
+      "host": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "*",
+            "named": false
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "keyword": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "AddKeysToAgent",
+            "named": false
+          },
+          {
+            "type": "AddressFamily",
+            "named": false
+          },
+          {
+            "type": "BatchMode",
+            "named": false
+          },
+          {
+            "type": "BindAddress",
+            "named": false
+          },
+          {
+            "type": "BindInterface",
+            "named": false
+          },
+          {
+            "type": "CASignatureAlgorithms",
+            "named": false
+          },
+          {
+            "type": "CanonicalDomains",
+            "named": false
+          },
+          {
+            "type": "CanonicalizeFallbackLocal",
+            "named": false
+          },
+          {
+            "type": "CanonicalizeHostname",
+            "named": false
+          },
+          {
+            "type": "CanonicalizeMaxDots",
+            "named": false
+          },
+          {
+            "type": "CanonicalizePermittedCNAMEs",
+            "named": false
+          },
+          {
+            "type": "CertificateFile",
+            "named": false
+          },
+          {
+            "type": "ChallengeResponseAuthentication",
+            "named": false
+          },
+          {
+            "type": "CheckHostIP",
+            "named": false
+          },
+          {
+            "type": "Ciphers",
+            "named": false
+          },
+          {
+            "type": "ClearAllForwardings",
+            "named": false
+          },
+          {
+            "type": "Compression",
+            "named": false
+          },
+          {
+            "type": "ConnectTimeout",
+            "named": false
+          },
+          {
+            "type": "ConnectionAttempts",
+            "named": false
+          },
+          {
+            "type": "ControlMaster",
+            "named": false
+          },
+          {
+            "type": "ControlPath",
+            "named": false
+          },
+          {
+            "type": "ControlPersist",
+            "named": false
+          },
+          {
+            "type": "DynamicForward",
+            "named": false
+          },
+          {
+            "type": "EnableEscapeCommandline",
+            "named": false
+          },
+          {
+            "type": "EnableSSHKeysign",
+            "named": false
+          },
+          {
+            "type": "EscapeChar",
+            "named": false
+          },
+          {
+            "type": "ExitOnForwardFailure",
+            "named": false
+          },
+          {
+            "type": "FingerprintHash",
+            "named": false
+          },
+          {
+            "type": "ForkAfterAuthentication",
+            "named": false
+          },
+          {
+            "type": "ForwardAgent",
+            "named": false
+          },
+          {
+            "type": "ForwardX11",
+            "named": false
+          },
+          {
+            "type": "ForwardX11Timeout",
+            "named": false
+          },
+          {
+            "type": "ForwardX11Trusted",
+            "named": false
+          },
+          {
+            "type": "GSSAPIAuthentication",
+            "named": false
+          },
+          {
+            "type": "GSSAPIDelegateCredentials",
+            "named": false
+          },
+          {
+            "type": "GlobalKnownHostsFile",
+            "named": false
+          },
+          {
+            "type": "HashKnownHosts",
+            "named": false
+          },
+          {
+            "type": "HostKeyAlgorithms",
+            "named": false
+          },
+          {
+            "type": "HostKeyAlias",
+            "named": false
+          },
+          {
+            "type": "HostbasedAcceptedAlgorithms",
+            "named": false
+          },
+          {
+            "type": "HostbasedAuthentication",
+            "named": false
+          },
+          {
+            "type": "HostbasedKeyTypes",
+            "named": false
+          },
+          {
+            "type": "Hostname",
+            "named": false
+          },
+          {
+            "type": "IPQoS",
+            "named": false
+          },
+          {
+            "type": "IdentitiesOnly",
+            "named": false
+          },
+          {
+            "type": "IdentityAgent",
+            "named": false
+          },
+          {
+            "type": "IdentityFile",
+            "named": false
+          },
+          {
+            "type": "IgnoreUnknown",
+            "named": false
+          },
+          {
+            "type": "Include",
+            "named": false
+          },
+          {
+            "type": "KbdInteractiveAuthentication",
+            "named": false
+          },
+          {
+            "type": "KexAlgorithms",
+            "named": false
+          },
+          {
+            "type": "KnownHostsCommand",
+            "named": false
+          },
+          {
+            "type": "LocalCommand",
+            "named": false
+          },
+          {
+            "type": "LocalForward",
+            "named": false
+          },
+          {
+            "type": "LogLevel",
+            "named": false
+          },
+          {
+            "type": "LogVerbose",
+            "named": false
+          },
+          {
+            "type": "MACs",
+            "named": false
+          },
+          {
+            "type": "NoHostAuthenticationForLocalhost",
+            "named": false
+          },
+          {
+            "type": "NumberOfPasswordPrompts",
+            "named": false
+          },
+          {
+            "type": "PKCS11Provider",
+            "named": false
+          },
+          {
+            "type": "PasswordAuthentication",
+            "named": false
+          },
+          {
+            "type": "PermitLocalCommand",
+            "named": false
+          },
+          {
+            "type": "PermitRemoteOpen",
+            "named": false
+          },
+          {
+            "type": "Port",
+            "named": false
+          },
+          {
+            "type": "PreferredAuthentications",
+            "named": false
+          },
+          {
+            "type": "ProxyCommand",
+            "named": false
+          },
+          {
+            "type": "ProxyJump",
+            "named": false
+          },
+          {
+            "type": "ProxyUseFdpass",
+            "named": false
+          },
+          {
+            "type": "PubkeyAcceptedAlgorithms",
+            "named": false
+          },
+          {
+            "type": "PubkeyAcceptedKeyTypes",
+            "named": false
+          },
+          {
+            "type": "PubkeyAuthentication",
+            "named": false
+          },
+          {
+            "type": "RekeyLimit",
+            "named": false
+          },
+          {
+            "type": "RemoteCommand",
+            "named": false
+          },
+          {
+            "type": "RemoteForward",
+            "named": false
+          },
+          {
+            "type": "RequestTTY",
+            "named": false
+          },
+          {
+            "type": "RequiredRSASize",
+            "named": false
+          },
+          {
+            "type": "RevokedHostKeys",
+            "named": false
+          },
+          {
+            "type": "SecurityKeyProvider",
+            "named": false
+          },
+          {
+            "type": "SendEnv",
+            "named": false
+          },
+          {
+            "type": "ServerAliveCountMax",
+            "named": false
+          },
+          {
+            "type": "ServerAliveInterval",
+            "named": false
+          },
+          {
+            "type": "SessionType",
+            "named": false
+          },
+          {
+            "type": "SetEnv",
+            "named": false
+          },
+          {
+            "type": "StdinNull",
+            "named": false
+          },
+          {
+            "type": "StreamLocalBindMask",
+            "named": false
+          },
+          {
+            "type": "StreamLocalBindUnlink",
+            "named": false
+          },
+          {
+            "type": "StrictHostKeyChecking",
+            "named": false
+          },
+          {
+            "type": "SyslogFacility",
+            "named": false
+          },
+          {
+            "type": "TCPKeepAlive",
+            "named": false
+          },
+          {
+            "type": "Tag",
+            "named": false
+          },
+          {
+            "type": "Tunnel",
+            "named": false
+          },
+          {
+            "type": "TunnelDevice",
+            "named": false
+          },
+          {
+            "type": "UpdateHostKeys",
+            "named": false
+          },
+          {
+            "type": "UseKeychain",
+            "named": false
+          },
+          {
+            "type": "User",
+            "named": false
+          },
+          {
+            "type": "UserKnownHostsFile",
+            "named": false
+          },
+          {
+            "type": "VerifyHostKeyDNS",
+            "named": false
+          },
+          {
+            "type": "VisualHostKey",
+            "named": false
+          },
+          {
+            "type": "XAuthLocation",
+            "named": false
+          }
+        ]
+      },
+      "line": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "*",
+            "named": false
+          },
+          {
+            "type": "number",
+            "named": true
+          }
+        ]
+      },
+      "local_tun": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "any",
+            "named": false
+          },
+          {
+            "type": "number",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      },
+      "port": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "*",
+            "named": false
+          },
+          {
+            "type": "number",
+            "named": true
+          }
+        ]
+      },
+      "remote_tun": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "any",
+            "named": false
+          },
+          {
+            "type": "number",
+            "named": true
+          }
+        ]
+      },
+      "socket": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "source_domain_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "pattern",
+            "named": true
+          }
+        ]
+      },
+      "target_domain_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "pattern",
+            "named": true
+          }
+        ]
+      },
+      "uri": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "uri",
+            "named": true
+          }
+        ]
+      },
+      "user": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "token",
+          "named": true
+        },
+        {
+          "type": "variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "token",
+          "named": true
+        },
+        {
+          "type": "variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "time",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "variable",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "!",
+    "named": false
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "${",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "+",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "?",
+    "named": false
+  },
+  {
+    "type": "@",
+    "named": false
+  },
+  {
+    "type": "AddKeysToAgent",
+    "named": false
+  },
+  {
+    "type": "AddressFamily",
+    "named": false
+  },
+  {
+    "type": "BatchMode",
+    "named": false
+  },
+  {
+    "type": "BindAddress",
+    "named": false
+  },
+  {
+    "type": "BindInterface",
+    "named": false
+  },
+  {
+    "type": "CASignatureAlgorithms",
+    "named": false
+  },
+  {
+    "type": "CanonicalDomains",
+    "named": false
+  },
+  {
+    "type": "CanonicalizeFallbackLocal",
+    "named": false
+  },
+  {
+    "type": "CanonicalizeHostname",
+    "named": false
+  },
+  {
+    "type": "CanonicalizeMaxDots",
+    "named": false
+  },
+  {
+    "type": "CanonicalizePermittedCNAMEs",
+    "named": false
+  },
+  {
+    "type": "CertificateFile",
+    "named": false
+  },
+  {
+    "type": "ChallengeResponseAuthentication",
+    "named": false
+  },
+  {
+    "type": "CheckHostIP",
+    "named": false
+  },
+  {
+    "type": "Ciphers",
+    "named": false
+  },
+  {
+    "type": "ClearAllForwardings",
+    "named": false
+  },
+  {
+    "type": "Compression",
+    "named": false
+  },
+  {
+    "type": "ConnectTimeout",
+    "named": false
+  },
+  {
+    "type": "ConnectionAttempts",
+    "named": false
+  },
+  {
+    "type": "ControlMaster",
+    "named": false
+  },
+  {
+    "type": "ControlPath",
+    "named": false
+  },
+  {
+    "type": "ControlPersist",
+    "named": false
+  },
+  {
+    "type": "DynamicForward",
+    "named": false
+  },
+  {
+    "type": "EnableEscapeCommandline",
+    "named": false
+  },
+  {
+    "type": "EnableSSHKeysign",
+    "named": false
+  },
+  {
+    "type": "EscapeChar",
+    "named": false
+  },
+  {
+    "type": "ExitOnForwardFailure",
+    "named": false
+  },
+  {
+    "type": "FingerprintHash",
+    "named": false
+  },
+  {
+    "type": "ForkAfterAuthentication",
+    "named": false
+  },
+  {
+    "type": "ForwardAgent",
+    "named": false
+  },
+  {
+    "type": "ForwardX11",
+    "named": false
+  },
+  {
+    "type": "ForwardX11Timeout",
+    "named": false
+  },
+  {
+    "type": "ForwardX11Trusted",
+    "named": false
+  },
+  {
+    "type": "GSSAPIAuthentication",
+    "named": false
+  },
+  {
+    "type": "GSSAPIDelegateCredentials",
+    "named": false
+  },
+  {
+    "type": "GlobalKnownHostsFile",
+    "named": false
+  },
+  {
+    "type": "HashKnownHosts",
+    "named": false
+  },
+  {
+    "type": "Host",
+    "named": false
+  },
+  {
+    "type": "HostKeyAlgorithms",
+    "named": false
+  },
+  {
+    "type": "HostKeyAlias",
+    "named": false
+  },
+  {
+    "type": "HostbasedAcceptedAlgorithms",
+    "named": false
+  },
+  {
+    "type": "HostbasedAuthentication",
+    "named": false
+  },
+  {
+    "type": "HostbasedKeyTypes",
+    "named": false
+  },
+  {
+    "type": "Hostname",
+    "named": false
+  },
+  {
+    "type": "IPQoS",
+    "named": false
+  },
+  {
+    "type": "IdentitiesOnly",
+    "named": false
+  },
+  {
+    "type": "IdentityAgent",
+    "named": false
+  },
+  {
+    "type": "IdentityFile",
+    "named": false
+  },
+  {
+    "type": "IgnoreUnknown",
+    "named": false
+  },
+  {
+    "type": "Include",
+    "named": false
+  },
+  {
+    "type": "KbdInteractiveAuthentication",
+    "named": false
+  },
+  {
+    "type": "KexAlgorithms",
+    "named": false
+  },
+  {
+    "type": "KnownHostsCommand",
+    "named": false
+  },
+  {
+    "type": "LocalCommand",
+    "named": false
+  },
+  {
+    "type": "LocalForward",
+    "named": false
+  },
+  {
+    "type": "LogLevel",
+    "named": false
+  },
+  {
+    "type": "LogVerbose",
+    "named": false
+  },
+  {
+    "type": "MACs",
+    "named": false
+  },
+  {
+    "type": "Match",
+    "named": false
+  },
+  {
+    "type": "NoHostAuthenticationForLocalhost",
+    "named": false
+  },
+  {
+    "type": "NumberOfPasswordPrompts",
+    "named": false
+  },
+  {
+    "type": "PKCS11Provider",
+    "named": false
+  },
+  {
+    "type": "PasswordAuthentication",
+    "named": false
+  },
+  {
+    "type": "PermitLocalCommand",
+    "named": false
+  },
+  {
+    "type": "PermitRemoteOpen",
+    "named": false
+  },
+  {
+    "type": "Port",
+    "named": false
+  },
+  {
+    "type": "PreferredAuthentications",
+    "named": false
+  },
+  {
+    "type": "ProxyCommand",
+    "named": false
+  },
+  {
+    "type": "ProxyJump",
+    "named": false
+  },
+  {
+    "type": "ProxyUseFdpass",
+    "named": false
+  },
+  {
+    "type": "PubkeyAcceptedAlgorithms",
+    "named": false
+  },
+  {
+    "type": "PubkeyAcceptedKeyTypes",
+    "named": false
+  },
+  {
+    "type": "PubkeyAuthentication",
+    "named": false
+  },
+  {
+    "type": "RekeyLimit",
+    "named": false
+  },
+  {
+    "type": "RemoteCommand",
+    "named": false
+  },
+  {
+    "type": "RemoteForward",
+    "named": false
+  },
+  {
+    "type": "RequestTTY",
+    "named": false
+  },
+  {
+    "type": "RequiredRSASize",
+    "named": false
+  },
+  {
+    "type": "RevokedHostKeys",
+    "named": false
+  },
+  {
+    "type": "SSH_AUTH_SOCK",
+    "named": false
+  },
+  {
+    "type": "SecurityKeyProvider",
+    "named": false
+  },
+  {
+    "type": "SendEnv",
+    "named": false
+  },
+  {
+    "type": "ServerAliveCountMax",
+    "named": false
+  },
+  {
+    "type": "ServerAliveInterval",
+    "named": false
+  },
+  {
+    "type": "SessionType",
+    "named": false
+  },
+  {
+    "type": "SetEnv",
+    "named": false
+  },
+  {
+    "type": "StdinNull",
+    "named": false
+  },
+  {
+    "type": "StreamLocalBindMask",
+    "named": false
+  },
+  {
+    "type": "StreamLocalBindUnlink",
+    "named": false
+  },
+  {
+    "type": "StrictHostKeyChecking",
+    "named": false
+  },
+  {
+    "type": "SyslogFacility",
+    "named": false
+  },
+  {
+    "type": "TCPKeepAlive",
+    "named": false
+  },
+  {
+    "type": "Tag",
+    "named": false
+  },
+  {
+    "type": "Tunnel",
+    "named": false
+  },
+  {
+    "type": "TunnelDevice",
+    "named": false
+  },
+  {
+    "type": "UpdateHostKeys",
+    "named": false
+  },
+  {
+    "type": "UseKeychain",
+    "named": false
+  },
+  {
+    "type": "User",
+    "named": false
+  },
+  {
+    "type": "UserKnownHostsFile",
+    "named": false
+  },
+  {
+    "type": "VerifyHostKeyDNS",
+    "named": false
+  },
+  {
+    "type": "VisualHostKey",
+    "named": false
+  },
+  {
+    "type": "XAuthLocation",
+    "named": false
+  },
+  {
+    "type": "^",
+    "named": false
+  },
+  {
+    "type": "accept-new",
+    "named": false
+  },
+  {
+    "type": "all",
+    "named": false
+  },
+  {
+    "type": "always",
+    "named": false
+  },
+  {
+    "type": "any",
+    "named": false
+  },
+  {
+    "type": "ask",
+    "named": false
+  },
+  {
+    "type": "authentication",
+    "named": true
+  },
+  {
+    "type": "auto",
+    "named": false
+  },
+  {
+    "type": "autoask",
+    "named": false
+  },
+  {
+    "type": "canonical",
+    "named": false
+  },
+  {
+    "type": "cipher",
+    "named": true
+  },
+  {
+    "type": "comment",
+    "named": true
+  },
+  {
+    "type": "confirm",
+    "named": false
+  },
+  {
+    "type": "default",
+    "named": false
+  },
+  {
+    "type": "ethernet",
+    "named": false
+  },
+  {
+    "type": "exec",
+    "named": false
+  },
+  {
+    "type": "facility",
+    "named": true
+  },
+  {
+    "type": "final",
+    "named": false
+  },
+  {
+    "type": "force",
+    "named": false
+  },
+  {
+    "type": "host",
+    "named": false
+  },
+  {
+    "type": "host-bound",
+    "named": false
+  },
+  {
+    "type": "inet",
+    "named": false
+  },
+  {
+    "type": "inet6",
+    "named": false
+  },
+  {
+    "type": "ipqos",
+    "named": true
+  },
+  {
+    "type": "kex",
+    "named": true
+  },
+  {
+    "type": "key_sig",
+    "named": true
+  },
+  {
+    "type": "localnetwork",
+    "named": false
+  },
+  {
+    "type": "localuser",
+    "named": false
+  },
+  {
+    "type": "mac",
+    "named": true
+  },
+  {
+    "type": "md5",
+    "named": false
+  },
+  {
+    "type": "no",
+    "named": false
+  },
+  {
+    "type": "none",
+    "named": false
+  },
+  {
+    "type": "off",
+    "named": false
+  },
+  {
+    "type": "originalhost",
+    "named": false
+  },
+  {
+    "type": "point-to-point",
+    "named": false
+  },
+  {
+    "type": "sha256",
+    "named": false
+  },
+  {
+    "type": "sig",
+    "named": true
+  },
+  {
+    "type": "subsystem",
+    "named": false
+  },
+  {
+    "type": "tagged",
+    "named": false
+  },
+  {
+    "type": "token",
+    "named": true
+  },
+  {
+    "type": "unbound",
+    "named": false
+  },
+  {
+    "type": "uri",
+    "named": true
+  },
+  {
+    "type": "user",
+    "named": false
+  },
+  {
+    "type": "verbosity",
+    "named": true
+  },
+  {
+    "type": "yes",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]

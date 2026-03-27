@@ -1,0 +1,107 @@
+[
+  {
+    "type": "done_task",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "context",
+          "named": true
+        },
+        {
+          "type": "date",
+          "named": true
+        },
+        {
+          "type": "kv",
+          "named": true
+        },
+        {
+          "type": "project",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "source_file",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "done_task",
+          "named": true
+        },
+        {
+          "type": "task",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "task",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "context",
+          "named": true
+        },
+        {
+          "type": "date",
+          "named": true
+        },
+        {
+          "type": "kv",
+          "named": true
+        },
+        {
+          "type": "priority",
+          "named": true
+        },
+        {
+          "type": "project",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "\n",
+    "named": false
+  },
+  {
+    "type": "context",
+    "named": true
+  },
+  {
+    "type": "date",
+    "named": true
+  },
+  {
+    "type": "kv",
+    "named": true
+  },
+  {
+    "type": "priority",
+    "named": true
+  },
+  {
+    "type": "project",
+    "named": true
+  },
+  {
+    "type": "x",
+    "named": false
+  }
+]

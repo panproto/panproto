@@ -1,0 +1,815 @@
+[
+  {
+    "type": "annotation",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "command",
+    "named": true,
+    "fields": {
+      "command_delimiter": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "command_delimiter_close",
+            "named": true
+          },
+          {
+            "type": "command_delimiter_open",
+            "named": true
+          }
+        ]
+      },
+      "command_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "command_name",
+            "named": true
+          }
+        ]
+      },
+      "command_parameters": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "command_parameters",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "command_delimiter_close",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "double_quote",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "freestanding_comment",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "inline_comment",
+          "named": true
+        },
+        {
+          "type": "old_style_twic_section_comment",
+          "named": true
+        },
+        {
+          "type": "rest_of_line_comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "game",
+    "named": true,
+    "fields": {
+      "header": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "header",
+            "named": true
+          }
+        ]
+      },
+      "movetext": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "movetext",
+            "named": true
+          }
+        ]
+      },
+      "result_code": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "result_code",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "trailing_garbage",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "header",
+    "named": true,
+    "fields": {
+      "comment": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "rest_of_line_comment",
+            "named": true
+          }
+        ]
+      },
+      "tagpair": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "tagpair",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "inline_comment",
+    "named": true,
+    "fields": {
+      "comment_content": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "inline_comment_text",
+            "named": true
+          }
+        ]
+      },
+      "comment_delimiter": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "inline_comment_delimiter_close",
+            "named": true
+          },
+          {
+            "type": "inline_comment_delimiter_open",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "inline_comment_delimiter_close",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "inline_comment_delimiter_open",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "inline_comment_text",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "command",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "lan_move",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "check_or_mate_condition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "movetext",
+    "named": true,
+    "fields": {
+      "annotation": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "annotation",
+            "named": true
+          }
+        ]
+      },
+      "comment": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "inline_comment",
+            "named": true
+          },
+          {
+            "type": "rest_of_line_comment",
+            "named": true
+          }
+        ]
+      },
+      "lan_move": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "lan_move",
+            "named": true
+          }
+        ]
+      },
+      "move_number": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "move_number",
+            "named": true
+          }
+        ]
+      },
+      "san_move": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "san_move",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "variation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "recursive_variation",
+    "named": true,
+    "fields": {
+      "recursive_variation_content": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "variation_movetext",
+            "named": true
+          }
+        ]
+      },
+      "recursive_variation_delimiter": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "variation_delimiter_close",
+            "named": true
+          },
+          {
+            "type": "variation_delimiter_open",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "rest_of_line_comment",
+    "named": true,
+    "fields": {
+      "comment_content": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "rest_of_line_comment_text",
+            "named": true
+          }
+        ]
+      },
+      "comment_delimiter": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "rest_of_line_comment_delimiter_open",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "rest_of_line_comment_delimiter_open",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "result_code",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "san_move",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "check_or_mate_condition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "series_of_games",
+    "named": true,
+    "root": true,
+    "fields": {
+      "freestanding_comment": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "freestanding_comment",
+            "named": true
+          }
+        ]
+      },
+      "game": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "game",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "tagpair",
+    "named": true,
+    "fields": {
+      "tagpair_delimiter": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "tagpair_delimiter_close",
+            "named": true
+          },
+          {
+            "type": "tagpair_delimiter_open",
+            "named": true
+          }
+        ]
+      },
+      "tagpair_key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "tagpair_key",
+            "named": true
+          }
+        ]
+      },
+      "tagpair_value_contents": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "tagpair_value_contents",
+            "named": true
+          }
+        ]
+      },
+      "tagpair_value_delimiter": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "double_quote",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "tagpair_delimiter_close",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "tagpair_delimiter_open",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "tagpair_value_contents",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "trailing_garbage",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "variation",
+    "named": true,
+    "fields": {
+      "variation_content": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "variation_movetext",
+            "named": true
+          }
+        ]
+      },
+      "variation_delimiter": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "variation_delimiter_close",
+            "named": true
+          },
+          {
+            "type": "variation_delimiter_open",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "variation_delimiter_close",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "variation_movetext",
+    "named": true,
+    "fields": {
+      "variation_annotation": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "annotation",
+            "named": true
+          }
+        ]
+      },
+      "variation_comment": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "inline_comment",
+            "named": true
+          },
+          {
+            "type": "rest_of_line_comment",
+            "named": true
+          }
+        ]
+      },
+      "variation_lan_move": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "lan_move",
+            "named": true
+          }
+        ]
+      },
+      "variation_move_number": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "move_number",
+            "named": true
+          }
+        ]
+      },
+      "variation_san_move": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "san_move",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "recursive_variation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "%",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": "0",
+    "named": false
+  },
+  {
+    "type": "1",
+    "named": false
+  },
+  {
+    "type": "2",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "@",
+    "named": false
+  },
+  {
+    "type": "O",
+    "named": false
+  },
+  {
+    "type": "P",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "check_or_mate_condition",
+    "named": true
+  },
+  {
+    "type": "command_delimiter_open",
+    "named": true
+  },
+  {
+    "type": "command_name",
+    "named": true
+  },
+  {
+    "type": "command_parameters",
+    "named": true
+  },
+  {
+    "type": "move_number",
+    "named": true
+  },
+  {
+    "type": "o",
+    "named": false
+  },
+  {
+    "type": "old_style_twic_section_comment",
+    "named": true
+  },
+  {
+    "type": "rest_of_line_comment_text",
+    "named": true
+  },
+  {
+    "type": "tagpair_key",
+    "named": true
+  },
+  {
+    "type": "variation_delimiter_open",
+    "named": true
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  },
+  {
+    "type": "«",
+    "named": false
+  },
+  {
+    "type": "»",
+    "named": false
+  },
+  {
+    "type": "½",
+    "named": false
+  },
+  {
+    "type": "ʺ",
+    "named": false
+  },
+  {
+    "type": "˝",
+    "named": false
+  },
+  {
+    "type": "ˮ",
+    "named": false
+  },
+  {
+    "type": "˶",
+    "named": false
+  },
+  {
+    "type": "ײ",
+    "named": false
+  },
+  {
+    "type": "״",
+    "named": false
+  },
+  {
+    "type": "٭",
+    "named": false
+  },
+  {
+    "type": "‐",
+    "named": false
+  },
+  {
+    "type": "‑",
+    "named": false
+  },
+  {
+    "type": "‒",
+    "named": false
+  },
+  {
+    "type": "–",
+    "named": false
+  },
+  {
+    "type": "—",
+    "named": false
+  },
+  {
+    "type": "“",
+    "named": false
+  },
+  {
+    "type": "”",
+    "named": false
+  },
+  {
+    "type": "‟",
+    "named": false
+  },
+  {
+    "type": "″",
+    "named": false
+  },
+  {
+    "type": "‶",
+    "named": false
+  },
+  {
+    "type": "⁄",
+    "named": false
+  },
+  {
+    "type": "⁎",
+    "named": false
+  },
+  {
+    "type": "−",
+    "named": false
+  },
+  {
+    "type": "∕",
+    "named": false
+  },
+  {
+    "type": "∗",
+    "named": false
+  },
+  {
+    "type": "♙",
+    "named": false
+  },
+  {
+    "type": "♟︎",
+    "named": false
+  },
+  {
+    "type": "✱",
+    "named": false
+  },
+  {
+    "type": "➖",
+    "named": false
+  },
+  {
+    "type": "⟋",
+    "named": false
+  },
+  {
+    "type": "⧸",
+    "named": false
+  },
+  {
+    "type": "〃",
+    "named": false
+  },
+  {
+    "type": "＂",
+    "named": false
+  }
+]

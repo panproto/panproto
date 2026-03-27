@@ -1,0 +1,2350 @@
+[
+  {
+    "type": "basicauth_credential",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "directive_abort",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "abort",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_basicauth",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "basicauth",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "basicauth_credential",
+          "named": true
+        },
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "hash_algorithm",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_bind",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bind",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "network_address_wo_port",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "directive_abort",
+          "named": true
+        },
+        {
+          "type": "directive_basicauth",
+          "named": true
+        },
+        {
+          "type": "directive_bind",
+          "named": true
+        },
+        {
+          "type": "directive_encode",
+          "named": true
+        },
+        {
+          "type": "directive_error",
+          "named": true
+        },
+        {
+          "type": "directive_file_server",
+          "named": true
+        },
+        {
+          "type": "directive_handle",
+          "named": true
+        },
+        {
+          "type": "directive_handle_path",
+          "named": true
+        },
+        {
+          "type": "directive_header",
+          "named": true
+        },
+        {
+          "type": "directive_import",
+          "named": true
+        },
+        {
+          "type": "directive_log",
+          "named": true
+        },
+        {
+          "type": "directive_metrics",
+          "named": true
+        },
+        {
+          "type": "directive_php_fastcgi",
+          "named": true
+        },
+        {
+          "type": "directive_redir",
+          "named": true
+        },
+        {
+          "type": "directive_request_body",
+          "named": true
+        },
+        {
+          "type": "directive_respond",
+          "named": true
+        },
+        {
+          "type": "directive_reverse_proxy",
+          "named": true
+        },
+        {
+          "type": "directive_rewrite",
+          "named": true
+        },
+        {
+          "type": "directive_root",
+          "named": true
+        },
+        {
+          "type": "directive_route",
+          "named": true
+        },
+        {
+          "type": "directive_skip_log",
+          "named": true
+        },
+        {
+          "type": "directive_tls",
+          "named": true
+        },
+        {
+          "type": "directive_tracing",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_encode",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "encode",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "encode_format",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_error",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "message",
+            "named": false
+          }
+        ]
+      },
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "error",
+            "named": false
+          }
+        ]
+      },
+      "respond_or_error_message": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "http_message",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "http_error_code",
+          "named": true
+        },
+        {
+          "type": "http_message",
+          "named": true
+        },
+        {
+          "type": "http_status_code",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_file_server",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "file_server",
+            "named": false
+          }
+        ]
+      },
+      "file_server_option_browse": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "browse",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_handle",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "handle",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "directive_block",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_handle_path",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "handle_path",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "directive_block",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_header",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "header",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "field_manipulator",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_import",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "import",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "snippet_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_log",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "log",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "log_option_format",
+          "named": true
+        },
+        {
+          "type": "log_option_level",
+          "named": true
+        },
+        {
+          "type": "log_option_output",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_metrics",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "disable_openmetrics",
+            "named": false
+          }
+        ]
+      },
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "metrics",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_php_fastcgi",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "php_fastcgi",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_capture_stderr",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_dial_timeout",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_env",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_index",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_read_timeout",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_resolve_root_symlink",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_root",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_split",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_try_files",
+          "named": true
+        },
+        {
+          "type": "fastcgi_option_write_timeout",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        },
+        {
+          "type": "network_address_optional_port",
+          "named": true
+        },
+        {
+          "type": "reverse_proxy_option_header_down",
+          "named": true
+        },
+        {
+          "type": "reverse_proxy_option_header_up",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_redir",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "redir",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "matcher_token",
+          "named": true
+        },
+        {
+          "type": "redir_code",
+          "named": true
+        },
+        {
+          "type": "redir_or_rewrite_target",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_request_body",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "request_body",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        },
+        {
+          "type": "request_body_option_max_size",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_respond",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "body",
+            "named": false
+          },
+          {
+            "type": "close",
+            "named": false
+          }
+        ]
+      },
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "respond",
+            "named": false
+          }
+        ]
+      },
+      "respond_or_error_message": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "http_message",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "http_message",
+          "named": true
+        },
+        {
+          "type": "http_status_code",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_reverse_proxy",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "reverse_proxy",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        },
+        {
+          "type": "network_address_optional_port",
+          "named": true
+        },
+        {
+          "type": "reverse_proxy_option_header_down",
+          "named": true
+        },
+        {
+          "type": "reverse_proxy_option_header_up",
+          "named": true
+        },
+        {
+          "type": "reverse_proxy_option_trusted_proxies",
+          "named": true
+        },
+        {
+          "type": "site_address",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_rewrite",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "rewrite",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "matcher_token",
+          "named": true
+        },
+        {
+          "type": "redir_or_rewrite_target",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_root",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "root",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "matcher_token",
+          "named": true
+        },
+        {
+          "type": "unix_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_route",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "route",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "directive_block",
+          "named": true
+        },
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_skip_log",
+    "named": true,
+    "fields": {
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "skip_log",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "matcher_token",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_tls",
+    "named": true,
+    "fields": {
+      "cert_file": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "unix_path",
+            "named": true
+          }
+        ]
+      },
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "tls",
+            "named": false
+          }
+        ]
+      },
+      "key_file": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "unix_path",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "email_address",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive_tracing",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "span",
+            "named": false
+          }
+        ]
+      },
+      "directive_option_user_string_value": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "uri_path_with_placeholders",
+            "named": true
+          }
+        ]
+      },
+      "directive_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "tracing",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "document",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "directive_import",
+          "named": true
+        },
+        {
+          "type": "global_options_block",
+          "named": true
+        },
+        {
+          "type": "site_block",
+          "named": true
+        },
+        {
+          "type": "snippet",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "encode_format",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "fastcgi_option_capture_stderr",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "capture_stderr",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "fastcgi_option_dial_timeout",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "dial_timeout",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "duration_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "fastcgi_option_env",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "env",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "fastcgi_option_index",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "index",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "unix_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "fastcgi_option_read_timeout",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "read_timeout",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "duration_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "fastcgi_option_resolve_root_symlink",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "resolve_root_symlink",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "fastcgi_option_root",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "root",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "unix_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "fastcgi_option_split",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "split",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "fastcgi_option_try_files",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "try_files",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "unix_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "fastcgi_option_write_timeout",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "write_timeout",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "duration_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_add_or_set",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "header_name",
+          "named": true
+        },
+        {
+          "type": "header_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_delete",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "header_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_manipulator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "field_add_or_set",
+          "named": true
+        },
+        {
+          "type": "field_delete",
+          "named": true
+        },
+        {
+          "type": "field_replace",
+          "named": true
+        },
+        {
+          "type": "field_set_default",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_replace",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "header_name",
+          "named": true
+        },
+        {
+          "type": "header_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_set_default",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "header_name",
+          "named": true
+        },
+        {
+          "type": "header_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "global_option_auto_https",
+    "named": true,
+    "fields": {
+      "global_option_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "auto_https",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "global_option_email",
+    "named": true,
+    "fields": {
+      "global_option_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "email",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "email_address",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "global_options_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "global_option_auto_https",
+          "named": true
+        },
+        {
+          "type": "global_option_email",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "hash_algorithm",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "header_name",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "header_value",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "http_message",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "log_option_format",
+    "named": true,
+    "fields": {
+      "directive_option_fixed_value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "console",
+            "named": false
+          },
+          {
+            "type": "json",
+            "named": false
+          }
+        ]
+      },
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "format",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "log_option_level",
+    "named": true,
+    "fields": {
+      "directive_option_fixed_value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "ERROR",
+            "named": false
+          },
+          {
+            "type": "INFO",
+            "named": false
+          },
+          {
+            "type": "error",
+            "named": false
+          },
+          {
+            "type": "info",
+            "named": false
+          }
+        ]
+      },
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "level",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "log_option_output",
+    "named": true,
+    "fields": {
+      "directive_option_fixed_value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "file",
+            "named": false
+          }
+        ]
+      },
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "output",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "size_number",
+          "named": true
+        },
+        {
+          "type": "unix_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "matcher_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "matcher_name",
+          "named": true
+        },
+        {
+          "type": "standard_matcher",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "matcher_path",
+    "named": true,
+    "fields": {
+      "matcher_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "path",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "unix_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "matcher_path_regexp",
+    "named": true,
+    "fields": {
+      "matcher_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "path_regexp",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "matcher_token",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "matcher_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "network_address_optional_port",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "unix_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "network_address_wo_port",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "unix_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "protocol",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "redir_code",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "redir_or_rewrite_target",
+    "named": true,
+    "fields": {
+      "address_target": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "domain_address",
+            "named": true
+          },
+          {
+            "type": "protocol",
+            "named": true
+          },
+          {
+            "type": "uri_path_with_placeholders",
+            "named": true
+          }
+        ]
+      },
+      "uri_path_target": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "uri_path_with_placeholders",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "request_body_option_max_size",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "max_size",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "size_number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "reverse_proxy_option_header_down",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "header_down",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "field_manipulator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "reverse_proxy_option_header_up",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "header_up",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "field_manipulator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "reverse_proxy_option_trusted_proxies",
+    "named": true,
+    "fields": {
+      "directive_option_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "trusted_proxies",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "site_address",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "domain_address",
+          "named": true
+        },
+        {
+          "type": "protocol",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "site_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "directive_block",
+          "named": true
+        },
+        {
+          "type": "matcher_definition",
+          "named": true
+        },
+        {
+          "type": "site_address",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "snippet",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment_line",
+          "named": true
+        },
+        {
+          "type": "directive_block",
+          "named": true
+        },
+        {
+          "type": "matcher_definition",
+          "named": true
+        },
+        {
+          "type": "snippet_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "standard_matcher",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "matcher_path",
+          "named": true
+        },
+        {
+          "type": "matcher_path_regexp",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "subdirective_name",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "unix_path",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "+",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": "4",
+    "named": false
+  },
+  {
+    "type": "401",
+    "named": false
+  },
+  {
+    "type": "6",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "?",
+    "named": false
+  },
+  {
+    "type": "ERROR",
+    "named": false
+  },
+  {
+    "type": "INFO",
+    "named": false
+  },
+  {
+    "type": "abort",
+    "named": false
+  },
+  {
+    "type": "auto_https",
+    "named": false
+  },
+  {
+    "type": "basicauth",
+    "named": false
+  },
+  {
+    "type": "bcrypt",
+    "named": false
+  },
+  {
+    "type": "bind",
+    "named": false
+  },
+  {
+    "type": "body",
+    "named": false
+  },
+  {
+    "type": "browse",
+    "named": false
+  },
+  {
+    "type": "capture_stderr",
+    "named": false
+  },
+  {
+    "type": "close",
+    "named": false
+  },
+  {
+    "type": "comment_line",
+    "named": true
+  },
+  {
+    "type": "console",
+    "named": false
+  },
+  {
+    "type": "defer",
+    "named": false
+  },
+  {
+    "type": "dial_timeout",
+    "named": false
+  },
+  {
+    "type": "disable_certs",
+    "named": false
+  },
+  {
+    "type": "disable_openmetrics",
+    "named": false
+  },
+  {
+    "type": "disable_redirects",
+    "named": false
+  },
+  {
+    "type": "discard",
+    "named": false
+  },
+  {
+    "type": "domain_address",
+    "named": true
+  },
+  {
+    "type": "duration_value",
+    "named": true
+  },
+  {
+    "type": "email",
+    "named": false
+  },
+  {
+    "type": "email_address",
+    "named": true
+  },
+  {
+    "type": "encode",
+    "named": false
+  },
+  {
+    "type": "env",
+    "named": false
+  },
+  {
+    "type": "error",
+    "named": false
+  },
+  {
+    "type": "file",
+    "named": false
+  },
+  {
+    "type": "file_server",
+    "named": false
+  },
+  {
+    "type": "format",
+    "named": false
+  },
+  {
+    "type": "gram",
+    "named": false
+  },
+  {
+    "type": "gzip",
+    "named": false
+  },
+  {
+    "type": "handle",
+    "named": false
+  },
+  {
+    "type": "handle_path",
+    "named": false
+  },
+  {
+    "type": "header",
+    "named": false
+  },
+  {
+    "type": "header_down",
+    "named": false
+  },
+  {
+    "type": "header_up",
+    "named": false
+  },
+  {
+    "type": "html",
+    "named": false
+  },
+  {
+    "type": "http://",
+    "named": false
+  },
+  {
+    "type": "http_error_code",
+    "named": true
+  },
+  {
+    "type": "http_status_code",
+    "named": true
+  },
+  {
+    "type": "https://",
+    "named": false
+  },
+  {
+    "type": "ignore_loaded_certs",
+    "named": false
+  },
+  {
+    "type": "import",
+    "named": false
+  },
+  {
+    "type": "index",
+    "named": false
+  },
+  {
+    "type": "info",
+    "named": false
+  },
+  {
+    "type": "internal",
+    "named": false
+  },
+  {
+    "type": "ip",
+    "named": false
+  },
+  {
+    "type": "json",
+    "named": false
+  },
+  {
+    "type": "level",
+    "named": false
+  },
+  {
+    "type": "localhost",
+    "named": false
+  },
+  {
+    "type": "log",
+    "named": false
+  },
+  {
+    "type": "matcher_name",
+    "named": true
+  },
+  {
+    "type": "max_size",
+    "named": false
+  },
+  {
+    "type": "message",
+    "named": false
+  },
+  {
+    "type": "metrics",
+    "named": false
+  },
+  {
+    "type": "off",
+    "named": false
+  },
+  {
+    "type": "output",
+    "named": false
+  },
+  {
+    "type": "packet",
+    "named": false
+  },
+  {
+    "type": "path",
+    "named": false
+  },
+  {
+    "type": "path_regexp",
+    "named": false
+  },
+  {
+    "type": "permanent",
+    "named": false
+  },
+  {
+    "type": "php_fastcgi",
+    "named": false
+  },
+  {
+    "type": "read_timeout",
+    "named": false
+  },
+  {
+    "type": "redir",
+    "named": false
+  },
+  {
+    "type": "request_body",
+    "named": false
+  },
+  {
+    "type": "resolve_root_symlink",
+    "named": false
+  },
+  {
+    "type": "respond",
+    "named": false
+  },
+  {
+    "type": "reverse_proxy",
+    "named": false
+  },
+  {
+    "type": "rewrite",
+    "named": false
+  },
+  {
+    "type": "roll_disabled",
+    "named": false
+  },
+  {
+    "type": "roll_keep",
+    "named": false
+  },
+  {
+    "type": "roll_keep_for_days",
+    "named": false
+  },
+  {
+    "type": "roll_local_time",
+    "named": false
+  },
+  {
+    "type": "roll_size",
+    "named": false
+  },
+  {
+    "type": "roll_uncompressed",
+    "named": false
+  },
+  {
+    "type": "root",
+    "named": false
+  },
+  {
+    "type": "route",
+    "named": false
+  },
+  {
+    "type": "size_number",
+    "named": true
+  },
+  {
+    "type": "skip_log",
+    "named": false
+  },
+  {
+    "type": "snippet_name",
+    "named": true
+  },
+  {
+    "type": "span",
+    "named": false
+  },
+  {
+    "type": "split",
+    "named": false
+  },
+  {
+    "type": "stderr",
+    "named": false
+  },
+  {
+    "type": "stdout",
+    "named": false
+  },
+  {
+    "type": "tcp",
+    "named": false
+  },
+  {
+    "type": "temporary",
+    "named": false
+  },
+  {
+    "type": "tls",
+    "named": false
+  },
+  {
+    "type": "tracing",
+    "named": false
+  },
+  {
+    "type": "trusted_proxies",
+    "named": false
+  },
+  {
+    "type": "try_files",
+    "named": false
+  },
+  {
+    "type": "udp",
+    "named": false
+  },
+  {
+    "type": "unix",
+    "named": false
+  },
+  {
+    "type": "uri_path_with_placeholders",
+    "named": true
+  },
+  {
+    "type": "write_timeout",
+    "named": false
+  },
+  {
+    "type": "zstd",
+    "named": false
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]

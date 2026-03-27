@@ -1,0 +1,9098 @@
+[
+  {
+    "type": "_abstract_declarator",
+    "named": true,
+    "subtypes": [
+      {
+        "type": "abstract_array_declarator",
+        "named": true
+      }
+    ]
+  },
+  {
+    "type": "_declarator",
+    "named": true,
+    "subtypes": [
+      {
+        "type": "array_declarator",
+        "named": true
+      },
+      {
+        "type": "function_declarator",
+        "named": true
+      },
+      {
+        "type": "identifier",
+        "named": true
+      },
+      {
+        "type": "parenthesized_declarator",
+        "named": true
+      }
+    ]
+  },
+  {
+    "type": "_field_declarator",
+    "named": true,
+    "subtypes": [
+      {
+        "type": "array_declarator",
+        "named": true
+      },
+      {
+        "type": "field_identifier",
+        "named": true
+      },
+      {
+        "type": "function_declarator",
+        "named": true
+      },
+      {
+        "type": "parenthesized_declarator",
+        "named": true
+      }
+    ]
+  },
+  {
+    "type": "expression",
+    "named": true,
+    "subtypes": [
+      {
+        "type": "assignment_expression",
+        "named": true
+      },
+      {
+        "type": "binary_expression",
+        "named": true
+      },
+      {
+        "type": "call_expression",
+        "named": true
+      },
+      {
+        "type": "compiler_variable",
+        "named": true
+      },
+      {
+        "type": "devchan_expression",
+        "named": true
+      },
+      {
+        "type": "devchan_range_expression",
+        "named": true
+      },
+      {
+        "type": "device_literal",
+        "named": true
+      },
+      {
+        "type": "field_expression",
+        "named": true
+      },
+      {
+        "type": "identifier",
+        "named": true
+      },
+      {
+        "type": "number_literal",
+        "named": true
+      },
+      {
+        "type": "parenthesized_expression",
+        "named": true
+      },
+      {
+        "type": "string_expression",
+        "named": true
+      },
+      {
+        "type": "string_literal",
+        "named": true
+      },
+      {
+        "type": "subscript_expression",
+        "named": true
+      },
+      {
+        "type": "system_constant",
+        "named": true
+      },
+      {
+        "type": "system_variable",
+        "named": true
+      },
+      {
+        "type": "unary_expression",
+        "named": true
+      },
+      {
+        "type": "update_expression",
+        "named": true
+      }
+    ]
+  },
+  {
+    "type": "statement",
+    "named": true,
+    "subtypes": [
+      {
+        "type": "active_statement",
+        "named": true
+      },
+      {
+        "type": "break_statement",
+        "named": true
+      },
+      {
+        "type": "call_statement",
+        "named": true
+      },
+      {
+        "type": "cancel_all_wait_statement",
+        "named": true
+      },
+      {
+        "type": "cancel_all_wait_until_statement",
+        "named": true
+      },
+      {
+        "type": "cancel_wait_statement",
+        "named": true
+      },
+      {
+        "type": "cancel_wait_until_statement",
+        "named": true
+      },
+      {
+        "type": "case_statement",
+        "named": true
+      },
+      {
+        "type": "clear_buffer_statement",
+        "named": true
+      },
+      {
+        "type": "compound_statement",
+        "named": true
+      },
+      {
+        "type": "continue_statement",
+        "named": true
+      },
+      {
+        "type": "create_buffer_statement",
+        "named": true
+      },
+      {
+        "type": "create_multi_buffer_statement",
+        "named": true
+      },
+      {
+        "type": "devchan_operation_statement",
+        "named": true
+      },
+      {
+        "type": "expression_statement",
+        "named": true
+      },
+      {
+        "type": "for_statement",
+        "named": true
+      },
+      {
+        "type": "if_statement",
+        "named": true
+      },
+      {
+        "type": "return_statement",
+        "named": true
+      },
+      {
+        "type": "select_statement",
+        "named": true
+      },
+      {
+        "type": "send_command_statement",
+        "named": true
+      },
+      {
+        "type": "send_level_statement",
+        "named": true
+      },
+      {
+        "type": "send_string_statement",
+        "named": true
+      },
+      {
+        "type": "switch_statement",
+        "named": true
+      },
+      {
+        "type": "system_call_statement",
+        "named": true
+      },
+      {
+        "type": "wait_statement",
+        "named": true
+      },
+      {
+        "type": "wait_until_statement",
+        "named": true
+      },
+      {
+        "type": "while_statement",
+        "named": true
+      }
+    ]
+  },
+  {
+    "type": "type_specifier",
+    "named": true,
+    "subtypes": [
+      {
+        "type": "intrinsic_type",
+        "named": true
+      },
+      {
+        "type": "system_type",
+        "named": true
+      },
+      {
+        "type": "type_identifier",
+        "named": true
+      }
+    ]
+  },
+  {
+    "type": "abstract_array_declarator",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "_abstract_declarator",
+            "named": true
+          }
+        ]
+      },
+      "size": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "active_statement",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "statement",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "active_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "argument_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "compound_statement",
+          "named": true
+        },
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "array_declarator",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_declarator",
+            "named": true
+          },
+          {
+            "type": "_field_declarator",
+            "named": true
+          }
+        ]
+      },
+      "size": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "array_return_type",
+    "named": true,
+    "fields": {
+      "size": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "type_specifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "assignment_expression",
+    "named": true,
+    "fields": {
+      "left": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "call_expression",
+            "named": true
+          },
+          {
+            "type": "devchan_expression",
+            "named": true
+          },
+          {
+            "type": "field_expression",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          },
+          {
+            "type": "subscript_expression",
+            "named": true
+          }
+        ]
+      },
+      "operator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "=",
+            "named": false
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          },
+          {
+            "type": "initializer_list",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "binary_expression",
+    "named": true,
+    "fields": {
+      "left": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "operator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "!=",
+            "named": false
+          },
+          {
+            "type": "%",
+            "named": false
+          },
+          {
+            "type": "&",
+            "named": false
+          },
+          {
+            "type": "&&",
+            "named": false
+          },
+          {
+            "type": "*",
+            "named": false
+          },
+          {
+            "type": "+",
+            "named": false
+          },
+          {
+            "type": "-",
+            "named": false
+          },
+          {
+            "type": "/",
+            "named": false
+          },
+          {
+            "type": "<",
+            "named": false
+          },
+          {
+            "type": "<<",
+            "named": false
+          },
+          {
+            "type": "<=",
+            "named": false
+          },
+          {
+            "type": "<>",
+            "named": false
+          },
+          {
+            "type": "==",
+            "named": false
+          },
+          {
+            "type": ">",
+            "named": false
+          },
+          {
+            "type": ">=",
+            "named": false
+          },
+          {
+            "type": ">>",
+            "named": false
+          },
+          {
+            "type": "^",
+            "named": false
+          },
+          {
+            "type": "and",
+            "named": true
+          },
+          {
+            "type": "band",
+            "named": true
+          },
+          {
+            "type": "bor",
+            "named": true
+          },
+          {
+            "type": "bxor",
+            "named": true
+          },
+          {
+            "type": "lshift",
+            "named": true
+          },
+          {
+            "type": "or",
+            "named": true
+          },
+          {
+            "type": "rshift",
+            "named": true
+          },
+          {
+            "type": "xor",
+            "named": true
+          },
+          {
+            "type": "|",
+            "named": false
+          },
+          {
+            "type": "||",
+            "named": false
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "break_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "break_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "button_event_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "button_event_handler",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_disable_warning",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "preproc_warn",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "button_event_declarator",
+    "named": true,
+    "fields": {
+      "devchan": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "button_event_devchan_reference",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "button_event_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "button_event_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "button_event_block",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "button_event_declarator",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "button_event_devchan_reference",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "button_event_handler",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "button_event_type",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "button_event_hold_repeat",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "repeat_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "button_event_type",
+    "named": true,
+    "fields": {
+      "time": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "button_event_hold_repeat",
+          "named": true
+        },
+        {
+          "type": "hold_keyword",
+          "named": true
+        },
+        {
+          "type": "push_keyword",
+          "named": true
+        },
+        {
+          "type": "release_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "call_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      },
+      "local_declarations": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "declaration",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "parameter_list",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "call_expression",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "argument_list",
+            "named": true
+          }
+        ]
+      },
+      "function": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          },
+          {
+            "type": "system_function",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "call_statement",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "argument_list",
+            "named": true
+          }
+        ]
+      },
+      "call": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "call_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "cancel_all_wait_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "cancel_all_wait_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "cancel_all_wait_until_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "cancel_all_wait_until_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "cancel_wait_statement",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "cancel_wait_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "cancel_wait_until_statement",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "cancel_wait_until_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "case_statement",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "active_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "call_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "case_keyword",
+          "named": true
+        },
+        {
+          "type": "clear_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "compound_statement",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "create_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "create_multi_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "declaration",
+          "named": true
+        },
+        {
+          "type": "default_keyword",
+          "named": true
+        },
+        {
+          "type": "devchan_operation_statement",
+          "named": true
+        },
+        {
+          "type": "expression_statement",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "select_statement",
+          "named": true
+        },
+        {
+          "type": "send_command_statement",
+          "named": true
+        },
+        {
+          "type": "send_level_statement",
+          "named": true
+        },
+        {
+          "type": "send_string_statement",
+          "named": true
+        },
+        {
+          "type": "switch_statement",
+          "named": true
+        },
+        {
+          "type": "system_call_statement",
+          "named": true
+        },
+        {
+          "type": "wait_statement",
+          "named": true
+        },
+        {
+          "type": "wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "channel_event_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "channel_event_handler",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_disable_warning",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "preproc_warn",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "channel_event_declarator",
+    "named": true,
+    "fields": {
+      "devchan": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "channel_event_devchan_reference",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "channel_event_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "channel_event_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "channel_event_block",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "channel_event_declarator",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "channel_event_devchan_reference",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "channel_event_handler",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "channel_event_type",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "channel_event_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "off_keyword",
+          "named": true
+        },
+        {
+          "type": "on_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "clear_buffer_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "clear_buffer_keyword",
+          "named": true
+        },
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "comma_expression",
+    "named": true,
+    "fields": {
+      "left": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "comma_expression",
+            "named": true
+          },
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "compiler_variable",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "compound_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "declaration",
+          "named": true
+        },
+        {
+          "type": "define_call",
+          "named": true
+        },
+        {
+          "type": "define_function",
+          "named": true
+        },
+        {
+          "type": "define_module",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_disable_warning",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "preproc_warn",
+          "named": true
+        },
+        {
+          "type": "statement",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "continue_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "continue_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "create_buffer_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comma_expression",
+          "named": true
+        },
+        {
+          "type": "create_buffer_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "create_multi_buffer_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comma_expression",
+          "named": true
+        },
+        {
+          "type": "create_multi_buffer_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "custom_event_declarator",
+    "named": true,
+    "fields": {
+      "reference": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "custom_event_reference",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "custom_event_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "custom_event_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "custom_event_declarator",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "custom_event_reference",
+    "named": true,
+    "fields": {
+      "devchan": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "device": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "eventid": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "id": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "data_event_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "data_event_handler",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_disable_warning",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "preproc_warn",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "data_event_declarator",
+    "named": true,
+    "fields": {
+      "device": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "data_event_device_reference",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "data_event_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "data_event_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "data_event_block",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "data_event_declarator",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "data_event_device_reference",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "data_event_handler",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "data_event_type",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "data_event_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "awake_keyword",
+          "named": true
+        },
+        {
+          "type": "command_keyword",
+          "named": true
+        },
+        {
+          "type": "offline_keyword",
+          "named": true
+        },
+        {
+          "type": "onerror_keyword",
+          "named": true
+        },
+        {
+          "type": "online_keyword",
+          "named": true
+        },
+        {
+          "type": "standby_keyword",
+          "named": true
+        },
+        {
+          "type": "string_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "declaration",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "array_declarator",
+            "named": true
+          },
+          {
+            "type": "function_declarator",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "init_declarator",
+            "named": true
+          },
+          {
+            "type": "parenthesized_declarator",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "type_specifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "storage_class_specifier",
+          "named": true
+        },
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_call",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "call_definition",
+          "named": true
+        },
+        {
+          "type": "define_call_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_combine_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_combine_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_connect_level_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_connect_level_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_constant_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_constant_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_device_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_device_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_event_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_event_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_function",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "define_function_keyword",
+          "named": true
+        },
+        {
+          "type": "define_library_function_keyword",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_latching_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_latching_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_module",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "define_module_keyword",
+          "named": true
+        },
+        {
+          "type": "module_definition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_mutually_exclusive_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_mutually_exclusive_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_program_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_program_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_start_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_start_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_system_variable_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_system_variable_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_toggling_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_toggling_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_type_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_type_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_variable_section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_variable_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "devchan_expression",
+    "named": true,
+    "fields": {
+      "channel": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "device": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "devchan_off_keyword",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "devchan_on_keyword",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "devchan_operation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "devchan_min_to_keyword",
+          "named": true
+        },
+        {
+          "type": "devchan_off_keyword",
+          "named": true
+        },
+        {
+          "type": "devchan_on_keyword",
+          "named": true
+        },
+        {
+          "type": "devchan_pulse_keyword",
+          "named": true
+        },
+        {
+          "type": "devchan_to_keyword",
+          "named": true
+        },
+        {
+          "type": "devchan_total_off_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "devchan_operation_statement",
+    "named": true,
+    "fields": {
+      "operation": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "devchan_operation",
+            "named": true
+          }
+        ]
+      },
+      "target": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "devchan_expression",
+            "named": true
+          },
+          {
+            "type": "devchan_range_expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "devchan_range_expression",
+    "named": true,
+    "fields": {
+      "end": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "devchan_expression",
+            "named": true
+          }
+        ]
+      },
+      "start": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "devchan_expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "range_operator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "device_literal",
+    "named": true,
+    "fields": {
+      "device": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "port": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "system": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "devlev_expression",
+    "named": true,
+    "fields": {
+      "device": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "level": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "else_clause",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "else_keyword",
+          "named": true
+        },
+        {
+          "type": "statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "event_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "button_event_definition",
+          "named": true
+        },
+        {
+          "type": "channel_event_definition",
+          "named": true
+        },
+        {
+          "type": "custom_event_definition",
+          "named": true
+        },
+        {
+          "type": "data_event_definition",
+          "named": true
+        },
+        {
+          "type": "level_event_definition",
+          "named": true
+        },
+        {
+          "type": "push_event_definition",
+          "named": true
+        },
+        {
+          "type": "release_event_definition",
+          "named": true
+        },
+        {
+          "type": "timeline_event_definition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "expression_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "comma_expression",
+          "named": true
+        },
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_declaration",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "_field_declarator",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_specifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "storage_class_specifier",
+          "named": true
+        },
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_declaration_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "field_declaration",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_disable_warning",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_warn",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_expression",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "field": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "field_identifier",
+            "named": true
+          }
+        ]
+      },
+      "operator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": ".",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "for_statement",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "statement",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "comma_expression",
+            "named": true
+          },
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "initializer": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "comma_expression",
+            "named": true
+          },
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "update": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "comma_expression",
+            "named": true
+          },
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "for_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_declaration",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parameter_list",
+            "named": true
+          }
+        ]
+      },
+      "return_type": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "array_return_type",
+            "named": true
+          },
+          {
+            "type": "type_specifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_declarator",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_declarator",
+            "named": true
+          },
+          {
+            "type": "_field_declarator",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parameter_list",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "function_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      },
+      "local_declarations": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "declaration",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parameter_list",
+            "named": true
+          }
+        ]
+      },
+      "return_type": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "array_return_type",
+            "named": true
+          },
+          {
+            "type": "type_specifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "identifier",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "button",
+          "named": true
+        },
+        {
+          "type": "channel",
+          "named": true
+        },
+        {
+          "type": "custom",
+          "named": true
+        },
+        {
+          "type": "data",
+          "named": true
+        },
+        {
+          "type": "date",
+          "named": true
+        },
+        {
+          "type": "day",
+          "named": true
+        },
+        {
+          "type": "dv_channel",
+          "named": true
+        },
+        {
+          "type": "get_pulse_time",
+          "named": true
+        },
+        {
+          "type": "get_timer",
+          "named": true
+        },
+        {
+          "type": "ldate",
+          "named": true
+        },
+        {
+          "type": "level",
+          "named": true
+        },
+        {
+          "type": "master_slot",
+          "named": true
+        },
+        {
+          "type": "master_sn",
+          "named": true
+        },
+        {
+          "type": "push_channel",
+          "named": true
+        },
+        {
+          "type": "push_devchan",
+          "named": true
+        },
+        {
+          "type": "push_device",
+          "named": true
+        },
+        {
+          "type": "release_channel",
+          "named": true
+        },
+        {
+          "type": "release_devchan",
+          "named": true
+        },
+        {
+          "type": "release_device",
+          "named": true
+        },
+        {
+          "type": "system_number",
+          "named": true
+        },
+        {
+          "type": "time",
+          "named": true
+        },
+        {
+          "type": "timeline",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "if_statement",
+    "named": true,
+    "fields": {
+      "alternative": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "else_clause",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          }
+        ]
+      },
+      "consequence": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "statement",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "if_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "init_declarator",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_declarator",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          },
+          {
+            "type": "initializer_list",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "initializer_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "intrinsic_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "primitive_type",
+          "named": true
+        },
+        {
+          "type": "structured_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "level_event_declarator",
+    "named": true,
+    "fields": {
+      "devlev": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "level_event_devlev_reference",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "level_event_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "level_event_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "level_event_declarator",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "level_event_devlev_reference",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "devlev_expression",
+          "named": true
+        },
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "module_definition",
+    "named": true,
+    "fields": {
+      "instance_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "module_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "argument_list",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "module_name",
+    "named": true,
+    "fields": {
+      "parameters": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "parameter_list",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "module_name_keyword",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "off_keyword",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "on_keyword",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "parameter_declaration",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "_abstract_declarator",
+            "named": true
+          },
+          {
+            "type": "_declarator",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_specifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "storage_class_specifier",
+          "named": true
+        },
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameter_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "compound_statement",
+          "named": true
+        },
+        {
+          "type": "parameter_declaration",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parenthesized_declarator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "_declarator",
+          "named": true
+        },
+        {
+          "type": "_field_declarator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parenthesized_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "comma_expression",
+          "named": true
+        },
+        {
+          "type": "compound_statement",
+          "named": true
+        },
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "preproc_define",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "preproc_arg",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_define_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "preproc_disable_warning",
+    "named": true,
+    "fields": {
+      "code": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "number_literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_disable_warning_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "preproc_else",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "active_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "button_event_declarator",
+          "named": true
+        },
+        {
+          "type": "button_event_handler",
+          "named": true
+        },
+        {
+          "type": "call_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "case_statement",
+          "named": true
+        },
+        {
+          "type": "channel_event_declarator",
+          "named": true
+        },
+        {
+          "type": "channel_event_handler",
+          "named": true
+        },
+        {
+          "type": "clear_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "compound_statement",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "create_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "create_multi_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "custom_event_declarator",
+          "named": true
+        },
+        {
+          "type": "data_event_declarator",
+          "named": true
+        },
+        {
+          "type": "data_event_handler",
+          "named": true
+        },
+        {
+          "type": "declaration",
+          "named": true
+        },
+        {
+          "type": "define_call",
+          "named": true
+        },
+        {
+          "type": "define_function",
+          "named": true
+        },
+        {
+          "type": "define_module",
+          "named": true
+        },
+        {
+          "type": "devchan_operation_statement",
+          "named": true
+        },
+        {
+          "type": "event_definition",
+          "named": true
+        },
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "expression_statement",
+          "named": true
+        },
+        {
+          "type": "field_declaration",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "level_event_declarator",
+          "named": true
+        },
+        {
+          "type": "module_name",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_disable_warning",
+          "named": true
+        },
+        {
+          "type": "preproc_else_keyword",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "preproc_warn",
+          "named": true
+        },
+        {
+          "type": "program_name",
+          "named": true
+        },
+        {
+          "type": "push_event_declarator",
+          "named": true
+        },
+        {
+          "type": "release_event_declarator",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "section",
+          "named": true
+        },
+        {
+          "type": "select_statement",
+          "named": true
+        },
+        {
+          "type": "send_command_statement",
+          "named": true
+        },
+        {
+          "type": "send_level_statement",
+          "named": true
+        },
+        {
+          "type": "send_string_statement",
+          "named": true
+        },
+        {
+          "type": "switch_statement",
+          "named": true
+        },
+        {
+          "type": "system_call_statement",
+          "named": true
+        },
+        {
+          "type": "timeline_event_declarator",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "wait_statement",
+          "named": true
+        },
+        {
+          "type": "wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "preproc_if_defined",
+    "named": true,
+    "fields": {
+      "alternative": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "preproc_else",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "active_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "button_event_declarator",
+          "named": true
+        },
+        {
+          "type": "button_event_handler",
+          "named": true
+        },
+        {
+          "type": "call_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "case_statement",
+          "named": true
+        },
+        {
+          "type": "channel_event_declarator",
+          "named": true
+        },
+        {
+          "type": "channel_event_handler",
+          "named": true
+        },
+        {
+          "type": "clear_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "compound_statement",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "create_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "create_multi_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "custom_event_declarator",
+          "named": true
+        },
+        {
+          "type": "data_event_declarator",
+          "named": true
+        },
+        {
+          "type": "data_event_handler",
+          "named": true
+        },
+        {
+          "type": "declaration",
+          "named": true
+        },
+        {
+          "type": "define_call",
+          "named": true
+        },
+        {
+          "type": "define_function",
+          "named": true
+        },
+        {
+          "type": "define_module",
+          "named": true
+        },
+        {
+          "type": "devchan_operation_statement",
+          "named": true
+        },
+        {
+          "type": "event_definition",
+          "named": true
+        },
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "expression_statement",
+          "named": true
+        },
+        {
+          "type": "field_declaration",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "level_event_declarator",
+          "named": true
+        },
+        {
+          "type": "module_name",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_disable_warning",
+          "named": true
+        },
+        {
+          "type": "preproc_end_if_keyword",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined_keyword",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "preproc_warn",
+          "named": true
+        },
+        {
+          "type": "program_name",
+          "named": true
+        },
+        {
+          "type": "push_event_declarator",
+          "named": true
+        },
+        {
+          "type": "release_event_declarator",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "section",
+          "named": true
+        },
+        {
+          "type": "select_statement",
+          "named": true
+        },
+        {
+          "type": "send_command_statement",
+          "named": true
+        },
+        {
+          "type": "send_level_statement",
+          "named": true
+        },
+        {
+          "type": "send_string_statement",
+          "named": true
+        },
+        {
+          "type": "switch_statement",
+          "named": true
+        },
+        {
+          "type": "system_call_statement",
+          "named": true
+        },
+        {
+          "type": "timeline_event_declarator",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "wait_statement",
+          "named": true
+        },
+        {
+          "type": "wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "preproc_if_not_defined",
+    "named": true,
+    "fields": {
+      "alternative": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "preproc_else",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "active_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "button_event_declarator",
+          "named": true
+        },
+        {
+          "type": "button_event_handler",
+          "named": true
+        },
+        {
+          "type": "call_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "case_statement",
+          "named": true
+        },
+        {
+          "type": "channel_event_declarator",
+          "named": true
+        },
+        {
+          "type": "channel_event_handler",
+          "named": true
+        },
+        {
+          "type": "clear_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "compound_statement",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "create_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "create_multi_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "custom_event_declarator",
+          "named": true
+        },
+        {
+          "type": "data_event_declarator",
+          "named": true
+        },
+        {
+          "type": "data_event_handler",
+          "named": true
+        },
+        {
+          "type": "declaration",
+          "named": true
+        },
+        {
+          "type": "define_call",
+          "named": true
+        },
+        {
+          "type": "define_function",
+          "named": true
+        },
+        {
+          "type": "define_module",
+          "named": true
+        },
+        {
+          "type": "devchan_operation_statement",
+          "named": true
+        },
+        {
+          "type": "event_definition",
+          "named": true
+        },
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "expression_statement",
+          "named": true
+        },
+        {
+          "type": "field_declaration",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "level_event_declarator",
+          "named": true
+        },
+        {
+          "type": "module_name",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_disable_warning",
+          "named": true
+        },
+        {
+          "type": "preproc_end_if_keyword",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined_keyword",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "preproc_warn",
+          "named": true
+        },
+        {
+          "type": "program_name",
+          "named": true
+        },
+        {
+          "type": "push_event_declarator",
+          "named": true
+        },
+        {
+          "type": "release_event_declarator",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "section",
+          "named": true
+        },
+        {
+          "type": "select_statement",
+          "named": true
+        },
+        {
+          "type": "send_command_statement",
+          "named": true
+        },
+        {
+          "type": "send_level_statement",
+          "named": true
+        },
+        {
+          "type": "send_string_statement",
+          "named": true
+        },
+        {
+          "type": "switch_statement",
+          "named": true
+        },
+        {
+          "type": "system_call_statement",
+          "named": true
+        },
+        {
+          "type": "timeline_event_declarator",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "wait_statement",
+          "named": true
+        },
+        {
+          "type": "wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "preproc_include",
+    "named": true,
+    "fields": {
+      "path": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_include_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "preproc_warn",
+    "named": true,
+    "fields": {
+      "message": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_warn_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "primitive_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "char_keyword",
+          "named": true
+        },
+        {
+          "type": "double_keyword",
+          "named": true
+        },
+        {
+          "type": "float_keyword",
+          "named": true
+        },
+        {
+          "type": "integer_keyword",
+          "named": true
+        },
+        {
+          "type": "long_keyword",
+          "named": true
+        },
+        {
+          "type": "sinteger_keyword",
+          "named": true
+        },
+        {
+          "type": "slong_keyword",
+          "named": true
+        },
+        {
+          "type": "variant_keyword",
+          "named": true
+        },
+        {
+          "type": "variantarray_keyword",
+          "named": true
+        },
+        {
+          "type": "widechar_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "program_name",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "program_name_keyword",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "push_event_declarator",
+    "named": true,
+    "fields": {
+      "devchan": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "push_event_devchan_reference",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "push_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "push_event_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "push_event_declarator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "push_event_devchan_reference",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "release_event_declarator",
+    "named": true,
+    "fields": {
+      "devchan": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "release_event_devchan_reference",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "release_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "release_event_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "release_event_declarator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "release_event_devchan_reference",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "return_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comma_expression",
+          "named": true
+        },
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "return_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "section",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "define_combine_section",
+          "named": true
+        },
+        {
+          "type": "define_connect_level_section",
+          "named": true
+        },
+        {
+          "type": "define_constant_section",
+          "named": true
+        },
+        {
+          "type": "define_device_section",
+          "named": true
+        },
+        {
+          "type": "define_event_section",
+          "named": true
+        },
+        {
+          "type": "define_latching_section",
+          "named": true
+        },
+        {
+          "type": "define_mutually_exclusive_section",
+          "named": true
+        },
+        {
+          "type": "define_program_section",
+          "named": true
+        },
+        {
+          "type": "define_start_section",
+          "named": true
+        },
+        {
+          "type": "define_system_variable_section",
+          "named": true
+        },
+        {
+          "type": "define_toggling_section",
+          "named": true
+        },
+        {
+          "type": "define_type_section",
+          "named": true
+        },
+        {
+          "type": "define_variable_section",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "select_statement",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "select_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "send_command_statement",
+    "named": true,
+    "fields": {
+      "device": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "send_command_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "send_level_statement",
+    "named": true,
+    "fields": {
+      "device": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "level": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "send_level_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "send_string_statement",
+    "named": true,
+    "fields": {
+      "device": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "send_string_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "source_file",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "active_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "call_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_all_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_statement",
+          "named": true
+        },
+        {
+          "type": "cancel_wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "case_statement",
+          "named": true
+        },
+        {
+          "type": "clear_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "compound_statement",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "create_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "create_multi_buffer_statement",
+          "named": true
+        },
+        {
+          "type": "declaration",
+          "named": true
+        },
+        {
+          "type": "define_call",
+          "named": true
+        },
+        {
+          "type": "define_function",
+          "named": true
+        },
+        {
+          "type": "define_module",
+          "named": true
+        },
+        {
+          "type": "devchan_operation_statement",
+          "named": true
+        },
+        {
+          "type": "event_definition",
+          "named": true
+        },
+        {
+          "type": "expression_statement",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "module_name",
+          "named": true
+        },
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_disable_warning",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "preproc_warn",
+          "named": true
+        },
+        {
+          "type": "program_name",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "section",
+          "named": true
+        },
+        {
+          "type": "select_statement",
+          "named": true
+        },
+        {
+          "type": "send_command_statement",
+          "named": true
+        },
+        {
+          "type": "send_level_statement",
+          "named": true
+        },
+        {
+          "type": "send_string_statement",
+          "named": true
+        },
+        {
+          "type": "switch_statement",
+          "named": true
+        },
+        {
+          "type": "system_call_statement",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "wait_statement",
+          "named": true
+        },
+        {
+          "type": "wait_until_statement",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "storage_class_specifier",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "local_var_keyword",
+          "named": true
+        },
+        {
+          "type": "stack_var_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "string_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "string_literal",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "escape_sequence",
+          "named": true
+        },
+        {
+          "type": "string_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "struct_specifier",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "field_declaration_list",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "struct_keyword",
+          "named": true
+        },
+        {
+          "type": "structure_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "structured_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "dev_keyword",
+          "named": true
+        },
+        {
+          "type": "devchan_keyword",
+          "named": true
+        },
+        {
+          "type": "devlev_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "subscript_expression",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "index": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "switch_statement",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "switch_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "system_call_statement",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "argument_list",
+            "named": true
+          }
+        ]
+      },
+      "call": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "system_call_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "system_constant",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "amx_debug",
+          "named": true
+        },
+        {
+          "type": "amx_error",
+          "named": true
+        },
+        {
+          "type": "amx_info",
+          "named": true
+        },
+        {
+          "type": "amx_warning",
+          "named": true
+        },
+        {
+          "type": "auditlog_priv",
+          "named": true
+        },
+        {
+          "type": "clkmgr_mode_network",
+          "named": true
+        },
+        {
+          "type": "clkmgr_mode_standalone",
+          "named": true
+        },
+        {
+          "type": "configuration_priv",
+          "named": true
+        },
+        {
+          "type": "data_format_email",
+          "named": true
+        },
+        {
+          "type": "data_format_iso8601",
+          "named": true
+        },
+        {
+          "type": "data_format_phone",
+          "named": true
+        },
+        {
+          "type": "data_format_url",
+          "named": true
+        },
+        {
+          "type": "data_max_content_field_count",
+          "named": true
+        },
+        {
+          "type": "data_max_description_length",
+          "named": true
+        },
+        {
+          "type": "data_max_format_length",
+          "named": true
+        },
+        {
+          "type": "data_max_id_length",
+          "named": true
+        },
+        {
+          "type": "data_max_label_length",
+          "named": true
+        },
+        {
+          "type": "data_max_metadata_field_count",
+          "named": true
+        },
+        {
+          "type": "data_max_name_length",
+          "named": true
+        },
+        {
+          "type": "data_max_source_length",
+          "named": true
+        },
+        {
+          "type": "data_max_type_length",
+          "named": true
+        },
+        {
+          "type": "data_max_url_length",
+          "named": true
+        },
+        {
+          "type": "data_max_value_length",
+          "named": true
+        },
+        {
+          "type": "data_structure_datafeed",
+          "named": true
+        },
+        {
+          "type": "data_structure_datafield",
+          "named": true
+        },
+        {
+          "type": "data_structure_datarecord",
+          "named": true
+        },
+        {
+          "type": "data_structure_datarecordset",
+          "named": true
+        },
+        {
+          "type": "data_structure_unknown",
+          "named": true
+        },
+        {
+          "type": "data_type_date",
+          "named": true
+        },
+        {
+          "type": "data_type_datetime",
+          "named": true
+        },
+        {
+          "type": "data_type_image",
+          "named": true
+        },
+        {
+          "type": "data_type_string",
+          "named": true
+        },
+        {
+          "type": "data_type_time",
+          "named": true
+        },
+        {
+          "type": "data_type_unknown",
+          "named": true
+        },
+        {
+          "type": "deviceconfig_priv",
+          "named": true
+        },
+        {
+          "type": "do_push_timed_infinite",
+          "named": true
+        },
+        {
+          "type": "duet_dev_not_polled",
+          "named": true
+        },
+        {
+          "type": "duet_dev_polled",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_amplifier",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_audio_conferencer",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_audio_mixer",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_audio_processor",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_audio_tape",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_audio_tuner_device",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_camera",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_digital_media_decoder",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_digital_media_encoder",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_digital_media_server",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_disc_device",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_display_device",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_document_camera",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_dss",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_dvr",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_hvac",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_io_device",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_keypad",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_light",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_lightsystem_device",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_monitor",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_motor",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_multi_window",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_pool_spa",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_preamp_surround_sound_processor",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_receiver",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_relay_device",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_rfidsystem_device",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_security_system",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_sensor_device",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_settop_box",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_slide_projector",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_switcher",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_text_keypad",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_tv",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_ups",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_utility",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_vcr",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_video_conferencer",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_video_processor",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_video_projector",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_video_wall",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_volume_controller",
+          "named": true
+        },
+        {
+          "type": "duet_dev_type_weather",
+          "named": true
+        },
+        {
+          "type": "dynamic_virtual_device",
+          "named": true
+        },
+        {
+          "type": "err_authentication_error",
+          "named": true
+        },
+        {
+          "type": "err_general_error",
+          "named": true
+        },
+        {
+          "type": "err_invalid_account",
+          "named": true
+        },
+        {
+          "type": "err_invalid_parameter",
+          "named": true
+        },
+        {
+          "type": "err_name_invalid",
+          "named": true
+        },
+        {
+          "type": "err_no_authorization",
+          "named": true
+        },
+        {
+          "type": "err_password_invalid",
+          "named": true
+        },
+        {
+          "type": "err_user_account_expired",
+          "named": true
+        },
+        {
+          "type": "err_user_locked_out",
+          "named": true
+        },
+        {
+          "type": "false",
+          "named": true
+        },
+        {
+          "type": "file_read_only",
+          "named": true
+        },
+        {
+          "type": "file_rw_append",
+          "named": true
+        },
+        {
+          "type": "file_rw_new",
+          "named": true
+        },
+        {
+          "type": "first_local_port",
+          "named": true
+        },
+        {
+          "type": "first_virtual_device",
+          "named": true
+        },
+        {
+          "type": "ftp_priv",
+          "named": true
+        },
+        {
+          "type": "http_priv",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_axlink_tx",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_connection_mgr",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_device_mgr",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_diagnostic_mgr",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_icsp232_tx",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_icspip_tx",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_icsplontalk_tx",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_interpreter",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_ipconnection_mgr",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_message_dispatcher",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_ni_device",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_notification_mgr",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_phastlink_tx",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_route_mgr",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_index_tcp_tx",
+          "named": true
+        },
+        {
+          "type": "ip_addr_flg_dhcp",
+          "named": true
+        },
+        {
+          "type": "ip_multicast_ttl_option",
+          "named": true
+        },
+        {
+          "type": "ip_nodelay_off",
+          "named": true
+        },
+        {
+          "type": "ip_nodelay_on",
+          "named": true
+        },
+        {
+          "type": "ip_tcp",
+          "named": true
+        },
+        {
+          "type": "ip_tcp_nodelay_option",
+          "named": true
+        },
+        {
+          "type": "ip_ttl_continent",
+          "named": true
+        },
+        {
+          "type": "ip_ttl_region",
+          "named": true
+        },
+        {
+          "type": "ip_ttl_site",
+          "named": true
+        },
+        {
+          "type": "ip_ttl_subnet",
+          "named": true
+        },
+        {
+          "type": "ip_udp",
+          "named": true
+        },
+        {
+          "type": "ip_udp_2way",
+          "named": true
+        },
+        {
+          "type": "listview_on_row_select_event",
+          "named": true
+        },
+        {
+          "type": "max_last_login_info_length",
+          "named": true
+        },
+        {
+          "type": "netlinx_axi_version",
+          "named": true
+        },
+        {
+          "type": "netlinx_login_fail",
+          "named": true
+        },
+        {
+          "type": "netlinx_login_success",
+          "named": true
+        },
+        {
+          "type": "netlinx_logout",
+          "named": true
+        },
+        {
+          "type": "networkconfig_priv",
+          "named": true
+        },
+        {
+          "type": "normal_standby",
+          "named": true
+        },
+        {
+          "type": "normal_wake",
+          "named": true
+        },
+        {
+          "type": "null_str",
+          "named": true
+        },
+        {
+          "type": "programport_priv",
+          "named": true
+        },
+        {
+          "type": "remoteui_priv",
+          "named": true
+        },
+        {
+          "type": "securitycontrol_priv",
+          "named": true
+        },
+        {
+          "type": "smtp_address",
+          "named": true
+        },
+        {
+          "type": "smtp_from",
+          "named": true
+        },
+        {
+          "type": "smtp_password",
+          "named": true
+        },
+        {
+          "type": "smtp_port_number",
+          "named": true
+        },
+        {
+          "type": "smtp_require_tls",
+          "named": true
+        },
+        {
+          "type": "smtp_tls_false",
+          "named": true
+        },
+        {
+          "type": "smtp_tls_true",
+          "named": true
+        },
+        {
+          "type": "smtp_username",
+          "named": true
+        },
+        {
+          "type": "softwaremanagement_priv",
+          "named": true
+        },
+        {
+          "type": "source_type_axlink",
+          "named": true
+        },
+        {
+          "type": "source_type_internal",
+          "named": true
+        },
+        {
+          "type": "source_type_ip_address",
+          "named": true
+        },
+        {
+          "type": "source_type_ip_socket_address",
+          "named": true
+        },
+        {
+          "type": "source_type_ipv4_port",
+          "named": true
+        },
+        {
+          "type": "source_type_ipv4_port_mac_address",
+          "named": true
+        },
+        {
+          "type": "source_type_ipv4_port_mac_ipv6",
+          "named": true
+        },
+        {
+          "type": "source_type_mac_address",
+          "named": true
+        },
+        {
+          "type": "source_type_neuron_id",
+          "named": true
+        },
+        {
+          "type": "source_type_neuron_subnode_icsp",
+          "named": true
+        },
+        {
+          "type": "source_type_neuron_subnode_pl",
+          "named": true
+        },
+        {
+          "type": "source_type_no_address",
+          "named": true
+        },
+        {
+          "type": "source_type_rs232",
+          "named": true
+        },
+        {
+          "type": "terminal_priv",
+          "named": true
+        },
+        {
+          "type": "timeline_absolute",
+          "named": true
+        },
+        {
+          "type": "timeline_once",
+          "named": true
+        },
+        {
+          "type": "timeline_relative",
+          "named": true
+        },
+        {
+          "type": "timeline_repeat",
+          "named": true
+        },
+        {
+          "type": "tls_ignore_certificate_errors",
+          "named": true
+        },
+        {
+          "type": "tls_validate_certificate",
+          "named": true
+        },
+        {
+          "type": "tpadmin_priv",
+          "named": true
+        },
+        {
+          "type": "true",
+          "named": true
+        },
+        {
+          "type": "url_flg_accinfopresent",
+          "named": true
+        },
+        {
+          "type": "url_flg_stat_connected",
+          "named": true
+        },
+        {
+          "type": "url_flg_stat_connecting",
+          "named": true
+        },
+        {
+          "type": "url_flg_stat_lookup",
+          "named": true
+        },
+        {
+          "type": "url_flg_stat_mask",
+          "named": true
+        },
+        {
+          "type": "url_flg_stat_prgnetlinx",
+          "named": true
+        },
+        {
+          "type": "url_flg_stat_waiting",
+          "named": true
+        },
+        {
+          "type": "url_flg_tcp",
+          "named": true
+        },
+        {
+          "type": "url_flg_temp",
+          "named": true
+        },
+        {
+          "type": "user1_priv",
+          "named": true
+        },
+        {
+          "type": "user2_priv",
+          "named": true
+        },
+        {
+          "type": "user3_priv",
+          "named": true
+        },
+        {
+          "type": "user4_priv",
+          "named": true
+        },
+        {
+          "type": "usermanagement_priv",
+          "named": true
+        },
+        {
+          "type": "valid_account",
+          "named": true
+        },
+        {
+          "type": "xml_decode_no_preserve",
+          "named": true
+        },
+        {
+          "type": "xml_decode_types",
+          "named": true
+        },
+        {
+          "type": "xml_encode_char_as_list",
+          "named": true
+        },
+        {
+          "type": "xml_encode_le",
+          "named": true
+        },
+        {
+          "type": "xml_encode_types",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "system_function",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "abs_value",
+          "named": true
+        },
+        {
+          "type": "add_url_entry",
+          "named": true
+        },
+        {
+          "type": "amx_log",
+          "named": true
+        },
+        {
+          "type": "astro_clock",
+          "named": true
+        },
+        {
+          "type": "atof",
+          "named": true
+        },
+        {
+          "type": "atoi",
+          "named": true
+        },
+        {
+          "type": "atol",
+          "named": true
+        },
+        {
+          "type": "audit_netlinx_generic_event",
+          "named": true
+        },
+        {
+          "type": "audit_netlinx_session_event",
+          "named": true
+        },
+        {
+          "type": "authenticate_certificate",
+          "named": true
+        },
+        {
+          "type": "clkmgr_add_userdefined_timeserver",
+          "named": true
+        },
+        {
+          "type": "clkmgr_delete_userdefined_timeserver",
+          "named": true
+        },
+        {
+          "type": "clkmgr_get_active_timeserver",
+          "named": true
+        },
+        {
+          "type": "clkmgr_get_daylightsavings_offset",
+          "named": true
+        },
+        {
+          "type": "clkmgr_get_end_daylightsavings_rule",
+          "named": true
+        },
+        {
+          "type": "clkmgr_get_resync_period",
+          "named": true
+        },
+        {
+          "type": "clkmgr_get_start_daylightsavings_rule",
+          "named": true
+        },
+        {
+          "type": "clkmgr_get_timeservers",
+          "named": true
+        },
+        {
+          "type": "clkmgr_get_timezone",
+          "named": true
+        },
+        {
+          "type": "clkmgr_is_daylightsavings_on",
+          "named": true
+        },
+        {
+          "type": "clkmgr_is_network_sourced",
+          "named": true
+        },
+        {
+          "type": "clkmgr_set_active_timeserver",
+          "named": true
+        },
+        {
+          "type": "clkmgr_set_clk_source",
+          "named": true
+        },
+        {
+          "type": "clkmgr_set_daylightsavings_mode",
+          "named": true
+        },
+        {
+          "type": "clkmgr_set_daylightsavings_offset",
+          "named": true
+        },
+        {
+          "type": "clkmgr_set_end_daylightsavings_rule",
+          "named": true
+        },
+        {
+          "type": "clkmgr_set_resync_period",
+          "named": true
+        },
+        {
+          "type": "clkmgr_set_start_daylightsavings_rule",
+          "named": true
+        },
+        {
+          "type": "clkmgr_set_timezone",
+          "named": true
+        },
+        {
+          "type": "compare_string",
+          "named": true
+        },
+        {
+          "type": "data_add_record",
+          "named": true
+        },
+        {
+          "type": "data_create_feed",
+          "named": true
+        },
+        {
+          "type": "data_delete_feed",
+          "named": true
+        },
+        {
+          "type": "data_get_event_record",
+          "named": true
+        },
+        {
+          "type": "data_get_published_feed",
+          "named": true
+        },
+        {
+          "type": "data_publish_feed",
+          "named": true
+        },
+        {
+          "type": "date_to_day",
+          "named": true
+        },
+        {
+          "type": "date_to_month",
+          "named": true
+        },
+        {
+          "type": "date_to_year",
+          "named": true
+        },
+        {
+          "type": "day_of_week",
+          "named": true
+        },
+        {
+          "type": "delete_url_entry",
+          "named": true
+        },
+        {
+          "type": "device_id",
+          "named": true
+        },
+        {
+          "type": "device_id_string",
+          "named": true
+        },
+        {
+          "type": "device_info",
+          "named": true
+        },
+        {
+          "type": "device_standby",
+          "named": true
+        },
+        {
+          "type": "device_wake",
+          "named": true
+        },
+        {
+          "type": "do_custom_event",
+          "named": true
+        },
+        {
+          "type": "do_push",
+          "named": true
+        },
+        {
+          "type": "do_push_timed",
+          "named": true
+        },
+        {
+          "type": "do_release",
+          "named": true
+        },
+        {
+          "type": "duet_mem_size_get",
+          "named": true
+        },
+        {
+          "type": "duet_mem_size_set",
+          "named": true
+        },
+        {
+          "type": "dynamic_application_device",
+          "named": true
+        },
+        {
+          "type": "dynamic_polled_port",
+          "named": true
+        },
+        {
+          "type": "exp_value",
+          "named": true
+        },
+        {
+          "type": "file_close",
+          "named": true
+        },
+        {
+          "type": "file_copy",
+          "named": true
+        },
+        {
+          "type": "file_create_dir",
+          "named": true
+        },
+        {
+          "type": "file_delete",
+          "named": true
+        },
+        {
+          "type": "file_dir",
+          "named": true
+        },
+        {
+          "type": "file_getdir",
+          "named": true
+        },
+        {
+          "type": "file_open",
+          "named": true
+        },
+        {
+          "type": "file_read",
+          "named": true
+        },
+        {
+          "type": "file_read_line",
+          "named": true
+        },
+        {
+          "type": "file_remove_dir",
+          "named": true
+        },
+        {
+          "type": "file_rename",
+          "named": true
+        },
+        {
+          "type": "file_seek",
+          "named": true
+        },
+        {
+          "type": "file_setdir",
+          "named": true
+        },
+        {
+          "type": "file_write",
+          "named": true
+        },
+        {
+          "type": "file_write_line",
+          "named": true
+        },
+        {
+          "type": "find_string",
+          "named": true
+        },
+        {
+          "type": "format",
+          "named": true
+        },
+        {
+          "type": "ftoa",
+          "named": true
+        },
+        {
+          "type": "get_available_flash_disk_space",
+          "named": true
+        },
+        {
+          "type": "get_buffer_char",
+          "named": true
+        },
+        {
+          "type": "get_buffer_string",
+          "named": true
+        },
+        {
+          "type": "get_dns_list",
+          "named": true
+        },
+        {
+          "type": "get_ip_address",
+          "named": true
+        },
+        {
+          "type": "get_last",
+          "named": true
+        },
+        {
+          "type": "get_log_level",
+          "named": true
+        },
+        {
+          "type": "get_master_build",
+          "named": true
+        },
+        {
+          "type": "get_max_flash_disk_space",
+          "named": true
+        },
+        {
+          "type": "get_multi_buffer_string",
+          "named": true
+        },
+        {
+          "type": "get_serial_number",
+          "named": true
+        },
+        {
+          "type": "get_system_number",
+          "named": true
+        },
+        {
+          "type": "get_unique_id",
+          "named": true
+        },
+        {
+          "type": "get_url_list",
+          "named": true
+        },
+        {
+          "type": "hextoi",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_get",
+          "named": true
+        },
+        {
+          "type": "internal_queue_size_set",
+          "named": true
+        },
+        {
+          "type": "internal_threshold_get",
+          "named": true
+        },
+        {
+          "type": "internal_threshold_set",
+          "named": true
+        },
+        {
+          "type": "ip_bound_client_open",
+          "named": true
+        },
+        {
+          "type": "ip_client_close",
+          "named": true
+        },
+        {
+          "type": "ip_client_open",
+          "named": true
+        },
+        {
+          "type": "ip_mc_server_open",
+          "named": true
+        },
+        {
+          "type": "ip_server_close",
+          "named": true
+        },
+        {
+          "type": "ip_server_open",
+          "named": true
+        },
+        {
+          "type": "ip_set_option",
+          "named": true
+        },
+        {
+          "type": "itoa",
+          "named": true
+        },
+        {
+          "type": "itohex",
+          "named": true
+        },
+        {
+          "type": "left_string",
+          "named": true
+        },
+        {
+          "type": "length_array",
+          "named": true
+        },
+        {
+          "type": "length_string",
+          "named": true
+        },
+        {
+          "type": "length_variable_to_string",
+          "named": true
+        },
+        {
+          "type": "length_variable_to_xml",
+          "named": true
+        },
+        {
+          "type": "load_duet_module",
+          "named": true
+        },
+        {
+          "type": "log10_value",
+          "named": true
+        },
+        {
+          "type": "log_value",
+          "named": true
+        },
+        {
+          "type": "lower_string",
+          "named": true
+        },
+        {
+          "type": "max_length_array",
+          "named": true
+        },
+        {
+          "type": "max_length_string",
+          "named": true
+        },
+        {
+          "type": "max_value",
+          "named": true
+        },
+        {
+          "type": "mid_string",
+          "named": true
+        },
+        {
+          "type": "min_value",
+          "named": true
+        },
+        {
+          "type": "power_value",
+          "named": true
+        },
+        {
+          "type": "random_number",
+          "named": true
+        },
+        {
+          "type": "raw_be",
+          "named": true
+        },
+        {
+          "type": "raw_le",
+          "named": true
+        },
+        {
+          "type": "reboot",
+          "named": true
+        },
+        {
+          "type": "rebuilt_event",
+          "named": true
+        },
+        {
+          "type": "redirect_string",
+          "named": true
+        },
+        {
+          "type": "remove_string",
+          "named": true
+        },
+        {
+          "type": "right_string",
+          "named": true
+        },
+        {
+          "type": "set_dns_list",
+          "named": true
+        },
+        {
+          "type": "set_ip_address",
+          "named": true
+        },
+        {
+          "type": "set_length_array",
+          "named": true
+        },
+        {
+          "type": "set_length_string",
+          "named": true
+        },
+        {
+          "type": "set_log_level",
+          "named": true
+        },
+        {
+          "type": "set_outdoor_temperature",
+          "named": true
+        },
+        {
+          "type": "set_pulse_time",
+          "named": true
+        },
+        {
+          "type": "set_system_number",
+          "named": true
+        },
+        {
+          "type": "set_timer",
+          "named": true
+        },
+        {
+          "type": "set_validation_code",
+          "named": true
+        },
+        {
+          "type": "set_virtual_channel_count",
+          "named": true
+        },
+        {
+          "type": "set_virtual_level_count",
+          "named": true
+        },
+        {
+          "type": "set_virtual_port_count",
+          "named": true
+        },
+        {
+          "type": "smtp_send",
+          "named": true
+        },
+        {
+          "type": "smtp_server_config_get",
+          "named": true
+        },
+        {
+          "type": "smtp_server_config_set",
+          "named": true
+        },
+        {
+          "type": "sqrt_value",
+          "named": true
+        },
+        {
+          "type": "ssh_client_close",
+          "named": true
+        },
+        {
+          "type": "ssh_client_open",
+          "named": true
+        },
+        {
+          "type": "static_ip_binding",
+          "named": true
+        },
+        {
+          "type": "static_port_binding",
+          "named": true
+        },
+        {
+          "type": "string_to_variable",
+          "named": true
+        },
+        {
+          "type": "time_to_hour",
+          "named": true
+        },
+        {
+          "type": "time_to_minute",
+          "named": true
+        },
+        {
+          "type": "time_to_second",
+          "named": true
+        },
+        {
+          "type": "timeline_active",
+          "named": true
+        },
+        {
+          "type": "timeline_create",
+          "named": true
+        },
+        {
+          "type": "timeline_dynamic_id",
+          "named": true
+        },
+        {
+          "type": "timeline_get",
+          "named": true
+        },
+        {
+          "type": "timeline_kill",
+          "named": true
+        },
+        {
+          "type": "timeline_pause",
+          "named": true
+        },
+        {
+          "type": "timeline_reload",
+          "named": true
+        },
+        {
+          "type": "timeline_restart",
+          "named": true
+        },
+        {
+          "type": "timeline_set",
+          "named": true
+        },
+        {
+          "type": "tls_client_close",
+          "named": true
+        },
+        {
+          "type": "tls_client_open",
+          "named": true
+        },
+        {
+          "type": "type_cast",
+          "named": true
+        },
+        {
+          "type": "unload_duet_module",
+          "named": true
+        },
+        {
+          "type": "upper_string",
+          "named": true
+        },
+        {
+          "type": "validate_netlinx_account",
+          "named": true
+        },
+        {
+          "type": "validate_netlinx_account_with_permission",
+          "named": true
+        },
+        {
+          "type": "variable_to_string",
+          "named": true
+        },
+        {
+          "type": "variable_to_xml",
+          "named": true
+        },
+        {
+          "type": "xml_to_variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "system_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "clkmgr_timeserver_struct",
+          "named": true
+        },
+        {
+          "type": "data_feed",
+          "named": true
+        },
+        {
+          "type": "data_field",
+          "named": true
+        },
+        {
+          "type": "data_record",
+          "named": true
+        },
+        {
+          "type": "dev_info_struct",
+          "named": true
+        },
+        {
+          "type": "dns_struct",
+          "named": true
+        },
+        {
+          "type": "ip_address_struct",
+          "named": true
+        },
+        {
+          "type": "last_login_info",
+          "named": true
+        },
+        {
+          "type": "tbutton",
+          "named": true
+        },
+        {
+          "type": "tchannel",
+          "named": true
+        },
+        {
+          "type": "tcustom",
+          "named": true
+        },
+        {
+          "type": "tdata",
+          "named": true
+        },
+        {
+          "type": "tlevel",
+          "named": true
+        },
+        {
+          "type": "ttimeline",
+          "named": true
+        },
+        {
+          "type": "url_struct",
+          "named": true
+        },
+        {
+          "type": "wc_data_feed",
+          "named": true
+        },
+        {
+          "type": "wc_data_field",
+          "named": true
+        },
+        {
+          "type": "wc_data_record",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "system_variable",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "button",
+          "named": true
+        },
+        {
+          "type": "channel",
+          "named": true
+        },
+        {
+          "type": "custom",
+          "named": true
+        },
+        {
+          "type": "data",
+          "named": true
+        },
+        {
+          "type": "date",
+          "named": true
+        },
+        {
+          "type": "day",
+          "named": true
+        },
+        {
+          "type": "dv_channel",
+          "named": true
+        },
+        {
+          "type": "get_pulse_time",
+          "named": true
+        },
+        {
+          "type": "get_timer",
+          "named": true
+        },
+        {
+          "type": "ldate",
+          "named": true
+        },
+        {
+          "type": "level",
+          "named": true
+        },
+        {
+          "type": "master_slot",
+          "named": true
+        },
+        {
+          "type": "master_sn",
+          "named": true
+        },
+        {
+          "type": "push_channel",
+          "named": true
+        },
+        {
+          "type": "push_devchan",
+          "named": true
+        },
+        {
+          "type": "push_device",
+          "named": true
+        },
+        {
+          "type": "release_channel",
+          "named": true
+        },
+        {
+          "type": "release_devchan",
+          "named": true
+        },
+        {
+          "type": "release_device",
+          "named": true
+        },
+        {
+          "type": "system_number",
+          "named": true
+        },
+        {
+          "type": "time",
+          "named": true
+        },
+        {
+          "type": "timeline",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "timeline_event_declarator",
+    "named": true,
+    "fields": {
+      "id": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "timeline_event_id_reference",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "timeline_event_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "timeline_event_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "compound_statement",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_define",
+          "named": true
+        },
+        {
+          "type": "preproc_if_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_if_not_defined",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "timeline_event_declarator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "timeline_event_id_reference",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "struct_specifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_qualifier",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "constant_keyword",
+          "named": true
+        },
+        {
+          "type": "non_volatile_keyword",
+          "named": true
+        },
+        {
+          "type": "persistent_keyword",
+          "named": true
+        },
+        {
+          "type": "volatile_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unary_expression",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "operator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "!",
+            "named": false
+          },
+          {
+            "type": "+",
+            "named": false
+          },
+          {
+            "type": "-",
+            "named": false
+          },
+          {
+            "type": "bnot",
+            "named": true
+          },
+          {
+            "type": "not",
+            "named": true
+          },
+          {
+            "type": "~",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "update_expression",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "operator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "++",
+            "named": false
+          },
+          {
+            "type": "--",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "wait_statement",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "time": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "wait_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "wait_until_statement",
+    "named": true,
+    "fields": {
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "wait_until_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "while_statement",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "statement",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "long_while_keyword",
+          "named": true
+        },
+        {
+          "type": "while_keyword",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "\n",
+    "named": false
+  },
+  {
+    "type": "!",
+    "named": false
+  },
+  {
+    "type": "!=",
+    "named": false
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "%",
+    "named": false
+  },
+  {
+    "type": "&",
+    "named": false
+  },
+  {
+    "type": "&&",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "+",
+    "named": false
+  },
+  {
+    "type": "++",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": "--",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "<",
+    "named": false
+  },
+  {
+    "type": "<<",
+    "named": false
+  },
+  {
+    "type": "<=",
+    "named": false
+  },
+  {
+    "type": "<>",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "==",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": ">=",
+    "named": false
+  },
+  {
+    "type": ">>",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "^",
+    "named": false
+  },
+  {
+    "type": "abs_value",
+    "named": true
+  },
+  {
+    "type": "active_keyword",
+    "named": true
+  },
+  {
+    "type": "add_url_entry",
+    "named": true
+  },
+  {
+    "type": "amx_debug",
+    "named": true
+  },
+  {
+    "type": "amx_error",
+    "named": true
+  },
+  {
+    "type": "amx_info",
+    "named": true
+  },
+  {
+    "type": "amx_log",
+    "named": true
+  },
+  {
+    "type": "amx_warning",
+    "named": true
+  },
+  {
+    "type": "and",
+    "named": true
+  },
+  {
+    "type": "astro_clock",
+    "named": true
+  },
+  {
+    "type": "atof",
+    "named": true
+  },
+  {
+    "type": "atoi",
+    "named": true
+  },
+  {
+    "type": "atol",
+    "named": true
+  },
+  {
+    "type": "audit_netlinx_generic_event",
+    "named": true
+  },
+  {
+    "type": "audit_netlinx_session_event",
+    "named": true
+  },
+  {
+    "type": "auditlog_priv",
+    "named": true
+  },
+  {
+    "type": "authenticate_certificate",
+    "named": true
+  },
+  {
+    "type": "awake_keyword",
+    "named": true
+  },
+  {
+    "type": "band",
+    "named": true
+  },
+  {
+    "type": "bnot",
+    "named": true
+  },
+  {
+    "type": "bor",
+    "named": true
+  },
+  {
+    "type": "break_keyword",
+    "named": true
+  },
+  {
+    "type": "button",
+    "named": true
+  },
+  {
+    "type": "button_event_keyword",
+    "named": true
+  },
+  {
+    "type": "bxor",
+    "named": true
+  },
+  {
+    "type": "call_keyword",
+    "named": true
+  },
+  {
+    "type": "cancel_all_wait_keyword",
+    "named": true
+  },
+  {
+    "type": "cancel_all_wait_until_keyword",
+    "named": true
+  },
+  {
+    "type": "cancel_wait_keyword",
+    "named": true
+  },
+  {
+    "type": "cancel_wait_until_keyword",
+    "named": true
+  },
+  {
+    "type": "case_keyword",
+    "named": true
+  },
+  {
+    "type": "channel",
+    "named": true
+  },
+  {
+    "type": "channel_event_keyword",
+    "named": true
+  },
+  {
+    "type": "char_keyword",
+    "named": true
+  },
+  {
+    "type": "clear_buffer_keyword",
+    "named": true
+  },
+  {
+    "type": "clkmgr_add_userdefined_timeserver",
+    "named": true
+  },
+  {
+    "type": "clkmgr_delete_userdefined_timeserver",
+    "named": true
+  },
+  {
+    "type": "clkmgr_get_active_timeserver",
+    "named": true
+  },
+  {
+    "type": "clkmgr_get_daylightsavings_offset",
+    "named": true
+  },
+  {
+    "type": "clkmgr_get_end_daylightsavings_rule",
+    "named": true
+  },
+  {
+    "type": "clkmgr_get_resync_period",
+    "named": true
+  },
+  {
+    "type": "clkmgr_get_start_daylightsavings_rule",
+    "named": true
+  },
+  {
+    "type": "clkmgr_get_timeservers",
+    "named": true
+  },
+  {
+    "type": "clkmgr_get_timezone",
+    "named": true
+  },
+  {
+    "type": "clkmgr_is_daylightsavings_on",
+    "named": true
+  },
+  {
+    "type": "clkmgr_is_network_sourced",
+    "named": true
+  },
+  {
+    "type": "clkmgr_mode_network",
+    "named": true
+  },
+  {
+    "type": "clkmgr_mode_standalone",
+    "named": true
+  },
+  {
+    "type": "clkmgr_set_active_timeserver",
+    "named": true
+  },
+  {
+    "type": "clkmgr_set_clk_source",
+    "named": true
+  },
+  {
+    "type": "clkmgr_set_daylightsavings_mode",
+    "named": true
+  },
+  {
+    "type": "clkmgr_set_daylightsavings_offset",
+    "named": true
+  },
+  {
+    "type": "clkmgr_set_end_daylightsavings_rule",
+    "named": true
+  },
+  {
+    "type": "clkmgr_set_resync_period",
+    "named": true
+  },
+  {
+    "type": "clkmgr_set_start_daylightsavings_rule",
+    "named": true
+  },
+  {
+    "type": "clkmgr_set_timezone",
+    "named": true
+  },
+  {
+    "type": "clkmgr_timeserver_struct",
+    "named": true
+  },
+  {
+    "type": "command_keyword",
+    "named": true
+  },
+  {
+    "type": "comment",
+    "named": true,
+    "extra": true
+  },
+  {
+    "type": "compare_string",
+    "named": true
+  },
+  {
+    "type": "configuration_priv",
+    "named": true
+  },
+  {
+    "type": "constant_keyword",
+    "named": true
+  },
+  {
+    "type": "continue_keyword",
+    "named": true
+  },
+  {
+    "type": "create_buffer_keyword",
+    "named": true
+  },
+  {
+    "type": "create_multi_buffer_keyword",
+    "named": true
+  },
+  {
+    "type": "custom",
+    "named": true
+  },
+  {
+    "type": "custom_event_keyword",
+    "named": true
+  },
+  {
+    "type": "data",
+    "named": true
+  },
+  {
+    "type": "data_add_record",
+    "named": true
+  },
+  {
+    "type": "data_create_feed",
+    "named": true
+  },
+  {
+    "type": "data_delete_feed",
+    "named": true
+  },
+  {
+    "type": "data_event_keyword",
+    "named": true
+  },
+  {
+    "type": "data_feed",
+    "named": true
+  },
+  {
+    "type": "data_field",
+    "named": true
+  },
+  {
+    "type": "data_format_email",
+    "named": true
+  },
+  {
+    "type": "data_format_iso8601",
+    "named": true
+  },
+  {
+    "type": "data_format_phone",
+    "named": true
+  },
+  {
+    "type": "data_format_url",
+    "named": true
+  },
+  {
+    "type": "data_get_event_record",
+    "named": true
+  },
+  {
+    "type": "data_get_published_feed",
+    "named": true
+  },
+  {
+    "type": "data_max_content_field_count",
+    "named": true
+  },
+  {
+    "type": "data_max_description_length",
+    "named": true
+  },
+  {
+    "type": "data_max_format_length",
+    "named": true
+  },
+  {
+    "type": "data_max_id_length",
+    "named": true
+  },
+  {
+    "type": "data_max_label_length",
+    "named": true
+  },
+  {
+    "type": "data_max_metadata_field_count",
+    "named": true
+  },
+  {
+    "type": "data_max_name_length",
+    "named": true
+  },
+  {
+    "type": "data_max_source_length",
+    "named": true
+  },
+  {
+    "type": "data_max_type_length",
+    "named": true
+  },
+  {
+    "type": "data_max_url_length",
+    "named": true
+  },
+  {
+    "type": "data_max_value_length",
+    "named": true
+  },
+  {
+    "type": "data_publish_feed",
+    "named": true
+  },
+  {
+    "type": "data_record",
+    "named": true
+  },
+  {
+    "type": "data_structure_datafeed",
+    "named": true
+  },
+  {
+    "type": "data_structure_datafield",
+    "named": true
+  },
+  {
+    "type": "data_structure_datarecord",
+    "named": true
+  },
+  {
+    "type": "data_structure_datarecordset",
+    "named": true
+  },
+  {
+    "type": "data_structure_unknown",
+    "named": true
+  },
+  {
+    "type": "data_type_date",
+    "named": true
+  },
+  {
+    "type": "data_type_datetime",
+    "named": true
+  },
+  {
+    "type": "data_type_image",
+    "named": true
+  },
+  {
+    "type": "data_type_string",
+    "named": true
+  },
+  {
+    "type": "data_type_time",
+    "named": true
+  },
+  {
+    "type": "data_type_unknown",
+    "named": true
+  },
+  {
+    "type": "date",
+    "named": true
+  },
+  {
+    "type": "date_to_day",
+    "named": true
+  },
+  {
+    "type": "date_to_month",
+    "named": true
+  },
+  {
+    "type": "date_to_year",
+    "named": true
+  },
+  {
+    "type": "day",
+    "named": true
+  },
+  {
+    "type": "day_of_week",
+    "named": true
+  },
+  {
+    "type": "default_keyword",
+    "named": true
+  },
+  {
+    "type": "define_call_keyword",
+    "named": true
+  },
+  {
+    "type": "define_combine_keyword",
+    "named": true
+  },
+  {
+    "type": "define_connect_level_keyword",
+    "named": true
+  },
+  {
+    "type": "define_constant_keyword",
+    "named": true
+  },
+  {
+    "type": "define_device_keyword",
+    "named": true
+  },
+  {
+    "type": "define_event_keyword",
+    "named": true
+  },
+  {
+    "type": "define_function_keyword",
+    "named": true
+  },
+  {
+    "type": "define_latching_keyword",
+    "named": true
+  },
+  {
+    "type": "define_library_function_keyword",
+    "named": true
+  },
+  {
+    "type": "define_module_keyword",
+    "named": true
+  },
+  {
+    "type": "define_mutually_exclusive_keyword",
+    "named": true
+  },
+  {
+    "type": "define_program_keyword",
+    "named": true
+  },
+  {
+    "type": "define_start_keyword",
+    "named": true
+  },
+  {
+    "type": "define_system_variable_keyword",
+    "named": true
+  },
+  {
+    "type": "define_toggling_keyword",
+    "named": true
+  },
+  {
+    "type": "define_type_keyword",
+    "named": true
+  },
+  {
+    "type": "define_variable_keyword",
+    "named": true
+  },
+  {
+    "type": "delete_url_entry",
+    "named": true
+  },
+  {
+    "type": "dev_info_struct",
+    "named": true
+  },
+  {
+    "type": "dev_keyword",
+    "named": true
+  },
+  {
+    "type": "devchan_keyword",
+    "named": true
+  },
+  {
+    "type": "devchan_min_to_keyword",
+    "named": true
+  },
+  {
+    "type": "devchan_pulse_keyword",
+    "named": true
+  },
+  {
+    "type": "devchan_to_keyword",
+    "named": true
+  },
+  {
+    "type": "devchan_total_off_keyword",
+    "named": true
+  },
+  {
+    "type": "device_id",
+    "named": true
+  },
+  {
+    "type": "device_id_string",
+    "named": true
+  },
+  {
+    "type": "device_info",
+    "named": true
+  },
+  {
+    "type": "device_standby",
+    "named": true
+  },
+  {
+    "type": "device_wake",
+    "named": true
+  },
+  {
+    "type": "deviceconfig_priv",
+    "named": true
+  },
+  {
+    "type": "devlev_keyword",
+    "named": true
+  },
+  {
+    "type": "dns_struct",
+    "named": true
+  },
+  {
+    "type": "do_custom_event",
+    "named": true
+  },
+  {
+    "type": "do_push",
+    "named": true
+  },
+  {
+    "type": "do_push_timed",
+    "named": true
+  },
+  {
+    "type": "do_push_timed_infinite",
+    "named": true
+  },
+  {
+    "type": "do_release",
+    "named": true
+  },
+  {
+    "type": "double_keyword",
+    "named": true
+  },
+  {
+    "type": "duet_dev_not_polled",
+    "named": true
+  },
+  {
+    "type": "duet_dev_polled",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_amplifier",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_audio_conferencer",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_audio_mixer",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_audio_processor",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_audio_tape",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_audio_tuner_device",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_camera",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_digital_media_decoder",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_digital_media_encoder",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_digital_media_server",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_disc_device",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_display_device",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_document_camera",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_dss",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_dvr",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_hvac",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_io_device",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_keypad",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_light",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_lightsystem_device",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_monitor",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_motor",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_multi_window",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_pool_spa",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_preamp_surround_sound_processor",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_receiver",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_relay_device",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_rfidsystem_device",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_security_system",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_sensor_device",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_settop_box",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_slide_projector",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_switcher",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_text_keypad",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_tv",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_ups",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_utility",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_vcr",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_video_conferencer",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_video_processor",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_video_projector",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_video_wall",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_volume_controller",
+    "named": true
+  },
+  {
+    "type": "duet_dev_type_weather",
+    "named": true
+  },
+  {
+    "type": "duet_mem_size_get",
+    "named": true
+  },
+  {
+    "type": "duet_mem_size_set",
+    "named": true
+  },
+  {
+    "type": "dv_channel",
+    "named": true
+  },
+  {
+    "type": "dynamic_application_device",
+    "named": true
+  },
+  {
+    "type": "dynamic_polled_port",
+    "named": true
+  },
+  {
+    "type": "dynamic_virtual_device",
+    "named": true
+  },
+  {
+    "type": "else_keyword",
+    "named": true
+  },
+  {
+    "type": "err_authentication_error",
+    "named": true
+  },
+  {
+    "type": "err_general_error",
+    "named": true
+  },
+  {
+    "type": "err_invalid_account",
+    "named": true
+  },
+  {
+    "type": "err_invalid_parameter",
+    "named": true
+  },
+  {
+    "type": "err_name_invalid",
+    "named": true
+  },
+  {
+    "type": "err_no_authorization",
+    "named": true
+  },
+  {
+    "type": "err_password_invalid",
+    "named": true
+  },
+  {
+    "type": "err_user_account_expired",
+    "named": true
+  },
+  {
+    "type": "err_user_locked_out",
+    "named": true
+  },
+  {
+    "type": "escape_sequence",
+    "named": true
+  },
+  {
+    "type": "exp_value",
+    "named": true
+  },
+  {
+    "type": "false",
+    "named": true
+  },
+  {
+    "type": "field_identifier",
+    "named": true
+  },
+  {
+    "type": "file_close",
+    "named": true
+  },
+  {
+    "type": "file_copy",
+    "named": true
+  },
+  {
+    "type": "file_create_dir",
+    "named": true
+  },
+  {
+    "type": "file_delete",
+    "named": true
+  },
+  {
+    "type": "file_dir",
+    "named": true
+  },
+  {
+    "type": "file_getdir",
+    "named": true
+  },
+  {
+    "type": "file_open",
+    "named": true
+  },
+  {
+    "type": "file_read",
+    "named": true
+  },
+  {
+    "type": "file_read_line",
+    "named": true
+  },
+  {
+    "type": "file_read_only",
+    "named": true
+  },
+  {
+    "type": "file_remove_dir",
+    "named": true
+  },
+  {
+    "type": "file_rename",
+    "named": true
+  },
+  {
+    "type": "file_rw_append",
+    "named": true
+  },
+  {
+    "type": "file_rw_new",
+    "named": true
+  },
+  {
+    "type": "file_seek",
+    "named": true
+  },
+  {
+    "type": "file_setdir",
+    "named": true
+  },
+  {
+    "type": "file_write",
+    "named": true
+  },
+  {
+    "type": "file_write_line",
+    "named": true
+  },
+  {
+    "type": "find_string",
+    "named": true
+  },
+  {
+    "type": "first_local_port",
+    "named": true
+  },
+  {
+    "type": "first_virtual_device",
+    "named": true
+  },
+  {
+    "type": "float_keyword",
+    "named": true
+  },
+  {
+    "type": "for_keyword",
+    "named": true
+  },
+  {
+    "type": "format",
+    "named": true
+  },
+  {
+    "type": "ftoa",
+    "named": true
+  },
+  {
+    "type": "ftp_priv",
+    "named": true
+  },
+  {
+    "type": "get_available_flash_disk_space",
+    "named": true
+  },
+  {
+    "type": "get_buffer_char",
+    "named": true
+  },
+  {
+    "type": "get_buffer_string",
+    "named": true
+  },
+  {
+    "type": "get_dns_list",
+    "named": true
+  },
+  {
+    "type": "get_ip_address",
+    "named": true
+  },
+  {
+    "type": "get_last",
+    "named": true
+  },
+  {
+    "type": "get_log_level",
+    "named": true
+  },
+  {
+    "type": "get_master_build",
+    "named": true
+  },
+  {
+    "type": "get_max_flash_disk_space",
+    "named": true
+  },
+  {
+    "type": "get_multi_buffer_string",
+    "named": true
+  },
+  {
+    "type": "get_pulse_time",
+    "named": true
+  },
+  {
+    "type": "get_serial_number",
+    "named": true
+  },
+  {
+    "type": "get_system_number",
+    "named": true
+  },
+  {
+    "type": "get_timer",
+    "named": true
+  },
+  {
+    "type": "get_unique_id",
+    "named": true
+  },
+  {
+    "type": "get_url_list",
+    "named": true
+  },
+  {
+    "type": "hextoi",
+    "named": true
+  },
+  {
+    "type": "hold_keyword",
+    "named": true
+  },
+  {
+    "type": "http_priv",
+    "named": true
+  },
+  {
+    "type": "if_keyword",
+    "named": true
+  },
+  {
+    "type": "integer_keyword",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_get",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_axlink_tx",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_connection_mgr",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_device_mgr",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_diagnostic_mgr",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_icsp232_tx",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_icspip_tx",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_icsplontalk_tx",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_interpreter",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_ipconnection_mgr",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_message_dispatcher",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_ni_device",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_notification_mgr",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_phastlink_tx",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_route_mgr",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_index_tcp_tx",
+    "named": true
+  },
+  {
+    "type": "internal_queue_size_set",
+    "named": true
+  },
+  {
+    "type": "internal_threshold_get",
+    "named": true
+  },
+  {
+    "type": "internal_threshold_set",
+    "named": true
+  },
+  {
+    "type": "ip_addr_flg_dhcp",
+    "named": true
+  },
+  {
+    "type": "ip_address_struct",
+    "named": true
+  },
+  {
+    "type": "ip_bound_client_open",
+    "named": true
+  },
+  {
+    "type": "ip_client_close",
+    "named": true
+  },
+  {
+    "type": "ip_client_open",
+    "named": true
+  },
+  {
+    "type": "ip_mc_server_open",
+    "named": true
+  },
+  {
+    "type": "ip_multicast_ttl_option",
+    "named": true
+  },
+  {
+    "type": "ip_nodelay_off",
+    "named": true
+  },
+  {
+    "type": "ip_nodelay_on",
+    "named": true
+  },
+  {
+    "type": "ip_server_close",
+    "named": true
+  },
+  {
+    "type": "ip_server_open",
+    "named": true
+  },
+  {
+    "type": "ip_set_option",
+    "named": true
+  },
+  {
+    "type": "ip_tcp",
+    "named": true
+  },
+  {
+    "type": "ip_tcp_nodelay_option",
+    "named": true
+  },
+  {
+    "type": "ip_ttl_continent",
+    "named": true
+  },
+  {
+    "type": "ip_ttl_region",
+    "named": true
+  },
+  {
+    "type": "ip_ttl_site",
+    "named": true
+  },
+  {
+    "type": "ip_ttl_subnet",
+    "named": true
+  },
+  {
+    "type": "ip_udp",
+    "named": true
+  },
+  {
+    "type": "ip_udp_2way",
+    "named": true
+  },
+  {
+    "type": "itoa",
+    "named": true
+  },
+  {
+    "type": "itohex",
+    "named": true
+  },
+  {
+    "type": "last_login_info",
+    "named": true
+  },
+  {
+    "type": "ldate",
+    "named": true
+  },
+  {
+    "type": "left_string",
+    "named": true
+  },
+  {
+    "type": "length_array",
+    "named": true
+  },
+  {
+    "type": "length_string",
+    "named": true
+  },
+  {
+    "type": "length_variable_to_string",
+    "named": true
+  },
+  {
+    "type": "length_variable_to_xml",
+    "named": true
+  },
+  {
+    "type": "level",
+    "named": true
+  },
+  {
+    "type": "level_event_keyword",
+    "named": true
+  },
+  {
+    "type": "listview_on_row_select_event",
+    "named": true
+  },
+  {
+    "type": "load_duet_module",
+    "named": true
+  },
+  {
+    "type": "local_var_keyword",
+    "named": true
+  },
+  {
+    "type": "log10_value",
+    "named": true
+  },
+  {
+    "type": "log_value",
+    "named": true
+  },
+  {
+    "type": "long_keyword",
+    "named": true
+  },
+  {
+    "type": "long_while_keyword",
+    "named": true
+  },
+  {
+    "type": "lower_string",
+    "named": true
+  },
+  {
+    "type": "lshift",
+    "named": true
+  },
+  {
+    "type": "master_slot",
+    "named": true
+  },
+  {
+    "type": "master_sn",
+    "named": true
+  },
+  {
+    "type": "max_last_login_info_length",
+    "named": true
+  },
+  {
+    "type": "max_length_array",
+    "named": true
+  },
+  {
+    "type": "max_length_string",
+    "named": true
+  },
+  {
+    "type": "max_value",
+    "named": true
+  },
+  {
+    "type": "mid_string",
+    "named": true
+  },
+  {
+    "type": "min_value",
+    "named": true
+  },
+  {
+    "type": "module_name_keyword",
+    "named": true
+  },
+  {
+    "type": "netlinx_axi_version",
+    "named": true
+  },
+  {
+    "type": "netlinx_login_fail",
+    "named": true
+  },
+  {
+    "type": "netlinx_login_success",
+    "named": true
+  },
+  {
+    "type": "netlinx_logout",
+    "named": true
+  },
+  {
+    "type": "networkconfig_priv",
+    "named": true
+  },
+  {
+    "type": "non_volatile_keyword",
+    "named": true
+  },
+  {
+    "type": "normal_standby",
+    "named": true
+  },
+  {
+    "type": "normal_wake",
+    "named": true
+  },
+  {
+    "type": "not",
+    "named": true
+  },
+  {
+    "type": "null_str",
+    "named": true
+  },
+  {
+    "type": "number_literal",
+    "named": true
+  },
+  {
+    "type": "offline_keyword",
+    "named": true
+  },
+  {
+    "type": "onerror_keyword",
+    "named": true
+  },
+  {
+    "type": "online_keyword",
+    "named": true
+  },
+  {
+    "type": "or",
+    "named": true
+  },
+  {
+    "type": "persistent_keyword",
+    "named": true
+  },
+  {
+    "type": "power_value",
+    "named": true
+  },
+  {
+    "type": "preproc_arg",
+    "named": true
+  },
+  {
+    "type": "preproc_define_keyword",
+    "named": true
+  },
+  {
+    "type": "preproc_disable_warning_keyword",
+    "named": true
+  },
+  {
+    "type": "preproc_else_keyword",
+    "named": true
+  },
+  {
+    "type": "preproc_end_if_keyword",
+    "named": true
+  },
+  {
+    "type": "preproc_if_defined_keyword",
+    "named": true
+  },
+  {
+    "type": "preproc_if_not_defined_keyword",
+    "named": true
+  },
+  {
+    "type": "preproc_include_keyword",
+    "named": true
+  },
+  {
+    "type": "preproc_warn_keyword",
+    "named": true
+  },
+  {
+    "type": "program_name_keyword",
+    "named": true
+  },
+  {
+    "type": "programport_priv",
+    "named": true
+  },
+  {
+    "type": "push_channel",
+    "named": true
+  },
+  {
+    "type": "push_devchan",
+    "named": true
+  },
+  {
+    "type": "push_device",
+    "named": true
+  },
+  {
+    "type": "push_keyword",
+    "named": true
+  },
+  {
+    "type": "random_number",
+    "named": true
+  },
+  {
+    "type": "range_operator",
+    "named": true
+  },
+  {
+    "type": "raw_be",
+    "named": true
+  },
+  {
+    "type": "raw_le",
+    "named": true
+  },
+  {
+    "type": "reboot",
+    "named": true
+  },
+  {
+    "type": "rebuilt_event",
+    "named": true
+  },
+  {
+    "type": "redirect_string",
+    "named": true
+  },
+  {
+    "type": "release_channel",
+    "named": true
+  },
+  {
+    "type": "release_devchan",
+    "named": true
+  },
+  {
+    "type": "release_device",
+    "named": true
+  },
+  {
+    "type": "release_keyword",
+    "named": true
+  },
+  {
+    "type": "remoteui_priv",
+    "named": true
+  },
+  {
+    "type": "remove_string",
+    "named": true
+  },
+  {
+    "type": "repeat_keyword",
+    "named": true
+  },
+  {
+    "type": "return_keyword",
+    "named": true
+  },
+  {
+    "type": "right_string",
+    "named": true
+  },
+  {
+    "type": "rshift",
+    "named": true
+  },
+  {
+    "type": "securitycontrol_priv",
+    "named": true
+  },
+  {
+    "type": "select_keyword",
+    "named": true
+  },
+  {
+    "type": "send_command_keyword",
+    "named": true
+  },
+  {
+    "type": "send_level_keyword",
+    "named": true
+  },
+  {
+    "type": "send_string_keyword",
+    "named": true
+  },
+  {
+    "type": "set_dns_list",
+    "named": true
+  },
+  {
+    "type": "set_ip_address",
+    "named": true
+  },
+  {
+    "type": "set_length_array",
+    "named": true
+  },
+  {
+    "type": "set_length_string",
+    "named": true
+  },
+  {
+    "type": "set_log_level",
+    "named": true
+  },
+  {
+    "type": "set_outdoor_temperature",
+    "named": true
+  },
+  {
+    "type": "set_pulse_time",
+    "named": true
+  },
+  {
+    "type": "set_system_number",
+    "named": true
+  },
+  {
+    "type": "set_timer",
+    "named": true
+  },
+  {
+    "type": "set_validation_code",
+    "named": true
+  },
+  {
+    "type": "set_virtual_channel_count",
+    "named": true
+  },
+  {
+    "type": "set_virtual_level_count",
+    "named": true
+  },
+  {
+    "type": "set_virtual_port_count",
+    "named": true
+  },
+  {
+    "type": "sinteger_keyword",
+    "named": true
+  },
+  {
+    "type": "slong_keyword",
+    "named": true
+  },
+  {
+    "type": "smtp_address",
+    "named": true
+  },
+  {
+    "type": "smtp_from",
+    "named": true
+  },
+  {
+    "type": "smtp_password",
+    "named": true
+  },
+  {
+    "type": "smtp_port_number",
+    "named": true
+  },
+  {
+    "type": "smtp_require_tls",
+    "named": true
+  },
+  {
+    "type": "smtp_send",
+    "named": true
+  },
+  {
+    "type": "smtp_server_config_get",
+    "named": true
+  },
+  {
+    "type": "smtp_server_config_set",
+    "named": true
+  },
+  {
+    "type": "smtp_tls_false",
+    "named": true
+  },
+  {
+    "type": "smtp_tls_true",
+    "named": true
+  },
+  {
+    "type": "smtp_username",
+    "named": true
+  },
+  {
+    "type": "softwaremanagement_priv",
+    "named": true
+  },
+  {
+    "type": "source_type_axlink",
+    "named": true
+  },
+  {
+    "type": "source_type_internal",
+    "named": true
+  },
+  {
+    "type": "source_type_ip_address",
+    "named": true
+  },
+  {
+    "type": "source_type_ip_socket_address",
+    "named": true
+  },
+  {
+    "type": "source_type_ipv4_port",
+    "named": true
+  },
+  {
+    "type": "source_type_ipv4_port_mac_address",
+    "named": true
+  },
+  {
+    "type": "source_type_ipv4_port_mac_ipv6",
+    "named": true
+  },
+  {
+    "type": "source_type_mac_address",
+    "named": true
+  },
+  {
+    "type": "source_type_neuron_id",
+    "named": true
+  },
+  {
+    "type": "source_type_neuron_subnode_icsp",
+    "named": true
+  },
+  {
+    "type": "source_type_neuron_subnode_pl",
+    "named": true
+  },
+  {
+    "type": "source_type_no_address",
+    "named": true
+  },
+  {
+    "type": "source_type_rs232",
+    "named": true
+  },
+  {
+    "type": "sqrt_value",
+    "named": true
+  },
+  {
+    "type": "ssh_client_close",
+    "named": true
+  },
+  {
+    "type": "ssh_client_open",
+    "named": true
+  },
+  {
+    "type": "stack_var_keyword",
+    "named": true
+  },
+  {
+    "type": "standby_keyword",
+    "named": true
+  },
+  {
+    "type": "static_ip_binding",
+    "named": true
+  },
+  {
+    "type": "static_port_binding",
+    "named": true
+  },
+  {
+    "type": "string_content",
+    "named": true
+  },
+  {
+    "type": "string_keyword",
+    "named": true
+  },
+  {
+    "type": "string_to_variable",
+    "named": true
+  },
+  {
+    "type": "struct_keyword",
+    "named": true
+  },
+  {
+    "type": "structure_keyword",
+    "named": true
+  },
+  {
+    "type": "switch_keyword",
+    "named": true
+  },
+  {
+    "type": "system_call_keyword",
+    "named": true
+  },
+  {
+    "type": "system_number",
+    "named": true
+  },
+  {
+    "type": "tbutton",
+    "named": true
+  },
+  {
+    "type": "tchannel",
+    "named": true
+  },
+  {
+    "type": "tcustom",
+    "named": true
+  },
+  {
+    "type": "tdata",
+    "named": true
+  },
+  {
+    "type": "terminal_priv",
+    "named": true
+  },
+  {
+    "type": "time",
+    "named": true
+  },
+  {
+    "type": "time_to_hour",
+    "named": true
+  },
+  {
+    "type": "time_to_minute",
+    "named": true
+  },
+  {
+    "type": "time_to_second",
+    "named": true
+  },
+  {
+    "type": "timeline",
+    "named": true
+  },
+  {
+    "type": "timeline_absolute",
+    "named": true
+  },
+  {
+    "type": "timeline_active",
+    "named": true
+  },
+  {
+    "type": "timeline_create",
+    "named": true
+  },
+  {
+    "type": "timeline_dynamic_id",
+    "named": true
+  },
+  {
+    "type": "timeline_event_keyword",
+    "named": true
+  },
+  {
+    "type": "timeline_get",
+    "named": true
+  },
+  {
+    "type": "timeline_kill",
+    "named": true
+  },
+  {
+    "type": "timeline_once",
+    "named": true
+  },
+  {
+    "type": "timeline_pause",
+    "named": true
+  },
+  {
+    "type": "timeline_relative",
+    "named": true
+  },
+  {
+    "type": "timeline_reload",
+    "named": true
+  },
+  {
+    "type": "timeline_repeat",
+    "named": true
+  },
+  {
+    "type": "timeline_restart",
+    "named": true
+  },
+  {
+    "type": "timeline_set",
+    "named": true
+  },
+  {
+    "type": "tlevel",
+    "named": true
+  },
+  {
+    "type": "tls_client_close",
+    "named": true
+  },
+  {
+    "type": "tls_client_open",
+    "named": true
+  },
+  {
+    "type": "tls_ignore_certificate_errors",
+    "named": true
+  },
+  {
+    "type": "tls_validate_certificate",
+    "named": true
+  },
+  {
+    "type": "tpadmin_priv",
+    "named": true
+  },
+  {
+    "type": "true",
+    "named": true
+  },
+  {
+    "type": "ttimeline",
+    "named": true
+  },
+  {
+    "type": "type_cast",
+    "named": true
+  },
+  {
+    "type": "type_identifier",
+    "named": true
+  },
+  {
+    "type": "unload_duet_module",
+    "named": true
+  },
+  {
+    "type": "upper_string",
+    "named": true
+  },
+  {
+    "type": "url_flg_accinfopresent",
+    "named": true
+  },
+  {
+    "type": "url_flg_stat_connected",
+    "named": true
+  },
+  {
+    "type": "url_flg_stat_connecting",
+    "named": true
+  },
+  {
+    "type": "url_flg_stat_lookup",
+    "named": true
+  },
+  {
+    "type": "url_flg_stat_mask",
+    "named": true
+  },
+  {
+    "type": "url_flg_stat_prgnetlinx",
+    "named": true
+  },
+  {
+    "type": "url_flg_stat_waiting",
+    "named": true
+  },
+  {
+    "type": "url_flg_tcp",
+    "named": true
+  },
+  {
+    "type": "url_flg_temp",
+    "named": true
+  },
+  {
+    "type": "url_struct",
+    "named": true
+  },
+  {
+    "type": "user1_priv",
+    "named": true
+  },
+  {
+    "type": "user2_priv",
+    "named": true
+  },
+  {
+    "type": "user3_priv",
+    "named": true
+  },
+  {
+    "type": "user4_priv",
+    "named": true
+  },
+  {
+    "type": "usermanagement_priv",
+    "named": true
+  },
+  {
+    "type": "valid_account",
+    "named": true
+  },
+  {
+    "type": "validate_netlinx_account",
+    "named": true
+  },
+  {
+    "type": "validate_netlinx_account_with_permission",
+    "named": true
+  },
+  {
+    "type": "variable_to_string",
+    "named": true
+  },
+  {
+    "type": "variable_to_xml",
+    "named": true
+  },
+  {
+    "type": "variant_keyword",
+    "named": true
+  },
+  {
+    "type": "variantarray_keyword",
+    "named": true
+  },
+  {
+    "type": "volatile_keyword",
+    "named": true
+  },
+  {
+    "type": "wait_keyword",
+    "named": true
+  },
+  {
+    "type": "wait_until_keyword",
+    "named": true
+  },
+  {
+    "type": "wc_data_feed",
+    "named": true
+  },
+  {
+    "type": "wc_data_field",
+    "named": true
+  },
+  {
+    "type": "wc_data_record",
+    "named": true
+  },
+  {
+    "type": "while_keyword",
+    "named": true
+  },
+  {
+    "type": "widechar_keyword",
+    "named": true
+  },
+  {
+    "type": "xml_decode_no_preserve",
+    "named": true
+  },
+  {
+    "type": "xml_decode_types",
+    "named": true
+  },
+  {
+    "type": "xml_encode_char_as_list",
+    "named": true
+  },
+  {
+    "type": "xml_encode_le",
+    "named": true
+  },
+  {
+    "type": "xml_encode_types",
+    "named": true
+  },
+  {
+    "type": "xml_to_variable",
+    "named": true
+  },
+  {
+    "type": "xor",
+    "named": true
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "|",
+    "named": false
+  },
+  {
+    "type": "||",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  },
+  {
+    "type": "~",
+    "named": false
+  }
+]

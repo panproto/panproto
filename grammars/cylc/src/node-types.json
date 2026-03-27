@@ -1,0 +1,1055 @@
+[
+  {
+    "type": "",
+    "named": false,
+    "fields": {}
+  },
+  {
+    "type": "boolean",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "comment",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "graph_section",
+    "named": true,
+    "fields": {
+      "brackets_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "]]",
+            "named": false
+          }
+        ]
+      },
+      "brackets_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "[[",
+            "named": false
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "section_name",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "graph_setting",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "graph_setting",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "recurrence",
+            "named": true
+          }
+        ]
+      },
+      "operator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "assignment_operator",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "multiline_graph_string",
+            "named": true
+          },
+          {
+            "type": "quoted_graph_string",
+            "named": true
+          },
+          {
+            "type": "unquoted_graph_string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "graph_string_content",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "graph_arrow",
+          "named": true
+        },
+        {
+          "type": "graph_logical",
+          "named": true
+        },
+        {
+          "type": "graph_parenthesis",
+          "named": true
+        },
+        {
+          "type": "graph_task",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "graph_task",
+    "named": true,
+    "fields": {
+      "intercycle": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "intercycle_annotation",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "task_name",
+            "named": true
+          }
+        ]
+      },
+      "output": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "task_output",
+            "named": true
+          }
+        ]
+      },
+      "suicide": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "suicide_annotation",
+            "named": true
+          }
+        ]
+      },
+      "xtrigger": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "xtrigger_annotation",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "include_statement",
+    "named": true,
+    "fields": {
+      "directive": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "include_directive",
+            "named": true
+          }
+        ]
+      },
+      "path": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "quoted_string",
+            "named": true
+          },
+          {
+            "type": "unquoted_string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "integer",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "intercycle_annotation",
+    "named": true,
+    "fields": {
+      "recurrence": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "recurrence",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "key",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "multiline_graph_string",
+    "named": true,
+    "fields": {
+      "quotes_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "\"\"\"",
+            "named": false
+          },
+          {
+            "type": "'''",
+            "named": false
+          }
+        ]
+      },
+      "quotes_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "\"\"\"",
+            "named": false
+          },
+          {
+            "type": "'''",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "graph_string_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "multiline_string",
+    "named": true,
+    "fields": {
+      "quotes_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "\"\"\"",
+            "named": false
+          },
+          {
+            "type": "'''",
+            "named": false
+          }
+        ]
+      },
+      "quotes_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "\"\"\"",
+            "named": false
+          },
+          {
+            "type": "'''",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "string_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "namespace",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "task_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "nametag",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "quoted_graph_string",
+    "named": true,
+    "fields": {
+      "quotes_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": "'",
+            "named": false
+          }
+        ]
+      },
+      "quotes_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": "'",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "graph_string_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "quoted_string",
+    "named": true,
+    "fields": {
+      "quotes_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": "'",
+            "named": false
+          }
+        ]
+      },
+      "quotes_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "\"",
+            "named": false
+          },
+          {
+            "type": "'",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "string_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "recurrence",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "jinja2_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "runtime_section",
+    "named": true,
+    "fields": {
+      "brackets_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "]",
+            "named": false
+          }
+        ]
+      },
+      "brackets_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "[",
+            "named": false
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "section_name",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "setting",
+          "named": true
+        },
+        {
+          "type": "task_section",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "section_name",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "nametag",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "setting",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "jinja2_expression",
+            "named": true
+          },
+          {
+            "type": "key",
+            "named": true
+          }
+        ]
+      },
+      "operator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "assignment_operator",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "boolean",
+            "named": true
+          },
+          {
+            "type": "datetime",
+            "named": true
+          },
+          {
+            "type": "integer",
+            "named": true
+          },
+          {
+            "type": "multiline_string",
+            "named": true
+          },
+          {
+            "type": "quoted_string",
+            "named": true
+          },
+          {
+            "type": "unquoted_string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "string_content",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "sub_section_1",
+    "named": true,
+    "fields": {
+      "brackets_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "]]",
+            "named": false
+          }
+        ]
+      },
+      "brackets_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "[[",
+            "named": false
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "section_name",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "setting",
+          "named": true
+        },
+        {
+          "type": "sub_section_2",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "sub_section_2",
+    "named": true,
+    "fields": {
+      "brackets_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "]]]",
+            "named": false
+          }
+        ]
+      },
+      "brackets_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "[[[",
+            "named": false
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "section_name",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "setting",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "task_name",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "nametag",
+          "named": true
+        },
+        {
+          "type": "task_parameter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "task_output",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "nametag",
+            "named": true
+          }
+        ]
+      },
+      "optional_annotation": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "?",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "task_parameter",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "nametag",
+            "named": true
+          }
+        ]
+      },
+      "selection": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "jinja2_expression",
+            "named": true
+          },
+          {
+            "type": "key",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "task_section",
+    "named": true,
+    "fields": {
+      "brackets_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "]]",
+            "named": false
+          }
+        ]
+      },
+      "brackets_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "[[",
+            "named": false
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "namespace",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "setting",
+          "named": true
+        },
+        {
+          "type": "sub_section_2",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "top_section",
+    "named": true,
+    "fields": {
+      "brackets_close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "]",
+            "named": false
+          }
+        ]
+      },
+      "brackets_open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "[",
+            "named": false
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "section_name",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "graph_section",
+          "named": true
+        },
+        {
+          "type": "setting",
+          "named": true
+        },
+        {
+          "type": "sub_section_1",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unquoted_graph_string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "graph_string_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unquoted_string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "string_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "workflow_configuration",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "include_statement",
+          "named": true
+        },
+        {
+          "type": "jinja2_shebang",
+          "named": true
+        },
+        {
+          "type": "runtime_section",
+          "named": true
+        },
+        {
+          "type": "top_section",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "",
+    "named": false
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "\"\"\"",
+    "named": false
+  },
+  {
+    "type": "#",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "'''",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "<",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": "?",
+    "named": false
+  },
+  {
+    "type": "False",
+    "named": false
+  },
+  {
+    "type": "True",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "[[",
+    "named": false
+  },
+  {
+    "type": "[[[",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "]]",
+    "named": false
+  },
+  {
+    "type": "]]]",
+    "named": false
+  },
+  {
+    "type": "assignment_operator",
+    "named": true
+  },
+  {
+    "type": "datetime",
+    "named": true
+  },
+  {
+    "type": "graph_arrow",
+    "named": true
+  },
+  {
+    "type": "graph_logical",
+    "named": true
+  },
+  {
+    "type": "graph_parenthesis",
+    "named": true
+  },
+  {
+    "type": "include_directive",
+    "named": true
+  },
+  {
+    "type": "jinja2_comment",
+    "named": true
+  },
+  {
+    "type": "jinja2_expression",
+    "named": true
+  },
+  {
+    "type": "jinja2_shebang",
+    "named": true
+  },
+  {
+    "type": "jinja2_statement",
+    "named": true
+  },
+  {
+    "type": "line_continuation",
+    "named": true
+  },
+  {
+    "type": "min",
+    "named": false
+  },
+  {
+    "type": "suicide_annotation",
+    "named": true
+  },
+  {
+    "type": "xtrigger_annotation",
+    "named": true
+  }
+]

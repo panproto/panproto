@@ -1,0 +1,1217 @@
+[
+  {
+    "type": "block",
+    "named": true,
+    "fields": {
+      "contents": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "contents",
+            "named": true
+          }
+        ]
+      },
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      },
+      "end_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "parameter": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "body",
+    "named": true,
+    "fields": {
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "drawer",
+          "named": true
+        },
+        {
+          "type": "dynamic_block",
+          "named": true
+        },
+        {
+          "type": "fndef",
+          "named": true
+        },
+        {
+          "type": "latex_env",
+          "named": true
+        },
+        {
+          "type": "list",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "table",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "cell",
+    "named": true,
+    "fields": {
+      "contents": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "contents",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "checkbox",
+    "named": true,
+    "fields": {
+      "status": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "comment",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "contents",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "description",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "directive",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "document",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "body",
+            "named": true
+          }
+        ]
+      },
+      "subsection": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "section",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "drawer",
+    "named": true,
+    "fields": {
+      "contents": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "contents",
+            "named": true
+          }
+        ]
+      },
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "dynamic_block",
+    "named": true,
+    "fields": {
+      "contents": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "contents",
+            "named": true
+          }
+        ]
+      },
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      },
+      "end_name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "parameter": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "entry",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "entry_name",
+            "named": true
+          }
+        ]
+      },
+      "timestamp": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "timestamp",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "expr",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "fndef",
+    "named": true,
+    "fields": {
+      "description": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "description",
+            "named": true
+          }
+        ]
+      },
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      },
+      "label": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "formula",
+    "named": true,
+    "fields": {
+      "formula": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "headline",
+    "named": true,
+    "fields": {
+      "item": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "item",
+            "named": true
+          }
+        ]
+      },
+      "stars": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "stars",
+            "named": true
+          }
+        ]
+      },
+      "tags": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "tag_list",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "hr",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "item",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "latex_env",
+    "named": true,
+    "fields": {
+      "contents": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "contents",
+            "named": true
+          }
+        ]
+      },
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "name",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "list",
+    "named": true,
+    "fields": {
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "listitem",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "listitem",
+    "named": true,
+    "fields": {
+      "bullet": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bullet",
+            "named": true
+          }
+        ]
+      },
+      "checkbox": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "checkbox",
+            "named": true
+          }
+        ]
+      },
+      "contents": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "\n",
+            "named": false
+          },
+          {
+            "type": "\r",
+            "named": false
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "comment",
+            "named": true
+          },
+          {
+            "type": "directive",
+            "named": true
+          },
+          {
+            "type": "drawer",
+            "named": true
+          },
+          {
+            "type": "dynamic_block",
+            "named": true
+          },
+          {
+            "type": "fndef",
+            "named": true
+          },
+          {
+            "type": "latex_env",
+            "named": true
+          },
+          {
+            "type": "list",
+            "named": true
+          },
+          {
+            "type": "paragraph",
+            "named": true
+          },
+          {
+            "type": "table",
+            "named": true
+          }
+        ]
+      },
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "paragraph",
+    "named": true,
+    "fields": {
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "plan",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "entry",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "property",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "property_drawer",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "property",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "row",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "cell",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "section",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "body",
+            "named": true
+          }
+        ]
+      },
+      "headline": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "headline",
+            "named": true
+          }
+        ]
+      },
+      "plan": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "plan",
+            "named": true
+          }
+        ]
+      },
+      "property_drawer": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "property_drawer",
+            "named": true
+          }
+        ]
+      },
+      "subsection": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "section",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "stars",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "table",
+    "named": true,
+    "fields": {
+      "directive": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "directive",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "formula",
+          "named": true
+        },
+        {
+          "type": "hr",
+          "named": true
+        },
+        {
+          "type": "row",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "tag",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "tag_list",
+    "named": true,
+    "fields": {
+      "tag": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "tag",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "timestamp",
+    "named": true,
+    "fields": {
+      "date": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "date",
+            "named": true
+          }
+        ]
+      },
+      "day": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "day",
+            "named": true
+          }
+        ]
+      },
+      "delay": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "delay",
+            "named": true
+          }
+        ]
+      },
+      "duration": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "duration",
+            "named": true
+          }
+        ]
+      },
+      "repeat": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "repeat",
+            "named": true
+          }
+        ]
+      },
+      "time": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "time",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "tsexp",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "tsexp",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "\n",
+    "named": false
+  },
+  {
+    "type": "\r",
+    "named": false
+  },
+  {
+    "type": "!",
+    "named": false
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "#",
+    "named": false
+  },
+  {
+    "type": "#+",
+    "named": false
+  },
+  {
+    "type": "#+begin:",
+    "named": false
+  },
+  {
+    "type": "#+begin_",
+    "named": false
+  },
+  {
+    "type": "#+end:",
+    "named": false
+  },
+  {
+    "type": "#+end_",
+    "named": false
+  },
+  {
+    "type": "#+tblfm:",
+    "named": false
+  },
+  {
+    "type": "$",
+    "named": false
+  },
+  {
+    "type": "%",
+    "named": false
+  },
+  {
+    "type": "&",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "+",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": ":end:",
+    "named": false
+  },
+  {
+    "type": ":properties:",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "<",
+    "named": false
+  },
+  {
+    "type": "<%%",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": ">--<",
+    "named": false
+  },
+  {
+    "type": "?",
+    "named": false
+  },
+  {
+    "type": "@",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "[ ]",
+    "named": false
+  },
+  {
+    "type": "[%%",
+    "named": false
+  },
+  {
+    "type": "[fn:",
+    "named": false
+  },
+  {
+    "type": "\\",
+    "named": false
+  },
+  {
+    "type": "\\)",
+    "named": false
+  },
+  {
+    "type": "\\]",
+    "named": false
+  },
+  {
+    "type": "\\begin{",
+    "named": false
+  },
+  {
+    "type": "\\end{",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "]--[",
+    "named": false
+  },
+  {
+    "type": "^",
+    "named": false
+  },
+  {
+    "type": "_",
+    "named": false
+  },
+  {
+    "type": "`",
+    "named": false
+  },
+  {
+    "type": "bullet",
+    "named": true
+  },
+  {
+    "type": "date",
+    "named": true
+  },
+  {
+    "type": "day",
+    "named": true
+  },
+  {
+    "type": "delay",
+    "named": true
+  },
+  {
+    "type": "duration",
+    "named": true
+  },
+  {
+    "type": "entry_name",
+    "named": true
+  },
+  {
+    "type": "name",
+    "named": true
+  },
+  {
+    "type": "num",
+    "named": false
+  },
+  {
+    "type": "repeat",
+    "named": true
+  },
+  {
+    "type": "str",
+    "named": false
+  },
+  {
+    "type": "sym",
+    "named": false
+  },
+  {
+    "type": "time",
+    "named": true
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "|",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  },
+  {
+    "type": "~",
+    "named": false
+  }
+]

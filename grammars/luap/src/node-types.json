@@ -1,0 +1,401 @@
+[
+  {
+    "type": "anchor_begin",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "anchor_end",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "balanced_match",
+    "named": true,
+    "fields": {
+      "first": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "character",
+            "named": true
+          }
+        ]
+      },
+      "last": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "character",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "capture",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "capture",
+          "named": true
+        },
+        {
+          "type": "character",
+          "named": true
+        },
+        {
+          "type": "class_pattern",
+          "named": true
+        },
+        {
+          "type": "negated_set",
+          "named": true
+        },
+        {
+          "type": "one_or_more",
+          "named": true
+        },
+        {
+          "type": "set",
+          "named": true
+        },
+        {
+          "type": "shortest_zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_one",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "character",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "one_or_more",
+          "named": true
+        },
+        {
+          "type": "shortest_zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_one",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "class",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "balanced_match",
+          "named": true
+        },
+        {
+          "type": "capture_index",
+          "named": true
+        },
+        {
+          "type": "escape_char",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "class_pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "class",
+          "named": true
+        },
+        {
+          "type": "frontier_pattern",
+          "named": true
+        },
+        {
+          "type": "one_or_more",
+          "named": true
+        },
+        {
+          "type": "shortest_zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_one",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "frontier_pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "negated_set",
+          "named": true
+        },
+        {
+          "type": "set",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "negated_set",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "character",
+          "named": true
+        },
+        {
+          "type": "class",
+          "named": true
+        },
+        {
+          "type": "one_or_more",
+          "named": true
+        },
+        {
+          "type": "range",
+          "named": true
+        },
+        {
+          "type": "shortest_zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_one",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor_begin",
+          "named": true
+        },
+        {
+          "type": "anchor_end",
+          "named": true
+        },
+        {
+          "type": "capture",
+          "named": true
+        },
+        {
+          "type": "character",
+          "named": true
+        },
+        {
+          "type": "class_pattern",
+          "named": true
+        },
+        {
+          "type": "negated_set",
+          "named": true
+        },
+        {
+          "type": "set",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "range",
+    "named": true,
+    "fields": {
+      "from": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "character",
+            "named": true
+          }
+        ]
+      },
+      "to": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "character",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "set",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "character",
+          "named": true
+        },
+        {
+          "type": "class",
+          "named": true
+        },
+        {
+          "type": "one_or_more",
+          "named": true
+        },
+        {
+          "type": "range",
+          "named": true
+        },
+        {
+          "type": "shortest_zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_more",
+          "named": true
+        },
+        {
+          "type": "zero_or_one",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "shortest_zero_or_more",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "$",
+    "named": false
+  },
+  {
+    "type": "%",
+    "named": false
+  },
+  {
+    "type": "%f",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "^",
+    "named": false
+  },
+  {
+    "type": "b",
+    "named": false
+  },
+  {
+    "type": "capture_index",
+    "named": true
+  },
+  {
+    "type": "escape_char",
+    "named": true
+  },
+  {
+    "type": "one_or_more",
+    "named": true
+  },
+  {
+    "type": "zero_or_more",
+    "named": true
+  },
+  {
+    "type": "zero_or_one",
+    "named": true
+  }
+]

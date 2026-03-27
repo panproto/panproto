@@ -1,0 +1,226 @@
+[
+  {
+    "type": "checksum",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "checksum_value",
+          "named": true
+        },
+        {
+          "type": "module_path",
+          "named": true
+        },
+        {
+          "type": "version",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "checksum_database",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "checksum",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "checksum_value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "hash",
+          "named": true
+        },
+        {
+          "type": "hash_version",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "version",
+    "named": true,
+    "fields": {
+      "build": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "hex_number",
+            "named": true
+          }
+        ]
+      },
+      "major": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "module_version",
+            "named": true
+          }
+        ]
+      },
+      "minor": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "module_version",
+            "named": true
+          }
+        ]
+      },
+      "patch": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "module_version",
+            "named": true
+          }
+        ]
+      },
+      "pre_release": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ".",
+            "named": false
+          },
+          {
+            "type": "alpha",
+            "named": false
+          },
+          {
+            "type": "beta",
+            "named": false
+          },
+          {
+            "type": "dev",
+            "named": false
+          },
+          {
+            "type": "number",
+            "named": true
+          },
+          {
+            "type": "number_with_decimal",
+            "named": true
+          },
+          {
+            "type": "pre",
+            "named": false
+          },
+          {
+            "type": "rc",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "module_version",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "+incompatible",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "alpha",
+    "named": false
+  },
+  {
+    "type": "beta",
+    "named": false
+  },
+  {
+    "type": "dev",
+    "named": false
+  },
+  {
+    "type": "go.mod",
+    "named": false
+  },
+  {
+    "type": "hash",
+    "named": true
+  },
+  {
+    "type": "hash_version",
+    "named": true
+  },
+  {
+    "type": "hex_number",
+    "named": true
+  },
+  {
+    "type": "module_path",
+    "named": true
+  },
+  {
+    "type": "module_version",
+    "named": true
+  },
+  {
+    "type": "number",
+    "named": true
+  },
+  {
+    "type": "number_with_decimal",
+    "named": true
+  },
+  {
+    "type": "pre",
+    "named": false
+  },
+  {
+    "type": "rc",
+    "named": false
+  }
+]

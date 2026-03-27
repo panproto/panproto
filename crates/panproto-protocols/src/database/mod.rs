@@ -10,5 +10,4 @@ pub mod mongodb;
 pub mod neo4j;
 /// Redis RediSearch protocol definition and parser/emitter.
 pub mod redis;
-/// SQL protocol definition and DDL parser/emitter.
-pub mod sql;
+

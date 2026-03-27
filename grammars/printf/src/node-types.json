@@ -1,0 +1,77 @@
+[
+  {
+    "type": "format",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "flags",
+          "named": true
+        },
+        {
+          "type": "precision",
+          "named": true
+        },
+        {
+          "type": "size",
+          "named": true
+        },
+        {
+          "type": "type",
+          "named": true
+        },
+        {
+          "type": "width",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "format_string",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "format",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "%",
+    "named": false
+  },
+  {
+    "type": "%%",
+    "named": false
+  },
+  {
+    "type": "flags",
+    "named": true
+  },
+  {
+    "type": "precision",
+    "named": true
+  },
+  {
+    "type": "size",
+    "named": true
+  },
+  {
+    "type": "type",
+    "named": true
+  },
+  {
+    "type": "width",
+    "named": true
+  }
+]
