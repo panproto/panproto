@@ -1,9 +1,16 @@
-//! Complement cost computation for the Lawvere metric on lens graphs.
+//! Complement cost computation forming a Lawvere metric on lens graphs.
 //!
 //! Each [`ComplementConstructor`] carries an information cost representing
 //! how much data is lost or fabricated by a protolens step. These costs
-//! form a Lawvere metric: identity has cost 0, and composition satisfies
-//! the triangle inequality.
+//! form a Lawvere metric space `([0, ∞], ≥, +)`:
+//!
+//! - **Identity**: `cost(Empty) = 0` (identity lenses have zero cost).
+//! - **Subadditivity**: `cost(Composite([a, b])) <= cost(a) + cost(b)`
+//!   (currently with equality, since Composite sums).
+//! - **Triangle inequality**: guaranteed by Floyd-Warshall in the lens graph.
+//!
+//! The enrichment structure provides the theoretical justification for the
+//! "shortest path = minimal information loss" heuristic in [`crate::graph`].
 
 use crate::protolens::{ComplementConstructor, ProtolensChain};
 
@@ -32,6 +39,23 @@ pub fn chain_cost(chain: &ProtolensChain) -> f64 {
         .iter()
         .map(|step| complement_cost(&step.complement_constructor))
         .sum()
+}
+
+/// Verify that the identity cost is zero.
+#[must_use]
+pub fn verify_identity_cost() -> bool {
+    complement_cost(&ComplementConstructor::Empty).abs() < f64::EPSILON
+}
+
+/// Verify subadditivity: `cost(Composite([a, b])) <= cost(a) + cost(b)`.
+#[must_use]
+pub fn verify_subadditivity(a: &ComplementConstructor, b: &ComplementConstructor) -> bool {
+    let composite_cost = complement_cost(&ComplementConstructor::Composite(vec![
+        a.clone(),
+        b.clone(),
+    ]));
+    let sum_cost = complement_cost(a) + complement_cost(b);
+    composite_cost <= sum_cost + f64::EPSILON
 }
 
 #[cfg(test)]
@@ -95,6 +119,50 @@ mod tests {
         ]);
         // 1.0 + 1.0 + 0.5 = 2.5
         assert!((complement_cost(&c) - 2.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn identity_cost_is_zero() {
+        assert!(verify_identity_cost());
+    }
+
+    #[test]
+    fn subadditivity_holds() {
+        let a = ComplementConstructor::DroppedSortData {
+            sort: Name::from("A"),
+        };
+        let b = ComplementConstructor::DroppedOpData {
+            op: Name::from("f"),
+        };
+        assert!(verify_subadditivity(&a, &b));
+    }
+
+    #[test]
+    fn subadditivity_with_empty() {
+        let a = ComplementConstructor::Empty;
+        let b = ComplementConstructor::DroppedSortData {
+            sort: Name::from("A"),
+        };
+        assert!(verify_subadditivity(&a, &b));
+        assert!(verify_subadditivity(&b, &a));
+    }
+
+    #[test]
+    fn subadditivity_nested() {
+        let a = ComplementConstructor::Composite(vec![
+            ComplementConstructor::DroppedSortData {
+                sort: Name::from("A"),
+            },
+            ComplementConstructor::NatTransKernel {
+                nat_trans_name: Name::from("eta"),
+            },
+        ]);
+        let b = ComplementConstructor::AddedElement {
+            element_name: Name::from("x"),
+            element_kind: "string".to_owned(),
+            default_value: None,
+        };
+        assert!(verify_subadditivity(&a, &b));
     }
 
     #[test]
