@@ -541,15 +541,7 @@ fn all_protocols_report_correct_native_repr() {
     let reg = registry();
 
     // WType protocols should support parse_wtype
-    let wtype_protocols = [
-        "openapi",
-        "atproto",
-        "brat",
-        "naf",
-        "tei",
-        "avro",
-        "cddl",
-    ];
+    let wtype_protocols = ["openapi", "atproto", "brat", "naf", "tei", "avro", "cddl"];
     for p in &wtype_protocols {
         assert_eq!(
             reg.native_repr(p).unwrap(),

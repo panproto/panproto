@@ -1,8 +1,8 @@
 //! Python bindings for the built-in protocol registry.
 //!
 //! Provides access to the remaining semantic protocol definitions across
-//! 9 categories (annotation, api, config, data_schema, data_science,
-//! database, domain, serialization, web_document).
+//! 9 categories (annotation, api, config, `data_schema`, `data_science`,
+//! database, domain, serialization, `web_document`).
 //!
 //! Programming language and data format protocols are handled by tree-sitter
 //! grammars via `panproto-grammars`.
