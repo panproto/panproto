@@ -19,6 +19,7 @@ All notable changes to panproto will be documented in this file.
 ### Added — Mathematical Correctness Enhancements
 
 - **panproto-gat** (F10): added `check_interchange()` to verify the interchange law for natural transformation compositions, the fundamental coherence condition for 2-categories: `(β' • α') * (β • α) = (β' * β) • (α' * α)`. Compares both sides component-wise using α-equivalence.
+- **panproto-lens** (F11): added `fibration` module formalizing the Grothendieck fibration structure underlying the protolens framework. `Fibration` trait with `cartesian_lift` (put) and `opcartesian_lift` (get). `WTypeFibration` implementation connecting to Johnson-Rosebrugh delta lenses. `verify_cartesian_universal()` checks the universal property (reduces to get-put/put-get laws).
 
 ### Added — XRPC Remote Operations and Git Remote Helper
 
