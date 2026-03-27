@@ -11,6 +11,7 @@ All notable changes to panproto will be documented in this file.
 - **panproto-gat** (F3): theory colimit (`colimit()`) now propagates directed equations and conflict policies from both input theories. Previously these were silently dropped, causing composed protocols to lose rewrite rules essential to the edit lens pipeline. Conflict detection uses α-equivalence for directed equation compatibility. Added `DirectedEqConflict` and `PolicyConflict` error variants.
 - **panproto-gat** (F4): `check_morphism()` now verifies that directed equations are preserved under the morphism. For each domain directed equation, the mapped terms must appear as a directed equation in the codomain (checked via α-equivalence). Added `DirectedEquationNotPreserved` error variant.
 - **panproto-gat** (F5): pullback construction now pairs directed equations from both source theories when they agree in the codomain (via α-equivalence). Added `pair_directed_eqs()` following the same pattern as `pair_eqs()`. The pullback theory uses `Theory::full()` to include paired directed equations.
+- **panproto-gat** (F6): free model construction now topologically sorts the theory's sorts by dependency, ensuring parameter sorts are populated before dependent sorts. Added `topological_sort_sorts()`. Term generation iterates in dependency order so dependent sorts like `Hom(a: Ob, b: Ob)` correctly find terms for their parameter sorts.
 
 ### Added — XRPC Remote Operations and Git Remote Helper
 
