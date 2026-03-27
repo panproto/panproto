@@ -54,9 +54,11 @@ pub struct ParserRegistry {
 impl ParserRegistry {
     /// Create a new registry populated with all enabled language parsers.
     ///
-    /// The set of languages depends on which `panproto-grammars` feature flags
-    /// are enabled. The default is `group-core` (GitHub's top 10 languages).
-    /// Use `group-all` for all 248 supported languages.
+    /// With the `grammars` feature (default), this populates the registry from
+    /// `panproto-grammars`, which provides up to 248 tree-sitter languages.
+    /// Without the `grammars` feature, this returns an empty registry; call
+    /// [`register`](Self::register) to add parsers manually using individual
+    /// grammar crates.
     #[must_use]
     pub fn new() -> Self {
         let mut registry = Self {
@@ -64,6 +66,7 @@ impl ParserRegistry {
             extension_map: FxHashMap::default(),
         };
 
+        #[cfg(feature = "grammars")]
         for grammar in panproto_grammars::grammars() {
             let config = crate::languages::walker_configs::walker_config_for(grammar.name);
             match crate::languages::common::LanguageParser::from_language(

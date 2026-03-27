@@ -9,7 +9,7 @@
 
 A universal schema migration engine built on [Generalized Algebraic Theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory) (GATs), with automatic lens generation via [protolenses](https://ncatlab.org/nlab/show/natural+transformation).
 
-panproto treats every schema language,[ATProto Lexicons](https://atproto.com/specs/lexicon), SQL DDL, [Protocol Buffers](https://protobuf.dev/), [GraphQL](https://graphql.org/), [JSON Schema](https://json-schema.org/), and [71 others](https://panproto.dev/tutorial/appendices/D-protocol-catalog.html),as a model of a common mathematical structure. Migrations become [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format. Protolenses automatically derive schema-parameterized families of lenses, eliminating manual combinator wiring.
+panproto parses 248 programming languages and data formats via tree-sitter grammars, and provides 50 semantic protocol definitions ([ATProto Lexicons](https://atproto.com/specs/lexicon), [WASI](https://wasi.dev/), [OpenAPI](https://www.openapis.org/), and others) that model each schema language as a common mathematical structure. Migrations are [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format. Protolenses automatically derive schema-parameterized families of lenses, eliminating manual combinator wiring.
 
 ## Key idea
 
@@ -35,10 +35,11 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 | [`panproto-mig`](crates/panproto-mig) | Migration engine: existence checks, compilation, lift, compose, invert, coverage analysis |
 | [`panproto-lens`](crates/panproto-lens) | [Protolenses](https://ncatlab.org/nlab/show/natural+transformation): schema-parameterized lens families, optic classification, symbolic simplification, auto-generation |
 | [`panproto-check`](crates/panproto-check) | Breaking change detection via structural diffing and protocol-aware classification |
-| [`panproto-protocols`](crates/panproto-protocols) | 77 built-in protocol definitions composed from 34 building-block theories |
-| [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs (JSON, XML, tabular, web documents) |
+| [`panproto-protocols`](crates/panproto-protocols) | 50 semantic protocol definitions composed from building-block theories |
+| [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs for semantic protocols |
 | [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge |
-| [`panproto-parse`](crates/panproto-parse) | Tree-sitter full-AST parsing for 10 languages with auto-derived GAT theories and interstitial text emission |
+| [`panproto-parse`](crates/panproto-parse) | Tree-sitter full-AST parsing for 248 languages with auto-derived GAT theories and interstitial text emission |
+| [`panproto-grammars`](crates/panproto-grammars) | Pre-compiled tree-sitter grammars for 248 languages (workspace-local, not published to crates.io) |
 | [`panproto-project`](crates/panproto-project) | Multi-file project assembly via schema coproduct with cross-file import resolution |
 | [`panproto-git`](crates/panproto-git) | Bidirectional git to panproto-vcs translation bridge (import/export with DAG preservation) |
 | [`panproto-llvm`](crates/panproto-llvm) | LLVM IR protocol definition, language AST lowering morphisms, and inkwell-based IR parsing |
@@ -230,7 +231,7 @@ panproto implements a four-level architecture rooted in category theory. The GAT
 
 **Automatic migration discovery** finds schema morphisms via backtracking CSP with MRV heuristic, discovers overlaps between schemas, and computes schema-level pushouts for merging disparate formats.
 
-**Full-AST parsing** (`panproto-parse`) treats programs as schemas. Tree-sitter grammars are theory presentations: `node-types.json` is structurally isomorphic to a GAT. The theory extraction pipeline auto-derives sorts from node types and operations from field names. A single generic walker handles all 10 languages; interstitial text capture (keywords, punctuation, whitespace between named children) enables exact round-trip emission.
+**Full-AST parsing** (`panproto-parse`) treats programs as schemas. Tree-sitter grammars are theory presentations: `node-types.json` is structurally isomorphic to a GAT. The theory extraction pipeline auto-derives sorts from node types and operations from field names. A single generic walker handles all 248 languages; interstitial text capture (keywords, punctuation, whitespace between named children) enables exact round-trip emission.
 
 **Multi-file assembly** (`panproto-project`) constructs the project-level schema as a categorical coproduct of per-file schemas, with path-prefixed vertex IDs and cross-file import edges from `ThImport`.
 

@@ -11,7 +11,7 @@ repository.workspace = true
 panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-protocols = { workspace = true }
-panproto-grammars = { workspace = true }
+panproto-grammars = { workspace = true, optional = true }
 
 tree-sitter = { workspace = true }
 
@@ -27,17 +27,18 @@ memchr = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["panproto-grammars/default"]
-group-core = ["panproto-grammars/group-core"]
-group-web = ["panproto-grammars/group-web"]
-group-systems = ["panproto-grammars/group-systems"]
-group-jvm = ["panproto-grammars/group-jvm"]
-group-scripting = ["panproto-grammars/group-scripting"]
-group-data = ["panproto-grammars/group-data"]
-group-functional = ["panproto-grammars/group-functional"]
-group-devops = ["panproto-grammars/group-devops"]
-group-mobile = ["panproto-grammars/group-mobile"]
-group-all = ["panproto-grammars/group-all"]
+default = ["grammars"]
+grammars = ["dep:panproto-grammars", "panproto-grammars/default"]
+group-core = ["grammars", "panproto-grammars/group-core"]
+group-web = ["grammars", "panproto-grammars/group-web"]
+group-systems = ["grammars", "panproto-grammars/group-systems"]
+group-jvm = ["grammars", "panproto-grammars/group-jvm"]
+group-scripting = ["grammars", "panproto-grammars/group-scripting"]
+group-data = ["grammars", "panproto-grammars/group-data"]
+group-functional = ["grammars", "panproto-grammars/group-functional"]
+group-devops = ["grammars", "panproto-grammars/group-devops"]
+group-mobile = ["grammars", "panproto-grammars/group-mobile"]
+group-all = ["grammars", "panproto-grammars/group-all"]
 
 [lints]
 workspace = true

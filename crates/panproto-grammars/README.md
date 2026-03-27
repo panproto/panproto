@@ -3,6 +3,12 @@
 Pre-compiled tree-sitter grammars for panproto. Bundles up to 248 languages,
 compiled from vendored C sources via `build.rs`.
 
+This crate is `publish = false`: the vendored C sources weigh roughly 500MB,
+well beyond crates.io's 10MB package limit. Users get these grammars through
+`panproto-parse`, which depends on `panproto-grammars` when its `grammars`
+feature is enabled (the default). There is no reason to depend on this crate
+directly.
+
 ## Feature flags
 
 Each grammar is individually gated behind a `lang-{name}` feature.

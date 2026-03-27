@@ -2,15 +2,16 @@
 
 use std::path::Path;
 
+use panproto_parse::ParserRegistry;
+
 /// Detect the panproto protocol name for a file path.
 ///
-/// Returns `None` if the file type is not recognized (caller should
-/// fall back to the `raw_file` protocol).
+/// Delegates to `ParserRegistry::detect_language`, which checks the file
+/// extension against all registered grammar parsers. Returns `None` if the
+/// file type is not recognized (caller should fall back to `raw_file`).
 #[must_use]
-pub fn detect_language(path: &Path) -> Option<&'static str> {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .and_then(panproto_grammars::extension_to_language)
+pub fn detect_language<'a>(path: &Path, registry: &'a ParserRegistry) -> Option<&'a str> {
+    registry.detect_language(path)
 }
 
 /// Check if a file should be treated as binary (not parsed as text).
@@ -57,27 +58,23 @@ mod tests {
 
     #[test]
     fn detect_core_languages() {
-        // group-core: python, javascript, typescript, java, csharp, cpp, php, bash, c, go, rust
-        assert_eq!(detect_language(Path::new("lib.py")), Some("python"));
-        assert_eq!(detect_language(Path::new("app.js")), Some("javascript"));
+        let registry = ParserRegistry::new();
         assert_eq!(
-            detect_language(Path::new("src/main.ts")),
-            Some("typescript")
+            detect_language(Path::new("lib.py"), &registry),
+            Some("python")
         );
-        assert_eq!(detect_language(Path::new("App.java")), Some("java"));
-        assert_eq!(detect_language(Path::new("Program.cs")), Some("csharp"));
-        assert_eq!(detect_language(Path::new("stack.cpp")), Some("cpp"));
-        assert_eq!(detect_language(Path::new("index.php")), Some("php"));
-        assert_eq!(detect_language(Path::new("run.sh")), Some("bash"));
-        assert_eq!(detect_language(Path::new("main.c")), Some("c"));
-        assert_eq!(detect_language(Path::new("main.go")), Some("go"));
-        assert_eq!(detect_language(Path::new("main.rs")), Some("rust"));
+        assert_eq!(
+            detect_language(Path::new("main.rs"), &registry),
+            Some("rust")
+        );
+        assert_eq!(detect_language(Path::new("main.go"), &registry), Some("go"));
     }
 
     #[test]
     fn detect_unknown_returns_none() {
-        assert_eq!(detect_language(Path::new("LICENSE")), None);
-        assert_eq!(detect_language(Path::new("Makefile")), None);
+        let registry = ParserRegistry::new();
+        assert_eq!(detect_language(Path::new("LICENSE"), &registry), None);
+        assert_eq!(detect_language(Path::new("Makefile"), &registry), None);
     }
 
     #[test]

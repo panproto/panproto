@@ -35,8 +35,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", grammars_toml_path.display());
 
-    let toml_str =
-        fs::read_to_string(&grammars_toml_path).expect("failed to read grammars.toml");
+    let toml_str = fs::read_to_string(&grammars_toml_path).expect("failed to read grammars.toml");
     let manifest: BTreeMap<String, GrammarSpec> =
         toml::from_str(&toml_str).expect("failed to parse grammars.toml");
 

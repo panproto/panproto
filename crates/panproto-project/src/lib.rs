@@ -98,7 +98,9 @@ impl ProjectBuilder {
         let path_str = path.display().to_string();
 
         // Detect language and parse.
-        let (schema, protocol_name) = if let Some(protocol) = detect::detect_language(path) {
+        let (schema, protocol_name) = if let Some(protocol) =
+            detect::detect_language(path, &self.registry)
+        {
             if let Ok(schema) = self
                 .registry
                 .parse_with_protocol(protocol, content, &path_str)
@@ -440,12 +442,19 @@ mod tests {
 
     #[test]
     fn language_detection() {
+        let registry = ParserRegistry::new();
         assert_eq!(
-            detect::detect_language(Path::new("a.ts")),
+            detect::detect_language(Path::new("a.ts"), &registry),
             Some("typescript")
         );
-        assert_eq!(detect::detect_language(Path::new("b.py")), Some("python"));
-        assert_eq!(detect::detect_language(Path::new("c.rs")), Some("rust"));
-        assert_eq!(detect::detect_language(Path::new("d.md")), None);
+        assert_eq!(
+            detect::detect_language(Path::new("b.py"), &registry),
+            Some("python")
+        );
+        assert_eq!(
+            detect::detect_language(Path::new("c.rs"), &registry),
+            Some("rust")
+        );
+        assert_eq!(detect::detect_language(Path::new("d.md"), &registry), None);
     }
 }

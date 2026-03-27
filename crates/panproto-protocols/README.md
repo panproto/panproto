@@ -5,18 +5,19 @@
 
 Built-in protocol definitions for panproto.
 
-Each of the 76 protocols is defined by a schema theory [GAT](https://ncatlab.org/nlab/show/generalized+algebraic+theory) and an instance theory GAT, composed via [colimit](https://ncatlab.org/nlab/show/colimit) from 27 reusable building-block theories organized in six groups. This crate includes parsers for each protocol's native schema format.
+Each of the 50 protocols is defined by a schema theory [GAT](https://ncatlab.org/nlab/show/generalized+algebraic+theory) and an instance theory GAT, composed via [colimit](https://ncatlab.org/nlab/show/colimit) from 27 reusable building-block theories organized in six groups. This crate includes parsers for each protocol's native schema format.
+
+Programming language and data format parsing (previously handled by hand-written protocol parsers for SQL, Protobuf, GraphQL, and others) is now handled by tree-sitter grammars in `panproto-parse`. The protocols that remain here are semantic protocols: annotation formats, domain-specific schemas, and formats that have no tree-sitter grammar.
 
 ## Protocols
 
 | Protocol | Schema type | Instance type | Parser |
 |----------|-------------|---------------|--------|
 | [ATProto](https://atproto.com/) | Constrained multigraph | W-type | Lexicon JSON |
-| SQL | Hypergraph | Set-valued functor | DDL |
-| [Protobuf](https://protobuf.dev/) | Simple graph | Flat | `.proto` files |
-| [GraphQL](https://graphql.org/) | Typed graph | W-type | SDL |
-| [JSON Schema](https://json-schema.org/) | Constrained multigraph | W-type | JSON Schema |
-| ...and 71 more | | | |
+| [OpenAPI](https://www.openapis.org/) | Constrained multigraph | W-type | YAML/JSON |
+| [WASI](https://wasi.dev/) | Simple graph | Flat | WIT |
+| [Cap'n Proto](https://capnproto.org/) | Simple graph | Flat | `.capnp` files |
+| ...and 46 more | | | |
 
 See the [protocol catalog](https://panproto.dev/tutorial/appendices/D-protocol-catalog.html) for the full list.
 
@@ -37,7 +38,7 @@ Protocols compose their schema and instance theories from reusable building bloc
 
 | Item | Description |
 |------|-------------|
-| `atproto` / `sql` / `protobuf` / `graphql` / `json_schema` | Core protocol modules with definitions, parsers, and theory registration |
+| `atproto` / `openapi` / `wasi` / `capnp` / ... | Protocol modules with definitions, parsers, and theory registration |
 | `theories` | All 27 building-block theory definitions |
 | `ProtocolError` | Error type |
 

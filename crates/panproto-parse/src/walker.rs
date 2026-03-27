@@ -439,6 +439,7 @@ mod tests {
     }
 
     /// Helper to get a grammar Language by name from panproto-grammars.
+    #[cfg(feature = "grammars")]
     fn get_language(name: &str) -> tree_sitter::Language {
         panproto_grammars::grammars()
             .into_iter()
@@ -448,6 +449,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "grammars")]
     fn walk_simple_typescript() {
         let source = b"function greet(name: string): string { return name; }";
 
@@ -477,6 +479,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "grammars")]
     fn walk_simple_python() {
         let source = b"def add(a, b):\n    return a + b\n";
 
@@ -498,6 +501,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "grammars")]
     fn walk_simple_rust() {
         let source = b"fn main() { let x = 42; println!(\"{}\", x); }";
 

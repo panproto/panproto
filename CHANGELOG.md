@@ -4,6 +4,15 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-03-27
+
+### Fixed
+
+- **panproto-grammars**: set `publish = false` (vendored C sources exceed crates.io's 10MB limit). Yanked the empty 0.17.0 crate. Removed the silent empty-table fallback in `build.rs`.
+- **panproto-parse**: `panproto-grammars` dependency is now optional behind the `grammars` feature (default on). Without it, `ParserRegistry::new()` returns an empty registry that users populate via `register()` with individual grammar crates. This makes `panproto-parse` publishable to crates.io independently.
+- **panproto-project**: `detect_language()` now delegates to `ParserRegistry` instead of depending on `panproto-grammars` directly. Removed the direct `panproto-grammars` dependency.
+- Updated all READMEs to reflect the grammar architecture.
+
 ## [0.17.0] - 2026-03-27
 
 ### Added — 248 Tree-Sitter Language Support
