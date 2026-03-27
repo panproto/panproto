@@ -8,6 +8,7 @@ All notable changes to panproto will be documented in this file.
 
 - **panproto-gat** (F1): equation preservation in `check_morphism()` now uses α-equivalence instead of syntactic equality, correctly treating universally quantified variable names as bound. Added `alpha_equivalent()` and `alpha_equivalent_equation()` to `Term`. Pullback equation pairing in `pair_eqs()` also updated.
 - **panproto-gat** (F2): naturality square verification in `check_natural_transformation()` now normalizes both sides via the codomain's directed equations (rewrite rules) before comparison. Added `match_pattern()` for first-order pattern matching and `normalize()` for innermost-first term rewriting to fixed point. Naturality checks that depend on the codomain's equational theory no longer produce spurious violations.
+- **panproto-gat** (F3): theory colimit (`colimit()`) now propagates directed equations and conflict policies from both input theories. Previously these were silently dropped, causing composed protocols to lose rewrite rules essential to the edit lens pipeline. Conflict detection uses α-equivalence for directed equation compatibility. Added `DirectedEqConflict` and `PolicyConflict` error variants.
 
 ### Added — XRPC Remote Operations and Git Remote Helper
 
