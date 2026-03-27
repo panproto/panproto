@@ -9,7 +9,6 @@ All notable changes to panproto will be documented in this file.
 ### Fixed
 
 - **panproto-grammars**: fix duplicate-symbol linker errors when multiple tree-sitter grammars define identically-named internal C functions (e.g., `scan_comment` in 16+ grammars). After compiling each grammar's static library, `build.rs` now localizes non-`tree_sitter_*` symbols using `ld -r -exported_symbol` (macOS) or `objcopy --keep-global-symbol` (Linux).
-- **sdk/python**: updated stale protocol count assertions in tests (50 to 76).
 
 ## [0.17.1] - 2026-03-27
 
