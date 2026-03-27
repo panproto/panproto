@@ -53,14 +53,76 @@ pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<Model, Ga
     ))
 }
 
+/// Topologically sort the theory's sorts so that parameter sorts are
+/// ordered before the dependent sorts that reference them. Returns sort
+/// names in dependency order.
+fn topological_sort_sorts(theory: &Theory) -> Vec<Arc<str>> {
+    let sort_names: FxHashSet<Arc<str>> = theory.sorts.iter().map(|s| Arc::clone(&s.name)).collect();
+    let mut in_degree: FxHashMap<Arc<str>, usize> = FxHashMap::default();
+    let mut dependents: FxHashMap<Arc<str>, Vec<Arc<str>>> = FxHashMap::default();
+
+    for sort in &theory.sorts {
+        in_degree.entry(Arc::clone(&sort.name)).or_insert(0);
+        for param in &sort.params {
+            if sort_names.contains(&param.sort) {
+                *in_degree.entry(Arc::clone(&sort.name)).or_insert(0) += 1;
+                dependents
+                    .entry(Arc::clone(&param.sort))
+                    .or_default()
+                    .push(Arc::clone(&sort.name));
+            }
+        }
+    }
+
+    let mut queue: Vec<Arc<str>> = in_degree
+        .iter()
+        .filter(|(_, deg)| **deg == 0)
+        .map(|(name, _)| Arc::clone(name))
+        .collect();
+    queue.sort(); // Deterministic ordering.
+
+    let mut result = Vec::new();
+    while let Some(name) = queue.pop() {
+        result.push(Arc::clone(&name));
+        if let Some(deps) = dependents.get(&name) {
+            for dep in deps {
+                if let Some(deg) = in_degree.get_mut(dep) {
+                    *deg = deg.saturating_sub(1);
+                    if *deg == 0 {
+                        queue.push(Arc::clone(dep));
+                    }
+                }
+            }
+        }
+    }
+
+    // Any remaining sorts (cyclic dependencies) appended at the end.
+    for sort in &theory.sorts {
+        if !result.contains(&sort.name) {
+            result.push(Arc::clone(&sort.name));
+        }
+    }
+
+    result
+}
+
 /// Phase 1: Generate all closed terms up to `max_depth`, indexed by sort.
+///
+/// For dependent sorts `S(x1: A1, ..., xn: An)`, terms are generated
+/// fiber-by-fiber: for each tuple of parameter values drawn from the
+/// carrier sets of A1...An, we find operations whose output sort is S
+/// and whose parameter inputs match the fiber. All fiber terms are
+/// collected under the base sort name S.
 fn generate_terms(
     theory: &Theory,
     config: &FreeModelConfig,
 ) -> Result<FxHashMap<Arc<str>, Vec<Term>>, GatError> {
     let mut terms_by_sort: FxHashMap<Arc<str>, Vec<Term>> = FxHashMap::default();
-    for sort in &theory.sorts {
-        terms_by_sort.insert(Arc::clone(&sort.name), Vec::new());
+
+    // Initialize in topological order so parameter sorts are ready first.
+    let ordered_sorts = topological_sort_sorts(theory);
+    for sort_name in &ordered_sorts {
+        terms_by_sort.insert(Arc::clone(sort_name), Vec::new());
     }
 
     // Seed: nullary operations.
@@ -79,19 +141,22 @@ fn generate_terms(
     for _depth in 1..=config.max_depth {
         let new_terms = generate_depth(theory, &terms_by_sort);
 
-        for (sort, new) in new_terms {
-            let Some(existing) = terms_by_sort.get_mut(&sort) else {
+        for sort_name in &ordered_sorts {
+            let Some(new) = new_terms.get(sort_name) else {
+                continue;
+            };
+            let Some(existing) = terms_by_sort.get_mut(sort_name) else {
                 continue;
             };
             for t in new {
                 if existing.len() >= config.max_terms_per_sort {
                     return Err(GatError::ModelError(format!(
-                        "term count for sort '{sort}' exceeds limit {}",
+                        "term count for sort '{sort_name}' exceeds limit {}",
                         config.max_terms_per_sort
                     )));
                 }
-                if !existing.contains(&t) {
-                    existing.push(t);
+                if !existing.contains(t) {
+                    existing.push(t.clone());
                 }
             }
         }
@@ -533,6 +598,103 @@ mod tests {
         };
         let result = free_model(&theory, &config);
         assert!(matches!(result, Err(GatError::ModelError(_))));
+    }
+
+    /// Free model of a category theory with dependent sorts.
+    /// Ob (objects), Hom(a: Ob, b: Ob) (morphisms), id: Ob -> Hom(a, a).
+    /// With one object constant, should generate the identity morphism.
+    #[test]
+    fn free_model_category_theory() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::sort::SortParam;
+
+        let theory = Theory::new(
+            "Category",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+            ],
+            vec![
+                Operation::nullary("star", "Ob"),
+                // id: Ob -> Hom (in practice produces Hom(x, x))
+                Operation::unary("id", "x", "Ob", "Hom"),
+            ],
+            Vec::new(),
+        );
+
+        let config = FreeModelConfig {
+            max_depth: 2,
+            max_terms_per_sort: 100,
+        };
+        let model = free_model(&theory, &config)?;
+
+        // Ob should have one element: star().
+        assert_eq!(model.sort_interp["Ob"].len(), 1);
+
+        // Hom should have at least id(star()).
+        assert!(
+            !model.sort_interp["Hom"].is_empty(),
+            "Hom should have at least the identity morphism"
+        );
+        Ok(())
+    }
+
+    /// Dependent sort with no operations targeting it produces empty carrier.
+    #[test]
+    fn free_model_dependent_sort_no_ops() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::sort::SortParam;
+
+        let theory = Theory::new(
+            "T",
+            vec![
+                Sort::simple("A"),
+                Sort::dependent("B", vec![SortParam::new("x", "A")]),
+            ],
+            vec![Operation::nullary("a", "A")],
+            Vec::new(),
+        );
+
+        let model = free_model(&theory, &FreeModelConfig::default())?;
+        assert_eq!(model.sort_interp["A"].len(), 1);
+        assert!(
+            model.sort_interp["B"].is_empty(),
+            "B has no operations targeting it, so carrier should be empty"
+        );
+        Ok(())
+    }
+
+    /// Topological ordering ensures parameter sorts are populated first.
+    #[test]
+    fn free_model_sort_ordering() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::sort::SortParam;
+
+        // Deliberately put the dependent sort first in the list.
+        let theory = Theory::new(
+            "T",
+            vec![
+                Sort::dependent("B", vec![SortParam::new("x", "A")]),
+                Sort::simple("A"),
+            ],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::unary("f", "x", "A", "B"),
+            ],
+            Vec::new(),
+        );
+
+        let config = FreeModelConfig {
+            max_depth: 1,
+            max_terms_per_sort: 100,
+        };
+        let model = free_model(&theory, &config)?;
+
+        // A should have a().
+        assert_eq!(model.sort_interp["A"].len(), 1);
+        // B should have f(a()).
+        assert_eq!(model.sort_interp["B"].len(), 1);
+        Ok(())
     }
 
     #[test]
