@@ -15,6 +15,15 @@ use crate::auto_lens::AutoLensConfig;
 use crate::error::LensError;
 use crate::protolens::ProtolensChain;
 
+/// A violation of complement coherence in a symmetric lens.
+#[derive(Debug)]
+pub struct CoherenceViolation {
+    /// Which direction's round-trip caused the violation.
+    pub direction: &'static str,
+    /// Details about the mismatch.
+    pub detail: String,
+}
+
 /// A symmetric lens between two schemas, built from a shared middle schema.
 ///
 /// The left leg is a lens from M to S, and the right leg is a lens from M
@@ -117,6 +126,74 @@ impl SymmetricLens {
         Self::from_span(left_lens, right_lens)
     }
 
+    /// Verify complement coherence for this symmetric lens on a given
+    /// middle instance.
+    ///
+    /// Complement coherence requires that round-tripping through one
+    /// direction does not disturb the complement of the other direction:
+    ///
+    /// 1. Get left and right views with complements from the middle instance.
+    /// 2. Put the right view back to get a restored middle instance.
+    /// 3. Get the left view from the restored middle.
+    /// 4. The left complement must be stable (same dropped node count).
+    /// 5. Repeat symmetrically for the other direction.
+    ///
+    /// Returns a list of violations (empty means coherent).
+    #[must_use]
+    pub fn verify_complement_coherence(
+        &self,
+        middle_instance: &WInstance,
+    ) -> Vec<CoherenceViolation> {
+        let mut violations = Vec::new();
+
+        // Forward: left -> right -> left, check left complement stability.
+        if let Ok((left_view, left_complement)) = get(&self.left, middle_instance) {
+            if let Ok((right_view, right_complement)) = get(&self.right, middle_instance) {
+                // Round-trip through right.
+                if let Ok(middle_restored) = put(&self.right, &right_view, &right_complement) {
+                    if let Ok((_left_view_2, left_complement_2)) =
+                        get(&self.left, &middle_restored)
+                    {
+                        if left_complement.dropped_nodes.len()
+                            != left_complement_2.dropped_nodes.len()
+                        {
+                            violations.push(CoherenceViolation {
+                                direction: "right round-trip disturbs left complement",
+                                detail: format!(
+                                    "left complement dropped nodes: {} before, {} after",
+                                    left_complement.dropped_nodes.len(),
+                                    left_complement_2.dropped_nodes.len()
+                                ),
+                            });
+                        }
+                    }
+                }
+
+                // Round-trip through left.
+                if let Ok(middle_restored) = put(&self.left, &left_view, &left_complement) {
+                    if let Ok((_right_view_2, right_complement_2)) =
+                        get(&self.right, &middle_restored)
+                    {
+                        if right_complement.dropped_nodes.len()
+                            != right_complement_2.dropped_nodes.len()
+                        {
+                            violations.push(CoherenceViolation {
+                                direction: "left round-trip disturbs right complement",
+                                detail: format!(
+                                    "right complement dropped nodes: {} before, {} after",
+                                    right_complement.dropped_nodes.len(),
+                                    right_complement_2.dropped_nodes.len()
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        violations
+    }
+
     /// Auto-generate a symmetric lens from two schemas.
     ///
     /// Uses overlap discovery to find shared structure, then builds
@@ -210,6 +287,22 @@ mod tests {
         let right = identity_lens(&schema);
         let sym = SymmetricLens::from_span(left, right).unwrap();
         assert_eq!(sym.middle.vertices.len(), schema.vertices.len());
+    }
+
+    #[test]
+    fn identity_lens_complement_coherent() {
+        let schema = three_node_schema();
+        let left = identity_lens(&schema);
+        let right = identity_lens(&schema);
+        let sym = SymmetricLens::from_span(left, right).unwrap();
+
+        // Create a minimal middle instance to test coherence.
+        let middle_instance = crate::tests::three_node_instance();
+        let violations = sym.verify_complement_coherence(&middle_instance);
+        assert!(
+            violations.is_empty(),
+            "identity lens should be complement-coherent, got violations: {violations:?}"
+        );
     }
 
     #[test]

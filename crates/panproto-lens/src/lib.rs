@@ -70,7 +70,7 @@ pub use protolens::{
     lift_protolens, vertical_compose as protolens_vertical,
 };
 pub use symbolic::{SymbolicStep, simplify_steps};
-pub use symmetric::SymmetricLens;
+pub use symmetric::{CoherenceViolation, SymmetricLens};
 
 use panproto_inst::CompiledMigration;
 use panproto_schema::Schema;
