@@ -151,6 +151,81 @@ pub struct DirectedEquation {
     pub inverse: Option<panproto_expr::Expr>,
 }
 
+/// Check if two terms are α-equivalent (equal up to consistent variable renaming).
+///
+/// Two terms are α-equivalent when there exists a bijection between their
+/// free variables such that applying the bijection to one term produces the
+/// other. All variables in equation contexts are universally quantified,
+/// so α-equivalence is the correct notion of equality for equation terms.
+#[must_use]
+pub fn alpha_equivalent(t1: &Term, t2: &Term) -> bool {
+    let mut checker = AlphaChecker {
+        forward: rustc_hash::FxHashMap::default(),
+        backward: rustc_hash::FxHashMap::default(),
+    };
+    checker.check(t1, t2)
+}
+
+/// Check if two equations are α-equivalent.
+///
+/// Uses a single variable bijection across both sides, since variables
+/// in an equation are universally quantified over the entire equation.
+/// This means `∀x. f(x,x) = g(x)` is α-equivalent to `∀y. f(y,y) = g(y)`
+/// but NOT to `∀a,b. f(a,b) = g(a)`.
+#[must_use]
+pub fn alpha_equivalent_equation(lhs1: &Term, rhs1: &Term, lhs2: &Term, rhs2: &Term) -> bool {
+    let mut checker = AlphaChecker {
+        forward: rustc_hash::FxHashMap::default(),
+        backward: rustc_hash::FxHashMap::default(),
+    };
+    checker.check(lhs1, lhs2) && checker.check(rhs1, rhs2)
+}
+
+struct AlphaChecker {
+    forward: rustc_hash::FxHashMap<Arc<str>, Arc<str>>,
+    backward: rustc_hash::FxHashMap<Arc<str>, Arc<str>>,
+}
+
+impl AlphaChecker {
+    fn check(&mut self, t1: &Term, t2: &Term) -> bool {
+        match (t1, t2) {
+            (Term::Var(a), Term::Var(b)) => {
+                if let Some(mapped) = self.forward.get(a) {
+                    if mapped != b {
+                        return false;
+                    }
+                } else if let Some(mapped_back) = self.backward.get(b) {
+                    if mapped_back != a {
+                        return false;
+                    }
+                } else {
+                    self.forward.insert(Arc::clone(a), Arc::clone(b));
+                    self.backward.insert(Arc::clone(b), Arc::clone(a));
+                }
+                true
+            }
+            (
+                Term::App {
+                    op: op1,
+                    args: args1,
+                },
+                Term::App {
+                    op: op2,
+                    args: args2,
+                },
+            ) => {
+                op1 == op2
+                    && args1.len() == args2.len()
+                    && args1
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| self.check(a1, a2))
+            }
+            _ => false,
+        }
+    }
+}
+
 impl DirectedEquation {
     /// Create a new directed equation.
     #[must_use]
@@ -224,5 +299,123 @@ mod tests {
         assert!(vars.contains("x"));
         assert!(vars.contains("y"));
         assert_eq!(vars.len(), 2);
+    }
+
+    // --- α-equivalence tests ---
+
+    #[test]
+    fn alpha_eq_same_vars() {
+        let t1 = Term::app("f", vec![Term::var("x"), Term::var("y")]);
+        let t2 = Term::app("f", vec![Term::var("x"), Term::var("y")]);
+        assert!(alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_renamed_vars() {
+        let t1 = Term::app("f", vec![Term::var("x"), Term::var("y")]);
+        let t2 = Term::app("f", vec![Term::var("a"), Term::var("b")]);
+        assert!(alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_non_injective_rejected() {
+        // f(x, x) is NOT α-equivalent to f(a, b) because x must map to
+        // a single variable, but a ≠ b.
+        let t1 = Term::app("f", vec![Term::var("x"), Term::var("x")]);
+        let t2 = Term::app("f", vec![Term::var("a"), Term::var("b")]);
+        assert!(!alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_non_surjective_rejected() {
+        // f(a, b) is NOT α-equivalent to f(x, x) because the backward
+        // bijection would require both a and b to map to x.
+        let t1 = Term::app("f", vec![Term::var("a"), Term::var("b")]);
+        let t2 = Term::app("f", vec![Term::var("x"), Term::var("x")]);
+        assert!(!alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_different_ops() {
+        let t1 = Term::app("f", vec![Term::var("x")]);
+        let t2 = Term::app("g", vec![Term::var("x")]);
+        assert!(!alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_different_structure() {
+        let t1 = Term::app("f", vec![Term::var("x"), Term::app("g", vec![Term::var("y")])]);
+        let t2 = Term::app("f", vec![Term::var("x"), Term::var("y")]);
+        assert!(!alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_constants() {
+        let t1 = Term::app("f", vec![Term::constant("c")]);
+        let t2 = Term::app("f", vec![Term::constant("c")]);
+        assert!(alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_constants_differ() {
+        let t1 = Term::app("f", vec![Term::constant("c")]);
+        let t2 = Term::app("f", vec![Term::constant("d")]);
+        assert!(!alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_nested_renamed() {
+        // f(g(x, y), h(y, x)) ≡α f(g(a, b), h(b, a))
+        let t1 = Term::app(
+            "f",
+            vec![
+                Term::app("g", vec![Term::var("x"), Term::var("y")]),
+                Term::app("h", vec![Term::var("y"), Term::var("x")]),
+            ],
+        );
+        let t2 = Term::app(
+            "f",
+            vec![
+                Term::app("g", vec![Term::var("a"), Term::var("b")]),
+                Term::app("h", vec![Term::var("b"), Term::var("a")]),
+            ],
+        );
+        assert!(alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_equation_shared_bijection() {
+        // Equation: f(x, y) = g(y, x) with vars renamed to a, b.
+        // The bijection must be consistent across both sides.
+        let lhs1 = Term::app("f", vec![Term::var("x"), Term::var("y")]);
+        let rhs1 = Term::app("g", vec![Term::var("y"), Term::var("x")]);
+        let lhs2 = Term::app("f", vec![Term::var("a"), Term::var("b")]);
+        let rhs2 = Term::app("g", vec![Term::var("b"), Term::var("a")]);
+        assert!(alpha_equivalent_equation(&lhs1, &rhs1, &lhs2, &rhs2));
+    }
+
+    #[test]
+    fn alpha_eq_equation_inconsistent_bijection() {
+        // Equation 1: f(x, y) = g(y)
+        // Equation 2: f(a, b) = g(a)  -- inconsistent: y->b from lhs, but y->a from rhs
+        let lhs1 = Term::app("f", vec![Term::var("x"), Term::var("y")]);
+        let rhs1 = Term::app("g", vec![Term::var("y")]);
+        let lhs2 = Term::app("f", vec![Term::var("a"), Term::var("b")]);
+        let rhs2 = Term::app("g", vec![Term::var("a")]);
+        assert!(!alpha_equivalent_equation(&lhs1, &rhs1, &lhs2, &rhs2));
+    }
+
+    #[test]
+    fn alpha_eq_var_vs_app() {
+        let t1 = Term::var("x");
+        let t2 = Term::constant("c");
+        assert!(!alpha_equivalent(&t1, &t2));
+    }
+
+    #[test]
+    fn alpha_eq_arity_mismatch() {
+        let t1 = Term::app("f", vec![Term::var("x")]);
+        let t2 = Term::app("f", vec![Term::var("x"), Term::var("y")]);
+        assert!(!alpha_equivalent(&t1, &t2));
     }
 }

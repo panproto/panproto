@@ -4,6 +4,11 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — Mathematical Correctness (F1): α-Equivalence in Equation Preservation
+
+- **panproto-gat**: equation preservation in `check_morphism()` now uses α-equivalence instead of syntactic equality, correctly treating universally quantified variable names as bound. Added `alpha_equivalent()` and `alpha_equivalent_equation()` to `Term`. Fixes false negatives when codomain equations use different variable names than the mapped domain equations.
+- **panproto-gat**: pullback equation pairing in `pair_eqs()` now uses α-equivalence, allowing equations with renamed variables to be correctly paired across theories.
+
 ### Added — XRPC Remote Operations and Git Remote Helper
 
 - **panproto-xrpc** (new crate): XRPC client for cospan node VCS operations. Implements all `dev.cospan.node.*` endpoints (getObject, putObject, getRef, setRef, listRefs, getHead, negotiate, getRepoInfo). High-level `push()` and `pull()` methods handle full have/want negotiation. Auth via Bearer token.

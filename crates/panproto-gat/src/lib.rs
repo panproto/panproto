@@ -48,7 +48,7 @@ pub use check_model::{
 pub use colimit::colimit;
 pub use factorize::{Factorization, factorize, validate_factorization};
 
-pub use eq::{DirectedEquation, Equation, Term};
+pub use eq::{DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation};
 pub use error::GatError;
 pub use free_model::{FreeModelConfig, free_model};
 pub use ident::{Ident, Name, NameSite, ScopeTag, SiteRename};
