@@ -39,6 +39,7 @@ pub mod edit_lens;
 pub mod edit_pipeline;
 pub mod edit_provenance;
 pub mod error;
+pub mod fibration;
 pub mod graph;
 pub mod laws;
 pub mod optic;
