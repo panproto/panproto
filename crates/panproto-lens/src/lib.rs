@@ -55,7 +55,7 @@ pub use complement_type::{
     complement_spec_at,
 };
 pub use compose::compose;
-pub use cost::{chain_cost, complement_cost};
+pub use cost::{chain_cost, complement_cost, verify_identity_cost, verify_subadditivity};
 pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolens};
 pub use edit_error::EditLensError;
 pub use edit_lens::EditLens;

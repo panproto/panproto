@@ -171,6 +171,83 @@ impl LensGraph {
     pub fn schema_count(&self) -> usize {
         self.schemas.len()
     }
+
+    /// Verify that the distance matrix satisfies the Lawvere metric axioms.
+    ///
+    /// Checks:
+    /// 1. `d(A, A) = 0` for all schemas A (identity).
+    /// 2. `d(A, C) <= d(A, B) + d(B, C)` for all triples (triangle inequality).
+    ///
+    /// Must be called after [`compute_distances()`](Self::compute_distances).
+    /// Returns an empty list if the metric axioms hold (they always do when
+    /// distances are computed via Floyd-Warshall, but this serves as a
+    /// correctness assertion and documentation).
+    #[must_use]
+    pub fn verify_metric(&self) -> Vec<MetricViolation> {
+        let mut violations = Vec::new();
+
+        let Some(dist) = &self.distances else {
+            return violations;
+        };
+
+        let n = self.schemas.len();
+
+        // Axiom 1: d(A, A) = 0
+        for (i, row) in dist.iter().enumerate().take(n) {
+            if row[i].abs() > f64::EPSILON {
+                violations.push(MetricViolation::IdentityNonZero {
+                    schema: self.schemas[i].clone(),
+                    cost: row[i],
+                });
+            }
+        }
+
+        // Axiom 2: triangle inequality
+        for i in 0..n {
+            for j in 0..n {
+                for k in 0..n {
+                    let d_ik = dist[i][k];
+                    let d_ij_plus_d_jk = dist[i][j] + dist[j][k];
+                    if d_ik > d_ij_plus_d_jk + f64::EPSILON {
+                        violations.push(MetricViolation::TriangleInequality {
+                            x: self.schemas[i].clone(),
+                            y: self.schemas[j].clone(),
+                            z: self.schemas[k].clone(),
+                            d_xz: d_ik,
+                            d_xy_plus_d_yz: d_ij_plus_d_jk,
+                        });
+                    }
+                }
+            }
+        }
+
+        violations
+    }
+}
+
+/// A violation of the Lawvere metric axioms.
+#[derive(Debug)]
+pub enum MetricViolation {
+    /// Self-distance is not zero.
+    IdentityNonZero {
+        /// The schema with non-zero self-distance.
+        schema: Name,
+        /// The actual self-distance.
+        cost: f64,
+    },
+    /// The triangle inequality is violated.
+    TriangleInequality {
+        /// Source schema.
+        x: Name,
+        /// Intermediate schema.
+        y: Name,
+        /// Target schema.
+        z: Name,
+        /// Direct distance d(x, z).
+        d_xz: f64,
+        /// Sum d(x, y) + d(y, z).
+        d_xy_plus_d_yz: f64,
+    },
 }
 
 impl Default for LensGraph {
@@ -413,6 +490,36 @@ mod tests {
         assert_eq!(g.schema_count(), 0);
         g.add_lens(&a, &b, chain_with_cost("ab", 1.0));
         assert_eq!(g.schema_count(), 2);
+    }
+
+    #[test]
+    fn verify_metric_triangle_graph() {
+        let mut g = LensGraph::new();
+        let a = Name::from("A");
+        let b = Name::from("B");
+        let c = Name::from("C");
+
+        g.add_lens(&a, &b, chain_with_cost("ab", 2.0));
+        g.add_lens(&b, &c, chain_with_cost("bc", 3.0));
+        g.add_lens(&a, &c, chain_with_cost("ac", 10.0));
+
+        g.compute_distances();
+
+        let violations = g.verify_metric();
+        assert!(
+            violations.is_empty(),
+            "triangle graph should satisfy Lawvere metric axioms: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn verify_metric_single_node() {
+        let mut g = LensGraph::new();
+        g.add_schema(Name::from("A"));
+        g.compute_distances();
+
+        let violations = g.verify_metric();
+        assert!(violations.is_empty());
     }
 
     #[test]
