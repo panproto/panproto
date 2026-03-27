@@ -17,6 +17,7 @@ panproto-git = { workspace = true }
 panproto-xrpc = { version = "0.16.0", path = "../panproto-xrpc" }
 
 git2 = "0.20"
+rustc-hash = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 miette = { workspace = true }
 

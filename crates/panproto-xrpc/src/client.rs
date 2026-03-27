@@ -162,7 +162,7 @@ impl NodeClient {
             self.base_url, self.did, self.repo
         );
         let resp = self.http.get(&url).send().await?;
-        check_status(&resp, "listRefs").await?;
+        let resp = check_response(resp, "listRefs").await?;
         let body: serde_json::Value = resp.json().await?;
         let refs = body["refs"]
             .as_array()
@@ -172,10 +172,18 @@ impl NodeClient {
                 body: "missing refs array".to_owned(),
             })?;
         let mut result = Vec::new();
-        for r in refs {
-            let name = r["name"].as_str().unwrap_or_default().to_owned();
-            let target = r["target"].as_str().unwrap_or_default();
-            result.push((name, parse_object_id(target)?));
+        for (i, r) in refs.iter().enumerate() {
+            let name = r["name"].as_str().ok_or_else(|| XrpcError::NodeError {
+                endpoint: "listRefs".to_owned(),
+                status: 200,
+                body: format!("ref entry {i} missing 'name' field"),
+            })?;
+            let target = r["target"].as_str().ok_or_else(|| XrpcError::NodeError {
+                endpoint: "listRefs".to_owned(),
+                status: 200,
+                body: format!("ref entry {i} ('{name}') missing 'target' field"),
+            })?;
+            result.push((name.to_owned(), parse_object_id(target)?));
         }
         Ok(result)
     }
@@ -191,14 +199,20 @@ impl NodeClient {
             self.base_url, self.did, self.repo
         );
         let resp = self.http.get(&url).send().await?;
-        check_status(&resp, "getHead").await?;
+        let resp = check_response(resp, "getHead").await?;
         let body: serde_json::Value = resp.json().await?;
         if let Some(branch) = body["branch"].as_str() {
             Ok(HeadState::Branch(branch.to_owned()))
         } else if let Some(id_str) = body["detached"].as_str() {
             Ok(HeadState::Detached(parse_object_id(id_str)?))
         } else {
-            Ok(HeadState::Branch("main".to_owned()))
+            Err(XrpcError::NodeError {
+                endpoint: "getHead".to_owned(),
+                status: 200,
+                body: format!(
+                    "unexpected HEAD response: neither 'branch' nor 'detached' field present: {body}"
+                ),
+            })
         }
     }
 
@@ -213,7 +227,7 @@ impl NodeClient {
             self.base_url, self.did, self.repo
         );
         let resp = self.http.get(&url).send().await?;
-        check_status(&resp, "getRepoInfo").await?;
+        let resp = check_response(resp, "getRepoInfo").await?;
         let info: RepoInfo = resp.json().await?;
         Ok(info)
     }
@@ -315,7 +329,11 @@ impl NodeClient {
             "have": have.iter().map(ObjectId::to_string).collect::<Vec<_>>(),
             "want": want,
         });
-        let resp = self.http.post(&url).json(&body).send().await?;
+        let mut req = self.http.post(&url).json(&body);
+        if let Some(token) = &self.token {
+            req = req.header("Authorization", format!("Bearer {token}"));
+        }
+        let resp = req.send().await?;
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();
@@ -365,11 +383,21 @@ impl NodeClient {
             objects_pushed += 1;
         }
 
-        // Update refs.
+        // Update refs. Derive protocol and commit count from the commit object.
         let mut refs_updated = 0;
         for (name, id) in &local_refs {
             let remote_target = self.get_ref(name).await?;
-            self.set_ref(name, remote_target.as_ref(), id, "project", 1)
+
+            // Read the commit to get the protocol name and count ancestors.
+            let (protocol, commit_count) = match store.get(id) {
+                Ok(Object::Commit(c)) => {
+                    let count = count_ancestors(store, id);
+                    (c.protocol.clone(), count)
+                }
+                _ => ("project".to_owned(), 1),
+            };
+
+            self.set_ref(name, remote_target.as_ref(), id, &protocol, commit_count)
                 .await?;
             refs_updated += 1;
         }
@@ -448,6 +476,23 @@ pub struct PullResult {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+/// Count the number of ancestors reachable from a commit (including itself).
+fn count_ancestors<S: Store>(store: &S, start: &ObjectId) -> u64 {
+    let mut count = 0;
+    let mut stack = vec![*start];
+    let mut visited = std::collections::HashSet::new();
+    while let Some(id) = stack.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        count += 1;
+        if let Ok(Object::Commit(c)) = store.get(&id) {
+            stack.extend_from_slice(&c.parents);
+        }
+    }
+    count
+}
+
 /// Parse a hex string into an `ObjectId`.
 fn parse_object_id(hex: &str) -> Result<ObjectId, XrpcError> {
     let bytes =
@@ -463,16 +508,21 @@ fn parse_object_id(hex: &str) -> Result<ObjectId, XrpcError> {
     Ok(ObjectId::from_bytes(arr))
 }
 
-/// Check response status, returning an error for non-success.
-async fn check_status(resp: &reqwest::Response, endpoint: &str) -> Result<(), XrpcError> {
-    if !resp.status().is_success() {
-        return Err(XrpcError::NodeError {
-            endpoint: endpoint.to_owned(),
-            status: resp.status().as_u16(),
-            body: "(status check only)".to_owned(),
-        });
+/// Check response status, consuming the response. Returns it on success, error with body on failure.
+async fn check_response(
+    resp: reqwest::Response,
+    endpoint: &str,
+) -> Result<reqwest::Response, XrpcError> {
+    if resp.status().is_success() {
+        return Ok(resp);
     }
-    Ok(())
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    Err(XrpcError::NodeError {
+        endpoint: endpoint.to_owned(),
+        status,
+        body,
+    })
 }
 
 /// Check response status, consuming the response to read the body on error.

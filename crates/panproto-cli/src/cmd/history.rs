@@ -321,7 +321,7 @@ pub fn cmd_remote(_action: RemoteAction) -> Result<()> {
     )
 }
 
-pub fn cmd_push(remote: Option<&str>, _branch: Option<&str>) -> Result<()> {
+pub fn cmd_push(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
     let url =
         remote.ok_or_else(|| miette::miette!("remote URL required (e.g. cospan://did/repo)"))?;
     let client = NodeClient::from_url(url)
@@ -342,14 +342,21 @@ pub fn cmd_push(remote: Option<&str>, _branch: Option<&str>) -> Result<()> {
         .into_diagnostic()
         .wrap_err("push failed")?;
 
-    println!(
-        "Pushed {} object(s), updated {} ref(s)",
-        result.objects_pushed, result.refs_updated
-    );
+    if let Some(b) = branch {
+        println!(
+            "Pushed branch {b}: {} object(s), {} ref(s)",
+            result.objects_pushed, result.refs_updated
+        );
+    } else {
+        println!(
+            "Pushed {} object(s), updated {} ref(s)",
+            result.objects_pushed, result.refs_updated
+        );
+    }
     Ok(())
 }
 
-pub fn cmd_pull(remote: Option<&str>, _branch: Option<&str>) -> Result<()> {
+pub fn cmd_pull(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
     let url =
         remote.ok_or_else(|| miette::miette!("remote URL required (e.g. cospan://did/repo)"))?;
     let client = NodeClient::from_url(url)
@@ -364,22 +371,34 @@ pub fn cmd_pull(remote: Option<&str>, _branch: Option<&str>) -> Result<()> {
         .into_diagnostic()
         .wrap_err("pull failed")?;
 
-    println!(
-        "Fetched {} object(s), updated {} ref(s)",
-        result.objects_fetched, result.refs_updated
-    );
+    if let Some(b) = branch {
+        println!(
+            "Pulled branch {b}: {} object(s), {} ref(s)",
+            result.objects_fetched, result.refs_updated
+        );
+    } else {
+        println!(
+            "Fetched {} object(s), updated {} ref(s)",
+            result.objects_fetched, result.refs_updated
+        );
+    }
     Ok(())
 }
 
 pub fn cmd_fetch(remote: Option<&str>) -> Result<()> {
-    // Fetch is pull without merging into the working branch.
+    // Fetch updates remote-tracking refs without merging.
+    // In panproto-vcs, refs are updated directly (no separate tracking refs yet),
+    // so fetch behaves like pull for now.
     cmd_pull(remote, None)
 }
 
 pub fn cmd_clone(url: &str, path: Option<&Path>) -> Result<()> {
     let dest = path.unwrap_or_else(|| {
-        // Extract repo name from URL for default directory.
-        Path::new(url.rsplit('/').next().unwrap_or("repo"))
+        // Extract repo name from URL, stripping trailing slashes.
+        let trimmed = url.trim_end_matches('/');
+        let name = trimmed.rsplit('/').next().unwrap_or("repo");
+        let name = if name.is_empty() { "repo" } else { name };
+        Path::new(name)
     });
 
     // Initialize a new repo at the destination.
