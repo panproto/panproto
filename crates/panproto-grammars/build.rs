@@ -7,7 +7,7 @@
     clippy::single_char_add_str
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -55,7 +55,8 @@ fn main() {
         }
     }
 
-    // Compile C sources for each enabled grammar.
+    // Compile C sources for each enabled grammar. Track which ones succeed.
+    let mut compiled_flags: Vec<bool> = Vec::new();
     for (name, spec) in &enabled {
         let lang_dir = grammars_dir.join(name).join("src");
         if !lang_dir.exists() {
@@ -64,19 +65,28 @@ fn main() {
                 name,
                 lang_dir.display()
             );
+            compiled_flags.push(false);
             continue;
         }
 
-        compile_grammar(name, spec, &lang_dir);
+        compiled_flags.push(compile_grammar(name, spec, &lang_dir));
     }
 
+    // Only include successfully compiled grammars in the bindings.
+    let compiled: Vec<&(String, GrammarSpec)> = enabled
+        .iter()
+        .zip(compiled_flags.iter())
+        .filter(|(_, ok)| **ok)
+        .map(|(entry, _)| entry)
+        .collect();
+
     // Generate the Rust binding file.
-    let generated = generate_rust_bindings(&enabled, &grammars_dir);
+    let generated = generate_rust_bindings(&compiled, &grammars_dir);
     let out_file = out_dir.join("grammar_table.rs");
     fs::write(&out_file, generated).expect("failed to write grammar_table.rs");
 }
 
-fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) {
+fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
     let c_symbol = spec
         .c_symbol
         .as_deref()
@@ -86,8 +96,8 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) {
     let scanner_cc = src_dir.join("scanner.cc");
 
     if !parser_c.exists() {
-        println!("cargo:warning=Grammar '{name}': no parser.c found");
-        return;
+        println!("cargo:warning=Grammar '{name}': no parser.c found, skipping");
+        return false;
     }
 
     println!("cargo:rerun-if-changed={}", parser_c.display());
@@ -98,7 +108,8 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) {
         .file(&parser_c)
         .include(src_dir)
         .std("c11")
-        .warnings(false);
+        .warnings(false)
+        .cargo_warnings(false);
 
     // Add common/ directory as include path (for grammars like PHP).
     let common_dir = src_dir.join("common");
@@ -106,30 +117,62 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) {
         build.include(&common_dir);
     }
 
+    // Scan scanner source for #include directives that reference files not
+    // present in src_dir. If found, search sibling grammar src/ directories
+    // for the missing header. This handles grammars that extend others (e.g.,
+    // Angular/Svelte including tag.h from the HTML grammar).
+    let grammars_parent = src_dir.parent().and_then(Path::parent);
+    if let Some(all_grammars) = grammars_parent {
+        let extra_includes = find_missing_includes(src_dir, all_grammars);
+        for inc_dir in &extra_includes {
+            build.include(inc_dir);
+        }
+    }
+
     if scanner_c.exists() {
         build.file(&scanner_c);
         println!("cargo:rerun-if-changed={}", scanner_c.display());
     }
 
-    // Use a unique output name to avoid collisions.
-    build.compile(&format!("tree_sitter_{c_symbol}"));
+    // Use try_compile to gracefully handle compilation failures.
+    if let Err(e) = build.try_compile(&format!("tree_sitter_{c_symbol}")) {
+        println!("cargo:warning=Grammar '{name}' failed to compile: {e}");
+        return false;
+    }
 
     // Compile C++ scanner separately if present.
     if scanner_cc.exists() {
         println!("cargo:rerun-if-changed={}", scanner_cc.display());
 
-        cc::Build::new()
+        let mut cpp_build = cc::Build::new();
+        cpp_build
             .cpp(true)
             .file(&scanner_cc)
             .include(src_dir)
             .std("c++14")
             .warnings(false)
-            .compile(&format!("tree_sitter_{c_symbol}_scanner"));
+            .cargo_warnings(false);
+
+        // Add sibling grammar includes for C++ scanners too.
+        if let Some(all_grammars) = grammars_parent {
+            for inc_dir in &find_missing_includes(src_dir, all_grammars) {
+                cpp_build.include(inc_dir);
+            }
+        }
+
+        if let Err(e) = cpp_build
+            .try_compile(&format!("tree_sitter_{c_symbol}_scanner"))
+        {
+            println!("cargo:warning=Grammar '{name}' C++ scanner failed: {e}");
+            return false;
+        }
     }
+
+    true
 }
 
 fn generate_rust_bindings(
-    enabled: &[(String, GrammarSpec)],
+    enabled: &[&(String, GrammarSpec)],
     grammars_dir: &Path,
 ) -> String {
     let mut code = String::new();
@@ -233,4 +276,66 @@ fn generate_rust_bindings(
     code.push_str("        _ => None,\n    }\n}\n");
 
     code
+}
+
+/// Scan C/C++ source files in `src_dir` for `#include "..."` directives that
+/// reference files not present locally. For each missing header, search all
+/// sibling grammar `src/` directories under `all_grammars` and return the
+/// directories where the header was found.
+///
+/// This handles grammars that extend other grammars (e.g., Angular including
+/// `tag.h` from the HTML grammar, or Svelte including from HTML).
+fn find_missing_includes(src_dir: &Path, all_grammars: &Path) -> Vec<PathBuf> {
+    let mut needed_dirs: BTreeSet<PathBuf> = BTreeSet::new();
+
+    // Collect #include "..." from scanner.c, scanner.cc, and parser.c.
+    for filename in &["scanner.c", "scanner.cc", "parser.c"] {
+        let file = src_dir.join(filename);
+        if !file.exists() {
+            continue;
+        }
+        let content = match fs::read_to_string(&file) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("#include") {
+                continue;
+            }
+            // Match #include "header.h" (not <header.h>).
+            if let Some(start) = trimmed.find('"') {
+                if let Some(end) = trimmed[start + 1..].find('"') {
+                    let header = &trimmed[start + 1..start + 1 + end];
+                    // Skip standard tree_sitter headers and local files.
+                    if header.starts_with("tree_sitter/") {
+                        continue;
+                    }
+                    // Check if the header exists locally.
+                    if src_dir.join(header).exists() {
+                        continue;
+                    }
+                    // Search sibling grammars for this header.
+                    let header_basename = Path::new(header)
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    if let Ok(entries) = fs::read_dir(all_grammars) {
+                        for entry in entries.flatten() {
+                            let sibling_src = entry.path().join("src");
+                            if sibling_src == *src_dir || !sibling_src.is_dir() {
+                                continue;
+                            }
+                            if sibling_src.join(&header_basename).exists() {
+                                needed_dirs.insert(sibling_src);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    needed_dirs.into_iter().collect()
 }

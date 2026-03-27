@@ -41,6 +41,7 @@ extensions = ["ino"]
 [asciidoc]
 repo = "https://github.com/cathaysia/tree-sitter-asciidoc"
 extensions = ["adoc", "asciidoc"]
+directory = "tree-sitter-asciidoc"
 
 [asm]
 repo = "https://github.com/rush-rs/tree-sitter-asm"
@@ -113,12 +114,12 @@ extensions = ["capnp"]
 [cedar]
 repo = "https://github.com/DuskSystems/tree-sitter-cedar"
 extensions = ["cedar"]
-directory = "tree-sitter-cedar"
+directory = "cedar"
 
 [cedarschema]
 repo = "https://github.com/DuskSystems/tree-sitter-cedar"
 extensions = ["cedarschema"]
-directory = "tree-sitter-cedarschema"
+directory = "cedarschema"
 
 [chatito]
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-chatito"
@@ -127,6 +128,7 @@ extensions = ["chatito"]
 [circom]
 repo = "https://github.com/nicolo-ribaudo/tree-sitter-circom"
 extensions = ["circom"]
+# UNAVAILABLE: repo not found, needs tree-sitter generate
 
 [clarity]
 repo = "https://github.com/xlittlerag/tree-sitter-clarity"
@@ -246,6 +248,7 @@ extensions = []
 [ebnf]
 repo = "https://github.com/RubixDev/ebnf"
 extensions = ["ebnf"]
+directory = "crates/tree-sitter-ebnf"
 
 [editorconfig]
 repo = "https://github.com/ValdezFOmar/tree-sitter-editorconfig"
@@ -312,6 +315,7 @@ extensions = ["fnl"]
 [fidl]
 repo = "https://github.com/nicolo-ribaudo/tree-sitter-fidl"
 extensions = ["fidl"]
+# NOTE: Original repo google/tree-sitter-fidl may have moved
 
 [firrtl]
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-firrtl"
@@ -398,7 +402,7 @@ repo = "https://github.com/bkegley/tree-sitter-graphql"
 extensions = ["graphql", "gql"]
 
 [groovy]
-repo = "https://github.com/Decodetalkers/tree-sitter-groovy"
+repo = "https://github.com/murtaza64/tree-sitter-groovy"
 extensions = ["groovy", "gradle"]
 
 [gstlaunch]
@@ -691,6 +695,7 @@ extensions = ["pony"]
 [postscript]
 repo = "https://github.com/nicolo-ribaudo/tree-sitter-postscript"
 extensions = ["ps", "eps"]
+# NOTE: Original repo smoeding/tree-sitter-postscript may have moved
 
 [powershell]
 repo = "https://github.com/airbus-cert/tree-sitter-powershell"
@@ -706,7 +711,8 @@ extensions = ["prisma"]
 
 [prolog]
 repo = "https://github.com/nicolo-ribaudo/tree-sitter-prolog"
-extensions = ["pro", "pl"]
+extensions = ["pro"]
+# NOTE: Original repo Rukiza/tree-sitter-prolog may have moved
 
 [promql]
 repo = "https://github.com/MichaHoffmann/tree-sitter-promql"
@@ -754,6 +760,7 @@ extensions = ["ql"]
 repo = "https://github.com/nicolo-ribaudo/tree-sitter-qmljs"
 extensions = ["qml"]
 c_symbol = "qmljs"
+# NOTE: Original repo yuja/tree-sitter-qmljs may have moved
 
 [qmldir]
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-qmldir"
@@ -984,25 +991,25 @@ repo = "https://github.com/tree-sitter-grammars/tree-sitter-vue"
 extensions = ["vue"]
 
 [wast]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-wasm"
+repo = "https://github.com/mkatychev/tree-sitter-wasm"
 extensions = ["wast"]
 directory = "wast"
 
 [wat]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-wasm"
+repo = "https://github.com/mkatychev/tree-sitter-wasm"
 extensions = ["wat"]
 directory = "wat"
 
 [wgsl]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-wgsl"
+repo = "https://github.com/szebniok/tree-sitter-wgsl"
 extensions = ["wgsl"]
 
 [wit]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-wit"
+repo = "https://github.com/bytecodealliance/tree-sitter-wit"
 extensions = ["wit"]
 
 [wolfram]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-wolfram"
+repo = "https://github.com/bostick/tree-sitter-wolfram"
 extensions = ["wl"]
 
 [xcompose]
