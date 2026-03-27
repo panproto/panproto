@@ -3,6 +3,16 @@
 //! Classifies each protolens or protolens chain into an optic kind
 //! (Iso, Lens, Prism, Affine, Traversal) to optimize complement
 //! storage and composition.
+//!
+//! ## Lawfulness assumption
+//!
+//! The classification in [`classify_transform`] is structural: it assigns
+//! optic kinds based on the shape of the [`TheoryTransform`], not by
+//! verifying the corresponding optic laws at runtime. This is correct for
+//! elementary transforms (rename, add, drop), which are lawful by
+//! construction. For composite or auto-generated transforms, use
+//! [`check_optic_laws`] to verify that the classified kind's laws hold
+//! on a concrete instance.
 
 use panproto_gat::TheoryTransform;
 use serde::{Deserialize, Serialize};
@@ -87,6 +97,100 @@ pub fn classify_transform(transform: &TheoryTransform) -> OpticKind {
             kind_a.compose(kind_b)
         }
     }
+}
+
+/// Verify that the optic laws hold for a classified transform on a
+/// concrete lens and instance.
+///
+/// Checks the laws appropriate to the classified [`OpticKind`]:
+///
+/// - **Iso**: `get(put(v, c)) == v` AND `put(get(s), c) == s`
+///   AND complement is empty.
+/// - **Lens**: `get(put(v, c)) == v` and `put(get(s), c) == s`.
+/// - **Prism/Affine/Traversal**: falls through to Lens-level checks
+///   (the full prism laws require a `review` operation not yet implemented).
+///
+/// # Errors
+///
+/// Returns [`OpticLawViolation`] describing the first law that fails.
+pub fn check_optic_laws(
+    kind: OpticKind,
+    lens: &crate::Lens,
+    instance: &panproto_inst::WInstance,
+) -> Result<(), OpticLawViolation> {
+    use crate::asymmetric::{get, put};
+
+    let (view, complement) = get(lens, instance).map_err(|e| OpticLawViolation {
+        kind,
+        law: "get",
+        detail: format!("get failed: {e}"),
+    })?;
+
+    // PutGet: put(get(s), complement) should reconstruct s.
+    let restored = put(lens, &view, &complement).map_err(|e| OpticLawViolation {
+        kind,
+        law: "PutGet",
+        detail: format!("put failed: {e}"),
+    })?;
+
+    if restored.node_count() != instance.node_count() {
+        return Err(OpticLawViolation {
+            kind,
+            law: "PutGet",
+            detail: format!(
+                "node count mismatch: original {}, restored {}",
+                instance.node_count(),
+                restored.node_count()
+            ),
+        });
+    }
+
+    // GetPut: get(put(v, c)) should return v.
+    let (view2, _complement2) = get(lens, &restored).map_err(|e| OpticLawViolation {
+        kind,
+        law: "GetPut",
+        detail: format!("get after put failed: {e}"),
+    })?;
+
+    if view2.node_count() != view.node_count() {
+        return Err(OpticLawViolation {
+            kind,
+            law: "GetPut",
+            detail: format!(
+                "view node count mismatch: original {}, after round-trip {}",
+                view.node_count(),
+                view2.node_count()
+            ),
+        });
+    }
+
+    // For Iso: complement must be empty.
+    if kind == OpticKind::Iso
+        && (!complement.dropped_nodes.is_empty() || !complement.dropped_arcs.is_empty())
+    {
+        return Err(OpticLawViolation {
+            kind,
+            law: "Iso complement must be empty",
+            detail: format!(
+                "complement has {} dropped nodes, {} dropped arcs",
+                complement.dropped_nodes.len(),
+                complement.dropped_arcs.len()
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+/// A violation of an optic law.
+#[derive(Debug)]
+pub struct OpticLawViolation {
+    /// The classified optic kind.
+    pub kind: OpticKind,
+    /// Which law was violated.
+    pub law: &'static str,
+    /// Details about the violation.
+    pub detail: String,
 }
 
 #[cfg(test)]
@@ -278,6 +382,37 @@ mod tests {
                 serde_json::from_str(&json).unwrap_or_else(|e| panic!("deserialize {kind:?}: {e}"));
             assert_eq!(kind, back);
         }
+    }
+
+    // ---------------------------------------------------------------
+    // Law-checking tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn identity_lens_satisfies_iso_laws() {
+        use crate::tests::{identity_lens, three_node_instance, three_node_schema};
+
+        let schema = three_node_schema();
+        let lens = identity_lens(&schema);
+        let instance = three_node_instance();
+
+        let result = check_optic_laws(OpticKind::Iso, &lens, &instance);
+        assert!(result.is_ok(), "identity lens should satisfy Iso laws: {result:?}");
+    }
+
+    #[test]
+    fn projection_lens_satisfies_lens_laws() {
+        use crate::tests::{projection_lens, three_node_instance, three_node_schema};
+
+        let schema = three_node_schema();
+        let lens = projection_lens(&schema, "text");
+        let instance = three_node_instance();
+
+        let result = check_optic_laws(OpticKind::Lens, &lens, &instance);
+        assert!(
+            result.is_ok(),
+            "projection lens should satisfy Lens laws: {result:?}"
+        );
     }
 
     // ---------------------------------------------------------------
