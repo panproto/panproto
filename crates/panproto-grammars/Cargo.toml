@@ -6,7 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+# On crates.io, this crate provides zero built-in grammars (the vendored C
+# sources are too large to include). Users add languages via
+# panproto_parse::ParserRegistry::register() with individual grammar crates.
+# Within the panproto workspace, build.rs compiles all 240+ vendored grammars.
 build = "build.rs"
 
 [dependencies]

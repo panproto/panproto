@@ -35,7 +35,26 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", grammars_toml_path.display());
 
-    let toml_str = fs::read_to_string(&grammars_toml_path).expect("failed to read grammars.toml");
+    // Outside the workspace (e.g., when installed from crates.io), grammars.toml
+    // and grammars/ are not available. Generate an empty grammar table; users add
+    // languages via panproto_parse::ParserRegistry::register() with individual
+    // grammar crates (tree-sitter-python, tree-sitter-rust, etc.).
+    let Ok(toml_str) = fs::read_to_string(&grammars_toml_path) else {
+        let stub = "\
+            pub(crate) struct GrammarEntry {\n\
+            \x20   pub name: &'static str,\n\
+            \x20   pub extensions: &'static [&'static str],\n\
+            \x20   pub language_fn_ptr: *const (),\n\
+            \x20   pub node_types: &'static [u8],\n\
+            }\n\
+            unsafe impl Send for GrammarEntry {}\n\
+            unsafe impl Sync for GrammarEntry {}\n\
+            pub(crate) fn enabled_grammars() -> Vec<GrammarEntry> { Vec::new() }\n\
+            pub(crate) fn ext_to_lang(_: &str) -> Option<&'static str> { None }\n";
+        fs::write(out_dir.join("grammar_table.rs"), stub)
+            .expect("failed to write grammar_table.rs");
+        return;
+    };
     let manifest: BTreeMap<String, GrammarSpec> =
         toml::from_str(&toml_str).expect("failed to parse grammars.toml");
 
