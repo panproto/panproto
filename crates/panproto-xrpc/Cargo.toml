@@ -1,0 +1,24 @@
+[package]
+name = "panproto-xrpc"
+description = "XRPC client for cospan node VCS operations"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+panproto-vcs = { workspace = true }
+panproto-schema = { workspace = true }
+
+reqwest = { version = "0.12", features = ["json"] }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+miette = { workspace = true }
+tokio = { version = "1", features = ["rt"] }
+hex = "0.4"
+
+[lints]
+workspace = true

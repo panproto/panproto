@@ -1,0 +1,25 @@
+[package]
+name = "git-remote-cospan"
+description = "Git remote helper for cospan:// URLs (enables git push/pull/clone via panproto)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "git-remote-cospan"
+path = "src/main.rs"
+
+[dependencies]
+panproto-vcs = { workspace = true }
+panproto-git = { workspace = true }
+panproto-xrpc = { version = "0.16.0", path = "../panproto-xrpc" }
+
+git2 = "0.20"
+rustc-hash = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+miette = { workspace = true }
+
+[lints]
+workspace = true

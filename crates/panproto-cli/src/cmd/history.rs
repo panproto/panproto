@@ -308,35 +308,120 @@ pub fn cmd_gc(dry_run: bool) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Remote stubs (not yet implemented)
+// Remote operations via panproto-xrpc
 // ---------------------------------------------------------------------------
 
+use panproto_xrpc::NodeClient;
+
 pub fn cmd_remote(_action: RemoteAction) -> Result<()> {
+    // Remote management (add/remove/list) stores URL mappings in .panproto/config.
+    // For Phase 0, remotes are specified directly via cospan:// URLs.
     miette::bail!(
-        "remote operations are not yet implemented. Schema repositories are currently local-only."
+        "remote add/remove/list not yet implemented. Use cospan:// URLs directly with push/pull."
     )
 }
 
-pub fn cmd_push(_remote: Option<&str>, _branch: Option<&str>) -> Result<()> {
-    miette::bail!(
-        "remote operations are not yet implemented. Schema repositories are currently local-only."
-    )
+pub fn cmd_push(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
+    let url =
+        remote.ok_or_else(|| miette::miette!("remote URL required (e.g. cospan://did/repo)"))?;
+    let client = NodeClient::from_url(url)
+        .into_diagnostic()
+        .wrap_err("invalid remote URL")?;
+
+    // Apply auth from environment.
+    let client = match std::env::var("COSPAN_TOKEN") {
+        Ok(token) => client.with_token(&token),
+        Err(_) => client,
+    };
+
+    let repo = super::helpers::open_repo()?;
+    let rt = tokio::runtime::Runtime::new().into_diagnostic()?;
+
+    let result = rt
+        .block_on(client.push(repo.store()))
+        .into_diagnostic()
+        .wrap_err("push failed")?;
+
+    if let Some(b) = branch {
+        println!(
+            "Pushed branch {b}: {} object(s), {} ref(s)",
+            result.objects_pushed, result.refs_updated
+        );
+    } else {
+        println!(
+            "Pushed {} object(s), updated {} ref(s)",
+            result.objects_pushed, result.refs_updated
+        );
+    }
+    Ok(())
 }
 
-pub fn cmd_pull(_remote: Option<&str>, _branch: Option<&str>) -> Result<()> {
-    miette::bail!(
-        "remote operations are not yet implemented. Schema repositories are currently local-only."
-    )
+pub fn cmd_pull(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
+    let url =
+        remote.ok_or_else(|| miette::miette!("remote URL required (e.g. cospan://did/repo)"))?;
+    let client = NodeClient::from_url(url)
+        .into_diagnostic()
+        .wrap_err("invalid remote URL")?;
+
+    let mut repo = super::helpers::open_repo()?;
+    let rt = tokio::runtime::Runtime::new().into_diagnostic()?;
+
+    let result = rt
+        .block_on(client.pull(repo.store_mut()))
+        .into_diagnostic()
+        .wrap_err("pull failed")?;
+
+    if let Some(b) = branch {
+        println!(
+            "Pulled branch {b}: {} object(s), {} ref(s)",
+            result.objects_fetched, result.refs_updated
+        );
+    } else {
+        println!(
+            "Fetched {} object(s), updated {} ref(s)",
+            result.objects_fetched, result.refs_updated
+        );
+    }
+    Ok(())
 }
 
-pub fn cmd_fetch(_remote: Option<&str>) -> Result<()> {
-    miette::bail!(
-        "remote operations are not yet implemented. Schema repositories are currently local-only."
-    )
+pub fn cmd_fetch(remote: Option<&str>) -> Result<()> {
+    // Fetch updates remote-tracking refs without merging.
+    // In panproto-vcs, refs are updated directly (no separate tracking refs yet),
+    // so fetch behaves like pull for now.
+    cmd_pull(remote, None)
 }
 
-pub fn cmd_clone(_url: &str, _path: Option<&Path>) -> Result<()> {
-    miette::bail!(
-        "remote operations are not yet implemented. Schema repositories are currently local-only."
-    )
+pub fn cmd_clone(url: &str, path: Option<&Path>) -> Result<()> {
+    let dest = path.unwrap_or_else(|| {
+        // Extract repo name from URL, stripping trailing slashes.
+        let trimmed = url.trim_end_matches('/');
+        let name = trimmed.rsplit('/').next().unwrap_or("repo");
+        let name = if name.is_empty() { "repo" } else { name };
+        Path::new(name)
+    });
+
+    // Initialize a new repo at the destination.
+    let mut repo = vcs::Repository::init(dest)
+        .into_diagnostic()
+        .wrap_err("failed to initialize repository")?;
+
+    let client = NodeClient::from_url(url)
+        .into_diagnostic()
+        .wrap_err("invalid remote URL")?;
+
+    let rt = tokio::runtime::Runtime::new().into_diagnostic()?;
+
+    let result = rt
+        .block_on(client.pull(repo.store_mut()))
+        .into_diagnostic()
+        .wrap_err("clone failed")?;
+
+    println!(
+        "Cloned into {}: {} object(s), {} ref(s)",
+        dest.display(),
+        result.objects_fetched,
+        result.refs_updated
+    );
+    Ok(())
 }

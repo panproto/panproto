@@ -20,6 +20,8 @@ members = [
     "crates/panproto-project",
     "crates/panproto-git",
     "crates/panproto-llvm",
+    "crates/panproto-xrpc",
+    "crates/git-remote-cospan",
     "crates/panproto-jit",
     "tests/integration",
 ]
