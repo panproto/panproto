@@ -111,6 +111,9 @@ pub(crate) fn compose_compiled_migrations(
         hyper_resolver.entry(k.clone()).or_insert_with(|| v.clone());
     }
 
+    let field_transforms = compose_field_transforms(m1, m2);
+    let conditional_survival = compose_conditional_survival(m1, m2);
+
     CompiledMigration {
         surviving_verts,
         surviving_edges,
@@ -118,9 +121,73 @@ pub(crate) fn compose_compiled_migrations(
         edge_remap,
         resolver,
         hyper_resolver,
-        field_transforms: HashMap::new(),
-        conditional_survival: HashMap::new(),
+        field_transforms,
+        conditional_survival,
     }
+}
+
+/// Compose `field_transforms` from two migrations, re-keying through `vertex_remap`.
+fn compose_field_transforms(
+    m1: &CompiledMigration,
+    m2: &CompiledMigration,
+) -> HashMap<panproto_gat::Name, Vec<panproto_inst::wtype::FieldTransform>> {
+    let mut result = m1.field_transforms.clone();
+    for (m2_anchor, m2_transforms) in &m2.field_transforms {
+        let mut found = false;
+        for (m1_src, m1_tgt) in &m1.vertex_remap {
+            if m1_tgt == m2_anchor {
+                result
+                    .entry(m1_src.clone())
+                    .or_default()
+                    .extend(m2_transforms.iter().cloned());
+                found = true;
+            }
+        }
+        if !found {
+            result
+                .entry(m2_anchor.clone())
+                .or_default()
+                .extend(m2_transforms.iter().cloned());
+        }
+    }
+    result
+}
+
+/// Compose `conditional_survival` predicates, AND-ing when both exist.
+fn compose_conditional_survival(
+    m1: &CompiledMigration,
+    m2: &CompiledMigration,
+) -> HashMap<panproto_gat::Name, panproto_expr::Expr> {
+    let mut result = m1.conditional_survival.clone();
+    for (m2_anchor, m2_pred) in &m2.conditional_survival {
+        let mut found = false;
+        for (m1_src, m1_tgt) in &m1.vertex_remap {
+            if m1_tgt == m2_anchor {
+                found = true;
+                result
+                    .entry(m1_src.clone())
+                    .and_modify(|existing| {
+                        *existing = panproto_expr::Expr::Builtin(
+                            panproto_expr::BuiltinOp::And,
+                            vec![existing.clone(), m2_pred.clone()],
+                        );
+                    })
+                    .or_insert_with(|| m2_pred.clone());
+            }
+        }
+        if !found {
+            result
+                .entry(m2_anchor.clone())
+                .and_modify(|existing| {
+                    *existing = panproto_expr::Expr::Builtin(
+                        panproto_expr::BuiltinOp::And,
+                        vec![existing.clone(), m2_pred.clone()],
+                    );
+                })
+                .or_insert_with(|| m2_pred.clone());
+        }
+    }
+    result
 }
 
 #[cfg(test)]

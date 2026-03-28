@@ -7,8 +7,8 @@
 use std::collections::{HashMap, HashSet};
 
 use panproto_gat::{
-    Model, ModelValue, Operation, Sort, SortParam, Theory, TheoryMorphism, check_morphism, colimit,
-    migrate_model,
+    Model, ModelValue, Operation, Sort, SortParam, Theory, TheoryMorphism, check_morphism,
+    colimit_by_name, migrate_model,
 };
 
 #[test]
@@ -35,7 +35,7 @@ fn colimit_graph_constraint_produces_constrained_graph() -> Result<(), Box<dyn s
 
     let shared = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
 
-    let constrained_graph = colimit(&th_graph, &th_constraint, &shared)?;
+    let constrained_graph = colimit_by_name(&th_graph, &th_constraint, &shared)?;
 
     // Verify sorts: Vertex, Edge, Constraint.
     assert_eq!(constrained_graph.sorts.len(), 3, "should have 3 sorts");
@@ -84,7 +84,7 @@ fn inclusion_morphism_into_colimit() -> Result<(), Box<dyn std::error::Error>> {
 
     let shared = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
 
-    let colimit_theory = colimit(&th_graph, &th_constraint, &shared)?;
+    let colimit_theory = colimit_by_name(&th_graph, &th_constraint, &shared)?;
 
     // ThGraph includes into the colimit via identity on sorts/ops.
     let graph_inclusion = TheoryMorphism::new(
@@ -196,14 +196,14 @@ fn colimit_is_associative() -> Result<(), Box<dyn std::error::Error>> {
     let shared_z = Theory::new("SharedZ", vec![Sort::simple("Z")], vec![], vec![]);
 
     // (A + B) + C
-    let ab = colimit(&a, &b, &shared_y)?;
+    let ab = colimit_by_name(&a, &b, &shared_y)?;
     let shared_z_for_abc = Theory::new("SharedZ", vec![Sort::simple("Z")], vec![], vec![]);
-    let abc_left = colimit(&ab, &c, &shared_z_for_abc)?;
+    let abc_left = colimit_by_name(&ab, &c, &shared_z_for_abc)?;
 
     // A + (B + C)
-    let bc = colimit(&b, &c, &shared_z)?;
+    let bc = colimit_by_name(&b, &c, &shared_z)?;
     let shared_y_for_abc = Theory::new("SharedY", vec![Sort::simple("Y")], vec![], vec![]);
-    let abc_right = colimit(&a, &bc, &shared_y_for_abc)?;
+    let abc_right = colimit_by_name(&a, &bc, &shared_y_for_abc)?;
 
     // Both should have the same sorts: X, Y, Z, W.
     let left_sort_names: HashSet<&str> = abc_left.sorts.iter().map(|s| &*s.name).collect();

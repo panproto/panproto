@@ -52,7 +52,7 @@ pub fn check_laws(lens: &Lens, instance: &WInstance) -> Result<(), LawViolation>
 ///
 /// Since `WInstance` does not derive `PartialEq`, we compare structural
 /// properties: node count, arc count, root, schema root, and node anchors.
-fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
+pub(crate) fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
     if a.root != b.root || a.schema_root != b.schema_root {
         return false;
     }

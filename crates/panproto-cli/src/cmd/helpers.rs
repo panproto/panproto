@@ -229,6 +229,8 @@ pub fn convert_single_file(
             dropped_fans: Vec::new(),
             contraction_choices: HashMap::new(),
             original_parent: HashMap::new(),
+            source_fingerprint: 0,
+            original_extra_fields: HashMap::new(),
         };
         lens::put(the_lens, &instance, &complement)
             .into_diagnostic()

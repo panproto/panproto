@@ -49,6 +49,69 @@ impl TheoryMorphism {
         term.rename_ops(&self.op_map)
     }
 
+    /// Create the identity morphism on a theory.
+    ///
+    /// Maps every sort and operation to itself.
+    #[must_use]
+    pub fn identity(theory: &Theory) -> Self {
+        let sort_map: HashMap<Arc<str>, Arc<str>> = theory
+            .sorts
+            .iter()
+            .map(|s| (Arc::clone(&s.name), Arc::clone(&s.name)))
+            .collect();
+        let op_map: HashMap<Arc<str>, Arc<str>> = theory
+            .ops
+            .iter()
+            .map(|o| (Arc::clone(&o.name), Arc::clone(&o.name)))
+            .collect();
+        Self {
+            name: Arc::from(format!("id_{}", theory.name)),
+            domain: Arc::clone(&theory.name),
+            codomain: Arc::clone(&theory.name),
+            sort_map,
+            op_map,
+        }
+    }
+
+    /// Compose two morphisms: `self: A → B` followed by `other: B → C`, producing `A → C`.
+    ///
+    /// The sort and operation maps are composed: for each `a ↦ b` in `self` and
+    /// `b ↦ c` in `other`, the composed map has `a ↦ c`.
+    #[must_use]
+    pub fn compose(&self, other: &Self) -> Self {
+        let sort_map: HashMap<Arc<str>, Arc<str>> = self
+            .sort_map
+            .iter()
+            .map(|(a, b)| {
+                let c = other
+                    .sort_map
+                    .get(b)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::clone(b));
+                (Arc::clone(a), c)
+            })
+            .collect();
+        let op_map: HashMap<Arc<str>, Arc<str>> = self
+            .op_map
+            .iter()
+            .map(|(a, b)| {
+                let c = other
+                    .op_map
+                    .get(b)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::clone(b));
+                (Arc::clone(a), c)
+            })
+            .collect();
+        Self {
+            name: Arc::from(format!("{};{}", self.name, other.name)),
+            domain: Arc::clone(&self.domain),
+            codomain: Arc::clone(&other.codomain),
+            sort_map,
+            op_map,
+        }
+    }
+
     /// Induce site-qualified renames from this theory morphism.
     ///
     /// Sort-map entries where `old ≠ new` become [`NameSite::VertexKind`]
@@ -117,6 +180,28 @@ pub fn check_morphism(
                 got: target_sort.arity(),
             });
         }
+
+        // 3a. Sort kinds must match.
+        if sort.kind != target_sort.kind {
+            return Err(GatError::SortKindMismatch {
+                sort: sort.name.to_string(),
+                expected: sort.kind.clone(),
+                got: target_sort.kind.clone(),
+            });
+        }
+
+        // 3b. Dependent sort parameter sorts must be preserved under the mapping.
+        for (i, param) in sort.params.iter().enumerate() {
+            let mapped_param_sort = m.sort_map.get(&param.sort).unwrap_or(&param.sort);
+            if *mapped_param_sort != target_sort.params[i].sort {
+                return Err(GatError::SortParamMismatch {
+                    sort: sort.name.to_string(),
+                    param_index: i,
+                    expected: mapped_param_sort.to_string(),
+                    got: target_sort.params[i].sort.to_string(),
+                });
+            }
+        }
     }
 
     // 2. All domain ops must be mapped.
@@ -171,15 +256,22 @@ pub fn check_morphism(
         }
     }
 
-    // 5. Equations must be preserved.
+    check_equations_preserved(m, domain, codomain)?;
+    check_directed_equations_preserved(m, domain, codomain)?;
+
+    Ok(())
+}
+
+/// Check that all equations in the domain are preserved under the morphism.
+fn check_equations_preserved(
+    m: &TheoryMorphism,
+    domain: &Theory,
+    codomain: &Theory,
+) -> Result<(), GatError> {
     for eq in &domain.eqs {
         let mapped_lhs = m.apply_to_term(&eq.lhs);
         let mapped_rhs = m.apply_to_term(&eq.rhs);
 
-        // Check that the codomain has an equation matching the mapped terms
-        // up to α-equivalence (consistent variable renaming). Equations are
-        // universally quantified, so variable names are bound and must not
-        // affect identity.
         let preserved = codomain
             .eqs
             .iter()
@@ -192,8 +284,15 @@ pub fn check_morphism(
             });
         }
     }
+    Ok(())
+}
 
-    // 6. Directed equations must be preserved.
+/// Check that all directed equations in the domain are preserved under the morphism.
+fn check_directed_equations_preserved(
+    m: &TheoryMorphism,
+    domain: &Theory,
+    codomain: &Theory,
+) -> Result<(), GatError> {
     for de in &domain.directed_eqs {
         let mapped_lhs = m.apply_to_term(&de.lhs);
         let mapped_rhs = m.apply_to_term(&de.rhs);
@@ -210,7 +309,6 @@ pub fn check_morphism(
             });
         }
     }
-
     Ok(())
 }
 
@@ -641,6 +739,171 @@ mod tests {
             check_morphism(&m, &domain, &codomain),
             Err(GatError::DirectedEquationNotPreserved { .. })
         ));
+    }
+
+    #[test]
+    fn identity_is_unit_for_compose() {
+        let t = monoid_theory("M", "mul", "unit");
+        let id = TheoryMorphism::identity(&t);
+
+        // Build a non-trivial renaming morphism.
+        let codomain = monoid_theory("M2", "times", "one");
+        let f = TheoryMorphism::new(
+            "rename",
+            "M",
+            "M2",
+            HashMap::from([(Arc::from("Carrier"), Arc::from("Carrier"))]),
+            HashMap::from([
+                (Arc::from("mul"), Arc::from("times")),
+                (Arc::from("unit"), Arc::from("one")),
+            ]),
+        );
+
+        // id ; f == f
+        let id_then_f = id.compose(&f);
+        assert_eq!(id_then_f.sort_map, f.sort_map);
+        assert_eq!(id_then_f.op_map, f.op_map);
+
+        // f ; id_codomain == f
+        let id_cod = TheoryMorphism::identity(&codomain);
+        let f_then_id = f.compose(&id_cod);
+        assert_eq!(f_then_id.sort_map, f.sort_map);
+        assert_eq!(f_then_id.op_map, f.op_map);
+    }
+
+    #[test]
+    fn compose_is_associative() {
+        let _t1 = Theory::new(
+            "T1",
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            Vec::new(),
+        );
+        let _t2 = Theory::new(
+            "T2",
+            vec![Sort::simple("B")],
+            vec![Operation::unary("g", "x", "B", "B")],
+            Vec::new(),
+        );
+        let _t3 = Theory::new(
+            "T3",
+            vec![Sort::simple("C")],
+            vec![Operation::unary("h", "x", "C", "C")],
+            Vec::new(),
+        );
+        let _t4 = Theory::new(
+            "T4",
+            vec![Sort::simple("D")],
+            vec![Operation::unary("k", "x", "D", "D")],
+            Vec::new(),
+        );
+
+        let m1 = TheoryMorphism::new(
+            "m1",
+            "T1",
+            "T2",
+            HashMap::from([(Arc::from("A"), Arc::from("B"))]),
+            HashMap::from([(Arc::from("f"), Arc::from("g"))]),
+        );
+        let m2 = TheoryMorphism::new(
+            "m2",
+            "T2",
+            "T3",
+            HashMap::from([(Arc::from("B"), Arc::from("C"))]),
+            HashMap::from([(Arc::from("g"), Arc::from("h"))]),
+        );
+        let m3 = TheoryMorphism::new(
+            "m3",
+            "T3",
+            "T4",
+            HashMap::from([(Arc::from("C"), Arc::from("D"))]),
+            HashMap::from([(Arc::from("h"), Arc::from("k"))]),
+        );
+
+        let left = m1.compose(&m2).compose(&m3);
+        let right = m1.compose(&m2.compose(&m3));
+
+        assert_eq!(left.sort_map, right.sort_map);
+        assert_eq!(left.op_map, right.op_map);
+        assert_eq!(left.domain, right.domain);
+        assert_eq!(left.codomain, right.codomain);
+    }
+
+    #[test]
+    fn sort_kind_mismatch_fails() {
+        use crate::sort::SortKind;
+
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("S")], // Structural kind
+            Vec::new(),
+            Vec::new(),
+        );
+        let codomain = Theory::new(
+            "C",
+            vec![Sort::with_kind(
+                "T",
+                SortKind::Val(crate::sort::ValueKind::Int),
+            )],
+            Vec::new(),
+            Vec::new(),
+        );
+
+        let sort_map = HashMap::from([(Arc::from("S"), Arc::from("T"))]);
+        let m = TheoryMorphism::new("bad", "D", "C", sort_map, HashMap::new());
+        let result = check_morphism(&m, &domain, &codomain);
+        assert!(
+            matches!(result, Err(GatError::SortKindMismatch { .. })),
+            "expected SortKindMismatch, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn sort_param_mismatch_fails() {
+        use crate::sort::SortParam;
+
+        let domain = Theory::new(
+            "D",
+            vec![
+                Sort::simple("A"),
+                Sort::simple("B"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "A"), SortParam::new("b", "A")],
+                ),
+            ],
+            Vec::new(),
+            Vec::new(),
+        );
+
+        // Codomain: Arr depends on (X, Y) where X and Y are different sorts.
+        let codomain = Theory::new(
+            "C",
+            vec![
+                Sort::simple("X"),
+                Sort::simple("Y"),
+                Sort::dependent(
+                    "Arr",
+                    vec![SortParam::new("a", "X"), SortParam::new("b", "Y")],
+                ),
+            ],
+            Vec::new(),
+            Vec::new(),
+        );
+
+        // Map A -> X, B -> Y, Hom -> Arr.
+        // Hom has params (a: A, b: A) which map to (X, X), but Arr has (X, Y).
+        let sort_map = HashMap::from([
+            (Arc::from("A"), Arc::from("X")),
+            (Arc::from("B"), Arc::from("Y")),
+            (Arc::from("Hom"), Arc::from("Arr")),
+        ]);
+        let m = TheoryMorphism::new("bad", "D", "C", sort_map, HashMap::new());
+        let result = check_morphism(&m, &domain, &codomain);
+        assert!(
+            matches!(result, Err(GatError::SortParamMismatch { .. })),
+            "expected SortParamMismatch, got {result:?}"
+        );
     }
 
     /// Existing tests with no directed equations should still pass.

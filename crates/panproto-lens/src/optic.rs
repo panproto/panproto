@@ -18,7 +18,7 @@ use panproto_gat::TheoryTransform;
 use serde::{Deserialize, Serialize};
 
 /// The kind of optic a protolens or protolens chain represents.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OpticKind {
     /// Bijection -- no complement needed (complement is Unit).
     Iso,
@@ -30,6 +30,23 @@ pub enum OpticKind {
     Affine,
     /// Multi-focus -- complement tracks positions.
     Traversal,
+}
+
+impl PartialOrd for OpticKind {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering::{Greater, Less};
+        if self == other {
+            return Some(std::cmp::Ordering::Equal);
+        }
+        match (self, other) {
+            (Self::Iso, _) | (Self::Lens | Self::Prism, Self::Affine) => Some(Less),
+            (_, Self::Iso) | (Self::Traversal, _) | (Self::Affine, Self::Lens | Self::Prism) => {
+                Some(Greater)
+            }
+            (_, Self::Traversal) => Some(Less),
+            _ => None,
+        }
+    }
 }
 
 impl OpticKind {
@@ -133,14 +150,16 @@ pub fn check_optic_laws(
         detail: format!("put failed: {e}"),
     })?;
 
-    if restored.node_count() != instance.node_count() {
+    if !crate::laws::instances_equivalent(instance, &restored) {
         return Err(OpticLawViolation {
             kind,
             law: "PutGet",
             detail: format!(
-                "node count mismatch: original {}, restored {}",
+                "structural mismatch: original {} nodes/{} arcs, restored {} nodes/{} arcs",
                 instance.node_count(),
-                restored.node_count()
+                instance.arc_count(),
+                restored.node_count(),
+                restored.arc_count()
             ),
         });
     }
@@ -152,14 +171,16 @@ pub fn check_optic_laws(
         detail: format!("get after put failed: {e}"),
     })?;
 
-    if view2.node_count() != view.node_count() {
+    if !crate::laws::instances_equivalent(&view, &view2) {
         return Err(OpticLawViolation {
             kind,
             law: "GetPut",
             detail: format!(
-                "view node count mismatch: original {}, after round-trip {}",
+                "view structural mismatch: original {} nodes/{} arcs, after round-trip {} nodes/{} arcs",
                 view.node_count(),
-                view2.node_count()
+                view.arc_count(),
+                view2.node_count(),
+                view2.arc_count()
             ),
         });
     }

@@ -125,13 +125,15 @@ pub fn verify_cartesian_universal(
             })?;
 
     // PutGet: restored should have same structure as original.
-    if restored.node_count() != instance.node_count() {
+    if !crate::laws::instances_equivalent(instance, &restored) {
         return Err(CartesianViolation {
-            law: "PutGet (node count)",
+            law: "PutGet (structural equivalence)",
             detail: format!(
-                "original {} nodes, restored {} nodes",
+                "original {} nodes/{} arcs, restored {} nodes/{} arcs",
                 instance.node_count(),
-                restored.node_count()
+                instance.arc_count(),
+                restored.node_count(),
+                restored.arc_count()
             ),
         });
     }
@@ -144,13 +146,15 @@ pub fn verify_cartesian_universal(
             detail: format!("{e}"),
         })?;
 
-    if view2.node_count() != view.node_count() {
+    if !crate::laws::instances_equivalent(&view, &view2) {
         return Err(CartesianViolation {
-            law: "GetPut (view node count)",
+            law: "GetPut (view structural equivalence)",
             detail: format!(
-                "original view {} nodes, round-tripped view {} nodes",
+                "original view {} nodes/{} arcs, round-tripped view {} nodes/{} arcs",
                 view.node_count(),
-                view2.node_count()
+                view.arc_count(),
+                view2.node_count(),
+                view2.arc_count()
             ),
         });
     }

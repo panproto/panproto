@@ -146,13 +146,6 @@ pub enum LiftError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ComposeError {
-    /// A vertex in the intermediate schema is not in the second migration's domain.
-    #[error("vertex {vertex} not found in second migration's domain")]
-    VertexNotInDomain {
-        /// The unmapped vertex.
-        vertex: String,
-    },
-
     /// An edge in the intermediate schema is not in the second migration's domain.
     #[error("edge not found in second migration's domain: {src} -> {tgt} ({kind})")]
     EdgeNotInDomain {
@@ -193,4 +186,18 @@ pub enum InvertError {
     /// Edges were dropped.
     #[error("migration drops edges")]
     DroppedEdges,
+
+    /// The hyper-edge map is not bijective.
+    #[error("hyper-edge map is not bijective: {detail}")]
+    HyperEdgeNotBijective {
+        /// Description of the bijectivity failure.
+        detail: String,
+    },
+
+    /// Hyper-edges were dropped (the migration is not surjective on hyper-edges).
+    #[error("migration drops hyper-edges: {dropped:?}")]
+    DroppedHyperEdges {
+        /// The dropped hyper-edge IDs.
+        dropped: Vec<String>,
+    },
 }

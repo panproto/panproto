@@ -1,8 +1,249 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::eq::alpha_equivalent_equation;
 use crate::error::GatError;
+use crate::morphism::TheoryMorphism;
 use crate::theory::Theory;
+
+/// Result of a categorical pushout (colimit) computation.
+///
+/// Contains the pushout theory along with inclusion morphisms from
+/// both input theories into the pushout.
+#[derive(Debug, Clone)]
+pub struct ColimitResult {
+    /// The pushout theory.
+    pub theory: Theory,
+    /// Inclusion morphism from the first theory into the pushout: j1: T1 → P.
+    pub inclusion1: TheoryMorphism,
+    /// Inclusion morphism from the second theory into the pushout: j2: T2 → P.
+    pub inclusion2: TheoryMorphism,
+}
+
+/// Compute the pushout (colimit) of two theories over explicit morphisms.
+///
+/// Given morphisms `i1: S → T1` and `i2: S → T2` from a shared theory S,
+/// this produces the pushout P with inclusion morphisms `j1: T1 → P` and
+/// `j2: T2 → P` satisfying the universal property: `j1 ∘ i1 = j2 ∘ i2`.
+///
+/// The pushout identifies `i1(x)` with `i2(x)` for every sort and operation
+/// x in the shared theory.
+///
+/// # Errors
+///
+/// Returns [`GatError::SortConflict`] if T1 and T2 both declare a sort with
+/// the same name but incompatible definitions (different parameter lists) and
+/// the sort is not identified via the morphisms.
+///
+/// Returns [`GatError::OpConflict`] if T1 and T2 both declare an operation
+/// with the same name but incompatible signatures and the operation is not
+/// identified via the morphisms.
+///
+/// Returns [`GatError::EqConflict`] if T1 and T2 both declare an equation
+/// with the same name but different content and the equation is not identified
+/// via the morphisms.
+pub fn colimit(
+    t1: &Theory,
+    t2: &Theory,
+    i1: &TheoryMorphism,
+    i2: &TheoryMorphism,
+) -> Result<ColimitResult, GatError> {
+    // Build a renaming map for T2: for each sort/op s in the shared theory,
+    // map i2(s) → i1(s) so T2's names align with T1's naming convention.
+    let mut sort_rename: HashMap<Arc<str>, Arc<str>> = HashMap::new();
+    for (shared_sort, t1_sort) in &i1.sort_map {
+        if let Some(t2_sort) = i2.sort_map.get(shared_sort) {
+            sort_rename.insert(Arc::clone(t2_sort), Arc::clone(t1_sort));
+        }
+    }
+
+    let mut op_rename: HashMap<Arc<str>, Arc<str>> = HashMap::new();
+    for (shared_op, t1_op) in &i1.op_map {
+        if let Some(t2_op) = i2.op_map.get(shared_op) {
+            op_rename.insert(Arc::clone(t2_op), Arc::clone(t1_op));
+        }
+    }
+
+    // Start with all sorts from T1.
+    let mut sorts = t1.sorts.clone();
+
+    for sort in &t2.sorts {
+        let effective_name = sort_rename
+            .get(&sort.name)
+            .cloned()
+            .unwrap_or_else(|| Arc::clone(&sort.name));
+        if t1.has_sort(&effective_name) {
+            // This sort is identified with a T1 sort via the morphisms; skip.
+            if sort_rename.contains_key(&sort.name) {
+                continue;
+            }
+            // Both define it independently; check compatibility.
+            let t1_sort = t1
+                .find_sort(&effective_name)
+                .ok_or_else(|| GatError::SortConflict {
+                    name: effective_name.to_string(),
+                })?;
+            if t1_sort.params != sort.params {
+                return Err(GatError::SortConflict {
+                    name: effective_name.to_string(),
+                });
+            }
+            // Compatible duplicate; already included.
+        } else {
+            sorts.push(sort.clone());
+        }
+    }
+
+    // Same for operations.
+    let mut ops = t1.ops.clone();
+
+    for op in &t2.ops {
+        let effective_name = op_rename
+            .get(&op.name)
+            .cloned()
+            .unwrap_or_else(|| Arc::clone(&op.name));
+        if t1.has_op(&effective_name) {
+            if op_rename.contains_key(&op.name) {
+                continue;
+            }
+            let t1_op = t1
+                .find_op(&effective_name)
+                .ok_or_else(|| GatError::OpConflict {
+                    name: effective_name.to_string(),
+                })?;
+            if t1_op.inputs != op.inputs || t1_op.output != op.output {
+                return Err(GatError::OpConflict {
+                    name: effective_name.to_string(),
+                });
+            }
+        } else {
+            ops.push(op.clone());
+        }
+    }
+
+    let eqs = merge_equations(t1, t2)?;
+    let directed_eqs = merge_directed_equations(t1, t2)?;
+    let policies = merge_policies(t1, t2)?;
+
+    let pushout_name: Arc<str> = format!("{}_{}_colimit", t1.name, t2.name).into();
+    let theory = Theory::full(
+        Arc::clone(&pushout_name),
+        Vec::new(),
+        sorts,
+        ops,
+        eqs,
+        directed_eqs,
+        policies,
+    );
+
+    let j1 = build_inclusion(t1, &pushout_name, &HashMap::new(), &HashMap::new());
+
+    let j2 = build_inclusion(t2, &pushout_name, &sort_rename, &op_rename);
+
+    Ok(ColimitResult {
+        theory,
+        inclusion1: j1,
+        inclusion2: j2,
+    })
+}
+
+/// Merge equations from t2 into t1's equations, checking alpha-equivalence for conflicts.
+fn merge_equations(t1: &Theory, t2: &Theory) -> Result<Vec<crate::eq::Equation>, GatError> {
+    let mut eqs = t1.eqs.clone();
+    for eq in &t2.eqs {
+        if let Some(t1_eq) = t1.find_eq(&eq.name) {
+            if !alpha_equivalent_equation(&t1_eq.lhs, &t1_eq.rhs, &eq.lhs, &eq.rhs) {
+                return Err(GatError::EqConflict {
+                    name: eq.name.to_string(),
+                });
+            }
+        } else {
+            eqs.push(eq.clone());
+        }
+    }
+    Ok(eqs)
+}
+
+/// Merge directed equations from t2 into t1's directed equations.
+fn merge_directed_equations(
+    t1: &Theory,
+    t2: &Theory,
+) -> Result<Vec<crate::eq::DirectedEquation>, GatError> {
+    let mut directed_eqs = t1.directed_eqs.clone();
+    for de in &t2.directed_eqs {
+        if let Some(t1_de) = t1.find_directed_eq(&de.name) {
+            if !alpha_equivalent_equation(&t1_de.lhs, &t1_de.rhs, &de.lhs, &de.rhs) {
+                return Err(GatError::DirectedEqConflict {
+                    name: de.name.to_string(),
+                });
+            }
+        } else {
+            directed_eqs.push(de.clone());
+        }
+    }
+    Ok(directed_eqs)
+}
+
+/// Merge conflict policies from t2 into t1's policies.
+fn merge_policies(
+    t1: &Theory,
+    t2: &Theory,
+) -> Result<Vec<crate::theory::ConflictPolicy>, GatError> {
+    let mut policies = t1.policies.clone();
+    for pol in &t2.policies {
+        if let Some(t1_pol) = t1.find_policy(&pol.name) {
+            if t1_pol.value_kind != pol.value_kind || t1_pol.strategy != pol.strategy {
+                return Err(GatError::PolicyConflict {
+                    name: pol.name.to_string(),
+                });
+            }
+        } else {
+            policies.push(pol.clone());
+        }
+    }
+    Ok(policies)
+}
+
+/// Build an inclusion morphism from `source` into the pushout theory named `pushout_name`.
+///
+/// Shared sorts/ops are renamed according to the given maps; non-shared sorts/ops
+/// map to themselves.
+fn build_inclusion(
+    source: &Theory,
+    pushout_name: &Arc<str>,
+    sort_rename: &HashMap<Arc<str>, Arc<str>>,
+    op_rename: &HashMap<Arc<str>, Arc<str>>,
+) -> TheoryMorphism {
+    let sort_map: HashMap<Arc<str>, Arc<str>> = source
+        .sorts
+        .iter()
+        .map(|s| {
+            let target = sort_rename
+                .get(&s.name)
+                .cloned()
+                .unwrap_or_else(|| Arc::clone(&s.name));
+            (Arc::clone(&s.name), target)
+        })
+        .collect();
+    let op_map: HashMap<Arc<str>, Arc<str>> = source
+        .ops
+        .iter()
+        .map(|o| {
+            let target = op_rename
+                .get(&o.name)
+                .cloned()
+                .unwrap_or_else(|| Arc::clone(&o.name));
+            (Arc::clone(&o.name), target)
+        })
+        .collect();
+    TheoryMorphism::new(
+        format!("incl_{}_{pushout_name}", source.name),
+        &*source.name,
+        &**pushout_name,
+        sort_map,
+        op_map,
+    )
+}
 
 /// Compute the pushout (colimit) of two theories over a shared base theory.
 ///
@@ -22,7 +263,7 @@ use crate::theory::Theory;
 ///
 /// Returns [`GatError::EqConflict`] if `t1` and `t2` both declare an equation
 /// with the same name but different content.
-pub fn colimit(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatError> {
+pub fn colimit_by_name(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatError> {
     // Start with all sorts from t1.
     let mut sorts = t1.sorts.clone();
 
@@ -81,7 +322,7 @@ pub fn colimit(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatE
             if shared.find_eq(&eq.name).is_some() {
                 continue;
             }
-            if t1_eq.lhs != eq.lhs || t1_eq.rhs != eq.rhs {
+            if !alpha_equivalent_equation(&t1_eq.lhs, &t1_eq.rhs, &eq.lhs, &eq.rhs) {
                 return Err(GatError::EqConflict {
                     name: eq.name.to_string(),
                 });
@@ -176,7 +417,7 @@ mod tests {
             Vec::new(),
         );
 
-        let result = colimit(&th_graph, &th_constraint, &shared).unwrap();
+        let result = colimit_by_name(&th_graph, &th_constraint, &shared).unwrap();
 
         assert_eq!(&*result.name, "ThGraph_ThConstraint_colimit");
         assert_eq!(result.sorts.len(), 3); // Vertex, Edge, Constraint
@@ -202,7 +443,7 @@ mod tests {
             Vec::new(),
         );
 
-        let result = colimit(&t1, &t2, &shared);
+        let result = colimit_by_name(&t1, &t2, &shared);
         assert!(matches!(result, Err(GatError::SortConflict { .. })));
     }
 
@@ -223,7 +464,7 @@ mod tests {
             Vec::new(),
         );
 
-        let result = colimit(&t1, &t2, &shared);
+        let result = colimit_by_name(&t1, &t2, &shared);
         assert!(matches!(result, Err(GatError::OpConflict { .. })));
     }
 
@@ -231,6 +472,9 @@ mod tests {
     fn eq_conflict_detected() {
         let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
 
+        // t1: ax says x = y (two distinct variables).
+        // t2: ax says x = x (one variable, used twice).
+        // These are NOT alpha-equivalent since the variable multiplicity differs.
         let t1 = Theory::new(
             "T1",
             Vec::new(),
@@ -241,11 +485,33 @@ mod tests {
             "T2",
             Vec::new(),
             Vec::new(),
-            vec![Equation::new("ax", Term::var("a"), Term::var("b"))], // same name, different terms
+            vec![Equation::new("ax", Term::var("a"), Term::var("a"))],
         );
 
-        let result = colimit(&t1, &t2, &shared);
+        let result = colimit_by_name(&t1, &t2, &shared);
         assert!(matches!(result, Err(GatError::EqConflict { .. })));
+    }
+
+    #[test]
+    fn alpha_equivalent_eqs_not_conflicted() {
+        let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
+
+        // Same equation with different variable names: should NOT conflict.
+        let t1 = Theory::new(
+            "T1",
+            Vec::new(),
+            Vec::new(),
+            vec![Equation::new("ax", Term::var("x"), Term::var("y"))],
+        );
+        let t2 = Theory::new(
+            "T2",
+            Vec::new(),
+            Vec::new(),
+            vec![Equation::new("ax", Term::var("a"), Term::var("b"))],
+        );
+
+        let result = colimit_by_name(&t1, &t2, &shared).unwrap();
+        assert_eq!(result.eqs.len(), 1);
     }
 
     #[test]
@@ -256,7 +522,7 @@ mod tests {
         let t1 = Theory::new("T1", vec![Sort::simple("X")], Vec::new(), Vec::new());
         let t2 = Theory::new("T2", vec![Sort::simple("X")], Vec::new(), Vec::new());
 
-        let result = colimit(&t1, &t2, &shared).unwrap();
+        let result = colimit_by_name(&t1, &t2, &shared).unwrap();
         assert_eq!(result.sorts.len(), 1);
     }
 
@@ -299,7 +565,7 @@ mod tests {
             Vec::new(),
         );
 
-        let result = colimit(&t1, &t2, &shared).unwrap();
+        let result = colimit_by_name(&t1, &t2, &shared).unwrap();
         assert_eq!(result.directed_eqs.len(), 2);
         assert!(result.find_directed_eq("rule1").is_some());
         assert!(result.find_directed_eq("rule2").is_some());
@@ -345,7 +611,7 @@ mod tests {
             Vec::new(),
         );
 
-        let result = colimit(&t1, &t2, &shared).unwrap();
+        let result = colimit_by_name(&t1, &t2, &shared).unwrap();
         assert_eq!(result.directed_eqs.len(), 1);
     }
 
@@ -385,7 +651,7 @@ mod tests {
             Vec::new(),
         );
 
-        let result = colimit(&t1, &t2, &shared);
+        let result = colimit_by_name(&t1, &t2, &shared);
         assert!(matches!(result, Err(GatError::DirectedEqConflict { .. })));
     }
 
@@ -424,7 +690,7 @@ mod tests {
             }],
         );
 
-        let result = colimit(&t1, &t2, &shared).unwrap();
+        let result = colimit_by_name(&t1, &t2, &shared).unwrap();
         assert_eq!(result.policies.len(), 2);
         assert!(result.find_policy("p1").is_some());
         assert!(result.find_policy("p2").is_some());
@@ -465,7 +731,7 @@ mod tests {
             }],
         );
 
-        let result = colimit(&t1, &t2, &shared);
+        let result = colimit_by_name(&t1, &t2, &shared);
         assert!(matches!(result, Err(GatError::PolicyConflict { .. })));
     }
 
@@ -491,7 +757,7 @@ mod tests {
             vec![Equation::new("e", Term::var("x"), Term::var("x"))],
         );
 
-        let result = colimit(&t1, &t2, &shared).unwrap();
+        let result = colimit_by_name(&t1, &t2, &shared).unwrap();
         assert_eq!(result.sorts.len(), 3); // S, A, B
         assert_eq!(result.ops.len(), 1); // c
         assert_eq!(result.eqs.len(), 1); // e

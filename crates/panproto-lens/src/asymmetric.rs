@@ -33,6 +33,14 @@ pub struct Complement {
     pub contraction_choices: HashMap<(u32, u32), Edge>,
     /// Original parent mapping before contraction.
     pub original_parent: HashMap<u32, u32>,
+    /// Fingerprint of the source schema at `get` time, used by `put` to
+    /// validate that the complement matches the lens's source schema.
+    #[serde(default)]
+    pub source_fingerprint: u64,
+    /// Pre-transform `extra_fields` for nodes that had `field_transforms` applied.
+    /// Used by `put` to restore original field values.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub original_extra_fields: HashMap<u32, HashMap<String, panproto_inst::value::Value>>,
 }
 
 impl Complement {
@@ -45,6 +53,8 @@ impl Complement {
             dropped_fans: Vec::new(),
             contraction_choices: HashMap::new(),
             original_parent: HashMap::new(),
+            source_fingerprint: 0,
+            original_extra_fields: HashMap::new(),
         }
     }
 
@@ -56,7 +66,22 @@ impl Complement {
             && self.dropped_fans.is_empty()
             && self.contraction_choices.is_empty()
             && self.original_parent.is_empty()
+            && self.original_extra_fields.is_empty()
     }
+}
+
+/// Compute a fingerprint of a schema for complement provenance validation.
+fn schema_fingerprint(schema: &panproto_schema::Schema) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    let mut vert_names: Vec<&str> = schema.vertices.keys().map(|n| &**n).collect();
+    vert_names.sort_unstable();
+    for v in &vert_names {
+        v.hash(&mut hasher);
+    }
+    schema.edges.len().hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Forward lens direction: restrict the source instance to the target view
@@ -123,12 +148,30 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         }
     }
 
+    // Capture pre-transform extra_fields for nodes that had field_transforms
+    let mut original_extra_fields = HashMap::new();
+    for &id in view.nodes.keys() {
+        if let Some(source_node) = instance.nodes.get(&id) {
+            if lens
+                .compiled
+                .field_transforms
+                .contains_key(&source_node.anchor)
+            {
+                original_extra_fields.insert(id, source_node.extra_fields.clone());
+            }
+        }
+    }
+
+    let source_fingerprint = schema_fingerprint(&lens.src_schema);
+
     let complement = Complement {
         dropped_nodes,
         dropped_arcs,
         dropped_fans,
         contraction_choices,
         original_parent,
+        source_fingerprint,
+        original_extra_fields,
     };
 
     Ok((view, complement))
@@ -146,6 +189,20 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
 /// Returns `LensError::ComplementMismatch` if the complement is inconsistent
 /// with the view.
 pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WInstance, LensError> {
+    // Validate complement provenance: the complement must have been produced
+    // from the same source schema.
+    if complement.source_fingerprint != 0 {
+        let expected = schema_fingerprint(&lens.src_schema);
+        if complement.source_fingerprint != expected {
+            return Err(LensError::ComplementMismatch {
+                detail: format!(
+                    "source fingerprint mismatch: complement has {}, lens expects {}",
+                    complement.source_fingerprint, expected
+                ),
+            });
+        }
+    }
+
     // Start with all nodes from the view (un-remap anchors back to source)
     let mut nodes = HashMap::new();
     let reverse_remap = build_reverse_remap(&lens.compiled.vertex_remap);
@@ -154,6 +211,10 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         let mut restored_node = node.clone();
         if let Some(original_anchor) = reverse_remap.get(&node.anchor) {
             restored_node.anchor.clone_from(original_anchor);
+        }
+        // Restore original extra_fields if this node had field_transforms applied
+        if let Some(original_fields) = complement.original_extra_fields.get(&id) {
+            restored_node.extra_fields.clone_from(original_fields);
         }
         nodes.insert(id, restored_node);
     }
@@ -310,6 +371,8 @@ mod tests {
             dropped_fans: Vec::new(),
             contraction_choices: HashMap::new(),
             original_parent: HashMap::new(),
+            source_fingerprint: 0,
+            original_extra_fields: HashMap::new(),
         };
         assert!(complement.is_empty());
     }

@@ -230,6 +230,14 @@ pub fn horizontal_compose(
     h: &TheoryMorphism,
     domain: &Theory,
 ) -> Result<NaturalTransformation, GatError> {
+    // Verify composability: G's codomain must equal H's domain.
+    if g.codomain != h.domain {
+        return Err(GatError::HorizontalComposeMismatch {
+            g_codomain: g.codomain.to_string(),
+            h_domain: h.domain.to_string(),
+        });
+    }
+
     let mut components = HashMap::new();
     for sort in &domain.sorts {
         // G(S): the sort that G maps S to.

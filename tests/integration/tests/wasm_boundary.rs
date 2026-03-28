@@ -117,6 +117,8 @@ fn complement_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         dropped_fans: vec![],
         contraction_choices: HashMap::new(),
         original_parent: HashMap::from([(99, 0)]),
+        source_fingerprint: 0,
+        original_extra_fields: HashMap::new(),
     };
 
     let bytes = rmp_serde::to_vec(&complement)?;

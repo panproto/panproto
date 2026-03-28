@@ -454,29 +454,6 @@ pub fn anchor_surviving(instance: &WInstance, surviving_verts: &HashSet<Name>) -
 // Step 2: Reachability BFS (retained for testing)
 // ---------------------------------------------------------------------------
 
-/// BFS from the root through anchor-surviving nodes.
-#[must_use]
-pub fn reachable_from_root(instance: &WInstance, candidates: &HashSet<u32>) -> HashSet<u32> {
-    let mut reachable = HashSet::new();
-    if !candidates.contains(&instance.root) {
-        return reachable;
-    }
-
-    let mut queue = VecDeque::new();
-    queue.push_back(instance.root);
-    reachable.insert(instance.root);
-
-    while let Some(current) = queue.pop_front() {
-        for &child in instance.children(current) {
-            if candidates.contains(&child) && reachable.insert(child) {
-                queue.push_back(child);
-            }
-        }
-    }
-
-    reachable
-}
-
 // ---------------------------------------------------------------------------
 // Step 3: Ancestor contraction with path compression (retained for testing)
 // ---------------------------------------------------------------------------
@@ -692,11 +669,8 @@ pub fn wtype_restrict(
     // Queue entries: (node_id, nearest_surviving_ancestor_id)
     let mut queue: VecDeque<(u32, Option<u32>)> = VecDeque::new();
 
-    // Process root
-    let mut root_node_cloned = root_node.clone();
-    if let Some(remapped) = migration.vertex_remap.get(&root_node.anchor) {
-        root_node_cloned.anchor.clone_from(remapped);
-    }
+    // Process root: remap, check conditional survival, apply field transforms.
+    let root_node_cloned = prepare_root_node(root_node, migration)?;
     new_nodes.insert(instance.root, root_node_cloned);
     surviving_set.insert(instance.root);
     queue.push_back((instance.root, None));
@@ -1039,6 +1013,32 @@ fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
 /// Pushes a W-type instance forward along a migration morphism.
 /// Unlike [`wtype_restrict`] (which drops unmapped nodes), extend
 /// maps all source nodes into the target schema, remapping anchors
+/// Prepare the root node for restriction: remap anchor, check conditional
+/// survival, and apply field transforms.
+fn prepare_root_node(
+    root_node: &Node,
+    migration: &CompiledMigration,
+) -> Result<Node, RestrictError> {
+    let mut node = root_node.clone();
+    if let Some(remapped) = migration.vertex_remap.get(&root_node.anchor) {
+        node.anchor.clone_from(remapped);
+    }
+    if let Some(pred) = migration.conditional_survival.get(&root_node.anchor) {
+        let env = build_env_from_extra_fields(&root_node.extra_fields);
+        let config = panproto_expr::EvalConfig::default();
+        if matches!(
+            panproto_expr::eval(pred, &env, &config),
+            Ok(panproto_expr::Literal::Bool(false))
+        ) {
+            return Err(RestrictError::RootPruned);
+        }
+    }
+    if let Some(transforms) = migration.field_transforms.get(&root_node.anchor) {
+        apply_field_transforms(&mut node, transforms);
+    }
+    Ok(node)
+}
+
 /// and edges according to the compiled migration.
 ///
 /// # Errors
@@ -1201,24 +1201,6 @@ mod tests {
         assert!(result.contains(&0));
         assert!(result.contains(&1));
         assert!(!result.contains(&2));
-    }
-
-    #[test]
-    fn reachable_from_root_filters_disconnected() {
-        let inst = three_node_instance();
-        let candidates: HashSet<u32> = [0, 2].iter().copied().collect();
-        let reachable = reachable_from_root(&inst, &candidates);
-        assert_eq!(reachable.len(), 2);
-        assert!(reachable.contains(&0));
-        assert!(reachable.contains(&2));
-    }
-
-    #[test]
-    fn reachable_from_root_empty_when_root_missing() {
-        let inst = three_node_instance();
-        let candidates: HashSet<u32> = [1, 2].iter().copied().collect();
-        let reachable = reachable_from_root(&inst, &candidates);
-        assert!(reachable.is_empty());
     }
 
     #[test]

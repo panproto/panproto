@@ -13,8 +13,7 @@ use std::collections::{HashMap, HashSet};
 use panproto_gat::Name;
 use panproto_inst::{
     CompiledMigration, FInstance, Fan, FieldPresence, Node, Value, WInstance, anchor_surviving,
-    functor_restrict, parse_json, reachable_from_root, reconstruct_fans, to_json, validate_wtype,
-    wtype_restrict,
+    functor_restrict, parse_json, reconstruct_fans, to_json, validate_wtype, wtype_restrict,
 };
 use panproto_schema::{Edge, HyperEdge, Schema, Vertex};
 use smallvec::smallvec;
@@ -336,6 +335,7 @@ fn thread_view_post_schema() -> (Schema, Schema) {
 
 #[test]
 #[allow(clippy::too_many_lines)]
+#[allow(deprecated)]
 fn test_recursive_schema_restrict_drops_to_3_nodes() {
     let (src_schema, tgt_schema) = thread_view_post_schema();
 
@@ -493,17 +493,6 @@ fn test_recursive_schema_restrict_drops_to_3_nodes() {
         3,
         "3 nodes should have surviving anchors: {candidates:?}"
     );
-
-    // Step 2: reachability
-    let reachable = reachable_from_root(&inst, &candidates);
-    assert_eq!(
-        reachable.len(),
-        3,
-        "3 nodes should be reachable from root: {reachable:?}"
-    );
-    assert!(reachable.contains(&0), "root should be reachable");
-    assert!(reachable.contains(&1), "body should be reachable");
-    assert!(reachable.contains(&2), "text should be reachable");
 
     // Full restrict
     let migration = CompiledMigration {

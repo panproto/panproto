@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use divan::Bencher;
 use panproto_gat::{
-    Equation, Operation, Sort, Term, Theory, TheoryMorphism, check_morphism, colimit,
+    Equation, Operation, Sort, Term, Theory, TheoryMorphism, check_morphism, colimit_by_name,
     resolve_theory,
 };
 
@@ -133,19 +133,19 @@ fn inheritance_chain(depth: usize) -> HashMap<String, Theory> {
 #[divan::bench]
 fn colimit_small(bencher: Bencher) {
     let (t1, t2, shared) = colimit_setup(3, 5);
-    bencher.bench(|| colimit(&t1, &t2, &shared));
+    bencher.bench(|| colimit_by_name(&t1, &t2, &shared));
 }
 
 #[divan::bench]
 fn colimit_medium(bencher: Bencher) {
     let (t1, t2, shared) = colimit_setup(10, 20);
-    bencher.bench(|| colimit(&t1, &t2, &shared));
+    bencher.bench(|| colimit_by_name(&t1, &t2, &shared));
 }
 
 #[divan::bench]
 fn colimit_large(bencher: Bencher) {
     let (t1, t2, shared) = colimit_setup(50, 100);
-    bencher.bench(|| colimit(&t1, &t2, &shared));
+    bencher.bench(|| colimit_by_name(&t1, &t2, &shared));
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@ fn colimit_with_equations(bencher: Bencher, n: usize) {
     }
     let t2 = Theory::new("T2", t2_sorts, t2_ops, t2_eqs);
 
-    bencher.bench(|| colimit(&t1, &t2, &base));
+    bencher.bench(|| colimit_by_name(&t1, &t2, &base));
 }
 
 // ---------------------------------------------------------------------------

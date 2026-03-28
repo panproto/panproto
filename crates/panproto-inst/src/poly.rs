@@ -45,6 +45,9 @@ pub struct Complement {
     pub dropped_nodes: Vec<DroppedNode>,
     /// Arcs that were dropped (both endpoints must have been in the source).
     pub dropped_arcs: Vec<(u32, u32, Edge)>,
+    /// Pre-transform `extra_fields` for nodes that had `field_transforms` applied.
+    /// Used by backward migration to restore original field values.
+    pub original_extra_fields: HashMap<u32, HashMap<String, crate::value::Value>>,
 }
 
 /// An enrichment to add when constructing a section.
@@ -233,6 +236,24 @@ pub fn restrict_with_complement(
     if let Some(remapped) = migration.vertex_remap.get(&root_node.anchor) {
         root_node_cloned.anchor.clone_from(remapped);
     }
+    // Check conditional survival for root
+    if let Some(pred) = migration.conditional_survival.get(&root_node.anchor) {
+        let env = build_env_from_extra_fields(&root_node.extra_fields);
+        let config = panproto_expr::EvalConfig::default();
+        if matches!(
+            panproto_expr::eval(pred, &env, &config),
+            Ok(panproto_expr::Literal::Bool(false))
+        ) {
+            return Err(RestrictError::RootPruned);
+        }
+    }
+    // Apply field transforms to root
+    if let Some(transforms) = migration.field_transforms.get(&root_node.anchor) {
+        complement
+            .original_extra_fields
+            .insert(instance.root, root_node.extra_fields.clone());
+        apply_field_transforms(&mut root_node_cloned, transforms);
+    }
     new_nodes.insert(instance.root, root_node_cloned);
     surviving_set.insert(instance.root);
     queue.push_back((instance.root, None));
@@ -334,6 +355,10 @@ fn restrict_bfs_step(
                 new_node.anchor.clone_from(remapped);
             }
             if let Some(transforms) = migration.field_transforms.get(&child_node.anchor) {
+                // Capture pre-transform extra_fields before applying transforms
+                complement
+                    .original_extra_fields
+                    .insert(child_id, child_node.extra_fields.clone());
                 apply_field_transforms(&mut new_node, transforms);
             }
             new_nodes.insert(child_id, new_node.clone());
@@ -743,6 +768,7 @@ mod tests {
                 },
             ],
             dropped_arcs: vec![],
+            original_extra_fields: HashMap::new(),
         };
 
         // Fiber at root (id=0): direct match on anchor "root" (node 0) + contracted (1, 2)

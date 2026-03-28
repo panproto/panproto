@@ -291,6 +291,34 @@ impl Theory {
     pub fn has_policy(&self, name: &str) -> bool {
         self.policy_idx.contains_key(name)
     }
+
+    /// Build a trivial inclusion morphism from `self` into `target` by name matching.
+    ///
+    /// For every sort and operation in `self` that also exists in `target`
+    /// (by name), maps it to the same name. This is the canonical inclusion
+    /// for the common case where the shared theory is a literal sub-theory.
+    #[must_use]
+    pub fn inclusion_into(&self, target: &Self) -> crate::morphism::TheoryMorphism {
+        let sort_map: std::collections::HashMap<Arc<str>, Arc<str>> = self
+            .sorts
+            .iter()
+            .filter(|s| target.has_sort(&s.name))
+            .map(|s| (Arc::clone(&s.name), Arc::clone(&s.name)))
+            .collect();
+        let op_map: std::collections::HashMap<Arc<str>, Arc<str>> = self
+            .ops
+            .iter()
+            .filter(|o| target.has_op(&o.name))
+            .map(|o| (Arc::clone(&o.name), Arc::clone(&o.name)))
+            .collect();
+        crate::morphism::TheoryMorphism::new(
+            format!("incl_{}_{}", self.name, target.name),
+            &*self.name,
+            &*target.name,
+            sort_map,
+            op_map,
+        )
+    }
 }
 
 /// Resolve a theory by computing the transitive closure of its `extends` chain.

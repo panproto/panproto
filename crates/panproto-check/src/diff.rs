@@ -92,6 +92,47 @@ pub struct SchemaDiff {
     // --- Nominal ---
     /// Nominal flag changes: `(vertex_id, old_value, new_value)`.
     pub nominal_changes: Vec<(String, bool, bool)>,
+
+    // --- Enrichment maps ---
+    /// Coercion keys `(source_kind, target_kind)` added in the new schema.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_coercions: Vec<(String, String)>,
+    /// Coercion keys `(source_kind, target_kind)` removed from the old schema.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_coercions: Vec<(String, String)>,
+    /// Coercion keys `(source_kind, target_kind)` whose expression changed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_coercions: Vec<(String, String)>,
+
+    /// Merger keys (vertex ID) added in the new schema.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_mergers: Vec<String>,
+    /// Merger keys (vertex ID) removed from the old schema.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_mergers: Vec<String>,
+    /// Merger keys (vertex ID) whose expression changed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_mergers: Vec<String>,
+
+    /// Default keys (vertex ID) added in the new schema.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_defaults: Vec<String>,
+    /// Default keys (vertex ID) removed from the old schema.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_defaults: Vec<String>,
+    /// Default keys (vertex ID) whose expression changed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_defaults: Vec<String>,
+
+    /// Policy keys (sort name) added in the new schema.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_policies: Vec<String>,
+    /// Policy keys (sort name) removed from the old schema.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_policies: Vec<String>,
+    /// Policy keys (sort name) whose expression changed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_policies: Vec<String>,
 }
 
 /// Describes how constraints on a single vertex changed.
@@ -305,6 +346,30 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
 
     // --- Nominal ---
     diff_nominal(old, new, &mut result);
+
+    // --- Enrichment maps ---
+    diff_coercions(old, new, &mut result);
+    diff_name_keyed_exprs(
+        &old.mergers,
+        &new.mergers,
+        &mut result.added_mergers,
+        &mut result.removed_mergers,
+        &mut result.modified_mergers,
+    );
+    diff_name_keyed_exprs(
+        &old.defaults,
+        &new.defaults,
+        &mut result.added_defaults,
+        &mut result.removed_defaults,
+        &mut result.modified_defaults,
+    );
+    diff_name_keyed_exprs(
+        &old.policies,
+        &new.policies,
+        &mut result.added_policies,
+        &mut result.removed_policies,
+        &mut result.modified_policies,
+    );
 
     result
 }
@@ -630,6 +695,66 @@ fn diff_nominal(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
     result.nominal_changes.sort_by(|a, b| a.0.cmp(&b.0));
 }
 
+/// Diff coercion maps: keyed by `(Name, Name)`.
+fn diff_coercions(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    for (key, new_expr) in &new.coercions {
+        match old.coercions.get(key) {
+            Some(old_expr) => {
+                if old_expr != new_expr {
+                    result
+                        .modified_coercions
+                        .push((key.0.to_string(), key.1.to_string()));
+                }
+            }
+            None => {
+                result
+                    .added_coercions
+                    .push((key.0.to_string(), key.1.to_string()));
+            }
+        }
+    }
+    for key in old.coercions.keys() {
+        if !new.coercions.contains_key(key) {
+            result
+                .removed_coercions
+                .push((key.0.to_string(), key.1.to_string()));
+        }
+    }
+    result.added_coercions.sort();
+    result.removed_coercions.sort();
+    result.modified_coercions.sort();
+}
+
+/// Diff `HashMap<Name, V>` maps where `V: PartialEq` (mergers, defaults, policies).
+fn diff_name_keyed_exprs<V: PartialEq>(
+    old: &std::collections::HashMap<panproto_gat::Name, V>,
+    new: &std::collections::HashMap<panproto_gat::Name, V>,
+    added: &mut Vec<String>,
+    removed: &mut Vec<String>,
+    modified: &mut Vec<String>,
+) {
+    for (key, new_expr) in new {
+        match old.get(key) {
+            Some(old_expr) => {
+                if old_expr != new_expr {
+                    modified.push(key.to_string());
+                }
+            }
+            None => {
+                added.push(key.to_string());
+            }
+        }
+    }
+    for key in old.keys() {
+        if !new.contains_key(key) {
+            removed.push(key.to_string());
+        }
+    }
+    added.sort();
+    removed.sort();
+    modified.sort();
+}
+
 impl SchemaDiff {
     /// Returns `true` if this diff contains no changes.
     #[must_use]
@@ -660,6 +785,18 @@ impl SchemaDiff {
             && self.removed_spans.is_empty()
             && self.modified_spans.is_empty()
             && self.nominal_changes.is_empty()
+            && self.added_coercions.is_empty()
+            && self.removed_coercions.is_empty()
+            && self.modified_coercions.is_empty()
+            && self.added_mergers.is_empty()
+            && self.removed_mergers.is_empty()
+            && self.modified_mergers.is_empty()
+            && self.added_defaults.is_empty()
+            && self.removed_defaults.is_empty()
+            && self.modified_defaults.is_empty()
+            && self.added_policies.is_empty()
+            && self.removed_policies.is_empty()
+            && self.modified_policies.is_empty()
     }
 }
 
@@ -1363,6 +1500,54 @@ mod tests {
             },
             SchemaDiff {
                 nominal_changes: vec![("a".into(), false, true)],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_coercions: vec![("a".into(), "b".into())],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_coercions: vec![("a".into(), "b".into())],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_coercions: vec![("a".into(), "b".into())],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_mergers: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_mergers: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_mergers: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_defaults: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_defaults: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_defaults: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_policies: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_policies: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_policies: vec!["a".into()],
                 ..Default::default()
             },
         ];

@@ -136,7 +136,7 @@ pub fn create_theory(spec: &Bound<'_, PyAny>) -> PyResult<PyTheory> {
 ///     Shared sub-theory (the pushout apex).
 #[pyfunction]
 pub fn colimit_theories(t1: &PyTheory, t2: &PyTheory, shared: &PyTheory) -> PyResult<PyTheory> {
-    let result = gat::colimit(&t1.inner, &t2.inner, &shared.inner)
+    let result = gat::colimit_by_name(&t1.inner, &t2.inner, &shared.inner)
         .map_err(|e| crate::error::GatError::new_err(format!("colimit failed: {e}")))?;
     Ok(PyTheory {
         inner: Arc::new(result),

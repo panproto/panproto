@@ -146,7 +146,7 @@ pub fn th_meta() -> Theory {
 // Theory group registration helpers
 // ═══════════════════════════════════════════════════════════════════
 
-use panproto_gat::colimit;
+use panproto_gat::colimit_by_name;
 use std::collections::HashMap;
 
 /// Register a **constrained multigraph + W-type** theory pair (Group A).
@@ -182,14 +182,14 @@ pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| w.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
+    if let Ok(gc) = colimit_by_name(&g, &c, &shared_vertex) {
         let shared_ve = Theory::new(
             "ThVertexEdge",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
             vec![],
             vec![],
         );
-        if let Ok(mut schema_theory) = colimit(&gc, &m, &shared_ve) {
+        if let Ok(mut schema_theory) = colimit_by_name(&gc, &m, &shared_ve) {
             schema_theory.name = schema_name.into();
             registry.insert(schema_name.into(), schema_theory);
         }
@@ -227,7 +227,7 @@ pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| f.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(mut schema_theory) = colimit(&h, &c, &shared_vertex) {
+    if let Ok(mut schema_theory) = colimit_by_name(&h, &c, &shared_vertex) {
         schema_theory.name = schema_name.into();
         registry.insert(schema_name.into(), schema_theory);
     }
@@ -264,7 +264,7 @@ pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| fl.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(mut schema_theory) = colimit(&sg, &c, &shared_vertex) {
+    if let Ok(mut schema_theory) = colimit_by_name(&sg, &c, &shared_vertex) {
         schema_theory.name = schema_name.into();
         registry.insert(schema_name.into(), schema_theory);
     }
@@ -309,17 +309,17 @@ pub fn register_typed_graph_wtype<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| w.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
+    if let Ok(gc) = colimit_by_name(&g, &c, &shared_vertex) {
         let shared_ve = Theory::new(
             "ThVertexEdge",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
             vec![],
             vec![],
         );
-        if let Ok(gcm) = colimit(&gc, &m, &shared_ve) {
+        if let Ok(gcm) = colimit_by_name(&gc, &m, &shared_ve) {
             let shared_vertex_only =
                 Theory::new("ThVertex2", vec![Sort::simple("Vertex")], vec![], vec![]);
-            if let Ok(mut schema_theory) = colimit(&gcm, &iface, &shared_vertex_only) {
+            if let Ok(mut schema_theory) = colimit_by_name(&gcm, &iface, &shared_vertex_only) {
                 schema_theory.name = schema_name.into();
                 registry.insert(schema_name.into(), schema_theory);
             }
@@ -365,21 +365,21 @@ pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| meta.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
+    if let Ok(gc) = colimit_by_name(&g, &c, &shared_vertex) {
         let shared_ve = Theory::new(
             "ThVertexEdge",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
             vec![],
             vec![],
         );
-        if let Ok(mut schema_theory) = colimit(&gc, &m, &shared_ve) {
+        if let Ok(mut schema_theory) = colimit_by_name(&gc, &m, &shared_ve) {
             schema_theory.name = schema_name.into();
             registry.insert(schema_name.into(), schema_theory);
         }
     }
 
     let shared_node = Theory::new("ThNode", vec![Sort::simple("Node")], vec![], vec![]);
-    if let Ok(mut inst_theory) = colimit(&w, &meta, &shared_node) {
+    if let Ok(mut inst_theory) = colimit_by_name(&w, &meta, &shared_node) {
         inst_theory.name = instance_name.into();
         registry.insert(instance_name.into(), inst_theory);
     }
@@ -416,14 +416,14 @@ pub fn register_constrained_graph_instance<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| gi.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(gc) = colimit(&g, &c, &shared_vertex) {
+    if let Ok(gc) = colimit_by_name(&g, &c, &shared_vertex) {
         let shared_ve = Theory::new(
             "ThVertexEdge",
             vec![Sort::simple("Vertex"), Sort::simple("Edge")],
             vec![],
             vec![],
         );
-        if let Ok(mut schema_theory) = colimit(&gc, &m, &shared_ve) {
+        if let Ok(mut schema_theory) = colimit_by_name(&gc, &m, &shared_ve) {
             schema_theory.name = schema_name.into();
             registry.insert(schema_name.into(), schema_theory);
         }

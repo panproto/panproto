@@ -199,6 +199,42 @@ pub enum GatError {
         beta_source: String,
     },
 
+    /// Sort kind mismatch in a morphism: source and target sorts have different kinds.
+    #[error("sort kind mismatch for {sort}: expected {expected:?}, got {got:?}")]
+    SortKindMismatch {
+        /// The sort with mismatched kind.
+        sort: String,
+        /// Expected sort kind.
+        expected: crate::sort::SortKind,
+        /// Actual sort kind.
+        got: crate::sort::SortKind,
+    },
+
+    /// Sort parameter sort mismatch in a morphism: a dependent sort's parameter
+    /// sort is not preserved under the sort mapping.
+    #[error(
+        "sort parameter mismatch for {sort} at index {param_index}: expected {expected}, got {got}"
+    )]
+    SortParamMismatch {
+        /// The sort with mismatched parameter.
+        sort: String,
+        /// Zero-based parameter index.
+        param_index: usize,
+        /// Expected parameter sort (after mapping).
+        expected: String,
+        /// Actual parameter sort in the target.
+        got: String,
+    },
+
+    /// Horizontal composition domain mismatch: G's codomain differs from H's domain.
+    #[error("horizontal compose domain mismatch: {g_codomain} != {h_domain}")]
+    HorizontalComposeMismatch {
+        /// G morphism's codomain.
+        g_codomain: String,
+        /// H morphism's domain.
+        h_domain: String,
+    },
+
     // --- Factorization errors ---
     /// Factorization error.
     #[error("factorization error: {0}")]

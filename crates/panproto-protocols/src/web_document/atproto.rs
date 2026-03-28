@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use panproto_gat::{Sort, Theory, colimit};
+use panproto_gat::{Sort, Theory, colimit_by_name};
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 
 use crate::error::ProtocolError;
@@ -85,7 +85,7 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
     // Step 1: colimit(ThGraph, ThConstraint) over shared Vertex.
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
 
-    if let Ok(gc) = colimit(&th_graph, &th_constraint, &shared_vertex) {
+    if let Ok(gc) = colimit_by_name(&th_graph, &th_constraint, &shared_vertex) {
         // Step 2: colimit(gc, ThMulti) over shared {Vertex, Edge}.
         let shared_ve = Theory::new(
             "ThVertexEdge",
@@ -93,7 +93,7 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
             vec![],
             vec![],
         );
-        if let Ok(mut schema_theory) = colimit(&gc, &th_multi, &shared_ve) {
+        if let Ok(mut schema_theory) = colimit_by_name(&gc, &th_multi, &shared_ve) {
             schema_theory.name = "ThATProtoSchema".into();
             registry.insert("ThATProtoSchema".into(), schema_theory);
         }
@@ -101,7 +101,7 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
 
     // Compose instance theory: colimit(ThWType, ThMeta) over shared Node.
     let shared_node = Theory::new("ThNode", vec![Sort::simple("Node")], vec![], vec![]);
-    if let Ok(mut inst_theory) = colimit(&th_wtype, &th_meta, &shared_node) {
+    if let Ok(mut inst_theory) = colimit_by_name(&th_wtype, &th_meta, &shared_node) {
         inst_theory.name = "ThATProtoInstance".into();
         registry.insert("ThATProtoInstance".into(), inst_theory);
     }

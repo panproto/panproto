@@ -16,7 +16,7 @@ use std::sync::Arc;
 use panproto_check::{BreakingChange, classify, diff};
 use panproto_gat::{
     Equation, Model, ModelValue, Name, Operation, Sort, Term, Theory, TheoryMorphism,
-    TheoryTransform, check_model, check_morphism, colimit, migrate_model,
+    TheoryTransform, check_model, check_morphism, colimit_by_name, migrate_model,
 };
 use panproto_lens::protolens::{ProtolensChain, elementary};
 use panproto_mig::Migration;
@@ -696,7 +696,7 @@ fn enriched_theory_colimit() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let shared = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let composed = colimit(&th_graph, &th_valued, &shared)?;
+    let composed = colimit_by_name(&th_graph, &th_valued, &shared)?;
 
     // Verify the composed theory has sorts from both.
     assert!(composed.find_sort("Vertex").is_some());

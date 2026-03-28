@@ -1914,7 +1914,7 @@ pub fn colimit_theories(t1: u32, t2: u32, shared: u32) -> Result<u32, JsError> {
         let th1 = slab::as_theory(r1)?;
         let th2 = slab::as_theory(r2)?;
         let th_shared = slab::as_theory(r3)?;
-        gat::colimit(th1, th2, th_shared).map_err(|e| WasmError::ColimitFailed {
+        gat::colimit_by_name(th1, th2, th_shared).map_err(|e| WasmError::ColimitFailed {
             reason: e.to_string(),
         })
     })?;

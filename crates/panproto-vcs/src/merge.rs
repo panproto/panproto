@@ -203,9 +203,9 @@ pub enum MergeConflict {
         /// The contested edge.
         edge: Edge,
         /// The position our branch set (if any).
-        ours_position: Option<u32>,
+        ours_polsition: Option<u32>,
         /// The position their branch set (if any).
-        theirs_position: Option<u32>,
+        theirs_polsition: Option<u32>,
     },
 
     // --- Recursion points ---
@@ -302,6 +302,87 @@ pub enum MergeConflict {
     BothAddedSpanDifferently {
         /// The ID of the contested span.
         span_id: String,
+    },
+
+    // --- Enrichment maps ---
+    /// Both branches modified the same coercion differently.
+    BothModifiedCoercion {
+        /// The coercion key `(source_kind, target_kind)`.
+        key: (String, String),
+    },
+
+    /// Both branches added a coercion with the same key but different expressions.
+    BothAddedCoercionDifferently {
+        /// The coercion key `(source_kind, target_kind)`.
+        key: (String, String),
+    },
+
+    /// One branch deleted a coercion that the other modified.
+    DeleteModifyCoercion {
+        /// The coercion key `(source_kind, target_kind)`.
+        key: (String, String),
+        /// Which side performed the deletion.
+        deleted_by: Side,
+    },
+
+    /// Both branches modified the same merger differently.
+    BothModifiedMerger {
+        /// The vertex ID.
+        vertex_id: String,
+    },
+
+    /// Both branches added a merger with the same key but different expressions.
+    BothAddedMergerDifferently {
+        /// The vertex ID.
+        vertex_id: String,
+    },
+
+    /// One branch deleted a merger that the other modified.
+    DeleteModifyMerger {
+        /// The vertex ID.
+        vertex_id: String,
+        /// Which side performed the deletion.
+        deleted_by: Side,
+    },
+
+    /// Both branches modified the same default differently.
+    BothModifiedDefault {
+        /// The vertex ID.
+        vertex_id: String,
+    },
+
+    /// Both branches added a default with the same key but different expressions.
+    BothAddedDefaultDifferently {
+        /// The vertex ID.
+        vertex_id: String,
+    },
+
+    /// One branch deleted a default that the other modified.
+    DeleteModifyDefault {
+        /// The vertex ID.
+        vertex_id: String,
+        /// Which side performed the deletion.
+        deleted_by: Side,
+    },
+
+    /// Both branches modified the same policy differently.
+    BothModifiedPolicy {
+        /// The sort name.
+        sort_name: String,
+    },
+
+    /// Both branches added a policy with the same key but different expressions.
+    BothAddedPolicyDifferently {
+        /// The sort name.
+        sort_name: String,
+    },
+
+    /// One branch deleted a policy that the other modified.
+    DeleteModifyPolicy {
+        /// The sort name.
+        sort_name: String,
+        /// Which side performed the deletion.
+        deleted_by: Side,
     },
 }
 
@@ -630,6 +711,230 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     // -- Nominal --
     let nominal = merge_nominal(base, ours, theirs, &diff_ours, &diff_theirs, &mut conflicts);
 
+    // -- Coercions --
+    let ours_added_coerc: Vec<(Name, Name)> = diff_ours
+        .added_coercions
+        .iter()
+        .map(|(a, b)| (Name::from(a.as_str()), Name::from(b.as_str())))
+        .collect();
+    let ours_removed_coerc: Vec<(Name, Name)> = diff_ours
+        .removed_coercions
+        .iter()
+        .map(|(a, b)| (Name::from(a.as_str()), Name::from(b.as_str())))
+        .collect();
+    let ours_modified_coerc: Vec<(Name, Name)> = diff_ours
+        .modified_coercions
+        .iter()
+        .map(|(a, b)| (Name::from(a.as_str()), Name::from(b.as_str())))
+        .collect();
+    let theirs_added_coerc: Vec<(Name, Name)> = diff_theirs
+        .added_coercions
+        .iter()
+        .map(|(a, b)| (Name::from(a.as_str()), Name::from(b.as_str())))
+        .collect();
+    let theirs_removed_coerc: Vec<(Name, Name)> = diff_theirs
+        .removed_coercions
+        .iter()
+        .map(|(a, b)| (Name::from(a.as_str()), Name::from(b.as_str())))
+        .collect();
+    let theirs_modified_coerc: Vec<(Name, Name)> = diff_theirs
+        .modified_coercions
+        .iter()
+        .map(|(a, b)| (Name::from(a.as_str()), Name::from(b.as_str())))
+        .collect();
+    let coercions = merge_keyed_eq(
+        &base.coercions,
+        &ours.coercions,
+        &theirs.coercions,
+        &ours_added_coerc.iter().collect::<FxHashSet<_>>(),
+        &ours_removed_coerc.iter().collect::<FxHashSet<_>>(),
+        &ours_modified_coerc.iter().collect::<FxHashSet<_>>(),
+        &theirs_added_coerc.iter().collect::<FxHashSet<_>>(),
+        &theirs_removed_coerc.iter().collect::<FxHashSet<_>>(),
+        &theirs_modified_coerc.iter().collect::<FxHashSet<_>>(),
+        &mut conflicts,
+        |k, case| match case {
+            ConflictCase::BothAddedDifferently => MergeConflict::BothAddedCoercionDifferently {
+                key: (k.0.to_string(), k.1.to_string()),
+            },
+            ConflictCase::BothModifiedDifferently => MergeConflict::BothModifiedCoercion {
+                key: (k.0.to_string(), k.1.to_string()),
+            },
+            ConflictCase::DeleteModify(side) => MergeConflict::DeleteModifyCoercion {
+                key: (k.0.to_string(), k.1.to_string()),
+                deleted_by: side,
+            },
+        },
+    );
+
+    // -- Mergers --
+    let ours_added_merg: Vec<Name> = diff_ours
+        .added_mergers
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_removed_merg: Vec<Name> = diff_ours
+        .removed_mergers
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_modified_merg: Vec<Name> = diff_ours
+        .modified_mergers
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_added_merg: Vec<Name> = diff_theirs
+        .added_mergers
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_removed_merg: Vec<Name> = diff_theirs
+        .removed_mergers
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_modified_merg: Vec<Name> = diff_theirs
+        .modified_mergers
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let mergers = merge_keyed_eq(
+        &base.mergers,
+        &ours.mergers,
+        &theirs.mergers,
+        &fxset_name_from_iter(ours_added_merg.iter()),
+        &fxset_name_from_iter(ours_removed_merg.iter()),
+        &fxset_name_from_iter(ours_modified_merg.iter()),
+        &fxset_name_from_iter(theirs_added_merg.iter()),
+        &fxset_name_from_iter(theirs_removed_merg.iter()),
+        &fxset_name_from_iter(theirs_modified_merg.iter()),
+        &mut conflicts,
+        |k, case| match case {
+            ConflictCase::BothAddedDifferently => MergeConflict::BothAddedMergerDifferently {
+                vertex_id: k.to_string(),
+            },
+            ConflictCase::BothModifiedDifferently => MergeConflict::BothModifiedMerger {
+                vertex_id: k.to_string(),
+            },
+            ConflictCase::DeleteModify(side) => MergeConflict::DeleteModifyMerger {
+                vertex_id: k.to_string(),
+                deleted_by: side,
+            },
+        },
+    );
+
+    // -- Defaults --
+    let ours_added_dflt: Vec<Name> = diff_ours
+        .added_defaults
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_removed_dflt: Vec<Name> = diff_ours
+        .removed_defaults
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_modified_dflt: Vec<Name> = diff_ours
+        .modified_defaults
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_added_dflt: Vec<Name> = diff_theirs
+        .added_defaults
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_removed_dflt: Vec<Name> = diff_theirs
+        .removed_defaults
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_modified_dflt: Vec<Name> = diff_theirs
+        .modified_defaults
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let defaults = merge_keyed_eq(
+        &base.defaults,
+        &ours.defaults,
+        &theirs.defaults,
+        &fxset_name_from_iter(ours_added_dflt.iter()),
+        &fxset_name_from_iter(ours_removed_dflt.iter()),
+        &fxset_name_from_iter(ours_modified_dflt.iter()),
+        &fxset_name_from_iter(theirs_added_dflt.iter()),
+        &fxset_name_from_iter(theirs_removed_dflt.iter()),
+        &fxset_name_from_iter(theirs_modified_dflt.iter()),
+        &mut conflicts,
+        |k, case| match case {
+            ConflictCase::BothAddedDifferently => MergeConflict::BothAddedDefaultDifferently {
+                vertex_id: k.to_string(),
+            },
+            ConflictCase::BothModifiedDifferently => MergeConflict::BothModifiedDefault {
+                vertex_id: k.to_string(),
+            },
+            ConflictCase::DeleteModify(side) => MergeConflict::DeleteModifyDefault {
+                vertex_id: k.to_string(),
+                deleted_by: side,
+            },
+        },
+    );
+
+    // -- Policies --
+    let ours_added_pol: Vec<Name> = diff_ours
+        .added_policies
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_removed_pol: Vec<Name> = diff_ours
+        .removed_policies
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let ours_modified_pol: Vec<Name> = diff_ours
+        .modified_policies
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_added_pol: Vec<Name> = diff_theirs
+        .added_policies
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_removed_pol: Vec<Name> = diff_theirs
+        .removed_policies
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let theirs_modified_pol: Vec<Name> = diff_theirs
+        .modified_policies
+        .iter()
+        .map(|s| Name::from(s.as_str()))
+        .collect();
+    let policies = merge_keyed_eq(
+        &base.policies,
+        &ours.policies,
+        &theirs.policies,
+        &fxset_name_from_iter(ours_added_pol.iter()),
+        &fxset_name_from_iter(ours_removed_pol.iter()),
+        &fxset_name_from_iter(ours_modified_pol.iter()),
+        &fxset_name_from_iter(theirs_added_pol.iter()),
+        &fxset_name_from_iter(theirs_removed_pol.iter()),
+        &fxset_name_from_iter(theirs_modified_pol.iter()),
+        &mut conflicts,
+        |k, case| match case {
+            ConflictCase::BothAddedDifferently => MergeConflict::BothAddedPolicyDifferently {
+                sort_name: k.to_string(),
+            },
+            ConflictCase::BothModifiedDifferently => MergeConflict::BothModifiedPolicy {
+                sort_name: k.to_string(),
+            },
+            ConflictCase::DeleteModify(side) => MergeConflict::DeleteModifyPolicy {
+                sort_name: k.to_string(),
+                deleted_by: side,
+            },
+        },
+    );
+
     // Rebuild precomputed indices.
     let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
@@ -667,10 +972,10 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         outgoing,
         incoming,
         between,
-        coercions: HashMap::new(),
-        mergers: HashMap::new(),
-        defaults: HashMap::new(),
-        policies: HashMap::new(),
+        coercions,
+        mergers,
+        defaults,
+        policies,
     };
 
     // Derive migrations.
@@ -1009,12 +1314,26 @@ fn merge_edges(
     _theirs: &Schema,
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
-    _conflicts: &mut Vec<MergeConflict>,
+    conflicts: &mut Vec<MergeConflict>,
 ) -> HashMap<Edge, Name> {
     let mut result: HashMap<Edge, Name> = HashMap::new();
 
     let ours_removed: FxHashSet<&Edge> = diff_ours.removed_edges.iter().collect();
     let theirs_removed: FxHashSet<&Edge> = diff_theirs.removed_edges.iter().collect();
+
+    // Build sets of edges that were modified by each side (ordering or usage mode changes).
+    let ours_modified_edges: FxHashSet<&Edge> = diff_ours
+        .order_changes
+        .iter()
+        .map(|(e, _, _)| e)
+        .chain(diff_ours.usage_mode_changes.iter().map(|(e, _, _)| e))
+        .collect();
+    let theirs_modified_edges: FxHashSet<&Edge> = diff_theirs
+        .order_changes
+        .iter()
+        .map(|(e, _, _)| e)
+        .chain(diff_theirs.usage_mode_changes.iter().map(|(e, _, _)| e))
+        .collect();
 
     // Base edges.
     for (edge, kind) in &base.edges {
@@ -1022,8 +1341,31 @@ fn merge_edges(
         let t_removed = theirs_removed.contains(edge);
 
         match (o_removed, t_removed) {
-            // Any removal means the edge is gone.
-            (true, _) | (_, true) => {}
+            (true, true) => {
+                // Both removed: accept.
+            }
+            (true, false) => {
+                // Ours removed. If theirs modified metadata, conflict.
+                if theirs_modified_edges.contains(edge) {
+                    conflicts.push(MergeConflict::DeleteModifyEdge {
+                        edge: edge.clone(),
+                        deleted_by: Side::Ours,
+                    });
+                    result.insert(edge.clone(), kind.clone());
+                }
+                // else: clean removal, accepted
+            }
+            (false, true) => {
+                // Theirs removed. If ours modified metadata, conflict.
+                if ours_modified_edges.contains(edge) {
+                    conflicts.push(MergeConflict::DeleteModifyEdge {
+                        edge: edge.clone(),
+                        deleted_by: Side::Theirs,
+                    });
+                    result.insert(edge.clone(), kind.clone());
+                }
+                // else: clean removal, accepted
+            }
             (false, false) => {
                 result.insert(edge.clone(), kind.clone());
             }
@@ -1496,29 +1838,29 @@ fn merge_orderings(
         let o_changed = ours_changed.contains(edge);
         let t_changed = theirs_changed.contains(edge);
 
-        let base_pos = base.orderings.get(edge).copied();
-        let ours_pos = ours.orderings.get(edge).copied();
-        let theirs_pos = theirs.orderings.get(edge).copied();
+        let base_pols = base.orderings.get(edge).copied();
+        let ours_pols = ours.orderings.get(edge).copied();
+        let theirs_pols = theirs.orderings.get(edge).copied();
 
-        let merged_pos = match (o_changed, t_changed) {
-            (false, false) => base_pos,
-            (true, false) => ours_pos,
-            (false, true) => theirs_pos,
+        let merged_pols = match (o_changed, t_changed) {
+            (false, false) => base_pols,
+            (true, false) => ours_pols,
+            (false, true) => theirs_pols,
             (true, true) => {
-                if ours_pos == theirs_pos {
-                    ours_pos
+                if ours_pols == theirs_pols {
+                    ours_pols
                 } else {
                     conflicts.push(MergeConflict::BothModifiedOrdering {
                         edge: edge.clone(),
-                        ours_position: ours_pos,
-                        theirs_position: theirs_pos,
+                        ours_polsition: ours_pols,
+                        theirs_polsition: theirs_pols,
                     });
-                    base_pos
+                    base_pols
                 }
             }
         };
 
-        if let Some(pos) = merged_pos {
+        if let Some(pos) = merged_pols {
             result.insert(edge.clone(), pos);
         }
     }

@@ -21,7 +21,8 @@ This is Level 0 of the panproto architecture: the only component implemented dir
 | `ConflictPolicy` / `ConflictStrategy` | Conflict resolution: KeepLeft, KeepRight, Fail, Custom(Expr) |
 | `TheoryMorphism` | Structure-preserving map between theories |
 | `check_morphism` | Validate that a morphism is well-formed |
-| `colimit` | Compute pushouts of theories for composition |
+| `colimit` | Compute pushouts of theories over explicit morphisms (returns `ColimitResult` with inclusion morphisms) |
+| `colimit_by_name` | Compute pushouts of theories by shared name (backward-compatible convenience) |
 | `Model` / `ModelValue` | Interpretations of theories in Set |
 | `migrate_model` | Transport a model along a morphism |
 | `Name` | Interned string identifier (`Arc<str>`) with fast pointer equality |

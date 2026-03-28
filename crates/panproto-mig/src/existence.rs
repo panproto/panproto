@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use panproto_gat::Theory;
+use panproto_gat::{Name, Theory};
 use panproto_schema::{Edge, Protocol, Schema};
 use rustc_hash::FxHashSet;
 
@@ -72,7 +72,7 @@ pub fn check_existence(
             errors.extend(check_variant_preservation(src, tgt, migration));
         }
         if theory.find_sort("Position").is_some() {
-            errors.extend(check_order_compatibility(src, tgt));
+            errors.extend(check_order_compatibility(src, tgt, migration));
         }
         if theory.find_sort("Mu").is_some() {
             errors.extend(check_recursion_compatibility(src, tgt, migration));
@@ -340,35 +340,63 @@ fn check_simultaneity(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<
 
 /// Check reachability risks for W-type instances: vertices that become
 /// disconnected from the root after migration.
-fn check_reachability(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<ExistenceError> {
+///
+/// Performs a full BFS from root vertices (those with no incoming edges)
+/// through the source schema's edge graph. Non-surviving intermediate
+/// vertices are traversed but not counted as reachable; only surviving
+/// vertices reached through the BFS are considered reachable. A visited
+/// set prevents infinite loops in schemas with cycles.
+fn check_reachability(src: &Schema, _tgt: &Schema, migration: &Migration) -> Vec<ExistenceError> {
+    use std::collections::VecDeque;
+
     let mut errors = Vec::new();
-    let surviving: FxHashSet<&str> = migration.vertex_map.values().map(|n| &**n).collect();
+    let surviving_src: FxHashSet<&str> = migration.vertex_map.keys().map(|n| &**n).collect();
 
-    // For each surviving vertex, check reachability in both schemas.
-    for (src_id, tgt_id) in &migration.vertex_map {
-        // Verify the target vertex exists in the target schema.
-        if !tgt.has_vertex(tgt_id) {
-            errors.push(ExistenceError::ReachabilityRisk {
-                vertex: tgt_id.to_string(),
-                reason: format!("target vertex {tgt_id} does not exist in the target schema"),
-            });
-            continue;
+    // Find root vertices: source schema vertices with no incoming edges.
+    let roots: Vec<&Name> = src
+        .vertices
+        .keys()
+        .filter(|v| src.incoming_edges(v).is_empty())
+        .collect();
+
+    // BFS from all roots through the source schema edge graph.
+    // We traverse through ALL vertices (including non-surviving intermediates)
+    // but only track which surviving vertices are reachable.
+    let mut visited: FxHashSet<&str> = FxHashSet::default();
+    let mut reachable_surviving: FxHashSet<&str> = FxHashSet::default();
+    let mut queue: VecDeque<&str> = VecDeque::new();
+
+    for root in &roots {
+        let root_str: &str = root;
+        if visited.insert(root_str) {
+            queue.push_back(root_str);
+            if surviving_src.contains(root_str) {
+                reachable_surviving.insert(root_str);
+            }
         }
+    }
 
-        // Check if all vertices on any path from root to this vertex survive.
-        // We approximate this by checking if the vertex has at least one
-        // incoming edge from a surviving vertex in the source.
-        let has_surviving_parent = src
-            .incoming_edges(src_id)
-            .iter()
-            .any(|e| migration.vertex_map.contains_key(&e.src) && surviving.contains(&*e.src));
+    while let Some(current) = queue.pop_front() {
+        // Follow outgoing edges from the current vertex
+        for edge in src.outgoing_edges(current) {
+            let target = &*edge.tgt;
+            if visited.insert(target) {
+                queue.push_back(target);
+                if surviving_src.contains(target) {
+                    reachable_surviving.insert(target);
+                }
+            }
+        }
+    }
 
-        // Root vertices or vertices with surviving parents are fine.
-        let is_root_like = src.incoming_edges(src_id).is_empty();
-        if !is_root_like && !has_surviving_parent {
+    // Report surviving vertices that are not reachable from any root.
+    for (src_id, tgt_id) in &migration.vertex_map {
+        if !reachable_surviving.contains(&**src_id) {
             errors.push(ExistenceError::ReachabilityRisk {
                 vertex: tgt_id.to_string(),
-                reason: format!("no surviving parent for vertex {src_id} in source schema"),
+                reason: format!(
+                    "vertex {src_id} is not reachable from any root in the source schema"
+                ),
             });
         }
     }
@@ -411,16 +439,24 @@ fn check_variant_preservation(
 
 /// Check that ordering compatibility is maintained.
 ///
-/// Ordered → unordered is a lossy migration.
-fn check_order_compatibility(src: &Schema, tgt: &Schema) -> Vec<ExistenceError> {
+/// Ordered to unordered is a lossy migration. Source edges are remapped
+/// through the migration's `edge_map` before comparing against target
+/// orderings.
+fn check_order_compatibility(
+    src: &Schema,
+    tgt: &Schema,
+    migration: &Migration,
+) -> Vec<ExistenceError> {
     let mut errors = Vec::new();
 
     for edge in src.orderings.keys() {
-        if !tgt.orderings.contains_key(edge) && tgt.edges.contains_key(edge) {
+        // Remap the source edge through the migration's edge_map
+        let tgt_edge = migration.edge_map.get(edge).unwrap_or(edge);
+        if !tgt.orderings.contains_key(tgt_edge) && tgt.edges.contains_key(tgt_edge) {
             errors.push(ExistenceError::WellFormedness {
                 message: format!(
-                    "edge {} → {} ({}) was ordered in source but unordered in target",
-                    edge.src, edge.tgt, edge.kind
+                    "edge {} -> {} ({}) was ordered in source but unordered in target",
+                    tgt_edge.src, tgt_edge.tgt, tgt_edge.kind
                 ),
             });
         }

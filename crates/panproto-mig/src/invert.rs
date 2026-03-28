@@ -75,6 +75,29 @@ pub fn invert(
         return Err(InvertError::DroppedEdges);
     }
 
+    // Check hyper-edge map bijectivity (injectivity).
+    let mut seen_hyper_targets: FxHashSet<Name> = FxHashSet::default();
+    for tgt_he in migration.hyper_edge_map.values() {
+        if !seen_hyper_targets.insert(tgt_he.clone()) {
+            return Err(InvertError::HyperEdgeNotBijective {
+                detail: format!("target hyper-edge {tgt_he} has multiple preimages"),
+            });
+        }
+    }
+
+    // Check hyper-edge surjectivity: every target hyper-edge must be in the image.
+    let dropped_hyper: Vec<String> = tgt
+        .hyper_edges
+        .keys()
+        .filter(|he| !seen_hyper_targets.contains(*he))
+        .map(std::string::ToString::to_string)
+        .collect();
+    if !dropped_hyper.is_empty() {
+        return Err(InvertError::DroppedHyperEdges {
+            dropped: dropped_hyper,
+        });
+    }
+
     // Build the inverse migration by swapping keys and values.
     let inv_vertex_map: HashMap<Name, Name> = migration
         .vertex_map

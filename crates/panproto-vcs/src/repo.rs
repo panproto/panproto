@@ -345,6 +345,20 @@ impl Repository {
                 .clone()
                 .unwrap_or_else(|| format!("merge branch '{branch}'"));
 
+            // Propagate data and complement IDs from both parents.
+            let mut data_ids = ours_commit.data_ids.clone();
+            for id in &theirs_commit.data_ids {
+                if !data_ids.contains(id) {
+                    data_ids.push(*id);
+                }
+            }
+            let mut complement_ids = ours_commit.complement_ids.clone();
+            for id in &theirs_commit.complement_ids {
+                if !complement_ids.contains(id) {
+                    complement_ids.push(*id);
+                }
+            }
+
             let merge_commit = CommitObject {
                 schema_id: merged_schema_id,
                 parents: vec![ours_id, theirs_id],
@@ -355,8 +369,8 @@ impl Repository {
                 message: msg,
                 renames: vec![],
                 protocol_id: None,
-                data_ids: vec![],
-                complement_ids: vec![],
+                data_ids,
+                complement_ids,
                 edit_log_ids: vec![],
             };
             let merge_id = self.store.put(&Object::Commit(merge_commit))?;

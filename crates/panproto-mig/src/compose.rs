@@ -15,14 +15,19 @@ use crate::migration::Migration;
 /// Compose two migrations: `m1: G1 -> G2` and `m2: G2 -> G3`
 /// into `m12: G1 -> G3`.
 ///
-/// The composition composes vertex maps and edge maps, and merges
-/// resolver tables. Precomputes inverse maps for O(1) lookups
-/// instead of O(n) scans.
+/// The composition composes vertex maps, edge maps, hyper-edge maps,
+/// label maps, resolver tables, and expression resolvers. Precomputes
+/// inverse maps for O(1) lookups instead of O(n) scans.
+///
+/// Partial-map semantics: if a vertex in the image of `m1` is not in
+/// the domain of `m2`, it is silently dropped from the composed map.
+/// This is intentional; the vertex was removed by `m2` and should not
+/// appear in the composed migration. The same applies to edges and
+/// hyper-edges.
 ///
 /// # Errors
 ///
-/// Returns `ComposeError::VertexNotInDomain` if a vertex in the image
-/// of `m1` is not in the domain of `m2`.
+/// Returns `ComposeError` if composition fails.
 pub fn compose(m1: &Migration, m2: &Migration) -> Result<Migration, ComposeError> {
     // Compose vertex maps: for each v1 in m1.vertex_map,
     // composed[v1] = m2.vertex_map[m1.vertex_map[v1]]
@@ -117,6 +122,19 @@ pub fn compose(m1: &Migration, m2: &Migration) -> Result<Migration, ComposeError
             .or_insert_with(|| (tgt_he.clone(), label_remap.clone()));
     }
 
+    // Compose expr_resolvers: remap m1's keys through the composed vertex_map,
+    // then layer m2's entries for keys not already present.
+    let mut expr_resolvers = HashMap::new();
+    for ((src, tgt), expr) in &m1.expr_resolvers {
+        let src3 = vertex_map.get(src).cloned().unwrap_or_else(|| src.clone());
+        let tgt3 = vertex_map.get(tgt).cloned().unwrap_or_else(|| tgt.clone());
+        expr_resolvers.insert((src3, tgt3), expr.clone());
+    }
+    for ((src, tgt), expr) in &m2.expr_resolvers {
+        let key = (src.clone(), tgt.clone());
+        expr_resolvers.entry(key).or_insert_with(|| expr.clone());
+    }
+
     Ok(Migration {
         vertex_map,
         edge_map,
@@ -124,7 +142,7 @@ pub fn compose(m1: &Migration, m2: &Migration) -> Result<Migration, ComposeError
         label_map,
         resolver,
         hyper_resolver,
-        expr_resolvers: HashMap::new(),
+        expr_resolvers,
     })
 }
 

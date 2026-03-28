@@ -4,6 +4,41 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-03-28
+
+### Added
+
+- **panproto-gat**: morphism-based `colimit()` returning `ColimitResult` with inclusion morphisms `j1: T1 → P` and `j2: T2 → P`, satisfying the universal property of pushouts. The previous name-based function is available as `colimit_by_name()`.
+- **panproto-gat**: `TheoryMorphism::identity()` and `compose()` methods with associativity and identity unit laws.
+- **panproto-gat**: `Theory::inclusion_into()` for building trivial inclusion morphisms by name matching.
+- **panproto-gat**: congruence closure in free model construction ensures the quotient is complete, and operations now map carrier elements to carrier elements (true initiality).
+- **panproto-lens**: `Complement` tracks `original_extra_fields` for nodes with field transforms, enabling correct `GetPut` round-trips for lenses with value-level coercions.
+- **panproto-lens**: `Complement` includes `source_fingerprint` for provenance validation in `put()`.
+- **panproto-mig**: hyper-edge bijectivity check in `invert()`.
+- **panproto-mig**: `compose()` now propagates `expr_resolvers` through the vertex map instead of discarding them.
+- **panproto-vcs**: merge commits now carry forward `data_ids` and `complement_ids` from both parent commits.
+- **panproto-vcs**: enrichment maps (`coercions`, `mergers`, `defaults`, `policies`) are now three-way merged during VCS merge instead of being discarded.
+- Integration tests for categorical laws: morphism composition associativity, identity unit, colimit associativity, restrict functor contravariance.
+
+### Fixed
+
+- **panproto-gat**: colimit equation conflict check now uses alpha-equivalence instead of structural comparison, matching the directed equation check.
+- **panproto-gat**: `check_morphism()` validates `SortKind` compatibility and dependent sort parameter preservation under the sort mapping.
+- **panproto-gat**: `horizontal_compose` validates that G's codomain equals H's domain before composing.
+- **panproto-gat**: free model topological sort uses FIFO (Kahn's algorithm) instead of LIFO.
+- **panproto-lens**: `OpticKind` partial order is now correct: `Lens` and `Prism` are incomparable (previously derived as `Lens < Prism`).
+- **panproto-lens**: optic and fibration law checks use structural equivalence (`instances_equivalent`) instead of node-count comparison.
+- **panproto-lens**: `compose_compiled_migrations` propagates `field_transforms` and `conditional_survival` instead of discarding them.
+- **panproto-inst**: `wtype_restrict` and `restrict_with_complement` now apply `conditional_survival` and `field_transforms` to the root node (previously skipped).
+- **panproto-mig**: `check_order_compatibility` remaps edges through the migration's `edge_map` before comparing.
+- **panproto-mig**: `check_reachability` uses full BFS from root vertices instead of one-hop parent check.
+- **panproto-vcs**: edge merge detects delete-modify conflicts (one side removes an edge while the other modifies its ordering or usage mode) and emits `MergeConflict::DeleteModifyEdge`.
+
+### Removed
+
+- **panproto-inst**: removed `reachable_from_root()` (semantically incorrect for non-surviving intermediates; the fused `wtype_restrict` pipeline handles this correctly).
+- **panproto-mig**: removed `ComposeError::VertexNotInDomain` (was never constructed; partial-map semantics silently drop unmapped vertices).
+
 ## [0.17.3] - 2026-03-27
 
 ### Fixed

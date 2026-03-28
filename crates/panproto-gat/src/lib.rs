@@ -45,7 +45,7 @@ pub mod witness;
 pub use check_model::{
     CheckModelOptions, EquationViolation, check_model, check_model_with_options,
 };
-pub use colimit::colimit;
+pub use colimit::{ColimitResult, colimit, colimit_by_name};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
 pub use eq::{

@@ -5,6 +5,7 @@
 //! The free model is the minimal model satisfying the theory — useful
 //! for generating test instances and computing protocol skeletons.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -75,22 +76,23 @@ fn topological_sort_sorts(theory: &Theory) -> Vec<Arc<str>> {
         }
     }
 
-    let mut queue: Vec<Arc<str>> = in_degree
+    let mut initial: Vec<Arc<str>> = in_degree
         .iter()
         .filter(|(_, deg)| **deg == 0)
         .map(|(name, _)| Arc::clone(name))
         .collect();
-    queue.sort(); // Deterministic ordering.
+    initial.sort(); // Deterministic ordering.
+    let mut queue: VecDeque<Arc<str>> = initial.into_iter().collect();
 
     let mut result = Vec::new();
-    while let Some(name) = queue.pop() {
+    while let Some(name) = queue.pop_front() {
         result.push(Arc::clone(&name));
         if let Some(deps) = dependents.get(&name) {
             for dep in deps {
                 if let Some(deg) = in_degree.get_mut(dep) {
                     *deg = deg.saturating_sub(1);
                     if *deg == 0 {
-                        queue.push(Arc::clone(dep));
+                        queue.push_back(Arc::clone(dep));
                     }
                 }
             }
@@ -219,7 +221,11 @@ fn assign_global_indices(
     (term_to_global, global_idx)
 }
 
-/// Phase 2: Quotient terms by equations using union-find.
+/// Phase 2: Quotient terms by equations using union-find with congruence closure.
+///
+/// Runs equation merging in a fixpoint loop: after each pass over all equations,
+/// checks if any new merges occurred. Continues until no new merges happen,
+/// ensuring the quotient is the full congruence closure.
 fn quotient_by_equations(
     theory: &Theory,
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
@@ -228,30 +234,41 @@ fn quotient_by_equations(
 ) -> UnionFind {
     let mut uf = UnionFind::new(total_terms);
 
-    for eq in &theory.eqs {
-        let vars: Vec<Arc<str>> = {
-            let mut all = eq.lhs.free_vars();
-            all.extend(eq.rhs.free_vars());
-            all.into_iter().collect()
-        };
+    // Precompute variable sorts for each equation.
+    let eq_info: Vec<_> = theory
+        .eqs
+        .iter()
+        .map(|eq| {
+            let vars: Vec<Arc<str>> = {
+                let mut all = eq.lhs.free_vars();
+                all.extend(eq.rhs.free_vars());
+                all.into_iter().collect()
+            };
+            let var_sorts = crate::typecheck::infer_var_sorts(eq, theory).ok();
+            (eq, vars, var_sorts)
+        })
+        .collect();
 
-        if vars.is_empty() {
-            merge_constant_eq(eq, terms_by_sort, term_to_global, &mut uf);
-            continue;
+    // Fixpoint loop: keep merging until no new merges occur.
+    loop {
+        let merges_before = uf.merge_count;
+
+        for (eq, vars, var_sorts) in &eq_info {
+            if vars.is_empty() {
+                merge_constant_eq(eq, terms_by_sort, term_to_global, &mut uf);
+                continue;
+            }
+
+            let Some(vs) = var_sorts else {
+                continue;
+            };
+
+            merge_by_equation(eq, vars, vs, terms_by_sort, term_to_global, &mut uf);
         }
 
-        let Ok(var_sorts) = crate::typecheck::infer_var_sorts(eq, theory) else {
-            continue; // Skip malformed equations.
-        };
-
-        merge_by_equation(
-            eq,
-            &vars,
-            &var_sorts,
-            terms_by_sort,
-            term_to_global,
-            &mut uf,
-        );
+        if uf.merge_count == merges_before {
+            break;
+        }
     }
 
     uf
@@ -281,6 +298,28 @@ fn build_model(
 ) -> Model {
     let mut model = Model::new(&*theory.name);
 
+    // Build a lookup table: term_string → representative_string.
+    // This ensures operation results land in the carrier set.
+    let mut term_string_to_rep: FxHashMap<String, String> = FxHashMap::default();
+    let mut class_rep_string: FxHashMap<usize, String> = FxHashMap::default();
+    for (sort, terms) in terms_by_sort {
+        let indices = &term_to_global[sort];
+        let mut seen_classes: FxHashSet<usize> = FxHashSet::default();
+
+        for (i, term) in terms.iter().enumerate() {
+            let rep = uf.find(indices[i]);
+            let ts = term_to_string(term);
+            if seen_classes.insert(rep) {
+                // First term in this class becomes the representative string.
+                class_rep_string.insert(rep, ts.clone());
+            }
+            // Map every term string to its class representative string.
+            let rep_str = class_rep_string[&rep].clone();
+            term_string_to_rep.insert(ts, rep_str);
+        }
+    }
+
+    // Build carrier sets using class representatives.
     for (sort, terms) in terms_by_sort {
         let indices = &term_to_global[sort];
         let mut seen_classes: FxHashSet<usize> = FxHashSet::default();
@@ -295,9 +334,14 @@ fn build_model(
         model.add_sort(sort.to_string(), carrier);
     }
 
+    // Build operation interpretations that map carrier → carrier.
+    // The lookup table is shared via Arc for the closures.
+    let lookup = Arc::new(term_string_to_rep);
+
     for op in &theory.ops {
         let op_name = op.name.to_string();
         let arity = op.arity();
+        let table = Arc::clone(&lookup);
         model.add_op(op_name.clone(), move |args: &[ModelValue]| {
             if args.len() != arity {
                 return Err(GatError::ModelError(format!(
@@ -312,10 +356,14 @@ fn build_model(
                     _ => "?",
                 })
                 .collect();
-            Ok(ModelValue::Str(format!(
-                "{op_name}({})",
-                arg_strs.join(", ")
-            )))
+            let result_str = format!("{op_name}({})", arg_strs.join(", "));
+
+            // Look up the result in the term table. If found, return the
+            // equivalence class representative. If not found (term exceeds
+            // depth bound), return the formatted string as-is.
+            Ok(ModelValue::Str(
+                table.get(&result_str).map_or(result_str, String::clone),
+            ))
         });
     }
 
@@ -433,6 +481,8 @@ fn cartesian_product(lists: &[&Vec<Term>]) -> Vec<Vec<Term>> {
 struct UnionFind {
     parent: Vec<usize>,
     rank: Vec<usize>,
+    /// Total number of union operations that actually merged distinct classes.
+    merge_count: usize,
 }
 
 impl UnionFind {
@@ -440,6 +490,7 @@ impl UnionFind {
         Self {
             parent: (0..size).collect(),
             rank: vec![0; size],
+            merge_count: 0,
         }
     }
 
@@ -457,6 +508,7 @@ impl UnionFind {
         if rx == ry {
             return;
         }
+        self.merge_count += 1;
         match self.rank[rx].cmp(&self.rank[ry]) {
             std::cmp::Ordering::Less => self.parent[rx] = ry,
             std::cmp::Ordering::Greater => self.parent[ry] = rx,
