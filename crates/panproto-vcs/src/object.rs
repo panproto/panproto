@@ -1,6 +1,6 @@
 //! Content-addressed objects stored in the VCS.
 //!
-//! The object store contains nine kinds of objects:
+//! The object store contains eleven kinds of objects:
 //! - [`Object::Schema`] — a schema snapshot
 //! - [`Object::Migration`] — a morphism between two schemas
 //! - [`Object::Commit`] — a point in the schema evolution DAG
@@ -10,6 +10,10 @@
 //! - [`Object::Protocol`] — a protocol (metaschema) definition
 //! - [`Object::Expr`] — a standalone expression (coercion, merge, default)
 //! - [`Object::EditLog`] — an edit log for incremental migration
+//! - [`Object::Theory`] — a GAT theory definition
+//! - [`Object::TheoryMorphism`] — a structure-preserving map between theories
+
+use std::collections::BTreeMap;
 
 use panproto_gat::SiteRename;
 use panproto_mig::Migration;
@@ -54,6 +58,12 @@ pub enum Object {
 
     /// An edit log recording incremental edits against a schema.
     EditLog(EditLogObject),
+
+    /// A GAT theory definition.
+    Theory(Box<panproto_gat::Theory>),
+
+    /// A structure-preserving map between two theories.
+    TheoryMorphism(Box<panproto_gat::TheoryMorphism>),
 }
 
 impl Object {
@@ -70,6 +80,8 @@ impl Object {
             Self::Protocol(_) => "protocol",
             Self::Expr(_) => "expr",
             Self::EditLog(_) => "editlog",
+            Self::Theory(_) => "theory",
+            Self::TheoryMorphism(_) => "theory_morphism",
         }
     }
 }
@@ -103,24 +115,154 @@ pub struct CommitObject {
     pub message: String,
 
     /// Renames detected or declared for this commit's migration.
-    #[serde(default)]
     pub renames: Vec<SiteRename>,
 
     /// Object ID of the protocol definition at this commit.
-    #[serde(default)]
     pub protocol_id: Option<ObjectId>,
 
     /// Object IDs of data sets tracked at this commit.
-    #[serde(default)]
     pub data_ids: Vec<ObjectId>,
 
     /// Object IDs of complements from the migration at this commit.
-    #[serde(default)]
     pub complement_ids: Vec<ObjectId>,
 
     /// Object IDs of edit logs for incremental migration at this commit.
-    #[serde(default)]
     pub edit_log_ids: Vec<ObjectId>,
+
+    /// Theory object IDs at this commit, keyed by theory name.
+    pub theory_ids: BTreeMap<String, ObjectId>,
+}
+
+impl CommitObject {
+    /// Create a builder for `CommitObject` with required fields.
+    #[must_use]
+    pub fn builder(
+        schema_id: ObjectId,
+        protocol: impl Into<String>,
+        author: impl Into<String>,
+        message: impl Into<String>,
+    ) -> CommitObjectBuilder {
+        CommitObjectBuilder {
+            schema_id,
+            parents: Vec::new(),
+            migration_id: None,
+            protocol: protocol.into(),
+            author: author.into(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            message: message.into(),
+            renames: Vec::new(),
+            protocol_id: None,
+            data_ids: Vec::new(),
+            complement_ids: Vec::new(),
+            edit_log_ids: Vec::new(),
+            theory_ids: BTreeMap::new(),
+        }
+    }
+}
+
+/// Builder for [`CommitObject`] with sensible defaults for optional fields.
+pub struct CommitObjectBuilder {
+    schema_id: ObjectId,
+    parents: Vec<ObjectId>,
+    migration_id: Option<ObjectId>,
+    protocol: String,
+    author: String,
+    timestamp: u64,
+    message: String,
+    renames: Vec<SiteRename>,
+    protocol_id: Option<ObjectId>,
+    data_ids: Vec<ObjectId>,
+    complement_ids: Vec<ObjectId>,
+    edit_log_ids: Vec<ObjectId>,
+    theory_ids: BTreeMap<String, ObjectId>,
+}
+
+impl CommitObjectBuilder {
+    /// Set the parent commit IDs.
+    #[must_use]
+    pub fn parents(mut self, parents: Vec<ObjectId>) -> Self {
+        self.parents = parents;
+        self
+    }
+
+    /// Set the migration object ID.
+    #[must_use]
+    pub const fn migration_id(mut self, id: ObjectId) -> Self {
+        self.migration_id = Some(id);
+        self
+    }
+
+    /// Set the unix timestamp (seconds).
+    #[must_use]
+    pub const fn timestamp(mut self, ts: u64) -> Self {
+        self.timestamp = ts;
+        self
+    }
+
+    /// Set the detected/declared renames.
+    #[must_use]
+    pub fn renames(mut self, renames: Vec<SiteRename>) -> Self {
+        self.renames = renames;
+        self
+    }
+
+    /// Set the protocol definition object ID.
+    #[must_use]
+    pub const fn protocol_id(mut self, id: ObjectId) -> Self {
+        self.protocol_id = Some(id);
+        self
+    }
+
+    /// Set the data set object IDs.
+    #[must_use]
+    pub fn data_ids(mut self, ids: Vec<ObjectId>) -> Self {
+        self.data_ids = ids;
+        self
+    }
+
+    /// Set the complement object IDs.
+    #[must_use]
+    pub fn complement_ids(mut self, ids: Vec<ObjectId>) -> Self {
+        self.complement_ids = ids;
+        self
+    }
+
+    /// Set the edit log object IDs.
+    #[must_use]
+    pub fn edit_log_ids(mut self, ids: Vec<ObjectId>) -> Self {
+        self.edit_log_ids = ids;
+        self
+    }
+
+    /// Set the theory object IDs.
+    #[must_use]
+    pub fn theory_ids(mut self, ids: BTreeMap<String, ObjectId>) -> Self {
+        self.theory_ids = ids;
+        self
+    }
+
+    /// Build the [`CommitObject`].
+    #[must_use]
+    pub fn build(self) -> CommitObject {
+        CommitObject {
+            schema_id: self.schema_id,
+            parents: self.parents,
+            migration_id: self.migration_id,
+            protocol: self.protocol,
+            author: self.author,
+            timestamp: self.timestamp,
+            message: self.message,
+            renames: self.renames,
+            protocol_id: self.protocol_id,
+            data_ids: self.data_ids,
+            complement_ids: self.complement_ids,
+            edit_log_ids: self.edit_log_ids,
+            theory_ids: self.theory_ids,
+        }
+    }
 }
 
 /// A data snapshot stored in the VCS.
@@ -239,26 +381,46 @@ mod tests {
 
     #[test]
     fn commit_with_edit_logs() -> Result<(), Box<dyn std::error::Error>> {
-        let commit = CommitObject {
-            schema_id: ObjectId::ZERO,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 0,
-            message: "test".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![
+        let commit = CommitObject::builder(ObjectId::ZERO, "test", "test", "test")
+            .timestamp(0)
+            .edit_log_ids(vec![
                 ObjectId::from_bytes([10; 32]),
                 ObjectId::from_bytes([11; 32]),
-            ],
-        };
+            ])
+            .build();
         let bytes = rmp_serde::to_vec(&commit)?;
         let commit2: CommitObject = rmp_serde::from_slice(&bytes)?;
         assert_eq!(commit.edit_log_ids, commit2.edit_log_ids);
+        Ok(())
+    }
+
+    #[test]
+    fn commit_with_theory_ids() -> Result<(), Box<dyn std::error::Error>> {
+        let mut theories = BTreeMap::new();
+        theories.insert("ThGraph".to_owned(), ObjectId::from_bytes([5; 32]));
+        let commit = CommitObject::builder(ObjectId::ZERO, "test", "test", "test")
+            .timestamp(0)
+            .theory_ids(theories)
+            .build();
+        let bytes = rmp_serde::to_vec(&commit)?;
+        let commit2: CommitObject = rmp_serde::from_slice(&bytes)?;
+        assert_eq!(commit.theory_ids, commit2.theory_ids);
+        assert_eq!(
+            commit2.theory_ids.get("ThGraph"),
+            Some(&ObjectId::from_bytes([5; 32]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn commit_backward_compat_no_theory_ids() -> Result<(), Box<dyn std::error::Error>> {
+        // Simulate a commit serialized before theory_ids existed.
+        let commit_old = CommitObject::builder(ObjectId::ZERO, "test", "test", "test")
+            .timestamp(0)
+            .build();
+        let bytes = rmp_serde::to_vec(&commit_old)?;
+        let commit2: CommitObject = rmp_serde::from_slice(&bytes)?;
+        assert!(commit2.theory_ids.is_empty());
         Ok(())
     }
 }

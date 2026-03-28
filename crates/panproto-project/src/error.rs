@@ -38,6 +38,24 @@ pub enum ProjectError {
         import_target: String,
     },
 
+    /// The panproto.toml manifest is malformed.
+    #[error("invalid manifest at {path}: {reason}")]
+    InvalidManifest {
+        /// Path to the malformed manifest.
+        path: String,
+        /// Description of the error.
+        reason: String,
+    },
+
+    /// A glob pattern in the manifest is invalid.
+    #[error("invalid exclude pattern {pattern:?}: {reason}")]
+    InvalidPattern {
+        /// The offending glob pattern.
+        pattern: String,
+        /// Description of the error.
+        reason: String,
+    },
+
     /// An I/O error occurred reading files.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),

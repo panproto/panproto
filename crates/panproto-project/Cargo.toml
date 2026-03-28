@@ -16,6 +16,12 @@ panproto-parse = { workspace = true }
 thiserror = { workspace = true }
 miette = { workspace = true }
 rustc-hash = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+globset = { workspace = true }
+blake3 = { workspace = true }
+smallvec = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -116,20 +116,15 @@ mod tests {
 
         for i in 0..n {
             let parents = if i == 0 { vec![] } else { vec![ids[i - 1]] };
-            let commit = CommitObject {
-                schema_id: ObjectId::from_bytes([i as u8; 32]),
-                parents,
-                migration_id: None,
-                protocol: "test".into(),
-                author: "test".into(),
-                timestamp: i as u64 * 100,
-                message: format!("commit {i}"),
-                renames: vec![],
-                protocol_id: None,
-                data_ids: vec![],
-                complement_ids: vec![],
-                edit_log_ids: vec![],
-            };
+            let commit = CommitObject::builder(
+                ObjectId::from_bytes([i as u8; 32]),
+                "test",
+                "test",
+                format!("commit {i}"),
+            )
+            .parents(parents)
+            .timestamp(i as u64 * 100)
+            .build();
             let id = store.put(&Object::Commit(commit))?;
             ids.push(id);
         }

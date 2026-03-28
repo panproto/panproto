@@ -11,8 +11,8 @@ use panproto_core::{
 };
 
 use super::helpers::{
-    build_schema_model, build_theory_registry, load_json, open_repo, print_theory_diff,
-    resolve_protocol,
+    build_schema_model, build_theory_registry, load_json, open_repo, print_stored_theory_diff,
+    print_theory_diff, resolve_protocol,
 };
 use crate::format;
 
@@ -758,57 +758,7 @@ pub fn cmd_diff(
         optic_kind,
     } = *opts;
     if staged {
-        // Diff staged schema vs HEAD.
-        let repo = open_repo()?;
-        let index_path = repo.store().root().join("index.json");
-        if !index_path.exists() {
-            miette::bail!("nothing staged");
-        }
-        let index: vcs::Index = load_json(&index_path)?;
-        let staged_entry = index
-            .staged
-            .ok_or_else(|| miette::miette!("nothing staged"))?;
-
-        let head_id = vcs::store::resolve_head(repo.store())
-            .into_diagnostic()?
-            .ok_or_else(|| miette::miette!("no commits yet — use diff with file paths instead"))?;
-        let head_obj = repo.store().get(&head_id).into_diagnostic()?;
-        let vcs::Object::Commit(head_commit) = head_obj else {
-            miette::bail!("HEAD does not point to a commit")
-        };
-        let old_obj = repo.store().get(&head_commit.schema_id).into_diagnostic()?;
-        let old_schema = match old_obj {
-            vcs::Object::Schema(s) => *s,
-            _ => miette::bail!("HEAD commit does not reference a schema"),
-        };
-        let new_obj = repo
-            .store()
-            .get(&staged_entry.schema_id)
-            .into_diagnostic()?;
-        let new_schema = match new_obj {
-            vcs::Object::Schema(s) => *s,
-            _ => miette::bail!("staged entry does not reference a schema"),
-        };
-
-        let schema_diff = panproto_core::check::diff::diff(&old_schema, &new_schema);
-        print_diff(
-            &schema_diff,
-            &old_schema,
-            &new_schema,
-            stat,
-            name_only,
-            name_status,
-        );
-        if detect_renames {
-            print_detected_renames(&old_schema, &new_schema);
-        }
-        if theory {
-            print_theory_diff(&old_schema, &new_schema);
-        }
-        if optic_kind {
-            print_optic_kind(&old_schema, &new_schema);
-        }
-        return Ok(());
+        return cmd_diff_staged(opts);
     }
 
     let old_path =
@@ -843,6 +793,77 @@ pub fn cmd_diff(
     }
     if theory {
         print_theory_diff(&old_schema, &new_schema);
+    }
+    if optic_kind {
+        print_optic_kind(&old_schema, &new_schema);
+    }
+    Ok(())
+}
+
+/// Diff the staged schema against HEAD.
+fn cmd_diff_staged(opts: &DiffOptions) -> Result<()> {
+    let DiffOptions {
+        stat,
+        name_only,
+        name_status,
+        detect_renames,
+        theory,
+        optic_kind,
+        ..
+    } = *opts;
+
+    let repo = open_repo()?;
+    let index_path = repo.store().root().join("index.json");
+    if !index_path.exists() {
+        miette::bail!("nothing staged");
+    }
+    let index: vcs::Index = load_json(&index_path)?;
+    let staged_entry = index
+        .staged
+        .ok_or_else(|| miette::miette!("nothing staged"))?;
+
+    let head_id = vcs::store::resolve_head(repo.store())
+        .into_diagnostic()?
+        .ok_or_else(|| miette::miette!("no commits yet — use diff with file paths instead"))?;
+    let head_obj = repo.store().get(&head_id).into_diagnostic()?;
+    let vcs::Object::Commit(head_commit) = head_obj else {
+        miette::bail!("HEAD does not point to a commit")
+    };
+    let old_obj = repo.store().get(&head_commit.schema_id).into_diagnostic()?;
+    let old_schema = match old_obj {
+        vcs::Object::Schema(s) => *s,
+        _ => miette::bail!("HEAD commit does not reference a schema"),
+    };
+    let new_obj = repo
+        .store()
+        .get(&staged_entry.schema_id)
+        .into_diagnostic()?;
+    let new_schema = match new_obj {
+        vcs::Object::Schema(s) => *s,
+        _ => miette::bail!("staged entry does not reference a schema"),
+    };
+
+    let schema_diff = panproto_core::check::diff::diff(&old_schema, &new_schema);
+    print_diff(
+        &schema_diff,
+        &old_schema,
+        &new_schema,
+        stat,
+        name_only,
+        name_status,
+    );
+    if detect_renames {
+        print_detected_renames(&old_schema, &new_schema);
+    }
+    if theory {
+        let staged_commit = vcs::CommitObject::builder(staged_entry.schema_id, "", "", "").build();
+        print_stored_theory_diff(
+            repo.store(),
+            &head_commit,
+            &staged_commit,
+            &old_schema,
+            &new_schema,
+        );
     }
     if optic_kind {
         print_optic_kind(&old_schema, &new_schema);
@@ -1154,6 +1175,21 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
             println!("Edits:      {}", el.edit_count);
             println!("Complement: {}", el.final_complement);
             println!("Size:       {} bytes", el.edits.len());
+        }
+        vcs::Object::Theory(theory) => {
+            println!("theory {id}");
+            println!("Name:       {}", theory.name);
+            println!("Sorts:      {}", theory.sorts.len());
+            println!("Operations: {}", theory.ops.len());
+            println!("Equations:  {}", theory.eqs.len());
+        }
+        vcs::Object::TheoryMorphism(morph) => {
+            println!("theory_morphism {id}");
+            println!("Name:      {}", morph.name);
+            println!("Domain:    {}", morph.domain);
+            println!("Codomain:  {}", morph.codomain);
+            println!("Sort map:  {}", morph.sort_map.len());
+            println!("Op map:    {}", morph.op_map.len());
         }
     }
     Ok(())

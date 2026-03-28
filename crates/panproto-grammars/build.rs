@@ -146,15 +146,40 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
         return false;
     }
 
-    // Compile C++ scanner separately if present.
+    // Compile C++ scanner separately if present. Each scanner is wrapped in a
+    // unique named namespace to prevent COMDAT symbol collisions when rust-lld
+    // deduplicates inline methods (e.g., Scanner::Scanner()) across grammars.
     let scanner_lib_name = format!("tree_sitter_{c_symbol}_scanner");
     if scanner_cc.exists() {
         println!("cargo:rerun-if-changed={}", scanner_cc.display());
 
+        let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+        let ns_name = format!("panproto_grammar_{}", name.replace('-', "_"));
+        let abs_scanner = scanner_cc
+            .canonicalize()
+            .unwrap_or_else(|_| scanner_cc.clone());
+
+        // Write a wrapper that includes the original scanner.cc inside a unique
+        // namespace. Pre-include tree_sitter/parser.h at global scope so that
+        // TSLexer/TSLanguage types are declared globally (include guards prevent
+        // re-declaration when scanner.cc includes it again inside the namespace).
+        // extern "C" functions inside a named namespace retain external C linkage
+        // and unmangled names, so tree_sitter_*_external_scanner_* symbols remain
+        // visible to the linker.
+        let wrapper_path = out_dir.join(format!("{name}_scanner_wrapper.cc"));
+        let wrapper = format!(
+            "#include \"tree_sitter/parser.h\"\n\
+             namespace {ns_name} {{\n\
+             #include \"{scanner}\"\n\
+             }} // namespace {ns_name}\n",
+            scanner = abs_scanner.display(),
+        );
+        fs::write(&wrapper_path, &wrapper).expect("failed to write scanner wrapper");
+
         let mut cpp_build = cc::Build::new();
         cpp_build
             .cpp(true)
-            .file(&scanner_cc)
+            .file(&wrapper_path)
             .include(src_dir)
             .std("c++14")
             .flag("-fno-exceptions")

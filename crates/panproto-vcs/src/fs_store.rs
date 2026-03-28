@@ -300,6 +300,8 @@ fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
         Object::Protocol(protocol) => hash::hash_protocol(protocol),
         Object::Expr(expr) => hash::hash_expr(expr),
         Object::EditLog(edit_log) => hash::hash_edit_log(edit_log),
+        Object::Theory(theory) => hash::hash_theory(theory),
+        Object::TheoryMorphism(morphism) => hash::hash_theory_morphism(morphism),
     }
 }
 

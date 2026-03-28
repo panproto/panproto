@@ -21,7 +21,7 @@ panproto-git = { workspace = true }
 panproto-llvm = { workspace = true }
 clap = { workspace = true }
 git2 = "0.20"
-panproto-xrpc = { version = "0.19.0", path = "../panproto-xrpc" }
+panproto-xrpc = { version = "0.20.0", path = "../panproto-xrpc" }
 panproto-vcs = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 miette = { workspace = true }
@@ -29,6 +29,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
+blake3 = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"

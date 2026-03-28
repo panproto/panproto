@@ -17,7 +17,7 @@
 //! on serialized text.
 
 use panproto_check::diff::{self, SchemaDiff};
-use panproto_gat::{Name, Operation, PullbackResult, Sort, Theory, TheoryMorphism, pullback};
+use panproto_gat::{Name, PullbackResult, Theory, TheoryMorphism, pullback};
 use panproto_mig::Migration;
 use panproto_schema::{Constraint, Edge, Schema, Span, UsageMode, Variant, Vertex};
 use rustc_hash::FxHashSet;
@@ -688,34 +688,9 @@ pub fn verify_pushout(
 
 /// Construct a simple GAT theory from a schema's vertices and edges.
 ///
-/// Each vertex becomes a sort, and each edge becomes a unary operation
-/// from the source sort to the target sort.
+/// Re-export from `gat_validate` for backward compatibility within this module.
 fn schema_to_theory(name: &str, schema: &Schema) -> Theory {
-    let sorts: Vec<Sort> = schema
-        .vertices
-        .keys()
-        .map(|vid| Sort::simple(Arc::from(vid.as_str())))
-        .collect();
-
-    let ops: Vec<Operation> = schema
-        .edges
-        .keys()
-        .enumerate()
-        .map(|(i, edge)| {
-            let op_name: Arc<str> = edge.name.as_ref().map_or_else(
-                || Arc::from(format!("{}_{}_{}", edge.src, i, edge.tgt)),
-                |label| Arc::from(format!("{}__{}_{}", edge.src, label, edge.tgt)),
-            );
-            Operation::unary(
-                op_name,
-                "x",
-                Arc::from(edge.src.as_str()),
-                Arc::from(edge.tgt.as_str()),
-            )
-        })
-        .collect();
-
-    Theory::new(name, sorts, ops, Vec::new())
+    crate::gat_validate::schema_to_theory(name, schema)
 }
 
 /// Build a theory morphism from `base` to `derived` using diff information.

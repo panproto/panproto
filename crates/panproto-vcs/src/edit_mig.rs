@@ -73,6 +73,8 @@ mod tests {
             name: "test".into(),
             schema_theory: "ThTest".into(),
             instance_theory: "ThWType".into(),
+            schema_composition: None,
+            instance_composition: None,
             edge_rules: vec![],
             obj_kinds: vec![],
             constraint_sorts: vec![],

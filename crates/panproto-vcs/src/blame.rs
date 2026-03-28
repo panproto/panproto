@@ -191,20 +191,9 @@ mod tests {
         let mut store = MemStore::new();
         let s = make_schema(&[("a", "object")]);
         let schema_id = store.put(&Object::Schema(Box::new(s)))?;
-        let commit = CommitObject {
-            schema_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "alice".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let commit = CommitObject::builder(schema_id, "test", "alice", "initial")
+            .timestamp(100)
+            .build();
         let commit_id = store.put(&Object::Commit(commit))?;
 
         let entry = blame_vertex(&store, commit_id, "a")?;
@@ -220,39 +209,18 @@ mod tests {
         // c0: only vertex "a"
         let s0 = make_schema(&[("a", "object")]);
         let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
-        let c0 = CommitObject {
-            schema_id: s0_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "alice".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
+            .timestamp(100)
+            .build();
         let c0_id = store.put(&Object::Commit(c0))?;
 
         // c1: adds vertex "b"
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
         let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
-        let c1 = CommitObject {
-            schema_id: s1_id,
-            parents: vec![c0_id],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "bob".into(),
-            timestamp: 200,
-            message: "add b".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(s1_id, "test", "bob", "add b")
+            .parents(vec![c0_id])
+            .timestamp(200)
+            .build();
         let c1_id = store.put(&Object::Commit(c1))?;
 
         let entry = blame_vertex(&store, c1_id, "b")?;
@@ -267,20 +235,9 @@ mod tests {
         let mut store = MemStore::new();
         let s = make_schema(&[("a", "object")]);
         let schema_id = store.put(&Object::Schema(Box::new(s)))?;
-        let commit = CommitObject {
-            schema_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "alice".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let commit = CommitObject::builder(schema_id, "test", "alice", "initial")
+            .timestamp(100)
+            .build();
         let commit_id = store.put(&Object::Commit(commit))?;
 
         assert!(blame_vertex(&store, commit_id, "nonexistent").is_err());

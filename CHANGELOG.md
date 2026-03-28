@@ -4,6 +4,38 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-03-28
+
+### Added
+
+- **panproto-project**: `panproto.toml` project manifest with workspace/package configuration, glob-based excludes, and per-package protocol overrides.
+- **panproto-project**: `config` module with `ProjectConfig`, `load_config()`, `generate_config()`, `serialize_config()`, and `compile_excludes()`.
+- **panproto-project**: `detect::scan_packages()` auto-detects Rust, TypeScript, Python, Go, Java, Kotlin, Elixir, and C++ packages from filesystem markers (Cargo.toml, package.json, go.mod, pyproject.toml, build.gradle, mix.exs, CMakeLists.txt).
+- **panproto-project**: `ProjectBuilder::with_config()` constructor honors manifest excludes and per-package protocol overrides.
+- **panproto-project**: `cache` module with `FileCache` for incremental parsing. Caches per-file schema parse results with mtime+size+blake3 invalidation, stored in `.panproto/cache/file_schemas.json`.
+- **panproto-project**: `ProjectBuilder::with_config_and_cache()` constructor for cache-accelerated project assembly.
+- **panproto-project**: `resolve` module for cross-file import resolution. Walks coproduct schemas for import-like vertices, matches against export vertices in other files via BFS constraint lookup, and inserts cross-file edges. Built-in rules for TypeScript, JavaScript, Python, Rust, and Go with comprehensive export vertex kind coverage.
+- **panproto-gat**: `composition` module with `CompositionSpec`, `CompositionStep`, and `recompose()` for declarative theory colimit recipes. Specs record the exact sequence of colimit steps, enabling reproducible theory composition from serialized recipes.
+- **panproto-gat**: `CompositionStep::Colimit` supports `shared_ops` field for colimits that share operations as well as sorts, with validation that shared operations exist in both input theories.
+- **panproto-schema**: `Protocol` gains `schema_composition` and `instance_composition` fields (`Option<CompositionSpec>`) co-locating the colimit recipe with the protocol definition.
+- **panproto-protocols**: `*_spec()` functions for all 6 theory composition groups (A through F), producing declarative `CompositionSpec` pairs that exactly mirror the imperative `register_*` functions.
+- **panproto-vcs**: `Object::Theory` and `Object::TheoryMorphism` variants for content-addressed storage of GAT theories and morphisms. Theories are hashed via direct MessagePack serialization (deterministic Vec-based fields); morphisms use canonical BTreeMap form for HashMap fields.
+- **panproto-vcs**: `CommitObject::theory_ids` field (`BTreeMap<String, ObjectId>`) tracking which theories governed the schema at each commit. Populated automatically during `commit()` and `merge()`.
+- **panproto-vcs**: `CommitObject::builder()` API with `CommitObjectBuilder` for constructing commits with sensible defaults. All 60+ struct literal sites migrated to the builder pattern.
+- **panproto-vcs**: `gat_validate::schema_to_theory()` extracted as public function for deriving implicit GAT theories from schemas, with deterministic sort/edge ordering and unambiguous operation naming.
+- **panproto-cli**: `schema init` auto-generates `panproto.toml` from detected project structure.
+- **panproto-cli**: `schema add` accepts file paths (tree-sitter parse), directory paths (project coproduct), and JSON schema files.
+- **panproto-cli**: `schema status` shows per-file A/M/D changes grouped by package, using `.panproto/file_hashes.json` manifest for fast change detection.
+- **panproto-cli**: `schema show` displays Theory and TheoryMorphism objects.
+- **panproto-cli**: `schema diff --theory` uses stored theory objects for richer sort/op/equation diffs between commits.
+
+### Fixed
+
+- **panproto-protocols**: `ThMeta` now declares `Value` as a sort, satisfying the formal invariant that all sort names referenced in operation inputs/outputs are declared in the theory's sorts list. Group E instance colimit updated to share `{Node, Value}`.
+- **panproto-vcs**: `hash_commit` is now deterministic: `theory_ids` uses `BTreeMap` (not `HashMap`) for guaranteed iteration order in content-addressed hashing.
+- **panproto-vcs**: `schema_to_theory` produces deterministic theories by sorting vertex IDs and edges before enumeration, and uses unambiguous `->` / `#` separators in operation names to prevent collisions.
+- **panproto-vcs**: merge commits now store `theory_ids` and use `merged_schema.protocol` (not `ours_commit.protocol`) for consistent protocol attribution.
+
 ## [0.19.0] - 2026-03-28
 
 ### Added

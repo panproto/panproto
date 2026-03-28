@@ -4,6 +4,7 @@
 //! particular data format uses, together with well-formedness rules
 //! for edges and the set of recognized vertex/constraint kinds.
 
+use panproto_gat::CompositionSpec;
 use serde::{Deserialize, Serialize};
 
 /// A well-formedness rule for edges of a given kind.
@@ -37,6 +38,10 @@ pub struct Protocol {
     pub schema_theory: String,
     /// Name of the instance theory GAT in the theory registry.
     pub instance_theory: String,
+    /// Composition recipe that produced the schema theory.
+    pub schema_composition: Option<CompositionSpec>,
+    /// Composition recipe that produced the instance theory.
+    pub instance_composition: Option<CompositionSpec>,
     /// Well-formedness rules for each edge kind.
     pub edge_rules: Vec<EdgeRule>,
     /// Vertex kinds that are considered "object-like" (containers).

@@ -113,34 +113,17 @@ mod tests {
     #[test]
     fn reset_soft_moves_ref() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        let c0_id = store.put(&Object::Commit(CommitObject {
-            schema_id: ObjectId::from_bytes([0; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        }))?;
-        let c1_id = store.put(&Object::Commit(CommitObject {
-            schema_id: ObjectId::from_bytes([1; 32]),
-            parents: vec![c0_id],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "c1".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        }))?;
+        let c0_id = store.put(&Object::Commit(
+            CommitObject::builder(ObjectId::from_bytes([0; 32]), "test", "test", "c0")
+                .timestamp(100)
+                .build(),
+        ))?;
+        let c1_id = store.put(&Object::Commit(
+            CommitObject::builder(ObjectId::from_bytes([1; 32]), "test", "test", "c1")
+                .parents(vec![c0_id])
+                .timestamp(200)
+                .build(),
+        ))?;
 
         store.set_ref("refs/heads/main", c1_id)?;
 
@@ -156,20 +139,11 @@ mod tests {
     #[test]
     fn reset_mixed_clears_index() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        let c0_id = store.put(&Object::Commit(CommitObject {
-            schema_id: ObjectId::from_bytes([0; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        }))?;
+        let c0_id = store.put(&Object::Commit(
+            CommitObject::builder(ObjectId::from_bytes([0; 32]), "test", "test", "c0")
+                .timestamp(100)
+                .build(),
+        ))?;
 
         store.set_ref("refs/heads/main", c0_id)?;
 
@@ -182,20 +156,11 @@ mod tests {
     #[test]
     fn reset_hard_writes_working() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        let c0_id = store.put(&Object::Commit(CommitObject {
-            schema_id: ObjectId::from_bytes([0; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        }))?;
+        let c0_id = store.put(&Object::Commit(
+            CommitObject::builder(ObjectId::from_bytes([0; 32]), "test", "test", "c0")
+                .timestamp(100)
+                .build(),
+        ))?;
 
         store.set_ref("refs/heads/main", c0_id)?;
 
@@ -208,20 +173,11 @@ mod tests {
     #[test]
     fn reset_appends_reflog() -> Result<(), VcsError> {
         let mut store = MemStore::new();
-        let c0_id = store.put(&Object::Commit(CommitObject {
-            schema_id: ObjectId::from_bytes([0; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        }))?;
+        let c0_id = store.put(&Object::Commit(
+            CommitObject::builder(ObjectId::from_bytes([0; 32]), "test", "test", "c0")
+                .timestamp(100)
+                .build(),
+        ))?;
 
         store.set_ref("refs/heads/main", c0_id)?;
 

@@ -202,6 +202,8 @@ fn build_full_ast_protocol(protocol_name: &str, theory_name: &str) -> Protocol {
         name: protocol_name.into(),
         schema_theory: theory_name.into(),
         instance_theory: format!("{theory_name}Instance"),
+        schema_composition: None,
+        instance_composition: None,
         obj_kinds: vec![],
         edge_rules: vec![],
         constraint_sorts: vec![

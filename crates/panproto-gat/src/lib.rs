@@ -24,6 +24,7 @@
 pub mod alg_struct;
 mod check_model;
 mod colimit;
+pub mod composition;
 mod eq;
 mod error;
 mod factorize;
@@ -46,6 +47,7 @@ pub use check_model::{
     CheckModelOptions, EquationViolation, check_model, check_model_with_options,
 };
 pub use colimit::{ColimitResult, colimit, colimit_by_name};
+pub use composition::{CompositionSpec, CompositionStep, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
 pub use eq::{

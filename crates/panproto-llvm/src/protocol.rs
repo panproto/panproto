@@ -33,6 +33,8 @@ pub fn protocol() -> Protocol {
         edge_rules: edge_rules(),
         obj_kinds: vertex_kinds(),
         constraint_sorts: constraint_sorts(),
+        schema_composition: None,
+        instance_composition: None,
         has_order: true,
         has_coproducts: false,
         has_recursion: false,

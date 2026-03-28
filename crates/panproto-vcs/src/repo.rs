@@ -4,7 +4,6 @@
 //! API for performing version control operations on schemas.
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use panproto_check::diff;
 use panproto_mig::hom_search::{SearchOptions, find_best_morphism, morphism_to_migration};
@@ -205,25 +204,30 @@ impl Repository {
         // Determine protocol from the schema.
         let schema = self.load_schema(staged.schema_id)?;
 
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        // Store the implicit theory derived from the schema.
+        let theory = crate::gat_validate::schema_to_theory(&schema.protocol, &schema);
+        let theory_id = self.store.put(&Object::Theory(Box::new(theory)))?;
+        let mut theory_ids = std::collections::BTreeMap::new();
+        theory_ids.insert(schema.protocol.clone(), theory_id);
 
-        let commit = CommitObject {
-            schema_id: staged.schema_id,
-            parents: head_id.into_iter().collect(),
-            migration_id: staged.migration_id,
-            protocol: schema.protocol,
-            author: author.to_owned(),
-            timestamp,
-            message: message.to_owned(),
-            renames: vec![],
-            protocol_id: index.staged_protocol,
-            data_ids: index.staged_data.iter().map(|sd| sd.data_id).collect(),
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let parents: Vec<ObjectId> = head_id.into_iter().collect();
+        let data_ids: Vec<ObjectId> = index.staged_data.iter().map(|sd| sd.data_id).collect();
+
+        let mut builder = CommitObject::builder(staged.schema_id, schema.protocol, author, message)
+            .theory_ids(theory_ids);
+        if !parents.is_empty() {
+            builder = builder.parents(parents);
+        }
+        if let Some(mid) = staged.migration_id {
+            builder = builder.migration_id(mid);
+        }
+        if let Some(pid) = index.staged_protocol {
+            builder = builder.protocol_id(pid);
+        }
+        if !data_ids.is_empty() {
+            builder = builder.data_ids(data_ids);
+        }
+        let commit = builder.build();
         let commit_id = self.store.put(&Object::Commit(commit))?;
 
         // Advance HEAD.
@@ -335,44 +339,46 @@ impl Repository {
                 mapping: result.migration_from_ours.clone(),
             })?;
 
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-
             let msg = options
                 .message
                 .clone()
                 .unwrap_or_else(|| format!("merge branch '{branch}'"));
 
             // Propagate data and complement IDs from both parents.
-            let mut data_ids = ours_commit.data_ids.clone();
+            let mut data_ids = ours_commit.data_ids;
             for id in &theirs_commit.data_ids {
                 if !data_ids.contains(id) {
                     data_ids.push(*id);
                 }
             }
-            let mut complement_ids = ours_commit.complement_ids.clone();
+            let mut complement_ids = ours_commit.complement_ids;
             for id in &theirs_commit.complement_ids {
                 if !complement_ids.contains(id) {
                     complement_ids.push(*id);
                 }
             }
 
-            let merge_commit = CommitObject {
-                schema_id: merged_schema_id,
-                parents: vec![ours_id, theirs_id],
-                migration_id: Some(migration_id),
-                protocol: ours_commit.protocol,
-                author: author.to_owned(),
-                timestamp,
-                message: msg,
-                renames: vec![],
-                protocol_id: None,
-                data_ids,
-                complement_ids,
-                edit_log_ids: vec![],
-            };
+            // Store theory for the merged schema.
+            let merged_schema = self.load_schema(merged_schema_id)?;
+            let merged_theory =
+                crate::gat_validate::schema_to_theory(&merged_schema.protocol, &merged_schema);
+            let merged_theory_id = self.store.put(&Object::Theory(Box::new(merged_theory)))?;
+            let merged_protocol = merged_schema.protocol;
+            let mut merge_theory_ids = std::collections::BTreeMap::new();
+            merge_theory_ids.insert(merged_protocol.clone(), merged_theory_id);
+
+            let mut merge_builder =
+                CommitObject::builder(merged_schema_id, merged_protocol, author, msg)
+                    .parents(vec![ours_id, theirs_id])
+                    .migration_id(migration_id)
+                    .theory_ids(merge_theory_ids);
+            if !data_ids.is_empty() {
+                merge_builder = merge_builder.data_ids(data_ids);
+            }
+            if !complement_ids.is_empty() {
+                merge_builder = merge_builder.complement_ids(complement_ids);
+            }
+            let merge_commit = merge_builder.build();
             let merge_id = self.store.put(&Object::Commit(merge_commit))?;
             advance_head(
                 &mut self.store,
@@ -407,25 +413,26 @@ impl Repository {
             (old_commit.schema_id, old_commit.migration_id)
         };
 
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        let new_commit = CommitObject {
-            schema_id,
-            parents: old_commit.parents,
-            migration_id,
-            protocol: old_commit.protocol,
-            author: author.to_owned(),
-            timestamp,
-            message: message.to_owned(),
-            renames: vec![],
-            protocol_id: old_commit.protocol_id,
-            data_ids: old_commit.data_ids,
-            complement_ids: old_commit.complement_ids,
-            edit_log_ids: old_commit.edit_log_ids,
-        };
+        let mut builder = CommitObject::builder(schema_id, old_commit.protocol, author, message);
+        if !old_commit.parents.is_empty() {
+            builder = builder.parents(old_commit.parents);
+        }
+        if let Some(mid) = migration_id {
+            builder = builder.migration_id(mid);
+        }
+        if let Some(pid) = old_commit.protocol_id {
+            builder = builder.protocol_id(pid);
+        }
+        if !old_commit.data_ids.is_empty() {
+            builder = builder.data_ids(old_commit.data_ids);
+        }
+        if !old_commit.complement_ids.is_empty() {
+            builder = builder.complement_ids(old_commit.complement_ids);
+        }
+        if !old_commit.edit_log_ids.is_empty() {
+            builder = builder.edit_log_ids(old_commit.edit_log_ids);
+        }
+        let new_commit = builder.build();
         let new_id = self.store.put(&Object::Commit(new_commit))?;
 
         // Replace HEAD.

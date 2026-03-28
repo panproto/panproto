@@ -24,7 +24,7 @@
 //! | 4 | ThWType | 3 | 0 | Instance shape |
 //! | 5 | ThMeta | 3 | 0 | Instance modifier |
 
-use panproto_gat::{Operation, Sort, SortParam, Theory};
+use panproto_gat::{CompositionSpec, CompositionStep, Operation, Sort, SortParam, Theory};
 
 // ═══════════════════════════════════════════════════════════════════
 // Building blocks
@@ -115,9 +115,9 @@ pub fn th_wtype() -> Theory {
 /// Sorts: `Node`, `Discriminator`, `ExtraField`.
 /// Ops: `discriminator`, `extra_field`.
 ///
-/// Note: `extra_field` outputs `Value` which is from `ThWType`. These
-/// are identified when `ThMeta` is composed with `ThWType` via colimit
-/// over shared `Node`.
+/// Note: `extra_field` outputs `Value`, which is also declared in `ThWType`.
+/// These sorts are identified when `ThMeta` is composed with `ThWType` via
+/// colimit over shared `{Node, Value}`.
 #[must_use]
 pub fn th_meta() -> Theory {
     Theory::new(
@@ -126,6 +126,7 @@ pub fn th_meta() -> Theory {
             Sort::simple("Node"),
             Sort::simple("Discriminator"),
             Sort::simple("ExtraField"),
+            Sort::simple("Value"),
         ],
         vec![
             Operation::unary("discriminator", "n", "Node", "Discriminator"),
@@ -378,8 +379,13 @@ pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
         }
     }
 
-    let shared_node = Theory::new("ThNode", vec![Sort::simple("Node")], vec![], vec![]);
-    if let Ok(mut inst_theory) = colimit_by_name(&w, &meta, &shared_node) {
+    let shared_node_value = Theory::new(
+        "ThNodeValue",
+        vec![Sort::simple("Node"), Sort::simple("Value")],
+        vec![],
+        vec![],
+    );
+    if let Ok(mut inst_theory) = colimit_by_name(&w, &meta, &shared_node_value) {
         inst_theory.name = instance_name.into();
         registry.insert(instance_name.into(), inst_theory);
     }
@@ -432,6 +438,203 @@ pub fn register_constrained_graph_instance<S: ::std::hash::BuildHasher>(
     let mut inst = gi;
     inst.name = instance_name.into();
     registry.insert(instance_name.into(), inst);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Composition specs (declarative recipes for each group)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Composition specs for Group A (constrained multigraph + W-type).
+///
+/// Schema: `colimit(colimit(ThGraph, ThConstraint; Vertex), ThMulti; Vertex, Edge)`.
+/// Instance: `ThWType`.
+#[must_use]
+pub fn constrained_multigraph_wtype_specs(
+    schema_name: &str,
+    instance_name: &str,
+) -> (CompositionSpec, CompositionSpec) {
+    let schema_spec = CompositionSpec {
+        result_name: schema_name.to_owned(),
+        steps: vec![
+            CompositionStep::Colimit {
+                left: "ThGraph".to_owned(),
+                right: "ThConstraint".to_owned(),
+                shared_sorts: vec!["Vertex".to_owned()],
+                shared_ops: vec![],
+            },
+            CompositionStep::Colimit {
+                left: "step_0".to_owned(),
+                right: "ThMulti".to_owned(),
+                shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
+                shared_ops: vec![],
+            },
+        ],
+    };
+    let instance_spec = CompositionSpec {
+        result_name: instance_name.to_owned(),
+        steps: vec![CompositionStep::Base("ThWType".to_owned())],
+    };
+    (schema_spec, instance_spec)
+}
+
+/// Composition specs for Group B (hypergraph + functor).
+///
+/// Schema: `colimit(ThHypergraph, ThConstraint; Vertex)`.
+/// Instance: `ThFunctor`.
+#[must_use]
+pub fn hypergraph_functor_specs(
+    schema_name: &str,
+    instance_name: &str,
+) -> (CompositionSpec, CompositionSpec) {
+    let schema_spec = CompositionSpec {
+        result_name: schema_name.to_owned(),
+        steps: vec![CompositionStep::Colimit {
+            left: "ThHypergraph".to_owned(),
+            right: "ThConstraint".to_owned(),
+            shared_sorts: vec!["Vertex".to_owned()],
+            shared_ops: vec![],
+        }],
+    };
+    let instance_spec = CompositionSpec {
+        result_name: instance_name.to_owned(),
+        steps: vec![CompositionStep::Base("ThFunctor".to_owned())],
+    };
+    (schema_spec, instance_spec)
+}
+
+/// Composition specs for Group C (simple graph + flat).
+///
+/// Schema: `colimit(ThSimpleGraph, ThConstraint; Vertex)`.
+/// Instance: `ThFlat`.
+#[must_use]
+pub fn simple_graph_flat_specs(
+    schema_name: &str,
+    instance_name: &str,
+) -> (CompositionSpec, CompositionSpec) {
+    let schema_spec = CompositionSpec {
+        result_name: schema_name.to_owned(),
+        steps: vec![CompositionStep::Colimit {
+            left: "ThSimpleGraph".to_owned(),
+            right: "ThConstraint".to_owned(),
+            shared_sorts: vec!["Vertex".to_owned()],
+            shared_ops: vec![],
+        }],
+    };
+    let instance_spec = CompositionSpec {
+        result_name: instance_name.to_owned(),
+        steps: vec![CompositionStep::Base("ThFlat".to_owned())],
+    };
+    (schema_spec, instance_spec)
+}
+
+/// Composition specs for Group D (typed graph + W-type with interfaces).
+///
+/// Schema: `colimit(colimit(colimit(ThGraph, ThConstraint; Vertex), ThMulti; Vertex, Edge), ThInterface; Vertex)`.
+/// Instance: `ThWType`.
+#[must_use]
+pub fn typed_graph_wtype_specs(
+    schema_name: &str,
+    instance_name: &str,
+) -> (CompositionSpec, CompositionSpec) {
+    let schema_spec = CompositionSpec {
+        result_name: schema_name.to_owned(),
+        steps: vec![
+            CompositionStep::Colimit {
+                left: "ThGraph".to_owned(),
+                right: "ThConstraint".to_owned(),
+                shared_sorts: vec!["Vertex".to_owned()],
+                shared_ops: vec![],
+            },
+            CompositionStep::Colimit {
+                left: "step_0".to_owned(),
+                right: "ThMulti".to_owned(),
+                shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
+                shared_ops: vec![],
+            },
+            CompositionStep::Colimit {
+                left: "step_1".to_owned(),
+                right: "ThInterface".to_owned(),
+                shared_sorts: vec!["Vertex".to_owned()],
+                shared_ops: vec![],
+            },
+        ],
+    };
+    let instance_spec = CompositionSpec {
+        result_name: instance_name.to_owned(),
+        steps: vec![CompositionStep::Base("ThWType".to_owned())],
+    };
+    (schema_spec, instance_spec)
+}
+
+/// Composition specs for Group E (constrained multigraph + W-type + metadata).
+///
+/// Schema: `colimit(colimit(ThGraph, ThConstraint; Vertex), ThMulti; Vertex, Edge)`.
+/// Instance: `colimit(ThWType, ThMeta; Node)`.
+#[must_use]
+pub fn multigraph_wtype_meta_specs(
+    schema_name: &str,
+    instance_name: &str,
+) -> (CompositionSpec, CompositionSpec) {
+    let schema_spec = CompositionSpec {
+        result_name: schema_name.to_owned(),
+        steps: vec![
+            CompositionStep::Colimit {
+                left: "ThGraph".to_owned(),
+                right: "ThConstraint".to_owned(),
+                shared_sorts: vec!["Vertex".to_owned()],
+                shared_ops: vec![],
+            },
+            CompositionStep::Colimit {
+                left: "step_0".to_owned(),
+                right: "ThMulti".to_owned(),
+                shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
+                shared_ops: vec![],
+            },
+        ],
+    };
+    let instance_spec = CompositionSpec {
+        result_name: instance_name.to_owned(),
+        steps: vec![CompositionStep::Colimit {
+            left: "ThWType".to_owned(),
+            right: "ThMeta".to_owned(),
+            shared_sorts: vec!["Node".to_owned(), "Value".to_owned()],
+            shared_ops: vec![],
+        }],
+    };
+    (schema_spec, instance_spec)
+}
+
+/// Composition specs for Group F (constrained multigraph + graph instance).
+///
+/// Schema: `colimit(colimit(ThGraph, ThConstraint; Vertex), ThMulti; Vertex, Edge)`.
+/// Instance: `ThGraphInstance`.
+#[must_use]
+pub fn constrained_graph_instance_specs(
+    schema_name: &str,
+    instance_name: &str,
+) -> (CompositionSpec, CompositionSpec) {
+    let schema_spec = CompositionSpec {
+        result_name: schema_name.to_owned(),
+        steps: vec![
+            CompositionStep::Colimit {
+                left: "ThGraph".to_owned(),
+                right: "ThConstraint".to_owned(),
+                shared_sorts: vec!["Vertex".to_owned()],
+                shared_ops: vec![],
+            },
+            CompositionStep::Colimit {
+                left: "step_0".to_owned(),
+                right: "ThMulti".to_owned(),
+                shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
+                shared_ops: vec![],
+            },
+        ],
+    };
+    let instance_spec = CompositionSpec {
+        result_name: instance_name.to_owned(),
+        steps: vec![CompositionStep::Base("ThGraphInstance".to_owned())],
+    };
+    (schema_spec, instance_spec)
 }
 
 // ═══════════════════════════════════════════════════════════════════

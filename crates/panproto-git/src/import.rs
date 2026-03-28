@@ -106,20 +106,10 @@ pub fn import_git_repo<S: Store>(
         let message = git_commit.message().unwrap_or("(no message)").to_owned();
 
         // Create panproto-vcs commit.
-        let commit = CommitObject {
-            schema_id,
-            parents,
-            migration_id: None,
-            protocol: "project".to_owned(),
-            author,
-            timestamp,
-            message,
-            renames: Vec::new(),
-            protocol_id: None,
-            data_ids: Vec::new(),
-            complement_ids: Vec::new(),
-            edit_log_ids: Vec::new(),
-        };
+        let commit = CommitObject::builder(schema_id, "project", &author, &message)
+            .parents(parents)
+            .timestamp(timestamp)
+            .build();
 
         let commit_id = panproto_store.put(&Object::Commit(commit))?;
 

@@ -11,7 +11,7 @@
 //! 1. **Parse pass**: For each file, detect language, parse via
 //!    `ParserRegistry`, prefix vertex IDs
 //!    with the file path.
-//! 2. **Resolve pass** (future): Walk `import` vertices, match against exports
+//! 2. **Resolve pass**: Walk `import` vertices, match against exports
 //!    in other file schemas, emit `imports` edges connecting them.
 //!
 //! ## Coproduct construction
@@ -27,17 +27,29 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use globset::GlobSet;
 use panproto_parse::ParserRegistry;
 use panproto_protocols::raw_file;
 use panproto_schema::Schema;
 use rustc_hash::FxHashMap;
 
+/// Incremental parsing cache for project assembly.
+pub mod cache;
+
+/// Project manifest (`panproto.toml`) loading and generation.
+pub mod config;
+
+/// Language detection by file extension and package detection.
+pub mod detect;
+
 /// Error types for project assembly.
 pub mod error;
 
-/// Language detection by file extension.
-pub mod detect;
+/// Cross-file import resolution.
+pub mod resolve;
 
+pub use config::ProjectConfig;
+pub use detect::DetectedPackage;
 pub use error::ProjectError;
 
 /// A parsed project containing a unified schema and per-file metadata.
@@ -62,6 +74,12 @@ pub struct ProjectBuilder {
     file_schemas: FxHashMap<PathBuf, Schema>,
     /// Per-file protocol names.
     protocol_map: FxHashMap<PathBuf, String>,
+    /// Compiled exclude patterns from config (if any).
+    excludes: Option<GlobSet>,
+    /// Per-path protocol overrides from package config.
+    protocol_overrides: FxHashMap<PathBuf, String>,
+    /// Optional incremental parsing cache for skipping unchanged files.
+    cache: Option<cache::FileCache>,
 }
 
 impl ProjectBuilder {
@@ -72,6 +90,9 @@ impl ProjectBuilder {
             registry: ParserRegistry::new(),
             file_schemas: FxHashMap::default(),
             protocol_map: FxHashMap::default(),
+            excludes: None,
+            protocol_overrides: FxHashMap::default(),
+            cache: None,
         }
     }
 
@@ -82,7 +103,62 @@ impl ProjectBuilder {
             registry,
             file_schemas: FxHashMap::default(),
             protocol_map: FxHashMap::default(),
+            excludes: None,
+            protocol_overrides: FxHashMap::default(),
+            cache: None,
         }
+    }
+
+    /// Create a project builder configured from a [`ProjectConfig`].
+    ///
+    /// Compiles exclude patterns and builds the per-package protocol override map.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ProjectError::InvalidPattern` if a glob pattern is malformed.
+    pub fn with_config(cfg: &ProjectConfig, base_dir: &Path) -> Result<Self, ProjectError> {
+        let excludes = config::compile_excludes(base_dir, &cfg.workspace.exclude)?;
+        let mut protocol_overrides = FxHashMap::default();
+        for pkg in &cfg.package {
+            if let Some(ref proto) = pkg.protocol {
+                protocol_overrides.insert(base_dir.join(&pkg.path), proto.clone());
+            }
+        }
+        Ok(Self {
+            registry: ParserRegistry::new(),
+            file_schemas: FxHashMap::default(),
+            protocol_map: FxHashMap::default(),
+            excludes: Some(excludes),
+            protocol_overrides,
+            cache: None,
+        })
+    }
+
+    /// Create a project builder configured from a [`ProjectConfig`] with an
+    /// incremental parsing cache.
+    ///
+    /// Behaves like [`with_config`](Self::with_config) but attaches a
+    /// [`FileCache`](cache::FileCache) so that unchanged files are not
+    /// re-parsed.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ProjectError::InvalidPattern` if a glob pattern is malformed.
+    pub fn with_config_and_cache(
+        cfg: &ProjectConfig,
+        base_dir: &Path,
+        file_cache: cache::FileCache,
+    ) -> Result<Self, ProjectError> {
+        let mut builder = Self::with_config(cfg, base_dir)?;
+        builder.cache = Some(file_cache);
+        Ok(builder)
+    }
+
+    /// Extract the cache from the builder (e.g., for saving after build).
+    ///
+    /// Returns `None` if no cache was attached.
+    pub const fn take_cache(&mut self) -> Option<cache::FileCache> {
+        self.cache.take()
     }
 
     /// Add a single file to the project.
@@ -91,16 +167,57 @@ impl ProjectBuilder {
     /// recognized, the file is parsed via tree-sitter. Otherwise, it is
     /// parsed as a raw file (text or binary).
     ///
+    /// If a cache is attached and the file's mtime and size match the
+    /// cached entry, the cached schema is used without re-parsing.
+    ///
     /// # Errors
     ///
     /// Returns [`ProjectError::ParseFailed`] if parsing fails.
     pub fn add_file(&mut self, path: &Path, content: &[u8]) -> Result<(), ProjectError> {
+        // Check cache first.
+        if let Some(ref mut file_cache) = self.cache {
+            if let Some(entry) = file_cache.entries.get(path) {
+                if cache::is_valid(entry, path) {
+                    self.file_schemas
+                        .insert(path.to_owned(), entry.schema.clone());
+                    self.protocol_map
+                        .insert(path.to_owned(), entry.protocol.clone());
+                    return Ok(());
+                }
+            }
+        }
+
         let path_str = path.display().to_string();
 
+        // Check per-package protocol override first.
+        let override_protocol = self
+            .protocol_overrides
+            .iter()
+            .find(|(pkg_path, _)| path.starts_with(pkg_path))
+            .map(|(_, proto)| proto.clone());
+
         // Detect language and parse.
-        let (schema, protocol_name) = if let Some(protocol) =
-            detect::detect_language(path, &self.registry)
-        {
+        let (schema, protocol_name) = if let Some(proto) = override_protocol {
+            if let Ok(schema) = self
+                .registry
+                .parse_with_protocol(&proto, content, &path_str)
+            {
+                (schema, proto)
+            } else {
+                // Fall back to raw file if overridden protocol fails.
+                let text = std::str::from_utf8(content).map_err(|e| ProjectError::ParseFailed {
+                    path: path_str.clone(),
+                    reason: format!("UTF-8 decode: {e}"),
+                })?;
+                let schema = raw_file::parse_text(text, &path_str).map_err(|e| {
+                    ProjectError::ParseFailed {
+                        path: path_str.clone(),
+                        reason: e.to_string(),
+                    }
+                })?;
+                (schema, "raw_file".to_owned())
+            }
+        } else if let Some(protocol) = detect::detect_language(path, &self.registry) {
             if let Ok(schema) = self
                 .registry
                 .parse_with_protocol(protocol, content, &path_str)
@@ -143,6 +260,28 @@ impl ProjectBuilder {
             (schema, "raw_file".to_owned())
         };
 
+        // Update cache entry for this file.
+        if let Some(ref mut file_cache) = self.cache {
+            let metadata = std::fs::metadata(path).ok();
+            let mtime_secs = metadata
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_secs());
+            let size = metadata.map_or(0, |m| m.len());
+            let content_hash = blake3::hash(content).to_string();
+            file_cache.entries.insert(
+                path.to_owned(),
+                cache::CacheEntry {
+                    mtime_secs,
+                    size,
+                    content_hash,
+                    schema: schema.clone(),
+                    protocol: protocol_name.clone(),
+                },
+            );
+        }
+
         self.file_schemas.insert(path.to_owned(), schema);
         self.protocol_map.insert(path.to_owned(), protocol_name);
         Ok(())
@@ -170,17 +309,20 @@ impl ProjectBuilder {
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
 
-            // Skip hidden files/directories and common build directories.
-            if name_str.starts_with('.')
-                || name_str == "target"
-                || name_str == "node_modules"
-                || name_str == "__pycache__"
-                || name_str == "build"
-                || name_str == "dist"
-                || name_str == ".git"
-                || name_str == "vendor"
-                || name_str == "Pods"
-            {
+            // Always skip hidden files/directories.
+            if name_str.starts_with('.') {
+                continue;
+            }
+
+            // Check against compiled excludes (config-driven) or hardcoded defaults.
+            if let Some(ref excludes) = self.excludes {
+                if excludes.is_match(&path) {
+                    continue;
+                }
+            } else if matches!(
+                name_str.as_ref(),
+                "target" | "node_modules" | "__pycache__" | "build" | "dist" | "vendor" | "Pods"
+            ) {
                 continue;
             }
 
@@ -247,6 +389,8 @@ impl ProjectBuilder {
             name: "project".into(),
             schema_theory: "ThProjectSchema".into(),
             instance_theory: "ThProjectInstance".into(),
+            schema_composition: None,
+            instance_composition: None,
             edge_rules: vec![],
             obj_kinds: vec![], // Open protocol.
             constraint_sorts: vec![],
@@ -309,11 +453,15 @@ impl ProjectBuilder {
             file_map.insert(path.clone(), file_vertices);
         }
 
-        let schema = builder.build().map_err(|e| ProjectError::CoproductFailed {
+        let mut schema = builder.build().map_err(|e| ProjectError::CoproductFailed {
             reason: format!("build: {e}"),
         })?;
 
         let protocol_map: HashMap<PathBuf, String> = self.protocol_map.into_iter().collect();
+
+        // Resolve cross-file imports using default rules.
+        let rules = resolve::default_rules();
+        let _resolved = resolve::resolve_imports(&mut schema, &file_map, &protocol_map, &rules);
 
         Ok(ProjectSchema {
             schema,

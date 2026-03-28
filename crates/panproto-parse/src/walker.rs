@@ -410,6 +410,8 @@ mod tests {
             name: "test".into(),
             schema_theory: "ThTest".into(),
             instance_theory: "ThTestInst".into(),
+            schema_composition: None,
+            instance_composition: None,
             obj_kinds: vec![], // Empty = open protocol, accepts all kinds.
             edge_rules: vec![],
             constraint_sorts: vec![],

@@ -444,6 +444,58 @@ pub fn hash_protocol(protocol: &panproto_schema::Protocol) -> Result<ObjectId, V
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
+/// Compute the content-addressed ID of a GAT theory.
+///
+/// Theory's custom `Serialize` implementation only emits Vec-based fields
+/// (sorts, ops, eqs, `directed_eqs`, policies) and scalar fields (name, extends),
+/// all of which have deterministic ordering. Direct serialization is safe.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_theory(theory: &panproto_gat::Theory) -> Result<ObjectId, VcsError> {
+    let bytes = rmp_serde::to_vec(theory)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
+/// Canonical theory morphism: `HashMap` fields become `BTreeMap` for deterministic hashing.
+#[derive(Serialize)]
+struct CanonicalTheoryMorphism {
+    name: String,
+    domain: String,
+    codomain: String,
+    sort_map: BTreeMap<String, String>,
+    op_map: BTreeMap<String, String>,
+}
+
+/// Compute the content-addressed ID of a theory morphism.
+///
+/// Uses a canonical form with `BTreeMap` for the sort and operation maps
+/// since `TheoryMorphism` uses `HashMap` internally.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_theory_morphism(morphism: &panproto_gat::TheoryMorphism) -> Result<ObjectId, VcsError> {
+    let canonical = CanonicalTheoryMorphism {
+        name: morphism.name.to_string(),
+        domain: morphism.domain.to_string(),
+        codomain: morphism.codomain.to_string(),
+        sort_map: morphism
+            .sort_map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        op_map: morphism
+            .op_map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+    };
+    let bytes = rmp_serde::to_vec(&canonical)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
 /// Compute the content-addressed ID of an edit log.
 ///
 /// Uses a canonical `BTreeMap` form to ensure deterministic hashing.
@@ -591,23 +643,42 @@ mod tests {
 
     #[test]
     fn hash_commit_deterministic() -> Result<(), Box<dyn std::error::Error>> {
-        let commit = CommitObject {
-            schema_id: ObjectId::ZERO,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test-author".into(),
-            timestamp: 1_234_567_890,
-            message: "initial commit".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let commit = CommitObject::builder(ObjectId::ZERO, "test", "test-author", "initial commit")
+            .timestamp(1_234_567_890)
+            .build();
         let h1 = hash_commit(&commit)?;
         let h2 = hash_commit(&commit)?;
         assert_eq!(h1, h2);
+        Ok(())
+    }
+
+    #[test]
+    fn hash_theory_stability() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = panproto_gat::Theory::new(
+            "ThTest",
+            vec![panproto_gat::Sort::simple("Vertex")],
+            vec![],
+            vec![],
+        );
+        let h1 = hash_theory(&theory)?;
+        let h2 = hash_theory(&theory)?;
+        assert_eq!(h1, h2, "same theory should produce the same hash");
+        Ok(())
+    }
+
+    #[test]
+    fn hash_theory_morphism_stability() -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::Arc;
+        let morph = panproto_gat::TheoryMorphism::new(
+            "test",
+            "A",
+            "B",
+            HashMap::from([(Arc::from("S"), Arc::from("T"))]),
+            HashMap::new(),
+        );
+        let h1 = hash_theory_morphism(&morph)?;
+        let h2 = hash_theory_morphism(&morph)?;
+        assert_eq!(h1, h2, "same morphism should produce the same hash");
         Ok(())
     }
 

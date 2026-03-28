@@ -5,8 +5,11 @@
 //! auto-derived migrations are well-formed theory morphisms and that
 //! schemas satisfy their protocol's equations.
 
+use std::sync::Arc;
+
 use panproto_gat::{
-    CheckModelOptions, EquationViolation, Theory, check_model_with_options, typecheck_theory,
+    CheckModelOptions, EquationViolation, Operation, Sort, Theory, check_model_with_options,
+    typecheck_theory,
 };
 use panproto_mig::Migration;
 use panproto_schema::Schema;
@@ -47,6 +50,47 @@ impl GatDiagnostics {
         }
         errs
     }
+}
+
+/// Extract an implicit GAT theory from a schema.
+///
+/// Each vertex becomes a sort, and each edge becomes a unary operation
+/// from the source sort to the target sort.
+#[must_use]
+pub fn schema_to_theory(name: &str, schema: &Schema) -> Theory {
+    // Sort vertex IDs for deterministic sort ordering.
+    let mut vertex_ids: Vec<&panproto_gat::Name> = schema.vertices.keys().collect();
+    vertex_ids.sort();
+    let sorts: Vec<Sort> = vertex_ids
+        .iter()
+        .map(|vid| Sort::simple(Arc::from(vid.as_str())))
+        .collect();
+
+    // Sort edges for deterministic operation ordering and stable names.
+    let mut edges: Vec<&panproto_schema::Edge> = schema.edges.keys().collect();
+    edges.sort();
+    let ops: Vec<Operation> = edges
+        .iter()
+        .enumerate()
+        .map(|(i, edge)| {
+            // Use unambiguous separators: `->` for the source-target arrow,
+            // `#` for the label/index discriminator. These characters do not
+            // appear in vertex IDs (which are either tree-sitter node kinds
+            // or schema-level names), preventing name collisions.
+            let op_name: Arc<str> = edge.name.as_ref().map_or_else(
+                || Arc::from(format!("{}->{}#{}", edge.src, edge.tgt, i)),
+                |label| Arc::from(format!("{}->{}#{}", edge.src, edge.tgt, label)),
+            );
+            Operation::unary(
+                op_name,
+                "x",
+                Arc::from(edge.src.as_str()),
+                Arc::from(edge.tgt.as_str()),
+            )
+        })
+        .collect();
+
+    Theory::new(name, sorts, ops, Vec::new())
 }
 
 /// Validate a migration at the GAT level.

@@ -369,6 +369,121 @@ pub fn print_theory_diff(old_schema: &Schema, new_schema: &Schema) {
     }
 }
 
+/// Print a theory-level diff using stored Theory objects from commits.
+///
+/// Falls back to schema-based diff if theories are not available.
+pub fn print_stored_theory_diff(
+    store: &dyn panproto_core::vcs::Store,
+    old_commit: &panproto_core::vcs::CommitObject,
+    new_commit: &panproto_core::vcs::CommitObject,
+    old_schema: &Schema,
+    new_schema: &Schema,
+) {
+    let old_theories = load_theories_from_commit(store, old_commit);
+    let new_theories = load_theories_from_commit(store, new_commit);
+
+    if old_theories.is_empty() && new_theories.is_empty() {
+        print_theory_diff(old_schema, new_schema);
+        return;
+    }
+
+    let old_map: std::collections::HashMap<&str, &panproto_core::gat::Theory> =
+        old_theories.iter().map(|(n, t)| (n.as_str(), t)).collect();
+    let new_map: std::collections::HashMap<&str, &panproto_core::gat::Theory> =
+        new_theories.iter().map(|(n, t)| (n.as_str(), t)).collect();
+
+    let all_names: std::collections::BTreeSet<&str> =
+        old_map.keys().chain(new_map.keys()).copied().collect();
+
+    let mut has_changes = false;
+    for name in &all_names {
+        let lines = diff_theory_pair(old_map.get(name).copied(), new_map.get(name).copied(), name);
+        if !lines.is_empty() {
+            if !has_changes {
+                println!("\nStored theory diff:");
+                has_changes = true;
+            }
+            for line in &lines {
+                println!("{line}");
+            }
+        }
+    }
+
+    if !has_changes {
+        println!("\nStored theory diff: no changes.");
+    }
+}
+
+fn load_theories_from_commit(
+    store: &dyn panproto_core::vcs::Store,
+    commit: &panproto_core::vcs::CommitObject,
+) -> Vec<(String, panproto_core::gat::Theory)> {
+    commit
+        .theory_ids
+        .iter()
+        .filter_map(|(name, id)| {
+            store.get(id).ok().and_then(|obj| {
+                if let panproto_core::vcs::Object::Theory(t) = obj {
+                    Some((name.clone(), *t))
+                } else {
+                    None
+                }
+            })
+        })
+        .collect()
+}
+
+fn diff_theory_pair(
+    old: Option<&panproto_core::gat::Theory>,
+    new: Option<&panproto_core::gat::Theory>,
+    name: &str,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    match (old, new) {
+        (None, Some(t)) => {
+            lines.push(format!(
+                "  + theory {name} ({} sorts, {} ops)",
+                t.sorts.len(),
+                t.ops.len()
+            ));
+        }
+        (Some(t), None) => {
+            lines.push(format!(
+                "  - theory {name} ({} sorts, {} ops)",
+                t.sorts.len(),
+                t.ops.len()
+            ));
+        }
+        (Some(old_t), Some(new_t)) => {
+            let old_sorts: std::collections::BTreeSet<&str> =
+                old_t.sorts.iter().map(|s| s.name.as_ref()).collect();
+            let new_sorts: std::collections::BTreeSet<&str> =
+                new_t.sorts.iter().map(|s| s.name.as_ref()).collect();
+            for s in new_sorts.difference(&old_sorts) {
+                lines.push(format!("    + sort {s}"));
+            }
+            for s in old_sorts.difference(&new_sorts) {
+                lines.push(format!("    - sort {s}"));
+            }
+            let old_ops: std::collections::BTreeSet<&str> =
+                old_t.ops.iter().map(|o| o.name.as_ref()).collect();
+            let new_ops: std::collections::BTreeSet<&str> =
+                new_t.ops.iter().map(|o| o.name.as_ref()).collect();
+            for o in new_ops.difference(&old_ops) {
+                lines.push(format!("    + op {o}"));
+            }
+            for o in old_ops.difference(&new_ops) {
+                lines.push(format!("    - op {o}"));
+            }
+            if !lines.is_empty() {
+                lines.insert(0, format!("  theory {name}:"));
+            }
+        }
+        (None, None) => {}
+    }
+    lines
+}
+
 /// Print complement requirements for a protolens chain.
 pub fn print_complement_requirements(
     chain: &lens::ProtolensChain,

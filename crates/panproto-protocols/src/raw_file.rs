@@ -42,6 +42,8 @@ pub fn protocol() -> Protocol {
         name: "raw_file".into(),
         schema_theory: "ThRawFileSchema".into(),
         instance_theory: "ThRawFileInstance".into(),
+        schema_composition: None,
+        instance_composition: None,
         edge_rules: vec![
             EdgeRule {
                 edge_kind: "line-of".into(),

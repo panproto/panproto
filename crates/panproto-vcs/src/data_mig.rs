@@ -387,20 +387,10 @@ mod tests {
     }
 
     fn make_commit(schema_id: ObjectId, data_ids: Vec<ObjectId>) -> CommitObject {
-        CommitObject {
-            schema_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 0,
-            message: "test".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids,
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        }
+        CommitObject::builder(schema_id, "test", "test", "test")
+            .timestamp(0)
+            .data_ids(data_ids)
+            .build()
     }
 
     #[test]

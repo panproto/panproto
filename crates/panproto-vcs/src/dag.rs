@@ -568,20 +568,15 @@ mod tests {
         for i in 0..n {
             let parents = if i == 0 { vec![] } else { vec![ids[i - 1]] };
 
-            let commit = CommitObject {
-                schema_id: ObjectId::from_bytes([i as u8; 32]),
-                parents,
-                migration_id: None,
-                protocol: "test".into(),
-                author: "test".into(),
-                timestamp: i as u64 * 100,
-                message: format!("commit {i}"),
-                renames: vec![],
-                protocol_id: None,
-                data_ids: vec![],
-                complement_ids: vec![],
-                edit_log_ids: vec![],
-            };
+            let commit = CommitObject::builder(
+                ObjectId::from_bytes([i as u8; 32]),
+                "test",
+                "test",
+                format!("commit {i}"),
+            )
+            .parents(parents)
+            .timestamp(i as u64 * 100)
+            .build();
             let id = store.put(&Object::Commit(commit))?;
             ids.push(id);
         }
@@ -600,68 +595,27 @@ mod tests {
     fn build_diamond_history() -> Result<(MemStore, Vec<ObjectId>), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
 
-        let c0 = CommitObject {
-            schema_id: ObjectId::from_bytes([0; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(ObjectId::from_bytes([0; 32]), "test", "test", "c0")
+            .timestamp(100)
+            .build();
         let id0 = store.put(&Object::Commit(c0))?;
 
-        let c1 = CommitObject {
-            schema_id: ObjectId::from_bytes([1; 32]),
-            parents: vec![id0],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "c1".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(ObjectId::from_bytes([1; 32]), "test", "test", "c1")
+            .parents(vec![id0])
+            .timestamp(200)
+            .build();
         let id1 = store.put(&Object::Commit(c1))?;
 
-        let c2 = CommitObject {
-            schema_id: ObjectId::from_bytes([2; 32]),
-            parents: vec![id0],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 300,
-            message: "c2".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c2 = CommitObject::builder(ObjectId::from_bytes([2; 32]), "test", "test", "c2")
+            .parents(vec![id0])
+            .timestamp(300)
+            .build();
         let id2 = store.put(&Object::Commit(c2))?;
 
-        let c3 = CommitObject {
-            schema_id: ObjectId::from_bytes([3; 32]),
-            parents: vec![id1, id2],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 400,
-            message: "c3".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c3 = CommitObject::builder(ObjectId::from_bytes([3; 32]), "test", "test", "c3")
+            .parents(vec![id1, id2])
+            .timestamp(400)
+            .build();
         let id3 = store.put(&Object::Commit(c3))?;
 
         Ok((store, vec![id0, id1, id2, id3]))
@@ -693,34 +647,12 @@ mod tests {
     #[test]
     fn merge_base_disjoint() -> Result<(), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
-        let c1 = CommitObject {
-            schema_id: ObjectId::from_bytes([1; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "orphan1".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
-        let c2 = CommitObject {
-            schema_id: ObjectId::from_bytes([2; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "orphan2".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(ObjectId::from_bytes([1; 32]), "test", "test", "orphan1")
+            .timestamp(100)
+            .build();
+        let c2 = CommitObject::builder(ObjectId::from_bytes([2; 32]), "test", "test", "orphan2")
+            .timestamp(200)
+            .build();
         let id1 = store.put(&Object::Commit(c1))?;
         let id2 = store.put(&Object::Commit(c2))?;
         assert_eq!(merge_base(&store, id1, id2)?, None);
@@ -816,86 +748,35 @@ mod tests {
     {
         let mut store = MemStore::new();
 
-        let c0 = CommitObject {
-            schema_id: ObjectId::from_bytes([0; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(ObjectId::from_bytes([0; 32]), "test", "test", "c0")
+            .timestamp(100)
+            .build();
         let id0 = store.put(&Object::Commit(c0))?;
 
-        let c1 = CommitObject {
-            schema_id: ObjectId::from_bytes([1; 32]),
-            parents: vec![id0],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "c1".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(ObjectId::from_bytes([1; 32]), "test", "test", "c1")
+            .parents(vec![id0])
+            .timestamp(200)
+            .build();
         let id1 = store.put(&Object::Commit(c1))?;
 
-        let c2 = CommitObject {
-            schema_id: ObjectId::from_bytes([2; 32]),
-            parents: vec![id0],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 300,
-            message: "c2".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c2 = CommitObject::builder(ObjectId::from_bytes([2; 32]), "test", "test", "c2")
+            .parents(vec![id0])
+            .timestamp(300)
+            .build();
         let id2 = store.put(&Object::Commit(c2))?;
 
         // c3 = merge(c1, c2)
-        let c3 = CommitObject {
-            schema_id: ObjectId::from_bytes([3; 32]),
-            parents: vec![id1, id2],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 400,
-            message: "c3".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c3 = CommitObject::builder(ObjectId::from_bytes([3; 32]), "test", "test", "c3")
+            .parents(vec![id1, id2])
+            .timestamp(400)
+            .build();
         let id3 = store.put(&Object::Commit(c3))?;
 
         // c4 = merge(c2, c1)
-        let c4 = CommitObject {
-            schema_id: ObjectId::from_bytes([4; 32]),
-            parents: vec![id2, id1],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 500,
-            message: "c4".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c4 = CommitObject::builder(ObjectId::from_bytes([4; 32]), "test", "test", "c4")
+            .parents(vec![id2, id1])
+            .timestamp(500)
+            .build();
         let id4 = store.put(&Object::Commit(c4))?;
 
         Ok((store, vec![id0, id1, id2, id3, id4]))
@@ -1017,52 +898,23 @@ mod tests {
         })?;
 
         // Commits.
-        let c0 = CommitObject {
-            schema_id: s0_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(s0_id, "test", "test", "c0")
+            .timestamp(100)
+            .build();
         let id0 = store.put(&Object::Commit(c0))?;
 
-        let c1 = CommitObject {
-            schema_id: s1_id,
-            parents: vec![id0],
-            migration_id: Some(mig01_id),
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "c1".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(s1_id, "test", "test", "c1")
+            .parents(vec![id0])
+            .migration_id(mig01_id)
+            .timestamp(200)
+            .build();
         let id1 = store.put(&Object::Commit(c1))?;
 
-        let c2 = CommitObject {
-            schema_id: s2_id,
-            parents: vec![id1],
-            migration_id: Some(mig12_id),
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 300,
-            message: "c2".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c2 = CommitObject::builder(s2_id, "test", "test", "c2")
+            .parents(vec![id1])
+            .migration_id(mig12_id)
+            .timestamp(300)
+            .build();
         let id2 = store.put(&Object::Commit(c2))?;
 
         Ok((store, vec![id0, id1, id2]))
@@ -1135,36 +987,16 @@ mod tests {
             mapping: bad_mig,
         })?;
 
-        let c0 = CommitObject {
-            schema_id: s_src_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "src".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(s_src_id, "test", "test", "src")
+            .timestamp(100)
+            .build();
         let csrc_id = store.put(&Object::Commit(c0))?;
 
-        let c1 = CommitObject {
-            schema_id: s_tgt_id,
-            parents: vec![csrc_id],
-            migration_id: Some(bad_mig_id),
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "tgt".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(s_tgt_id, "test", "test", "tgt")
+            .parents(vec![csrc_id])
+            .migration_id(bad_mig_id)
+            .timestamp(200)
+            .build();
         let ctgt_id = store.put(&Object::Commit(c1))?;
 
         let result = compose_path_with_coherence(&store, &[csrc_id, ctgt_id])?;
@@ -1207,36 +1039,16 @@ mod tests {
             mapping: mig,
         })?;
 
-        let c0 = CommitObject {
-            schema_id: s_src_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(s_src_id, "test", "test", "c0")
+            .timestamp(100)
+            .build();
         let id0 = store.put(&Object::Commit(c0))?;
 
-        let c1 = CommitObject {
-            schema_id: s_tgt_id,
-            parents: vec![id0],
-            migration_id: Some(mig_id),
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "c1".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(s_tgt_id, "test", "test", "c1")
+            .parents(vec![id0])
+            .migration_id(mig_id)
+            .timestamp(200)
+            .build();
         let id1 = store.put(&Object::Commit(c1))?;
 
         let result = compose_path_with_coherence(&store, &[id0, id1])?;
@@ -1326,52 +1138,23 @@ mod tests {
             mapping: mig12,
         })?;
 
-        let c0 = CommitObject {
-            schema_id: s0_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(s0_id, "test", "test", "c0")
+            .timestamp(100)
+            .build();
         let id0 = store.put(&Object::Commit(c0))?;
 
-        let c1 = CommitObject {
-            schema_id: s1_id,
-            parents: vec![id0],
-            migration_id: Some(mig01_id),
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "c1".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(s1_id, "test", "test", "c1")
+            .parents(vec![id0])
+            .migration_id(mig01_id)
+            .timestamp(200)
+            .build();
         let id1 = store.put(&Object::Commit(c1))?;
 
-        let c2 = CommitObject {
-            schema_id: s2_id,
-            parents: vec![id1],
-            migration_id: Some(mig12_id),
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 300,
-            message: "c2".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c2 = CommitObject::builder(s2_id, "test", "test", "c2")
+            .parents(vec![id1])
+            .migration_id(mig12_id)
+            .timestamp(300)
+            .build();
         let id2 = store.put(&Object::Commit(c2))?;
 
         let result = compose_path_with_coherence(&store, &[id0, id1, id2])?;
@@ -1459,52 +1242,23 @@ mod tests {
             mapping: mig12,
         })?;
 
-        let c0 = CommitObject {
-            schema_id: s0_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "c0".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(s0_id, "test", "test", "c0")
+            .timestamp(100)
+            .build();
         let id0 = store.put(&Object::Commit(c0))?;
 
-        let c1 = CommitObject {
-            schema_id: s1_id,
-            parents: vec![id0],
-            migration_id: Some(mig01_id),
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "c1".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(s1_id, "test", "test", "c1")
+            .parents(vec![id0])
+            .migration_id(mig01_id)
+            .timestamp(200)
+            .build();
         let id1 = store.put(&Object::Commit(c1))?;
 
-        let c2 = CommitObject {
-            schema_id: s2_id,
-            parents: vec![id1],
-            migration_id: Some(mig12_id),
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 300,
-            message: "c2".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c2 = CommitObject::builder(s2_id, "test", "test", "c2")
+            .parents(vec![id1])
+            .migration_id(mig12_id)
+            .timestamp(300)
+            .build();
         let id2 = store.put(&Object::Commit(c2))?;
 
         Ok((store, [id0, id1, id2]))

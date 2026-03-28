@@ -1,7 +1,5 @@
 //! Rebase: replay commits onto a new base.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use crate::ObjectId;
 use crate::cherry_pick::advance_head;
 use crate::dag;
@@ -107,25 +105,15 @@ fn replay_one(
         mapping: result.migration_from_ours,
     })?;
 
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let new_commit = CommitObject {
-        schema_id: merged_schema_id,
-        parents: vec![current_tip],
-        migration_id: Some(migration_id),
-        protocol: commit.protocol.clone(),
-        author: author.to_owned(),
-        timestamp,
-        message: commit.message.clone(),
-        renames: vec![],
-        protocol_id: None,
-        data_ids: vec![],
-        complement_ids: vec![],
-        edit_log_ids: vec![],
-    };
+    let new_commit = CommitObject::builder(
+        merged_schema_id,
+        commit.protocol.clone(),
+        author,
+        commit.message.clone(),
+    )
+    .parents(vec![current_tip])
+    .migration_id(migration_id)
+    .build();
     let new_commit_id = store.put(&Object::Commit(new_commit))?;
 
     // Update branch ref.
@@ -217,58 +205,27 @@ mod tests {
         // c0: base
         let s0 = make_schema(&[("a", "object")]);
         let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
-        let c0 = CommitObject {
-            schema_id: s0_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "alice".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
+            .timestamp(100)
+            .build();
         let c0_id = store.put(&Object::Commit(c0))?;
 
         // c1: main branch adds vertex b
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
         let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
-        let c1 = CommitObject {
-            schema_id: s1_id,
-            parents: vec![c0_id],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "alice".into(),
-            timestamp: 200,
-            message: "add b".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(s1_id, "test", "alice", "add b")
+            .parents(vec![c0_id])
+            .timestamp(200)
+            .build();
         let c1_id = store.put(&Object::Commit(c1))?;
 
         // c2: feature branch (off c0) adds vertex c
         let s2 = make_schema(&[("a", "object"), ("c", "integer")]);
         let s2_id = store.put(&Object::Schema(Box::new(s2)))?;
-        let c2 = CommitObject {
-            schema_id: s2_id,
-            parents: vec![c0_id],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "bob".into(),
-            timestamp: 300,
-            message: "add c".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c2 = CommitObject::builder(s2_id, "test", "bob", "add c")
+            .parents(vec![c0_id])
+            .timestamp(300)
+            .build();
         let c2_id = store.put(&Object::Commit(c2))?;
 
         // HEAD is on feature branch (c2).

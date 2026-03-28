@@ -52,20 +52,10 @@ pub fn stash_push(
 
     let msg = message.unwrap_or("WIP on stash").to_owned();
 
-    let stash_commit = CommitObject {
-        schema_id,
-        parents: vec![head_id],
-        migration_id: None,
-        protocol: String::new(), // stash commits don't track protocol
-        author: author.to_owned(),
-        timestamp,
-        message: msg.clone(),
-        renames: vec![],
-        protocol_id: None,
-        data_ids: vec![],
-        complement_ids: vec![],
-        edit_log_ids: vec![],
-    };
+    let stash_commit = CommitObject::builder(schema_id, "", author, msg.clone())
+        .parents(vec![head_id])
+        .timestamp(timestamp)
+        .build();
     let stash_id = store.put(&Object::Commit(stash_commit))?;
 
     // Get old stash ref (if any) for the reflog.
@@ -225,20 +215,10 @@ mod tests {
         let mut store = MemStore::new();
 
         // Need a HEAD commit.
-        let head_commit = CommitObject {
-            schema_id: ObjectId::from_bytes([0; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let head_commit =
+            CommitObject::builder(ObjectId::from_bytes([0; 32]), "test", "test", "initial")
+                .timestamp(100)
+                .build();
         let head_id = store.put(&Object::Commit(head_commit))?;
         store.set_ref("refs/heads/main", head_id)?;
 
@@ -265,20 +245,10 @@ mod tests {
     fn stash_multiple() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let head_commit = CommitObject {
-            schema_id: ObjectId::from_bytes([0; 32]),
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let head_commit =
+            CommitObject::builder(ObjectId::from_bytes([0; 32]), "test", "test", "initial")
+                .timestamp(100)
+                .build();
         let head_id = store.put(&Object::Commit(head_commit))?;
         store.set_ref("refs/heads/main", head_id)?;
 

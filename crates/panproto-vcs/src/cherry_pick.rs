@@ -128,25 +128,15 @@ pub fn cherry_pick(
     })?;
 
     // Create the new commit.
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let new_commit = CommitObject {
-        schema_id: merged_schema_id,
-        parents: vec![head_id],
-        migration_id: Some(migration_id),
-        protocol: commit.protocol.clone(),
-        author: author.to_owned(),
-        timestamp,
-        message: format!("cherry-pick: {}", commit.message),
-        renames: vec![],
-        protocol_id: None,
-        data_ids: vec![],
-        complement_ids: vec![],
-        edit_log_ids: vec![],
-    };
+    let new_commit = CommitObject::builder(
+        merged_schema_id,
+        commit.protocol.clone(),
+        author,
+        format!("cherry-pick: {}", commit.message),
+    )
+    .parents(vec![head_id])
+    .migration_id(migration_id)
+    .build();
     let new_commit_id = store.put(&Object::Commit(new_commit))?;
 
     // Advance HEAD.
@@ -252,31 +242,17 @@ pub fn cherry_pick_with_options(
         mapping: result.migration_from_ours,
     })?;
 
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
     let mut message = format!("cherry-pick: {}", commit.message);
     if options.record_origin {
         use std::fmt::Write as _;
         let _ = write!(message, "\n\n(cherry picked from commit {commit_id})");
     }
 
-    let new_commit = CommitObject {
-        schema_id: merged_schema_id,
-        parents: vec![head_id],
-        migration_id: Some(migration_id),
-        protocol: commit.protocol.clone(),
-        author: author.to_owned(),
-        timestamp,
-        message,
-        renames: vec![],
-        protocol_id: None,
-        data_ids: vec![],
-        complement_ids: vec![],
-        edit_log_ids: vec![],
-    };
+    let new_commit =
+        CommitObject::builder(merged_schema_id, commit.protocol.clone(), author, message)
+            .parents(vec![head_id])
+            .migration_id(migration_id)
+            .build();
     let new_commit_id = store.put(&Object::Commit(new_commit))?;
 
     advance_head(store, head_id, new_commit_id, author, "cherry-pick")?;
@@ -381,39 +357,18 @@ mod tests {
         // c0: base with vertex a
         let s0 = make_schema(&[("a", "object")]);
         let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
-        let c0 = CommitObject {
-            schema_id: s0_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "alice".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
+            .timestamp(100)
+            .build();
         let c0_id = store.put(&Object::Commit(c0))?;
 
         // c1: adds vertex b (on a separate branch)
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
         let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
-        let c1 = CommitObject {
-            schema_id: s1_id,
-            parents: vec![c0_id],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "bob".into(),
-            timestamp: 200,
-            message: "add b".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(s1_id, "test", "bob", "add b")
+            .parents(vec![c0_id])
+            .timestamp(200)
+            .build();
         let c1_id = store.put(&Object::Commit(c1))?;
 
         // HEAD points to c0 (our branch).

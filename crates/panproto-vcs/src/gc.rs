@@ -75,7 +75,11 @@ pub fn mark_reachable(
                 queue.push(src);
                 queue.push(tgt);
             }
-            Object::Schema(_) | Object::Protocol(_) | Object::Expr(_) => {}
+            Object::Schema(_)
+            | Object::Protocol(_)
+            | Object::Expr(_)
+            | Object::Theory(_)
+            | Object::TheoryMorphism(_) => {}
             Object::Tag(tag) => {
                 queue.push(tag.target);
             }
@@ -225,36 +229,15 @@ mod tests {
 
         let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
 
-        let c0 = CommitObject {
-            schema_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
+            .timestamp(100)
+            .build();
         let c0_id = store.put(&Object::Commit(c0))?;
 
-        let c1 = CommitObject {
-            schema_id,
-            parents: vec![c0_id],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 200,
-            message: "second".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c1 = CommitObject::builder(schema_id, "test", "test", "second")
+            .parents(vec![c0_id])
+            .timestamp(200)
+            .build();
         let c1_id = store.put(&Object::Commit(c1))?;
 
         let reachable = mark_reachable(&store, &[c1_id])?;
@@ -270,39 +253,17 @@ mod tests {
 
         let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
 
-        let c0 = CommitObject {
-            schema_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
+            .timestamp(100)
+            .build();
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;
 
         // Add an orphan object not reachable from any ref.
         let orphan_schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
-        let orphan = CommitObject {
-            schema_id: orphan_schema_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 300,
-            message: "orphan".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let orphan = CommitObject::builder(orphan_schema_id, "test", "test", "orphan")
+            .timestamp(300)
+            .build();
         let orphan_id = store.put(&Object::Commit(orphan))?;
 
         // Before GC: orphan exists.
@@ -323,20 +284,9 @@ mod tests {
 
         let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
 
-        let c0 = CommitObject {
-            schema_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: None,
-            data_ids: vec![],
-            complement_ids: vec![],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
+            .timestamp(100)
+            .build();
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;
 
@@ -377,20 +327,12 @@ mod tests {
         let complement_id = store.put(&Object::Complement(complement))?;
 
         // Create commit referencing all three.
-        let c0 = CommitObject {
-            schema_id,
-            parents: vec![],
-            migration_id: None,
-            protocol: "test".into(),
-            author: "test".into(),
-            timestamp: 100,
-            message: "initial".into(),
-            renames: vec![],
-            protocol_id: Some(protocol_id),
-            data_ids: vec![data_id],
-            complement_ids: vec![complement_id],
-            edit_log_ids: vec![],
-        };
+        let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
+            .timestamp(100)
+            .protocol_id(protocol_id)
+            .data_ids(vec![data_id])
+            .complement_ids(vec![complement_id])
+            .build();
         let c0_id = store.put(&Object::Commit(c0))?;
         store.set_ref("refs/heads/main", c0_id)?;
 
