@@ -1,11 +1,16 @@
 [package]
 name = "panproto-cli"
-description = "CLI tool for panproto"
+description = "Schematic version control: schema migration toolkit based on generalized algebraic theories"
+homepage = "https://github.com/panproto/panproto"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+
+# cargo-dist: this is the package that produces distributable binaries
+[package.metadata.dist]
+dist = true
 
 [[bin]]
 name = "schema"

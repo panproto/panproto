@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# cargo-dist: exclude from distribution (installed alongside schema via panproto-cli)
+[package.metadata.dist]
+dist = false
+
 [[bin]]
 name = "git-remote-cospan"
 path = "src/main.rs"
