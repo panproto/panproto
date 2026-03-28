@@ -73,7 +73,6 @@ fn main() {
 
     // Compile C sources for each enabled grammar. Track which ones succeed.
     let mut compiled_flags: Vec<bool> = Vec::new();
-    let mut has_cpp_scanner = false;
     for (name, spec) in &enabled {
         let lang_dir = grammars_dir.join(name).join("src");
         if !lang_dir.exists() {
@@ -86,19 +85,7 @@ fn main() {
             continue;
         }
 
-        let (ok, cpp) = compile_grammar(name, spec, &lang_dir);
-        compiled_flags.push(ok);
-        has_cpp_scanner |= cpp;
-    }
-
-    // Link the C++ standard library if any grammar used a C++ scanner.
-    if has_cpp_scanner {
-        let target = env::var("TARGET").unwrap_or_default();
-        if target.contains("apple") {
-            println!("cargo:rustc-link-lib=c++");
-        } else {
-            println!("cargo:rustc-link-lib=stdc++");
-        }
+        compiled_flags.push(compile_grammar(name, spec, &lang_dir));
     }
 
     // Post-process each grammar's static library to localize internal symbols,
@@ -119,15 +106,14 @@ fn main() {
     fs::write(&out_file, generated).expect("failed to write grammar_table.rs");
 }
 
-/// Returns `(compiled_ok, had_cpp_scanner)`.
-fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> (bool, bool) {
+fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
     let c_symbol = spec.c_symbol.as_deref().unwrap_or(name);
     let parser_c = src_dir.join("parser.c");
     let scanner_cc = src_dir.join("scanner.cc");
 
     if !parser_c.exists() {
         println!("cargo:warning=Grammar '{name}': no parser.c found, skipping");
-        return (false, false);
+        return false;
     }
 
     // Compile all .c files in src/ (parser.c, scanner.c, and any auxiliary
@@ -157,11 +143,10 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> (bool, boo
     let lib_name = format!("tree_sitter_{c_symbol}");
     if let Err(e) = build.try_compile(&lib_name) {
         println!("cargo:warning=Grammar '{name}' failed to compile: {e}");
-        return (false, false);
+        return false;
     }
 
     // Compile C++ scanner separately if present.
-    let mut had_cpp = false;
     let scanner_lib_name = format!("tree_sitter_{c_symbol}_scanner");
     if scanner_cc.exists() {
         println!("cargo:rerun-if-changed={}", scanner_cc.display());
@@ -172,17 +157,18 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> (bool, boo
             .file(&scanner_cc)
             .include(src_dir)
             .std("c++14")
+            .flag("-fno-exceptions")
+            .flag("-fno-rtti")
             .warnings(false)
             .cargo_warnings(false);
 
         if let Err(e) = cpp_build.try_compile(&scanner_lib_name) {
             println!("cargo:warning=Grammar '{name}' C++ scanner failed: {e}");
-            return (false, false);
+            return false;
         }
-        had_cpp = true;
     }
 
-    (true, had_cpp)
+    true
 }
 
 /// After all grammars are compiled, localize non-`tree_sitter_*` symbols in
