@@ -14,6 +14,7 @@ All notable changes to panproto will be documented in this file.
 - **panproto-lens**: `Lens` now derives `Debug`.
 - **panproto-lens**: property-based tests for GetPut and PutGet round-trip laws on randomly generated identity and projection lenses.
 - **integration**: property-based tests for identity restrict preservation, restrict functor contravariance, and morphism composition associativity across crate boundaries.
+- **panproto-vcs**: E2E test suite (`vcs_e2e.rs`) with 8 scenarios exercising the full VCS lifecycle using a realistic blog platform domain model (User, Post, Comment, Tag). Covers linear schema evolution (v1 through v4), concurrent feature merge, merge conflict resolution with `ChooseOurs`, theory tracking via `theory_ids`, rebase with data migration, stash and cherry-pick, bisect to find breaking changes, and composition path coherence.
 
 ## [0.20.0] - 2026-03-28
 

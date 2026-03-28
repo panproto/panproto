@@ -254,7 +254,10 @@ panproto provides three layers of algebraic safety that go beyond structural sch
 - [Tutorial](https://panproto.dev/tutorial/): 22-chapter guide from first schema to automatic migration
 - [Dev Guide](https://panproto.dev/dev-guide/): internals, algorithms, and architecture
 - [API Reference (docs.rs)](https://docs.rs/panproto-core)
-- Interactive Playground (coming soon): runs entirely in your browser via WebAssembly
+
+## Acknowledgments
+
+panproto was architected and implemented with substantial assistance from Claude Code.
 
 ## License
 
