@@ -196,9 +196,11 @@ pub fn free_model(
         max_depth,
         max_terms_per_sort,
     };
-    let model = gat::free_model(&theory.inner, &config)
+    let result = gat::free_model(&theory.inner, &config)
         .map_err(|e| crate::error::GatError::new_err(format!("free model failed: {e}")))?;
-    Ok(PyModel { inner: model })
+    Ok(PyModel {
+        inner: result.model,
+    })
 }
 
 /// Check a model against its theory, returning equation violations.

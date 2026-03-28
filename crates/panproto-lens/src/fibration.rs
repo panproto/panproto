@@ -95,9 +95,11 @@ impl Fibration for WTypeFibration {
 
 /// Verify the cartesian universal property for a lens.
 ///
-/// The universal property of cartesian lifts reduces to the lens laws:
-/// - Opcartesian then cartesian (get then put) satisfies put-get.
-/// - Cartesian then opcartesian (put then get) satisfies get-put.
+/// Checks both section/retraction conditions (`GetPut` and `PutGet`), and the
+/// complement records exact arc edges so that `put` is deterministic,
+/// ensuring the cartesian lift is unique up to structural equivalence:
+/// - Opcartesian then cartesian (get then put) satisfies `PutGet`.
+/// - Cartesian then opcartesian (put then get) satisfies `GetPut`.
 ///
 /// # Errors
 ///

@@ -1,9 +1,11 @@
-//! Free (initial) model construction.
+//! Bounded approximation of the free (initial) model.
 //!
-//! Generates the initial model of a theory by enumerating closed terms
-//! up to a depth bound and quotienting by the theory's equations.
-//! The free model is the minimal model satisfying the theory — useful
-//! for generating test instances and computing protocol skeletons.
+//! Generates an approximation of the initial model of a theory by
+//! enumerating closed terms up to [`FreeModelConfig::max_depth`] and
+//! quotienting by the theory's equations. The result is exact (truly
+//! initial) when no new terms appear at the final depth level; otherwise
+//! it is a finite truncation. Check [`FreeModelResult::is_complete`] to
+//! determine whether the bound was sufficient.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -33,25 +35,35 @@ impl Default for FreeModelConfig {
     }
 }
 
-/// Construct the free (initial) model of a theory.
+/// Result of free model construction, including completeness status.
+#[derive(Debug)]
+pub struct FreeModelResult {
+    /// The constructed model.
+    pub model: Model,
+    /// Whether the model is provably complete (initial). `true` when no
+    /// new closed terms were generated at the final depth level, meaning
+    /// increasing `max_depth` would not change the model.
+    pub is_complete: bool,
+}
+
+/// Construct a bounded approximation of the free (initial) model.
 ///
-/// The carrier set of each sort is the set of closed terms of that sort,
-/// quotiented by the theory's equations using union-find. Operations are
-/// defined by term application.
+/// The carrier set of each sort is the set of closed terms of that sort
+/// (up to `max_depth`), quotiented by the theory's equations using
+/// union-find. Operations are defined by term application.
+///
+/// When [`FreeModelResult::is_complete`] is `true`, the result is the
+/// exact initial model (no new terms would appear at deeper levels).
 ///
 /// # Errors
 ///
 /// Returns [`GatError::ModelError`] if the term count exceeds bounds.
-pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<Model, GatError> {
-    let terms_by_sort = generate_terms(theory, config)?;
+pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<FreeModelResult, GatError> {
+    let (terms_by_sort, is_complete) = generate_terms(theory, config)?;
     let (term_to_global, total_terms) = assign_global_indices(&terms_by_sort);
     let mut uf = quotient_by_equations(theory, &terms_by_sort, &term_to_global, total_terms);
-    Ok(build_model(
-        theory,
-        &terms_by_sort,
-        &term_to_global,
-        &mut uf,
-    ))
+    let model = build_model(theory, &terms_by_sort, &term_to_global, &mut uf);
+    Ok(FreeModelResult { model, is_complete })
 }
 
 /// Topologically sort the theory's sorts so that parameter sorts are
@@ -116,10 +128,13 @@ fn topological_sort_sorts(theory: &Theory) -> Vec<Arc<str>> {
 /// carrier sets of A1...An, we find operations whose output sort is S
 /// and whose parameter inputs match the fiber. All fiber terms are
 /// collected under the base sort name S.
+/// Returns `(terms_by_sort, is_complete)` where `is_complete` is `true`
+/// when no new terms were generated at the final depth level.
 fn generate_terms(
     theory: &Theory,
     config: &FreeModelConfig,
-) -> Result<FxHashMap<Arc<str>, Vec<Term>>, GatError> {
+) -> Result<(FxHashMap<Arc<str>, Vec<Term>>, bool), GatError> {
+    #![allow(clippy::type_complexity)]
     let mut terms_by_sort: FxHashMap<Arc<str>, Vec<Term>> = FxHashMap::default();
 
     // Initialize in topological order so parameter sorts are ready first.
@@ -141,9 +156,11 @@ fn generate_terms(
     }
 
     // Iterate: generate terms at increasing depths.
+    let mut last_depth_added = false;
     for _depth in 1..=config.max_depth {
         let new_terms = generate_depth(theory, &terms_by_sort);
 
+        let mut added_any = false;
         for sort_name in &ordered_sorts {
             let Some(new) = new_terms.get(sort_name) else {
                 continue;
@@ -160,12 +177,18 @@ fn generate_terms(
                 }
                 if !existing.contains(t) {
                     existing.push(t.clone());
+                    added_any = true;
                 }
             }
         }
+        last_depth_added = added_any;
     }
 
-    Ok(terms_by_sort)
+    // The model is complete (truly initial) if the final depth level
+    // produced no new terms, meaning the carrier sets have stabilized.
+    let is_complete = !last_depth_added;
+
+    Ok((terms_by_sort, is_complete))
 }
 
 /// Generate one depth level of terms by applying non-nullary ops to existing terms.
@@ -536,15 +559,15 @@ mod tests {
             vec![Operation::nullary("unit", "Carrier")],
             vec![],
         );
-        let model = free_model(&theory, &FreeModelConfig::default())?;
-        assert_eq!(model.sort_interp["Carrier"].len(), 1);
+        let result = free_model(&theory, &FreeModelConfig::default())?;
+        assert_eq!(result.model.sort_interp["Carrier"].len(), 1);
         Ok(())
     }
 
     #[test]
     fn free_model_empty_theory() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new("Empty", vec![Sort::simple("S")], vec![], vec![]);
-        let model = free_model(&theory, &FreeModelConfig::default())?;
+        let model = free_model(&theory, &FreeModelConfig::default())?.model;
         assert!(model.sort_interp["S"].is_empty());
         Ok(())
     }
@@ -557,7 +580,7 @@ mod tests {
             vec![Operation::nullary("a", "S"), Operation::nullary("b", "S")],
             vec![],
         );
-        let model = free_model(&theory, &FreeModelConfig::default())?;
+        let model = free_model(&theory, &FreeModelConfig::default())?.model;
         assert_eq!(model.sort_interp["S"].len(), 2);
         Ok(())
     }
@@ -574,7 +597,7 @@ mod tests {
                 Term::constant("b"),
             )],
         );
-        let model = free_model(&theory, &FreeModelConfig::default())?;
+        let model = free_model(&theory, &FreeModelConfig::default())?.model;
         assert_eq!(model.sort_interp["S"].len(), 1);
         Ok(())
     }
@@ -612,7 +635,7 @@ mod tests {
             max_depth: 1,
             max_terms_per_sort: 100,
         };
-        let model = free_model(&theory, &config)?;
+        let model = free_model(&theory, &config)?.model;
         assert_eq!(model.sort_interp["Carrier"].len(), 1);
         Ok(())
     }
@@ -628,7 +651,7 @@ mod tests {
             ],
             vec![],
         );
-        let model = free_model(&theory, &FreeModelConfig::default())?;
+        let model = free_model(&theory, &FreeModelConfig::default())?.model;
         assert!(model.sort_interp["Vertex"].is_empty());
         assert!(model.sort_interp["Edge"].is_empty());
         Ok(())
@@ -681,7 +704,7 @@ mod tests {
             max_depth: 2,
             max_terms_per_sort: 100,
         };
-        let model = free_model(&theory, &config)?;
+        let model = free_model(&theory, &config)?.model;
 
         // Ob should have one element: star().
         assert_eq!(model.sort_interp["Ob"].len(), 1);
@@ -709,7 +732,7 @@ mod tests {
             Vec::new(),
         );
 
-        let model = free_model(&theory, &FreeModelConfig::default())?;
+        let model = free_model(&theory, &FreeModelConfig::default())?.model;
         assert_eq!(model.sort_interp["A"].len(), 1);
         assert!(
             model.sort_interp["B"].is_empty(),
@@ -741,7 +764,7 @@ mod tests {
             max_depth: 1,
             max_terms_per_sort: 100,
         };
-        let model = free_model(&theory, &config)?;
+        let model = free_model(&theory, &config)?.model;
 
         // A should have a().
         assert_eq!(model.sort_interp["A"].len(), 1);
@@ -758,7 +781,7 @@ mod tests {
             vec![Operation::nullary("unit", "Carrier")],
             vec![],
         );
-        let model = free_model(&theory, &FreeModelConfig::default())?;
+        let model = free_model(&theory, &FreeModelConfig::default())?.model;
         let result = model.eval("unit", &[])?;
         assert!(matches!(result, ModelValue::Str(_)));
         Ok(())

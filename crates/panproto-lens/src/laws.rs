@@ -77,6 +77,27 @@ pub(crate) fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
         }
     }
 
+    // Compare arcs (order-independent): sort by (parent, child, edge) then compare.
+    let mut arcs_a: Vec<_> = a.arcs.clone();
+    let mut arcs_b: Vec<_> = b.arcs.clone();
+    arcs_a.sort();
+    arcs_b.sort();
+    if arcs_a != arcs_b {
+        return false;
+    }
+
+    // Compare fans (order-independent).
+    if a.fans.len() != b.fans.len() {
+        return false;
+    }
+    let mut fans_a: Vec<_> = a.fans.clone();
+    let mut fans_b: Vec<_> = b.fans.clone();
+    fans_a.sort_by(|x, y| (&x.hyper_edge_id, x.parent).cmp(&(&y.hyper_edge_id, y.parent)));
+    fans_b.sort_by(|x, y| (&x.hyper_edge_id, x.parent).cmp(&(&y.hyper_edge_id, y.parent)));
+    if fans_a != fans_b {
+        return false;
+    }
+
     true
 }
 
@@ -197,5 +218,28 @@ mod tests {
 
         let result = check_put_get(&lens, &instance);
         assert!(result.is_ok(), "identity lens should satisfy PutGet");
+    }
+
+    #[test]
+    fn different_arcs_are_not_equivalent() {
+        use panproto_schema::Edge;
+
+        let a = three_node_instance();
+        let mut b = a.clone();
+
+        // Swap an arc's edge kind in b so arcs differ
+        if let Some(arc) = b.arcs.first_mut() {
+            arc.2 = Edge {
+                src: arc.2.src.clone(),
+                tgt: arc.2.tgt.clone(),
+                kind: "different_kind".into(),
+                name: arc.2.name.clone(),
+            };
+        }
+
+        assert!(
+            !instances_equivalent(&a, &b),
+            "instances with different arcs should not be equivalent"
+        );
     }
 }

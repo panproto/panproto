@@ -53,7 +53,7 @@ pub use eq::{
     normalize,
 };
 pub use error::GatError;
-pub use free_model::{FreeModelConfig, free_model};
+pub use free_model::{FreeModelConfig, FreeModelResult, free_model};
 pub use ident::{Ident, Name, NameSite, ScopeTag, SiteRename};
 pub use model::{Model, ModelValue, migrate_model};
 pub use morphism::{TheoryMorphism, check_morphism};

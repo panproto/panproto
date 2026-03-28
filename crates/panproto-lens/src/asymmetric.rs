@@ -41,6 +41,11 @@ pub struct Complement {
     /// Used by `put` to restore original field values.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub original_extra_fields: HashMap<u32, HashMap<String, panproto_inst::value::Value>>,
+    /// Exact edge used for every arc in the view, keyed by `(parent_id, child_id)`.
+    /// This makes `put` deterministic when the source schema has parallel edges
+    /// between the same vertex pair, ensuring the cartesian lift is unique.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub arc_edges: HashMap<(u32, u32), Edge>,
 }
 
 impl Complement {
@@ -55,6 +60,7 @@ impl Complement {
             original_parent: HashMap::new(),
             source_fingerprint: 0,
             original_extra_fields: HashMap::new(),
+            arc_edges: HashMap::new(),
         }
     }
 
@@ -67,6 +73,7 @@ impl Complement {
             && self.contraction_choices.is_empty()
             && self.original_parent.is_empty()
             && self.original_extra_fields.is_empty()
+            && self.arc_edges.is_empty()
     }
 }
 
@@ -162,6 +169,16 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         }
     }
 
+    // Record the exact edge for every arc in the source instance whose
+    // parent and child both survive. This makes `put` deterministic when
+    // the source schema has parallel edges between the same vertex pair.
+    let mut arc_edges = HashMap::new();
+    for (parent, child, edge) in &instance.arcs {
+        if view.nodes.contains_key(parent) && view.nodes.contains_key(child) {
+            arc_edges.insert((*parent, *child), edge.clone());
+        }
+    }
+
     let source_fingerprint = schema_fingerprint(&lens.src_schema);
 
     let complement = Complement {
@@ -172,6 +189,7 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         original_parent,
         source_fingerprint,
         original_extra_fields,
+        arc_edges,
     };
 
     Ok((view, complement))
@@ -241,6 +259,7 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
             original_parent,
             child_id,
             &complement.contraction_choices,
+            &complement.arc_edges,
         ) {
             arcs.push(arc);
         }
@@ -300,19 +319,31 @@ fn build_reverse_remap(forward: &HashMap<Name, Name>) -> HashMap<Name, Name> {
 }
 
 /// Find the original arc between a parent and child in the source schema.
-/// Consults `contraction_choices` first for disambiguation when multiple edges exist.
+///
+/// Consults `arc_edges` (exact edge recorded during `get`) first, then
+/// `contraction_choices`, then falls back to the source schema. When the
+/// complement was produced by this module's `get`, `arc_edges` will always
+/// contain the exact edge, making this function deterministic even when
+/// the source schema has parallel edges.
 fn find_original_arc(
     src_schema: &panproto_schema::Schema,
     nodes: &HashMap<u32, Node>,
     parent_id: u32,
     child_id: u32,
     contraction_choices: &HashMap<(u32, u32), Edge>,
+    arc_edges: &HashMap<(u32, u32), Edge>,
 ) -> Option<(u32, u32, Edge)> {
-    // Check contraction_choices first for a recorded disambiguation
+    // Exact edge recorded during get: deterministic.
+    if let Some(edge) = arc_edges.get(&(parent_id, child_id)) {
+        return Some((parent_id, child_id, edge.clone()));
+    }
+
+    // Contraction choice: edges created by ancestor contraction.
     if let Some(edge) = contraction_choices.get(&(parent_id, child_id)) {
         return Some((parent_id, child_id, edge.clone()));
     }
 
+    // Fallback: look up in the source schema (backward compat for old complements).
     let parent_node = nodes.get(&parent_id)?;
     let child_node = nodes.get(&child_id)?;
 
@@ -320,7 +351,6 @@ fn find_original_arc(
     if edges.len() == 1 {
         Some((parent_id, child_id, edges[0].clone()))
     } else {
-        // If multiple edges and no contraction choice, take the first
         edges.first().map(|e| (parent_id, child_id, e.clone()))
     }
 }
@@ -365,15 +395,7 @@ mod tests {
 
     #[test]
     fn complement_is_empty_for_identity() {
-        let complement = Complement {
-            dropped_nodes: HashMap::new(),
-            dropped_arcs: Vec::new(),
-            dropped_fans: Vec::new(),
-            contraction_choices: HashMap::new(),
-            original_parent: HashMap::new(),
-            source_fingerprint: 0,
-            original_extra_fields: HashMap::new(),
-        };
+        let complement = Complement::empty();
         assert!(complement.is_empty());
     }
 }

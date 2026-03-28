@@ -431,7 +431,8 @@ pub fn cmd_scaffold(
         // Build a free model from the theory to get the abstract structure.
         let model = panproto_core::gat::free_model(theory, &config)
             .into_diagnostic()
-            .wrap_err_with(|| format!("free model construction failed for theory '{name}'"))?;
+            .wrap_err_with(|| format!("free model construction failed for theory '{name}'"))?
+            .model;
 
         if json {
             // Merge free model carriers with schema elements for richer output.

@@ -95,6 +95,20 @@ pub enum GatError {
     #[error("morphism missing operation mapping for: {0}")]
     MissingOpMapping(String),
 
+    /// Morphism composition failed: an element in the first morphism's
+    /// codomain image is not in the second morphism's domain.
+    #[error(
+        "compose: {kind} `{name}` maps to `{image}` which has no mapping in the second morphism"
+    )]
+    ComposeUnmapped {
+        /// Whether this is a "sort" or "op".
+        kind: &'static str,
+        /// The element in the first morphism's domain.
+        name: String,
+        /// The image in the first morphism's codomain (missing from second morphism).
+        image: String,
+    },
+
     /// Cyclic dependency detected in theory extends chain.
     #[error("cyclic dependency detected involving theory: {0}")]
     CyclicDependency(String),

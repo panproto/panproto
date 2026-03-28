@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// Fans capture multi-way relationships. For example, a SQL foreign key
 /// is a 4-ary hyper-edge connecting a table, a column, a referenced
 /// table, and a referenced column.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fan {
     /// The schema hyper-edge this fan instantiates.
     pub hyper_edge_id: String,

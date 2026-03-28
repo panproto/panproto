@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use miette::{Context, IntoDiagnostic, Result};
@@ -82,15 +81,7 @@ pub fn cmd_convert(
                 view
             }
             "backward" => {
-                let complement = lens::Complement {
-                    dropped_nodes: HashMap::new(),
-                    dropped_arcs: Vec::new(),
-                    dropped_fans: Vec::new(),
-                    contraction_choices: HashMap::new(),
-                    original_parent: HashMap::new(),
-                    source_fingerprint: 0,
-                    original_extra_fields: HashMap::new(),
-                };
+                let complement = lens::Complement::empty();
                 lens::put(&the_lens, &instance, &complement)
                     .into_diagnostic()
                     .wrap_err("lens put (backward) failed")?

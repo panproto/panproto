@@ -9,7 +9,8 @@ use crate::theory::Theory;
 /// Result of a categorical pushout (colimit) computation.
 ///
 /// Contains the pushout theory along with inclusion morphisms from
-/// both input theories into the pushout.
+/// both input theories into the pushout. The cocone condition
+/// `j1 ∘ i1 = j2 ∘ i2` is verified at construction time.
 #[derive(Debug, Clone)]
 pub struct ColimitResult {
     /// The pushout theory.
@@ -18,6 +19,59 @@ pub struct ColimitResult {
     pub inclusion1: TheoryMorphism,
     /// Inclusion morphism from the second theory into the pushout: j2: T2 → P.
     pub inclusion2: TheoryMorphism,
+}
+
+impl ColimitResult {
+    /// Verify the cocone (commutativity) condition: `j1 ∘ i1 = j2 ∘ i2`.
+    ///
+    /// For every sort and operation in the shared theory, the two paths
+    /// through the pushout must agree.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GatError`] if any composition fails or the cocone condition
+    /// is violated.
+    pub fn verify_cocone(
+        &self,
+        i1: &TheoryMorphism,
+        i2: &TheoryMorphism,
+        shared: &Theory,
+    ) -> Result<(), GatError> {
+        let lhs = i1.compose(&self.inclusion1)?;
+        let rhs = i2.compose(&self.inclusion2)?;
+
+        for sort in &shared.sorts {
+            let l = lhs.sort_map.get(&sort.name);
+            let r = rhs.sort_map.get(&sort.name);
+            if l != r {
+                return Err(GatError::EquationNotPreserved {
+                    equation: format!("cocone sort {}", sort.name),
+                    detail: format!(
+                        "j1∘i1 maps to {}, j2∘i2 maps to {}",
+                        l.map_or("(none)", |s| s.as_ref()),
+                        r.map_or("(none)", |s| s.as_ref()),
+                    ),
+                });
+            }
+        }
+
+        for op in &shared.ops {
+            let l = lhs.op_map.get(&op.name);
+            let r = rhs.op_map.get(&op.name);
+            if l != r {
+                return Err(GatError::EquationNotPreserved {
+                    equation: format!("cocone op {}", op.name),
+                    detail: format!(
+                        "j1∘i1 maps to {}, j2∘i2 maps to {}",
+                        l.map_or("(none)", |s| s.as_ref()),
+                        r.map_or("(none)", |s| s.as_ref()),
+                    ),
+                });
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Compute the pushout (colimit) of two theories over explicit morphisms.
@@ -42,6 +96,7 @@ pub struct ColimitResult {
 /// Returns [`GatError::EqConflict`] if T1 and T2 both declare an equation
 /// with the same name but different content and the equation is not identified
 /// via the morphisms.
+#[allow(clippy::too_many_lines)]
 pub fn colimit(
     t1: &Theory,
     t2: &Theory,
@@ -121,8 +176,8 @@ pub fn colimit(
         }
     }
 
-    let eqs = merge_equations(t1, t2)?;
-    let directed_eqs = merge_directed_equations(t1, t2)?;
+    let eqs = merge_equations(t1, t2, &op_rename)?;
+    let directed_eqs = merge_directed_equations(t1, t2, &op_rename)?;
     let policies = merge_policies(t1, t2)?;
 
     let pushout_name: Arc<str> = format!("{}_{}_colimit", t1.name, t2.name).into();
@@ -140,45 +195,93 @@ pub fn colimit(
 
     let j2 = build_inclusion(t2, &pushout_name, &sort_rename, &op_rename);
 
-    Ok(ColimitResult {
+    let result = ColimitResult {
         theory,
         inclusion1: j1,
         inclusion2: j2,
-    })
+    };
+
+    // Verify the cocone condition: j1 ∘ i1 = j2 ∘ i2 on all shared
+    // sorts and ops (the domain of i1 and i2).
+    let lhs = i1.compose(&result.inclusion1)?;
+    let rhs = i2.compose(&result.inclusion2)?;
+    for shared_sort in i1.sort_map.keys() {
+        let l = lhs.sort_map.get(shared_sort);
+        let r = rhs.sort_map.get(shared_sort);
+        if l != r {
+            return Err(GatError::EquationNotPreserved {
+                equation: format!("cocone sort {shared_sort}"),
+                detail: format!(
+                    "j1∘i1 maps to {}, j2∘i2 maps to {}",
+                    l.map_or("(none)", |s| s.as_ref()),
+                    r.map_or("(none)", |s| s.as_ref()),
+                ),
+            });
+        }
+    }
+    for shared_op in i1.op_map.keys() {
+        let l = lhs.op_map.get(shared_op);
+        let r = rhs.op_map.get(shared_op);
+        if l != r {
+            return Err(GatError::EquationNotPreserved {
+                equation: format!("cocone op {shared_op}"),
+                detail: format!(
+                    "j1∘i1 maps to {}, j2∘i2 maps to {}",
+                    l.map_or("(none)", |s| s.as_ref()),
+                    r.map_or("(none)", |s| s.as_ref()),
+                ),
+            });
+        }
+    }
+
+    Ok(result)
 }
 
 /// Merge equations from t2 into t1's equations, checking alpha-equivalence for conflicts.
-fn merge_equations(t1: &Theory, t2: &Theory) -> Result<Vec<crate::eq::Equation>, GatError> {
+///
+/// Applies `op_rename` to T2's equation terms before comparison so that
+/// operations identified via the morphisms are properly aligned with T1's
+/// naming convention.
+fn merge_equations(
+    t1: &Theory,
+    t2: &Theory,
+    op_rename: &HashMap<Arc<str>, Arc<str>>,
+) -> Result<Vec<crate::eq::Equation>, GatError> {
     let mut eqs = t1.eqs.clone();
     for eq in &t2.eqs {
+        let renamed = eq.rename_ops(op_rename);
         if let Some(t1_eq) = t1.find_eq(&eq.name) {
-            if !alpha_equivalent_equation(&t1_eq.lhs, &t1_eq.rhs, &eq.lhs, &eq.rhs) {
+            if !alpha_equivalent_equation(&t1_eq.lhs, &t1_eq.rhs, &renamed.lhs, &renamed.rhs) {
                 return Err(GatError::EqConflict {
                     name: eq.name.to_string(),
                 });
             }
         } else {
-            eqs.push(eq.clone());
+            eqs.push(renamed);
         }
     }
     Ok(eqs)
 }
 
 /// Merge directed equations from t2 into t1's directed equations.
+///
+/// Applies `op_rename` to T2's directed equation terms before comparison.
 fn merge_directed_equations(
     t1: &Theory,
     t2: &Theory,
+    op_rename: &HashMap<Arc<str>, Arc<str>>,
 ) -> Result<Vec<crate::eq::DirectedEquation>, GatError> {
     let mut directed_eqs = t1.directed_eqs.clone();
     for de in &t2.directed_eqs {
+        let renamed = de.rename_ops(op_rename);
         if let Some(t1_de) = t1.find_directed_eq(&de.name) {
-            if !alpha_equivalent_equation(&t1_de.lhs, &t1_de.rhs, &de.lhs, &de.rhs) {
+            if !alpha_equivalent_equation(&t1_de.lhs, &t1_de.rhs, &renamed.lhs, &renamed.rhs) {
                 return Err(GatError::DirectedEqConflict {
                     name: de.name.to_string(),
                 });
             }
         } else {
-            directed_eqs.push(de.clone());
+            directed_eqs.push(renamed);
         }
     }
     Ok(directed_eqs)
@@ -733,6 +836,73 @@ mod tests {
 
         let result = colimit_by_name(&t1, &t2, &shared);
         assert!(matches!(result, Err(GatError::PolicyConflict { .. })));
+    }
+
+    #[test]
+    fn colimit_equations_with_renamed_ops() {
+        // Shared theory S has sort A and op f: A → A with equation e: f(f(x)) = f(x).
+        // T1 keeps the names as-is.
+        // T2 renames f → g but has the same equation.
+        // Morphisms: i1 maps f→f; i2 maps f→g.
+        // The colimit should identify them and the equation should NOT conflict.
+        let _shared = Theory::new(
+            "Shared",
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            vec![Equation::new(
+                "idem",
+                Term::app("f", vec![Term::app("f", vec![Term::var("x")])]),
+                Term::app("f", vec![Term::var("x")]),
+            )],
+        );
+
+        let t1 = Theory::new(
+            "T1",
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            vec![Equation::new(
+                "idem",
+                Term::app("f", vec![Term::app("f", vec![Term::var("x")])]),
+                Term::app("f", vec![Term::var("x")]),
+            )],
+        );
+
+        // T2 renames f → g
+        let t2 = Theory::new(
+            "T2",
+            vec![Sort::simple("A")],
+            vec![Operation::unary("g", "x", "A", "A")],
+            vec![Equation::new(
+                "idem",
+                Term::app("g", vec![Term::app("g", vec![Term::var("x")])]),
+                Term::app("g", vec![Term::var("x")]),
+            )],
+        );
+
+        // Morphisms from Shared into T1 and T2.
+        let i1 = TheoryMorphism::new(
+            "i1",
+            "Shared",
+            "T1",
+            HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+            HashMap::from([(Arc::from("f"), Arc::from("f"))]),
+        );
+        let i2 = TheoryMorphism::new(
+            "i2",
+            "Shared",
+            "T2",
+            HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+            HashMap::from([(Arc::from("f"), Arc::from("g"))]),
+        );
+
+        let result = colimit(&t1, &t2, &i1, &i2).unwrap();
+        // The equation should be included exactly once (g renamed to f).
+        assert_eq!(result.theory.eqs.len(), 1);
+        assert!(result.theory.find_eq("idem").is_some());
+        // The pushout should have op f (from T1's naming convention).
+        assert!(result.theory.find_op("f").is_some());
+        // g should NOT appear as a separate op (it was renamed to f).
+        assert!(result.theory.find_op("g").is_none());
     }
 
     #[test]

@@ -586,7 +586,7 @@ fn free_model_check_model_roundtrip() -> Result<(), Box<dyn std::error::Error>> 
         max_depth: 3,
         max_terms_per_sort: 1000,
     };
-    let free = free_model(&theory, &config)?;
+    let free = free_model(&theory, &config)?.model;
 
     // The free model should have at least one element in Carrier
     // (the term `unit()`).

@@ -4,6 +4,26 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-03-28
+
+### Fixed
+
+- **panproto-lens**: `instances_equivalent` now compares arcs and fans, not just nodes. Previously, two instances with identical nodes but different tree structure would pass as equivalent, making `GetPut`/`PutGet` law verification incomplete.
+- **panproto-gat**: `colimit()` equation merging now applies the operation rename map to T2's equation terms before alpha-equivalence comparison. Previously, equations referencing renamed operations would produce spurious conflict errors.
+- **panproto-gat**: `TheoryMorphism::compose()` now returns `Result` and errors when a codomain element has no mapping in the second morphism, instead of silently falling back to identity.
+- **panproto-gat**: `colimit()` now verifies the cocone condition (`j1 ∘ i1 = j2 ∘ i2`) at construction time.
+- **panproto-lens**: `Complement` now records exact arc edge selections during `get` (via `arc_edges` field), making `put` fully deterministic when the source schema has parallel edges. This ensures the cartesian lift in the Grothendieck fibration is provably unique.
+- **panproto-gat**: `free_model()` now returns `FreeModelResult` with an `is_complete` flag indicating whether the depth bound was sufficient for the model to be truly initial.
+
+### Added
+
+- **panproto-gat**: `ColimitResult::verify_cocone()` method for explicit cocone condition verification.
+- **panproto-gat**: `FreeModelResult` type wrapping the model with completeness status.
+- **panproto-gat**: `GatError::ComposeUnmapped` variant for morphism composition failures.
+- **panproto-vcs**: `ConflictResolution` and `ResolutionStrategy` types for user-provided merge conflict resolutions.
+- **panproto-vcs**: `apply_resolutions()` applies user resolutions to a merge result, producing a `ResolvedMerge` with re-derived migrations.
+- **panproto-vcs**: `verify_pushout()` checks migration totality and cocone condition on a resolved merge, enabling provably correct pushouts when all conflicts are resolved.
+
 ## [0.18.0] - 2026-03-28
 
 ### Added

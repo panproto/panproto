@@ -77,39 +77,44 @@ impl TheoryMorphism {
     ///
     /// The sort and operation maps are composed: for each `a ↦ b` in `self` and
     /// `b ↦ c` in `other`, the composed map has `a ↦ c`.
-    #[must_use]
-    pub fn compose(&self, other: &Self) -> Self {
-        let sort_map: HashMap<Arc<str>, Arc<str>> = self
-            .sort_map
-            .iter()
-            .map(|(a, b)| {
-                let c = other
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GatError::ComposeUnmapped`] if a sort or operation in `self`'s
+    /// codomain image has no mapping in `other`.
+    pub fn compose(&self, other: &Self) -> Result<Self, crate::error::GatError> {
+        let mut sort_map = HashMap::with_capacity(self.sort_map.len());
+        for (a, b) in &self.sort_map {
+            let c =
+                other
                     .sort_map
                     .get(b)
-                    .cloned()
-                    .unwrap_or_else(|| Arc::clone(b));
-                (Arc::clone(a), c)
-            })
-            .collect();
-        let op_map: HashMap<Arc<str>, Arc<str>> = self
-            .op_map
-            .iter()
-            .map(|(a, b)| {
-                let c = other
-                    .op_map
-                    .get(b)
-                    .cloned()
-                    .unwrap_or_else(|| Arc::clone(b));
-                (Arc::clone(a), c)
-            })
-            .collect();
-        Self {
+                    .ok_or_else(|| crate::error::GatError::ComposeUnmapped {
+                        kind: "sort",
+                        name: a.to_string(),
+                        image: b.to_string(),
+                    })?;
+            sort_map.insert(Arc::clone(a), Arc::clone(c));
+        }
+        let mut op_map = HashMap::with_capacity(self.op_map.len());
+        for (a, b) in &self.op_map {
+            let c = other
+                .op_map
+                .get(b)
+                .ok_or_else(|| crate::error::GatError::ComposeUnmapped {
+                    kind: "op",
+                    name: a.to_string(),
+                    image: b.to_string(),
+                })?;
+            op_map.insert(Arc::clone(a), Arc::clone(c));
+        }
+        Ok(Self {
             name: Arc::from(format!("{};{}", self.name, other.name)),
             domain: Arc::clone(&self.domain),
             codomain: Arc::clone(&other.codomain),
             sort_map,
             op_map,
-        }
+        })
     }
 
     /// Induce site-qualified renames from this theory morphism.
@@ -760,13 +765,13 @@ mod tests {
         );
 
         // id ; f == f
-        let id_then_f = id.compose(&f);
+        let id_then_f = id.compose(&f).unwrap();
         assert_eq!(id_then_f.sort_map, f.sort_map);
         assert_eq!(id_then_f.op_map, f.op_map);
 
         // f ; id_codomain == f
         let id_cod = TheoryMorphism::identity(&codomain);
-        let f_then_id = f.compose(&id_cod);
+        let f_then_id = f.compose(&id_cod).unwrap();
         assert_eq!(f_then_id.sort_map, f.sort_map);
         assert_eq!(f_then_id.op_map, f.op_map);
     }
@@ -820,8 +825,8 @@ mod tests {
             HashMap::from([(Arc::from("h"), Arc::from("k"))]),
         );
 
-        let left = m1.compose(&m2).compose(&m3);
-        let right = m1.compose(&m2.compose(&m3));
+        let left = m1.compose(&m2).unwrap().compose(&m3).unwrap();
+        let right = m1.compose(&m2.compose(&m3).unwrap()).unwrap();
 
         assert_eq!(left.sort_map, right.sort_map);
         assert_eq!(left.op_map, right.op_map);

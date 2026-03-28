@@ -120,9 +120,10 @@ fn theory_morphism_compose_associative() -> Result<(), Box<dyn std::error::Error
     );
 
     // (m1 ; m2) ; m3
-    let left = m1.compose(&m2).compose(&m3);
+    let left = m1.compose(&m2)?.compose(&m3)?;
     // m1 ; (m2 ; m3)
-    let right = m1.compose(&m2.compose(&m3));
+    let m2_m3 = m2.compose(&m3)?;
+    let right = m1.compose(&m2_m3)?;
 
     assert_eq!(left.sort_map, right.sort_map, "sort_map associativity");
     assert_eq!(left.op_map, right.op_map, "op_map associativity");
@@ -137,7 +138,7 @@ fn theory_morphism_compose_associative() -> Result<(), Box<dyn std::error::Error
 }
 
 #[test]
-fn theory_morphism_identity_unit() {
+fn theory_morphism_identity_unit() -> Result<(), Box<dyn std::error::Error>> {
     let t1 = Theory::new(
         "T1",
         vec![Sort::simple("A"), Sort::simple("B")],
@@ -166,14 +167,16 @@ fn theory_morphism_identity_unit() {
     );
 
     // id ; m == m
-    let id_then_m = id1.compose(&m);
+    let id_then_m = id1.compose(&m)?;
     assert_eq!(id_then_m.sort_map, m.sort_map, "left identity sort_map");
     assert_eq!(id_then_m.op_map, m.op_map, "left identity op_map");
 
     // m ; id == m
-    let m_then_id = m.compose(&id2);
+    let m_then_id = m.compose(&id2)?;
     assert_eq!(m_then_id.sort_map, m.sort_map, "right identity sort_map");
     assert_eq!(m_then_id.op_map, m.op_map, "right identity op_map");
+
+    Ok(())
 }
 
 // =========================================================================

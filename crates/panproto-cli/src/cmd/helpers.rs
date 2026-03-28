@@ -223,15 +223,7 @@ pub fn convert_single_file(
             .wrap_err("lens get (forward) failed")?;
         view
     } else {
-        let complement = lens::Complement {
-            dropped_nodes: HashMap::new(),
-            dropped_arcs: Vec::new(),
-            dropped_fans: Vec::new(),
-            contraction_choices: HashMap::new(),
-            original_parent: HashMap::new(),
-            source_fingerprint: 0,
-            original_extra_fields: HashMap::new(),
-        };
+        let complement = lens::Complement::empty();
         lens::put(the_lens, &instance, &complement)
             .into_diagnostic()
             .wrap_err("lens put (backward) failed")?
@@ -285,8 +277,10 @@ pub fn build_schema_model(
             };
             panproto_core::gat::free_model(theory, &config).map_or_else(
                 |_| Vec::new(),
-                |fm| {
-                    fm.sort_interp
+                |result| {
+                    result
+                        .model
+                        .sort_interp
                         .get(&sort.name.to_string())
                         .cloned()
                         .unwrap_or_default()
