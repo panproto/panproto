@@ -21,7 +21,7 @@ panproto-git = { workspace = true }
 panproto-llvm = { workspace = true }
 clap = { workspace = true }
 git2 = "0.20"
-panproto-xrpc = { version = "0.18.1", path = "../panproto-xrpc" }
+panproto-xrpc = { version = "0.19.0", path = "../panproto-xrpc" }
 panproto-vcs = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 miette = { workspace = true }

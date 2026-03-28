@@ -1,5 +1,11 @@
 # Preface {.unnumbered}
 
+::: {.callout-caution}
+## Report bugs
+
+This guide is nearly fully LLM-generated. Proceed with caution. We appreciate [bug reports](https://github.com/panproto/panproto/issues).
+:::
+
 This is the panproto developer guide. It documents crate architecture, algebraic internals, and contributor workflow for the panproto schematic version control system. We assume Rust (ownership, traits, generics, `Result`-based error handling; Edition 2024) and basic algebraic thinking (sorts, operations, equations). The [tutorial's formal foundations appendix](https://panproto.dev/tutorial/appendices/A-formal-foundations.html) provides relevant background on the algebraic concepts.
 
 ## Crate map

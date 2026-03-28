@@ -126,9 +126,8 @@ repo = "https://github.com/tree-sitter-grammars/tree-sitter-chatito"
 extensions = ["chatito"]
 
 [circom]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-circom"
+repo = "https://github.com/Decurity/tree-sitter-circom"
 extensions = ["circom"]
-# UNAVAILABLE: repo not found, needs tree-sitter generate
 
 [clarity]
 repo = "https://github.com/xlittlerag/tree-sitter-clarity"
@@ -313,9 +312,8 @@ repo = "https://github.com/TravonteD/tree-sitter-fennel"
 extensions = ["fnl"]
 
 [fidl]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-fidl"
+repo = "https://github.com/google/tree-sitter-fidl"
 extensions = ["fidl"]
-# NOTE: Original repo google/tree-sitter-fidl may have moved
 
 [firrtl]
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-firrtl"
@@ -468,7 +466,6 @@ extensions = ["ispc"]
 [janet]
 repo = "https://github.com/GrayJack/tree-sitter-janet"
 extensions = ["janet"]
-c_symbol = "janet_simple"
 
 [java]
 repo = "https://github.com/tree-sitter/tree-sitter-java"
@@ -693,9 +690,8 @@ repo = "https://github.com/tree-sitter-grammars/tree-sitter-pony"
 extensions = ["pony"]
 
 [postscript]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-postscript"
+repo = "https://github.com/smoeding/tree-sitter-postscript"
 extensions = ["ps", "eps"]
-# NOTE: Original repo smoeding/tree-sitter-postscript may have moved
 
 [powershell]
 repo = "https://github.com/airbus-cert/tree-sitter-powershell"
@@ -710,9 +706,9 @@ repo = "https://github.com/LumaKernel/tree-sitter-prisma"
 extensions = ["prisma"]
 
 [prolog]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-prolog"
+repo = "https://github.com/foxyseta/tree-sitter-prolog"
 extensions = ["pro"]
-# NOTE: Original repo Rukiza/tree-sitter-prolog may have moved
+directory = "grammars/prolog"
 
 [promql]
 repo = "https://github.com/MichaHoffmann/tree-sitter-promql"
@@ -757,10 +753,9 @@ repo = "https://github.com/tree-sitter/tree-sitter-ql"
 extensions = ["ql"]
 
 [qml]
-repo = "https://github.com/nicolo-ribaudo/tree-sitter-qmljs"
+repo = "https://github.com/yuja/tree-sitter-qmljs"
 extensions = ["qml"]
 c_symbol = "qmljs"
-# NOTE: Original repo yuja/tree-sitter-qmljs may have moved
 
 [qmldir]
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-qmldir"
@@ -969,6 +964,7 @@ extensions = ["v"]
 [vb]
 repo = "https://github.com/CodeAnt-AI/tree-sitter-vb-dotnet"
 extensions = ["vb"]
+c_symbol = "vb_dotnet"
 
 [verilog]
 repo = "https://github.com/tree-sitter/tree-sitter-verilog"

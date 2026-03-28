@@ -204,7 +204,29 @@ fn derive_field_transforms(
                         .push(FieldTransform::ApplyExpr {
                             key: key.clone(),
                             expr: deq.impl_term.clone(),
+                            inverse: deq.inverse.clone(),
+                            coercion_class: deq.coercion_class,
                         });
+                }
+            }
+            TheoryTransform::CoerceSort {
+                sort_name,
+                coercion_expr,
+                inverse_expr,
+                coercion_class,
+                ..
+            } => {
+                for vid in src.vertices.keys() {
+                    if src.vertex(vid).is_some_and(|v| *v.kind == **sort_name) {
+                        transforms.entry(vid.clone()).or_default().push(
+                            FieldTransform::ApplyExpr {
+                                key: "__value__".to_string(),
+                                expr: coercion_expr.clone(),
+                                inverse: inverse_expr.clone(),
+                                coercion_class: *coercion_class,
+                            },
+                        );
+                    }
                 }
             }
             _ => {} // Other transforms don't produce field-level effects

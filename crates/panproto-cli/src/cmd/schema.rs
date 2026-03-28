@@ -913,11 +913,6 @@ fn classify_complement_kind(
     use panproto_core::lens::protolens::ComplementConstructor;
     match cc {
         ComplementConstructor::Empty => {}
-        ComplementConstructor::DroppedSortData { .. }
-        | ComplementConstructor::DroppedOpData { .. }
-        | ComplementConstructor::NatTransKernel { .. } => {
-            *has_dropped = true;
-        }
         ComplementConstructor::AddedElement { .. } => {
             *has_added = true;
         }
@@ -925,6 +920,9 @@ fn classify_complement_kind(
             for sub in subs {
                 classify_complement_kind(sub, has_added, has_dropped);
             }
+        }
+        _ => {
+            *has_dropped = true;
         }
     }
 }

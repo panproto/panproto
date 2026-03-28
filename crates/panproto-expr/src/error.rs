@@ -73,4 +73,12 @@ pub enum ExprError {
     /// Attempted to call a non-function value.
     #[error("not a function")]
     NotAFunction,
+
+    /// Integer arithmetic overflowed.
+    #[error("integer overflow")]
+    Overflow,
+
+    /// Float value is not representable as an integer (NaN, infinity, or out of range).
+    #[error("float not representable as integer: {0}")]
+    FloatNotRepresentable(String),
 }

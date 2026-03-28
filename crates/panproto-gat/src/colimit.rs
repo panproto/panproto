@@ -138,14 +138,16 @@ pub fn colimit(
                 .ok_or_else(|| GatError::SortConflict {
                     name: effective_name.to_string(),
                 })?;
-            if t1_sort.params != sort.params {
+            if t1_sort.params != sort.params || t1_sort.kind != sort.kind {
                 return Err(GatError::SortConflict {
                     name: effective_name.to_string(),
                 });
             }
             // Compatible duplicate; already included.
         } else {
-            sorts.push(sort.clone());
+            // Rename sort references in dependent sort params to use pushout names.
+            let renamed_sort = rename_sort_refs(sort, &sort_rename);
+            sorts.push(renamed_sort);
         }
     }
 
@@ -166,13 +168,16 @@ pub fn colimit(
                 .ok_or_else(|| GatError::OpConflict {
                     name: effective_name.to_string(),
                 })?;
-            if t1_op.inputs != op.inputs || t1_op.output != op.output {
+            // Compare with renamed sort references for compatibility.
+            let renamed_op = rename_op_sort_refs(op, &sort_rename);
+            if t1_op.inputs != renamed_op.inputs || t1_op.output != renamed_op.output {
                 return Err(GatError::OpConflict {
                     name: effective_name.to_string(),
                 });
             }
         } else {
-            ops.push(op.clone());
+            // Rename sort references in operation signature to use pushout names.
+            ops.push(rename_op_sort_refs(op, &sort_rename));
         }
     }
 
@@ -242,6 +247,52 @@ pub fn colimit(
 /// Applies `op_rename` to T2's equation terms before comparison so that
 /// operations identified via the morphisms are properly aligned with T1's
 /// naming convention.
+/// Rename sort references in a sort's dependent parameters using the rename map.
+fn rename_sort_refs(
+    sort: &crate::sort::Sort,
+    sort_rename: &HashMap<Arc<str>, Arc<str>>,
+) -> crate::sort::Sort {
+    let params = sort
+        .params
+        .iter()
+        .map(|p| {
+            let renamed_sort = sort_rename
+                .get(&p.sort)
+                .cloned()
+                .unwrap_or_else(|| Arc::clone(&p.sort));
+            crate::sort::SortParam::new(Arc::clone(&p.name), renamed_sort)
+        })
+        .collect();
+    crate::sort::Sort {
+        name: Arc::clone(&sort.name),
+        params,
+        kind: sort.kind.clone(),
+    }
+}
+
+/// Rename sort references in an operation's input/output sorts using the rename map.
+fn rename_op_sort_refs(
+    op: &crate::op::Operation,
+    sort_rename: &HashMap<Arc<str>, Arc<str>>,
+) -> crate::op::Operation {
+    let inputs = op
+        .inputs
+        .iter()
+        .map(|(name, sort)| {
+            let renamed = sort_rename
+                .get(sort)
+                .cloned()
+                .unwrap_or_else(|| Arc::clone(sort));
+            (Arc::clone(name), renamed)
+        })
+        .collect();
+    let output = sort_rename
+        .get(&op.output)
+        .cloned()
+        .unwrap_or_else(|| Arc::clone(&op.output));
+    crate::op::Operation::new(Arc::clone(&op.name), inputs, output)
+}
+
 fn merge_equations(
     t1: &Theory,
     t2: &Theory,
@@ -385,7 +436,7 @@ pub fn colimit_by_name(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theo
                 .ok_or_else(|| GatError::SortConflict {
                     name: sort.name.to_string(),
                 })?;
-            if t1_sort.params != sort.params {
+            if t1_sort.params != sort.params || t1_sort.kind != sort.kind {
                 return Err(GatError::SortConflict {
                     name: sort.name.to_string(),
                 });

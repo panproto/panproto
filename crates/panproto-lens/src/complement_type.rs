@@ -175,6 +175,9 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
             }],
             summary: format!("Value conversion via '{nat_trans_name}' — kernel captured."),
         },
+        ComplementConstructor::CoercedSortData { sort, class } => {
+            coerced_sort_spec(sort, *class, schema)
+        }
         ComplementConstructor::Composite(parts) => {
             let mut all_defaults = Vec::new();
             let mut all_captured = Vec::new();
@@ -192,6 +195,45 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                 summary,
             }
         }
+    }
+}
+
+/// Build a `ComplementSpec` for a coerced sort.
+fn coerced_sort_spec(
+    sort: &Name,
+    class: panproto_gat::CoercionClass,
+    schema: &Schema,
+) -> ComplementSpec {
+    let count = schema.vertices.values().filter(|v| v.kind == *sort).count();
+    let (kind, desc) = match class {
+        panproto_gat::CoercionClass::Iso => (
+            ComplementKind::Empty,
+            format!("Isomorphic coercion on sort '{sort}' ({count} vertices)."),
+        ),
+        panproto_gat::CoercionClass::Retraction => (
+            ComplementKind::DataCaptured,
+            format!("Retraction coercion on sort '{sort}' ({count} vertices): residual captured."),
+        ),
+        panproto_gat::CoercionClass::Opaque | _ => (
+            ComplementKind::DataCaptured,
+            format!(
+                "Opaque coercion on sort '{sort}' ({count} vertices): original values captured."
+            ),
+        ),
+    };
+    ComplementSpec {
+        kind,
+        forward_defaults: vec![],
+        captured_data: if class.is_lossless() {
+            vec![]
+        } else {
+            vec![CapturedField {
+                element_name: sort.clone(),
+                element_kind: "coerced_sort".into(),
+                description: desc.clone(),
+            }]
+        },
+        summary: desc,
     }
 }
 

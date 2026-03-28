@@ -1,5 +1,11 @@
 # Preface {.unnumbered}
 
+::: {.callout-caution}
+## Report bugs
+
+This tutorial is nearly fully LLM-generated. Proceed with caution. We appreciate [bug reports](https://github.com/panproto/panproto/issues).
+:::
+
 panproto is a schematic version control system parameterized over algebraic theories. It derives migration validation, data transformation, bidirectional lenses, and breaking-change detection from the pair of theories that define a schema language: one theory for the shape of schemas, one for the shape of data. The same algorithms apply to ATProto Lexicons, SQL DDL, Protobuf, GraphQL, and [76 other protocols](appendices/C-protocol-catalog.qmd). This tutorial teaches you how to use them.
 
 ## What this tutorial covers

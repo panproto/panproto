@@ -133,6 +133,13 @@ impl From<&HyperEdge> for CanonicalHyperEdge {
     }
 }
 
+#[derive(Serialize)]
+struct CanonicalCoercionSpec {
+    forward: panproto_expr::Expr,
+    inverse: Option<panproto_expr::Expr>,
+    class: panproto_gat::CoercionClass,
+}
+
 /// Canonical schema: `BTreeMap` fields, sorted `Vec`s, excludes precomputed indices.
 #[derive(Serialize)]
 struct CanonicalSchema {
@@ -149,7 +156,7 @@ struct CanonicalSchema {
     spans: BTreeMap<String, Span>,
     usage_modes: BTreeMap<Edge, UsageMode>,
     nominal: BTreeMap<String, bool>,
-    coercions: BTreeMap<(String, String), panproto_expr::Expr>,
+    coercions: BTreeMap<(String, String), CanonicalCoercionSpec>,
     mergers: BTreeMap<String, panproto_expr::Expr>,
     defaults: BTreeMap<String, panproto_expr::Expr>,
     policies: BTreeMap<String, panproto_expr::Expr>,
@@ -229,7 +236,16 @@ impl From<&Schema> for CanonicalSchema {
             coercions: s
                 .coercions
                 .iter()
-                .map(|((k1, k2), v)| ((k1.to_string(), k2.to_string()), v.clone()))
+                .map(|((k1, k2), v)| {
+                    (
+                        (k1.to_string(), k2.to_string()),
+                        CanonicalCoercionSpec {
+                            forward: v.forward.clone(),
+                            inverse: v.inverse.clone(),
+                            class: v.class,
+                        },
+                    )
+                })
                 .collect(),
             mergers: s
                 .mergers

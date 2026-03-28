@@ -72,6 +72,9 @@ pub(crate) fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
                 if node_a.value != node_b.value {
                     return false;
                 }
+                if node_a.extra_fields != node_b.extra_fields {
+                    return false;
+                }
             }
             None => return false,
         }

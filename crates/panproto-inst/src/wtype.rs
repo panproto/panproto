@@ -109,6 +109,10 @@ pub enum FieldTransform {
         key: String,
         /// The expression to evaluate (receives the field value as input).
         expr: panproto_expr::Expr,
+        /// Optional inverse expression for round-tripping.
+        inverse: Option<panproto_expr::Expr>,
+        /// Round-trip classification of this transformation.
+        coercion_class: panproto_gat::CoercionClass,
     },
     /// Apply a field transform at a nested path within the Value tree.
     ///
@@ -144,6 +148,10 @@ pub enum FieldTransform {
         target_key: String,
         /// The expression, with all `extra_fields` bound as variables.
         expr: panproto_expr::Expr,
+        /// Optional inverse expression for round-tripping.
+        inverse: Option<panproto_expr::Expr>,
+        /// Round-trip classification of this transformation.
+        coercion_class: panproto_gat::CoercionClass,
     },
     /// Case analysis on node values — the coproduct eliminator for the
     /// field transform algebra.
@@ -192,6 +200,33 @@ pub enum FieldTransform {
     },
 }
 
+impl FieldTransform {
+    /// Compute the coercion class of this field transform.
+    ///
+    /// The class describes the round-trip properties: whether the transform
+    /// is lossless (Iso), has a retraction (Retraction), or is opaque.
+    #[must_use]
+    pub fn coercion_class(&self) -> panproto_gat::CoercionClass {
+        match self {
+            Self::RenameField { .. } => panproto_gat::CoercionClass::Iso,
+            Self::DropField { .. } | Self::KeepFields { .. } => panproto_gat::CoercionClass::Opaque,
+            Self::AddField { .. } | Self::MapReferences { .. } => {
+                panproto_gat::CoercionClass::Retraction
+            }
+            Self::ApplyExpr { coercion_class, .. } | Self::ComputeField { coercion_class, .. } => {
+                *coercion_class
+            }
+            Self::PathTransform { inner, .. } => inner.coercion_class(),
+            Self::Case { branches } => branches
+                .iter()
+                .flat_map(|b| b.transforms.iter())
+                .fold(panproto_gat::CoercionClass::Iso, |acc, t| {
+                    acc.compose(t.coercion_class())
+                }),
+        }
+    }
+}
+
 /// A branch in a [`FieldTransform::Case`] analysis.
 ///
 /// Contains a predicate expression and a sequence of transforms to apply
@@ -205,6 +240,20 @@ pub struct CaseBranch {
 }
 
 impl CompiledMigration {
+    /// Compute the composite coercion class of all field transforms in this migration.
+    ///
+    /// Folds over every transform across all vertices using `CoercionClass::compose`,
+    /// starting from `Iso` (the identity element).
+    #[must_use]
+    pub fn coercion_class(&self) -> panproto_gat::CoercionClass {
+        self.field_transforms
+            .values()
+            .flat_map(|ts| ts.iter())
+            .fold(panproto_gat::CoercionClass::Iso, |acc, t| {
+                acc.compose(t.coercion_class())
+            })
+    }
+
     /// Add a field rename transform for a vertex.
     ///
     /// After the node survives and its anchor is remapped, the field
@@ -270,6 +319,8 @@ impl CompiledMigration {
             .push(FieldTransform::ApplyExpr {
                 key: key.to_owned(),
                 expr,
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Opaque,
             });
     }
 
@@ -304,6 +355,8 @@ impl CompiledMigration {
             .push(FieldTransform::ComputeField {
                 target_key: target_key.to_owned(),
                 expr,
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Opaque,
             });
     }
 
@@ -795,8 +848,23 @@ pub fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
             FieldTransform::KeepFields { keys } => {
                 node.extra_fields.retain(|k, _| keys.contains(k));
             }
-            FieldTransform::ApplyExpr { key, expr } => {
-                if let Some(val) = node.extra_fields.get(key) {
+            FieldTransform::ApplyExpr { key, expr, .. } => {
+                // Special case: "__value__" targets node.value (leaf node primary value),
+                // not extra_fields. This is how coercions (kind changes) are applied.
+                if key == "__value__" {
+                    if let Some(crate::value::FieldPresence::Present(val)) = &node.value {
+                        let input = value_to_expr_literal(val);
+                        let env = panproto_expr::Env::new()
+                            .extend(std::sync::Arc::from("v"), input.clone())
+                            .extend(std::sync::Arc::from("__value__"), input);
+                        let config = panproto_expr::EvalConfig::default();
+                        if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
+                            node.value = Some(crate::value::FieldPresence::Present(
+                                expr_literal_to_value(&result),
+                            ));
+                        }
+                    }
+                } else if let Some(val) = node.extra_fields.get(key) {
                     let input = value_to_expr_literal(val);
                     let env =
                         panproto_expr::Env::new().extend(std::sync::Arc::from(key.as_str()), input);
@@ -807,7 +875,9 @@ pub fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
                     }
                 }
             }
-            FieldTransform::ComputeField { target_key, expr } => {
+            FieldTransform::ComputeField {
+                target_key, expr, ..
+            } => {
                 let env = build_env_from_extra_fields(&node.extra_fields);
                 let config = panproto_expr::EvalConfig::default();
                 if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
@@ -982,7 +1052,8 @@ pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
 ///
 /// Integer-valued floats are normalized to `Value::Int` for round-trip
 /// fidelity with JSON (which doesn't distinguish int/float).
-fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
+#[must_use]
+pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
     match lit {
         panproto_expr::Literal::Bool(b) => Value::Bool(*b),
         panproto_expr::Literal::Int(i) => Value::Int(*i),
@@ -1072,6 +1143,10 @@ pub fn wtype_extend(
         } else if !migration.surviving_verts.contains(&node.anchor) {
             // Node's anchor has no remap and doesn't survive — skip it
             continue;
+        }
+        // Apply field transforms (coercions) to the extended node.
+        if let Some(transforms) = migration.field_transforms.get(&node.anchor) {
+            apply_field_transforms(&mut new_node, transforms);
         }
         new_nodes.insert(id, new_node);
     }
@@ -2046,6 +2121,8 @@ mod tests {
         let transform = FieldTransform::ComputeField {
             target_key: "name".to_string(),
             expr,
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Opaque,
         };
         apply_field_transforms(&mut node, &[transform]);
 
@@ -2080,6 +2157,8 @@ mod tests {
         let transform = FieldTransform::ComputeField {
             target_key: "name".to_string(),
             expr,
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Opaque,
         };
         apply_field_transforms(&mut node, &[transform]);
 
@@ -2110,6 +2189,8 @@ mod tests {
                     transforms: vec![FieldTransform::ComputeField {
                         target_key: "name".into(),
                         expr: Expr::Lit(Literal::Str("h1".into())),
+                        inverse: None,
+                        coercion_class: panproto_gat::CoercionClass::Opaque,
                     }],
                 },
                 CaseBranch {
@@ -2120,6 +2201,8 @@ mod tests {
                     transforms: vec![FieldTransform::ComputeField {
                         target_key: "name".into(),
                         expr: Expr::Lit(Literal::Str("h2".into())),
+                        inverse: None,
+                        coercion_class: panproto_gat::CoercionClass::Opaque,
                     }],
                 },
             ],

@@ -105,6 +105,26 @@ pub enum BreakingChange {
         /// The new usage mode.
         new_mode: panproto_schema::UsageMode,
     },
+
+    /// A coercion's round-trip class was downgraded (e.g., Iso to Retraction).
+    CoercionClassDowngraded {
+        /// The source kind of the coercion.
+        from_kind: String,
+        /// The target kind of the coercion.
+        to_kind: String,
+        /// The old coercion class.
+        old_class: String,
+        /// The new coercion class.
+        new_class: String,
+    },
+
+    /// A coercion was removed from the schema.
+    CoercionRemoved {
+        /// The source kind of the removed coercion.
+        from_kind: String,
+        /// The target kind of the removed coercion.
+        to_kind: String,
+    },
 }
 
 /// A non-breaking (backward-compatible) change.
@@ -322,6 +342,53 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         non_breaking,
         compatible,
     }
+}
+
+/// Classify a schema diff with access to the old and new schemas for
+/// enrichment-level checks (coercion class downgrades).
+///
+/// This extends the basic [`classify`] with additional checks that
+/// require the full schema objects, not just the structural diff.
+#[must_use]
+pub fn classify_with_schemas(
+    diff: &SchemaDiff,
+    protocol: &Protocol,
+    old_schema: &panproto_schema::Schema,
+    new_schema: &panproto_schema::Schema,
+) -> CompatReport {
+    let mut report = classify(diff, protocol);
+
+    // Check coercion class downgrades: if a coercion exists in both schemas
+    // but the new class is strictly greater (more lossy) than the old class,
+    // that is a breaking change.
+    for (key, new_spec) in &new_schema.coercions {
+        if let Some(old_spec) = old_schema.coercions.get(key) {
+            if new_spec.class > old_spec.class {
+                report
+                    .breaking
+                    .push(BreakingChange::CoercionClassDowngraded {
+                        from_kind: key.0.to_string(),
+                        to_kind: key.1.to_string(),
+                        old_class: format!("{:?}", old_spec.class),
+                        new_class: format!("{:?}", new_spec.class),
+                    });
+            }
+        }
+    }
+
+    // Check for removed coercions: if a coercion existed in the old schema
+    // but is entirely absent from the new, that is a breaking change.
+    for key in old_schema.coercions.keys() {
+        if !new_schema.coercions.contains_key(key) {
+            report.breaking.push(BreakingChange::CoercionRemoved {
+                from_kind: key.0.to_string(),
+                to_kind: key.1.to_string(),
+            });
+        }
+    }
+
+    report.compatible = report.breaking.is_empty();
+    report
 }
 
 /// Determine whether a constraint value change is tightening or relaxing.

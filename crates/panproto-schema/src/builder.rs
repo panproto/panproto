@@ -13,7 +13,7 @@ use smallvec::SmallVec;
 
 use crate::error::SchemaError;
 use crate::protocol::Protocol;
-use crate::schema::{Constraint, Edge, HyperEdge, Schema, Vertex};
+use crate::schema::{CoercionSpec, Constraint, Edge, HyperEdge, Schema, Vertex};
 use panproto_expr::Expr;
 
 /// A builder for incrementally constructing a validated [`Schema`].
@@ -36,7 +36,7 @@ pub struct SchemaBuilder {
     required: HashMap<Name, Vec<Edge>>,
     nsids: HashMap<Name, Name>,
     edge_set: FxHashSet<(Name, Name, Name, Option<Name>)>,
-    coercions: HashMap<(Name, Name), Expr>,
+    coercions: HashMap<(Name, Name), CoercionSpec>,
     mergers: HashMap<Name, Expr>,
     defaults: HashMap<Name, Expr>,
     policies: HashMap<Name, Expr>,
@@ -243,11 +243,11 @@ impl SchemaBuilder {
         self
     }
 
-    /// Add a coercion expression for a `(source_kind, target_kind)` pair.
+    /// Add a coercion specification for a `(source_kind, target_kind)` pair.
     #[must_use]
-    pub fn coercion(mut self, source_kind: &str, target_kind: &str, expr: Expr) -> Self {
+    pub fn coercion(mut self, source_kind: &str, target_kind: &str, spec: CoercionSpec) -> Self {
         self.coercions
-            .insert((Name::from(source_kind), Name::from(target_kind)), expr);
+            .insert((Name::from(source_kind), Name::from(target_kind)), spec);
         self
     }
 

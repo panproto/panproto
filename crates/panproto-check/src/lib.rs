@@ -19,7 +19,9 @@ pub mod diff;
 pub mod error;
 pub mod report;
 
-pub use classify::{BreakingChange, CompatReport, NonBreakingChange, classify};
+pub use classify::{
+    BreakingChange, CompatReport, NonBreakingChange, classify, classify_with_schemas,
+};
 pub use diff::{ConstraintChange, ConstraintDiff, KindChange, SchemaDiff, diff};
 pub use error::CheckError;
 pub use report::{report_json, report_text};

@@ -27,6 +27,11 @@ pub fn complement_cost(complement: &ComplementConstructor) -> f64 {
         | ComplementConstructor::DroppedOpData { .. } => 1.0,
         ComplementConstructor::NatTransKernel { .. } => 10.0,
         ComplementConstructor::AddedElement { .. } => 0.5,
+        ComplementConstructor::CoercedSortData { class, .. } => match class {
+            panproto_gat::CoercionClass::Iso => 0.0,
+            panproto_gat::CoercionClass::Retraction => 1.0,
+            panproto_gat::CoercionClass::Opaque | _ => f64::INFINITY,
+        },
         ComplementConstructor::Composite(children) => children.iter().map(complement_cost).sum(),
     }
 }
@@ -183,5 +188,62 @@ mod tests {
         ]);
         // (1.0 + 0.0) + 0.5 = 1.5
         assert!((complement_cost(&outer) - 1.5).abs() < f64::EPSILON);
+    }
+
+    // --- CoercedSortData cost tests ---
+
+    #[test]
+    fn cost_coerced_iso_is_zero() {
+        let c = ComplementConstructor::CoercedSortData {
+            sort: Name::from("MySort"),
+            class: panproto_gat::CoercionClass::Iso,
+        };
+        assert!(complement_cost(&c).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn cost_coerced_retraction_is_one() {
+        let c = ComplementConstructor::CoercedSortData {
+            sort: Name::from("MySort"),
+            class: panproto_gat::CoercionClass::Retraction,
+        };
+        assert!((complement_cost(&c) - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn cost_coerced_opaque_is_infinity() {
+        let c = ComplementConstructor::CoercedSortData {
+            sort: Name::from("MySort"),
+            class: panproto_gat::CoercionClass::Opaque,
+        };
+        assert!(complement_cost(&c).is_infinite());
+    }
+
+    #[test]
+    fn subadditivity_coerced_retraction_pair() {
+        let a = ComplementConstructor::CoercedSortData {
+            sort: Name::from("A"),
+            class: panproto_gat::CoercionClass::Retraction,
+        };
+        let b = ComplementConstructor::CoercedSortData {
+            sort: Name::from("B"),
+            class: panproto_gat::CoercionClass::Retraction,
+        };
+        // Composite cost = 1.0 + 1.0 = 2.0, sum = 2.0. Equal, so <= holds.
+        assert!(verify_subadditivity(&a, &b));
+    }
+
+    #[test]
+    fn subadditivity_coerced_with_opaque() {
+        let a = ComplementConstructor::CoercedSortData {
+            sort: Name::from("A"),
+            class: panproto_gat::CoercionClass::Retraction,
+        };
+        let b = ComplementConstructor::CoercedSortData {
+            sort: Name::from("B"),
+            class: panproto_gat::CoercionClass::Opaque,
+        };
+        // Composite cost = 1.0 + inf = inf, sum = 1.0 + inf = inf. inf <= inf.
+        assert!(verify_subadditivity(&a, &b));
     }
 }

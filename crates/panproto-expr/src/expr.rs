@@ -67,6 +67,29 @@ pub enum Pattern {
     Constructor(Arc<str>, Vec<Self>),
 }
 
+/// Simple type classification for expressions.
+///
+/// This is a lightweight type system for the expression language,
+/// independent of the GAT type system in `panproto-gat`. Used for
+/// type inference and coercion validation within expressions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ExprType {
+    /// 64-bit signed integer.
+    Int,
+    /// 64-bit IEEE 754 float.
+    Float,
+    /// UTF-8 string.
+    Str,
+    /// Boolean.
+    Bool,
+    /// Homogeneous list.
+    List,
+    /// Record (ordered map of fields to values).
+    Record,
+    /// Unknown or polymorphic type.
+    Any,
+}
+
 /// Built-in operations, grouped by domain.
 ///
 /// Each operation has a fixed arity enforced at evaluation time.
@@ -89,11 +112,13 @@ pub enum BuiltinOp {
     /// `abs(a: int|float) → int|float`
     Abs,
 
-    // --- Rounding (2) ---
+    // --- Rounding (3) ---
     /// `floor(a: float) → int`
     Floor,
     /// `ceil(a: float) → int`
     Ceil,
+    /// `round(a: float) → int` (rounds to nearest, ties to even)
+    Round,
 
     // --- Comparison (6) ---
     /// `eq(a, b) → bool`
@@ -169,6 +194,15 @@ pub enum BuiltinOp {
     /// `has_field(r: record, name: string) → bool`
     HasField,
 
+    // --- Utility (3) ---
+    /// `default(x, fallback)`: returns fallback if x is null, else x.
+    DefaultVal,
+    /// `clamp(x, min, max)`: clamp a numeric value to the range [min, max].
+    Clamp,
+    /// `truncate_str(s, max_len)`: truncate a string to at most `max_len` bytes
+    /// (char-boundary safe).
+    TruncateStr,
+
     // --- Type coercions (6) ---
     /// `int_to_float(n: int) → float`
     IntToFloat,
@@ -222,6 +256,7 @@ impl BuiltinOp {
             | Self::Abs
             | Self::Floor
             | Self::Ceil
+            | Self::Round
             | Self::Not
             | Self::Upper
             | Self::Lower
@@ -270,9 +305,90 @@ impl BuiltinOp {
             | Self::Contains
             | Self::FlatMap
             | Self::Edge
-            | Self::HasEdge => 2,
+            | Self::HasEdge
+            | Self::DefaultVal
+            | Self::TruncateStr => 2,
             // Ternary
-            Self::Slice | Self::Replace | Self::Fold => 3,
+            Self::Slice | Self::Replace | Self::Fold | Self::Clamp => 3,
+        }
+    }
+
+    /// Returns the type signature `(input_types, output_type)` for builtins
+    /// with a known, monomorphic signature. Polymorphic builtins (e.g., `Add`
+    /// works on both int and float) return `None`.
+    #[must_use]
+    pub const fn signature(self) -> Option<(&'static [ExprType], ExprType)> {
+        match self {
+            // Coercions: precise source→target signatures.
+            Self::IntToFloat => Some((&[ExprType::Int], ExprType::Float)),
+            Self::FloatToInt | Self::Floor | Self::Ceil | Self::Round => {
+                Some((&[ExprType::Float], ExprType::Int))
+            }
+            Self::IntToStr => Some((&[ExprType::Int], ExprType::Str)),
+            Self::FloatToStr => Some((&[ExprType::Float], ExprType::Str)),
+            Self::StrToInt | Self::Len => Some((&[ExprType::Str], ExprType::Int)),
+            Self::StrToFloat => Some((&[ExprType::Str], ExprType::Float)),
+
+            // Boolean operations.
+            Self::And | Self::Or => Some((&[ExprType::Bool, ExprType::Bool], ExprType::Bool)),
+            Self::Not => Some((&[ExprType::Bool], ExprType::Bool)),
+
+            // Comparison: polymorphic inputs, bool output.
+            Self::Eq | Self::Neq | Self::Lt | Self::Lte | Self::Gt | Self::Gte => {
+                Some((&[ExprType::Any, ExprType::Any], ExprType::Bool))
+            }
+
+            // String operations.
+            Self::Concat => Some((&[ExprType::Str, ExprType::Str], ExprType::Str)),
+            Self::Slice => Some((
+                &[ExprType::Str, ExprType::Int, ExprType::Int],
+                ExprType::Str,
+            )),
+            Self::Upper | Self::Lower | Self::Trim => Some((&[ExprType::Str], ExprType::Str)),
+            Self::Split => Some((&[ExprType::Str, ExprType::Str], ExprType::List)),
+            Self::Join => Some((&[ExprType::List, ExprType::Str], ExprType::Str)),
+            Self::Replace => Some((
+                &[ExprType::Str, ExprType::Str, ExprType::Str],
+                ExprType::Str,
+            )),
+            Self::Contains => Some((&[ExprType::Str, ExprType::Str], ExprType::Bool)),
+            Self::TruncateStr => Some((&[ExprType::Str, ExprType::Int], ExprType::Str)),
+
+            // List operations.
+            Self::Length => Some((&[ExprType::List], ExprType::Int)),
+            Self::Reverse => Some((&[ExprType::List], ExprType::List)),
+
+            // Record operations.
+            Self::MergeRecords => Some((&[ExprType::Record, ExprType::Record], ExprType::Record)),
+            Self::Keys | Self::Values => Some((&[ExprType::Record], ExprType::List)),
+            Self::HasField => Some((&[ExprType::Record, ExprType::Str], ExprType::Bool)),
+
+            // Type inspection.
+            Self::TypeOf => Some((&[ExprType::Any], ExprType::Str)),
+            Self::IsNull | Self::IsList => Some((&[ExprType::Any], ExprType::Bool)),
+
+            // Polymorphic builtins: return None.
+            Self::Add
+            | Self::Sub
+            | Self::Mul
+            | Self::Div
+            | Self::Mod
+            | Self::Neg
+            | Self::Abs
+            | Self::Map
+            | Self::Filter
+            | Self::Fold
+            | Self::FlatMap
+            | Self::Append
+            | Self::Head
+            | Self::Tail
+            | Self::DefaultVal
+            | Self::Clamp
+            | Self::Edge
+            | Self::Children
+            | Self::HasEdge
+            | Self::EdgeCount
+            | Self::Anchor => None,
         }
     }
 }
@@ -316,6 +432,42 @@ impl Expr {
     #[must_use]
     pub const fn builtin(op: BuiltinOp, args: Vec<Self>) -> Self {
         Self::Builtin(op, args)
+    }
+
+    /// Coerce an integer to a float.
+    #[must_use]
+    pub fn int_to_float(arg: Self) -> Self {
+        Self::Builtin(BuiltinOp::IntToFloat, vec![arg])
+    }
+
+    /// Coerce a float to an integer (truncates toward zero).
+    #[must_use]
+    pub fn float_to_int(arg: Self) -> Self {
+        Self::Builtin(BuiltinOp::FloatToInt, vec![arg])
+    }
+
+    /// Coerce an integer to a string.
+    #[must_use]
+    pub fn int_to_str(arg: Self) -> Self {
+        Self::Builtin(BuiltinOp::IntToStr, vec![arg])
+    }
+
+    /// Coerce a float to a string.
+    #[must_use]
+    pub fn float_to_str(arg: Self) -> Self {
+        Self::Builtin(BuiltinOp::FloatToStr, vec![arg])
+    }
+
+    /// Parse a string as an integer.
+    #[must_use]
+    pub fn str_to_int(arg: Self) -> Self {
+        Self::Builtin(BuiltinOp::StrToInt, vec![arg])
+    }
+
+    /// Parse a string as a float.
+    #[must_use]
+    pub fn str_to_float(arg: Self) -> Self {
+        Self::Builtin(BuiltinOp::StrToFloat, vec![arg])
     }
 }
 

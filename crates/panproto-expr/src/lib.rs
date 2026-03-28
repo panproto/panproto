@@ -22,11 +22,12 @@ mod eval;
 mod expr;
 mod literal;
 mod subst;
+pub mod typecheck;
 
 pub use builtin::apply_builtin;
 pub use env::Env;
 pub use error::ExprError;
 pub use eval::{EvalConfig, eval};
-pub use expr::{BuiltinOp, Expr, Pattern};
+pub use expr::{BuiltinOp, Expr, ExprType, Pattern};
 pub use literal::Literal;
 pub use subst::{free_vars, pattern_vars, substitute};

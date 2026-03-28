@@ -189,6 +189,24 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Nam
         .map(|(id, e)| (id.clone(), e.clone()))
         .collect();
 
+    // Filter coercions: keep only those whose kind pair references surviving vertex kinds.
+    let surviving_kinds: rustc_hash::FxHashSet<&Name> =
+        new_vertices.values().map(|v| &v.kind).collect();
+    let new_coercions = schema
+        .coercions
+        .iter()
+        .filter(|((from, to), _)| surviving_kinds.contains(from) && surviving_kinds.contains(to))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    // Filter policies: keep only those keyed by surviving vertex IDs.
+    let new_policies = schema
+        .policies
+        .iter()
+        .filter(|(id, _)| new_vertices.contains_key(*id))
+        .map(|(id, e)| (id.clone(), e.clone()))
+        .collect();
+
     Schema {
         protocol: schema.protocol.clone(),
         vertices: new_vertices,
@@ -203,10 +221,10 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Nam
         spans: schema.spans.clone(),
         usage_modes: schema.usage_modes.clone(),
         nominal: schema.nominal.clone(),
-        coercions: schema.coercions.clone(),
+        coercions: new_coercions,
         mergers: new_mergers,
         defaults: new_defaults,
-        policies: schema.policies.clone(),
+        policies: new_policies,
         outgoing,
         incoming,
         between,

@@ -137,6 +137,20 @@ pub enum UsageMode {
     Affine,
 }
 
+/// Specification of a coercion between two value kinds.
+///
+/// Contains the forward coercion expression, an optional inverse for
+/// round-tripping, and the coercion class classifying the round-trip behavior.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CoercionSpec {
+    /// Forward coercion expression (source to target).
+    pub forward: panproto_expr::Expr,
+    /// Inverse coercion expression (target to source) for the `put` direction.
+    pub inverse: Option<panproto_expr::Expr>,
+    /// Round-trip classification.
+    pub class: panproto_gat::CoercionClass,
+}
+
 /// A schema: a model of the protocol's schema theory.
 ///
 /// Contains both the raw data (vertices, edges, constraints, etc.) and
@@ -180,9 +194,9 @@ pub struct Schema {
     pub nominal: HashMap<Name, bool>,
 
     // -- enrichment fields --
-    /// Coercion expressions: `(source_kind, target_kind)` to coercion expression.
+    /// Coercion specifications: `(source_kind, target_kind)` to coercion spec.
     #[serde(default, with = "crate::serde_helpers::map_as_vec_default")]
-    pub coercions: HashMap<(Name, Name), panproto_expr::Expr>,
+    pub coercions: HashMap<(Name, Name), CoercionSpec>,
     /// Merger expressions: `vertex_id` to merger expression.
     #[serde(default)]
     pub mergers: HashMap<Name, panproto_expr::Expr>,

@@ -73,6 +73,9 @@ fn pair_sorts(
             if s1.arity() != s2.arity() {
                 continue;
             }
+            if s1.kind != s2.kind {
+                continue; // Incompatible kind; not a valid pairing
+            }
             let pb = paired_name(&s1.name, s2_name);
             triples.push((Arc::clone(&s1.name), Arc::clone(s2_name), Arc::clone(&pb)));
             pair_map.insert((Arc::clone(&s1.name), Arc::clone(s2_name)), pb);
@@ -88,27 +91,27 @@ fn build_sorts(t1: &Theory, sort_triples: &[Triple]) -> Vec<Sort> {
         .iter()
         .filter_map(|(s1_name, _s2_name, pb_name)| {
             let s1 = t1.find_sort(s1_name)?;
-            if s1.params.is_empty() {
-                Some(Sort::simple(Arc::clone(pb_name)))
-            } else {
-                let pb_params: Vec<_> = s1
-                    .params
-                    .iter()
-                    .filter_map(|p| {
-                        sort_triples.iter().find_map(|(sn, _s2n, pbn)| {
-                            if *sn == p.sort {
-                                Some(crate::sort::SortParam::new(
-                                    Arc::clone(&p.name),
-                                    Arc::clone(pbn),
-                                ))
-                            } else {
-                                None
-                            }
-                        })
+            let pb_params: Vec<_> = s1
+                .params
+                .iter()
+                .filter_map(|p| {
+                    sort_triples.iter().find_map(|(sn, _s2n, pbn)| {
+                        if *sn == p.sort {
+                            Some(crate::sort::SortParam::new(
+                                Arc::clone(&p.name),
+                                Arc::clone(pbn),
+                            ))
+                        } else {
+                            None
+                        }
                     })
-                    .collect();
-                Some(Sort::dependent(Arc::clone(pb_name), pb_params))
-            }
+                })
+                .collect();
+            Some(Sort {
+                name: Arc::clone(pb_name),
+                params: pb_params,
+                kind: s1.kind.clone(),
+            })
         })
         .collect()
 }
@@ -247,12 +250,27 @@ fn pair_directed_eqs(
             let pb_lhs = de1.lhs.rename_ops(&pb_op_rename);
             let pb_rhs = de1.rhs.rename_ops(&pb_op_rename);
 
+            let coercion_class = de1.coercion_class.compose(de2.coercion_class);
+            let source_kind = if de1.source_kind == de2.source_kind {
+                de1.source_kind
+            } else {
+                None
+            };
+            let target_kind = if de1.target_kind == de2.target_kind {
+                de1.target_kind
+            } else {
+                None
+            };
+
             directed_eqs.push(DirectedEquation {
                 name: paired_name(&de1.name, &de2.name),
                 lhs: pb_lhs,
                 rhs: pb_rhs,
                 impl_term: de1.impl_term.clone(),
                 inverse: de1.inverse.clone(),
+                source_kind,
+                target_kind,
+                coercion_class,
             });
         }
     }

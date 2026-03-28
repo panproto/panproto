@@ -130,6 +130,56 @@ pub fn functor_pi(
     })
 }
 
+/// Build the fiber map from a migration's vertex remap and surviving vertices.
+fn build_fiber_map(migration: &CompiledMigration) -> HashMap<Name, Vec<Name>> {
+    let mut fiber_map: HashMap<Name, Vec<Name>> = HashMap::new();
+    let remap_targets: std::collections::HashSet<&Name> = migration.vertex_remap.values().collect();
+
+    for (src, tgt) in &migration.vertex_remap {
+        fiber_map.entry(tgt.clone()).or_default().push(src.clone());
+    }
+
+    for sv in &migration.surviving_verts {
+        if !migration.vertex_remap.contains_key(sv) && !remap_targets.contains(sv) {
+            fiber_map.entry(sv.clone()).or_default().push(sv.clone());
+        }
+    }
+
+    fiber_map
+}
+
+/// Check that no multi-element fiber produces a product exceeding the limit.
+fn check_fiber_product_size(
+    fiber_map: &HashMap<Name, Vec<Name>>,
+    instance: &WInstance,
+    max_product_nodes: usize,
+) -> Result<(), RestrictError> {
+    for (tgt_v, src_vs) in fiber_map {
+        if src_vs.len() > 1 {
+            let fiber_node_counts: Vec<usize> = src_vs
+                .iter()
+                .map(|sv| {
+                    instance
+                        .nodes
+                        .values()
+                        .filter(|n| n.anchor == *sv)
+                        .count()
+                        .max(1)
+                })
+                .collect();
+            let product_size: usize = fiber_node_counts.iter().product();
+            if product_size > max_product_nodes {
+                return Err(RestrictError::ProductSizeExceeded {
+                    vertex: tgt_v.to_string(),
+                    actual: product_size,
+                    limit: max_product_nodes,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Right Kan extension (`Pi_F`) for W-type instances.
 ///
 /// For single-element fibers (each target vertex has exactly one source
@@ -152,45 +202,8 @@ pub fn wtype_pi(
     migration: &CompiledMigration,
     max_product_nodes: usize,
 ) -> Result<WInstance, RestrictError> {
-    // Build fiber map
-    let mut fiber_map: HashMap<Name, Vec<Name>> = HashMap::new();
-    let remap_targets: std::collections::HashSet<&Name> = migration.vertex_remap.values().collect();
-
-    for (src, tgt) in &migration.vertex_remap {
-        fiber_map.entry(tgt.clone()).or_default().push(src.clone());
-    }
-
-    for sv in &migration.surviving_verts {
-        if !migration.vertex_remap.contains_key(sv) && !remap_targets.contains(sv) {
-            fiber_map.entry(sv.clone()).or_default().push(sv.clone());
-        }
-    }
-
-    // Check multi-element fibers: reject if the product would be too large
-    for (tgt_v, src_vs) in &fiber_map {
-        if src_vs.len() > 1 {
-            // Count nodes anchored at each source vertex in the fiber
-            let fiber_node_counts: Vec<usize> = src_vs
-                .iter()
-                .map(|sv| {
-                    instance
-                        .nodes
-                        .values()
-                        .filter(|n| n.anchor == *sv)
-                        .count()
-                        .max(1)
-                })
-                .collect();
-            let product_size: usize = fiber_node_counts.iter().product();
-            if product_size > max_product_nodes {
-                return Err(RestrictError::ProductSizeExceeded {
-                    vertex: tgt_v.to_string(),
-                    actual: product_size,
-                    limit: max_product_nodes,
-                });
-            }
-        }
-    }
+    let fiber_map = build_fiber_map(migration);
+    check_fiber_product_size(&fiber_map, instance, max_product_nodes)?;
 
     // With single-element fibers, this is equivalent to wtype_extend
     // but we implement it directly for clarity.
@@ -215,6 +228,10 @@ pub fn wtype_pi(
             new_node.anchor.clone_from(remapped);
         } else if !migration.surviving_verts.contains(&node.anchor) {
             continue;
+        }
+        // Apply field transforms (coercions) to the Pi node.
+        if let Some(transforms) = migration.field_transforms.get(&node.anchor) {
+            crate::wtype::apply_field_transforms(&mut new_node, transforms);
         }
         new_nodes.insert(id, new_node);
     }

@@ -145,10 +145,16 @@ pub struct DirectedEquation {
     pub lhs: Term,
     /// The right-hand side (rewrite target).
     pub rhs: Term,
-    /// The computable implementation of the rewrite.
+    /// The computable implementation of the rewrite (forward direction).
     pub impl_term: panproto_expr::Expr,
     /// Optional inverse for the backward (put) direction.
     pub inverse: Option<panproto_expr::Expr>,
+    /// Source value kind (if this is a value-level coercion).
+    pub source_kind: Option<crate::sort::ValueKind>,
+    /// Target value kind (if this is a value-level coercion).
+    pub target_kind: Option<crate::sort::ValueKind>,
+    /// Round-trip classification of this directed equation as a coercion.
+    pub coercion_class: crate::sort::CoercionClass,
 }
 
 /// Check if two terms are α-equivalent (equal up to consistent variable renaming).
@@ -335,7 +341,7 @@ fn normalize_once(
 }
 
 impl DirectedEquation {
-    /// Create a new directed equation.
+    /// Create a new directed equation with no inverse (Opaque coercion class).
     #[must_use]
     pub fn new(
         name: impl Into<Arc<str>>,
@@ -349,10 +355,13 @@ impl DirectedEquation {
             rhs,
             impl_term,
             inverse: None,
+            source_kind: None,
+            target_kind: None,
+            coercion_class: crate::sort::CoercionClass::Opaque,
         }
     }
 
-    /// Create a directed equation with an inverse.
+    /// Create a directed equation with an inverse (Retraction coercion class).
     #[must_use]
     pub fn with_inverse(
         name: impl Into<Arc<str>>,
@@ -367,7 +376,24 @@ impl DirectedEquation {
             rhs,
             impl_term,
             inverse: Some(inverse),
+            source_kind: None,
+            target_kind: None,
+            coercion_class: crate::sort::CoercionClass::Retraction,
         }
+    }
+
+    /// Set the value kind annotations and coercion class on this directed equation.
+    #[must_use]
+    pub const fn with_kinds(
+        mut self,
+        source: crate::sort::ValueKind,
+        target: crate::sort::ValueKind,
+        class: crate::sort::CoercionClass,
+    ) -> Self {
+        self.source_kind = Some(source);
+        self.target_kind = Some(target);
+        self.coercion_class = class;
+        self
     }
 
     /// Apply an operation renaming to both sides of this directed equation.
@@ -379,6 +405,9 @@ impl DirectedEquation {
             rhs: self.rhs.rename_ops(op_map),
             impl_term: self.impl_term.clone(),
             inverse: self.inverse.clone(),
+            source_kind: self.source_kind,
+            target_kind: self.target_kind,
+            coercion_class: self.coercion_class,
         }
     }
 }

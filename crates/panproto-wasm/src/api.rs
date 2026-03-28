@@ -2937,32 +2937,25 @@ pub fn schema_add_coercion(
 ) -> Result<u32, JsError> {
     let schema = slab::with_resource(schema_handle, |r| Ok(slab::as_schema(r)?.clone()))?;
 
-    let _coercion_term: gat::Term =
+    let coercion_expr: panproto_expr::Expr =
         rmp_serde::from_slice(expr_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("coercion expression: {e}"),
         })?;
 
-    // Build a protolens that renames vertices of from_kind to to_kind.
-    // The coercion term guides how data is transformed during the rename.
-    let protolens = lens::protolens::elementary::rename_sort(
-        gat::Name::from(from_kind),
-        gat::Name::from(to_kind),
+    let coercion_spec = schema::CoercionSpec {
+        forward: coercion_expr,
+        inverse: None,
+        class: gat::CoercionClass::Opaque,
+    };
+
+    let mut new_schema = schema;
+    new_schema.coercions.insert(
+        (gat::Name::from(from_kind), gat::Name::from(to_kind)),
+        coercion_spec,
     );
 
-    let protocol = lookup_builtin_protocol(&schema.protocol)
-        .unwrap_or_else(|| default_protocol(&schema.protocol));
-
-    let lens_obj = protolens
-        .instantiate(&schema, &protocol)
-        .map_err(|e| -> JsError {
-            WasmError::EnrichmentFailed {
-                reason: format!("coercion {from_kind} -> {to_kind}: {e}"),
-            }
-            .into()
-        })?;
-
     Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(
-        lens_obj.tgt_schema,
+        new_schema,
     ))))
 }
 
@@ -4072,11 +4065,6 @@ fn classify_complement(
 ) {
     match cc {
         lens::protolens::ComplementConstructor::Empty => {}
-        lens::protolens::ComplementConstructor::DroppedSortData { .. }
-        | lens::protolens::ComplementConstructor::DroppedOpData { .. }
-        | lens::protolens::ComplementConstructor::NatTransKernel { .. } => {
-            *has_dropped = true;
-        }
         lens::protolens::ComplementConstructor::AddedElement { .. } => {
             *has_added = true;
         }
@@ -4085,6 +4073,9 @@ fn classify_complement(
             for sub in subs {
                 classify_complement(sub, has_added, has_dropped, has_composite);
             }
+        }
+        _ => {
+            *has_dropped = true;
         }
     }
 }

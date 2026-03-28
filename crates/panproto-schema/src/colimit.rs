@@ -366,6 +366,34 @@ fn assemble_pushout(
         usage_modes.entry(remapped).or_insert_with(|| mode.clone());
     }
 
+    // Coercions: merge (Name, Name) → CoercionSpec, left wins on overlap
+    let mut coercions = left.coercions.clone();
+    for (key, spec) in &right.coercions {
+        let merged_key = (resolve(right_rename, &key.0), resolve(right_rename, &key.1));
+        coercions.entry(merged_key).or_insert_with(|| spec.clone());
+    }
+
+    // Mergers: merge Name → Expr, left wins on overlap
+    let mut mergers = left.mergers.clone();
+    for (rid, expr) in &right.mergers {
+        let mid = resolve(right_rename, rid);
+        mergers.entry(mid).or_insert_with(|| expr.clone());
+    }
+
+    // Defaults: merge Name → Expr, left wins on overlap
+    let mut defaults = left.defaults.clone();
+    for (rid, expr) in &right.defaults {
+        let mid = resolve(right_rename, rid);
+        defaults.entry(mid).or_insert_with(|| expr.clone());
+    }
+
+    // Policies: merge Name → Expr, left wins on overlap
+    let mut policies = left.policies.clone();
+    for (rid, expr) in &right.policies {
+        let mid = resolve(right_rename, rid);
+        policies.entry(mid).or_insert_with(|| expr.clone());
+    }
+
     // Rebuild adjacency indices
     let idx = build_indices(&merged_edges);
 
@@ -383,10 +411,10 @@ fn assemble_pushout(
         spans,
         usage_modes,
         nominal: vk.nominal,
-        coercions: HashMap::new(),
-        mergers: HashMap::new(),
-        defaults: HashMap::new(),
-        policies: HashMap::new(),
+        coercions,
+        mergers,
+        defaults,
+        policies,
         outgoing: idx.outgoing,
         incoming: idx.incoming,
         between: idx.between,

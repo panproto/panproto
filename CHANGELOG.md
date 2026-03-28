@@ -4,6 +4,54 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-03-28
+
+### Added
+
+- **panproto-gat**: `CoercionClass` enum (Iso/Retraction/Opaque) forming a three-element lattice under information loss. Classifies the round-trip properties of value-level coercions as adjunction witnesses in the Grothendieck fibration over the schema category.
+- **panproto-gat**: `classify_builtin_coercion()` classifies the 6 expression-language coercion builtins by source/target value kind and round-trip class.
+- **panproto-gat**: `DirectedEquation` extended with `source_kind`, `target_kind`, and `coercion_class` fields for typed coercion declarations.
+- **panproto-gat**: `TheoryTransform::CoerceSort` extended with `inverse_expr` and `coercion_class` for protolens-level coercion metadata.
+- **panproto-schema**: `CoercionSpec` struct replacing bare `Expr` for schema coercions, carrying forward expression, optional inverse, and coercion class.
+- **panproto-expr**: `ExprType` enum and `BuiltinOp::signature()` for lightweight type annotations on builtin operations.
+- **panproto-expr**: `typecheck` module with `infer_type()` and `validate_coercion()` for expression type inference.
+- **panproto-expr**: new builtins: `Round` (float to int with rounding), `DefaultVal` (null coalescing), `Clamp` (numeric range clamping), `TruncateStr` (char-boundary-safe string truncation).
+- **panproto-expr**: convenience constructors `Expr::int_to_float()`, `float_to_int()`, etc.
+- **panproto-inst**: `FieldTransform::ApplyExpr` and `ComputeField` carry `inverse` and `coercion_class` fields.
+- **panproto-inst**: `FieldTransform::coercion_class()` and `CompiledMigration::coercion_class()` methods.
+- **panproto-lens**: `Complement::compose()` monoid method for composing value-level losses.
+- **panproto-lens**: `Complement::original_values` field captures pre-coercion `node.value` for leaf node coercions.
+- **panproto-lens**: `Lens::coercion_class()` method.
+- **panproto-lens**: `ComplementConstructor::CoercedSortData` with Lawvere metric cost integration.
+- **panproto-lens**: `put()` falls back to inverse expression evaluation when complement lacks snapshots.
+- **panproto-mig**: `compile()` generates `field_transforms` from schema coercions when vertex kinds change.
+- **panproto-check**: `CoercionClassDowngraded` and `CoercionRemoved` breaking change variants.
+- **panproto-parse**: per-language feature forwarding (`lang-python`, `lang-rust`, etc.) for all 248 grammars.
+
+### Fixed
+
+- **panproto-gat**: colimit renames sort references in dependent sort parameters and operation signatures for non-shared T2 sorts, preventing dangling references in the pushout.
+- **panproto-gat**: colimit sort/operation compatibility check now compares `SortKind`, not just arity.
+- **panproto-gat**: pullback preserves `SortKind` on paired sorts and composes `coercion_class` from both sides of directed equation pairings.
+- **panproto-expr**: `FloatToInt` uses safe `float_to_i64` helper (rejects NaN, infinity, out-of-range).
+- **panproto-expr**: `Neg`/`Abs` use `checked_neg()`/`checked_abs()` to avoid overflow panic on `i64::MIN`.
+- **panproto-expr**: `Floor`/`Ceil`/`Round` validate finiteness and range before casting.
+- **panproto-expr**: `Slice` uses character-offset indexing instead of byte offsets, preventing panics on multi-byte UTF-8.
+- **panproto-expr**: `Clamp` validates `min <= max` instead of panicking.
+- **panproto-inst**: `wtype_extend` (Sigma) and `wtype_pi` (Pi) now apply `field_transforms`, matching `wtype_restrict` (Delta).
+- **panproto-inst**: `apply_field_transforms` handles `"__value__"` key by targeting `node.value` for leaf node coercions.
+- **panproto-lens**: `get()` captures pre-coercion `node.value` in `Complement::original_values` for `__value__` transforms, fixing GetPut law violation.
+- **panproto-lens**: `instances_equivalent` compares `extra_fields`, closing a blind spot in lens law verification.
+- **panproto-lens**: `apply_rename_sort_to_schema` renames vertex kinds (not IDs), plus coercion keys, edge kinds, and other schema references.
+- **panproto-lens**: `apply_drop_sort_from_schema` removes dangling coercions, mergers, defaults, and policies.
+- **panproto-schema**: `schema_pushout` merges coercions, mergers, defaults, and policies from both input schemas.
+- **panproto-schema**: `normalize` filters coercions against surviving vertex kinds and policies against surviving vertex IDs.
+- **panproto-wasm**: `schema_add_coercion` inserts a `CoercionSpec` into the schema instead of creating a rename protolens.
+- **panproto-vcs**: fix `ours_polsition`/`theirs_polsition` typo in `MergeConflict::BothModifiedOrdering`.
+- **panproto-grammars**: fix 5 missing grammars (circom, fidl, postscript, prolog, qml).
+- **panproto-grammars**: fix `janet` and `vb` c_symbol mismatches.
+- **panproto-grammars**: compile C++ scanners with `-fno-exceptions -fno-rtti`.
+
 ## [0.18.1] - 2026-03-28
 
 ### Fixed

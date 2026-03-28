@@ -65,7 +65,7 @@ pub use op::Operation;
 pub use pullback::{PullbackResult, pullback};
 pub use quotient::quotient;
 pub use schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
-pub use sort::{Sort, SortKind, SortParam, ValueKind};
+pub use sort::{CoercionClass, Sort, SortKind, SortParam, ValueKind, classify_builtin_coercion};
 pub use theory::{ConflictPolicy, ConflictStrategy, Theory, resolve_theory, th_editable_structure};
 pub use typecheck::{
     VarContext, infer_var_sorts, typecheck_equation, typecheck_term, typecheck_theory,

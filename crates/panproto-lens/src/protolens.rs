@@ -71,6 +71,7 @@ fn name_arc_clone(n: &Name) -> Arc<str> {
 
 /// How the complement type depends on the schema at instantiation time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ComplementConstructor {
     /// Complement is always empty (lossless protolens).
     Empty,
@@ -97,6 +98,13 @@ pub enum ComplementConstructor {
         element_kind: String,
         /// Default value to use when instantiating.
         default_value: Option<Value>,
+    },
+    /// Complement captures coerced sort data with a specific round-trip class.
+    CoercedSortData {
+        /// The sort whose values are coerced.
+        sort: Name,
+        /// The round-trip classification of the coercion.
+        class: panproto_gat::CoercionClass,
     },
     /// Composite complement from a chain.
     Composite(Vec<Self>),
@@ -222,7 +230,14 @@ impl Protolens {
     /// (empty complement).
     #[must_use]
     pub const fn is_lossless(&self) -> bool {
-        matches!(self.complement_constructor, ComplementConstructor::Empty)
+        matches!(
+            self.complement_constructor,
+            ComplementConstructor::Empty
+                | ComplementConstructor::CoercedSortData {
+                    class: panproto_gat::CoercionClass::Iso,
+                    ..
+                }
+        )
     }
 
     /// Serialize to JSON.
@@ -1163,14 +1178,21 @@ fn apply_theory_transform_to_schema(
         TheoryTransform::CoerceSort {
             sort_name,
             coercion_expr,
+            inverse_expr,
+            coercion_class,
             ..
         } => {
             // Install the coercion expression in the schema's enrichment map.
             let mut new_schema = schema.clone();
             let name = Name::from(&**sort_name);
-            new_schema
-                .coercions
-                .insert((name.clone(), name), coercion_expr.clone());
+            new_schema.coercions.insert(
+                (name.clone(), name),
+                panproto_schema::CoercionSpec {
+                    forward: coercion_expr.clone(),
+                    inverse: inverse_expr.clone(),
+                    class: *coercion_class,
+                },
+            );
             Ok(new_schema)
         }
         TheoryTransform::MergeSorts {
@@ -1286,31 +1308,81 @@ fn apply_theory_transform_to_schema(
 /// Rename a sort (vertex kind) within a schema.
 fn apply_rename_sort_to_schema(schema: &Schema, old: &Arc<str>, new: &Arc<str>) -> Schema {
     let mut new_schema = schema.clone();
+
+    // Rename vertex kinds (not IDs) that match the old sort name
     let mut new_vertices = HashMap::new();
     for (id, vertex) in &new_schema.vertices {
         let mut v = vertex.clone();
-        if **id == **old {
-            // Rename the vertex ID; keep the kind unchanged
-            v.id = Name::from(&**new);
-            new_vertices.insert(Name::from(&**new), v);
-        } else {
-            new_vertices.insert(id.clone(), v);
+        if *v.kind == **old {
+            v.kind = Name::from(&**new);
         }
+        new_vertices.insert(id.clone(), v);
     }
     new_schema.vertices = new_vertices;
-    // Rebuild edges that reference the old vertex ID
+
+    // Rename edge kinds that match the old sort name
     let mut new_edges = HashMap::new();
     for (edge, kind) in &new_schema.edges {
-        let mut e = edge.clone();
-        if *e.src == **old {
-            e.src = Name::from(&**new);
-        }
-        if *e.tgt == **old {
-            e.tgt = Name::from(&**new);
-        }
-        new_edges.insert(e, kind.clone());
+        let e = edge.clone();
+        let k = if **kind == **old {
+            Name::from(&**new)
+        } else {
+            kind.clone()
+        };
+        new_edges.insert(e, k);
     }
     new_schema.edges = new_edges;
+
+    // Rename coercion keys that reference the old sort name
+    let mut new_coercions = HashMap::new();
+    for ((from, to), spec) in &new_schema.coercions {
+        let new_from = if **from == **old {
+            Name::from(&**new)
+        } else {
+            from.clone()
+        };
+        let new_to = if **to == **old {
+            Name::from(&**new)
+        } else {
+            to.clone()
+        };
+        new_coercions.insert((new_from, new_to), spec.clone());
+    }
+    new_schema.coercions = new_coercions;
+
+    // Rename hyper-edge sort references
+    for he in new_schema.hyper_edges.values_mut() {
+        he.signature = he
+            .signature
+            .iter()
+            .map(|(label, vid)| {
+                let new_vid = if **vid == **old {
+                    Name::from(&**new)
+                } else {
+                    vid.clone()
+                };
+                (label.clone(), new_vid)
+            })
+            .collect();
+    }
+
+    // Rename constraint sort references
+    let mut new_constraints = HashMap::new();
+    for (cid, cs) in &new_schema.constraints {
+        let new_cs: Vec<_> = cs
+            .iter()
+            .map(|c| {
+                let mut c2 = c.clone();
+                if *c2.sort == **old {
+                    c2.sort = Name::from(&**new);
+                }
+                c2
+            })
+            .collect();
+        new_constraints.insert(cid.clone(), new_cs);
+    }
+    new_schema.constraints = new_constraints;
+
     rebuild_indices(&mut new_schema);
     new_schema
 }
@@ -1355,6 +1427,32 @@ fn apply_drop_sort_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
         .map(|(e, k)| (e.clone(), k.clone()))
         .collect();
     new_schema.edges = new_edges;
+
+    // Remove coercions where either key references the dropped sort
+    new_schema
+        .coercions
+        .retain(|(from, to), _| *from != **name && *to != **name);
+
+    // Remove mergers keyed by the dropped sort
+    new_schema
+        .mergers
+        .retain(|k, _| !to_remove.contains(k) && **k != **name);
+
+    // Remove defaults keyed by the dropped sort
+    new_schema
+        .defaults
+        .retain(|k, _| !to_remove.contains(k) && **k != **name);
+
+    // Remove policies keyed by the dropped sort
+    new_schema
+        .policies
+        .retain(|k, _| !to_remove.contains(k) && **k != **name);
+
+    // Remove constraints keyed by dropped vertices
+    for id in &to_remove {
+        new_schema.constraints.remove(id);
+    }
+
     rebuild_indices(&mut new_schema);
     new_schema
 }

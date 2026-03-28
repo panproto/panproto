@@ -27,7 +27,7 @@ use crate::migration::Migration;
 /// Returns `ExistenceError::WellFormedness` if the migration references
 /// vertices or edges not present in either schema.
 pub fn compile(
-    _src: &Schema,
+    src: &Schema,
     tgt: &Schema,
     migration: &Migration,
 ) -> Result<CompiledMigration, ExistenceError> {
@@ -63,10 +63,33 @@ pub fn compile(
         }
     }
 
-    // Step 3: Copy resolver tables.
+    // Step 3: Generate field_transforms from schema coercions.
+    let mut field_transforms = HashMap::new();
+    for (src_v, tgt_v) in &migration.vertex_map {
+        if let (Some(src_vert), Some(tgt_vert)) = (src.vertex(src_v), tgt.vertex(tgt_v)) {
+            if src_vert.kind != tgt_vert.kind {
+                if let Some(coercion_spec) = tgt
+                    .coercions
+                    .get(&(src_vert.kind.clone(), tgt_vert.kind.clone()))
+                {
+                    field_transforms
+                        .entry(src_v.clone())
+                        .or_insert_with(Vec::new)
+                        .push(panproto_inst::FieldTransform::ApplyExpr {
+                            key: "__value__".to_string(),
+                            expr: coercion_spec.forward.clone(),
+                            inverse: coercion_spec.inverse.clone(),
+                            coercion_class: coercion_spec.class,
+                        });
+                }
+            }
+        }
+    }
+
+    // Step 4: Copy resolver tables.
     let resolver = migration.resolver.clone();
 
-    // Step 4: Build hyper-resolver (convert key format).
+    // Step 5: Build hyper-resolver (convert key format).
     let mut hyper_resolver = HashMap::new();
     for ((he_id, _labels), (tgt_he_id, label_map)) in &migration.hyper_resolver {
         // The inst-level CompiledMigration uses he_id -> (new_id, label_map).
@@ -81,7 +104,7 @@ pub fn compile(
         edge_remap,
         resolver,
         hyper_resolver,
-        field_transforms: HashMap::new(),
+        field_transforms,
         conditional_survival: HashMap::new(),
     })
 }

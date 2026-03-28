@@ -136,6 +136,21 @@ fn format_breaking(change: &BreakingChange) -> String {
                 edge.src, edge.tgt, edge.kind
             )
         }
+        BreakingChange::CoercionClassDowngraded {
+            from_kind,
+            to_kind,
+            old_class,
+            new_class,
+        } => {
+            format!(
+                "Coercion class downgraded: ({from_kind} -> {to_kind}) {old_class} -> {new_class}"
+            )
+        }
+        BreakingChange::CoercionRemoved {
+            from_kind, to_kind, ..
+        } => {
+            format!("Coercion removed: ({from_kind} -> {to_kind})")
+        }
     }
 }
 
@@ -261,6 +276,25 @@ fn breaking_to_json(change: &BreakingChange) -> serde_json::Value {
             "kind": edge.kind,
             "old_mode": format!("{old_mode:?}"),
             "new_mode": format!("{new_mode:?}"),
+        }),
+        BreakingChange::CoercionClassDowngraded {
+            from_kind,
+            to_kind,
+            old_class,
+            new_class,
+        } => json!({
+            "type": "coercion_class_downgraded",
+            "from_kind": from_kind,
+            "to_kind": to_kind,
+            "old_class": old_class,
+            "new_class": new_class,
+        }),
+        BreakingChange::CoercionRemoved {
+            from_kind, to_kind, ..
+        } => json!({
+            "type": "coercion_removed",
+            "from_kind": from_kind,
+            "to_kind": to_kind,
         }),
     }
 }

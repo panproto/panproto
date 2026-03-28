@@ -1015,7 +1015,7 @@ impl EditLens {
                             name.clone_from(new_key);
                         }
                     }
-                    panproto_inst::FieldTransform::ApplyExpr { key, expr } => {
+                    panproto_inst::FieldTransform::ApplyExpr { key, expr, .. } => {
                         if key == field {
                             let input = panproto_inst::value_to_expr_literal(&val);
                             let env = panproto_expr::Env::new()

@@ -91,6 +91,16 @@ pub struct Lens {
     pub tgt_schema: Schema,
 }
 
+impl Lens {
+    /// Compute the composite coercion class of this lens's migration.
+    ///
+    /// Delegates to the underlying `CompiledMigration::coercion_class()`.
+    #[must_use]
+    pub fn coercion_class(&self) -> panproto_gat::CoercionClass {
+        self.compiled.coercion_class()
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::collections::HashMap;

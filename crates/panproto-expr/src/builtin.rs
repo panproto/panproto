@@ -9,6 +9,19 @@ use crate::error::ExprError;
 use crate::expr::BuiltinOp;
 use crate::literal::Literal;
 
+/// Safely convert a float to i64, returning an error for NaN, infinity, or out-of-range values.
+fn float_to_i64(f: f64) -> Result<Literal, ExprError> {
+    if !f.is_finite() {
+        return Err(ExprError::FloatNotRepresentable(format!("{f}")));
+    }
+    #[allow(clippy::cast_precision_loss)]
+    if f < i64::MIN as f64 || f > i64::MAX as f64 {
+        return Err(ExprError::FloatNotRepresentable(format!("{f}")));
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    Ok(Literal::Int(f as i64))
+}
+
 /// Apply a builtin operation to evaluated arguments.
 ///
 /// # Errors
@@ -35,7 +48,8 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
         | BuiltinOp::Neg
         | BuiltinOp::Abs
         | BuiltinOp::Floor
-        | BuiltinOp::Ceil => apply_arithmetic(op, args),
+        | BuiltinOp::Ceil
+        | BuiltinOp::Round => apply_arithmetic(op, args),
 
         // --- Comparison ---
         BuiltinOp::Eq
@@ -74,6 +88,11 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
         // --- Record ---
         BuiltinOp::MergeRecords | BuiltinOp::Keys | BuiltinOp::Values | BuiltinOp::HasField => {
             apply_record(op, args)
+        }
+
+        // --- Utility ---
+        BuiltinOp::DefaultVal | BuiltinOp::Clamp | BuiltinOp::TruncateStr => {
+            apply_utility(op, args)
         }
 
         // --- Type coercions ---
@@ -121,23 +140,25 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
             _ => Err(type_err("int", &args[0])),
         },
         BuiltinOp::Neg => match &args[0] {
-            Literal::Int(n) => Ok(Literal::Int(-n)),
+            Literal::Int(n) => n.checked_neg().map(Literal::Int).ok_or(ExprError::Overflow),
             Literal::Float(f) => Ok(Literal::Float(-f)),
             other => Err(type_err("int|float", other)),
         },
         BuiltinOp::Abs => match &args[0] {
-            Literal::Int(n) => Ok(Literal::Int(n.abs())),
+            Literal::Int(n) => n.checked_abs().map(Literal::Int).ok_or(ExprError::Overflow),
             Literal::Float(f) => Ok(Literal::Float(f.abs())),
             other => Err(type_err("int|float", other)),
         },
-        #[allow(clippy::cast_possible_truncation)]
         BuiltinOp::Floor => match &args[0] {
-            Literal::Float(f) => Ok(Literal::Int(f.floor() as i64)),
+            Literal::Float(f) => float_to_i64(f.floor()),
             other => Err(type_err("float", other)),
         },
-        #[allow(clippy::cast_possible_truncation)]
         BuiltinOp::Ceil => match &args[0] {
-            Literal::Float(f) => Ok(Literal::Int(f.ceil() as i64)),
+            Literal::Float(f) => float_to_i64(f.ceil()),
+            other => Err(type_err("float", other)),
+        },
+        BuiltinOp::Round => match &args[0] {
+            Literal::Float(f) => float_to_i64(f.round()),
             other => Err(type_err("float", other)),
         },
         _ => unreachable!(),
@@ -198,11 +219,13 @@ fn apply_string(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
         },
         BuiltinOp::Slice => match (&args[0], &args[1], &args[2]) {
             (Literal::Str(s), Literal::Int(start), Literal::Int(end)) => {
+                let chars: Vec<char> = s.chars().collect();
                 let start = (*start).max(0) as usize;
                 let end = (*end).max(0) as usize;
-                let end = end.min(s.len());
+                let end = end.min(chars.len());
                 let start = start.min(end);
-                Ok(Literal::Str(s[start..end].to_string()))
+                let result: String = chars[start..end].iter().collect();
+                Ok(Literal::Str(result))
             }
             _ => Err(type_err("(string, int, int)", &args[0])),
         },
@@ -353,8 +376,7 @@ fn apply_coercion(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError>
             other => Err(type_err("int", other)),
         },
         BuiltinOp::FloatToInt => match &args[0] {
-            #[allow(clippy::cast_possible_truncation)]
-            Literal::Float(f) => Ok(Literal::Int(*f as i64)),
+            Literal::Float(f) => float_to_i64(*f),
             other => Err(type_err("float", other)),
         },
         BuiltinOp::IntToStr => match &args[0] {
@@ -397,6 +419,57 @@ fn apply_inspection(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
         BuiltinOp::TypeOf => Ok(Literal::Str(args[0].type_name().to_string())),
         BuiltinOp::IsNull => Ok(Literal::Bool(args[0].is_null())),
         BuiltinOp::IsList => Ok(Literal::Bool(matches!(args[0], Literal::List(_)))),
+        _ => unreachable!(),
+    }
+}
+
+/// Utility operations: default, clamp, `truncate_str`.
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+fn apply_utility(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
+    match op {
+        BuiltinOp::DefaultVal => {
+            if args[0].is_null() {
+                Ok(args[1].clone())
+            } else {
+                Ok(args[0].clone())
+            }
+        }
+        BuiltinOp::Clamp => match (&args[0], &args[1], &args[2]) {
+            (Literal::Int(x), Literal::Int(lo), Literal::Int(hi)) if lo <= hi => {
+                Ok(Literal::Int((*x).clamp(*lo, *hi)))
+            }
+            (Literal::Float(x), Literal::Float(lo), Literal::Float(hi)) if lo <= hi => {
+                Ok(Literal::Float(x.clamp(*lo, *hi)))
+            }
+            (Literal::Int(_), Literal::Int(_), Literal::Int(_))
+            | (Literal::Float(_), Literal::Float(_), Literal::Float(_)) => {
+                Err(ExprError::TypeError {
+                    expected: "clamp requires min <= max".into(),
+                    got: "min > max".into(),
+                })
+            }
+            _ => Err(type_err(
+                "(int, int, int) or (float, float, float)",
+                &args[0],
+            )),
+        },
+        BuiltinOp::TruncateStr => match (&args[0], &args[1]) {
+            (Literal::Str(s), Literal::Int(max_len)) => {
+                let max = (*max_len).max(0) as usize;
+                let truncated = if max >= s.len() {
+                    s.clone()
+                } else {
+                    // Find the last char boundary at or before max.
+                    let mut end = max;
+                    while end > 0 && !s.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    s[..end].to_string()
+                };
+                Ok(Literal::Str(truncated))
+            }
+            _ => Err(type_err("(string, int)", &args[0])),
+        },
         _ => unreachable!(),
     }
 }

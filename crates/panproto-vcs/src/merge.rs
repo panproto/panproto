@@ -209,9 +209,9 @@ pub enum MergeConflict {
         /// The contested edge.
         edge: Edge,
         /// The position our branch set (if any).
-        ours_polsition: Option<u32>,
+        ours_position: Option<u32>,
         /// The position their branch set (if any).
-        theirs_polsition: Option<u32>,
+        theirs_position: Option<u32>,
     },
 
     // --- Recursion points ---
@@ -2139,8 +2139,8 @@ fn merge_orderings(
                 } else {
                     conflicts.push(MergeConflict::BothModifiedOrdering {
                         edge: edge.clone(),
-                        ours_polsition: ours_pols,
-                        theirs_polsition: theirs_pols,
+                        ours_position: ours_pols,
+                        theirs_position: theirs_pols,
                     });
                     base_pols
                 }

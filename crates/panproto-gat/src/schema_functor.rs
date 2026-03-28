@@ -6,7 +6,7 @@ use crate::eq::{DirectedEquation, Equation, Term};
 use crate::error::GatError;
 use crate::morphism::TheoryMorphism;
 use crate::op::Operation;
-use crate::sort::{Sort, SortKind, SortParam, ValueKind};
+use crate::sort::{CoercionClass, Sort, SortKind, SortParam, ValueKind};
 use crate::theory::Theory;
 
 /// A predicate on theories — the precondition for applying a transform.
@@ -82,6 +82,10 @@ pub enum TheoryTransform {
         target_kind: ValueKind,
         /// The coercion expression.
         coercion_expr: panproto_expr::Expr,
+        /// Optional inverse expression for round-tripping.
+        inverse_expr: Option<panproto_expr::Expr>,
+        /// Round-trip classification of this coercion.
+        coercion_class: CoercionClass,
     },
     /// Merge two sorts into one.
     MergeSorts {
@@ -134,11 +138,7 @@ impl TheoryConstraint {
             Self::HasDirectedEq(name) => theory.has_directed_eq(name),
             Self::HasValSort(vk) => theory.sorts.iter().any(|s| s.kind == SortKind::Val(*vk)),
             Self::HasCoercion { from, to } => theory.sorts.iter().any(|s| {
-                s.kind
-                    == SortKind::Coercion {
-                        from: *from,
-                        to: *to,
-                    }
+                matches!(s.kind, SortKind::Coercion { from: f, to: t, .. } if f == *from && t == *to)
             }),
             Self::HasMerger(vk) => theory.sorts.iter().any(|s| s.kind == SortKind::Merger(*vk)),
             Self::HasPolicy(name) => theory.has_policy(name),
@@ -376,6 +376,8 @@ impl TheoryTransform {
                 sort_name,
                 target_kind,
                 coercion_expr: _,
+                inverse_expr: _,
+                coercion_class: _,
             } => {
                 let sorts: Vec<_> = theory
                     .sorts

@@ -46,6 +46,10 @@ pub struct Complement {
     /// between the same vertex pair, ensuring the cartesian lift is unique.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub arc_edges: HashMap<(u32, u32), Edge>,
+    /// Pre-coercion `node.value` for nodes that had `__value__` field transforms applied.
+    /// Used by `put()` to restore the original leaf value.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub original_values: HashMap<u32, Option<panproto_inst::value::FieldPresence>>,
 }
 
 impl Complement {
@@ -61,6 +65,67 @@ impl Complement {
             source_fingerprint: 0,
             original_extra_fields: HashMap::new(),
             arc_edges: HashMap::new(),
+            original_values: HashMap::new(),
+        }
+    }
+
+    /// Compose two complements: the result records everything lost by both.
+    ///
+    /// This gives Complement a monoid structure where `empty()` is the identity
+    /// and `compose` is associative. Categorically, this is the product in
+    /// the quantale of complement types.
+    #[must_use]
+    pub fn compose(&self, other: &Self) -> Self {
+        let mut dropped_nodes = self.dropped_nodes.clone();
+        for (&id, node) in &other.dropped_nodes {
+            dropped_nodes.entry(id).or_insert_with(|| node.clone());
+        }
+
+        let mut dropped_arcs = self.dropped_arcs.clone();
+        dropped_arcs.extend(other.dropped_arcs.iter().cloned());
+
+        let mut dropped_fans = self.dropped_fans.clone();
+        dropped_fans.extend(other.dropped_fans.iter().cloned());
+
+        let mut contraction_choices = self.contraction_choices.clone();
+        for (k, v) in &other.contraction_choices {
+            contraction_choices.entry(*k).or_insert_with(|| v.clone());
+        }
+
+        let mut original_parent = self.original_parent.clone();
+        for (&k, &v) in &other.original_parent {
+            original_parent.entry(k).or_insert(v);
+        }
+
+        // Keep self's originals (outermost pre-transform values)
+        let mut original_extra_fields = self.original_extra_fields.clone();
+        for (&id, fields) in &other.original_extra_fields {
+            original_extra_fields
+                .entry(id)
+                .or_insert_with(|| fields.clone());
+        }
+
+        let mut arc_edges = self.arc_edges.clone();
+        for (k, v) in &other.arc_edges {
+            arc_edges.entry(*k).or_insert_with(|| v.clone());
+        }
+
+        // Keep self's original values (outermost pre-coercion values)
+        let mut original_values = self.original_values.clone();
+        for (&id, val) in &other.original_values {
+            original_values.entry(id).or_insert_with(|| val.clone());
+        }
+
+        Self {
+            dropped_nodes,
+            dropped_arcs,
+            dropped_fans,
+            contraction_choices,
+            original_parent,
+            source_fingerprint: self.source_fingerprint,
+            original_extra_fields,
+            arc_edges,
+            original_values,
         }
     }
 
@@ -74,6 +139,7 @@ impl Complement {
             && self.original_parent.is_empty()
             && self.original_extra_fields.is_empty()
             && self.arc_edges.is_empty()
+            && self.original_values.is_empty()
     }
 }
 
@@ -169,6 +235,25 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         }
     }
 
+    // Capture pre-coercion node.value for nodes that had __value__ field transforms
+    let mut original_values = HashMap::new();
+    for &id in view.nodes.keys() {
+        if let Some(source_node) = instance.nodes.get(&id) {
+            if lens
+                .compiled
+                .field_transforms
+                .get(&source_node.anchor)
+                .is_some_and(|ts| {
+                    ts.iter().any(|t| {
+                        matches!(t, panproto_inst::FieldTransform::ApplyExpr { key, .. } if key == "__value__")
+                    })
+                })
+            {
+                original_values.insert(id, source_node.value.clone());
+            }
+        }
+    }
+
     // Record the exact edge for every arc in the source instance whose
     // parent and child both survive. This makes `put` deterministic when
     // the source schema has parallel edges between the same vertex pair.
@@ -190,6 +275,7 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         source_fingerprint,
         original_extra_fields,
         arc_edges,
+        original_values,
     };
 
     Ok((view, complement))
@@ -230,9 +316,20 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         if let Some(original_anchor) = reverse_remap.get(&node.anchor) {
             restored_node.anchor.clone_from(original_anchor);
         }
-        // Restore original extra_fields if this node had field_transforms applied
+        // Restore original extra_fields: prefer complement snapshot, fall back to
+        // evaluating inverse expressions from the field_transforms.
         if let Some(original_fields) = complement.original_extra_fields.get(&id) {
             restored_node.extra_fields.clone_from(original_fields);
+        } else {
+            // No snapshot: try inverse expressions from field_transforms.
+            let src_anchor = reverse_remap.get(&node.anchor).unwrap_or(&node.anchor);
+            if let Some(transforms) = lens.compiled.field_transforms.get(src_anchor) {
+                apply_inverse_transforms(&mut restored_node, transforms);
+            }
+        }
+        // Restore original node.value for __value__ coercions
+        if let Some(original_val) = complement.original_values.get(&id) {
+            restored_node.value.clone_from(original_val);
         }
         nodes.insert(id, restored_node);
     }
@@ -308,6 +405,85 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
     // schema_root is Name, which WInstance::new accepts via Into<Name>
 
     Ok(WInstance::new(nodes, arcs, fans, view.root, schema_root))
+}
+
+/// Apply inverse field transforms to a node, undoing the forward coercion.
+///
+/// For each `ApplyExpr` or `ComputeField` with an inverse expression, evaluate
+/// the inverse on the node's current value to recover the pre-coercion value.
+/// Transforms without inverses are skipped (the view's value is kept as-is).
+fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldTransform]) {
+    use panproto_inst::FieldTransform;
+
+    // Apply in reverse order (undo last transform first).
+    for transform in transforms.iter().rev() {
+        match transform {
+            FieldTransform::ApplyExpr {
+                key,
+                inverse: Some(inv_expr),
+                ..
+            } => {
+                // Handle "__value__" specially: target node.value, not extra_fields.
+                if key == "__value__" {
+                    if let Some(panproto_inst::value::FieldPresence::Present(val)) = &node.value {
+                        let input = panproto_inst::value_to_expr_literal(val);
+                        let env = panproto_expr::Env::new()
+                            .extend(std::sync::Arc::from("v"), input.clone())
+                            .extend(std::sync::Arc::from("__value__"), input);
+                        let config = panproto_expr::EvalConfig::default();
+                        if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
+                            node.value = Some(panproto_inst::value::FieldPresence::Present(
+                                panproto_inst::expr_literal_to_value(&result),
+                            ));
+                        }
+                    }
+                } else if node.extra_fields.contains_key(key) {
+                    let env = panproto_inst::build_env_from_extra_fields(&node.extra_fields);
+                    let config = panproto_expr::EvalConfig::default();
+                    if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
+                        node.extra_fields
+                            .insert(key.clone(), panproto_inst::expr_literal_to_value(&result));
+                    }
+                }
+            }
+            FieldTransform::ComputeField {
+                target_key,
+                inverse: Some(inv_expr),
+                ..
+            } => {
+                if node.extra_fields.contains_key(target_key) {
+                    let env = panproto_inst::build_env_from_extra_fields(&node.extra_fields);
+                    let config = panproto_expr::EvalConfig::default();
+                    if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
+                        node.extra_fields.insert(
+                            target_key.clone(),
+                            panproto_inst::expr_literal_to_value(&result),
+                        );
+                    }
+                }
+            }
+            FieldTransform::RenameField { old_key, new_key } => {
+                // Reverse: rename new_key back to old_key.
+                if let Some(val) = node.extra_fields.remove(new_key) {
+                    node.extra_fields.insert(old_key.clone(), val);
+                }
+            }
+            FieldTransform::AddField { key, .. } => {
+                // Reverse of adding: remove the field.
+                node.extra_fields.remove(key);
+            }
+            FieldTransform::PathTransform { path, inner } => {
+                // Recurse into nested structure.
+                if path.is_empty() {
+                    apply_inverse_transforms(node, std::slice::from_ref(inner));
+                }
+                // Non-empty paths into nested Value structures are not inverted
+                // (would require traversing Value::Unknown maps).
+            }
+            // DropField, KeepFields, Case, MapReferences: data is lost, cannot invert.
+            _ => {}
+        }
+    }
 }
 
 /// Build a reverse mapping from target vertex IDs back to source vertex IDs.
