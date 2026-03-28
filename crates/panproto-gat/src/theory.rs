@@ -845,4 +845,166 @@ mod tests {
         assert_eq!(resolved.sorts.len(), 6);
         assert_eq!(resolved.ops.len(), 5);
     }
+
+    // --- proptest strategies and property tests ---
+
+    pub mod property {
+        use super::*;
+        use proptest::prelude::*;
+
+        const SORT_POOL: &[&str] = &["S0", "S1", "S2", "S3", "S4"];
+        const OP_POOL: &[&str] = &["f0", "f1", "f2", "f3"];
+        const VAR_NAMES: &[&str] = &["x", "y", "z"];
+
+        fn arb_term_from(ops: &[(String, usize)], max_depth: usize) -> BoxedStrategy<Term> {
+            if max_depth == 0 || ops.is_empty() {
+                prop::sample::select(VAR_NAMES).prop_map(Term::var).boxed()
+            } else {
+                let ops_owned: Vec<(String, usize)> = ops.to_vec();
+                let ops_for_app = ops_owned.clone();
+                let leaf = prop::sample::select(VAR_NAMES).prop_map(Term::var);
+                let app = prop::sample::select(ops_owned).prop_flat_map(move |(name, arity)| {
+                    let ops_inner = ops_for_app.clone();
+                    prop::collection::vec(arb_term_from(&ops_inner, max_depth - 1), arity..=arity)
+                        .prop_map(move |args| Term::app(name.as_str(), args))
+                });
+                prop_oneof![leaf, app].boxed()
+            }
+        }
+
+        /// Generate a well-formed theory with simple sorts, operations that
+        /// reference existing sorts, and equations with well-formed terms.
+        pub fn arb_theory() -> impl Strategy<Value = Theory> {
+            // Choose 1-5 sort names from the pool.
+            prop::sample::subsequence(SORT_POOL, 1..=5).prop_flat_map(|sort_names| {
+                let num_sorts = sort_names.len();
+                let sort_names_owned: Vec<String> =
+                    sort_names.iter().map(|s| (*s).to_owned()).collect();
+
+                // Generate 0-4 operations referencing the chosen sorts.
+                let sn = sort_names_owned.clone();
+                let ops_strat = prop::collection::vec(
+                    (
+                        prop::sample::select(OP_POOL),
+                        0..=2usize,
+                        prop::sample::select(sort_names_owned.clone()),
+                    ),
+                    0..=std::cmp::min(4, num_sorts + 2),
+                )
+                .prop_flat_map(move |op_specs| {
+                    let sn_inner = sn.clone();
+                    let ops: Vec<(String, usize, String)> = op_specs
+                        .into_iter()
+                        .map(|(name, arity, out)| ((*name).to_owned(), arity, out))
+                        .collect();
+                    // Generate input sorts for each operation.
+                    let input_strats: Vec<_> = ops
+                        .iter()
+                        .map(|(_, arity, _)| {
+                            prop::collection::vec(
+                                prop::sample::select(sn_inner.clone()),
+                                *arity..=*arity,
+                            )
+                        })
+                        .collect();
+                    (Just(ops), input_strats)
+                });
+
+                (Just(sort_names_owned), ops_strat).prop_flat_map(
+                    move |(sort_names, (ops_specs, input_lists))| {
+                        let sorts: Vec<Sort> = sort_names
+                            .iter()
+                            .map(|s| Sort::simple(s.as_str()))
+                            .collect();
+
+                        let mut operations = Vec::new();
+                        let mut op_info: Vec<(String, usize)> = Vec::new();
+                        let mut seen_op_names = std::collections::HashSet::<String>::new();
+                        for (i, (name, _arity, output)) in ops_specs.iter().enumerate() {
+                            if !seen_op_names.insert(name.clone()) {
+                                continue; // skip duplicate op names
+                            }
+                            let inputs: Vec<(Arc<str>, Arc<str>)> = input_lists[i]
+                                .iter()
+                                .enumerate()
+                                .map(|(j, s)| (Arc::from(format!("p{j}")), Arc::from(s.as_str())))
+                                .collect();
+                            let arity = inputs.len();
+                            operations.push(Operation::new(name.as_str(), inputs, output.as_str()));
+                            op_info.push((name.clone(), arity));
+                        }
+
+                        // Generate 0-2 equations (only if we have operations).
+                        let eq_count = if op_info.is_empty() { 0..=0 } else { 0..=2 };
+                        let eq_strat = prop::collection::vec(
+                            {
+                                let oi = op_info.clone();
+                                (arb_term_from(&oi, 2), arb_term_from(&oi, 2))
+                            },
+                            eq_count,
+                        );
+
+                        (Just(sorts), Just(operations), eq_strat).prop_map(
+                            |(sorts, ops, eq_pairs)| {
+                                let eqs: Vec<Equation> = eq_pairs
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(i, (lhs, rhs))| {
+                                        Equation::new(format!("eq{i}"), lhs, rhs)
+                                    })
+                                    .collect();
+                                Theory::new("ArbitraryTheory", sorts, ops, eqs)
+                            },
+                        )
+                    },
+                )
+            })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn theory_index_consistency(t in arb_theory()) {
+                for sort in &t.sorts {
+                    prop_assert!(
+                        t.find_sort(&sort.name).is_some(),
+                        "sort {:?} not findable via index",
+                        sort.name,
+                    );
+                }
+                for op in &t.ops {
+                    prop_assert!(
+                        t.find_op(&op.name).is_some(),
+                        "op {:?} not findable via index",
+                        op.name,
+                    );
+                }
+                for eq in &t.eqs {
+                    prop_assert!(
+                        t.find_eq(&eq.name).is_some(),
+                        "eq {:?} not findable via index",
+                        eq.name,
+                    );
+                }
+            }
+
+            #[test]
+            fn theory_serde_round_trip(t in arb_theory()) {
+                let json = serde_json::to_string(&t).unwrap();
+                let deserialized: Theory = serde_json::from_str(&json).unwrap();
+                prop_assert_eq!(&t.name, &deserialized.name);
+                prop_assert_eq!(t.sorts.len(), deserialized.sorts.len());
+                prop_assert_eq!(t.ops.len(), deserialized.ops.len());
+                prop_assert_eq!(t.eqs.len(), deserialized.eqs.len());
+                // Verify indices are rebuilt correctly after deserialization.
+                for sort in &deserialized.sorts {
+                    prop_assert!(deserialized.find_sort(&sort.name).is_some());
+                }
+                for op in &deserialized.ops {
+                    prop_assert!(deserialized.find_op(&op.name).is_some());
+                }
+            }
+        }
+    }
 }

@@ -684,4 +684,97 @@ mod tests {
         let t2 = Term::app("f", vec![Term::var("x"), Term::var("y")]);
         assert!(!alpha_equivalent(&t1, &t2));
     }
+
+    // --- proptest strategies and property tests ---
+
+    mod property {
+        use super::*;
+        use proptest::prelude::*;
+
+        const VAR_NAMES: &[&str] = &["x", "y", "z", "a", "b"];
+        const OP_NAMES: &[&str] = &["f", "g", "h", "add", "mul"];
+
+        fn arb_name() -> impl Strategy<Value = Arc<str>> {
+            prop::sample::select(VAR_NAMES).prop_map(Arc::from)
+        }
+
+        fn arb_term(max_depth: usize) -> BoxedStrategy<Term> {
+            if max_depth == 0 {
+                arb_name().prop_map(Term::Var).boxed()
+            } else {
+                let leaf = arb_name().prop_map(Term::Var);
+                let app = (
+                    prop::sample::select(OP_NAMES).prop_map(Arc::from),
+                    prop::collection::vec(arb_term(max_depth - 1), 0..=3),
+                )
+                    .prop_map(|(op, args)| Term::App { op, args });
+                prop_oneof![leaf, app].boxed()
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn alpha_equivalence_is_reflexive(t in arb_term(3)) {
+                prop_assert!(alpha_equivalent(&t, &t));
+            }
+
+            #[test]
+            fn alpha_equivalence_is_symmetric(a in arb_term(2), b in arb_term(2)) {
+                prop_assert_eq!(
+                    alpha_equivalent(&a, &b),
+                    alpha_equivalent(&b, &a),
+                );
+            }
+
+            #[test]
+            fn substitute_empty_is_identity(t in arb_term(3)) {
+                let empty = rustc_hash::FxHashMap::default();
+                prop_assert_eq!(t.substitute(&empty), t);
+            }
+
+            #[test]
+            fn rename_ops_empty_is_identity(t in arb_term(3)) {
+                let empty = std::collections::HashMap::new();
+                prop_assert_eq!(t.rename_ops(&empty), t);
+            }
+
+            #[test]
+            fn rename_ops_preserves_alpha_structure(
+                t in arb_term(2),
+                src in prop::sample::select(OP_NAMES),
+                tgt in prop::sample::select(OP_NAMES),
+            ) {
+                let mut map = std::collections::HashMap::new();
+                map.insert(Arc::from(src), Arc::from(tgt));
+                let renamed = t.rename_ops(&map);
+                // renaming must preserve the number of free variables
+                prop_assert_eq!(t.free_vars().len(), renamed.free_vars().len());
+            }
+
+            #[test]
+            fn free_vars_subset_after_substitution(
+                t in arb_term(2),
+                var in arb_name(),
+                replacement in arb_term(1),
+            ) {
+                let mut subst = rustc_hash::FxHashMap::default();
+                subst.insert(var.clone(), replacement.clone());
+                let result = t.substitute(&subst);
+                let result_vars = result.free_vars();
+                // every var in result is either from the original (minus substituted)
+                // or from the replacement
+                let orig_vars = t.free_vars();
+                let repl_vars = replacement.free_vars();
+                for v in &result_vars {
+                    prop_assert!(
+                        (orig_vars.contains(v) && *v != var) || repl_vars.contains(v),
+                        "unexpected var {:?} in result",
+                        v,
+                    );
+                }
+            }
+        }
+    }
 }

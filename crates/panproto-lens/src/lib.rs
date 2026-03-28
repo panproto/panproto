@@ -82,6 +82,7 @@ use panproto_schema::Schema;
 /// schema. The `get` direction projects data forward (restricting to the
 /// target view), while `put` restores the original source from a modified
 /// view and the complement.
+#[derive(Debug)]
 pub struct Lens {
     /// The compiled migration driving the restrict operation.
     pub compiled: CompiledMigration,

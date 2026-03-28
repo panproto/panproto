@@ -4,6 +4,17 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **panproto-gat**: property-based tests (proptest) for alpha-equivalence reflexivity/symmetry, substitution identity, rename_ops identity, and free variable subset law.
+- **panproto-gat**: property-based tests for theory index consistency and serde JSON round-trip fidelity.
+- **panproto-gat**: property-based tests for morphism composition associativity, identity unit laws, renamed morphism validity, and composition validity preservation.
+- **panproto-gat**: property-based tests for colimit sort/op completeness, shared element deduplication, and colimit commutativity.
+- **panproto-gat**: property-based tests for typecheck idempotency and well-typed theory acceptance.
+- **panproto-lens**: `Lens` now derives `Debug`.
+- **panproto-lens**: property-based tests for GetPut and PutGet round-trip laws on randomly generated identity and projection lenses.
+- **integration**: property-based tests for identity restrict preservation, restrict functor contravariance, and morphism composition associativity across crate boundaries.
+
 ## [0.20.0] - 2026-03-28
 
 ### Added

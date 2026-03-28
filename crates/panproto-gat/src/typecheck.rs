@@ -446,4 +446,73 @@ mod tests {
         typecheck_theory(&theory)?;
         Ok(())
     }
+
+    // --- proptest property tests ---
+
+    mod property {
+        use super::*;
+        use proptest::prelude::*;
+
+        const SORT_POOL: &[&str] = &["S0", "S1", "S2", "S3"];
+
+        /// Generate a well-typed theory: only simple sorts and operations
+        /// with correct sort references (no equations, since equations
+        /// may reference ops in ill-typed ways from a random generator).
+        fn arb_well_typed_theory() -> impl Strategy<Value = Theory> {
+            prop::sample::subsequence(SORT_POOL, 1..=4).prop_flat_map(|sort_names| {
+                let sorts: Vec<Sort> = sort_names.iter().map(|s| Sort::simple(*s)).collect();
+                let sn: Vec<String> = sort_names.iter().map(|s| (*s).to_owned()).collect();
+                let sn2 = sn.clone();
+                (
+                    Just(sorts),
+                    prop::collection::vec(
+                        (
+                            0..4usize,
+                            prop::sample::select(sn),
+                            prop::sample::select(sn2),
+                        ),
+                        0..=3,
+                    ),
+                )
+                    .prop_map(|(sorts, op_specs)| {
+                        let mut ops = Vec::new();
+                        let mut seen = std::collections::HashSet::new();
+                        for (i, (_, input_sort, output_sort)) in op_specs.iter().enumerate() {
+                            let name = format!("op{i}");
+                            if !seen.insert(name.clone()) {
+                                continue;
+                            }
+                            ops.push(Operation::unary(
+                                &*name,
+                                "x",
+                                input_sort.as_str(),
+                                output_sort.as_str(),
+                            ));
+                        }
+                        Theory::new("TypecheckTest", sorts, ops, Vec::new())
+                    })
+            })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn typecheck_is_idempotent(t in arb_well_typed_theory()) {
+                let result1 = typecheck_theory(&t);
+                let result2 = typecheck_theory(&t);
+                prop_assert_eq!(result1.is_ok(), result2.is_ok());
+            }
+
+            #[test]
+            fn well_typed_theory_passes(t in arb_well_typed_theory()) {
+                // Theories with only simple sorts, correct op sort references,
+                // and no equations should always type-check.
+                prop_assert!(
+                    typecheck_theory(&t).is_ok(),
+                    "well-typed theory should pass typecheck",
+                );
+            }
+        }
+    }
 }

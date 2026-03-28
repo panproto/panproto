@@ -26,6 +26,7 @@ serde_json = { workspace = true }
 rmp-serde = { workspace = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
+proptest = { workspace = true }
 
 [lints]
 workspace = true

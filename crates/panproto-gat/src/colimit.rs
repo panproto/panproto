@@ -983,4 +983,140 @@ mod tests {
         assert_eq!(result.ops.len(), 1); // c
         assert_eq!(result.eqs.len(), 1); // e
     }
+
+    // --- proptest strategies and property tests ---
+
+    mod property {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Generate a colimit input: shared theory with 1-2 sorts, extended
+        /// independently to T1 and T2 with 1-2 additional sorts/ops each.
+        fn arb_colimit_input() -> impl Strategy<Value = (Theory, Theory, Theory)> {
+            // Shared: 1-2 sorts, no ops
+            let shared_sort_count = 1..=2usize;
+            shared_sort_count
+                .prop_flat_map(|n| {
+                    let shared_sorts: Vec<Sort> =
+                        (0..n).map(|i| Sort::simple(format!("Shared{i}"))).collect();
+                    let shared = Theory::new("Shared", shared_sorts, Vec::new(), Vec::new());
+
+                    // T1: shared sorts + 1-2 extra sorts + 0-2 ops
+                    let extra1_count = 1..=2usize;
+                    let extra2_count = 1..=2usize;
+                    let op1_count = 0..=2usize;
+                    let op2_count = 0..=2usize;
+                    (
+                        Just(shared),
+                        extra1_count,
+                        extra2_count,
+                        op1_count,
+                        op2_count,
+                    )
+                })
+                .prop_map(|(shared, extra1, extra2, ops1, ops2)| {
+                    let mut sorts1 = shared.sorts.clone();
+                    for i in 0..extra1 {
+                        sorts1.push(Sort::simple(format!("T1Extra{i}")));
+                    }
+                    let mut t1_ops = Vec::new();
+                    for i in 0..std::cmp::min(ops1, sorts1.len()) {
+                        t1_ops.push(Operation::unary(
+                            format!("t1op{i}"),
+                            "x",
+                            &*sorts1[i % sorts1.len()].name,
+                            &*sorts1[0].name,
+                        ));
+                    }
+                    let t1 = Theory::new("T1", sorts1, t1_ops, Vec::new());
+
+                    let mut sorts2 = shared.sorts.clone();
+                    for i in 0..extra2 {
+                        sorts2.push(Sort::simple(format!("T2Extra{i}")));
+                    }
+                    let mut t2_ops = Vec::new();
+                    for i in 0..std::cmp::min(ops2, sorts2.len()) {
+                        t2_ops.push(Operation::unary(
+                            format!("t2op{i}"),
+                            "x",
+                            &*sorts2[i % sorts2.len()].name,
+                            &*sorts2[0].name,
+                        ));
+                    }
+                    let t2 = Theory::new("T2", sorts2, t2_ops, Vec::new());
+
+                    (shared, t1, t2)
+                })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn colimit_contains_all_sorts((shared, t1, t2) in arb_colimit_input()) {
+                let result = colimit_by_name(&t1, &t2, &shared).unwrap();
+                // All sorts from T1 should be in the colimit.
+                for sort in &t1.sorts {
+                    prop_assert!(
+                        result.find_sort(&sort.name).is_some(),
+                        "T1 sort {:?} missing from colimit",
+                        sort.name,
+                    );
+                }
+                // All sorts from T2 should be in the colimit.
+                for sort in &t2.sorts {
+                    prop_assert!(
+                        result.find_sort(&sort.name).is_some(),
+                        "T2 sort {:?} missing from colimit",
+                        sort.name,
+                    );
+                }
+            }
+
+            #[test]
+            fn colimit_contains_all_ops((shared, t1, t2) in arb_colimit_input()) {
+                let result = colimit_by_name(&t1, &t2, &shared).unwrap();
+                for op in &t1.ops {
+                    prop_assert!(
+                        result.find_op(&op.name).is_some(),
+                        "T1 op {:?} missing from colimit",
+                        op.name,
+                    );
+                }
+                for op in &t2.ops {
+                    prop_assert!(
+                        result.find_op(&op.name).is_some(),
+                        "T2 op {:?} missing from colimit",
+                        op.name,
+                    );
+                }
+            }
+
+            #[test]
+            fn colimit_shared_not_duplicated((shared, t1, t2) in arb_colimit_input()) {
+                let result = colimit_by_name(&t1, &t2, &shared).unwrap();
+                // Each shared sort appears exactly once.
+                for sort in &shared.sorts {
+                    let count = result.sorts.iter().filter(|s| s.name == sort.name).count();
+                    prop_assert_eq!(count, 1, "shared sort {:?} duplicated", sort.name);
+                }
+            }
+
+            #[test]
+            fn colimit_is_commutative((shared, t1, t2) in arb_colimit_input()) {
+                let result_12 = colimit_by_name(&t1, &t2, &shared).unwrap();
+                let result_21 = colimit_by_name(&t2, &t1, &shared).unwrap();
+                prop_assert_eq!(
+                    result_12.sorts.len(),
+                    result_21.sorts.len(),
+                    "commutative: same sort count",
+                );
+                prop_assert_eq!(
+                    result_12.ops.len(),
+                    result_21.ops.len(),
+                    "commutative: same op count",
+                );
+            }
+        }
+    }
 }

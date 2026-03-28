@@ -245,4 +245,276 @@ mod tests {
             "instances with different arcs should not be equivalent"
         );
     }
+
+    // --- proptest strategies and property tests ---
+
+    #[allow(clippy::unwrap_used)]
+    mod property {
+        use super::*;
+        use panproto_gat::Name;
+        use panproto_inst::value::{FieldPresence, Value};
+        use panproto_inst::{CompiledMigration, Node, WInstance};
+        use panproto_schema::{Edge, Schema, Vertex};
+        use proptest::prelude::*;
+        use smallvec::SmallVec;
+        use std::collections::{HashMap, HashSet};
+
+        const LEAF_KINDS: &[&str] = &["string", "integer", "boolean"];
+
+        fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
+            let mut vertices = HashMap::new();
+            let mut edges = HashMap::new();
+            let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+            let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+            let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
+
+            for (id, kind) in verts {
+                vertices.insert(
+                    Name::from(*id),
+                    Vertex {
+                        id: Name::from(*id),
+                        kind: Name::from(*kind),
+                        nsid: None,
+                    },
+                );
+            }
+            for e in edge_list {
+                edges.insert(e.clone(), e.kind.clone());
+                outgoing.entry(e.src.clone()).or_default().push(e.clone());
+                incoming.entry(e.tgt.clone()).or_default().push(e.clone());
+                between
+                    .entry((e.src.clone(), e.tgt.clone()))
+                    .or_default()
+                    .push(e.clone());
+            }
+
+            Schema {
+                protocol: "test".into(),
+                vertices,
+                edges,
+                hyper_edges: HashMap::new(),
+                constraints: HashMap::new(),
+                required: HashMap::new(),
+                nsids: HashMap::new(),
+                variants: HashMap::new(),
+                orderings: HashMap::new(),
+                recursion_points: HashMap::new(),
+                spans: HashMap::new(),
+                usage_modes: HashMap::new(),
+                nominal: HashMap::new(),
+                coercions: HashMap::new(),
+                mergers: HashMap::new(),
+                defaults: HashMap::new(),
+                policies: HashMap::new(),
+                outgoing,
+                incoming,
+                between,
+            }
+        }
+
+        /// Generate a random schema + instance + identity lens.
+        fn arb_identity_lens_scenario() -> impl Strategy<Value = (Lens, WInstance)> {
+            // 1-4 leaf children under a root object.
+            (1..=4usize).prop_flat_map(|n_children| {
+                prop::collection::vec(
+                    prop::sample::select(LEAF_KINDS).prop_map(ToOwned::to_owned),
+                    n_children..=n_children,
+                )
+                .prop_flat_map(move |kinds| {
+                    // Generate random string values for each leaf.
+                    prop::collection::vec(
+                        "[a-z]{1,8}".prop_map(String::from),
+                        n_children..=n_children,
+                    )
+                    .prop_map(move |values| {
+                        let kinds = kinds.clone();
+                        let root_name = "root";
+                        let child_names: Vec<String> =
+                            (0..kinds.len()).map(|i| format!("child{i}")).collect();
+
+                        // Build schema.
+                        let mut vert_specs: Vec<(String, String)> =
+                            vec![(root_name.to_owned(), "object".to_owned())];
+                        let mut edges = Vec::new();
+                        for (i, kind) in kinds.iter().enumerate() {
+                            vert_specs.push((child_names[i].clone(), kind.clone()));
+                            edges.push(Edge {
+                                src: root_name.into(),
+                                tgt: Name::from(child_names[i].as_str()),
+                                kind: "prop".into(),
+                                name: Some(Name::from(child_names[i].as_str())),
+                            });
+                        }
+                        let vert_refs: Vec<(&str, &str)> = vert_specs
+                            .iter()
+                            .map(|(a, b)| (a.as_str(), b.as_str()))
+                            .collect();
+                        let schema = make_schema(&vert_refs, &edges);
+
+                        // Build instance.
+                        let mut nodes = HashMap::new();
+                        nodes.insert(0, Node::new(0, root_name));
+                        for (i, val) in values.iter().enumerate() {
+                            let node_id = u32::try_from(i + 1).unwrap();
+                            nodes.insert(
+                                node_id,
+                                Node::new(node_id, child_names[i].as_str())
+                                    .with_value(FieldPresence::Present(Value::Str(val.clone()))),
+                            );
+                        }
+                        let arcs: Vec<(u32, u32, Edge)> = edges
+                            .iter()
+                            .enumerate()
+                            .map(|(i, e)| (0, u32::try_from(i + 1).unwrap(), e.clone()))
+                            .collect();
+                        let instance = WInstance::new(nodes, arcs, vec![], 0, root_name.into());
+
+                        // Build identity lens.
+                        let surviving_verts: HashSet<Name> =
+                            schema.vertices.keys().cloned().collect();
+                        let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
+                        let lens = Lens {
+                            compiled: CompiledMigration {
+                                surviving_verts,
+                                surviving_edges,
+                                vertex_remap: HashMap::new(),
+                                edge_remap: HashMap::new(),
+                                resolver: HashMap::new(),
+                                hyper_resolver: HashMap::new(),
+                                field_transforms: HashMap::new(),
+                                conditional_survival: HashMap::new(),
+                            },
+                            src_schema: schema.clone(),
+                            tgt_schema: schema,
+                        };
+
+                        (lens, instance)
+                    })
+                })
+            })
+        }
+
+        /// Generate a projection lens scenario: schema with root + N children,
+        /// lens drops one child.
+        fn arb_projection_lens_scenario() -> impl Strategy<Value = (Lens, WInstance)> {
+            // 2-4 leaf children; we'll drop the last one.
+            (2..=4usize).prop_flat_map(|n_children| {
+                prop::collection::vec("[a-z]{1,8}".prop_map(String::from), n_children..=n_children)
+                    .prop_map(move |values| {
+                        let root_name = "root";
+                        let child_names: Vec<String> =
+                            (0..n_children).map(|i| format!("child{i}")).collect();
+
+                        // Build full schema.
+                        let mut vert_specs: Vec<(String, String)> =
+                            vec![(root_name.to_owned(), "object".to_owned())];
+                        let mut all_edges = Vec::new();
+                        for name in &child_names {
+                            vert_specs.push((name.clone(), "string".to_owned()));
+                            all_edges.push(Edge {
+                                src: root_name.into(),
+                                tgt: Name::from(name.as_str()),
+                                kind: "prop".into(),
+                                name: Some(Name::from(name.as_str())),
+                            });
+                        }
+                        let vert_refs: Vec<(&str, &str)> = vert_specs
+                            .iter()
+                            .map(|(a, b)| (a.as_str(), b.as_str()))
+                            .collect();
+                        let src_schema = make_schema(&vert_refs, &all_edges);
+
+                        // Target schema: drop last child.
+                        let tgt_vert_refs: Vec<(&str, &str)> =
+                            vert_refs[..vert_refs.len() - 1].to_vec();
+                        let tgt_edges: Vec<Edge> = all_edges[..all_edges.len() - 1].to_vec();
+                        let tgt_schema = make_schema(&tgt_vert_refs, &tgt_edges);
+
+                        // Build instance.
+                        let mut nodes = HashMap::new();
+                        nodes.insert(0, Node::new(0, root_name));
+                        for (i, val) in values.iter().enumerate() {
+                            let node_id = u32::try_from(i + 1).unwrap();
+                            nodes.insert(
+                                node_id,
+                                Node::new(node_id, child_names[i].as_str())
+                                    .with_value(FieldPresence::Present(Value::Str(val.clone()))),
+                            );
+                        }
+                        let arcs: Vec<(u32, u32, Edge)> = all_edges
+                            .iter()
+                            .enumerate()
+                            .map(|(i, e)| (0, u32::try_from(i + 1).unwrap(), e.clone()))
+                            .collect();
+                        let instance = WInstance::new(nodes, arcs, vec![], 0, root_name.into());
+
+                        // Build projection lens.
+                        let surviving_verts: HashSet<Name> =
+                            tgt_schema.vertices.keys().cloned().collect();
+                        let surviving_edges: HashSet<Edge> =
+                            tgt_schema.edges.keys().cloned().collect();
+                        let lens = Lens {
+                            compiled: CompiledMigration {
+                                surviving_verts,
+                                surviving_edges,
+                                vertex_remap: HashMap::new(),
+                                edge_remap: HashMap::new(),
+                                resolver: HashMap::new(),
+                                hyper_resolver: HashMap::new(),
+                                field_transforms: HashMap::new(),
+                                conditional_survival: HashMap::new(),
+                            },
+                            src_schema,
+                            tgt_schema,
+                        };
+
+                        (lens, instance)
+                    })
+            })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(64))]
+
+            #[test]
+            fn identity_lens_satisfies_laws_proptest(
+                (lens, instance) in arb_identity_lens_scenario()
+            ) {
+                prop_assert!(
+                    check_laws(&lens, &instance).is_ok(),
+                    "identity lens should satisfy all laws",
+                );
+            }
+
+            #[test]
+            fn projection_lens_satisfies_get_put_proptest(
+                (lens, instance) in arb_projection_lens_scenario()
+            ) {
+                prop_assert!(
+                    check_get_put(&lens, &instance).is_ok(),
+                    "projection lens should satisfy GetPut",
+                );
+            }
+
+            #[test]
+            fn projection_lens_satisfies_put_get_proptest(
+                (lens, instance) in arb_projection_lens_scenario()
+            ) {
+                prop_assert!(
+                    check_put_get(&lens, &instance).is_ok(),
+                    "projection lens should satisfy PutGet",
+                );
+            }
+
+            #[test]
+            fn projection_lens_satisfies_full_laws_proptest(
+                (lens, instance) in arb_projection_lens_scenario()
+            ) {
+                prop_assert!(
+                    check_laws(&lens, &instance).is_ok(),
+                    "projection lens should satisfy all laws",
+                );
+            }
+        }
+    }
 }

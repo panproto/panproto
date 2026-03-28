@@ -976,4 +976,190 @@ mod tests {
         let mig_unit = migrated.eval("unit", &[]).unwrap();
         assert_eq!(orig_unit, mig_unit);
     }
+
+    // --- proptest strategies and property tests ---
+
+    mod property {
+        use super::*;
+        use proptest::prelude::*;
+
+        const SORT_POOL: &[&str] = &["S0", "S1", "S2", "S3", "S4"];
+        const OP_POOL: &[&str] = &["f0", "f1", "f2", "f3"];
+
+        /// Lightweight theory generator for morphism property tests.
+        /// Generates 1-4 simple sorts and 0-3 operations (no equations,
+        /// since rename morphisms preserve equations by construction).
+        fn arb_theory() -> impl Strategy<Value = Theory> {
+            prop::sample::subsequence(SORT_POOL, 1..=4).prop_flat_map(|sort_names| {
+                let sorts: Vec<Sort> = sort_names.iter().map(|s| Sort::simple(*s)).collect();
+                let sn: Vec<String> = sort_names.iter().map(|s| (*s).to_owned()).collect();
+                let sn2 = sn.clone();
+                (
+                    Just(sorts),
+                    Just(sn.clone()),
+                    prop::collection::vec(
+                        (
+                            prop::sample::select(OP_POOL),
+                            prop::sample::select(sn),
+                            prop::sample::select(sn2),
+                        ),
+                        0..=3,
+                    ),
+                )
+                    .prop_map(|(sorts, _sn, op_specs)| {
+                        let mut ops = Vec::new();
+                        let mut seen = std::collections::HashSet::new();
+                        for (name, input_sort, output_sort) in &op_specs {
+                            if !seen.insert(*name) {
+                                continue;
+                            }
+                            ops.push(Operation::unary(
+                                *name,
+                                "x",
+                                input_sort.as_str(),
+                                output_sort.as_str(),
+                            ));
+                        }
+                        Theory::new("T", sorts, ops, Vec::new())
+                    })
+            })
+        }
+
+        /// Build a renamed copy of a theory and the morphism between them.
+        /// Uses a deterministic offset into `RENAME_POOL` to produce unique names.
+        fn rename_theory(theory: &Theory, suffix: &str) -> (Theory, TheoryMorphism) {
+            let mut sort_map = HashMap::new();
+            let mut new_sorts = Vec::new();
+            for sort in &theory.sorts {
+                let new_name: Arc<str> = Arc::from(format!("{}_{suffix}", sort.name));
+                sort_map.insert(Arc::clone(&sort.name), Arc::clone(&new_name));
+                new_sorts.push(Sort::simple(&*new_name));
+            }
+
+            let mut op_map = HashMap::new();
+            let mut new_ops = Vec::new();
+            for op in &theory.ops {
+                let new_name: Arc<str> = Arc::from(format!("{}_{suffix}", op.name));
+                op_map.insert(Arc::clone(&op.name), Arc::clone(&new_name));
+                let new_inputs: Vec<(Arc<str>, Arc<str>)> = op
+                    .inputs
+                    .iter()
+                    .map(|(p, s)| {
+                        (
+                            Arc::clone(p),
+                            sort_map.get(s).cloned().unwrap_or_else(|| Arc::clone(s)),
+                        )
+                    })
+                    .collect();
+                let new_output = sort_map
+                    .get(&op.output)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::clone(&op.output));
+                new_ops.push(Operation::new(&*new_name, new_inputs, &*new_output));
+            }
+
+            // Rename equations.
+            let new_eqs: Vec<Equation> =
+                theory.eqs.iter().map(|eq| eq.rename_ops(&op_map)).collect();
+
+            let new_theory_name = format!("{}_{suffix}", theory.name);
+            let new_theory = Theory::new(&*new_theory_name, new_sorts, new_ops, new_eqs);
+
+            let morphism = TheoryMorphism::new(
+                format!("rename_{suffix}"),
+                &*theory.name,
+                &*new_theory_name,
+                sort_map,
+                op_map,
+            );
+
+            (new_theory, morphism)
+        }
+
+        /// Strategy producing (T1, T2, T3, m1: T1->T2, m2: T2->T3).
+        fn arb_composable_pair()
+        -> impl Strategy<Value = (Theory, Theory, Theory, TheoryMorphism, TheoryMorphism)> {
+            arb_theory().prop_map(|t1| {
+                let (t2, m1) = rename_theory(&t1, "a");
+                let (t3, m2) = rename_theory(&t2, "b");
+                (t1, t2, t3, m1, m2)
+            })
+        }
+
+        /// Strategy producing a chain of three composable morphisms.
+        fn arb_composable_triple() -> impl Strategy<
+            Value = (
+                Theory,
+                Theory,
+                Theory,
+                Theory,
+                TheoryMorphism,
+                TheoryMorphism,
+                TheoryMorphism,
+            ),
+        > {
+            arb_theory().prop_map(|t1| {
+                let (t2, m1) = rename_theory(&t1, "a");
+                let (t3, m2) = rename_theory(&t2, "b");
+                let (t4, m3) = rename_theory(&t3, "c");
+                (t1, t2, t3, t4, m1, m2, m3)
+            })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn composition_is_associative(
+                (_t1, _t2, _t3, _t4, m1, m2, m3) in arb_composable_triple()
+            ) {
+                let left = m1.compose(&m2).unwrap().compose(&m3).unwrap();
+                let right = m1.compose(&m2.compose(&m3).unwrap()).unwrap();
+                prop_assert_eq!(&left.sort_map, &right.sort_map);
+                prop_assert_eq!(&left.op_map, &right.op_map);
+                prop_assert_eq!(&left.domain, &right.domain);
+                prop_assert_eq!(&left.codomain, &right.codomain);
+            }
+
+            #[test]
+            fn identity_is_left_unit((t1, _t2, _t3, m1, _m2) in arb_composable_pair()) {
+                let id = TheoryMorphism::identity(&t1);
+                let id_then_m = id.compose(&m1).unwrap();
+                prop_assert_eq!(&id_then_m.sort_map, &m1.sort_map);
+                prop_assert_eq!(&id_then_m.op_map, &m1.op_map);
+            }
+
+            #[test]
+            fn identity_is_right_unit((_t1, t2, _t3, m1, _m2) in arb_composable_pair()) {
+                let id = TheoryMorphism::identity(&t2);
+                let m_then_id = m1.compose(&id).unwrap();
+                prop_assert_eq!(&m_then_id.sort_map, &m1.sort_map);
+                prop_assert_eq!(&m_then_id.op_map, &m1.op_map);
+            }
+
+            #[test]
+            fn renamed_morphism_is_valid(t in arb_theory()) {
+                let (t2, m) = rename_theory(&t, "test");
+                prop_assert!(
+                    check_morphism(&m, &t, &t2).is_ok(),
+                    "renaming morphism should be valid",
+                );
+            }
+
+            #[test]
+            fn composition_preserves_validity(
+                (t1, t2, t3, m1, m2) in arb_composable_pair()
+            ) {
+                // Both individual morphisms are valid by construction.
+                prop_assert!(check_morphism(&m1, &t1, &t2).is_ok());
+                prop_assert!(check_morphism(&m2, &t2, &t3).is_ok());
+                // Composition must also be valid.
+                let composed = m1.compose(&m2).unwrap();
+                prop_assert!(
+                    check_morphism(&composed, &t1, &t3).is_ok(),
+                    "composed morphism should be valid",
+                );
+            }
+        }
+    }
 }
