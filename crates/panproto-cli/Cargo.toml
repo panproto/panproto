@@ -1,6 +1,6 @@
 [package]
 name = "panproto-cli"
-description = "Schematic version control: schema migration toolkit based on generalized algebraic theories"
+description = "Schematic version control CLI for panproto"
 homepage = "https://github.com/panproto/panproto"
 version.workspace = true
 edition.workspace = true
