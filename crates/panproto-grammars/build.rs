@@ -172,7 +172,7 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
              namespace {ns_name} {{\n\
              #include \"{scanner}\"\n\
              }} // namespace {ns_name}\n",
-            scanner = abs_scanner.display(),
+            scanner = abs_scanner.display().to_string().replace('\\', "/"),
         );
         fs::write(&wrapper_path, &wrapper).expect("failed to write scanner wrapper");
 
@@ -364,9 +364,11 @@ fn generate_rust_bindings(enabled: &[&(String, GrammarSpec)], grammars_dir: &Pat
             .canonicalize()
             .unwrap_or_else(|_| node_types_path.clone());
         let const_name = name.to_uppercase().replace('-', "_");
+        // Use forward slashes for include_bytes! paths (Windows backslashes are
+        // interpreted as escape sequences in string literals).
+        let path_str = abs_path.display().to_string().replace('\\', "/");
         code.push_str(&format!(
-            "const {const_name}_NODE_TYPES: &[u8] = include_bytes!(\"{}\");\n",
-            abs_path.display(),
+            "const {const_name}_NODE_TYPES: &[u8] = include_bytes!(\"{path_str}\");\n",
         ));
     }
 
