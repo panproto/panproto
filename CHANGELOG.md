@@ -22,6 +22,12 @@ All notable changes to panproto will be documented in this file.
 ### Changed
 
 - **panproto-cli**: description updated for Homebrew and crates.io display.
+- **panproto-xrpc**: switched from native-tls (OpenSSL) to rustls for TLS, enabling static musl builds without system OpenSSL.
+- **panproto-cli**: `git2` dependency uses `vendored-libgit2` feature for portable binary distribution.
+
+### Fixed
+
+- **panproto-grammars**: `build.rs` normalizes backslash paths to forward slashes in `include_bytes!` calls, fixing Windows compilation.
 
 ## [0.20.0] - 2026-03-28
 
