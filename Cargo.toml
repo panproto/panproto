@@ -133,6 +133,8 @@ targets = [
     "aarch64-unknown-linux-musl",
     "x86_64-pc-windows-msvc",
 ]
+# Build only dist-able packages, not the whole workspace
+precise-builds = true
 # Publish jobs should only run on tag push
 pr-run-mode = "skip"
 
