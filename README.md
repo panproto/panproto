@@ -49,6 +49,24 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 | [`panproto-py`](crates/panproto-py) | Native Python bindings via PyO3 with `pythonize` (serde to Python dicts) |
 | [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, convert, lens, expr, enrich, parse, git bridge, and version control |
 
+## Installation
+
+### CLI (`schema`)
+
+```sh
+# macOS (Homebrew)
+brew install panproto/tap/schema
+
+# Linux / macOS (shell installer)
+curl --proto '=https' -LsSf https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.ps1 | iex"
+
+# From source (any platform with Rust)
+cargo install panproto-cli
+```
+
 ### SDKs
 
 | Package | Install |

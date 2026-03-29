@@ -9,6 +9,16 @@ Provides subcommands for schema validation, migration checking, breaking change 
 ## Installation
 
 ```sh
+# macOS (Homebrew)
+brew install panproto/tap/schema
+
+# Linux / macOS (shell installer)
+curl --proto '=https' -LsSf https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.ps1 | iex"
+
+# From source (any platform with Rust)
 cargo install panproto-cli
 ```
 
