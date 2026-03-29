@@ -25,7 +25,7 @@ panproto-project = { workspace = true }
 panproto-git = { workspace = true }
 panproto-llvm = { workspace = true }
 clap = { workspace = true }
-git2 = { version = "0.20", features = ["vendored-libgit2"] }
+git2 = { version = "0.20", features = ["vendored-libgit2", "vendored-openssl"] }
 panproto-xrpc = { version = "0.21.0", path = "../panproto-xrpc" }
 panproto-vcs = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread"] }
