@@ -52,6 +52,9 @@ This is Level 0 of the panproto architecture: the only component implemented dir
 | `factorize` | Decompose a `TheoryMorphism` into a sequence of elementary endofunctors |
 | `Factorization` | Result of factorization: ordered list of `TheoryEndofunctor` steps |
 | `validate_factorization` | Verify that a factorization correctly reproduces the original morphism |
+| `CompositionSpec` | Declarative recipe for composing theories via sequential colimits |
+| `CompositionStep` | `Base(name)` or `Colimit { left, right, shared_sorts, shared_ops }` |
+| `recompose` | Replay a `CompositionSpec` against a theory registry to reconstruct a composed theory |
 | `GatError` | Error type for GAT operations |
 
 ## Example

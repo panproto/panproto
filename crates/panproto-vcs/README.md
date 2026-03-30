@@ -16,8 +16,9 @@ Schemas, data snapshots, complements, and protocol definitions are content-addre
 | `MemStore` | In-memory store for tests and WASM |
 | `Store` | Trait abstracting over storage backends |
 | `ObjectId` | Blake3 content-address (32 bytes) |
-| `Object` | Enum: `Schema`, `Migration`, `Commit`, `Expr`, and others |
-| `CommitObject` | A point in the schema evolution DAG |
+| `Object` | Enum: `Schema`, `Migration`, `Commit`, `Theory`, `TheoryMorphism`, `Expr`, and others |
+| `CommitObject` | A point in the schema evolution DAG (with `theory_ids` tracking stored theories) |
+| `CommitObjectBuilder` | Builder for `CommitObject` with sensible defaults |
 | `HeadState` | Branch or detached HEAD |
 | `ReflogEntry` | Audit trail entry for ref mutations |
 | `Index` | Staging area for the next commit |
@@ -58,7 +59,7 @@ Schemas, data snapshots, complements, and protocol definitions are content-addre
 | `bisect` | Binary search for breaking commit |
 | `blame` | Schema element attribution |
 | `gc` | Mark-sweep garbage collection |
-| `gat_validate` | GAT-level validation: type-checked migrations, theory equation verification, schema model checking |
+| `gat_validate` | GAT-level validation: type-checked migrations, theory equation verification, schema model checking, `schema_to_theory` extraction |
 | `repo` | Repository orchestration (porcelain) |
 
 ## Safety

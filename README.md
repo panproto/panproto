@@ -9,7 +9,7 @@
 
 A universal schema migration engine built on [Generalized Algebraic Theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory) (GATs), with automatic lens generation via [protolenses](https://ncatlab.org/nlab/show/natural+transformation).
 
-panproto parses 248 programming languages and data formats via tree-sitter grammars, and provides 50 semantic protocol definitions ([ATProto Lexicons](https://atproto.com/specs/lexicon), [WASI](https://wasi.dev/), [OpenAPI](https://www.openapis.org/), and others) that model each schema language as a common mathematical structure. Migrations are [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format. Protolenses automatically derive schema-parameterized families of lenses, eliminating manual combinator wiring.
+panproto parses 248 programming languages and data formats via tree-sitter grammars, and provides 51 semantic protocol definitions ([ATProto Lexicons](https://atproto.com/specs/lexicon), [OpenAPI](https://www.openapis.org/), [Avro](https://avro.apache.org/), and others) that model each schema language as a common mathematical structure. Migrations are [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format. Protolenses automatically derive schema-parameterized families of lenses, eliminating manual combinator wiring.
 
 ## Key idea
 
@@ -35,19 +35,19 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 | [`panproto-mig`](crates/panproto-mig) | Migration engine: existence checks, compilation, lift, compose, invert, coverage analysis |
 | [`panproto-lens`](crates/panproto-lens) | [Protolenses](https://ncatlab.org/nlab/show/natural+transformation): schema-parameterized lens families, optic classification, symbolic simplification, auto-generation |
 | [`panproto-check`](crates/panproto-check) | Breaking change detection via structural diffing and protocol-aware classification |
-| [`panproto-protocols`](crates/panproto-protocols) | 50 semantic protocol definitions composed from building-block theories |
+| [`panproto-protocols`](crates/panproto-protocols) | 51 semantic protocol definitions composed from building-block theories |
 | [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs for semantic protocols |
-| [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge |
+| [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge, theory tracking |
 | [`panproto-parse`](crates/panproto-parse) | Tree-sitter full-AST parsing for 248 languages with auto-derived GAT theories and interstitial text emission |
 | [`panproto-grammars`](crates/panproto-grammars) | Pre-compiled tree-sitter grammars for 248 languages (workspace-local, not published to crates.io) |
-| [`panproto-project`](crates/panproto-project) | Multi-file project assembly via schema coproduct with cross-file import resolution |
+| [`panproto-project`](crates/panproto-project) | Multi-file project assembly via schema coproduct with cross-file import resolution, project manifest (`panproto.toml`), and incremental parsing cache |
 | [`panproto-git`](crates/panproto-git) | Bidirectional git to panproto-vcs translation bridge (import/export with DAG preservation) |
 | [`panproto-llvm`](crates/panproto-llvm) | LLVM IR protocol definition, language AST lowering morphisms, and inkwell-based IR parsing |
 | [`panproto-jit`](crates/panproto-jit) | LLVM JIT compilation of panproto expressions via inkwell for accelerated data migration |
 | [`panproto-core`](crates/panproto-core) | Re-export facade (feature-gated: `full-parse`, `project`, `git`, `llvm`, `jit`) |
 | [`panproto-wasm`](crates/panproto-wasm) | WASM bindings with handle-based slab allocator, MessagePack boundary, and protolens entry points |
 | [`panproto-py`](crates/panproto-py) | Native Python bindings via PyO3 with `pythonize` (serde to Python dicts) |
-| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, convert, lens, expr, enrich, parse, git bridge, and version control |
+| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, data, lens, expr, enrich, parse, git bridge, and version control |
 
 ## Installation
 
@@ -55,7 +55,7 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 
 ```sh
 # macOS (Homebrew)
-brew install panproto/tap/schema
+brew install panproto/tap/panproto-cli
 
 # Linux / macOS (shell installer)
 curl --proto '=https' -LsSf https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.sh | sh
@@ -151,69 +151,57 @@ view, complement = lens.get(instance)
 ### CLI
 
 ```sh
-# Validate a schema against a protocol
-schema validate --protocol atproto schema.json
-
-# Detect breaking changes between two schema versions
-schema check --protocol atproto old.json new.json
-
-# Diff two schemas
-schema diff old.json new.json
-
-# One-step data conversion between schemas
-schema convert --src-schema old.json --tgt-schema new.json record.json
-
-# Auto-generate a lens with human-readable summary
-schema lens --src old.json --tgt new.json
-
-# Apply a saved lens or protolens chain
-schema lens --apply --lens lens.json record.json
-
-# Verify lens laws and naturality
-schema lens --verify --lens lens.json --instance test.json
-
-# Compose lenses or protolens chains
-schema lens --compose lens1.json lens2.json -o composed.json
-
-# Check applicability with failure reasons
-schema lens --check --chain chain.json --schema schema.json
-
-# Lift a protolens chain to another protocol
-schema lens --lift --chain chain.json --morphism morphism.json
-
-# Full-AST parsing
-schema parse file src/main.ts                # Parse a source file into structural schema
-schema parse project ./src                   # Parse a directory into a unified project schema
-schema parse emit src/main.ts                # Round-trip: parse then emit back to source
-
-# Git bridge
-schema git import /path/to/repo HEAD         # Import git history into panproto-vcs
-schema git export --repo . /path/to/dest     # Export panproto-vcs to a git repository
-
-# Derive a lens from VCS commit history
-schema lens --diff HEAD~1 HEAD
-
-# Apply a migration to a record
-schema lift --protocol atproto --migration mig.json \
-  --src-schema old.json --tgt-schema new.json record.json
-
-# Generate minimal test data from a protocol theory
-schema scaffold --protocol atproto schema.json
-
-# Simplify a schema by merging equivalent elements
-schema normalize --protocol atproto schema.json --identify "A=B,C=D"
-
 # Version control
-schema init
-schema add schema.json
+schema init                              # initialize repo, auto-detect packages
+schema add schema.json                   # stage a JSON schema
+schema add crates/panproto-gat/          # stage a directory (parsed via tree-sitter)
 schema commit -m "initial schema"
+schema status                            # per-file changes grouped by package
+schema log
 schema branch feature
 schema checkout feature
 schema merge main
-schema log
+schema diff --staged                     # diff staged vs HEAD
+schema diff --theory old.json new.json   # sort/op-level diff
 
-# Migrate data to match current schema
-schema migrate records/
+# Schema tools
+schema validate --protocol atproto schema.json
+schema check --src old.json --tgt new.json --mapping mig.json
+schema scaffold --protocol atproto schema.json
+schema normalize --protocol atproto schema.json
+
+# Lens operations
+schema lens generate old.json new.json
+schema lens apply lens.json record.json
+schema lens verify lens.json --instance test.json
+schema lens compose lens1.json lens2.json
+schema lens inspect chain.json
+schema lens check chain.json schemas/
+schema lens lift chain.json morphism.json
+
+# Data operations
+schema data convert --src-schema old.json --tgt-schema new.json record.json
+schema data migrate records/
+schema data sync records/
+schema data status records/
+
+# Record lifting
+schema lift --migration mig.json \
+  --src-schema old.json --tgt-schema new.json record.json
+
+# Full-AST parsing (248 languages)
+schema parse file src/main.ts
+schema parse project ./src
+schema parse emit src/main.ts
+
+# Git bridge
+schema git import /path/to/repo HEAD
+schema git export --repo . /path/to/dest
+
+# Expression REPL
+schema expr eval "2 + 3 * 4"
+schema expr parse "\\x -> x + 1"
+schema expr repl
 ```
 
 ## Building
@@ -245,7 +233,7 @@ panproto implements a four-level architecture rooted in category theory. The GAT
 
 **Schematic version control** (`panproto-vcs`) provides git-style operations (commit, branch, merge, rebase, cherry-pick, bisect, blame) operating on schema graphs rather than text. Merges are computed as categorical pushouts. There is no heuristic tie-breaking; the merge is commutative.
 
-**Data versioning** stores instance data, complements, and protocol definitions as content-addressed objects alongside schemas in the commit DAG. `schema migrate` automatically generates lenses from the schema history and applies them to data files. Complements are persisted so backward migration never loses data. `schema checkout --migrate` and `schema merge --migrate` handle data migration as part of normal VCS operations.
+**Data versioning** stores instance data, complements, and protocol definitions as content-addressed objects alongside schemas in the commit DAG. `schema data migrate` automatically generates lenses from the schema history and applies them to data files. Complements are persisted so backward migration never loses data. `schema checkout --migrate` and `schema merge --migrate` handle data migration as part of normal VCS operations.
 
 **Automatic migration discovery** finds schema morphisms via backtracking CSP with MRV heuristic, discovers overlaps between schemas, and computes schema-level pushouts for merging disparate formats.
 
