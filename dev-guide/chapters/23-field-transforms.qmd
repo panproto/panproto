@@ -1,6 +1,6 @@
 # Field Transform Architecture {#sec-field-transforms}
 
-`FieldTransform` is the value-level complement to the structural `TheoryTransform` layer. Where `TheoryTransform` operates on schema vertices and edges, `FieldTransform` operates on the `extra_fields` of individual instance nodes during `wtype_restrict`.
+`FieldTransform` operates at the value level—the complement to `TheoryTransform`, which works at the schema level. Where `TheoryTransform` modifies vertex and edge kinds, `FieldTransform` modifies the `extra_fields` of individual nodes during `wtype_restrict`.
 
 ::: {.callout-note}
 For the user-facing walkthrough of value-dependent migration, see [the tutorial](https://panproto.dev/tutorial/chapters/20-value-dependent-transforms.html).
@@ -8,23 +8,21 @@ For the user-facing walkthrough of value-dependent migration, see [the tutorial]
 
 ## The FieldTransform algebra {#sec-field-transform-algebra}
 
-`FieldTransform` is a nine-variant enum defined in `panproto-inst/src/wtype.rs`. The variants form a small algebra of node mutations:
+`FieldTransform` is a nine-variant enum in `panproto-inst/src/wtype.rs`. Each variant expresses one kind of node mutation:
 
-| Variant | Category-theoretic interpretation | Typical use |
-|---------|----------------------------------|-------------|
-| `RenameField` | Endomorphism on the key set (key bijection) | Normalize field names across protocol versions |
-| `DropField` | Partial projection (forgetful functor on a field) | Remove deprecated fields |
-| `AddField` | Natural transformation injecting a constant | Provide default values for new required fields |
-| `KeepFields` | Projection onto a named subset | Restrict fields to those recognized by the target schema |
-| `ApplyExpr` | Endomorphism on a single field's value via the expr evaluator | Type coercions, string normalization |
-| `PathTransform` | Action of a path functor on the transform endomorphism algebra | Apply any transform to a nested object field |
-| `ComputeField` | Morphism from the full field environment to a target field | Compute derived fields from multiple sources |
-| `Case` | Coproduct eliminator / dependent function space | Conditional logic based on runtime field values |
-| `MapReferences` | Functorial action on the name-reference algebra | Propagate vertex renames into string reference fields |
+| Variant | What it does | When to use |
+|---------|-------------|-----------|
+| `RenameField` | Renames a field by key | Normalizing field names across versions |
+| `DropField` | Removes a field | Removing deprecated fields |
+| `AddField` | Injects a constant field | Providing defaults for new required fields |
+| `KeepFields` | Retains only named fields | Restricting to target schema fields |
+| `ApplyExpr` | Transforms a field value via expression | Type coercions, string normalization |
+| `PathTransform` | Applies any transform to a nested field | Working with nested objects |
+| `ComputeField` | Derives a field from other fields | Computing aggregates or combinations |
+| `Case` | Conditional logic based on field values | Branching on runtime data |
+| `MapReferences` | Updates string fields that hold vertex names | Propagating vertex renames |
 
-: The nine `FieldTransform` variants and their categorical roles. {#tbl-field-transforms}
-
-The transforms compose sequentially: `apply_field_transforms` iterates over a `Vec<FieldTransform>` and applies each one in order. Earlier transforms see the original fields; later transforms see the result of everything before them. This sequential composition is the reason the builder methods on `CompiledMigration` append to a `Vec` rather than replace.
+These transforms compose sequentially: `apply_field_transforms` iterates a `Vec<FieldTransform>` and applies each in order. Earlier transforms see the original fields; later transforms see results from all preceding ones. This sequential model is why the builder appends to a vector rather than replacing.
 
 ## PathTransform as path functor action {#sec-path-transform-arch}
 
@@ -37,15 +35,15 @@ PathTransform {
 }
 ```
 
-The implementation in `apply_path_transform` navigates the `extra_fields` tree by treating each path segment as a `Value::Unknown` map lookup. At the end of the path, a temporary `Node` is constructed with the nested map as its `extra_fields`, `apply_field_transforms` is called on that node, and the result is written back.
+It navigates the `extra_fields` tree by treating each path segment as a map key lookup. At the path's end, a temporary `Node` is constructed with the nested map as its `extra_fields`. The inner transform runs on that node, then the result gets written back.
 
-This is the action of a path functor: the value tree has an endomorphism monoid at each leaf (the set of transforms applicable to a `HashMap<String, Value>`), and `PathTransform` lifts any element of that monoid to act on a subtree. An empty path is the identity action on the root: the inner transform applies directly to the node's own fields.
+Think of this as lifting a transform on flat fields to act on a subtree. An empty path means the transform applies directly to the node's own fields.
 
-The recursion bottoms out when `path.len() == 1`. For deeper paths, the function calls itself with `&path[1..]` and the nested map. Paths that don't resolve (because an intermediate key is absent or not `Value::Unknown`) are silently no-ops: the transform produces no change rather than an error. This design choice avoids hard failures on data that lacks an expected nested structure.
+The recursion bottoms out when `path.len() == 1`. For deeper paths, the function recurses with `&path[1..]` and the nested map. Paths that don't resolve (missing keys or non-map values) are silently no-ops—the transform produces no change rather than an error. This design avoids failures on data lacking an expected structure.
 
-## MapReferences as functorial action on the name-reference algebra {#sec-map-references-arch}
+## MapReferences as functorial action {#sec-map-references-arch}
 
-When a `RenameVertex` schema transform is compiled, any fields in surviving nodes that carry vertex names as string data must be updated to reflect the rename. This is the content of `MapReferences`:
+When a vertex gets renamed in the schema, any fields holding vertex names as strings must be updated. That's what `MapReferences` does:
 
 ```rust
 MapReferences {
@@ -54,17 +52,17 @@ MapReferences {
 }
 ```
 
-The `Option<String>` value type handles both rename (`Some(new_name)`) and removal (`None`). The implementation in `apply_map_references` handles two cases:
+The `Option<String>` value handles both rename (`Some(new_name)`) and removal (`None`). Implementation in `apply_map_references` handles two cases:
 
-**Flat string fields**: `Value::Str(s)` is looked up in `rename_map`. If found, it's replaced with the new name or removed entirely.
+**Flat string fields**: `Value::Str(s)` is looked up in the rename map. If found, it's replaced or removed.
 
-**Encoded array fields**: panproto encodes JSON arrays inside `extra_fields` as `Value::Unknown` maps with an `__array_len` sentinel key and integer-indexed entries (`"0"`, `"1"`, ...). `apply_map_references` detects this encoding by checking for `__array_len`, iterates over the indexed entries, applies the rename map to each string element, drops entries mapped to `None`, and reconstructs the array with updated indices and a corrected `__array_len`.
+**Encoded array fields**: panproto stores JSON arrays in `extra_fields` as maps with an `__array_len` sentinel. For example, `["u-url", "external"]` becomes `{"0": "u-url", "1": "external", "__array_len": 2}`. The function detects this encoding, iterates the indexed entries, applies the rename to each string, drops entries mapped to `None`, and rebuilds with updated indices.
 
-The functorial interpretation: the schema category has a rename morphism $r : V \to V'$; the name-reference algebra is the free monoid on vertex names; `MapReferences` is the application of $r$ to each element of that monoid stored in a field. The operation preserves all references not in the rename map, which corresponds to $r$ acting as the identity on names outside its domain.
+The categorical interpretation: the rename is a morphism in the name-reference algebra, and `MapReferences` applies that morphism to each element stored in a field. References outside the rename map stay unchanged, which corresponds to the morphism acting as identity there.
 
 ## Case as coproduct eliminator {#sec-case-arch}
 
-`Case` is the most general transform variant:
+`Case` branches on node values:
 
 ```rust
 Case {
@@ -77,16 +75,16 @@ pub struct CaseBranch {
 }
 ```
 
-The evaluation follows coproduct elimination semantics: the node's current `extra_fields` map (after preceding transforms in the same list) is used to build an expression environment via `build_env_from_extra_fields`. Each branch's predicate is evaluated against that environment. The first branch that evaluates to `Literal::Bool(true)` has its `transforms` applied; no subsequent branches are evaluated. If no branch matches, the node is unchanged.
+The evaluator uses the node's current `extra_fields` to build an expression environment via `build_env_from_extra_fields`. Each branch's predicate is evaluated. The first branch returning `Literal::Bool(true)` has its transforms applied; no subsequent branches run. If none match, the node is unchanged.
 
-As the dependent function space $\Pi(x : \text{Node}). \text{FieldTransform}$, `Case` selects a transform based on the node's value. The selection is a runtime decision, not a compile-time one: different nodes of the same vertex type can receive entirely different transformations.
+Mathematically, this is the dependent function space $\Pi(x : \text{Node}). \text{FieldTransform}$. The selection happens at runtime, not compile-time, so different nodes can receive entirely different transformations.
 
-The `transforms` list inside each branch is a full `Vec<FieldTransform>`, so branches can contain arbitrary transform sequences including nested `Case` blocks, `PathTransform` wrappers, and `ComputeField` expressions. This makes `Case` a complete transformer that can express any acyclic conditional logic.
+Each branch's `transforms` list is a full `Vec<FieldTransform>`, so branches can nest `Case` blocks, wrap with `PathTransform`, or use `ComputeField`. This completeness lets `Case` express arbitrary conditional logic.
 
 ::: {.callout-note}
-## What happens if no branch matches?
+## What if no branch matches?
 
-The node passes through unchanged. This is by design: `Case` is a total function. If you need a "catch-all" branch, add a final branch with a predicate that always evaluates to `true`.
+The node passes through unchanged. Add a final branch with a predicate that always evaluates to `true` if you need a "catch-all."
 :::
 
 ## ConditionalSurvival as a refined survival predicate {#sec-conditional-survival-arch}
@@ -97,41 +95,39 @@ The node passes through unchanged. This is by design: `Case` is a total function
 pub conditional_survival: HashMap<Name, panproto_expr::Expr>,
 ```
 
-It's checked *before* field transforms, during the BFS pass in `wtype_restrict`. The flow for each child node in the BFS is:
+It's checked *before* field transforms during the BFS pass in `wtype_restrict`. For each child node:
 
 1. Is the remapped target anchor in `surviving_verts`? If not, skip (structurally pruned).
 2. Is there a conditional survival predicate for the *source* anchor? If so, evaluate it.
-3. If the predicate returns `false`, treat the node as if it were structurally pruned: push it back on the BFS queue (so its descendants can still be processed through ancestor contraction), but don't add it to the surviving set.
-4. If the predicate returns `true` (or no predicate exists), add the node to the surviving set and apply field transforms.
+3. If the predicate returns `false`, push the node back on the BFS queue (so descendants can still be processed through ancestor contraction) but don't add it to the surviving set.
+4. If the predicate returns `true` (or no predicate exists), add it to the surviving set and apply field transforms.
 
-This two-step design separates the structural question ("does this vertex type survive?") from the value question ("does this specific node satisfy the predicate?"). The structural question is answered by the schema migration specification. The value question is answered at runtime.
-
-The predicate is evaluated with the same `build_env_from_extra_fields` environment used for `ComputeField` and `Case`. All `extra_fields` entries and `attrs.*` subentries are bound as variables.
+This two-step design separates structure from value. The schema migration answers: "does this vertex type survive?" The predicate answers: "does this specific node satisfy the condition?" All predicates are evaluated with the same `build_env_from_extra_fields` environment used for `ComputeField` and `Case`.
 
 ## build_env_from_extra_fields: variable binding strategy {#sec-build-env}
 
-`build_env_from_extra_fields` is the shared environment builder used by `ComputeField`, `Case`, and `conditional_survival`. Its binding strategy has three components:
+This shared environment builder is used by `ComputeField`, `Case`, and `conditional_survival`. Its three binding strategies cover different storage conventions:
 
-**Flat bindings**: every key in `extra_fields` is bound as a top-level variable. A field `"level": 2` becomes `Expr::Var("level")` evaluating to `Literal::Int(2)`.
+**Flat bindings**: every key in `extra_fields` becomes a top-level variable. A field `"level": 2` evaluates as `Expr::Var("level")` → `Literal::Int(2)`.
 
-**Qualified bindings for non-structural keys**: for most keys (everything except `"attrs"`, `"name"`, `"$type"`, and `"parents"`), a qualified `attrs.key` binding is also created. This means predicates can reference `attrs.level` even when `level` is stored flat, without needing to know whether the field is nested.
+**Qualified bindings for non-structural keys**: most keys (anything except `"attrs"`, `"name"`, `"$type"`, `"parents"`) get a qualified `attrs.key` binding too. This means predicates can reference `attrs.level` without knowing whether `level` is flat or nested.
 
-**Nested attrs expansion**: if `extra_fields` contains an `"attrs"` key holding a `Value::Unknown` map, every entry in that nested map is bound under both the qualified name `attrs.key` and (if not shadowed by a flat field) the unqualified `key`. This makes predicates portable: a predicate written against `attrs.level` works whether `level` is flat or nested.
+**Nested attrs expansion**: if `extra_fields` contains an `"attrs"` key holding a map, every entry in that map binds under both the qualified name `attrs.key` and (unless shadowed) the unqualified `key`. Predicates written against `attrs.level` work whether `level` is flat or nested.
 
-The dual binding strategy exists because different document formats store the same semantic information differently. AT Protocol records use top-level keys. Some annotation formats use an `attrs` object. Predicates that reference `attrs.level` work against both conventions.
+This dual binding exists because different protocols store the same semantic information at different nesting depths. AT Protocol uses top-level keys; some annotation formats use an `attrs` object. Dual bindings let predicates work across both conventions without format-specific logic.
 
 ::: {.callout-tip}
 ## Why both `level` and `attrs.level`?
 
-Different protocols store the same concept at different nesting depths. By binding both, we let predicates work across protocols without format-specific logic. A predicate `attrs.level > 2` matches whether `level` is a top-level field or nested inside `attrs`.
+Different protocols nest the same concept differently. Binding both means predicates work across protocols. A predicate like `attrs.level > 2` matches whether `level` is top-level or inside `attrs`.
 :::
 
 ## value_to_expr_literal: Value-to-Literal conversion {#sec-value-to-literal}
 
-`value_to_expr_literal` converts an instance `Value` to a `panproto_expr::Literal` for use in expression evaluation:
+`value_to_expr_literal` converts an instance `Value` to a `panproto_expr::Literal`:
 
-| `Value` variant | `Literal` result |
-|----------------|-----------------|
+| `Value` variant | Converts to |
+|----------------|-----------|
 | `Value::Bool(b)` | `Literal::Bool(b)` |
 | `Value::Int(i)` | `Literal::Int(i)` |
 | `Value::Float(f)` | `Literal::Float(f)` |
@@ -140,27 +136,25 @@ Different protocols store the same concept at different nesting depths. By bindi
 | `Value::Unknown` without `__array_len` | `Literal::Null` |
 | `Value::Null` and others | `Literal::Null` |
 
-: `value_to_expr_literal` conversion table. {#tbl-value-to-literal}
+The encoded-array case deserves explanation. panproto stores JSON arrays in `extra_fields` as maps because `extra_fields` is a `HashMap<String, Value>` without a dedicated list variant. The array `["u-url", "external"]` becomes `{"0": "u-url", "1": "external", "__array_len": 2}`. When this reaches `value_to_expr_literal`, the `__array_len` sentinel is detected and array elements are collected and joined with commas: `"u-url,external"`. This lets `BuiltinOp::Contains` check membership in the serialized array.
 
-The encoded-array case deserves explanation. panproto stores JSON arrays in `extra_fields` as `Value::Unknown` maps because `extra_fields` is `HashMap<String, Value>` and `Value` doesn't have a dedicated list variant for the flat map case. The array `["u-url", "external"]` becomes `{"0": "u-url", "1": "external", "__array_len": 2}`. When this map is passed to `value_to_expr_literal`, the `__array_len` sentinel is detected and the array elements are collected and joined with commas: `"u-url,external"`. This allows `BuiltinOp::Contains` to check for membership in the serialized array.
+The inverse conversion (`expr_literal_to_value`) normalizes float-valued integers: a `Literal::Float` with zero fractional part and magnitude within `i64` becomes `Value::Int` for JSON round-trip fidelity. This handles the common case where arithmetic on integers returns `1.0`.
 
-The inverse conversion (`expr_literal_to_value`) normalizes float-valued integers: a `Literal::Float` whose fractional part is zero and whose magnitude fits within `i64` is converted to `Value::Int` for JSON round-trip fidelity. This handles the common case where expression evaluation returns `1.0` from arithmetic on integer inputs.
+## Transform ordering: addattrs, computefield, dropattrs {#sec-transform-ordering}
 
-## Transform ordering: addAttrs, ComputeField, dropAttrs {#sec-transform-ordering}
+`field_transforms` is a `Vec<FieldTransform>` applied in sequence. Order matters because later transforms see the result of earlier ones.
 
-`field_transforms` is a `Vec<FieldTransform>` applied in sequence. The ordering of transforms within the sequence matters because later transforms see the result of earlier ones.
+The recommended convention for migrations needing to add, compute, and clean up fields:
 
-The recommended ordering convention for migrations that need to add, compute, and clean up fields:
-
-1. **`AddField` for inputs**: add constant fields that expressions need but the source data doesn't carry.
-2. **`PathTransform` for nested normalization**: flatten or reorganize nested structures before expressions run.
+1. **`AddField` for inputs**: add constant fields that expressions need but source data doesn't carry.
+2. **`PathTransform` for nested normalization**: flatten or reorganize before expressions run.
 3. **`ComputeField` and `ApplyExpr`**: compute derived fields using the now-complete input set.
 4. **`Case`**: apply conditional logic that may depend on computed fields from step 3.
-5. **`DropField` / `KeepFields`**: remove intermediate fields that were used as inputs but shouldn't appear in the output.
+5. **`DropField` / `KeepFields`**: remove intermediate fields used as inputs but not in the output.
 
-If you add a `level` field in step 1 (because the source format stores it elsewhere), compute `name` from `level` in step 3, and then drop `level` in step 5 because the target format doesn't have that field, all three transforms reference the same intermediate state. Reversing steps 3 and 5 would produce a node with `name` computed from a missing `level` variable, which would leave `name` unchanged.
+If you add a `level` field (step 1) because the source stores it elsewhere, compute `name` from `level` (step 3), then drop `level` (step 5), all three transforms reference the same intermediate state. Reversing steps 3 and 5 would compute `name` from a missing `level` variable, leaving `name` unchanged.
 
-There's no automatic dependency analysis. Transform authors are responsible for ordering. The builder API appends in registration order, so the first `add_field_default` call fires before the first `add_computed_field` call, which fires before the first `add_field_drop` call.
+There's no automatic dependency analysis. Transform authors are responsible for ordering. The builder API appends in registration order, so the first `add_field_default` fires before the first `add_computed_field`, which fires before the first `add_field_drop`.
 
 ## Integration with wtype_restrict's BFS pass {#sec-bfs-integration}
 
@@ -169,20 +163,20 @@ Field transforms are applied inside the fused BFS pass in `wtype_restrict`, not 
 The relevant portion of the BFS loop:
 
 ```rust
-// Apply value-level field transforms if any exist for this vertex
+// apply value-level field transforms if any exist for this vertex
 if let Some(transforms) = migration.field_transforms.get(&child_node.anchor) {
     apply_field_transforms(&mut new_node, transforms);
 }
 new_nodes.insert(child_id, new_node.clone());
 ```
 
-The lookup key is `child_node.anchor`, the *source* vertex name, not the remapped target name. This is intentional: the `field_transforms` map is keyed by source vertex name so that the migration author can write `migration.add_field_rename("h1", ...)` when building the migration against the source schema. The anchor is remapped on the `new_node` clone before field transforms run, so by the time `apply_field_transforms` executes, `new_node.anchor` already holds the target vertex name, but the lookup into `field_transforms` happened with the original `child_node.anchor`.
+The lookup key is `child_node.anchor`, the *source* vertex name. The `field_transforms` map is keyed by source vertex name so migration authors can write `migration.add_field_rename("h1", ...)` against the source schema. The anchor is remapped on the `new_node` clone before field transforms run, so by the time `apply_field_transforms` executes, `new_node.anchor` holds the target name, but the lookup used the original `child_node.anchor`.
 
 ::: {.callout-important}
-`field_transforms` are keyed by source vertex name. `conditional_survival` predicates are also keyed by source vertex name. Both are looked up before anchor remapping of the lookup key. However, the node passed to `apply_field_transforms` already has its anchor remapped. If your transforms read `node.anchor` (unusual), they see the target name, not the source name.
+`field_transforms` and `conditional_survival` predicates are both keyed by source vertex name and looked up before anchor remapping. However, the node passed to `apply_field_transforms` already has its anchor remapped. If your transforms read `node.anchor` (unusual), they see the target name, not the source.
 :::
 
-The BFS pass also handles fan reconstruction (step 5 of `wtype_restrict`) as a separate pass operating on the original fan list. Field transforms don't run on fan members independently; fans are structural groupings that are reconstructed after the BFS pass finishes. If a node that participates in a fan also has field transforms, those transforms run on the node when it's added to `new_nodes` during BFS, before fan reconstruction runs.
+The BFS pass also handles fan reconstruction (step 5 of `wtype_restrict`) as a separate pass operating on the original fan list. Field transforms don't run on fans independently; fans are structural groupings reconstructed after the BFS pass finishes. If a node participating in a fan also has field transforms, those transforms run when the node is added to `new_nodes` during BFS, before fan reconstruction.
 
 ## Source locations {#sec-field-transform-source}
 

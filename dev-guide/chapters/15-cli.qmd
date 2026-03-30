@@ -1,8 +1,8 @@
 # panproto-cli {#sec-cli}
 
-The `panproto-cli` crate provides the `schema` binary. It wraps `panproto-core` and `panproto-vcs` for use in terminals, scripts, and CI pipelines. The binary has two groups of commands: schema tools (validate, check, diff, lift) and version control (init through gc).
+The `panproto-cli` crate provides the `schema` binary. It wraps `panproto-core` and `panproto-vcs` for terminals, scripts, and CI pipelines. The binary has two groups of commands: schema tools (validate, check, diff, lift) and version control (init through gc).
 
-## Schema Tool Commands
+## Schema tool commands
 
 These operate on schema files directly, without a `.panproto/` repository.
 
@@ -100,7 +100,7 @@ schema lift --migration mig.json --src-schema old.json --tgt-schema new.json rec
 
 Compiles the migration, parses the input JSON as a W-type instance (auto-detecting the root vertex), applies `lift_wtype`, and writes the result as pretty-printed JSON to stdout. This command has no git equivalent; it transforms actual data through a schema change.
 
-## Expression Commands
+## Expression commands
 
 The `schema expr` subcommand group provides tools for the Haskell-style expression language.
 
@@ -120,7 +120,7 @@ schema expr check "let x = 1 in x + 2"
 
 The existing GAT commands are now under `schema expr gat-eval` and `schema expr gat-check`.
 
-## Version Control Commands
+## Version control commands
 
 These require a `.panproto/` repository (created by `schema init`). See @sec-vcs-engine for the architectural details of the object store, DAG algorithms, and merge strategy.
 
@@ -304,7 +304,7 @@ schema gc
 
 Calls `gc::gc`. Collects all ref targets as roots, marks reachable objects via BFS through commit/schema/migration links, enumerates all objects in the store, and deletes unreachable ones. Reports the number of reachable and deleted objects. `--dry-run` passes `GcOptions { dry_run: true }`, which reports what would be deleted without removing anything.
 
-## Output Formatting
+## Output formatting
 
 The `format.rs` module provides reusable formatting functions for commit and diff output.
 
@@ -314,11 +314,11 @@ The `format.rs` module provides reusable formatting functions for commit and dif
 - `format_diff_name_only(diff)`: plain list of changed element names
 - `format_diff_name_status(diff)`: element names prefixed with `A` (added), `D` (deleted), or `M` (modified)
 
-## Error Handling
+## Error handling
 
 The CLI uses `miette` for user-facing error diagnostics. All handlers return `miette::Result<()>` and convert errors using `.into_diagnostic().wrap_err(...)`. Library crates use `thiserror`; `miette` is CLI-only.
 
-## Adding a New Subcommand
+## Adding a new subcommand
 
 1. Add a variant to the `Command` enum in `main.rs` with `clap` attributes
 2. Implement the handler as `fn cmd_<name>(...) -> Result<()>`
@@ -327,7 +327,7 @@ The CLI uses `miette` for user-facing error diagnostics. All handlers return `mi
 
 For commands that are planned but not yet implemented, follow the remote stub pattern: add the `Command` variant and handler, but return an error immediately using `miette::bail!("remote operations are not yet supported")`. See the remote commands below for an example.
 
-## Lens Subcommands
+## Lens subcommands
 
 The `schema lens` command is organized into subcommands:
 
@@ -371,7 +371,7 @@ schema lens inspect chain.json
 
 Prints a human-readable summary of a protolens chain: number of steps, optic classification, complement cost, and whether the chain is lossless.
 
-## Data Subcommands
+## Data subcommands
 
 The `schema data` command group handles data migration and staleness tracking:
 
@@ -414,6 +414,6 @@ schema data status records/ --verbose
 
 Reports data staleness: how many files exist, which schema HEAD tracks, and whether any data sets are tracked. `--verbose` lists individual files.
 
-## Remote Command Stubs
+## Remote command stubs
 
 The commands `remote`, `push`, `pull`, `fetch`, and `clone` are registered as `Command` variants with `clap` attributes but their handlers immediately return an error: `"schema repositories are currently local-only; remote operations are planned for a future release"`. This reserves the command names and provides a clear message to users, while keeping the implementation surface minimal.

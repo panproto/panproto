@@ -2,7 +2,7 @@
 
 panproto is organized into eleven crates arranged in six dependency levels. Consider a simple example: `panproto::gat::Theory` flows down through `panproto-schema` (which builds hypergraphs from theories) and `panproto-inst` (which populates those graphs with data), then up through `panproto-mig` (which compiles migrations between schema versions). Each level depends only on the levels below it, producing a strict DAG: $L_0 \to L_1 \to \cdots \to L_4$.
 
-## The Crate Dependency Hierarchy
+## The crate dependency hierarchy
 
 | Level | Crates | Role |
 |-------|--------|------|
@@ -29,7 +29,7 @@ panproto is organized into eleven crates arranged in six dependency levels. Cons
 
 **Level 4** provides the consumer-facing surfaces. `panproto-core` re-exports everything through a single dependency. `panproto-wasm` exposes a handle-based WebAssembly API. `panproto-cli` wraps it all in a command-line tool.
 
-### The Re-export Facade
+### The re-export facade
 
 `panproto-core` is the entry point most consumers import. It re-exports all sub-crate APIs under short module names:
 
@@ -38,7 +38,7 @@ panproto is organized into eleven crates arranged in six dependency levels. Cons
 
 Downstream code writes `panproto::gat::Theory` rather than importing `panproto-gat` directly. The facade adds no logic of its own.
 
-### Crate Dependency Graph
+### Crate dependency graph
 
 ```{mermaid}
 %%| label: fig-crate-dag
@@ -105,7 +105,7 @@ graph BT
     cli --> expr-parser
 ```
 
-## Key Design Decisions
+## Key design decisions
 
 ### Why GATs
 
@@ -126,7 +126,7 @@ For the user-facing introduction to theories and protocols, see the [tutorial](h
 If your new functionality depends on Level 0 but nothing in Levels 1 or 2, it belongs as a new Level 1 crate (or an extension of an existing one). Adding a cross-level dependency breaks the DAG invariant and increases compile times for everything downstream. When in doubt, check the dependency graph in @fig-crate-dag.
 :::
 
-### Why Handle-Based WASM API
+### Why handle-based WASM API
 
 The WASM boundary (`panproto-wasm`) uses a handle/slab architecture rather than `serde-wasm-bindgen` serialization. Each Rust object (theory, schema, instance, migration) is stored in a typed slab on the Rust side. JavaScript receives an opaque `u32` handle.
 
@@ -142,7 +142,7 @@ panproto uses MessagePack (via `rmp-serde`) as its primary serialization format 
 
 JSON is still used as the human-facing format for CLI output and the `parse_json`/`to_json` round-trip in `panproto-inst`.
 
-### Why Immutable Fluent Builders
+### Why immutable fluent builders
 
 `SchemaBuilder` and the migration DSL use an immutable fluent pattern: each method consumes `self` and returns `Result<Self, Error>`. This prevents partial construction. You can't hold a reference to a half-built schema and accidentally use it. The pattern also makes validation composable: each step validates its own invariant, and `build()` only needs to check global properties (like non-emptiness) and compute indices.
 
@@ -151,7 +151,7 @@ JSON is still used as the human-facing format for CLI output and the `parse_json
 An `&mut self` builder would allow callers to hold a reference to a partially constructed schema. A bug that reads from the builder mid-construction would see an incomplete adjacency index. The consume-self pattern makes this impossible at the type level.
 :::
 
-## The Two-Parameter Architecture
+## The two-parameter architecture
 
 Every protocol in panproto is defined by a pair of GATs. Formally, a protocol $P = (T_{\mathrm{schema}}, T_{\mathrm{inst}}, R)$ where $T_{\mathrm{schema}}$ is the schema theory, $T_{\mathrm{inst}}$ is the instance theory, and $R$ is a set of edge rules:
 
@@ -166,7 +166,7 @@ Protocol = (schema_theory: GAT, instance_theory: GAT, edge_rules, ...)
 
 Migration between protocol versions is then a morphism at the schema theory level, compiled into executable operations at the instance theory level. The guarantee is that restriction (projecting data from the target schema onto the source schema, keeping only what the source schema expects) along a theory morphism composes correctly and preserves the structural axioms of the instance theory.^[Restriction composes correctly: restricting along two successive migrations produces the same result as restricting along their composition. This compositionality property is called functoriality, and is established formally in @spivak2012.]
 
-## Migration Lifecycle
+## Migration lifecycle
 
 The following sequence diagram traces the full lifecycle from defining a protocol through migrating data:
 
@@ -205,7 +205,7 @@ The pipeline is:
 4. **Compile migration**: `panproto-mig` compiles a migration specification into a `CompiledMigration` containing vertex remaps, edge remaps, and contraction resolvers.
 5. **Lift data**: `panproto-inst` executes the 5-step `wtype_restrict` pipeline to project instance data from v1 to v2.
 
-## What Lives Where
+## What lives where
 
 A quick reference for locating functionality:
 

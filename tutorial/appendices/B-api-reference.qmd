@@ -11,7 +11,7 @@ An annotated summary of the public API surface. For full documentation, see the 
 | `Panproto.init()` → `Panproto` | Initialize the panproto runtime (loads the WASM engine). |
 | `panproto.protocol(name)` → `Protocol` | Retrieve a built-in or registered protocol by name. |
 
-### Schema Construction
+### Schema construction
 
 | Signature | Description |
 |-----------|-------------|
@@ -32,14 +32,14 @@ An annotated summary of the public API surface. For full documentation, see the 
 | `migration.get(record)` → `View` | Extract the forward view (lens get). |
 | `migration.put(view, complement)` → `Record` | Reconstruct a source record from a view and complement (lens put). |
 
-### Diff and Existence
+### Diff and existence
 
 | Signature | Description |
 |-----------|-------------|
 | `panproto.diff(old, new)` → `DiffReport` | Compute structural differences between two schemas. |
 | `panproto.checkExistence(old, new, builder)` → `ExistenceReport` | Check whether a valid migration exists for the given schema change. |
 
-### Lens Combinators
+### Lens combinators
 
 | Combinator | Description |
 |------------|-------------|
@@ -52,9 +52,9 @@ An annotated summary of the public API surface. For full documentation, see the 
 | `compose(l1, l2)` | Compose two lenses sequentially. |
 | `pipeline(...lenses)` | Compose a chain of lenses left to right. |
 
-### Built-in Protocol Specs
+### Built-in protocol specs
 
-All 76 built-in protocols are accessible via named constants. Every protocol supports bidirectional conversion: a `parse_*` function reads a source document into a panproto schema, and a matching `emit_*` function writes a panproto schema back out to that format. All protocols have full parse + emit support.
+All 76 built-in protocols are accessible via named constants. Each protocol supports bidirectional conversion: `parse_*` functions read source documents into a panproto schema, and matching `emit_*` functions write a panproto schema back out. All protocols have full parse + emit support.
 
 **Serialization**
 
@@ -161,7 +161,7 @@ All 76 built-in protocols are accessible via named constants. Every protocol sup
 
 ## Rust (`panproto-core`)
 
-### `panproto_gat` — Theory Engine
+### `panproto_gat` — Theory engine
 
 | Item | Description |
 |------|-------------|
@@ -172,7 +172,7 @@ All 76 built-in protocols are accessible via named constants. Every protocol sup
 | `TheoryMorphism` | A structure-preserving map between theories. |
 | `colimit(t1, t2, shared)` → `Result<Theory, GatError>` | Compute the pushout of two theories over a shared base. |
 
-### `panproto_schema` — Schema Layer
+### `panproto_schema` — Schema layer
 
 | Item | Description |
 |------|-------------|
@@ -182,7 +182,7 @@ All 76 built-in protocols are accessible via named constants. Every protocol sup
 | `Vertex` | A vertex in a schema (instance of a sort). |
 | `Edge` | An edge in a schema (instance of an operation). |
 
-### `panproto_inst` — Instance Layer
+### `panproto_inst` — Instance layer
 
 | Item | Description |
 |------|-------------|
@@ -193,7 +193,7 @@ All 76 built-in protocols are accessible via named constants. Every protocol sup
 | `parse_json(json, schema)` → `Result<WInstance, ParseError>` | Parse JSON into a typed instance. |
 | `to_json(inst)` → `Value` | Serialize an instance back to JSON. |
 
-### `panproto_mig` — Migration Engine
+### `panproto_mig` — Migration engine
 
 | Item | Description |
 |------|-------------|
@@ -205,7 +205,7 @@ All 76 built-in protocols are accessible via named constants. Every protocol sup
 | `compose(m1, m2)` → `Result<Migration, MigError>` | Compose two migrations sequentially. |
 | `invert(m)` → `Result<Migration, MigError>` | Invert a migration (when the underlying lens is an isomorphism). |
 
-### `panproto_lens` — Lens Layer
+### `panproto_lens` — Lens layer
 
 | Item | Description |
 |------|-------------|
@@ -223,7 +223,7 @@ All 76 built-in protocols are accessible via named constants. Every protocol sup
 | `check_edit_consistency` | Verify the Consistency law (incremental path agrees with batch path). |
 | `check_complement_coherence` | Verify the Complement coherence law. |
 
-### `panproto_inst` — Instance Layer (edit support)
+### `panproto_inst` — Instance layer (edit support)
 
 | Item | Description |
 |------|-------------|
@@ -232,13 +232,13 @@ All 76 built-in protocols are accessible via named constants. Every protocol sup
 | `ReachabilityIndex` | Incremental reachability tracking for the edit lens pipeline. |
 | `ContractionTracker` | Incremental ancestor contraction tracking for the edit lens pipeline. |
 
-### `panproto_emit` — Emit Helpers
+### `panproto_emit` — Emit helpers
 
 The shared `emit` module provides utilities used by all `emit_*` functions. Protocol authors implementing a custom emitter should build on these primitives.
 
 | Item | Description |
 |------|-------------|
-| `find_roots(schema)` → `Vec<VertexId>` | Return all vertices with no incoming edges — the natural entry points for top-down emission. |
+| `find_roots(schema)` → `Vec<VertexId>` | Return all vertices with no incoming edges—the natural entry points for top-down emission. |
 | `children_by_edge(schema, vertex)` → `Vec<(EdgeId, VertexId)>` | List the outgoing edges and their target vertices for a given vertex, in declaration order. |
 | `constraint_value(schema, edge, key)` → `Option<Value>` | Look up a named constraint on an edge (e.g. a field's default value or cardinality bound). |
 | `IndentWriter` | A write adapter that tracks indentation depth and inserts consistent leading whitespace, suitable for text-based emitters. |

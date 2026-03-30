@@ -75,7 +75,7 @@ CI uses `cargo nextest run --workspace`. If your tests pass with `cargo test` bu
     cd sdk/typescript && pnpm build
     ```
 
-2. **Inspect the payload.** Add a hex dump before deserialization (see @sec-debugging-profiling for instructions) and decode with a MessagePack inspector.
+2. **Inspect the payload.** Add a hex dump before deserialization and decode with a MessagePack inspector.
 
 3. **Compare types.** Open `crates/panproto-wasm/src/api.rs` and `sdk/typescript/src/types.ts` side by side. Every `#[serde(rename)]` attribute in Rust must match the corresponding TypeScript field name.
 
@@ -177,7 +177,7 @@ If Prettier fails, run `npx prettier --write 'src/**/*.ts' 'tests/**/*.ts'` to a
 
 **Possible causes and fixes:**
 
-1. **First build:** The initial build downloads and compiles all dependencies. This is expected to take 3--5 minutes. Subsequent incremental builds should take under 10 seconds.
+1. **First build:** The initial build downloads and compiles all dependencies. This is expected to take 3–5 minutes. Subsequent incremental builds should take under 10 seconds.
 2. **Release mode:** If you accidentally used `--release`, switch back to debug mode for development.
 3. **LTO in dev:** Check that you are not setting `lto = true` in a custom profile for dev builds. The workspace only enables LTO in the `release` and `release-wasm` profiles.
 4. **Disk I/O:** If you are on a networked filesystem or a slow disk, consider using a local SSD for the `target/` directory.

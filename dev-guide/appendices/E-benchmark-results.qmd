@@ -1,6 +1,6 @@
 # Benchmark Results {#sec-benchmark-results}
 
-## Test Environment
+## Test environment
 
 | | |
 |---|---|
@@ -16,10 +16,9 @@
 
 All benchmarks were run with no other significant processes active. Numbers report the **median** across 100 samples unless otherwise noted. The `fastest` column shows best-case (warm cache) performance; `mean` shows arithmetic average including outliers.
 
+## GAT Engine (`panproto-gat`) {#sec-bench-GAT}
 
-## GAT Engine (`panproto-gat`) {#sec-bench-gat}
-
-### `find_sort_by_name` --- O(1) Index Lookup
+### `find_sort_by_name` — O(1) index lookup
 
 Looks up the *last* sort by name in a theory of size $n$, exercising the `FxHashMap` index cache.
 
@@ -32,7 +31,7 @@ Looks up the *last* sort by name in a theory of size $n$, exercising the `FxHash
 
 Sub-10 ns for all sizes confirms O(1) behavior. The 500-sort case is faster than 100-sort because the FxHash distribution happens to place the target key (`S499`) in a bucket with better cache-line alignment. The important point: **no growth with theory size**.
 
-### `theory_construction` --- Theory + Index Build
+### `theory_construction` — Theory + Index build
 
 Constructs a `Theory` with $n$ sorts, $n$ unary operations, and builds the three `FxHashMap` indices.
 
@@ -45,7 +44,7 @@ Constructs a `Theory` with $n$ sorts, $n$ unary operations, and builds the three
 
 Linear scaling ($\approx$ 39 ns/sort at 500). The index build is amortized over all subsequent lookups.
 
-### `colimit` --- Theory Pushout
+### `colimit` — Theory pushout
 
 Computes the categorical pushout of two theories over a shared base. `colimit_small` = 3 shared + 5 extra sorts per theory; `colimit_medium` = 10 + 20; `colimit_large` = 50 + 100.
 
@@ -67,7 +66,7 @@ Same as above but both theories carry equations ($\min(n, 10)$ equations in the 
 
 Equation checking adds $\approx 30\%$ over sort/op-only colimits at the same scale.
 
-### `resolve_theory` --- Inheritance Chain Resolution
+### `resolve_theory` — inheritance chain resolution
 
 Resolves theory `T_d` at the bottom of a linear inheritance chain of depth $d$. Each theory adds 1 sort and 1 nullary operation.
 
@@ -81,7 +80,7 @@ Resolves theory `T_d` at the bottom of a linear inheritance chain of depth $d$. 
 
 Quadratic in depth (each level clones all ancestor sorts; `Arc<str>` cloning is O(1) per name but the vector grows). At depth 100, $\approx 4.2\;\mu\text{s}$ per level.
 
-### `check_morphism` --- Morphism Validation
+### `check_morphism` — Morphism validation
 
 Validates a theory morphism on a theory with $n$ sorts, $n$ unary operations, and $\min(n, 20)$ equations.
 
@@ -93,10 +92,9 @@ Validates a theory morphism on a theory with $n$ sorts, $n$ unary operations, an
 
 Renaming morphisms are comparable to identity because the dominant cost is equation preservation checking (comparing mapped terms in the codomain), which requires iterating over codomain equations regardless of whether names changed.
 
+## Instance layer (`panproto-inst`) {#sec-bench-inst}
 
-## Instance Layer (`panproto-inst`) {#sec-bench-inst}
-
-### `parse_json_flat_fields` --- JSON → `WInstance`
+### `parse_json_flat_fields` — JSON → `WInstance`
 
 Parses a flat JSON object with $n$ string-valued fields into a `WInstance` (root + $n$ leaf nodes).
 
@@ -108,7 +106,7 @@ Parses a flat JSON object with $n$ string-valued fields into a `WInstance` (root
 
 $\approx 590\;\text{ns/field}$ at 50 fields. Dominated by `serde_json` deserialization + node/arc construction.
 
-### `parse_json_nested_objects` --- Nested JSON → `WInstance`
+### `parse_json_nested_objects` — nested JSON → `WInstance`
 
 Parses a chain of nested objects, each with 3 leaf fields, to depth $d$.
 
@@ -120,7 +118,7 @@ Parses a chain of nested objects, each with 3 leaf fields, to depth $d$.
 
 $\approx 200\;\text{ns/node}$ at depth 20. Nesting adds parent-map bookkeeping but does not cause a per-level blowup.
 
-### `wtype_restrict` --- Fused Restrict Pipeline
+### `wtype_restrict` — fused restrict pipeline
 
 #### Identity migration (no nodes removed)
 
@@ -151,7 +149,7 @@ Root with $n$ direct children (star topology), identity migration.
 | 10 | 11 | 5.25 µs | 5.67 µs | 5.71 µs |
 | 50 | 51 | 22.4 µs | 23.0 µs | 23.2 µs |
 
-Comparable to deep chains --- the fused BFS processes both topologies at the same per-node rate.
+Comparable to deep chains — the fused BFS processes both topologies at the same per-node rate.
 
 #### Contraction (drop intermediate nodes)
 
@@ -164,7 +162,7 @@ Linear chain of $n$ nodes; migration keeps only root + first 2 vertices. All oth
 
 Contraction on a 50-node chain produces only 3 output nodes in 3.75 µs. The BFS still visits all 50 nodes (to discover descendants), but the output construction is minimal.
 
-### `functor_restrict_n_tables` --- $\Delta_F$ Precomposition
+### `functor_restrict_n_tables` — $\Delta_F$ Precomposition
 
 Restricts a functor instance with $n$ tables (each 10 rows, 5 columns) via identity migration.
 
@@ -176,7 +174,7 @@ Restricts a functor instance with $n$ tables (each 10 rows, 5 columns) via ident
 
 $\approx 84\;\text{ns/row}$ at 500 rows.
 
-### `functor_extend_n_tables` --- $\Sigma_F$ Left Kan Extension
+### `functor_extend_n_tables` — $\sigma_f$ left Kan extension
 
 Extends (pushes forward) a functor instance. More expensive than restrict because it computes column unions and fills `Null` values for missing columns.
 
@@ -188,8 +186,7 @@ Extends (pushes forward) a functor instance. More expensive than restrict becaus
 
 $\approx 2\times$ the cost of restrict due to column-union filling.
 
-
-## Migration Engine (`panproto-mig`) {#sec-bench-mig}
+## Migration engine (`panproto-mig`) {#sec-bench-mig}
 
 ### `check_existence_n_vertices`
 
@@ -211,7 +208,7 @@ Compiles a migration specification into `CompiledMigration` (surviving sets, rem
 
 $\approx 810\;\text{ns/vertex}$ at 100 vertices. Dominated by `HashSet`/`HashMap` construction for surviving sets and edge indices.
 
-### `compose` --- Migration Composition
+### `compose` — Migration composition
 
 #### Two identity migrations
 
@@ -241,7 +238,7 @@ Each migration is an identity on a chain schema with $n$ vertices.
 
 $\approx 5\times$ the cost of a single two-way compose, confirming linear scaling in chain length.
 
-### `lift_wtype` --- Apply Compiled Migration to Instance
+### `lift_wtype` — apply compiled migration to instance
 
 #### Simple (5-node chain, identity)
 
@@ -264,10 +261,9 @@ $\approx 5\times$ the cost of a single two-way compose, confirming linear scalin
 
 At 500 nodes: $259\;\mu\text{s} \div 500 = 518\;\text{ns/node}$ = **1.93M nodes/sec**. This includes the full pipeline: migration compilation lookup, fused restrict BFS, node remapping, arc construction, and `WInstance` output allocation.
 
+## Lens layer (`panproto-lens`) {#sec-bench-lens}
 
-## Lens Layer (`panproto-lens`) {#sec-bench-lens}
-
-### `get_identity_lens` --- Forward Direction (No Complement)
+### `get_identity_lens` — forward direction (no complement)
 
 Identity lens on a wide tree with $n$ fields. All nodes survive; complement is empty.
 
@@ -277,7 +273,7 @@ Identity lens on a wide tree with $n$ fields. All nodes survive; complement is e
 | 20 | 21 | 11.7 µs | 12.1 µs | 12.8 µs |
 | 50 | 51 | 26.3 µs | 27.1 µs | 27.6 µs |
 
-### `get_projection_lens` --- Forward Direction (Large Complement)
+### `get_projection_lens` — forward direction (large complement)
 
 Projection lens keeping only 2 of $n$ fields. Complement stores $n - 2$ dropped nodes.
 
@@ -288,7 +284,7 @@ Projection lens keeping only 2 of $n$ fields. Complement stores $n - 2$ dropped 
 
 Projection is *faster* than identity because the output tree is smaller (fewer nodes to allocate), even though the complement capture adds work.
 
-### `get_then_put_round_trip` --- Full Bidirectional Cycle
+### `get_then_put_round_trip` — full bidirectional cycle
 
 Identity lens: `get` → `put` → verify restored. Exercises both directions.
 
@@ -300,7 +296,7 @@ Identity lens: `get` → `put` → verify restored. Exercises both directions.
 
 `put` costs $\approx 1.5\times$ `get` because it must merge the complement (dropped nodes, dropped arcs, contraction choices) back into the view.
 
-### `get_then_put_projection` --- Bidirectional with Large Complement
+### `get_then_put_projection` — bidirectional with large complement
 
 Projection lens keeping 2 of $n$ fields. The complement carries the bulk of the data.
 
@@ -309,8 +305,7 @@ Projection lens keeping 2 of $n$ fields. The complement carries the bulk of the 
 | 10 | 8.17 µs | 8.37 µs | 8.48 µs |
 | 50 | 33.1 µs | 34.3 µs | 35.0 µs |
 
-
-## Derived Throughput Summary
+## Derived throughput summary
 
 | Operation | Scale | Throughput |
 |-----------|-------|-----------|
@@ -323,8 +318,7 @@ Projection lens keeping 2 of $n$ fields. The complement carries the bulk of the 
 | `compose` (two migrations) | 100 vertices | **23.6K composes/sec** |
 | Lens round-trip (`get` + `put`) | 50 fields | **19.3K round-trips/sec** |
 
-
-## How to Reproduce
+## How to reproduce
 
 ```bash
 # Run all benchmarks

@@ -1,12 +1,10 @@
 # The Internal Hom and Preferred Paths {#sec-internal-hom}
 
-When you have multiple ways to convert between schemas, how do you pick the best one? If schema A can reach schema C directly (but the direct path drops three fields) or via schema B (dropping only one field each way), which route should you take? And what does "best" even mean in this context?
-
-panproto answers these questions with two ideas. First, the *internal hom* turns the space of migrations between two schemas into a schema itself, making migrations into data you can inspect, store, and version. Second, a *Lawvere metric* on protolens graphs assigns a cost to each conversion path, letting panproto compute the cheapest route automatically.
+You have multiple ways to convert between schemas. Schema A can reach schema C directly, but the direct path drops three fields. Via schema B, you drop only one field each way. Which route should you take? panproto computes the answer by turning migrations into data, then computing the cheapest path through a graph of conversions.
 
 ## The internal hom {#sec-hom-schema}
 
-Given two schemas S and T, `hom_schema(S, T)` constructs a new schema `[S, T]` whose instances represent structure-preserving maps from S to T. The idea: instead of treating a migration as an opaque procedure, encode it as data conforming to a schema.
+Given two schemas S and T, `hom_schema(S, T)` constructs a new schema `[S, T]` whose instances represent structure-preserving maps from S to T. Instead of treating a migration as an opaque procedure, panproto encodes it as data conforming to a schema.
 
 The construction works like this. For each source vertex `v` in S, the hom schema contains:
 
@@ -15,7 +13,7 @@ The construction works like this. For each source vertex `v` in S, the hom schem
 - A **backward vertex** `backward_v_e` (with kind `"hom_backward"`) for each outgoing edge `e` from `v`, representing the backward (edge-level) component of the lens.
 - A **backward_for edge** from `choice_v` to each of its backward vertices.
 
-Consider a concrete example. Suppose the source schema S has two vertices (`a` and `b`, both kind `"object"`) connected by an edge `child`, and the target schema T has two vertices (`x` and `y`, also kind `"object"`) connected by an edge `child`.
+Consider a concrete example. The source schema S has two vertices (`a` and `b`, both kind `"object"`) connected by an edge `child`. The target schema T has two vertices (`x` and `y`, also kind `"object"`) connected by the same edge `child`.
 
 ```{.rust}
 use panproto_inst::hom::hom_schema;
@@ -94,7 +92,7 @@ Each protolens step carries a `ComplementConstructor` describing what data is lo
 
 Some conversions are cheap (renaming a field loses nothing) and others are expensive (dropping a vertex loses data). The cost assignments formalize this intuition precisely enough to compute optimal routes.
 
-These costs form a Lawvere metric. That means two things:
+These costs form a Lawvere metric. Two properties follow:
 
 1. **Identity costs zero.** A schema mapped to itself has cost 0.
 2. **The triangle inequality holds.** The cost of going from A to C via B is at most the cost of going from A to B plus the cost of going from B to C.
@@ -119,7 +117,7 @@ If the direct lens from A to C drops three fields (cost 3.0) but the indirect ro
 When no path exists between two schemas, `preferred_path` returns `None` and `distance` returns `f64::INFINITY`.
 
 ```{.rust}
-// Distance without path reconstruction
+// distance without path reconstruction
 let d = graph.distance(&schema_a, &schema_c);
 // d is 2.0 (the A->B->C route)
 ```

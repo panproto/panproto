@@ -6,14 +6,13 @@ This appendix documents the performance optimizations in panproto: why they exis
 
 panproto is a compiler library. Its restrict pipeline targets over 1 million records per second in WASM, and the native target should be significantly faster. The optimizations fall into three categories:
 
-1. **Algorithmic** --- fusing pipeline passes, precomputing inverse maps, path compression.
-2. **Data representation** --- `Arc<str>` for zero-cost cloning, `FxHash` for faster hashing.
-3. **Build configuration** --- WASM `opt-level = 3`, LTO, codegen-units.
+1. **Algorithmic** — fusing pipeline passes, precomputing inverse maps, path compression.
+2. **Data representation** — `Arc<str>` for zero-cost cloning, `FxHash` for faster hashing.
+3. **Build configuration** — WASM `opt-level = 3`, LTO, codegen-units.
 
 Every optimization preserves correctness. Formal proofs are provided in the [tutorial's formal foundations appendix](https://panproto.dev/tutorial/appendices/A-formal-foundations.html).
 
-
-## Theory Index Cache {#sec-opt-index-cache}
+## Theory index cache {#sec-opt-index-cache}
 
 **Location:** `crates/panproto-gat/src/theory.rs`, in `Theory::new()` and `Theory::extending()`.
 
@@ -31,12 +30,11 @@ Every optimization preserves correctness. Formal proofs are provided in the [tut
 | `Theory::new()` | $O(n)$ | $O(n)$ (index build) |
 | Memory overhead | None | One `HashMap` (~48 bytes + entries) |
 
-
-## Arc\<str\> for Zero-Cost Cloning {#sec-opt-arc-str}
+## Arc<str> for zero-cost cloning {#sec-opt-arc-str}
 
 **Location:** All crates. Sort names, operation names, edge labels, vertex labels, and other string identifiers are `Arc<str>` throughout.
 
-**Problem:** String-heavy data structures (theories, schemas, instances) are cloned frequently---during morphism construction, colimit computation, migration compilation, and WASM boundary crossings. With `String`, every clone copies the entire string buffer.
+**Problem:** String-heavy data structures (theories, schemas, instances) are cloned frequently—during morphism construction, colimit computation, migration compilation, and WASM boundary crossings. With `String`, every clone copies the entire string buffer.
 
 **Solution:** `Arc<str>` wraps the string data in an atomically reference-counted pointer. Cloning increments a counter ($O(1)$) instead of allocating and copying ($O(n)$ in string length).
 
@@ -48,14 +46,13 @@ Every optimization preserves correctness. Formal proofs are provided in the [tut
 
 **Semantic equivalence:** `Arc<str>` delegates `Eq`, `Hash`, `Ord`, `Serialize`, and `Deserialize` to the inner `str`. It is a drop-in replacement for `String` in all trait-dependent contexts.
 
-
-## FxHash in Hot Paths {#sec-opt-fxhash}
+## FxHash in hot paths {#sec-opt-fxhash}
 
 **Location:** `panproto-gat`, `panproto-schema`, `panproto-inst`, `panproto-mig`, `panproto-lens`. Used via `rustc_hash::FxHashMap` and `rustc_hash::FxHashSet`.
 
 **Problem:** The default Rust hasher (`SipHash`) is designed for HashDoS resistance, which adds overhead for small, non-adversarial keys. Internal hash maps keyed by sort names, vertex IDs, or edge IDs do not face adversarial inputs.
 
-**Solution:** `FxHash` is a non-cryptographic hash function optimized for small keys. It is 2--5x faster than `SipHash` for keys under 16 bytes.
+**Solution:** `FxHash` is a non-cryptographic hash function optimized for small keys. It is 2–5x faster than `SipHash` for keys under 16 bytes.
 
 **Where standard HashMap is still appropriate:**
 
@@ -65,8 +62,7 @@ Every optimization preserves correctness. Formal proofs are provided in the [tut
 
 **Rule of thumb:** Use `FxHashMap`/`FxHashSet` for internal, short-lived maps in hot paths. Use `BTreeMap` at serialization boundaries. Use `HashMap` (default hasher) if the map is exposed publicly and performance is not critical.
 
-
-## Path Compression in Ancestor Contraction {#sec-opt-path-compression}
+## Path compression in ancestor contraction {#sec-opt-path-compression}
 
 **Location:** `crates/panproto-inst/src/wtype.rs`, in `ancestor_contraction()`.
 
@@ -96,14 +92,13 @@ fn find_ancestor(node, cache, surviving, parent):
 
 **Amortized complexity:** Each node's pointer is compressed at most once. Total work across all calls is $O(|V|)$, giving $O(1)$ amortized per query after the first pass. This is safe because both the tree structure and the surviving set are immutable during the contraction phase.
 
-
-## Fused Restrict Pipeline {#sec-opt-fused-pipeline}
+## Fused restrict pipeline {#sec-opt-fused-pipeline}
 
 **Location:** `crates/panproto-inst/src/wtype.rs`, in `wtype_restrict()`.
 
 **Problem:** The five-step restrict pipeline (anchor check, reachability BFS, ancestor contraction, edge resolution, fan reconstruction) requires five passes over the instance tree. Each pass has good cache locality on its own, but the repeated traversal has a cost.
 
-**Solution:** Steps 1--4 are fused into a single BFS pass. The BFS carries the nearest surviving ancestor as metadata on the frontier, so ancestor contraction happens inline. Edge resolution is performed immediately when a surviving node is emitted. Fan reconstruction remains a separate pass because it operates on a different data structure (fans, not tree nodes).
+**Solution:** Steps 1–4 are fused into a single BFS pass. The BFS carries the nearest surviving ancestor as metadata on the frontier, so ancestor contraction happens inline. Edge resolution is performed immediately when a surviving node is emitted. Fan reconstruction remains a separate pass because it operates on a different data structure (fans, not tree nodes).
 
 **How it works:**
 
@@ -115,8 +110,7 @@ fn find_ancestor(node, cache, surviving, parent):
 
 **Why individual step functions are retained:** The unfused step functions serve as the reference implementation. Integration tests run both the fused and sequential versions on every test case and assert identical output. This provides ongoing regression protection for the fused optimization.
 
-
-## Inverse Map Precomputation {#sec-opt-inverse-map}
+## Inverse map precomputation {#sec-opt-inverse-map}
 
 **Location:** `crates/panproto-mig/src/compose.rs`.
 
@@ -124,8 +118,7 @@ fn find_ancestor(node, cache, surviving, parent):
 
 **Solution:** Precompute the inverse map $m_1^{-1}$ (from target positions to source positions) once in $O(|V_1|)$, then use it for $O(1)$ lookups during composition. Total cost drops to $O(|V_1| + |V_2|)$.
 
-
-## WASM Boundary: Arc\<Schema\> {#sec-opt-arc-schema}
+## WASM boundary: arc<schema> {#sec-opt-arc-schema}
 
 **Location:** `crates/panproto-wasm/src/slab.rs`.
 
@@ -135,8 +128,7 @@ fn find_ancestor(node, cache, surviving, parent):
 
 This is especially important for the TypeScript SDK, where a single `Panproto` instance may hold dozens of schemas and migrations simultaneously.
 
-
-## WASM opt-level = 3 {#sec-opt-wasm-optlevel}
+## WASM opt-level = 3 {#sec-opt-WASM-optlevel}
 
 **Location:** Workspace `Cargo.toml`, in the `[profile.release]` section.
 
@@ -145,13 +137,12 @@ This is especially important for the TypeScript SDK, where a single `Panproto` i
 **Decision:** panproto uses `opt-level = 3` for WASM release builds, prioritizing compute speed over binary size. The rationale:
 
 - panproto is a compiler library, not a UI widget. Users load it once and run many migrations.
-- The binary size difference between `opt-level = 3` and `opt-level = "s"` is roughly 15--20% for panproto.
-- The performance difference on the restrict hot path is 20--40% in benchmarks.
+- The binary size difference between `opt-level = 3` and `opt-level = "s"` is roughly 15–20% for panproto.
+- The performance difference on the restrict hot path is 20–40% in benchmarks.
 
 LTO (`lto = true`) and single codegen unit (`codegen-units = 1`) are also enabled to maximize cross-crate inlining.
 
-
-## Benchmarking Guide {#sec-benchmarking}
+## Benchmarking guide {#sec-benchmarking}
 
 ### Running benchmarks
 

@@ -1,12 +1,12 @@
 # `@panproto/core`: The TypeScript SDK {#sec-typescript-sdk}
 
-The `@panproto/core` npm package is the primary way most developers interact with panproto. It wraps the WASM module in a fluent, type-safe API with automatic resource management.
+The `@panproto/core` npm package wraps the WASM module in a fluent, type-safe API with automatic resource management. Most developers interact with panproto through this SDK.
 
 ::: {.callout-tip}
 For a quick-reference listing of all public APIs with parameter types, see [tutorial appendix B](https://panproto.dev/tutorial/appendices/B-api-reference.html).
 :::
 
-## Architecture Overview
+## Architecture overview
 
 The SDK is organized into six core classes, each with a focused responsibility:
 
@@ -69,7 +69,7 @@ classDiagram
     MigrationBuilder --> CompiledMigration : compile()
 ```
 
-## The `Panproto` Class
+## The `panproto` class
 
 `Panproto` is the main entry point. It loads the WASM module and provides the top-level API:
 
@@ -86,23 +86,20 @@ Key methods:
 - **`compose(m1, m2)`**: Compose two compiled migrations into one.
 - **`diff(old, new)`**: Compute a structural diff between two schemas.
 
-`Panproto` implements `Disposable`. When disposed, it releases all cached protocol handles:
-
-```{.typescript include="../../sdk/typescript/src/panproto.ts" start-line=406 end-line=411}
-```
+`Panproto` implements `Disposable`. When disposed, it releases all cached protocol handles.
 
 ## Protocol
 
-A `Protocol` holds a WASM-side handle to the registered protocol specification and provides the `schema()` factory for building schemas within that protocol:
+A `Protocol` holds a WASM-side handle to the registered protocol specification and provides the `schema()` factory:
 
 ```{.typescript include="../../sdk/typescript/src/protocol.ts" start-line=23 end-line=62}
 ```
 
 Five built-in protocol specs are provided: `ATPROTO_SPEC`, `SQL_SPEC`, `PROTOBUF_SPEC`, `GRAPHQL_SPEC`, and `JSON_SCHEMA_SPEC`. They're auto-registered on first access via `panproto.protocol('atproto')`.
 
-## SchemaBuilder and BuiltSchema
+## Schemabuilder and builtschema
 
-`SchemaBuilder` is an immutable fluent builder. Each method returns a **new** builder instance, leaving the original unchanged. This makes it safe to branch schema definitions from a common base:
+`SchemaBuilder` is an immutable fluent builder. Each method returns a **new** builder instance, leaving the original unchanged. This makes it safe to branch schema definitions:
 
 ```{.typescript include="../../sdk/typescript/src/schema.ts" start-line=41 end-line=72}
 ```
@@ -112,12 +109,12 @@ The builder accumulates `SchemaOp` objects (matching the Rust `BuildOp` tagged e
 ```{.typescript include="../../sdk/typescript/src/schema.ts" start-line=295 end-line=318}
 ```
 
-`BuiltSchema` is the validated result. It holds both a WASM handle (for passing to migration functions) and a local `SchemaData` snapshot (for introspection without crossing the WASM boundary):
+`BuiltSchema` is the validated result. It holds both a WASM handle (for passing to migration functions) and a local `SchemaData` snapshot (for introspection without crossing the boundary):
 
 ```{.typescript include="../../sdk/typescript/src/schema.ts" start-line=326 end-line=371}
 ```
 
-## MigrationBuilder and CompiledMigration
+## Migrationbuilder and compiledmigration
 
 `MigrationBuilder` follows the same immutable fluent pattern. It accumulates vertex mappings, edge mappings, and resolvers:
 
@@ -137,7 +134,7 @@ The `compile()` method packs the mapping and sends it to the `compile_migration`
 The `complement` from `get()` is an opaque `Uint8Array`. It captures the data discarded by the forward projection, enabling lossless round-tripping. Treat it as a black box; its internal format is a MessagePack-encoded Rust `Complement` struct.
 :::
 
-## WasmHandle and Resource Safety
+## Wasmhandle and Resource safety
 
 Every WASM-side resource is wrapped in a `WasmHandle`, which implements `Disposable` for use with the `using` declaration:
 
@@ -154,12 +151,12 @@ The `FinalizationRegistry` is a last resort, not a primary mechanism. GC timing 
 :::
 
 ::: {.callout-tip}
-## What if I forget to dispose a handle?
+## Forgetting to Dispose a Handle
 
 The `FinalizationRegistry` will eventually clean it up, but "eventually" is unpredictable. Under load, leaked handles accumulate until GC runs, which can exhaust WASM memory. Always use `using` or explicit `[Symbol.dispose]()` calls.
 :::
 
-## MessagePack Encoding Helpers
+## Messagepack encoding helpers
 
 The `msgpack.ts` module provides four encoding helpers that wrap `@msgpack/msgpack`:
 
@@ -197,7 +194,7 @@ The `lens.ts` module provides three handle classes for bidirectional schema tran
 - **`LensHandle.put(view, complement)`**: Backward put: restore from view and complement.
 - **`LensHandle.checkLaws(instance)`**: Verify GetPut and PutGet laws.
 
-## Schema Enrichment
+## Schema enrichment
 
 The `SchemaBuilder` supports enrichment through constraints, which encode defaults, coercions, and merge policies:
 
@@ -214,7 +211,7 @@ using schema = protocol.schema()
 
 Constraints serve triple duty: they encode refinement types (value bounds), default behaviors (when a field has a known initial value), and coercion hints (when a field can be safely converted between representations). The protocol's `constraint_sorts` array determines which constraint sorts are recognized during compatibility checking.
 
-## Migration Analysis
+## Migration analysis
 
 The SDK provides analysis capabilities through the diff/classify pipeline:
 
@@ -245,7 +242,7 @@ const json = fused.toJSON();
 // json.complement_constructor contains "DroppedSortData" means lens
 ```
 
-## GAT Engine Access
+## GAT Engine access
 
 The SDK provides direct access to the GAT engine for theory construction and composition:
 
@@ -266,7 +263,7 @@ using shared = panproto.createTheory({ name: 'Shared', sorts: [{ name: 'Vertex',
 using composed = panproto.colimitTheories(thGraph, thConstraint, shared);
 ```
 
-## Expression Parser & Evaluator
+## Expression parser & evaluator
 
 The SDK provides three functions for working with the expression language:
 
@@ -282,7 +279,7 @@ const result = evalExpr(expr, { x: 2 }, wasm);   // 3
 const pretty = formatExpr('\\x->x+ 1', wasm);    // "\\x -> x + 1"
 ```
 
-## Declarative Query API
+## Declarative query API
 
 The `executeQuery` function runs a declarative query against an instance:
 
@@ -300,7 +297,7 @@ const matches = executeQuery(
 );
 ```
 
-## VCS Integration
+## VCS integration
 
 The SDK exposes version control operations for schemas and data:
 
@@ -317,7 +314,7 @@ const log = panproto.vcsLog(repo, 10);
 const status = panproto.vcsStatus(repo);
 ```
 
-## Type Definitions
+## Type definitions
 
 The `types.ts` module defines all TypeScript interfaces that mirror Rust structures. Key types include:
 
@@ -332,7 +329,7 @@ The `types.ts` module defines all TypeScript interfaces that mirror Rust structu
 ```{.typescript include="../../sdk/typescript/src/types.ts" start-line=187 end-line=199}
 ```
 
-## Error Hierarchy
+## Error hierarchy
 
 The SDK defines a four-class error hierarchy, all extending `PanprotoError`:
 
@@ -345,7 +342,7 @@ The SDK defines a four-class error hierarchy, all extending `PanprotoError`:
 - **`MigrationError`**: Migration compilation or composition errors.
 - **`ExistenceCheckError`**: Existence check failures, bundling the full `ExistenceReport`.
 
-## Usage Pattern
+## Usage pattern
 
 A typical SDK session:
 

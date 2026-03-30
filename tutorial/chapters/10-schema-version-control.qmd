@@ -1,11 +1,12 @@
 # Schema Version Control {#sec-version-control}
 
-panproto tracks schema evolution as a content-addressed DAG. Each commit stores a schema graph $G$, the morphism $f: G_{\mathrm{parent}} \to G$ from its parent, and the complement $C$ for backward migration. The CLI is `schema`.
+You already use version control for code. panproto extends that idea to schemas themselves: every schema, migration, and commit gets a blake3 hash based on its structure. Two schemas with the same shape produce the same hash, even if created by different teams. Identity comes from content, not names.
 
-Every schema, migration, and commit is identified by a blake3 hash of its canonical form. Two schemas with the same structure produce the same hash, even if they were created independently by different teams. Identity comes from structure, not naming.
+Each commit stores a schema graph $G$, the morphism $f: G_{\mathrm{parent}} \to G$ from its parent, and the complement $C$ for backward migration.
 
+## Thinking like git
 
-## The Git analogy
+panproto's version control works on a familiar vocabulary:
 
 | Git concept | panproto equivalent |
 |---|---|
@@ -17,12 +18,11 @@ Every schema, migration, and commit is identified by a blake3 hash of its canoni
 | Branch | Named pointer to a schema version |
 | Conflict | Structural incompatibility |
 
-The important difference: git merges text and hopes the result compiles. panproto merges structure and guarantees data integrity.
-
+The key difference: git merges text and hopes the result compiles. panproto merges structure and guarantees data integrity.
 
 ## The object store
 
-The storage model mirrors git's.
+Storage mirrors git's layout.
 
 ```
 .panproto/
@@ -33,16 +33,13 @@ The storage model mirrors git's.
   logs/                             # reflog (audit trail)
 ```
 
-
 ## Core commands
 
-The CLI follows git's vocabulary where the concepts align.
+The CLI borrows git's vocabulary where concepts align.
 
 ### `schema init`
 
-Creates a `.panproto/` directory with the object store, refs, and HEAD pointing to `main`.
-
-In git, `init` creates `.git/` for tracking arbitrary files. Here it creates `.panproto/` for tracking a single schema and its evolution. There is no working tree in the git sense; the repository tracks one schema at a time.
+Creates a `.panproto/` directory with the object store, refs, and HEAD pointing to `main`. Unlike git, there is no working tree; the repository tracks one schema at a time.
 
 ```bash
 schema init
@@ -52,11 +49,11 @@ schema init -b develop    # choose a different initial branch name
 
 ### `schema add`
 
-Stages a schema for the next commit. Loads the schema JSON, computes a structural diff against HEAD's schema, auto-derives a migration (the graph morphism mapping surviving vertices and edges), and validates the migration via the existence checker.
+Stages a schema for the next commit. The command loads the schema JSON, computes a structural diff against HEAD's schema, auto-derives a migration (the graph morphism), and validates it through the existence checker.
 
-As of v0.6, `schema add` also type-checks all equations in the schema's theory and verifies that the auto-derived migration preserves them. If the theory contains an equation where the sorts don't match, or if the migration would violate an equation, staging fails with a diagnostic error. Invalid schemas are caught *before* they enter the repository.
+As of v0.6, `schema add` also type-checks all equations in the schema's theory and verifies that the auto-derived migration preserves them. Invalid schemas are caught before they enter the repository.
 
-If the diff involves vertex renames or edge contractions that can't be auto-derived, supply an explicit migration file with `--migration`.
+If the diff involves vertex renames or edge contractions that can't be auto-derived, supply an explicit migration file:
 
 ```bash
 schema add schema.json
@@ -67,9 +64,7 @@ schema add --force schema.json       # stage even if validation fails
 
 ### `schema commit`
 
-Creates a commit object storing the schema's content hash, the migration's content hash, parent commit IDs, and metadata. Advances the current branch ref and appends a reflog entry.
-
-In git, a commit snapshots the entire working tree. Here a commit snapshots a single schema graph and the morphism $f$ that produced it from its parent. Every commit carries enough information to migrate instance data forward or backward.
+Creates a commit object storing the schema's content hash, the migration's content hash, parent commit IDs, and metadata. It advances the current branch ref and appends a reflog entry. Every commit carries enough information to migrate instance data forward or backward.
 
 ```bash
 schema commit -m "add verification status field"
@@ -77,13 +72,13 @@ schema commit --amend -m "add verification status field (v2)"
 schema commit --skip-verify -m "experimental: partial theory"
 ```
 
-Equation verification runs again at commit time as a final safety check. The `--skip-verify` flag bypasses equation type-checking for experimental work; use it sparingly, as such commits may cause issues during later merges or migrations.
+Equation verification runs again at commit time as a final safety check. The `--skip-verify` flag bypasses type-checking for experimental work; use it sparingly.
 
 ### `schema diff`
 
-Computes a structural diff between two schema files. Reports added and removed vertices and edges, kind changes, constraint changes, variant changes, ordering changes, and usage mode changes.
+Computes a structural diff between two schema files. It reports added and removed vertices and edges, kind changes, constraint changes, variant changes, and ordering changes.
 
-Git's diff operates on lines of text. `schema diff` operates on the schema graph: it knows that adding a vertex differs from adding an edge, that tightening a constraint differs from relaxing one, and that removing a coproduct variant is a type error while removing an optional field is merely lossy.
+Git's diff operates on lines of text. `schema diff` operates on the schema graph: it knows that adding a vertex differs from adding an edge, and that removing a coproduct variant is a type error while removing an optional field is lossy.
 
 ```bash
 schema diff old-schema.json new-schema.json
@@ -92,19 +87,17 @@ schema diff --staged                                    # diff staged against HE
 schema diff --detect-renames old-schema.json new-schema.json
 ```
 
-The `--detect-renames` flag uses structural similarity heuristics to identify vertices and edge labels that were renamed rather than deleted and re-added. Detected renames are shown with confidence scores and can be incorporated into the migration automatically.
+The `--detect-renames` flag uses structural similarity heuristics to identify renamed vertices and edge labels. Detected renames are shown with confidence scores.
 
 ### `schema merge`
 
-Merges a branch into the current branch. Finds the merge base (lowest common ancestor in the DAG), computes diffs from the base to both tips, and applies all non-conflicting changes.
+Merges a branch into the current branch by finding the merge base (lowest common ancestor in the DAG), computing diffs from the base to both tips, and applying non-conflicting changes.
 
-Merge is the largest divergence from git. Git's merge operates on lines of text and produces conflict markers when the same lines were edited. panproto's merge computes the structural merge of the two divergent schemas over their common base.^[The structural merge is a categorical pushout of the two schemas over their common ancestor. For every schema element (vertices, edges, constraints, hyper-edges, variants, orderings, recursion points, usage modes) the merge classifies each side's change as unchanged, added, removed, or modified. The merge is commutative: swapping the two branches produces an identical result.]
+Merge diverges most from git. Git operates on lines of text and produces conflict markers. panproto computes the structural merge of the two divergent schemas over their common base.^[The structural merge is a categorical pushout of the two schemas over their common ancestor. For every schema element (vertices, edges, constraints, hyper-edges, variants, orderings, recursion points, usage modes), the merge classifies each side's change as unchanged, added, removed, or modified. The merge is commutative: swapping the two branches produces an identical result.]
 
-One-sided changes are accepted. Identical changes from both sides are deduplicated. Incompatible changes produce typed conflicts: not text conflict markers, but structured conflict objects like `BothModifiedVertex`, `BothModifiedConstraint`, `DeleteModifyVertex`, and so on. If there are no conflicts, the merge is auto-committed. If there are, the conflicts are reported with their structural types.
+One-sided changes are accepted. Identical changes from both sides are deduplicated. Incompatible changes produce typed conflicts: not text markers, but structured objects like `BothModifiedVertex`, `BothModifiedConstraint`, `DeleteModifyVertex`. Fast-forward merges work as in git.
 
-Fast-forward merges work as in git: if one side is an ancestor of the other, the ref is simply moved forward.
-
-As of v0.6, the merge algorithm uses pullback-based overlap detection to identify shared structure between the two divergent schemas. The pullback computes the largest sub-schema that both sides agree on, giving a more precise merge base than the commit-DAG ancestor alone.
+As of v0.6, the merge algorithm uses pullback-based overlap detection to identify shared structure between divergent schemas.
 
 ```bash
 schema merge feature
@@ -119,24 +112,24 @@ schema merge -m "merge feature into main" feature
 
 ### `schema lift`
 
-Migrates instance data from one schema version to another. Finds the path between two refs in the DAG, composes all migrations along the path into a single morphism $f: G_1 \to G_n$, and applies the functorial lift to the record.
+Migrates instance data from one schema version to another. The command finds the path between two refs in the DAG, composes all migrations along the path into a single morphism $f: G_1 \to G_n$, and applies the functorial lift to the record.
 
-This has no git equivalent. Git tracks file history but can't transform file *contents* based on structural changes. panproto can, because migrations are graph morphisms with a well-defined action on instance data. The commutativity guarantee ensures the result is the same regardless of which path you take through the DAG.
+Git tracks file history but can't transform file contents based on structural changes. panproto can, because migrations are graph morphisms with a well-defined action on data.
 
 ```bash
 schema lift --migration mig.json --src-schema v1.json --tgt-schema v2.json record.json
 ```
 
 :::{.callout-caution}
-## Question: Path independence
+## Exercise: Path independence
 
-If the DAG has two distinct paths from commit $A$ to commit $B$ (e.g., through different merge histories), `schema lift` claims the composed morphism is the same. What algebraic property of the migration category guarantees this?
+If the DAG has two distinct paths from commit $A$ to commit $B$, does `schema lift` produce the same result on both paths? What guarantees this?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Functoriality. Migration morphisms compose associatively: if $f: A \to B$ and $g: B \to C$, then $g \circ f: A \to C$ is the same regardless of how the composition is parenthesized. More importantly, the DAG's commutativity constraint ensures that for any two paths from $A$ to $C$, the composed morphisms are equal. This is a coherence condition on the category of schemas: the DAG encodes not just the objects and morphisms but also the equations between composed paths.
+Functoriality. Migration morphisms compose associatively: if $f: A \to B$ and $g: B \to C$, then $g \circ f: A \to C$ is the same regardless of how the composition is parenthesized. The DAG's commutativity constraint ensures that for any two paths from $A$ to $C$, the composed morphisms are equal. This is a coherence condition on the category of schemas.
 :::
 
 
@@ -145,8 +138,6 @@ Functoriality. Migration morphisms compose associatively: if $f: A \to B$ and $g
 ### `schema log`
 
 Walks the commit DAG from HEAD backwards, printing each commit's ID, author, timestamp, message, and schema hash. For merge commits, shows all parent IDs.
-
-In git, `log` shows file-level changes. Here it shows schema-level evolution: which vertices and edges were added, removed, or modified at each step.
 
 ```bash
 schema log
@@ -158,7 +149,7 @@ schema log --all                      # show all branches
 
 ### `schema show`
 
-Inspects any object in the store by ref name or object ID. For commits, shows the schema ID, parent IDs, migration ID, protocol, author, and message. For schemas, shows vertex and edge counts. For migrations, shows the vertex and edge mapping counts.
+Inspects any object in the store by ref name or object ID. For commits, shows the schema ID, parent IDs, migration ID, protocol, author, and message. For schemas, shows vertex and edge counts.
 
 ```bash
 schema show main
@@ -168,9 +159,7 @@ schema show --stat main               # change summary statistics
 
 ### `schema blame`
 
-Shows which commit introduced a specific schema element: a vertex, an edge, or a constraint. Walks the DAG backwards from HEAD, comparing each commit's schema to its parent's, and returns the commit where the element first appeared or was last modified.
-
-Git blame operates on lines of text in a file. `schema blame` operates on structural elements of a schema graph. You can ask "who added the `user_status` vertex?" or "when was the `maxLength` constraint on `text` changed?"
+Shows which commit introduced a specific schema element: a vertex, an edge, or a constraint. It walks the DAG backwards from HEAD, comparing each commit's schema to its parent's. You can ask "who added the `user_status` vertex?" or "when was the `maxLength` constraint on `text` changed?"
 
 ```bash
 schema blame --element-type vertex user_status
@@ -182,7 +171,7 @@ schema blame --element-type constraint "text:maxLength"
 
 ### `schema branch`
 
-Creates, lists, or deletes branches. Branches are lightweight pointers to commit IDs, exactly as in git.
+Creates, lists, or deletes branches. Branches are lightweight pointers to commit IDs.
 
 ```bash
 schema branch                         # list all branches
@@ -204,9 +193,9 @@ schema checkout --detach main         # detach HEAD at a specific ref
 
 ### `schema rebase`
 
-Replays the current branch's commits onto another branch. Finds the merge base, collects all commits from the base to HEAD, then replays each one on top of the target via three-way merge. If any step conflicts, the rebase stops with an error.
+Replays the current branch's commits onto another branch. It finds the merge base, collects all commits from the base to HEAD, then replays each one on top of the target via three-way merge.
 
-The mechanics match git rebase, but each replay step uses structural three-way merge rather than textual merge. This means a rebase can detect schema-level conflicts (like incompatible kind changes) that git rebase would miss.
+Each replay step uses structural three-way merge rather than textual merge. This detects schema-level conflicts (like incompatible kind changes) that git rebase would miss.
 
 ```bash
 schema rebase main
@@ -214,7 +203,7 @@ schema rebase main
 
 ### `schema cherry-pick`
 
-Applies a single commit's schema change to the current branch. Extracts the diff between the commit and its parent, then three-way merges it onto HEAD using the parent as the base.
+Applies a single commit's schema change to the current branch. It extracts the diff between the commit and its parent, then three-way merges it onto HEAD.
 
 ```bash
 schema cherry-pick abc1234...
@@ -223,15 +212,15 @@ schema cherry-pick -x abc1234...      # record source commit in message
 ```
 
 :::{.callout-caution}
-## Question: Merge commutativity
+## Exercise: Merge commutativity
 
-`schema merge` claims the structural merge is commutative: merging branch A into B produces the same schema as merging B into A. Does this imply the *migration morphisms* from the base to each merge result are also identical? Or can two merge orderings produce the same schema graph with different morphism provenance?
+`schema merge` claims the structural merge is commutative: merging branch A into B produces the same schema as merging B into A. Does this imply the *migration morphisms* from the base to each merge result are also identical?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-The schemas are identical, but the morphism provenance can differ. Merging A into B produces composition legs $A \to M$ and $B \to M$. Merging B into A produces legs $B \to M'$ and $A \to M'$. If $M = M'$ (same merged schema), the legs are the same pair of morphisms, just listed in opposite order. The provenance metadata (which branch contributed which change) differs, but the mathematical content (the morphisms and the merged schema) is identical.
+The schemas are identical, but the morphism provenance can differ. Merging A into B produces composition legs $A \to M$ and $B \to M$. Merging B into A produces legs $B \to M'$ and $A \to M'$. If $M = M'$ (same merged schema), the legs are the same pair of morphisms, just listed in opposite order. The provenance metadata differs, but the mathematical content is identical.
 :::
 
 
@@ -239,7 +228,7 @@ The schemas are identical, but the morphism provenance can differ. Merging A int
 
 ### `schema reset`
 
-Moves HEAD to a different commit. Three modes, matching git:
+Moves HEAD to a different commit. Three modes match git:
 
 - `--soft`: moves the ref only; the index is unchanged
 - `--mixed` (default): moves the ref and clears the index
@@ -254,7 +243,7 @@ schema reset --hard HEAD~3
 
 ### `schema reflog`
 
-Shows the history of mutations to a ref. Every commit, merge, checkout, reset, rebase, and cherry-pick appends an entry recording the old and new ref values. This is the recovery mechanism: if a reset or rebase moves HEAD past a commit you need, the reflog still has the old ID.
+Shows the history of mutations to a ref. Every commit, merge, checkout, reset, rebase, and cherry-pick appends an entry recording the old and new ref values. If a reset or rebase moves HEAD past a commit you need, the reflog has the old ID.
 
 ```bash
 schema reflog
@@ -264,9 +253,7 @@ schema reflog --all                   # show reflogs for all refs
 
 ### `schema bisect`
 
-Binary search for the commit that introduced a breaking change. Given a known-good and known-bad commit, bisect finds the path between them and presents the midpoint for testing. Converges in $O(\log n)$ steps.
-
-Git bisect tests whether code compiles or a test passes. Here you can test whether a schema change introduced a breaking change, a validation failure, or any other property.
+Binary search for the commit that introduced a breaking change. Given a known-good and known-bad commit, bisect finds the path between them and presents the midpoint for testing. It converges in $O(\log n)$ steps.
 
 ```bash
 schema bisect v1.0 HEAD
@@ -312,23 +299,23 @@ schema merge add-verification
 ```
 
 :::{.callout-caution}
-## Question: Complement storage
+## Exercise: Complement storage
 
-Each commit stores a complement $C$ for backward migration. If a forward migration $f: G_1 \to G_2$ adds a required field with no default, what does $C$ contain? Can every forward migration be reversed, or are there cases where $C$ is insufficient for a full round-trip?
+Each commit stores a complement $C$ for backward migration. If a forward migration $f: G_1 \to G_2$ adds a required field with no default, what does $C$ contain? Can every forward migration be reversed?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-The complement $C$ is empty for this direction. In a forward migration that adds a required field, the new field's value is *provided* (via a default or explicit construction), not *discarded*. The complement records what `get` threw away, and in the forward direction nothing is thrown away: old data is augmented, not pruned. Reversal of this migration (going backward) would need to discard the added field, and *that* direction's complement would store the discarded value. Not every forward migration can be reversed; if the forward migration fabricated the required field from a default, the backward complement simply records "this field was added with default X."
+The complement $C$ is empty for this direction. In a forward migration that adds a required field, the new field's value is provided (via a default), not discarded. The complement records what `get` threw away, and in the forward direction nothing is thrown away. Reversal of this migration (going backward) would discard the added field, and that direction's complement would store the discarded value. Not every forward migration can be reversed.
 :::
 
 
 ## A note on VCS inspiration
 
-panproto's approach to schema version control draws on two traditions. The first is git itself: content-addressing, DAG-structured history, lightweight branches, and the reflog as a safety net. The second is the family of **patch-theory** version control systems, [Pijul](https://pijul.org/) and [Darcs](http://darcs.net/), which model changes as first-class mathematical objects rather than as text diffs.^[The connection runs deeper than analogy. Pijul's patches form a category where composition is associative and commutativity holds under certain conditions. panproto's migrations are morphisms in a category of schemas. Both systems benefit from the same insight: when your "diffs" are mathematical objects with well-defined composition rules, merge conflicts become algebraic problems rather than heuristic ones.]
+panproto's schema version control draws on two traditions. The first is git itself: content-addressing, DAG-structured history, lightweight branches, and the reflog. The second is **patch-theory** version control systems like [Pijul](https://pijul.org/) and [Darcs](http://darcs.net/), which model changes as first-class mathematical objects.^[Pijul's patches form a category where composition is associative. panproto's migrations are morphisms in a category of schemas. Both systems benefit from the same insight: when your "diffs" are mathematical objects with well-defined composition rules, merge conflicts become algebraic problems rather than heuristic ones.]
 
-The payoff of the patch-theory tradition is that *structure-aware diffs compose better than text diffs*. A schema migration (graph morphism) composes with another schema migration to produce a valid migration. A text patch composed with another text patch might produce gibberish. This is why panproto's merge can guarantee data integrity where git's merge can only guarantee syntactic non-conflict.
+The payoff is that *structure-aware diffs compose better than text diffs*. A schema migration composes with another migration to produce a valid migration. A text patch composed with another text patch might produce gibberish. This guarantees data integrity where git's merge can only guarantee syntactic non-conflict.
 
 
 ### Remote commands (planned)

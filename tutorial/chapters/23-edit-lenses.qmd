@@ -1,15 +1,13 @@
 # Edit Lenses: Incremental Migration {#sec-edit-lenses}
 
-Batch migration works well when you need to move entire data sets from one schema version to another. But consider a different scenario: two systems share a synchronized data set, each operating under a different schema version. When one system modifies a single record (inserts a field, updates a value), you do not want to re-migrate the entire data set. You want to translate the individual edit itself.
-
-This is the problem edit lenses solve. An edit lens sees changes (patches) rather than before/after snapshots. It translates individual edits between schema versions, updating its internal state incrementally.
+Batch migration works well when you move entire data sets from one schema version to another. But suppose two systems share a synchronized data set, each operating under a different schema version. When one system modifies a single record—inserts a field, updates a value—you don't want to re-migrate the entire data set. You want to translate the individual edit itself. Edit lenses solve this by seeing changes (patches) and translating individual edits between schema versions, updating state incrementally.
 
 ## The problem: translating patches
 
-Suppose you maintain a Bluesky issue tracker where issues are assigned to a single person:
+You maintain a Bluesky issue tracker where issues are assigned to a single person:
 
 ```{.rust}
-// Schema v1: single assignee
+// schema v1: single assignee
 pub struct Issue {
     pub title: String,
     pub assignee: String,
@@ -19,7 +17,7 @@ pub struct Issue {
 A new schema version replaces `assignee` with a list of `assignees`:
 
 ```{.rust}
-// Schema v2: multiple assignees
+// schema v2: multiple assignees
 pub struct Issue {
     pub title: String,
     pub assignees: Vec<String>,
@@ -88,7 +86,7 @@ After initialization, each call to `get_edit` or `put_edit` translates one edit 
 
 ## The complement as a state machine {#sec-complement-state-machine}
 
-In batch lenses (@sec-complement), the complement is a snapshot: it captures what `get` discarded, and `put` consumes it. In edit lenses, the complement is a *state machine*. Each edit transition updates the complement incrementally:
+In batch lenses (@sec-complement), the complement is a snapshot: it captures what `get` discarded, and `put` consumes it. In edit lenses, the complement is a *state machine*. Each edit transition updates it incrementally:
 
 - When `get_edit` absorbs a non-surviving edit (the edit targets a node that does not exist in the view schema), the edit's data is added to the complement.
 - When `get_edit` encounters a `DeleteNode` for a node already in the complement, the node is removed from the complement.
@@ -182,12 +180,12 @@ The complement state after `get_edit` is consistent with the complement that a w
 
 $$c'_{\mathrm{incremental}} = c'_{\mathrm{batch}}$$
 
-where $c'_{\mathrm{incremental}}$ is the complement after calling `get_edit(e)`, and $c'_{\mathrm{batch}}$ is the complement from calling `get$ on the source with $e$ applied.
+where $c'_{\mathrm{incremental}}$ is the complement after calling `get_edit(e)`, and $c'_{\mathrm{batch}}$ is the complement from calling `get` on the source with $e$ applied.
 
 This says the state machine complement tracks the batch complement exactly. If it drifts, `put` may reconstruct incorrect data.
 
 ::: {.callout-caution}
-## Question: When does consistency fail?
+## Exercise: When does consistency fail?
 
 If a `SetField` edit targets a node that the migration conditionally drops (via a value-dependent predicate), under what circumstances could the Consistency law be violated?
 :::
@@ -215,7 +213,7 @@ Both compare the incremental path against the batch path and return `EditLawViol
 
 - For the batch lens framework (state-based `get`/`put` with complement), see @sec-lenses.
 - For data versioning commands (`schema data migrate`, `schema data status`), see @sec-data-versioning.
-- For the developer-level architecture of edit lenses, see the [edit lens internals chapter](https://panproto.dev/dev-guide/chapters/31-edit-lenses.html).
+- For the developer-level architecture of edit lenses, see the edit lens internals chapter.
 
 ## Exercises
 

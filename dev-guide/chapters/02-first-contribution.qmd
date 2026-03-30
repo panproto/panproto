@@ -1,10 +1,10 @@
 # Your First Contribution {#sec-first-contribution}
 
-We'll walk through the entire contribution cycle (forking the repository through opening a pull request) with a concrete example change.
+The contribution process starts with forking and ends with merging. We'll walk through the full cycle with a concrete example: adding a `minLength` constraint sort to the AT Protocol.
 
 ## Prerequisites
 
-Before you begin, install:
+Install these tools before you begin:
 
 | Tool | Minimum version | Install |
 |---|---|---|
@@ -14,7 +14,7 @@ Before you begin, install:
 | `pnpm` | latest | `corepack enable && corepack prepare pnpm@latest --activate` |
 | `cargo-nextest` | latest | `cargo install cargo-nextest` |
 
-## Step 1: Fork and clone
+## Step 1: fork and clone
 
 Fork <https://github.com/panproto/panproto> on GitHub, then clone your fork:
 
@@ -23,28 +23,28 @@ git clone git@github.com:YOUR_USERNAME/panproto.git
 cd panproto
 ```
 
-## Step 2: Understand the workspace
+## Step 2: understand the workspace
 
 The repository is a Cargo workspace. Here is the workspace definition from the root `Cargo.toml`:
 
 ```{.toml include="../../Cargo.toml" start-line=1 end-line=25}
 ```
 
-Every `crates/panproto-*` directory is an independent crate. The `tests/integration` crate holds cross-crate integration tests. The TypeScript SDK lives in `sdk/typescript/`.
+Each crate under `crates/panproto-*` is independent. The `tests/integration` crate holds cross-crate integration tests. The TypeScript SDK lives in `sdk/typescript/`.
 
-## Step 3: Build the workspace
+## Step 3: build the workspace
 
 ```bash
 cargo build --workspace
 ```
 
-This compiles all 10 crates and the integration test crate. The first build downloads dependencies and takes a few minutes; incremental builds are fast.
+This compiles all 10 crates and the integration test crate. The first build downloads dependencies and takes a few minutes. Incremental builds are fast.
 
 ::: {.callout-note}
-The workspace uses `resolver = "3"` (the Rust 2024 edition resolver). Make sure your Rust toolchain is 1.85 or newer: `rustup update stable`.
+The workspace uses `resolver = "3"` (the Rust 2024 edition resolver). Verify your Rust toolchain is 1.85 or newer: `rustup update stable`.
 :::
 
-## Step 4: Run the test suite
+## Step 4: run the test suite
 
 ```bash
 cargo nextest run --workspace
@@ -55,10 +55,10 @@ All tests should pass on a clean checkout. If any fail, check @sec-troubleshooti
 ::: {.callout-tip}
 ## Why nextest?
 
-panproto uses `cargo-nextest` instead of `cargo test` for test isolation: each test runs in its own process, preventing shared mutable state from causing flaky results. See @sec-building-testing for details.
+panproto uses `cargo-nextest` instead of `cargo test` for test isolation. Each test runs in its own process, preventing shared mutable state from causing flaky results. See @sec-building-testing for details.
 :::
 
-## Step 5: Build the WASM target
+## Step 5: build the WASM target
 
 ```bash
 wasm-pack build crates/panproto-wasm --target web
@@ -70,7 +70,7 @@ This compiles `panproto-wasm` to WebAssembly and generates JavaScript bindings i
 rustup target add wasm32-unknown-unknown
 ```
 
-## Step 6: Build the TypeScript SDK
+## Step 6: build the TypeScript SDK
 
 ```bash
 cd sdk/typescript
@@ -80,17 +80,11 @@ pnpm build
 
 This compiles the TypeScript sources and runs type checking. The SDK wraps the WASM module and provides the high-level `Panproto` class.
 
-## Step 7: Make a change
+## Step 7: make a change
 
-Now let us make a concrete change: adding a `minLength` constraint sort to the AT Protocol protocol definition.
+Now let us add a `minLength` constraint sort to the AT Protocol. Find the protocol definition in `crates/panproto-protocols/src/atproto.rs` and locate the section where constraint sorts are registered.
 
-### Locate the file
-
-The AT Protocol protocol is defined in `crates/panproto-protocols/src/atproto.rs`. Open it and find the section where constraint sorts are registered.
-
-### Add the constraint sort
-
-In the `build_atproto_protocol()` function, you will find a block that registers constraint sorts like `maxLength`, `format`, and `enum`. Add a new entry for `minLength`:
+In the `build_atproto_protocol()` function, find the block that registers constraint sorts like `maxLength`, `format`, and `enum`. Add a new entry:
 
 ```rust
 // In crates/panproto-protocols/src/atproto.rs
@@ -103,7 +97,7 @@ This registers a new constraint sort named `"minLength"` that takes a single par
 
 ### Add a test
 
-Add a test in the same file (or in the existing test module) that verifies the new constraint sort is present:
+Add a test in the same file that verifies the new constraint sort is present:
 
 ```rust
 #[test]
@@ -123,15 +117,15 @@ fn test_atproto_has_min_length_constraint() {
 cargo nextest run -p panproto-protocols
 ```
 
-If you added a constraint that is used by integration tests, also run:
+If the constraint is used by integration tests, also run:
 
 ```bash
 cargo nextest run -p panproto-integration
 ```
 
-## Step 8: Verify the full suite
+## Step 8: verify the full suite
 
-Before committing, run the complete test suite to make sure nothing else broke:
+Before committing, run the complete test suite to ensure nothing else broke:
 
 ```bash
 cargo nextest run --workspace
@@ -143,9 +137,9 @@ cargo nextest run --workspace
 Changes to protocol definitions can affect schema validation, migration compilation, and integration tests. A passing per-crate test does not guarantee the full suite passes.
 :::
 
-## Step 9: Commit and push
+## Step 9: commit and push
 
-panproto uses [Conventional Commits](https://www.conventionalcommits.org/):
+panproto uses [Conventional Commits](https://www.conventionalcommits.org/). Create a feature branch and commit with the appropriate prefix:
 
 ```bash
 git checkout -b feat/atproto-min-length
@@ -166,9 +160,9 @@ Common prefixes:
 | `perf` | Performance improvement |
 | `chore` | Build, CI, dependency updates |
 
-## Step 10: Open a pull request
+## Step 10: open a pull request
 
-Go to your fork on GitHub and open a pull request against `main`. The PR template will guide you through:
+Go to your fork on GitHub and open a pull request against `main`. The PR template guides you through:
 
 1. **Description**: what the change does and why.
 2. **Testing**: how you verified it works.
@@ -176,7 +170,7 @@ Go to your fork on GitHub and open a pull request against `main`. The PR templat
 
 ## What happens next
 
-After you push, CI runs automatically:
+CI runs automatically after you push:
 
 1. **Lint**: `cargo clippy --workspace -- -D warnings` with pedantic and nursery lints.
 2. **Test**: `cargo nextest run --workspace` on Linux, macOS, and Windows.
@@ -185,7 +179,7 @@ After you push, CI runs automatically:
 5. **Format**: `cargo fmt --check` and `prettier --check` for TypeScript.
 
 ::: {.callout-note}
-CI must pass before a maintainer reviews your PR. If a CI job fails, check the logs; @sec-troubleshooting covers the most common failure modes and how to reproduce them locally.
+CI must pass before a maintainer reviews your PR. If a CI job fails, check the logs. @sec-troubleshooting covers the most common failure modes and how to reproduce them locally.
 :::
 
 ## The contribution lifecycle
@@ -227,33 +221,16 @@ Before opening your PR, verify:
 
 ## Types of contributions
 
-Not sure what to work on? Here are some common contribution types:
+**Good first issues** are labeled on the [issue tracker](https://github.com/panproto/panproto/issues). These are scoped, well-described tasks suitable for newcomers.
 
-**Good first issues.**
-Look for issues labeled `good first issue` on the [issue tracker](https://github.com/panproto/panproto/issues). These are scoped, well-described tasks suitable for newcomers.
+**Bug fixes** start with a test that reproduces the bug. Fix the code, verify the test passes. Use `fix(crate): description` as the commit prefix.
 
-**Bug fixes.**
-Reproduce the bug with a test, fix the code, verify the test passes. Use `fix(crate): description` as the commit prefix.
+**New protocol support** means implementing the `Protocol` trait in `panproto-protocols`. See chapters 7 and 12 for what a protocol requires.
 
-**New protocol support.**
-Adding a new schema language means implementing the `Protocol` trait in `panproto-protocols`. See chapters 7 and 12 for the details of what a protocol requires.
+**Performance improvements** start with benchmarks (chapter 4). Identify a bottleneck, optimize, and verify with before/after numbers. Use `perf(crate): description` as the commit prefix.
 
-**Performance improvements.**
-Run the benchmarks (chapter 4), identify a bottleneck, optimize, and verify with before/after benchmark numbers. Use `perf(crate): description` as the commit prefix.
+**Documentation** improvements to rustdoc, this guide, or the tutorial are always welcome. Use `docs: description` as the commit prefix.
 
-**Documentation.**
-Improvements to rustdoc, this developer guide, or the tutorial are always welcome. Use `docs: description` as the commit prefix.
+## What's next
 
-## Summary
-
-At this point you know how to:
-
-- Set up the development environment
-- Build and test the entire workspace
-- Make a change to a protocol definition
-- Commit with conventional format and open a PR
-- Understand what CI checks run
-
-The next two chapters cover the build system and debugging tools in more depth. When you are ready to understand the code you are changing, jump to the architecture chapters (Part III).
-
-For the complete coding conventions and PR expectations, see chapters 16--18.
+The next two chapters cover the build system and debugging tools in more depth.  When you are ready to understand the code you are changing, jump to the architecture chapters (Part III).  For the complete coding conventions and PR expectations, see chapters 16--18.

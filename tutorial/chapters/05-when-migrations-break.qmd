@@ -5,301 +5,95 @@ id: sec-when-migrations-break
 
 # When Migrations Break {#sec-when-migrations-break}
 
-Not every pair of maps $(f_V: V_1 \to V_2,\; f_E: E_1 \to E_2)$ constitutes a valid migration. Three failures illustrate what goes wrong.
+Not every pair of maps constitutes a valid migration.  Some proposed schema changes will silently corrupt data, violate constraints, or create ambiguous reconnections.  panproto refuses them before any data is touched.  This chapter explains what goes wrong and how the engine catches it.
 
-1. **Protobuf field number reuse.** You delete a field with number 3, then assign number 3 to a new field with a different type. Existing clients that still have the old `.proto` compiled in will decode the new field's bytes using the old field's wire type. The result is silently corrupted data, no error. [Buf](https://buf.build/)'s breaking-change rules exist specifically to catch this.
+## Three ways to break things
 
-2. **ATProto constraint tightening.** The `app.bsky.feed.post` Lexicon's `text` field has `maxLength: 3000` (bytes) and `maxGraphemes: 300` (Unicode grapheme clusters). Suppose a schema update tightens `maxGraphemes` from 300 to 150. Every existing post with more than 150 grapheme clusters becomes invalid under the new schema. The data hasn't changed; the schema moved out from under it.
+**Protobuf field number reuse.**  You delete a field with number 3, then assign number 3 to a new field with a different type.  Existing clients that still have the old `.proto` compiled in will decode the new field's bytes using the old field's wire type.  The result is silently corrupted data---no error, no warning, just garbage values.  [Buf](https://buf.build/)'s breaking-change rules exist specifically to prevent this.
 
-3. **SQL dropping a column with foreign key dependents.** You run `ALTER TABLE posts DROP COLUMN author_id`, but `comments.author_id` has a foreign key referencing it. The database refuses: you can't remove the column without `CASCADE`, and cascading deletes the foreign key constraint on a table you didn't intend to touch.
+**ATProto constraint tightening.**  The `app.bsky.feed.post` Lexicon's `text` field has `maxLength: 3000` (bytes) and `maxGraphemes: 300` (Unicode grapheme clusters).  Suppose someone tightens `maxGraphemes` from 300 to 150.  Every existing post with more than 150 grapheme clusters is now invalid under the new schema.  The data has not changed; the schema moved out from under it.
 
-panproto refuses these migrations because the existence conditions derived from the schema theory $T_S$ and instance theory $T_I$ are violated. The conditions aren't a hardcoded list of rules; they're *derived* from the theory structure. The engine inspects the theory's sorts, operations, and axioms, then assembles the appropriate checks automatically. This is why the same engine validates migrations for SQL (foreign key consistency, hyperedge simultaneity) and ATProto (tree reachability, pushout complement uniqueness).
+**SQL column drop with dependents.**  You run `ALTER TABLE posts DROP COLUMN author_id`, but `comments.author_id` has a foreign key referencing it.  The database refuses: you cannot remove the column without `CASCADE`, and cascading deletes the foreign key constraint on a table you never intended to modify.
 
-Three categories of failure cover everything that can go wrong: the types might not match, the constraints might be violated, or the reconnection might be ambiguous. The engine checks for all three, and it derives these checks from the theory structure rather than maintaining a hardcoded rule list.
+These three failures look different, but they share a common structure.  In each case, a proposed mapping between schema versions violates an invariant that the schema language's theory guarantees.  panproto derives these invariants from the theory itself, rather than maintaining a separate rule list per protocol.
 
-## Theory-Derived Conditions
 
-The engine determines which checks to apply by inspecting $T_S$'s signature. Each sort or structural feature triggers a specific check. The checks are cumulative: a schema theory with more sorts requires more checks.
+## Theory-derived conditions
 
-### Kind Consistency
+The engine determines which checks to apply by inspecting the schema theory $\mathbb{T}_S$ and instance theory $\mathbb{T}_I$ at runtime.  Each sort or structural feature in the theory triggers a specific check.  A protocol whose theories are richer (more sorts, more equations) gets more checks automatically.  A minimal custom protocol with a bare graph theory gets only the basic checks.
 
-**Trigger**: $T_S$ has a $\mathrm{Kind}$ sort (classifying vertices by data type).
+### Kind consistency
 
-**Condition**: for every vertex $v$ in the source schema, $\mathrm{kind}(v)$ must be compatible with $\mathrm{kind}(f_V(v))$ in the target schema. "Compatible" means the kinds are equal, or the source kind is a subtype of the target kind according to the protocol's subtyping rules.
+When the schema theory has a $\mathrm{Kind}$ sort (which classifies vertices by data type), the engine checks that every vertex in the source maps to a vertex of a compatible kind in the target.
 
-You can't map a `string` vertex to a `union{string, integer}` vertex if the protocol doesn't support implicit widening. Protobuf is strict (kinds must be equal). ATProto allows some subtyping (`string` is compatible with `union{string}`). GraphQL respects interface subtyping.
+You cannot map a `string` vertex to a `union{string, integer}` vertex if the protocol does not support implicit widening.  Protobuf is strict: kinds must be equal.  ATProto allows some subtyping (`string` is compatible with `union{string}`).  GraphQL respects interface subtyping.  The compatibility relation is part of the protocol definition, not a global rule.
 
-### Edge Compatibility
+### Edge compatibility
 
-**Trigger**: $T_S$ has an $\mathrm{Edge}$ sort with $\mathrm{src}$ and $\mathrm{tgt}$ operations.
+When the schema theory has an $\text{Edge}$ sort with $\text{src}$ and $\text{tgt}$ operations, the engine checks that the edge map is compatible with the vertex map.  If field `text` goes from `Post` to `Text` in v1, and you map `Post → Post` and `Text → Text`, then `text` must map to an edge that also goes from `Post` to `Text`.  Mapping it to an edge from `Post` to `Integer` would break the graph structure.^[This is the naturality condition: $f_E$ and $f_V$ must form a graph homomorphism.]
 
-**Condition**: $f_E$ must be compatible with $f_V$. For every edge $e : u \to v$ in the source schema, $f_E(e)$ must go from $f_V(u)$ to $f_V(v)$.
+### Constraint compatibility
 
-If field `text` goes from `Post` to `Text` in v1, and you map `Post → Post` and `Text → Text`, then `text` must map to an edge that also goes from `Post` to `Text`. Mapping it to an edge from `Post` to `Integer` would break the graph structure.^[This is the naturality condition: $f_E$ and $f_V$ must form a graph homomorphism.]
+When the schema theory has a $\text{Constraint}$ sort, the engine checks that every constraint on a source vertex or edge has a compatible counterpart in the target.  "Compatible" depends on the migration direction.
 
-### Constraint Compatibility
+In the backward direction (lifting v2 data to v1), the target (v2) constraint must be at least as tight as the source (v1) constraint, so that all v2 data satisfies v1's requirements.  In the forward direction, the condition reverses: the target must be at least as loose.
 
-**Trigger**: $T_S$ has a $\mathrm{Constraint}$ sort.
+The Protobuf field-number reuse and the ATProto `maxGraphemes` tightening both fail this check.  panproto derives the check from the presence of a $\text{Constraint}$ sort, not from a hardcoded rule about Protobuf or ATProto.
 
-**Condition**: for every constraint on a source vertex or edge, the corresponding constraint in the target must be *compatible with the migration direction*. In the backward direction (lifting v2 data to v1), the target (v2) constraint must be at least as tight as the source (v1) constraint, so all v2 data satisfies v1's constraint. In the forward direction, the condition reverses.
+### Pushout complement uniqueness
 
-The Protobuf field-number reuse and the ATProto `maxLength` tightening both fail this check. panproto derives these checks from the $\mathrm{Constraint}$ sort rather than hardcoding them per protocol.
+When the schema theory allows parallel edges ($\text{ThMulti}$), removing an intermediate vertex can create ambiguity.  If the schema has a path $A \to B \to C$ and the migration drops $B$, the result must connect $A$ directly to $C$.  But if the target schema has multiple edges between $A$ and $C$, which one should the engine use?  Without a resolver to disambiguate, the migration is ill-defined.
 
-### Pushout Complement Uniqueness
+The engine checks for this ambiguity when the schema theory includes the $\text{ThMulti}$ component.  If the pushout complement is not unique, the migration is rejected with an error that identifies the ambiguous pair and suggests providing a resolver.^[In algebraic graph theory, this is called the pushout complement uniqueness condition [@ehrig2006].]
 
-**Trigger**: $T_S$ allows parallel edges ($\mathrm{ThMulti}$).
+### Signature coherence (simultaneity)
 
-**Condition**: when ancestor contraction creates a new parent-child relationship (because an intermediate node was removed), there must be a unique way to label the new edge. If the schema allows multiple edges between the same pair of vertices, the engine cannot determine which label to use without resolver data.^[When you remove an intermediate node in a tree, there must be exactly one way to reconnect its children. If there are multiple options, the engine cannot decide automatically; it needs a manual hint. In algebraic graph theory, this uniqueness condition is called pushout complement uniqueness [@ehrig2006].]
+When the schema theory has a $\text{HyperEdge}$ sort (as in SQL), the engine checks that hyper-edge mappings are all-or-nothing: either all vertices of a hyperedge are mapped, or none are.  You cannot partially map a foreign key; that would create a dangling connection.
 
-### Signature Coherence (Simultaneity)
+In SQL terms, a compound foreign key `(author_id, post_id) → (users.id, posts.id)` is a hyperedge connecting three tables.  If you map `users` and `posts` but drop the join table, the foreign key becomes incoherent.  Either all participants survive, or the hyperedge must be explicitly removed.^[This is the simultaneity condition for hypergraph morphisms [@barr1990].]
 
-**Trigger**: $T_S$ has a $\mathrm{HyperEdge}$ sort.
 
-**Condition**: when a migration maps the vertices of a hyperedge, *all* vertices must be mapped, or *none*. You cannot partially map a hyperedge; that would create a dangling connection.^[This is the simultaneity condition for hypergraph morphisms [@barr1990].]
+## How the checks compose
 
-In SQL, a compound foreign key `(author_id, post_id) -> (users.id, posts.id)` is a hyperedge connecting three tables simultaneously. If you map `users` and `posts` but drop the join table, the foreign key becomes incoherent. Either all participants survive, or the hyperedge is explicitly removed.
+A protocol whose schema theory has both a $\text{Constraint}$ sort and a $\text{HyperEdge}$ sort (like SQL) gets all the conditional checks: kind consistency, edge compatibility, constraint compatibility, signature coherence, and simultaneity.  A protocol with neither (a minimal custom protocol) gets only the universal checks: vertex map validity, edge map validity, and kind consistency.
 
-### Reachability
-
-**Trigger**: $T_I$ uses W-types ($\mathrm{ThWType}$).
-
-**Condition**: after applying $f_V$, the root vertex of every instance must still be reachable. For every path from root to leaf in the source schema, the image of that path must still be valid in the target (possibly shortened by contraction, but never broken).
-
-If a migration removes a vertex that lies on *every* path from the root to some subtree, that entire subtree becomes unreachable. The data it contains cannot be preserved. If the subtree contains required fields, the migration is invalid.
+The engine assembles the check list by querying the theory's sorts.  Adding a new protocol with a novel theory composition requires no changes to the checking code.
 
 ::: {.callout-caution}
-## Question: Pushout complement uniqueness
+## Exercise
 
-Design a schema change where the pushout complement is unique and one where it is not. What structural property distinguishes the two?
+Consider a migration that tightens a `maxLength` constraint from 3000 to 1500.  In the backward direction (lifting v2 data to v1), does this pass constraint compatibility?  What about the forward direction (lifting v1 data to v2)?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-*Unique*: Remove a vertex that has exactly one incoming edge and one outgoing edge, where the source and target vertices are connected by exactly one edge in the target schema. The re-parenting is forced. *Not unique*: Remove a vertex whose parent has two edges of the same kind to the same target type (a multigraph). After contraction, there are two candidate edges for re-parenting, and the engine cannot choose. The distinguishing property is whether the target schema has parallel edges between the contracted endpoints.
-:::
-
-## The Check Pipeline
-
-The engine assembles these checks into a pipeline based on the theory structure. The pipeline runs during `compile` and reports all failures at once (it does not short-circuit on the first failure, because you need the full picture).
-
-```{mermaid}
-%%| label: fig-check-pipeline
-%%| fig-cap: "The existence check pipeline. Each check is triggered by a theory feature."
-flowchart TD
-    M["Migration morphism"] --> K{Kind sort?}
-    K -->|yes| KC["Kind consistency check"]
-    K -->|no| E
-    KC --> E{Edge sort?}
-    E -->|yes| EC["Edge compatibility check"]
-    E -->|no| C
-    EC --> C{Constraint sort?}
-    C -->|yes| CC["Constraint compatibility check"]
-    C -->|no| P
-    CC --> P{Parallel edges?}
-    P -->|yes| PC["Pushout complement uniqueness"]
-    P -->|no| H
-    PC --> H{HyperEdge sort?}
-    H -->|yes| HC["Signature coherence + simultaneity"]
-    H -->|no| R
-    HC --> R{W-type instances?}
-    R -->|yes| RC["Reachability check"]
-    R -->|no| OK["Migration exists"]
-    RC --> OK
-    KC -.->|fail| F["Migration does not exist"]
-    EC -.->|fail| F
-    CC -.->|fail| F
-    PC -.->|fail| F
-    HC -.->|fail| F
-    RC -.->|fail| F
-```
-
-The pipeline is *data-driven*: the engine reads the theory and builds the pipeline at initialization time. Adding a new sort to a theory automatically adds the corresponding check. Removing a sort removes the check.
-
-## Worked Example 1: Constraint Tightening (ATProto)
-
-```{.typescript include="../code/ts/06-existence-check.ts" snippet="constraint-tightening"}
-```
-
-The scenario: v1 allows post text up to 3000 characters ($\mathrm{maxLength} \le 3000$). v2 tightens this to 300 characters ($\mathrm{maxLength} \le 300$). The migration maps v1's `Text` vertex to v2's `Text` vertex.
-
-**Backward direction** (lifting v2 data to v1 compatibility): a v2 record has text with at most 300 characters, which is within v1's 3000-character limit. Backward migration is fine; the target constraint is tighter, so all target data satisfies the source constraint.
-
-**Forward direction** (migrating v1 data to v2 compatibility): a v1 record could have text with 1000 characters, which violates v2's 300-character limit. The engine detects this:
-
-```
-ExistenceError: Constraint tightening on vertex Text
-  Source constraint: maxLength <= 3000
-  Target constraint: maxLength <= 300
-  Direction: forward
-  Reason: source data may violate target constraint
-```
-
-:::{.callout-note}
-## Constraint direction matters
-
-Constraint tightening blocks *forward* migration but permits *backward* migration. Constraint *loosening* blocks backward but permits forward. The engine tracks the direction and applies the check accordingly. This is why panproto compiles forward and backward migrations separately.
-:::
-
-::: {.callout-caution}
-## Question: Constraint interaction with defaults
-
-Suppose v1 has $\mathrm{maxLength} \le 3000$ and v2 has $\mathrm{maxLength} \le 300$. Can you provide a default value that makes the forward migration valid? Under what conditions would a default *not* help?
-:::
-
-::: {.callout-tip collapse=true}
-## Answer
-
-Yes, if the default satisfies the tighter constraint. A default value of `""` (empty string) satisfies `maxLength ≤ 300` and makes the forward migration valid: every v1 record gets a text field within v2's limit. But a default only helps when the *new* data is acceptable. If v1 records already contain text longer than 300 characters, no default fixes that; the existing data violates v2's constraint regardless of what the engine fills in for missing records. Defaults resolve *absence*, not *violation*.
+Backward: yes.  v2 data has `maxLength: 1500`, and any string with at most 1500 characters also satisfies `maxLength: 3000`.  Forward: no.  v1 data may contain strings up to 3000 characters, which would violate v2's tighter constraint.  This is a one-way migration; v1 can read v2 data, but v2 cannot accept all v1 data.
 :::
 
 
-## Worked Example 2: Protobuf Field Number Reuse
+## Existence reports
 
-Consider a Protobuf message where field number 3 was a `string name = 3`. A developer deletes the field, then later adds `int32 age = 3`, reusing the same field number.
+When a migration fails validation, panproto produces an `ExistenceReport` that lists every violated condition.  Each violation includes the condition that failed, the specific elements involved (which vertex, which edge, which constraint), and a human-readable explanation of why it failed.
 
-[Buf](https://buf.build/)'s `buf breaking` command catches this with a hardcoded rule: "Field number 3 was previously used by field 'name' with wire type LENGTH_DELIMITED; reusing it for field 'age' with wire type VARINT is a breaking change."
-
-panproto catches the same thing via the kind consistency check. $f_V$ sends `name` ($\mathrm{kind}$: `string`, field number: 3) to `age` ($\mathrm{kind}$: `int32`, field number: 3). The kinds `string` and `int32` are incompatible under Protobuf's strict kind equality rule:
+The report is structured, not a wall of text.  CI pipelines can parse it programmatically, and the CLI formats it as a table:
 
 ```
-ExistenceError: Kind inconsistency on vertex field_3
-  Source kind: string (wire type: LENGTH_DELIMITED)
-  Target kind: int32 (wire type: VARINT)
-  Direction: backward
-  Reason: target kind is not compatible with source kind
+Migration v1 → v2: 2 existence errors
+
+  1. CONSTRAINT_TIGHTENING
+     vertex: text (kind: string)
+     constraint: maxGraphemes
+     source: 300, target: 150
+     Migration direction: backward
+     → v2 data with >150 graphemes would violate v1 constraint
+
+  2. REACHABILITY_RISK
+     vertex: Author (kind: object)
+     Intermediate vertex dropped; subtree may become disconnected
+     → provide a resolver or restructure the migration
 ```
 
-No hardcoded rule about field numbers. The check falls out of the theory because Protobuf's $T_S$ has a $\mathrm{Kind}$ sort with strict equality semantics, and field numbers are part of the vertex identity.
+The report tells you not just what went wrong but what to do about it.  A constraint tightening can be resolved by choosing the forward direction instead (if that is acceptable) or by adding a coercion step.  A reachability risk can be resolved by providing a resolver that specifies how to reconnect orphaned children.
 
-## Worked Example 3: Required Field Missing (ATProto)
-
-Version 1 has a required `name` field. Version 2 doesn't. The migration maps v2's vertices into v1, but `name` has no preimage: no v2 vertex maps to v1's `Name` vertex.
-
-In the backward direction (lifting v2 data to v1), the engine needs to produce a v1 record with a `name` field. But v2 data doesn't contain a name. If `name` is optional in v1, this is fine; the engine produces a record with `name` absent. If `name` is required, the engine cannot produce a valid v1 record.
-
-The check:
-
-1. The engine identifies all v1 vertices and edges *not* in the image of the migration.
-2. For each unmapped vertex, it checks whether the vertex is required (reachable from the root via a path of required edges).
-3. If an unmapped vertex is required, the migration fails.
-
-```
-ExistenceError: Required field missing
-  Unmapped vertex: Name (kind: string)
-  Required path: Post -> name -> Name
-  Direction: backward
-  Reason: no source vertex maps to Name, and Name is reachable
-          via a required path from the root
-```
-
-The fix: provide a *default value* for the missing field:
-
-```typescript
-const migration = {
-  vertexMap: { /* ... existing maps ... */ },
-  edgeMap: { /* ... existing maps ... */ },
-  defaults: {
-    Name: { value: "Unknown" }
-  }
-};
-```
-
-With the default, the lift operation fills in `"Unknown"` for the missing `name` field, and the migration passes.
-
-## Worked Example 4: Pushout Complement Ambiguity
-
-This requires a multigraph schema, one with parallel edges between the same pair of vertices. ATProto, GraphQL, and JSON Schema all allow this.
-
-Consider a schema with:
-
-- Vertices: `Person`, `ContactInfo`, `Address`
-- Edges: `contact : Person → ContactInfo`, `location : ContactInfo → Address`
-
-And a v2 schema that removes `ContactInfo`, connecting `Person` directly to `Address` via two edges:
-
-- Vertices: `Person`, `Address`
-- Edges: `homeAddress : Person → Address`, `workAddress : Person → Address`
-
-The migration maps `Person → Person` and `Address → Address`, but `ContactInfo` has no preimage. During ancestor contraction, the engine needs to create a direct edge from `Person` to `Address` to replace the two-hop path `Person → ContactInfo → Address`.
-
-There are *two* edges from `Person` to `Address` in v2: `homeAddress` and `workAddress`. The engine cannot decide which one to use.
-
-```
-ExistenceError: Pushout complement ambiguity
-  Contracted path: Person -> ContactInfo -> Address
-  Candidate edges: homeAddress, workAddress
-  Direction: backward
-  Reason: ancestor contraction produces ambiguous edge label;
-          multiple edges from Person to Address in target schema
-```
-
-The fix: provide *resolver data*:
-
-```typescript
-const migration = {
-  vertexMap: { Person: "Person", Address: "Address" },
-  edgeMap: { /* ... */ },
-  resolvers: {
-    // When contracting Person -> ContactInfo -> Address,
-    // use the homeAddress edge
-    "Person->ContactInfo->Address": "homeAddress"
-  }
-};
-```
-
-With the resolver, the engine knows which edge to use, and the migration passes. Resolvers are discussed more fully in @sec-lenses.
-
-::: {.callout-caution}
-## Question: Resolver completeness
-
-In Worked Example 4, the resolver picks `homeAddress`. What data is lost by this choice? Could you design a resolver that preserves the distinction between home and work addresses, or does that require a different migration strategy entirely?
-:::
-
-## Existence vs. Uniqueness
-
-**Existence failures** are fatal: no valid way to lift data through the proposed morphism exists. The engine rejects the migration and reports the error.
-
-**Uniqueness failures** are resolvable: a valid lift exists, but the choice is ambiguous. The engine requests resolver data. With resolvers, the migration becomes unique and can proceed.
-
-The pushout complement ambiguity (Worked Example 4) is a uniqueness failure; the migration *could* proceed by choosing either `homeAddress` or `workAddress`. It just can't proceed without being told which one. The resolver provides the missing information.
-
-Constraint tightening (Worked Example 1) and kind inconsistency (Worked Example 2) are existence failures; no resolver can fix them. The data simply doesn't fit.^[In the terminology of algebraic graph transformation, existence corresponds to the *gluing condition* and uniqueness to the *identification condition* [@ehrig2006]. Both must be satisfied for a well-defined rewriting step.]
-
-## The Role of Axioms
-
-The theory's *axioms* also affect existence conditions. Axioms constrain how sorts and operations interact, and these constraints can strengthen or weaken the checks.
-
-For example, CQL's $T_S$ includes the category axioms (composition is associative and unital). This means the edge compatibility check is stronger for CQL than for ATProto: in CQL, you must preserve not just individual edges but entire composable paths.
-
-If $T_S$ includes an axiom that every vertex has a unique kind (a functionality axiom for the $\mathrm{kind}$ operation), then the kind consistency check can use equality rather than subtyping.
-
-The engine reads the axioms and parameterizes the checks accordingly. In practice, most axioms affect the *strictness* of a check rather than its *presence*: the check fires because the sort exists, and the axiom determines how strictly it fires.
-
-## The Decision Procedure
-
-Given a proposed migration morphism between schemas $S_1$ and $S_2$, with schema theory $T_S$ and instance theory $T_I$, the engine runs:
-
-1. **Read the sorts of $T_S$.** For each sort, look up the corresponding check.
-2. **Read the axioms of $T_S$.** Determine how they parameterize each check.
-3. **Read $T_I$** to determine whether the reachability check applies (W-type instances) or not.
-4. **Run all applicable checks** against the migration morphism, $S_1$, and $S_2$.
-5. **Collect results**:
-   - All checks pass: migration exists and is unique. Proceed.
-   - Existence errors: migration does not exist. Report errors.
-   - Uniqueness errors: migration exists but is ambiguous. Request resolvers.
-6. **If resolvers are provided**, re-run uniqueness checks. If they pass, proceed.
-
-This procedure is *total* (always terminates), *sound* (if it says the migration exists, the lift produces valid output), and *derived* (the checks are determined by the theory, not by protocol-specific code).^[This decidability (the guarantee that the engine always gives a yes/no answer rather than looping forever) follows from a mathematical property of the theory structure that ensures all the necessary checks are finite [@lack2005]. See [Appendix A](../appendices/A-formal-foundations.qmd).]
-
-::: {.callout-caution}
-## Question: Theory extension and completeness
-
-Suppose you add a new sort $\mathrm{Permission}$ to a schema theory. The engine doesn't yet know what check to run for it. Is the migration pipeline still sound? What's the difference between soundness and completeness in this context?
-:::
-
-::: {.callout-tip collapse=true}
-## Answer
-
-The pipeline remains sound: if it approves a migration, the lift produces valid output. Adding an unknown sort does not break existing checks. But the pipeline becomes *incomplete*: there may be invalid migrations it fails to reject, because no check exists for the new sort's structural constraints. Soundness means "no false positives" (approved migrations are safe). Completeness means "no false negatives" (unsafe migrations are caught). Adding a sort without a check preserves soundness at the cost of completeness.
-:::
+The next chapter introduces bidirectional lenses, which extend the one-directional lifts we have been writing into round-trippable transformations that remember what they discarded.

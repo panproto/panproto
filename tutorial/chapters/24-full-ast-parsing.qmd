@@ -1,10 +1,10 @@
 # Full-AST Parsing: Programs as Schemas {#sec-full-ast-parsing}
 
-Every programming language is a theory in the GAT system. A program is a model (schema) of that theory. panproto's existing language protocols represent type-level structures (structs, interfaces, enums) as schema graphs. This chapter extends that to full programs: functions, statements, expressions, control flow, and module structure.
+Every programming language is a theory in the GAT system. A program is a model (schema) of that theory. Earlier chapters covered type-level structures: structs, interfaces, enums. This chapter extends that to full programs—functions, statements, expressions, control flow, and module structure. The principle is the same: represent everything as vertices and edges.
 
-## The principle
+## The principle {#sec-ast-principle}
 
-A TypeScript file is not just a collection of type declarations. It contains functions with bodies, if/else branches, for loops, try/catch blocks, function calls, and expressions. All of these are structural elements that can be represented as vertices and edges in a schema graph. The only difference from type-level schemas is the number of vertex kinds and edge rules.
+A TypeScript file is not just type declarations. It contains functions with bodies, if/else branches, for loops, try/catch blocks, function calls, and expressions. All of these are structural elements you can represent as vertices and edges in a schema graph. The only difference from type-level schemas is the number of vertex kinds and edge rules.
 
 ## Theory extraction from tree-sitter grammars
 
@@ -20,7 +20,7 @@ Tree-sitter provides battle-tested parsers for every major programming language.
 
 The `extract_theory_from_node_types` function reads this JSON and produces a complete `Theory`:
 
-```rust
+```{.rust}
 use panproto_parse::extract_theory_from_node_types;
 
 let meta = extract_theory_from_node_types(
@@ -28,7 +28,7 @@ let meta = extract_theory_from_node_types(
     tree_sitter_typescript::TYPESCRIPT_NODE_TYPES.as_bytes(),
 )?;
 
-// TypeScript has ~180 named node types and ~60 field names.
+// typescript has ~180 named node types and ~60 field names.
 println!("{} sorts, {} operations",
     meta.vertex_kinds.len(),
     meta.edge_kinds.len());
@@ -38,11 +38,11 @@ println!("{} sorts, {} operations",
 
 Because the theory is auto-derived from the grammar, the AST walker requires no manual mapping table. One `AstWalker` implementation handles all 10 supported languages:
 
-- The tree-sitter node's `kind()` IS the panproto vertex kind
-- The tree-sitter field name IS the panproto edge kind
+- The tree-sitter node's `kind()` is the panproto vertex kind
+- The tree-sitter field name is the panproto edge kind
 - Anonymous tokens (punctuation, keywords) are captured as interstitial text
 
-```rust
+```{.rust}
 use panproto_parse::ParserRegistry;
 
 let registry = ParserRegistry::new();
@@ -54,9 +54,9 @@ let schema = registry.parse_file(
 
 ## Interstitial text and round-trip emission
 
-The walker captures the text between named children (keywords like `function`, punctuation like `{` and `}`, whitespace, and comments) as interstitial constraints with byte positions. The emitter collects all fragments (interstitials + leaf literals), sorts by byte position, and concatenates:
+The walker captures the text between named children (keywords like `function`, punctuation like `{` and `}`, whitespace, and comments) as interstitial constraints with byte positions. The emitter collects all fragments (interstitials plus leaf literals), sorts by byte position, and concatenates:
 
-```rust
+```{.rust}
 let emitted = registry.emit_with_protocol("typescript", &schema)?;
 assert_eq!(emitted, original_source); // exact round-trip
 ```
@@ -65,7 +65,7 @@ assert_eq!(emitted, original_source); // exact round-trip
 
 A project with multiple files has a schema that is the coproduct of per-file schemas:
 
-```rust
+```{.rust}
 use panproto_project::ProjectBuilder;
 
 let mut builder = ProjectBuilder::new();
@@ -83,7 +83,7 @@ The `ProjectBuilder` detects languages by file extension, falls back to `raw_fil
 
 The git bridge imports entire repository histories into panproto-vcs:
 
-```sh
+```{.sh}
 schema git import /path/to/repo HEAD
 ```
 
@@ -91,13 +91,18 @@ Each git commit is parsed into a project schema and stored as a panproto-vcs com
 
 ::: {.callout-note}
 ## Why not just use git?
+
 Git operates on text. panproto operates on structure. A git merge is a heuristic three-way text merge that can produce syntactically invalid results. A panproto merge is a categorical pushout on schema graphs that is provably commutative and always produces a valid schema.
 :::
 
 ## Exercises
 
 1. Parse a TypeScript file and count the vertex kinds. How many distinct node types does the grammar produce?
+
 2. Parse the same file with the type-level parser (`panproto_protocols::type_system::typescript::parse_ts_types`) and compare the vertex counts. What structural information does the full-AST parser capture that the type-level parser misses?
+
 3. Parse a multi-file project and examine the coproduct schema. How are vertex IDs prefixed? What happens to cross-file import references?
+
 4. Import a git repository and inspect the panproto-vcs commit log. Does the DAG structure match the git log?
+
 5. Round-trip a source file: `emit(parse(source))`. Is the output byte-identical to the input?

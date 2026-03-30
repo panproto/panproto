@@ -1,28 +1,30 @@
 # Automatic Lens Generation {#sec-auto-lens}
 
-Automatic lens generation is a five-stage pipeline. Given schemas $S_{\text{old}}$ and $S_{\text{new}}$, it produces a protolens chain $\pi_1 \circ \cdots \circ \pi_n$ whose instantiation on any compatible schema $S$ yields a concrete lens $\ell_S$. The first three stages reason about *structure* and are schema-independent. The last two produce a concrete lens for a concrete schema.
+You have two schema versions. You want a lens to migrate data between them. You could write the lens by hand, or you could ask the system: "What changed? Generate the lens automatically." That's automatic lens generation.
 
-Consider the call `ProtolensChainHandle.autoGenerate(oldSchema, newSchema)` from @sec-protolens-ts. That single call runs all five stages. Understanding the boundary between the schema-independent stages (1, 2, 3) and the schema-specific stages (4, 5) is the key to knowing when auto-generation works, when it needs help, and when it fails.
+The process runs in five stages, transforming two schemas into a concrete lens. The first three stages analyze *structure* alone (schema-independent). The last two take a specific schema and produce a concrete lens (schema-specific). Understanding this boundary is crucial for knowing when auto-generation works, when it needs help, and when it fails.
+
+Consider the call `ProtolensChainHandle.autoGenerate(oldSchema, newSchema)` from @sec-protolens-ts. One call runs all five stages under the hood.
 
 
-## The full pipeline {#sec-full-pipeline}
+## The five-stage pipeline {#sec-full-pipeline}
 
-Given two schemas, panproto generates a lens in five steps:
+Given two schemas, panproto generates a lens in these steps:
 
 ```
 Schemas -> Morphism -> Factorization -> Protolens Chain -> Instantiation -> Lens
   (1)       (2)          (3)              (4)               (5)
 ```
 
-1. **Morphism discovery.** Find a structure-preserving map between the two schemas (the homomorphism search from @sec-auto-migration).
-2. **Morphism analysis.** Classify the morphism: which vertices are renamed, added, removed, restructured?
+1. **Morphism discovery.** Find a structure-preserving map between schemas (the homomorphism search from @sec-auto-migration).
+2. **Morphism analysis.** Classify the morphism: which vertices are renamed, added, removed, or restructured?
 3. **Factorization.** Decompose the morphism into a sequence of elementary schema transforms from @tbl-schema-transforms.
 4. **Protolens chain construction.** Convert each schema transform into its corresponding elementary protolens.
 5. **Instantiation.** Apply the protolens chain to a specific schema to produce a concrete lens.
 
-Steps 1 through 3 depend only on the two reference schemas. They produce a *protolens chain*, a reusable, schema-independent object. Steps 4 and 5 depend on the target schema. They produce a *concrete lens* with concrete `get`/`put` operations and a concrete complement type.
+Steps 1 through 3 depend only on the two reference schemas. They produce a *protolens chain*, reusable across many schemas. Steps 4 and 5 depend on the target schema and produce a *concrete lens* with concrete `get`/`put` operations and a concrete complement type.
 
-This separation is why protolenses scale: steps 1 through 3 run once, and steps 4 and 5 run per schema.
+This separation is why protolenses scale: steps 1 through 3 run once; steps 4 and 5 run per schema.
 
 ```{.typescript}
 import { ProtolensChainHandle, LensHandle } from "@panproto/core";
@@ -37,30 +39,24 @@ const lensC: LensHandle = chain.instantiate(schemaC);
 ```
 
 ::: {.callout-caution}
-## When does auto-generation need manual help?
+## When does auto-generation need help?
 
-If the morphism between two schemas is ambiguous (multiple plausible mappings with similar scores), auto-generation may pick the wrong one. What signals should you watch for in `chain.incomplete` or the ambiguity warnings to know when to intervene?
-:::
-
-::: {.callout-tip collapse=true}
-## Answer
-
-When the morphism between two schemas is ambiguous (multiple plausible mappings with similar scores). The `chain.incomplete` property lists steps where the engine could not determine a unique factorization. Ambiguity warnings (two morphisms within 5% of each other's quality score) signal that the engine's top choice may not be your intended mapping. Provide manual hints via the `hints` parameter to disambiguate.
+If the morphism is ambiguous (multiple plausible mappings with similar scores), auto-generation may pick the wrong one. The `chain.incomplete` property lists steps with uncertain factorizations. Ambiguity warnings (two morphisms within 5% of each other) signal that the engine's top choice may not match your intent. Provide manual hints via the `hints` parameter to disambiguate.
 :::
 
 
-## Morphism factorization {#sec-factorization}
+## Factorization: decomposing a morphism {#sec-factorization}
 
-The core algorithmic step is **factorization**: decomposing a morphism into elementary schema transforms. This is analogous to factoring an integer into primes. The result is a canonical (or near-canonical) sequence of simple operations whose composition equals the original morphism.
+The core algorithmic step is **factorization**: decomposing a morphism into elementary schema transforms. Think of it as factoring an integer into primes. The result is a canonical (or near-canonical) sequence of simple operations whose composition equals the original morphism.
 
-panproto uses a greedy algorithm:
+panproto uses a greedy algorithm with four passes:
 
 1. **Rename pass.** Identify vertices and edges that changed names but preserved structure. Emit `RenameVertex` and `RenameEdge` transforms.
 2. **Removal pass.** Identify vertices in the source that have no image in the target. Emit `RemoveVertex` and `RemoveEdge` transforms.
 3. **Addition pass.** Identify vertices in the target that have no preimage in the source. Emit `AddVertex` and `AddEdge` transforms.
-4. **Restructuring pass.** Identify structural changes (nesting, hoisting, type coercion). Emit `WrapVertex`, `HoistVertex`, `CoerceType`, `MergeVertices`, or `SplitVertex` transforms.
+4. **Restructuring pass.** Identify structural changes (nesting, type coercion, splitting, merging). Emit `WrapVertex`, `HoistVertex`, `CoerceType`, `MergeVertices`, or `SplitVertex` transforms.
 
-The order matters: renames are applied first (so that subsequent passes see canonical names), then removals (so that addition does not conflict with existing vertices), then additions, then restructuring.
+Order matters. Renames happen first (so subsequent passes see canonical names), then removals (so additions don't conflict with existing vertices), then additions, finally restructuring.
 
 ```{.rust}
 pub fn factorize(morphism: &Morphism) -> Vec<TheoryTransform> {
@@ -76,17 +72,17 @@ pub fn factorize(morphism: &Morphism) -> Vec<TheoryTransform> {
 
 ## Handling ambiguity {#sec-ambiguity}
 
-The morphism discovery step (step 1) may find multiple valid morphisms. The factorization step (step 3) may find multiple valid decompositions.
+Multiple valid morphisms may exist. Multiple valid decompositions may fit a single morphism.
 
 ### Multiple morphisms
 
-When `find_morphisms` returns multiple results, panproto scores them using the quality metric from @sec-auto-migration:
+When `find_morphisms` returns several results, panproto scores them using the quality metric from @sec-auto-migration:
 
 - **Name similarity:** Edit distance between mapped vertex IDs.
 - **Edge preservation:** Fraction of edges that keep the same label.
 - **Structural preservation:** Fraction of the schema that is unchanged.
 
-The highest-scoring morphism is used. If the top two scores are within 5% of each other, panproto emits a warning:
+The highest-scoring morphism wins. If the top two are within 5% of each other, panproto warns:
 
 ```
 warning: ambiguous morphism
@@ -98,20 +94,20 @@ warning: ambiguous morphism
 
 ### Multiple factorizations
 
-A single morphism may factor in more than one way. For example, renaming `a` to `b` and then removing `c` gives the same result as removing `c` and then renaming `a` to `b` (when `a` and `c` are independent). panproto canonicalizes by applying passes in the fixed order: renames, removals, additions, restructurings. Within each pass, operations are sorted by vertex ID for determinism.
+A single morphism may factor in more than one way. Renaming `a` to `b` then removing `c` gives the same result as removing `c` then renaming `a` to `b` (when they're independent). panproto canonicalizes by applying passes in fixed order: renames, removals, additions, restructurings. Within each pass, operations are sorted by vertex ID for determinism.
 
 For genuinely ambiguous restructurings (where the same morphism could be factored as "wrap then hoist" or "hoist then wrap"), panproto prefers the factorization with fewer steps.
 
 
-## Complement specs {#sec-complement-specs}
+## Complement specs: filling the holes {#sec-complement-specs}
 
-Some schema transforms require information that the morphism alone does not provide:
+Some schema transforms require information the morphism alone doesn't provide:
 
 - **`AddVertex`** needs a default value. What should `version` default to?
 - **`CoerceType`** needs a coercion function. How do you convert `age: string` to `age: int`?
 - **`MergeVertices`** needs merge and split functions. How do you combine `firstName` and `lastName`?
 
-These are **complement specs**, user-provided parameters that complete the protolens. Without them, auto-generation produces a partial chain with "holes":
+These are **complement specs**: user-provided parameters that complete the protolens. Without them, auto-generation produces a partial chain with "holes":
 
 ```{.typescript}
 const chain = ProtolensChainHandle.autoGenerate(oldSchema, newSchema);
@@ -152,21 +148,21 @@ chain.set_coercion("age",
 Attempting to instantiate an incomplete chain raises an error listing the missing specs.
 
 ::: {.callout-caution}
-## What happens when complement specs conflict?
+## What if two steps both need a default for the same vertex?
 
-If two steps in a chain both require a default for the same vertex (say, because the vertex was removed and re-added), which spec wins? Does the chain enforce uniqueness, or can the two steps carry independent defaults?
+If two steps both require a default for the same vertex (e.g., because it was removed and re-added), does one spec override the other, or does each step carry independent defaults?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Each step in the chain carries its own complement spec independently. If two steps both require a default for the same vertex (because the vertex was removed and re-added), both defaults are stored separately. The first step's default is used during its `put` pass, and the second step's default during its own. The chain does not enforce global uniqueness of defaults across steps; each step operates on the schema as it exists at that point in the pipeline.
+Each step carries its own complement spec independently. If two steps both require a default for the same vertex (because the vertex was removed and re-added), both defaults are stored separately. The first step's default is used during its `put` pass, and the second step's during its own. The chain doesn't enforce global uniqueness of defaults across steps; each operates on the schema as it exists at that point in the pipeline.
 :::
 
 
 ## The fallback: overlap-based alignment {#sec-overlap-fallback}
 
-When the two schemas are too different for morphism discovery to find a meaningful map (different vertex kinds, different edge structures, different theories), panproto falls back to **overlap-based alignment** via `discover_overlap` (from @sec-schema-merge).
+When two schemas are too different for morphism discovery to find a meaningful map (different vertex kinds, different edge structures, different theories), panproto falls back to **overlap-based alignment** via `discover_overlap` (from @sec-schema-merge).
 
 Instead of finding a full morphism, it finds the largest shared sub-schema and builds a symmetric lens through the overlap:
 
@@ -181,12 +177,12 @@ console.log(chain.overlap);
 // { shared: ["post", "author", "text"], aOnly: ["likeCount"], bOnly: ["published"] }
 ```
 
-The overlap strategy produces a protolens chain with `RemoveVertex` steps for A-only fields and `AddVertex` steps for B-only fields. It is less precise than morphism-based generation (it cannot detect renames or restructurings), but it works even when the schemas have no common theory.
+The overlap strategy produces a protolens chain with `RemoveVertex` steps for A-only fields and `AddVertex` steps for B-only fields. It's less precise than morphism-based generation (it cannot detect renames or restructurings), but it works even when the schemas have no common theory.
 
 
-## Reusing protolens chains across schemas {#sec-reuse}
+## Reusing chains across schemas {#sec-reuse}
 
-Because chain construction and instantiation are separate, a single chain can be applied to many schemas.
+Since chain construction and instantiation are separate operations, a single chain applies to many schemas.
 
 ### Platform-wide transformations
 
@@ -213,7 +209,7 @@ for (const schema of await Panproto.listSchemas()) {
 
 ### Version-controlled chains
 
-Protolens chains are serializable. You can store them in the schematic version control system (@sec-version-control) alongside schema versions:
+Protolens chains are serializable. Store them in the schematic version control system (@sec-version-control) alongside schema versions:
 
 ```bash
 $ prot protolens v1.json v2.json --save chain-v1-v2.json
@@ -226,7 +222,7 @@ $ prot protolens --compose chain-v1-v2.json chain-v2-v3.json --save chain-v1-v3.
 
 ## VCS integration {#sec-lens-diff}
 
-The `prot lens-diff` command integrates protolens generation with schematic version control:
+The `prot lens-diff` command shows the protolens chain between two schema versions:
 
 ```bash
 $ prot lens-diff HEAD~1..HEAD
@@ -245,14 +241,14 @@ Schema changed: comment-schema
   Auto-instantiation: ready
 ```
 
-This shows the protolens chain that would migrate data between the two versions. Combined with `prot convert`, you get end-to-end automatic migration:
+Combined with `prot convert`, you get end-to-end automatic migration:
 
 ```bash
 # Migrate all data from the previous version to the current version
 $ prot lens-diff HEAD~1..HEAD --apply --data ./records/
 ```
 
-For multi-version jumps:
+For multi-version jumps, compose chains across multiple commits:
 
 ```bash
 # Compose protolens chains across three versions
@@ -269,7 +265,7 @@ Composed protolens chain (5 steps):
 
 ## Worked example: ATProto schema evolution {#sec-atproto-example}
 
-The following traces the full pipeline through three versions of an ATProto `post` schema. These are based on real Bluesky schema evolution patterns.
+Three schema versions, based on real Bluesky evolution patterns.
 
 ### Version 1 (original)
 
@@ -298,7 +294,7 @@ const chain_v1_v2 = ProtolensChainHandle.autoGenerate(v1, v2);
 
 ### Version 3 (remove + restructure)
 
-`likeCount` removed; `author` wrapped into `author.did` + `author.handle`.
+`likeCount` removed; `author` split into `author.did` and `author.handle`.
 
 ```{.typescript}
 const chain_v2_v3 = ProtolensChainHandle.autoGenerate(v2, v3);
@@ -331,12 +327,12 @@ const { view, complement } = lens.get(v1Data);
 // complement has: likeCount value, original author value
 ```
 
-The complement from step 3 (`RemoveVertex("likeCount")`) stores the like count. The complement from step 4 (`SplitVertex`) stores the original `author` value for merge on `put`. If the view is modified and `put` is called, both complements are used to reconstruct the v1 data with the modifications applied.
+The complement from step 3 (`RemoveVertex("likeCount")`) stores the like count. The complement from step 4 (`SplitVertex`) stores the original `author` value for merge on `put`. If the view is modified and `put` is called, both complements reconstruct the v1 data with modifications applied.
 
 
-## Lazy Composition {#sec-lazy-composition}
+## Fusion: composing transforms lazily {#sec-lazy-composition}
 
-Multi-step chains can be **fused** into a single protolens via `fuse()`. Fusion composes the endofunctors of all steps into a single `TheoryTransform::Compose` tree, so `instantiate()` applies one combined transform instead of materializing intermediate schemas at each step.
+Multi-step chains can be **fused** into a single protolens via `fuse()`. Fusion composes the endofunctors of all steps into a single `TheoryTransform::Compose` tree, so `instantiate()` applies one combined transform instead of materializing intermediate schemas.
 
 ```{.typescript}
 const chain = ProtolensChainHandle.autoGenerate(v1, v3);
@@ -360,9 +356,9 @@ When you call `instantiate()` on a multi-step `ProtolensChain`, it automatically
 For long chains (10+ steps), fusion avoids allocating and discarding intermediate schemas. The performance benefit scales linearly with chain length.
 
 
-## Complement Requirements {#sec-complement-requirements}
+## Computing complement requirements {#sec-complement-requirements}
 
-`chain_complement_spec()` computes the full complement specification for a chain, tracking intermediate schema state through each step. For `drop_sort` / `drop_op` steps, the spec reports `DataCaptured` fields. For `add_sort` / `add_op` steps, it reports `DefaultsRequired` entries via the `AddedElement` complement variant.
+`chain.requirements()` computes the full complement specification for a chain, tracking intermediate schema state through each step. For removal steps, the spec reports `DataCaptured` fields. For addition steps, it reports `DefaultsRequired` entries via the `AddedElement` complement variant.
 
 ```{.typescript}
 const spec = chain.requirements(schema, protocol);
@@ -376,7 +372,7 @@ for (const entry of spec.entries) {
 }
 ```
 
-The complement is schema-dependent: the same protolens chain applied to two different schemas can produce different complement counts. A `drop_sort("metadata")` step captures 2 fields when the schema has 2 metadata edges, and 5 fields when it has 5.
+The complement is schema-dependent: the same protolens chain applied to two different schemas can produce different complement counts. A `removeVertex("metadata")` step captures 2 fields when the schema has 2 metadata edges, and 5 fields when it has 5.
 
 ```{.python}
 spec_a = chain.requirements(schema_a, protocol)
@@ -389,27 +385,27 @@ assert spec_a.captured_count != spec_b.captured_count
 ::: {.callout-caution}
 ## Why are complements schema-dependent?
 
-A single `drop_sort("metadata")` protolens captures different numbers of fields depending on the schema it's instantiated against. If you're reusing a chain across dozens of schemas, how do you predict total complement storage cost before running the migration?
+A single `removeVertex("metadata")` protolens captures different numbers of fields depending on the schema. If you're reusing a chain across dozens of schemas, how do you predict total complement storage cost?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Because the protolens operates on the schema's structure, and different schemas have different structures. A `drop_sort("metadata")` protolens captures whatever edges `metadata` has in the specific schema it is instantiated against. Schema A might have 2 metadata edges; schema B might have 5. To predict total complement storage cost before running the migration, call `chain.requirements(schema, protocol)` on each schema; it reports the exact complement size without performing the migration.
+Because the protolens operates on the schema's structure, and different schemas have different structures. A `removeVertex("metadata")` protolens captures whatever edges `metadata` has in the specific schema. Schema A might have 2 metadata edges; schema B might have 5. To predict total complement storage cost before migration, call `chain.requirements(schema, protocol)` on each schema; it reports the exact complement size without performing the migration.
 :::
 
 
 ## When auto-generation fails {#sec-auto-gen-failure}
 
-Auto-generation is not magic. It fails in predictable ways.
+Auto-generation is not magic. It fails predictably.
 
 ### No morphism exists
 
-If the schemas are too different (different theories, no shared structure), `find_morphisms` returns an empty result. panproto falls back to overlap-based alignment (@sec-overlap-fallback), but the resulting lens may be lossy in both directions.
+If the schemas are too different (different theories, no shared structure), `find_morphisms` returns empty. panproto falls back to overlap-based alignment (@sec-overlap-fallback), but the resulting lens may be lossy in both directions.
 
 ### Ambiguous restructuring
 
-When a vertex could plausibly be mapped to multiple targets (e.g., `name` could map to `displayName` or `userName`), the quality score may not disambiguate. In this case, panproto requires manual disambiguation:
+When a vertex could map to multiple targets (e.g., `name` could map to `displayName` or `userName`), the quality score may not disambiguate. Provide manual disambiguation:
 
 ```{.typescript}
 const chain = ProtolensChainHandle.autoGenerate(old, new, {
@@ -419,7 +415,7 @@ const chain = ProtolensChainHandle.autoGenerate(old, new, {
 
 ### Non-elementary transformations
 
-Some schema changes cannot be decomposed into the 11 elementary schema transforms. For example, a change that splits a vertex *and* renames it *and* changes its type in a single step may not factor cleanly. In this case, panproto generates a partial chain and reports the un-factorable remainder:
+Some schema changes cannot decompose into the 11 elementary schema transforms. A change that splits a vertex *and* renames it *and* changes its type in a single step may not factor cleanly. panproto generates a partial chain and reports the remainder:
 
 ```
 warning: partial factorization
@@ -430,7 +426,7 @@ warning: partial factorization
 
 ### Manual composition for hard cases
 
-When auto-generation fails, you can write a manual protolens for the difficult step and compose it with the auto-generated steps:
+When auto-generation fails, compose auto-generated steps with a manual protolens for the difficult part:
 
 ```{.typescript}
 // Auto-generate what we can

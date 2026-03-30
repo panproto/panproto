@@ -1,10 +1,8 @@
 # Self-Description and Building Blocks {#sec-self-description}
 
-The previous chapters used theories, schemas, instances, and migrations as distinct concepts. This chapter reveals that they are all instances of the same framework, organized into four levels.
+Throughout this tutorial, theories, schemas, instances, and migrations have been presented as distinct concepts.  This chapter reveals that they are all instances of the same framework, organized into four levels.  Each level is defined as a model of the level below it.  A concrete schema is a model of a theory specification, which is itself data interpreted by the GAT engine.  This self-similarity has a practical payoff: the mechanism for extending the system is the same mechanism the system uses on itself.
 
-panproto organizes into four levels. Each level is defined as a model of the level below it. For example, a concrete schema (Level 2) is a model of a theory specification (Level 1), which is itself data interpreted by the GAT engine (Level 0).
-
-The compositional approach follows [GATlab](https://algebraicjulia.github.io/GATlab.jl/) [@lynch2024].
+Following the [GATlab](https://algebraicjulia.github.io/GATlab.jl/) design [@lynch2024]:
 
 
 ## Four levels {#sec-four-levels}
@@ -24,7 +22,7 @@ graph TB
 
 ### Level 0: The GAT engine
 
-The bottom of the stack is approximately 2,000 lines of Rust that implement the core GAT machinery: sorts, operations, equations, theory mappings, composition, and model checking. This is the only part of panproto that isn't data-driven. It's the interpreter for everything above.
+Approximately 2,000 lines of Rust implement the core GAT machinery: sorts, operations, equations, theory mappings, composition, and model checking. This is the only part of panproto that isn't data-driven. It's the interpreter for everything above.
 
 ### Level 1: Theory specifications
 
@@ -32,18 +30,18 @@ The theories used throughout this tutorial (ThGraph, ThConstraint, ThConstrained
 
 ### Level 2: Concrete schemas
 
-A schema is a *model* of a Level 1 theory (see @sec-schemas-have-in-common). When you write an ATProto lexicon, you're constructing a model of ThConstrainedMultiGraph. When you write a SQL DDL, you're constructing a model of the SQL protocol theory. The schema is governed by the theory it instantiates, in the same way that a value is governed by its type.
+A schema is a *model* of a Level 1 theory (@sec-schemas-have-in-common for the definition). Writing an ATProto lexicon means constructing a model of ThConstrainedMultiGraph. Writing SQL DDL means constructing a model of the SQL protocol theory. The schema is governed by the theory it instantiates, just as a value is governed by its type.
 
 ### Level 3: Concrete instances
 
-The actual data (a Bluesky post, a row in a database, a Protobuf message) lives at Level 3. An instance is a model of a Level 2 schema. It's the concrete content that conforms to a specific schema within a specific protocol.
+The actual data (a Bluesky post, a database row, a Protobuf message) lives at Level 3. An instance is a model of a Level 2 schema. It's the concrete content that conforms to a specific schema within a specific protocol.
 
 :::{.callout-note}
 Migrations happen at every level, using the same engine:
 
-- **Level 1 to Level 1**: A theory mapping transforms one schema language into another.
-- **Level 2 to Level 2**: A schema mapping transforms one schema into another within the same protocol.
-- **Level 3 to Level 3**: Data migration via `restrict` transforms instances to conform to a new schema.
+- **Level 1 to Level 1**: A theory mapping transforms one schema language into another
+- **Level 2 to Level 2**: A schema mapping transforms one schema into another within the same protocol
+- **Level 3 to Level 3**: Data migration via `restrict` transforms instances to conform to a new schema
 
 The machinery is uniform. The same `lift`, `get`, `put`, and `checkExistence` operations work at each level.
 :::
@@ -56,22 +54,22 @@ The theory of GATs is itself a GAT. panproto defines **ThGAT**: a theory whose m
 ThGAT has:
 
 - **Sorts**: `Sort`, `Op`, `Eq`, `Theory`, `Param(s: Sort)`, `Name`
-- **Operations**: `sort_name`, `op_name`, `op_output`, `op_param`, `eq_lhs`, `eq_rhs`, and others that specify how sorts, operations, and equations relate within a theory.
+- **Operations**: `sort_name`, `op_name`, `op_output`, `op_param`, `eq_lhs`, `eq_rhs`, and others that specify how sorts, operations, and equations relate within a theory
 
-A *model* of ThGAT is a concrete theory (ThGraph, ThConstraint, or any protocol theory). This isn't a metaphor; it's a literal statement about the GAT formalism. The same `Theory` type that represents ThGraph also represents ThGAT. The same model-checking machinery that validates a schema against ThGraph validates a theory against ThGAT.
+A *model* of ThGAT is a concrete theory (ThGraph, ThConstraint, or any protocol theory). This isn't a metaphor—it's a literal statement about the GAT formalism. The same `Theory` type that represents ThGraph also represents ThGAT. The same model-checking machinery that validates a schema against ThGraph validates a theory against ThGAT.
 
 ### Why self-description matters
 
 Self-description has three practical consequences.
 
-**Versioning the theory language.** If you need to extend what a "sort" or "operation" can express (say, adding support for dependent sorts with multiple parameters, or adding a new kind of equation), you can define a new version of ThGAT and construct a theory mapping from the old version to the new one. The migration engine then handles the upgrade of all Level 1 data (your theory specifications) automatically. Without self-description, extending the theory language would require rewriting the Level 0 engine and manually migrating all existing theory definitions. With it, the extension is a *data migration* like any other.
+**Versioning the theory language.** If you need to extend what a "sort" or "operation" can express (say, adding support for dependent sorts with multiple parameters), you can define a new version of ThGAT and construct a theory mapping from the old version to the new one. The migration engine then handles the upgrade of all Level 1 data automatically. Without self-description, extending the theory language would require rewriting the Level 0 engine and manually migrating all existing theory definitions. With it, the extension is a *data migration* like any other.
 
 **Uniform tooling.** Because theories are models of ThGAT, all the tooling that operates on models (diff, existence checking, lifting, lenses) can be applied to theories themselves. You can diff two versions of a protocol's theory, check whether a migration between them exists, and lift schemas through the change. The tooling isn't specialized per level; it's generic and uniform.
 
-**Formal guarantees at every level.** The correctness properties that panproto provides (round-tripping for lenses, completeness of existence checking, correct migration behavior) hold at every level of the hierarchy. A theory mapping between Level 1 theories satisfies the same laws as a schema mapping between Level 2 schemas. This uniformity is a direct consequence of the self-description architecture: every level is an instance of the same framework.
+**Formal guarantees at every level.** The correctness properties that panproto provides (round-tripping for lenses, completeness of existence checking, correct migration behavior) hold at every level. A theory mapping between Level 1 theories satisfies the same laws as a schema mapping between Level 2 schemas. This uniformity follows directly from the self-description architecture: every level is an instance of the same framework.
 
 :::{.callout-caution}
-## Question: Does ThGAT create an infinite regress?
+## Exercise: The circularity problem
 
 ThGAT is a model of itself, which sounds circular. How is the circularity resolved?
 :::
@@ -84,16 +82,16 @@ The circularity is broken by Level 0: the GAT engine is hardcoded Rust, not data
 
 ### The system is closed
 
-There's an appealing sense in which panproto is *closed*. The only code that can't be replaced by data is Level 0 (the GAT engine itself, which interprets everything above it). Everything at Level 1 and above is defined by the level below, and can be extended, versioned, and migrated using the same engine.
+There's an appealing sense in which panproto is *closed*. The only code that can't be replaced by data is Level 0 (the GAT engine, which interprets everything above it). Everything at Level 1 and above is defined by the level below and can be extended, versioned, and migrated using the same engine.
 
 This is the sense in which panproto is a general-purpose schematic version control system. It's not general because it supports every protocol (it doesn't, yet). It's general because the mechanism for adding a new protocol is the same mechanism that the existing protocols use, and that mechanism is itself described within the system.
 
 
 ## The building-block catalog {#sec-building-block-catalog}
 
-panproto's 76 protocol definitions are assembled from 27 building-block theories by merging them together (the same composition operation from @sec-building-protocol). Each building block captures a structural distinction that affects migration correctness: whether collections are ordered, whether a schema supports sum types (like Protobuf `oneof` or GraphQL unions), whether references can be recursive, or whether a single vertex can have multiple outgoing edges of the same kind.
+panproto's 76 protocol definitions are assembled from 27 building-block theories by merging them together (the composition operation from @sec-building-protocol). Each building block captures a structural distinction that affects migration correctness: whether collections are ordered, whether a schema supports sum types (like Protobuf `oneof` or GraphQL unions), whether references can be recursive, or whether a single vertex can have multiple outgoing edges of the same kind.
 
-The six key building blocks that appear most often:
+The six key building blocks:
 
 | Theory | What it captures |
 |--------|-----------------|
@@ -117,7 +115,7 @@ The distinction matters. Structural properties propagate automatically through m
 - Edge uniqueness: at most one edge between any two vertices (ThSimpleGraph)
 - Optionality: a field that can be present or absent, with a round-trip guarantee (ThPartial)
 - Recursive types: types that can contain themselves, like a tree node with child nodes (ThRecursion)
-- Sum types: a value that is one of several alternatives, like Protobuf `oneof` or GraphQL unions (ThCoproduct)
+- Sum types: a value that is one of several alternatives, like Protobuf `oneof` (ThCoproduct)
 - Reflexivity: every vertex has a self-loop (identity edge), useful for modeling defaults (ThReflexiveGraph)
 - Symmetry: if there's an edge from A to B, there's also one from B to A (ThSymmetricGraph)
 
@@ -129,15 +127,15 @@ The distinction matters. Structural properties propagate automatically through m
 - `format` (date-time, email, URI): domain-specific format checks
 
 :::{.callout-caution}
-## When should a property be structural vs. validation?
+## Exercise: Deciding what's structural
 
-If the property can be expressed as an equation between sorts and operations, make it structural. Structural properties propagate through migrations automatically. If the property requires arithmetic, string matching, or domain logic, it belongs in the validation layer.
+If a property can be expressed as an equation between sorts and operations, should it be structural? What determines when a property belongs in the validation layer instead?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-If the property can be expressed as an equation between sorts and operations (e.g., "every vertex has a self-loop," "foreign key columns belong to foreign key tables"), make it structural. Structural properties propagate through migrations automatically and are checked at compose time. If the property requires arithmetic, string matching, or domain-specific logic (e.g., "length $\leq$ 3000," "matches this regex"), it belongs in the validation layer. The test is whether the property can be stated purely in terms of the theory's algebraic vocabulary.
+If the property can be expressed as an equation between sorts and operations (e.g., "every vertex has a self-loop," "foreign key columns belong to foreign key tables"), make it structural. Structural properties propagate through migrations automatically and are checked at compose time. If the property requires arithmetic, string matching, or domain-specific logic (e.g., "length ≤ 3000," "matches this regex"), it belongs in the validation layer. The test is whether the property can be stated purely in terms of the theory's algebraic vocabulary.
 :::
 
 
@@ -207,7 +205,7 @@ Each protocol opts into additional theories (ThOrder, ThCoproduct, etc.) by comp
 
 ## Equations as structural invariants
 
-Only 6 of the 27 theories have equations. Each has been type-checked against the theory's sort declarations. As of v0.6, this type-checking happens automatically at commit time. When you `schema commit` a theory that includes any of these building blocks, panproto verifies that every equation is well-sorted in the composed theory. If a colimit introduces a sort mismatch (for example, by identifying two sorts that break an equation's typing), the commit is rejected with a diagnostic pointing to the offending equation.
+Only 6 of the 27 theories have equations. Each has been type-checked against the theory's sort declarations. As of v0.6, this type-checking happens automatically at commit time. When you `schema commit` a theory that includes any of these building blocks, panproto verifies that every equation is well-sorted in the composed theory. If a colimit introduces a sort mismatch (by identifying two sorts that break an equation's typing), the commit is rejected with a diagnostic pointing to the offending equation.
 
 The equations and their sort-checking:
 
@@ -222,9 +220,9 @@ The equations and their sort-checking:
 **ThPartial**: `defined(witness(d)) = d`. Both sides have sort Defined.
 
 :::{.callout-caution}
-## What happens if a colimit breaks an equation?
+## Exercise: Composition and type safety
 
-When two building blocks are composed via colimit and a sort identification makes an equation ill-typed, panproto rejects the composition at commit time. The diagnostic names the equation, the sorts involved, and which identification caused the conflict.
+What happens at commit time when two building blocks are composed via colimit and a sort identification makes an equation ill-typed?
 :::
 
 ::: {.callout-tip collapse=true}

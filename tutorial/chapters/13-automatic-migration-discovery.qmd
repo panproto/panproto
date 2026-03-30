@@ -1,23 +1,21 @@
 # Automatic Migration Discovery {#sec-auto-migration}
 
-Finding a migration between two schemas is a puzzle: each source type must land on a compatible target type, and each source field must land on a field connecting the right target types.
+You have two schema versions where `text` became `body` and `createdAt` became `publishedAt`. Writing out the migration by hand is tedious. Wouldn't it be nice if the system could figure out which fields correspond? That's what this chapter covers.
 
-Given two schemas $S_1$ and $S_2$, finding a migration between them is a constraint satisfaction problem. For a concrete example, consider two versions of a blog post schema where `text` was renamed to `body` and `createdAt` to `publishedAt`.
-
-A migration $F: S_1 \to S_2$ is a structure-preserving map (see @sec-protocols-as-parameters for the definition of migrations). The CSP formulation is:
+A migration $F: S_1 \to S_2$ is a structure-preserving map (@sec-protocols-as-parameters for the definition). Finding one is a constraint satisfaction problem:
 
 - **Variables**: one per vertex in $S_1$
-- **Domains**: for each variable, the set of vertices in $S_2$ with compatible kind
+- **Domains**: for each variable, vertices in $S_2$ with compatible kind
 - **Constraints**: for every edge $e: v_1 \to v_2$ in $S_1$, there must exist an edge $F(e): F(v_1) \to F(v_2)$ in $S_2$ with compatible kind
+
+panproto solves this with backtracking search, optimized with two heuristics.
 
 
 ## Backtracking search
 
-panproto solves the CSP via backtracking with two optimizations.
+The search uses **MRV** (Minimum Remaining Values) to assign the most constrained vertex first. A vertex with only one compatible target gets assigned immediately. A vertex with many options is deferred.
 
-**MRV heuristic** (Minimum Remaining Values): assign the most constrained vertex first. A vertex with only one compatible target gets assigned immediately. A vertex with many options is deferred.
-
-**Forward checking**: after each assignment, propagate constraints to unassigned neighbors. If any neighbor's domain becomes empty, backtrack immediately without exploring further.
+**Forward checking** propagates constraints after each assignment. If any neighbor's domain becomes empty, backtrack immediately without exploring further.
 
 ```rust
 let results = find_morphisms(&old_schema, &new_schema, &SearchOptions {
@@ -26,17 +24,17 @@ let results = find_morphisms(&old_schema, &new_schema, &SearchOptions {
 });
 ```
 
-The search returns *all* valid migrations, sorted by quality score. The quality score combines:
+The search returns all valid migrations, sorted by quality score. Quality combines:
 
 - **Name similarity**: edit distance between mapped vertex IDs
 - **Edge name preservation**: fraction of edges that keep the same label
 
-The migration with the highest quality score is the most natural one.
+The highest-quality migration is the most natural one.
 
 
 ## Worked example: renaming fields
 
-The old schema has vertices `{post, post.text, post.createdAt}`. The new has `{post, post.body, post.publishedAt}`. A manual migration would require specifying `post.text -> post.body` and `post.createdAt -> post.publishedAt`.
+The old schema has vertices `{post, post.text, post.createdAt}`. The new has `{post, post.body, post.publishedAt}`. A manual migration would require specifying which field maps to which.
 
 With `find_best_morphism`, panproto discovers this automatically:
 
@@ -47,7 +45,7 @@ With `find_best_morphism`, panproto discovers this automatically:
 The quality score penalizes name mismatches. If multiple migrations exist, the one preserving the most names wins.
 
 :::{.callout-caution}
-## What happens when the quality scores are tied?
+## Exercise: Breaking ties
 
 If two candidate migrations have the same quality score, which one does panproto pick?
 :::
@@ -61,7 +59,7 @@ The search is deterministic: it iterates vertices in ID order, so ties are broke
 
 ## Three ways to migrate data along a discovered mapping {#sec-three-migrations}
 
-A migration mapping $F$ supports three operations for moving data.
+A migration mapping $F$ supports three operations for moving data. Each is mathematically related and captures a different perspective on what the target instance should contain.
 
 ### Restrict
 
@@ -93,12 +91,12 @@ Complete produces the "most conservative" target instance: one that contains onl
 Complete can produce exponentially large instances (Cartesian products). panproto gates this with a configurable size limit.
 :::
 
-These three operations are mathematically related. Restrict and extend are inverses of each other in a precise sense. Restrict and complete form another inverse pair. This means that `extend(restrict(data))` always contains the original data (you never lose information by restricting and then extending). And `restrict(complete(data))` is always contained in the original data (complete never invents data that wasn't there).^[In the categorical literature [@spivak2012], restrict is the pullback functor $\Delta_F$, extend is the left Kan extension $\Sigma_F$, and complete is the right Kan extension $\Pi_F$. They satisfy the adjunction $\Sigma_F \dashv \Delta_F \dashv \Pi_F$. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+These three operations are mathematically related. Restrict and extend are inverses in a precise sense. Restrict and complete form another inverse pair. This means `extend(restrict(data))` always contains the original data (you never lose information), and `restrict(complete(data))` is always contained in the original data (complete never invents data that wasn't there).^[In the categorical literature [@spivak2012], restrict is the pullback functor $\Delta_F$, extend is the left Kan extension $\Sigma_F$, and complete is the right Kan extension $\Pi_F$. They satisfy the adjunction $\Sigma_F \dashv \Delta_F \dashv \Pi_F$. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
 
 ## Schema merge {#sec-schema-merge}
 
-Given two schemas that share some structure, panproto computes their **merge**: the minimal schema containing both, with shared elements unified.^[The merge operation is formally a *pushout* in the category of schemas. The overlap specifies a shared sub-schema, and the merge is the universal construction that glues the two schemas together along their shared parts. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+Given two schemas that share some structure, panproto computes their **merge**: the minimal schema containing both, with shared elements unified.^[The merge operation is formally a *pushout* in the category of schemas. The overlap specifies a shared sub-schema, and the merge is the universal construction that glues the two schemas together. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
 ```rust
 let (integrated, left_morph, right_morph) = schema_merge(
@@ -122,38 +120,38 @@ let (integrated, _, _) = schema_merge(&atproto_schema, &mastodon_schema, &overla
 This finds the largest schema that both inputs share and uses it as the gluing point for the merge.
 
 :::{.callout-caution}
-## When does automatic overlap discovery fail?
+## Exercise: Limitations of automatic discovery
 
-`discover_overlap` finds the *largest* shared sub-schema by homomorphism search. If two schemas share structure under different names (e.g., `author` vs. `creator`), the search may miss the overlap. In that case, provide an explicit overlap mapping.
+`discover_overlap` finds the *largest* shared sub-schema by homomorphism search. If two schemas share structure under different names (e.g., `author` vs. `creator`), what might the search miss?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-`discover_overlap` finds shared structure by matching vertex kinds and edge patterns. If two schemas share structure under different names (e.g., `author` vs. `creator`), the kind-based search may still find a match (both are `object` vertices with similar outgoing edges). But if the kinds also differ, the search misses it entirely. In that case, provide an explicit overlap mapping that identifies the corresponding vertices by hand.
+`discover_overlap` matches vertex kinds and edge patterns. If two schemas share structure under different names, the kind-based search may still find a match (both are `object` vertices with similar outgoing edges). But if the kinds also differ, the search misses it entirely. In that case, provide an explicit overlap mapping that identifies the corresponding vertices by hand.
 :::
 
 
 ## Constraint enforcement {#sec-constraint-enforcement}
 
-When extend pushes data forward, the target schema's equational constraints may not be satisfied. panproto enforces constraints by iterating:^[This iterative enforcement is an instance of the *chase algorithm* from database theory, adapted to panproto's equational theories. See [Appendix A](../appendices/A-formal-foundations.qmd) for the formal definition.]
+When extend pushes data forward, the target schema's equational constraints may not be satisfied. panproto enforces constraints by iterating:^[This iterative enforcement is an instance of the *chase algorithm* from database theory, adapted to panproto's equational theories. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
 1. Find active *triggers*: pattern matches in the instance that violate a constraint
 2. Apply the *consequence*: add missing rows or merge values
 3. Repeat until no triggers remain (fixpoint) or an iteration limit is reached
 
-The enforcement is guaranteed to terminate for panproto's equational theories (which are purely algebraic, with no recursive constraints). For schemas with recursive types, an iteration bound prevents non-termination.
+The enforcement terminates for panproto's equational theories (purely algebraic, with no recursive constraints). For schemas with recursive types, an iteration bound prevents non-termination.
 
 
 ## GAT-validated auto-migration
 
 Auto-derived migrations are subject to the same equation verification as hand-written ones. When `schema add` computes a migration automatically, it checks that the migration **preserves all equations** in the theory.
 
-What does "preserves equations" mean concretely? If the source theory has an equation like `src(id(v)) = v` (from ThReflexiveGraph), and the migration maps `src` to `src'` and `id` to `id'`, then the target theory must satisfy `src'(id'(v)) = v`. panproto verifies this by applying the migration mapping to both sides of every equation and checking that the results are equal in the target theory.
+If the source theory has an equation like `src(id(v)) = v` (from ThReflexiveGraph) and the migration maps `src` to `src'` and `id` to `id'`, then the target theory must satisfy `src'(id'(v)) = v`. panproto verifies this by applying the migration mapping to both sides of every equation and checking that the results are equal in the target theory.
 
-This catches a class of bugs that would otherwise be invisible: migrations that look correct at the vertex-and-edge level but silently break structural invariants. For example, a migration that maps a reflexive graph to a non-reflexive one would pass a basic vertex/edge compatibility check but fail the equation preservation check, because the target has no `id` operation to satisfy the reflexivity equations.
+This catches a class of bugs that would otherwise be invisible: migrations that look correct at the vertex-and-edge level but silently break structural invariants. A migration that maps a reflexive graph to a non-reflexive one would pass a basic vertex/edge check but fail the equation preservation check, because the target has no `id` operation.
 
-The verification is fast (linear in the number of equations) and runs automatically during `schema add`. If it fails, you see a diagnostic like:
+The verification is fast (linear in the number of equations) and runs automatically during `schema add`. Failure looks like:
 
 ```
 error: migration violates equation
@@ -163,15 +161,15 @@ error: migration violates equation
 ```
 
 :::{.callout-caution}
-## Can equation verification produce false negatives?
+## Exercise: Soundness vs. completeness
 
-Equation preservation checking is sound: if it passes, the equations hold. But it only checks equations *syntactically* by substitution. Two equivalent but differently written equations may not be recognized as equal. In practice, panproto's normal-form representation of equations makes this rare.
+Equation preservation checking is sound: if it passes, the equations hold. But it only checks equations *syntactically* by substitution. Can two equivalent but differently written equations fail to be recognized as equal?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-In principle, yes. The checker compares equation sides by syntactic equality after substitution. Two expressions that are semantically equal but syntactically different (e.g., `mul(a, b)` vs. `mul(b, a)` in a commutative theory) might not be recognized as equal. In practice, panproto's normal-form representation of equations (which canonicalizes variable ordering and operation application) makes this rare. If you suspect a false negative, you can inspect the mapped equations with `schema show --equations`.
+In principle, yes. The checker compares equation sides by syntactic equality after substitution. Two expressions that are semantically equal but syntactically different (e.g., `mul(a, b)` vs. `mul(b, a)` in a commutative theory) might not be recognized as equal. In practice, panproto's normal-form representation of equations (which canonicalizes variable ordering and operation application) makes this rare. If you suspect a false negative, inspect the mapped equations with `schema show --equations`.
 :::
 
 
@@ -182,8 +180,8 @@ For the common case (evolving a schema within the same protocol), you don't need
 
 ## From migrations to protolenses {#sec-migrations-to-protolenses}
 
-The migration discovery machinery in this chapter produces *one migration between two specific schemas*. But the same structural change often applies to many schemas. Renaming `createdAt` to `created_at` is the same operation whether the schema has 5 fields or 50. Writing a separate migration for each schema is tedious and error-prone.
+The migration discovery machinery produces *one migration between two specific schemas*. But the same structural change often applies to many schemas. Renaming `createdAt` to `created_at` is the same operation whether the schema has 5 fields or 50. Writing a separate migration for each schema is tedious and error-prone.
 
 @sec-auto-lens shows how to lift the results of this chapter into **protolens chains**: schema-independent objects that can be instantiated against any schema satisfying a precondition. The pipeline is: migration discovery (this chapter) produces a mapping; factorization decomposes it into elementary operations; each operation becomes a protolens constructor. The result is a reusable chain that encodes the *pattern* of the migration, not a single instance of it.
 
-In practice, `ProtolensChainHandle.autoGenerate()` (TypeScript) or `ProtolensChainHandle.auto_generate()` (Python) runs the full pipeline from this chapter under the hood (migration search, quality scoring, constraint propagation) and then lifts the result into a protolens chain. Understanding the machinery here helps you diagnose failures and ambiguities in auto-generation, and guides you when you need to provide manual hints or complement specs.
+In practice, `ProtolensChainHandle.autoGenerate()` (TypeScript) or `ProtolensChainHandle.auto_generate()` (Python) runs the full pipeline under the hood (migration search, quality scoring, constraint propagation) and then lifts the result into a protolens chain. Understanding the machinery here helps you diagnose failures and ambiguities in auto-generation, and guides you when providing manual hints or complement specs.

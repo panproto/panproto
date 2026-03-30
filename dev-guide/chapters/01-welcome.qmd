@@ -2,7 +2,7 @@
 
 panproto is a schematic version control system parameterized by pairs of Generalized Algebraic Theories (GATs). A protocol $\mathcal{P} = (\mathbb{T}_S, \mathbb{T}_I)$ consists of a schema theory $\mathbb{T}_S$ (what schemas look like) and an instance theory $\mathbb{T}_I$ (what data looks like). Migration, diffing, compatibility checking, and bidirectional lenses are derived from $\mathcal{P}$ by the same algorithms regardless of protocol.^[The foundational treatment of GATs is due to @cartmell1986. panproto's computational architecture adapts [GATlab](https://algebraicjulia.github.io/GATlab.jl/) [@lynch2024] to Rust.]
 
-The crate hierarchy mirrors this algebraic structure:
+The crate hierarchy mirrors this algebraic structure. Each level builds on the ones below it:
 
 - **Level 0** (`panproto-gat`): sorts, operations, equations, theory morphisms, colimits.
 - **Level 1** (`panproto-schema`, `panproto-inst`): schema graphs as models of $\mathbb{T}_S$; instances as models of $\mathbb{T}_I$.
@@ -12,15 +12,13 @@ The crate hierarchy mirrors this algebraic structure:
 
 Each level depends only on the levels below it. `panproto-gat` has no panproto dependencies. `panproto-core` re-exports everything.
 
-
 ## Three audiences
 
-**Contributors** fixing bugs or adding features: start with @sec-first-contribution, then build the project (@sec-building-testing), then read the architecture chapter for the crate you're modifying, then review the contribution process (chapters 16 through 18).
+**Contributors** fixing bugs or adding features start with @sec-first-contribution, then @sec-building-testing, then the architecture chapter for the crate you're modifying. Chapter 16 through 18 cover the contribution process.
 
-**Protocol authors** adding a new schema language: you'll define a pair of GATs ($\mathbb{T}_S$, $\mathbb{T}_I$) and implement the `Protocol` trait. Read @sec-architecture-overview, @sec-gat-engine, @sec-schema-protocols, and @sec-protocols.
+**Protocol authors** adding a new schema language define a pair of GATs ($\mathbb{T}_S$, $\mathbb{T}_I$) and implement the `Protocol` trait. Read @sec-architecture-overview, @sec-gat-engine, @sec-schema-protocols, and @sec-protocols.
 
-**Researchers** exploring the internals: read the architecture section sequentially (chapters 5 through 11), then @sec-advanced-internals for the building-block theory catalog.
-
+**Researchers** exploring the internals read the architecture section sequentially (chapters 5 through 11), then @sec-advanced-internals for the building-block theory catalog.
 
 ## Key design decisions
 

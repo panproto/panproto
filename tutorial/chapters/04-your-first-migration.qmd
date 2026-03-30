@@ -5,100 +5,79 @@ id: sec-first-migration
 
 # Your First Migration {#sec-first-migration}
 
-Bluesky added a `tags` field to `app.bsky.feed.post` in September 2023 (PR #1637): an optional array of strings (maxLength 8 items, each maxLength 640 bytes / maxGraphemes 64) for additional hashtags. We'll migrate data through this schema change by hand, then see what the engine does.
+Time to migrate some data.  We will take the Bluesky `tags` change from Chapter 1---adding an optional array of strings to `app.bsky.feed.post`---and work through it end to end: defining the two schema versions, writing the migration morphism by hand, compiling it, and applying it to a concrete record.  Along the way, we will see what the mathematical vocabulary from the previous chapters actually buys us in practice.
 
+## Two versions of a post
 
-## The Setup
-
-Version 1 of the post view has two fields: `text` (the post body) and `createdAt` (a datetime timestamp).
+Version 1 of the post schema has two fields: `text` (the post body) and `createdAt` (a datetime timestamp).
 
 ```{.typescript include="../code/ts/05-migration-basic.ts" snippet="schema-v1"}
 ```
 
-This schema is a model of the ATProto schema theory $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$. Concretely, it's a directed graph:
+Viewed through the lens of the ATProto schema theory $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$, this is a directed graph with three vertices (`Post`, `Text`, `CreatedAt`, each annotated with a kind) and two edges ($\text{text}\colon \text{Post} \to \text{Text}$ and $\text{createdAt}\colon \text{Post} \to \text{CreatedAt}$, each annotated with multiplicity and constraints).
 
-- **Vertices**: `Post`, `Text`, `CreatedAt` (each annotated with a kind: record, string, datetime).
-- **Edges**: $\text{text}: \text{Post} \to \text{Text}$, $\text{createdAt}: \text{Post} \to \text{CreatedAt}$ (each annotated with multiplicity and constraints).
-
-Version 2 adds a `tags` field:
+Version 2 adds `tags`:
 
 ```{.typescript include="../code/ts/05-migration-basic.ts" snippet="schema-v2"}
 ```
 
-The v2 schema has an additional vertex (`Tags`, with kind `array<string>`) and an additional edge ($\text{tags}: \text{Post} \to \text{Tags}$, with multiplicity `optional`). Everything else is unchanged.
+One new vertex (`Tags`, with kind `array<string>`) and one new edge ($\text{tags}\colon \text{Post} \to \text{Tags}$, with multiplicity `optional`).  Everything else is unchanged.
 
-The question: given a record conforming to v2, how do we produce a record conforming to v1?
+The question is: given a record conforming to v2, how do we produce a record conforming to v1?
 
 :::{.callout-note}
 ## Direction of migration
 
-We are migrating *backward*: from v2 data to v1 compatibility. This is the common direction in practice. A client that only understands v1 receives a v2 record and needs to make sense of it. The forward direction (v1 data to v2) requires defaults or explicit construction of the new fields, a different operation (`extend` in the set-valued map world, or a *fill* operation in the W-type world).^[In categorical language, the lift operation is restriction along a theory morphism $\Delta_f$. See @spivak2012 and [Appendix A](../appendices/A-formal-foundations.qmd).]
+We are migrating *backward*: from v2 data to v1 compatibility.  This is the common direction in practice.  A client that only understands v1 receives a v2 record and needs to make sense of it.  The forward direction (v1 data → v2) requires defaults or explicit construction of the new fields, which is a different operation (`extend` in the set-valued map world, a *fill* operation in the W-type world).^[In categorical language, the lift operation is restriction along a theory morphism $\Delta_f$.  See @spivak2012 and [Appendix A](../appendices/A-formal-foundations.qmd).]
 :::
 
 
-## The Migration Morphism
+## The migration morphism
 
-To make the "add a field" change precise, we need to express the relationship between the two schema versions as a mathematical object.
-
-A migration from v1 to v2 is a *schema morphism* $m: S_1 \to S_2$: a pair of maps $(f_V: V_1 \to V_2, f_E: E_1 \to E_2)$ that preserves connectivity. If edge $e$ connects vertices $u$ and $v$ in $S_1$, then $f_E(e)$ must connect $f_V(u)$ and $f_V(v)$ in $S_2$.
+To express the relationship between the two versions precisely, we need a *schema morphism*: a pair of maps $(f_V\colon V_1 \to V_2,\; f_E\colon E_1 \to E_2)$ that preserves connectivity.  If edge $e$ connects vertices $u$ and $v$ in $S_1$, then $f_E(e)$ must connect $f_V(u)$ and $f_V(v)$ in $S_2$.
 
 ```{.typescript include="../code/ts/05-migration-basic.ts" snippet="migration"}
 ```
 
-**Vertex map** $f_V$: each v1 vertex maps to its v2 counterpart.
+The **vertex map** $f_V$ sends each v1 vertex to its v2 counterpart: $\text{Post} \mapsto \text{Post}$, $\text{Text} \mapsto \text{Text}$, $\text{CreatedAt} \mapsto \text{CreatedAt}$.
 
-- $\text{Post} \mapsto \text{Post}$
-- $\text{Text} \mapsto \text{Text}$
-- $\text{CreatedAt} \mapsto \text{CreatedAt}$
+The **edge map** $f_E$ does the same for edges: $\text{text} \mapsto \text{text}$, $\text{createdAt} \mapsto \text{createdAt}$.
 
-**Edge map** $f_E$: each v1 edge maps to its v2 counterpart.
+The `Tags` vertex and `tags` edge do not appear in the migration.  They exist in $S_2$ but have no preimage in $S_1$.  That is the structural encoding of "v2 added a new field that v1 does not know about."
 
-- $\text{text} \mapsto \text{text}$
-- $\text{createdAt} \mapsto \text{createdAt}$
-
-The `Tags` vertex and `tags` edge are not in the migration. They exist in $S_2$ but have no preimage in $S_1$. This is the structural encoding of "v2 added a new field that v1 doesn't know about."
-
-The migration morphism is an injection from $S_1$ into $S_2$. Not all migrations are injections (you can merge vertices, collapse edges, remap types), but the "add a field" pattern always produces one.
+This particular migration morphism is an injection: every v1 element maps to a distinct v2 element.  Not all migrations are injections.  You can merge vertices, collapse edges, remap types.  But the "add a field" pattern always produces one.
 
 ::: {.callout-caution}
-## Question
+## Exercise
 
-The migration morphism here is injective. Give an example of a non-injective migration morphism. What schema change would it represent?
+The migration morphism above is injective.  Give an example of a *non-injective* migration morphism.  What schema change would it represent?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-Suppose v1 has two string types, `FirstName` and `LastName`, each with its own edge from `Person`. v2 merges them into a single `FullName` vertex. The vertex map sends both `FirstName` and `LastName` to `FullName`: two source vertices share one target. This represents a schema change that collapses two fields into one, requiring a merge function to combine the data.
+Suppose v1 has two string types, `FirstName` and `LastName`, each with its own edge from `Person`.  v2 merges them into a single `FullName` vertex.  The vertex map sends both `FirstName` and `LastName` to `FullName`.  This represents collapsing two fields into one, which requires a merge function to combine the data.
 :::
 
-## What the Maps Mean
+### What the maps mean
 
-The vertex map says: "for each type in the old schema, here is the corresponding type in the new schema." If a v1 vertex maps to a v2 vertex, the engine knows data anchored to that vertex type can survive the migration. If a v2 vertex has no preimage, data anchored to it must be *introduced* (forward) or *discarded* (backward).
+The vertex map says: "for each type in the old schema, here is the corresponding type in the new schema."  If a v1 vertex maps to a v2 vertex, the engine knows that data anchored to that vertex type can survive the migration.  If a v2 vertex has no preimage, data anchored to it must be *introduced* (going forward) or *discarded* (going backward).
 
-The edge map says: "for each field in the old schema, here is the corresponding field in the new schema." This map must be compatible with the vertex map: if edge $e$ goes from $u$ to $v$, then $f_E(e)$ must go from $f_V(u)$ to $f_V(v)$. This compatibility condition ensures the migration preserves graph structure.^[When the schema theory is richer than a plain graph (e.g., SQL with foreign keys), this generalizes to a theory morphism: a map that additionally preserves equations.]
+The edge map says: "for each field in the old schema, here is the corresponding field in the new schema."  This map must be compatible with the vertex map: if edge $e$ goes from $u$ to $v$, then $f_E(e)$ must go from $f_V(u)$ to $f_V(v)$.  This compatibility condition ensures the migration preserves graph structure.^[When the schema theory is richer than a plain graph---for example, SQL with foreign keys---the morphism generalizes to a theory morphism that additionally preserves equations.]
 
 
-## Compiling and Lifting
+## Compiling and lifting
 
-A migration morphism is a declaration of intent. Turning it into an executable operation requires one more step: *compilation*, where the engine pre-computes the data structures needed for efficient migration.
+A migration morphism is a declaration of intent.  Turning it into an executable operation requires one more step: *compilation*, where the engine pre-computes the data structures needed for efficient per-record migration.
 
 ```{.typescript include="../code/ts/05-migration-basic.ts" snippet="lift"}
 ```
 
-The `compile` step produces:
+Compilation produces a surviving vertex set (which v2 vertices are in the image of $f_V$), a surviving edge set, remap tables for translating v2 names back to v1 names, and pre-checked constraint compatibility data.  The `lift` function takes this compiled migration and a v2 record and produces a v1 record.
 
-- **The surviving vertex set**: the set of v2 vertices in the image of $f_V$. Here: $\{\text{Post}, \text{Text}, \text{CreatedAt}\}$.
-- **The surviving edge set**: the set of v2 edges in the image of $f_E$. Here: $\{\text{text}, \text{createdAt}\}$.
-- **Remap tables**: lookup structures mapping v2 vertices/edges back to their v1 preimages.
-- **Constraint compatibility data**: pre-checked results for whether constraints tighten or relax across the migration (@sec-when-migrations-break).
+## Tracing the lift step by step
 
-The `lift` function takes a compiled migration and a v2 record and produces a v1 record. "Lift" means applying a migration to data in the backward direction.
-
-
-## Tracing the Lift
-
-With the surviving sets and remap tables in hand, the engine can walk a concrete record. Suppose we have a v2 record with the new `tags` field populated:
+Suppose we have a v2 record with the new `tags` field populated:
 
 ```json
 {
@@ -108,7 +87,7 @@ With the surviving sets and remap tables in hand, the engine can walk a concrete
 }
 ```
 
-As a W-type instance, this is a tree:
+As a W-type instance, this is a tree with a root node anchored to `Post` and three children, each anchored to a different vertex and reached via a different edge:
 
 ```{mermaid}
 %%| label: fig-v2-tree
@@ -123,17 +102,13 @@ graph TD
     R -->|tags| G
 ```
 
-The root is anchored to `Post`. It has three children, each anchored to a different vertex and reached via a different edge.
+Because ATProto uses W-type instances, the engine runs the tree surgery pipeline.  For this simple example, only the first two steps do real work:
 
-Because ATProto uses W-type instances, the engine runs the tree surgery pipeline. For this simple example, only two steps do real work:
+**Step 1 (signature restriction):** Walk every node and check whether its anchor vertex is in the surviving set $\{\text{Post}, \text{Text}, \text{CreatedAt}\}$.  The `Tags` node is not, so it is removed.
 
-**Step 1 (Signature restriction):** Remove nodes anchored to vertices not in the surviving set $\{\text{Post}, \text{Text}, \text{CreatedAt}\}$. The `Tags` node is removed.
+**Step 2 (reachability BFS):** Both remaining children are direct children of the root, so they are trivially reachable.
 
-**Step 2 (Reachability BFS):** Both remaining children are direct children of the root, so they're trivially reachable.
-
-**Steps 3, 4, 5** (ancestor contraction, edge resolution, fan reconstruction) are no-ops here. The removed `Tags` node was a leaf with no surviving descendants. The edge labels are identity-mapped. The fan structure is already valid.
-
-The full five-step pipeline and each step's mechanics are covered in @sec-lifting-data.
+Steps 3 through 5 (ancestor contraction, edge resolution, fan reconstruction) are no-ops here because the removed `Tags` node was a leaf with no surviving descendants, the edge labels are identity-mapped, and the fan structure is already valid.  The chapter on data lifting covers each step in full detail.
 
 The result:
 
@@ -144,109 +119,92 @@ The result:
 }
 ```
 
-The `tags` field is cleanly removed. The surviving fields are untouched.
+The `tags` field is gone.  The surviving fields are untouched.
 
 ::: {.callout-caution}
-## Question
+## Exercise
 
-What happens if you lift a v2 record with `tags: []` (empty array) through this migration? Does the output differ from a v2 record with no `tags` field at all?
+What happens if you lift a v2 record with `tags: []` (empty array)?  Does the output differ from lifting a record with no `tags` field at all?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-The output is identical to lifting a record with a populated `tags` field: the `tags` field is removed entirely. The lift operation prunes the `Tags` node regardless of whether the array is empty or full, because the v1 schema has no vertex corresponding to `Tags`. An empty array and a missing field both produce the same v1 record. The distinction between "field present but empty" and "field absent" exists in v2 but is erased by the migration.
+The output is the same either way.  The lift operation prunes the `Tags` node regardless of whether the array is empty or populated, because v1's schema has no vertex corresponding to `Tags`.  The distinction between "field present but empty" and "field absent" exists in v2 but is erased by the migration.
 :::
 
-## The Same Pattern in SQL
 
-To build intuition across protocol boundaries, here is the same "add a column" migration in SQL, where the instance theory is $\text{ThFunctor}$.
+## The same pattern in SQL
 
-**v1 schema**: table `posts` with columns `id`, `text`, `created_at`.
+To see that the framework is not specific to tree-shaped data, here is the same "add a column" migration in SQL, where the instance theory is $\text{ThFunctor}$.
 
-**v2 schema**: the same table with an additional `tags` column.
+The v1 schema has a `posts` table with columns `id`, `text`, and `created_at`.  The v2 schema adds a `tags` column:
 
 ```sql
 ALTER TABLE posts ADD COLUMN tags text[] DEFAULT '{}';
 ```
 
-**Migration**: the schema morphism maps `posts -> posts`.
+The migration morphism maps `posts → posts` and all v1 columns to their v2 counterparts.
 
-**Instance**: a v2 instance assigns to `posts` the set of all rows:
+A v2 instance (a set of rows) looks like this:
 
 | id | text | created_at | tags |
 |----|------|------------|------|
 | 1 | "Hello, world!" | 2025-01-15 | {"greeting", "test"} |
 | 2 | "Another post" | 2025-01-16 | {} |
 
-**Lift** (`restrict`): the restricted instance assigns to `posts` the *same* set of rows, but viewed through the v1 schema, which doesn't include `tags`. The result is the projection:
+The lift (restriction via precomposition) produces the same set of rows, viewed through v1's schema, which has no `tags` column:
 
 | id | text | created_at |
 |----|------|------------|
 | 1 | "Hello, world!" | 2025-01-15 |
 | 2 | "Another post" | 2025-01-16 |
 
-The `tags` column is dropped because v1's schema has no morphism corresponding to it.
+The `tags` column vanishes because v1's schema has no morphism corresponding to it.
 
 :::{.callout-note}
 ## Same migration, different mechanics
 
-The ATProto and SQL versions of "add a field" produce the same observable result: the new field is dropped when migrating backward. The *mechanism* differs. ATProto prunes a tree node (W-type restriction). SQL projects away a column (`restrict` via precomposition). The schema morphism is the same kind of object in both cases (a structure-preserving map), but the data operation is determined by the instance theory.
+The ATProto and SQL versions of "add a field" produce the same observable result: the new field is dropped when migrating backward.  The mechanism differs.  ATProto prunes a tree node (W-type restriction).  SQL projects away a column (functor restriction via precomposition).  The schema morphism is the same kind of mathematical object in both cases, but the data-level operation is determined by the instance theory.
 :::
 
 
-## Composing Migrations
+## Composing migrations
 
-Schemas rarely change just once. Migrations compose. Given $m_{12}: S_1 \to S_2$ and $m_{23}: S_2 \to S_3$, their composite $m_{13} = m_{23} \circ m_{12}: S_1 \to S_3$ is also a valid migration.
+Schemas rarely change just once.  If you have a migration $m_{12}\colon S_1 \to S_2$ and another $m_{23}\colon S_2 \to S_3$, their composite $m_{13} = m_{23} \circ m_{12}\colon S_1 \to S_3$ is also a valid migration.
 
-For our running example, suppose v3 adds a `langs` field (language codes) on top of v2:
+For our running example, suppose v3 adds a `langs` field (language codes) on top of v2.  Then:
 
 - $m_{12}$: v1 $\to$ v2 (adds `tags`)
 - $m_{23}$: v2 $\to$ v3 (adds `langs`)
 - $m_{13} = m_{23} \circ m_{12}$: v1 $\to$ v3 (adds both `tags` and `langs`)
 
-The composite's vertex map sends each v1 vertex through both maps. The edge map composes similarly.
+Lifting through the composite is equivalent to lifting through each step in sequence.  For set-valued map instances, this is a theorem (precomposition is contravariantly compositional).  For W-type instances, the engine verifies the property for each migration pair, but in practice it holds whenever both migrations pass the existence checks described in the next chapter.
 
-Lifting through the composite is equivalent to lifting through each step in sequence. For set-valued map instances, this is automatic (precomposition is contravariantly compositional). For W-type instances, the engine verifies this property for each migration pair, but in practice it holds whenever both migrations pass the existence checks of @sec-when-migrations-break.
-
-Composability is what makes migration *scalable*. You maintain a chain $S_1 \to S_2 \to \cdots \to S_n$, and the engine composes as needed.
+Composability is what makes migration *scalable*.  You maintain a chain $S_1 \to S_2 \to \cdots \to S_n$, and the engine composes as needed.
 
 
-## Migrations That Do More Than Add Fields
+## Migrations beyond adding fields
 
-Adding a field is the simplest case. Here is what the same framework does with more complex structural changes.
+Adding a field is the simplest case.  The same framework handles much more complex structural changes.
 
-### Renaming a Field
+**Renaming a field.**  Suppose v2 renames `text` to `body`.  The vertex map still sends $\text{Text} \mapsto \text{Text}$ (the type has not changed), but the edge map sends $\text{text} \mapsto \text{body}$.  During edge resolution, the engine relabels `body` back to `text`, producing a record with the old field name.  The data is untouched; only the label changes.
 
-Suppose v2 renames `text` to `body`. The vertex map still sends $\text{Text} \mapsto \text{Text}$ (the type hasn't changed), but the edge map sends $\text{text} \mapsto \text{body}$. During edge resolution (step 4 of the pipeline), the engine relabels `body` back to `text`, producing a record with the old field name. The data is untouched; only the label changes.
+**Extracting a nested object.**  Suppose v1 has a flat post with `text`, `createdAt`, and `authorName`.  v2 extracts `authorName` into a nested `author` object with a `name` field.  The vertex map sends v1's `AuthorName` to v2's `Name` (inside the `Author` object).  The edge map sends v1's `authorName` to the composed path `author.name`.  During ancestor contraction, the engine recognizes that `Author` is an intermediate vertex not present in v1 and contracts the path `Post → Author → Name` to `Post → AuthorName`.
 
-### Restructuring: Extracting a Nested Object
-
-Suppose v1 has a flat post with `text`, `createdAt`, and `authorName`. v2 extracts `authorName` into a nested `author` object with a `name` field. The vertex map sends v1's `AuthorName` to v2's `Name` (inside the `Author` object). The edge map sends v1's `authorName` to the composed path `author.name`.
-
-During ancestor contraction (step 3), the engine recognizes that the `Author` vertex is intermediate and not in v1's schema. It contracts the path `Post -> Author -> Name` to `Post -> AuthorName`, preserving data while flattening the structure.
-
-### Removing a Required Field
-
-Suppose v2 removes `createdAt` entirely. The vertex map doesn't include `CreatedAt`, and the edge map doesn't include `createdAt`. This migration *might not exist*: if v1 requires `createdAt`, there's no valid way to produce a v1 record without it. The engine detects this during compilation and reports an existence failure. @sec-when-migrations-break covers the precise conditions.
+**Removing a required field.**  Suppose v2 drops `createdAt` entirely.  The vertex map does not include `CreatedAt`, and the edge map does not include `createdAt`.  If v1 requires `createdAt`, this migration *may not exist*: there is no valid way to produce a v1 record without it.  The engine detects this during compilation and reports an existence failure.  The next chapter covers the precise conditions.
 
 
-## Cross-Format Migration: Parse, Migrate, Emit
+## Cross-format migration
 
-The same machinery supports migration *across* protocols. Because panproto represents every schema as a graph regardless of origin format, you can migrate between formats by composing three steps:
+The same machinery supports migration *across* protocols.  Because panproto represents every schema as a graph regardless of origin format, you can migrate between formats by composing three steps: parse a Protobuf schema into a schema graph, build a migration morphism mapping Protobuf concepts to Avro concepts (vertex by vertex and edge by edge), and emit the result as an Avro schema by applying the Avro emitter to the target graph.
 
-1. **Parse** a Protobuf schema into a schema graph.
-2. **Build a migration morphism** mapping Protobuf concepts to Avro concepts, vertex by vertex and edge by edge.
-3. **Emit** the result as an Avro schema by applying the Avro emitter to the target graph.
-
-The migration morphism in step 2 is the same kind of object as the intra-protocol migrations above. panproto validates that the morphism respects both theories and that source constraints are satisfiable in the target.
-
-See @sec-cross-protocol for a comprehensive treatment of cross-format conversion.
+The migration morphism in the second step is the same kind of object as the intra-protocol migrations above.  panproto validates that the morphism respects both theories and that source constraints are satisfiable in the target.  Chapter 11 covers cross-format conversion in depth.
 
 
-## Or, Skip All That {#sec-auto-mig-teaser}
+## Or, skip all that {#sec-auto-mig-teaser}
 
-Everything in this chapter ($f_V$, $f_E$, resolvers) can be computed automatically. panproto's homomorphism search (@sec-auto-migration) finds the best migration between two schemas without manual specification. For the common case of adding or removing fields, `schema add` in the VCS derives migrations automatically. For complex structural changes and cross-protocol translation, the full machinery is in @sec-auto-migration.
+Everything in this chapter---$f_V$, $f_E$, resolvers---can be computed automatically.  panproto's homomorphism search finds the best migration between two schemas without manual specification.  For the common case of adding or removing fields, `schema add` in the VCS derives migrations automatically.  For complex structural changes and cross-protocol translation, the full machinery is in Chapter 13.
 
 
 ## Terminology
@@ -258,8 +216,8 @@ Everything in this chapter ($f_V$, $f_E$, resolvers) can be computed automatical
 | Lift (backward) | `restrict` | Convert | View / projection |
 | Fill (forward) | `extend` / `complete` | (manual) | INSERT with defaults |
 
-: Terminology across communities. {#tbl-terminology}
+: How panproto's vocabulary relates to other communities. {#tbl-terminology}
 
-panproto's terminology is closest to @litt2022's Cambria project, which was an important practical inspiration. The key difference: Cambria hardcodes its schema language and migration semantics, while panproto parameterizes both by theories.
+panproto's terminology is closest to the Cambria project [@litt2022], which was an important practical inspiration.  The key difference is that Cambria hardcodes its schema language and migration semantics, while panproto parameterizes both by theories.
 
-This chapter's migrations all succeeded. Not every proposed migration is valid; the next chapter examines what goes wrong and how the engine detects it.
+Every migration in this chapter succeeded.  Not every proposed migration is valid.  The next chapter examines what goes wrong and how the engine detects it.

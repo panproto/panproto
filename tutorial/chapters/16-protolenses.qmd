@@ -1,15 +1,17 @@
 # Protolenses: Reusable Lens Families {#sec-protolenses}
 
-A protolens is a pair $(P, F)$: a precondition $P$ on schemas and a lens generator $F$ that produces a concrete lens for any schema satisfying $P$. For example, a `renameVertex("author", "creator")` protolens has precondition "schema contains vertex `author`" and produces, for each qualifying schema $S$, a lens $\ell_S : S \rightleftarrows F(S)$ where $F(S)$ is $S$ with `author` renamed to `creator`.
+Suppose you're managing a platform where hundreds of user-defined schemas exist, and your legal team mandates a naming convention change: `createdAt` becomes `created_at`, `updatedAt` becomes `updated_at`. You could hand-write the same lens twice, three times, a hundred times. Or you could write it once and reuse it across all compatible schemas. That's what a protolens does.
 
-The complement type depends on $S$ (see @sec-complement for what complements are). A `removeVertex("metadata")` protolens stores a string if `metadata` is a string vertex, or an object if `metadata` is structured. This schema-dependence is what makes protolenses more than templates.
+A protolens is a **transformation pattern** that works across schemas. It's a pair $(P, F)$: a precondition $P$ that describes which schemas are applicable, and a lens generator $F$ that produces a concrete lens for any schema satisfying $P$. A `renameVertex("author", "creator")` protolens has precondition "schema must contain a vertex named `author`" and generates a lens for each schema meeting that requirement.
+
+The power comes from schema-dependence. The complement type depends on the schema: when you remove `metadata`, the complement stores the removed data. If `metadata` is a string, the complement stores a string. If `metadata` is a structured object, the complement stores that object. The same protolens produces different complement shapes for different schemas—this is why protolenses are more than glorified templates.
 
 
-## The problem with manual lenses {#sec-manual-lens-problem}
+## Why manual lenses become tedious {#sec-manual-lens-problem}
 
-Consider a platform that hosts user-defined schemas. Each schema has a `metadata` block with `createdAt` and `updatedAt` fields. A platform-wide policy change renames `createdAt` to `created_at` and `updatedAt` to `updated_at` (snake_case normalization).
+Picture a real platform scenario. You have user-defined schemas A, B, C, and more. Each has a `metadata` block with `createdAt` and `updatedAt` fields. Policy changes. You need to normalize to snake_case.
 
-With the combinator API from @sec-combinators, you'd write:
+With the combinator API from @sec-combinators, you write:
 
 ```{.typescript}
 // For schema A
@@ -27,26 +29,24 @@ const lensB = pipeline(
 // For schema C, D, E, F, ...
 ```
 
-The logic is the same every time. The only thing that varies is the schema the lens is instantiated against. We want a single object that encodes the *transformation pattern* and can be applied to any schema that matches a precondition.
-
-That object is a protolens.
+Repetition. The transformation pattern stays the same while the target schemas differ. A protolens captures the pattern once and applies it to any schema that matches the precondition.
 
 
-## Formal definition {#sec-protolens-definition}
+## What a protolens is {#sec-protolens-definition}
 
-A protolens consists of:
+A protolens has two parts:
 
-1. A **precondition** $P$: a predicate on schemas. "Does this schema have a `metadata.createdAt` field?"
-2. A **lens generator**: for any schema $S$ satisfying $P(S)$, produce a concrete lens $\ell_S : S \rightleftarrows F(S)$, where $F(S)$ is the transformed schema.
+1. **Precondition $P$**: a test on the schema. "Does this schema have fields `metadata.createdAt` and `metadata.updatedAt`?"
+2. **Lens generator**: for any schema $S$ where $P(S)$ holds, produce a lens $\ell_S : S \rightleftarrows F(S)$, where $F(S)$ is the transformed schema.
 
-The schema $S$ is a parameter, not a fixed input. The precondition $P$ gates which schemas the protolens applies to. The output type depends on the input: different schemas produce different lenses with different complements.^[Formally, a protolens is a dependent function: given a schema satisfying a precondition, it returns a lens for that schema. The type signature $\Pi(S : \mathsf{Schema} \mid P(S)). \mathsf{Lens}(S, F(S))$ captures this. $S$ ranges over schemas satisfying predicate $P$, and $F$ is the schema transform. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+The schema $S$ varies. The transformation pattern stays fixed. The output type depends on the input: different schemas produce different lenses with different complement structures.^[Formally, a protolens is a dependent function $\Pi(S : \mathsf{Schema} \mid P(S)). \mathsf{Lens}(S, F(S))$. $S$ ranges over schemas satisfying $P$, and $F$ transforms the schema. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
-The lens laws from @sec-lenses (GetPut and PutGet) hold for every instantiated lens $\ell_S$. We don't re-derive them here; they're guaranteed by construction from the elementary protolens constructors.
+The lens laws from @sec-lenses (GetPut and PutGet) hold for every instantiated lens $\ell_S$. These aren't re-derived; they follow by construction from the elementary protolens constructors.
 
 
 ## Schema transforms {#sec-schema-transforms}
 
-The function $F$ in the definition above is a **schema transform**: it takes a schema and returns a modified schema.^[Categorically, this is an *endofunctor* on the category of theories.] panproto defines a library of elementary schema transforms, each corresponding to a `TheoryTransform` variant:
+The function $F$ above—which modifies a schema—is called a **schema transform**. panproto defines a library of elementary schema transforms, each a `TheoryTransform` variant:
 
 | Schema transform | What it does | Example |
 |-------------|-------------|---------|
@@ -64,30 +64,30 @@ The function $F$ in the definition above is a **schema transform**: it takes a s
 
 : Elementary schema transforms. {#tbl-schema-transforms}
 
-Each schema transform has a well-defined precondition. `RenameVertex("author", "creator")` requires the schema to *have* a vertex named `author`. `RemoveVertex("internalId")` requires the vertex to exist. `WrapVertex("address", "location")` requires `address` to exist and `location` to *not* exist.
+Each transform has a precondition. `RenameVertex("author", "creator")` requires `author` to exist. `RemoveVertex("internalId")` requires the vertex to exist. `WrapVertex("address", "location")` requires `address` to exist and `location` to not exist yet.
 
-Schema transforms compose. A sequence of transforms $F_1, F_2, \ldots, F_n$ is a pipeline that transforms a schema step by step. The precondition for the composite is: $P_1(S) \wedge P_2(F_1(S)) \wedge \ldots \wedge P_n(F_{n-1}(\ldots F_1(S)))$. Each step's precondition is checked against the schema *as transformed by the previous steps*.
+Transforms compose into pipelines. A sequence $F_1, F_2, \ldots, F_n$ applies step by step, and the precondition for the composite checks each step against the schema *as it exists after previous steps*: $P_1(S) \wedge P_2(F_1(S)) \wedge \ldots \wedge P_n(F_{n-1}(\ldots F_1(S)))$.
 
 
-## Instantiation: from protolens to concrete lens {#sec-protolens-instantiation}
+## Instantiation: materializing a lens {#sec-protolens-instantiation}
 
-Given a protolens and a specific schema, **instantiation** produces a concrete lens:
+You have a protolens. You have a schema. **Instantiation** checks the precondition and produces a concrete lens if it passes.
 
 ```{.typescript}
 import { Panproto, ProtolensChainHandle } from "@panproto/core";
 
-// Define a protolens chain: rename + remove
+// Define a protolens chain
 const chain = ProtolensChainHandle.autoGenerate(oldSchema, newSchema);
 
 // Instantiate against a specific schema
 const lens = chain.instantiate(concreteSchema);
 
-// Now use the lens as in @sec-lenses
+// Use the lens as in @sec-lenses
 const { view, complement } = lens.get(sourceData);
 const restored = lens.put(modifiedView, complement);
 ```
 
-The `instantiate` call checks the precondition against `concreteSchema`. If the schema doesn't satisfy the precondition, instantiation fails with a diagnostic:
+If `concreteSchema` doesn't satisfy the precondition, instantiation fails with details:
 
 ```
 error: protolens precondition not satisfied
@@ -97,7 +97,7 @@ error: protolens precondition not satisfied
   hint: this schema may have already undergone this transformation
 ```
 
-The same protolens chain can be instantiated against many schemas:
+The same chain instantiates against many schemas:
 
 ```{.typescript}
 const schemas = await Panproto.listSchemas();
@@ -114,7 +114,7 @@ for (const schema of schemas) {
 :::{.callout-caution}
 ## What if a schema has already been transformed?
 
-If a schema has already undergone the transformation (e.g., `internalId` was already removed in a prior version), instantiation will fail. This is intentional: applying the same protolens twice would violate the precondition. Use `check_applicability` to filter schemas before instantiation.
+If a schema underwent the transformation already (e.g., `internalId` was already removed in a prior version), instantiation fails. This is intentional: applying the same protolens twice violates the precondition. Use `check_applicability` to filter schemas before instantiation.
 :::
 
 ::: {.callout-tip collapse=true}
@@ -124,29 +124,27 @@ Instantiation fails. The precondition checks whether the schema has the elements
 :::
 
 
-## Commutativity with migration {#sec-naturality}
+## Commutativity: applying protolenses before or after migration {#sec-naturality}
 
-Protolenses satisfy a commutativity property: applying a protolens and then migrating gives the same result as migrating first and then applying the protolens.^[This commutativity property is a *naturality condition* in the categorical sense. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+Here's a useful property: applying a protolens and then migrating gives the same result as migrating first and then applying the protolens.^[This is a *naturality condition* in the categorical sense. See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
-Concretely: suppose we have schema v1 and schema v2, with a migration between them. We also have a protolens that renames `createdAt` to `created_at`. We can either:
+Suppose you have schemas v1 and v2 with a migration between them. You also have a protolens that renames `createdAt` to `created_at`. You can:
 
 1. Migrate data from v1 to v2, *then* apply the rename protolens to v2 data, or
 2. Apply the rename protolens to v1 data, *then* migrate the renamed data from v1 to v2
 
-Both paths produce the same output. This is the commutativity property.
-
-In practice, this means we can apply a protolens at any point in a migration pipeline and get the same result. If we have a chain of schema versions $S_1 \to S_2 \to S_3$ and a protolens that renames `createdAt`, we can apply it to $S_1$ data or $S_3$ data; the result is consistent either way. Without this property, the order of application would matter, and composing protolenses with migrations would require careful sequencing.
+Both paths produce the same output. In a migration pipeline $S_1 \to S_2 \to S_3$, you can apply a schema-level protolens at any point and get consistent results. Without this property, the order would matter, and composing protolenses with migrations would require careful sequencing.
 
 :::{.callout-caution}
-## Does commutativity hold for all protolens constructors?
+## Does this hold for all protolens constructors?
 
-Commutativity holds for all 11 elementary constructors and their compositions, provided the migration preserves the protolens's precondition. If the migration removes a vertex that the protolens requires, commutativity is vacuously satisfied (the protolens isn't applicable post-migration).
+Commutativity holds for all 11 elementary constructors and their compositions, provided the migration preserves the protolens's precondition. If the migration removes a vertex the protolens needs, both sides of the equation fail (the protolens isn't applicable), and the property holds vacuously.
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Yes, for all 11 elementary constructors and their compositions, provided the migration preserves the protolens's precondition. If the migration removes a vertex that the protolens requires, the protolens is not applicable post-migration, and the commutativity condition is vacuously satisfied (both sides fail to apply).
+Yes, for all 11 elementary constructors and their compositions, provided the migration preserves the protolens's precondition. If the migration removes a vertex the protolens requires, the protolens is not applicable post-migration, and both sides fail—the commutativity condition holds vacuously.
 :::
 
 
@@ -158,81 +156,81 @@ Each schema transform from @tbl-schema-transforms has a corresponding protolens 
 
 ```{.typescript}
 const pl = Protolens.renameVertex("author", "creator");
-// Precondition: schema has vertex "author"
-// Effect: renames to "creator", all edges updated
-// Complement: empty (bijective)
+// precondition: schema has vertex "author"
+// effect: renames to "creator", all edges updated
+// complement: empty (bijective)
 ```
 
 ### 2. `renameEdge`
 
 ```{.typescript}
 const pl = Protolens.renameEdge("hasAuthor", "hasCreator");
-// Precondition: schema has edge kind "hasAuthor"
-// Effect: renames edge kind
-// Complement: empty (bijective)
+// precondition: schema has edge kind "hasAuthor"
+// effect: renames edge kind
+// complement: empty (bijective)
 ```
 
 ### 3. `addVertex`
 
 ```{.typescript}
 const pl = Protolens.addVertex("version", { kind: "int", default: 1 });
-// Precondition: schema does NOT have vertex "version"
-// Effect: adds vertex with default value
-// Complement: stores added value (for removal on put)
+// precondition: schema does NOT have vertex "version"
+// effect: adds vertex with default value
+// complement: stores added value (for removal on put)
 ```
 
 ### 4. `removeVertex`
 
 ```{.typescript}
 const pl = Protolens.removeVertex("internalId");
-// Precondition: schema has vertex "internalId"
-// Effect: removes vertex and its edges
-// Complement: stores removed vertex data
+// precondition: schema has vertex "internalId"
+// effect: removes vertex and its edges
+// complement: stores removed vertex data
 ```
 
 ### 5. `addEdge`
 
 ```{.typescript}
 const pl = Protolens.addEdge("worksAt", { from: "author", to: "org" });
-// Precondition: both endpoints exist, edge does not
-// Effect: adds edge (data must be provided or defaulted)
-// Complement: stores added edge data
+// precondition: both endpoints exist, edge does not
+// effect: adds edge (data must be provided or defaulted)
+// complement: stores added edge data
 ```
 
 ### 6. `removeEdge`
 
 ```{.typescript}
 const pl = Protolens.removeEdge("replyTo");
-// Precondition: schema has edge "replyTo"
-// Effect: removes edge
-// Complement: stores removed edge data
+// precondition: schema has edge "replyTo"
+// effect: removes edge
+// complement: stores removed edge data
 ```
 
 ### 7. `wrapVertex`
 
 ```{.typescript}
 const pl = Protolens.wrapVertex("street", { wrapper: "address" });
-// Precondition: "street" exists, "address" does not
-// Effect: creates "address" container, nests "street" inside
-// Complement: stores wrapper structure
+// precondition: "street" exists, "address" does not
+// effect: creates "address" container, nests "street" inside
+// complement: stores wrapper structure
 ```
 
 ### 8. `hoistVertex`
 
 ```{.typescript}
 const pl = Protolens.hoistVertex("address.street");
-// Precondition: "address.street" exists
-// Effect: moves "street" up to parent level
-// Complement: stores original nesting
+// precondition: "address.street" exists
+// effect: moves "street" up to parent level
+// complement: stores original nesting
 ```
 
 ### 9. `coerceType`
 
 ```{.typescript}
 const pl = Protolens.coerceType("age", { from: "string", to: "int" });
-// Precondition: "age" exists with kind "string"
-// Effect: converts value using registered coercion
-// Complement: empty if coercion is bijective, stores original otherwise
+// precondition: "age" exists with kind "string"
+// effect: converts value using registered coercion
+// complement: empty if coercion is bijective, stores original otherwise
 ```
 
 ### 10. `mergeVertices`
@@ -243,9 +241,9 @@ const pl = Protolens.mergeVertices(["firstName", "lastName"], {
   merge: (first, last) => `${first} ${last}`,
   split: (full) => { const [f, ...l] = full.split(" "); return [f, l.join(" ")]; },
 });
-// Precondition: all source vertices exist
-// Effect: merges into single vertex
-// Complement: stores split function result for round-trip
+// precondition: all source vertices exist
+// effect: merges into single vertex
+// complement: stores split function result for round-trip
 ```
 
 ### 11. `splitVertex`
@@ -256,27 +254,27 @@ const pl = Protolens.splitVertex("fullName", {
   split: (full) => { const [f, ...l] = full.split(" "); return [f, l.join(" ")]; },
   merge: (first, last) => `${first} ${last}`,
 });
-// Precondition: "fullName" exists
-// Effect: splits into multiple vertices
-// Complement: stores merge function result for round-trip
+// precondition: "fullName" exists
+// effect: splits into multiple vertices
+// complement: stores merge function result for round-trip
 ```
 
 
-## Complement types as dependent types {#sec-dependent-complements}
+## Schema-dependent complement types {#sec-dependent-complements}
 
-In @sec-complement, we saw that the complement is a fixed data structure. For protolenses, the complement *depends on the schema*. A `removeVertex("internalId")` protolens produces different complement data for different schemas:
+In @sec-complement we saw that complements are data structures. For protolenses, the complement structure **depends on the schema**. A `removeVertex("internalId")` protolens produces different complements:
 
-- Schema A has `internalId: string`: complement stores a string
-- Schema B has `internalId: { hash: bytes, counter: int }`: complement stores an object
+- Schema A has `internalId: string` → complement stores a string
+- Schema B has `internalId: { hash: bytes, counter: int }` → complement stores an object
 
-The complement type is a function from schemas to types. In panproto's implementation, complements are dynamically typed (serialized as CBOR), so this dependence is handled at runtime rather than compile time. But the *structure* of the complement (which fields it contains, how they're nested) varies with the schema.
+The complement type is a function from schemas to types. In panproto's implementation, complements are dynamically typed (CBOR-serialized), so this dependence is handled at runtime. The complement structure—which fields it contains, how they nest—varies with the schema.
 
-This is why protolenses are more than simple templates. A template would produce the same complement structure every time. A protolens produces a complement whose structure matches the schema it was instantiated against.
+This is what distinguishes protolenses from templates. A template would produce the same complement every time. A protolens produces a complement whose structure matches the schema it was instantiated against.
 
 
-## CLI demo {#sec-protolens-cli}
+## Trying it from the CLI {#sec-protolens-cli}
 
-The `prot protolens` command computes and displays the protolens chain between two schemas:
+The `prot protolens` command shows the protolens chain between two schemas:
 
 ```bash
 $ prot protolens old.json new.json
@@ -295,7 +293,7 @@ Precondition:
 Applicable to: any schema satisfying the precondition
 ```
 
-You can instantiate the chain against a specific schema:
+Instantiate against a specific schema:
 
 ```bash
 $ prot protolens old.json new.json --instantiate my-schema.json
@@ -306,16 +304,16 @@ Instantiated lens for "my-schema-v2":
   complement size: ~48 bytes per record
 ```
 
-And you can convert data through the instantiated lens:
+Convert data through the instantiated lens:
 
 ```bash
 $ prot convert --protolens old.json new.json --schema my-schema.json data.json
 ```
 
 
-## TypeScript usage {#sec-protolens-ts}
+## Using protolenses in TypeScript {#sec-protolens-ts}
 
-The full TypeScript workflow:
+The full workflow:
 
 ```{.typescript}
 import { Panproto, ProtolensChainHandle, LensHandle } from "@panproto/core";
@@ -344,7 +342,7 @@ const converted = Panproto.convert(sourceData, { protolens: chain, schema: mySch
 ```
 
 
-## Python usage {#sec-protolens-py}
+## Using protolenses in Python {#sec-protolens-py}
 
 The equivalent Python workflow:
 
@@ -375,9 +373,9 @@ converted = Panproto.convert(source_data, protolens=chain, schema=my_schema)
 ```
 
 
-## Serialization and Reuse {#sec-protolens-serialization}
+## Serialization for reuse {#sec-protolens-serialization}
 
-Protolens chains serialize to JSON and deserialize back without loss:
+Protolens chains serialize to JSON losslessly:
 
 ```{.typescript}
 const chain = ProtolensChainHandle.autoGenerate(oldSchema, newSchema);
@@ -403,11 +401,11 @@ restored = ProtolensChainHandle.from_json(policy)
 lens = restored.instantiate(some_schema)
 ```
 
-Serialization matters in three scenarios:
+Three reasons this matters:
 
-1. **Distributing migration policies across teams.** A platform team defines a protolens chain and publishes it as a JSON artifact. Downstream teams apply it to their own schemas without regenerating the chain.
-2. **Storing chains in VCS.** Protolens chains committed alongside schema versions provide an auditable migration history.
-3. **Deferred application.** A chain created today can be applied to schemas that don't yet exist. When a new schema arrives, deserialize the chain and instantiate.
+1. **Distributing policies.** A platform team defines a protolens chain and publishes it as JSON. Downstream teams apply it to their own schemas without regenerating.
+2. **Version control.** Protolens chains committed alongside schema versions provide an auditable migration history.
+3. **Deferred application.** A chain created today can apply to schemas that don't yet exist. When a new schema arrives, deserialize and instantiate.
 
 From the CLI:
 
@@ -416,9 +414,9 @@ schema lens old.json new.json --protocol atproto --chain > policy.json
 ```
 
 
-## Checking Applicability {#sec-check-applicability}
+## Checking which schemas are compatible {#sec-check-applicability}
 
-The `check_applicability` method returns human-readable failure reasons instead of a boolean:
+The `check_applicability` method returns failure reasons instead of a boolean:
 
 ```{.typescript}
 const reasons = chain.checkApplicability(schema);
@@ -441,7 +439,7 @@ else:
     lens = chain.instantiate(schema)
 ```
 
-The boolean `applicable_to` tells you *whether* a chain applies. `check_applicability` tells you *why not*: which step failed, what sort or operation is missing, and what the schema would need for the step to succeed.
+`applicable_to` is a boolean. `check_applicability` tells you why not: which step failed, what's missing, and what the schema would need. Use this before attempting instantiation on a batch of schemas.
 
 From the CLI:
 
@@ -450,9 +448,9 @@ schema lens-verify --check-fleet ./schemas/
 ```
 
 
-## Fleet Migrations {#sec-fleet-migrations}
+## Applying a protolens to many schemas {#sec-fleet-migrations}
 
-`apply_to_fleet` applies a protolens chain to multiple schemas in one call, partitioning results into successes and failures:
+`apply_to_fleet` runs a protolens chain across multiple schemas, partitioning results into successes and failures:
 
 ```{.typescript}
 import { applyToFleet } from "@panproto/core";
@@ -484,7 +482,7 @@ for entry in result.skipped:
     print(f"  {entry.schema.name}: {', '.join(entry.reasons)}")
 ```
 
-From the CLI, the `--dry-run` flag produces a report without applying any changes:
+From the CLI, `--dry-run` produces a report without applying changes:
 
 ```{.sh}
 schema lens-fleet policy.json ./schemas/ --protocol atproto --dry-run
@@ -505,21 +503,21 @@ Fleet migration report:
 ```
 
 
-## Related work {#sec-protolens-related-work}
+## What protolenses owe to prior work {#sec-protolens-related-work}
 
-The term "protolens" is specific to panproto. The concept (a schema-parameterized lens family with schema-dependent complements) doesn't appear under this name in the existing literature. But it draws on and extends several established ideas.
+The concept of a schema-parameterized lens family with schema-dependent complements is panproto's contribution. But the concept builds on established ideas.
 
 ### Lenses (Foster et al. 2007)
 
-The asymmetric lens framework of @foster2007 defines a lens as a pair of `get`/`put` functions between two *fixed* types, satisfying the GetPut and PutGet laws (@sec-lenses). The key limitation a protolens addresses: a Foster-style lens is bound to a specific source and view type. If you want the same transformation (say, renaming a field) applied across many schemas, you write many lenses. A protolens writes one.
+The asymmetric lens framework of @foster2007 defines a lens as a pair of `get`/`put` functions between two *fixed* types, satisfying the GetPut and PutGet laws (@sec-lenses). A Foster-style lens binds to specific source and view types. If you want the same transformation (say, renaming a field) applied across many schemas, you write many lenses. A protolens writes one.
 
 See: [Combinators for Bidirectional Tree Transformations](https://doi.org/10.1145/1232420.1232424)
 
 ### Edit lenses and Cambria (Hofmann, Pierce, Wagner 2011; Litt et al. 2022)
 
-[Cambria](https://www.inkandswitch.com/cambria/) [@litt2022] pioneered the combinator approach to schema evolution, building on the *edit lenses* of @hofmann2011. Cambria's combinators (`rename`, `add`, `remove`, `wrap`, `hoist`, `convert`) are the direct inspiration for panproto's elementary protolens constructors.
+[Cambria](https://www.inkandswitch.com/cambria/) [@litt2022] pioneered the combinator approach to schema evolution, building on the *edit lenses* of @hofmann2011. Cambria's combinators (`rename`, `add`, `remove`, `wrap`, `hoist`, `convert`) directly inspired panproto's elementary protolens constructors.
 
-The distinction is in how schemas are handled:
+The distinction lies in schema handling:
 
 | | [Cambria](https://www.inkandswitch.com/cambria/) | panproto protolenses |
 |---|---------|---------------------|
@@ -532,28 +530,28 @@ The distinction is in how schemas are handled:
 
 : Cambria vs. panproto protolenses. {#tbl-cambria-comparison}
 
-Cambria's design is well suited for its domain: schema evolution in CRDT-based collaborative editors where schemas are implicit and changes are simple renames and additions. Protolenses target a different domain: platform-wide schema governance where changes must be verified across many schemas. If you work with a single schema that evolves incrementally, Cambria-style combinators (available in panproto via the `pipeline()` API from @sec-lenses) may be all you need.
+Cambria is well-suited for its domain: schema evolution in CRDT-based editors where schemas are implicit and changes are simple. Protolenses target platform-wide governance where changes must be verified across many schemas. If you work with a single schema evolving incrementally, Cambria-style combinators (available via the `pipeline()` API from @sec-lenses) may suffice.
 
 See: [Project Cambria](https://www.inkandswitch.com/cambria/), [Symmetric Lenses](https://doi.org/10.1145/1926385.1926428)
 
 ### Polymorphic lenses / lens families (Kmett 2012)
 
-Haskell's [`lens`](https://hackage.haskell.org/package/lens) library defines a `Lens s t a b` with four type parameters, allowing the source and target types to differ. This is sometimes called a "lens family": a single lens definition that works across different type instantiations. panproto's protolenses are conceptually similar (one definition, many instantiations) but parameterized over *schemas* rather than *Haskell types*, and the parameterization affects the complement structure, not just the source/target types.
+Haskell's [`lens`](https://hackage.haskell.org/package/lens) library defines a `Lens s t a b` with four type parameters, allowing source and target types to differ. A "lens family" works across different type instantiations. Protolenses are conceptually similar (one definition, many instantiations) but parameterized over *schemas* rather than *types*, and the parameterization affects the complement structure, not just the source/target types.
 
 See: [lens on Hackage](https://hackage.haskell.org/package/lens)
 
 ### Delta lenses (Johnson and Rosebrugh 2013)
 
-Delta lenses [@johnson2013] generalize asymmetric lenses by making the source and view *categories* rather than sets, with `get` as a functor between them. This is the closest categorical framework to what protolenses do: a protolens can be understood as a delta lens where the source category is the category of schemas satisfying a precondition. panproto doesn't directly implement delta lenses, but the commutativity property of protolenses (applying a protolens commutes with schema migration) is the same kind of coherence condition that delta lenses formalize.
+Delta lenses [@johnson2013] generalize asymmetric lenses by making source and view *categories* rather than sets, with `get` as a functor between them. This is the closest categorical framework to what protolenses do: a protolens can be understood as a delta lens where the source category is the category of schemas satisfying a precondition. The commutativity property of protolenses (applying a protolens commutes with schema migration) is the same kind of coherence condition delta lenses formalize.
 
 See: [Delta Lenses and Opfibrations](https://doi.org/10.14279/tuj.eceasst.57.875)
 
-### What is novel in panproto's protolenses
+### What's new in panproto's protolenses
 
-Three things, taken together, distinguish protolenses from prior work:
+Three things together distinguish protolenses from prior work:
 
-1. **Schema-dependent complements.** A `removeVertex("metadata")` protolens produces a complement storing a string if `metadata` is a string vertex, or an object if `metadata` is a structured vertex. The complement *type* varies with the schema. Neither Cambria nor the Haskell lens library tracks schema-dependent complement structure.
+1. **Schema-dependent complements.** A `removeVertex("metadata")` protolens produces a complement storing a string if `metadata` is a string, or an object if `metadata` is structured. The complement *type* varies with the schema. Cambria and Haskell lens families don't track this.
 
-2. **Precondition checking with diagnostics.** Instantiation verifies that a schema satisfies the protolens's requirements and reports which step failed and why. Cambria combinators don't check preconditions; they silently pass through fields they don't recognize.
+2. **Precondition checking with diagnostics.** Instantiation verifies that a schema satisfies the protolens's requirements and reports which step failed and why. Cambria combinators don't check; they silently pass through unrecognized fields.
 
-3. **Commutativity with migration.** Applying a protolens before or after a schema migration produces the same result. This isn't a property of Cambria combinators (which don't have a formal migration framework to commute with) or of Haskell lens families (which don't operate in a schema-migration context).
+3. **Commutativity with migration.** Applying a protolens before or after a schema migration produces the same result. This isn't a property of Cambria (which lacks a formal migration framework) or Haskell lens families (which don't operate in a schema-migration context).

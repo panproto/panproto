@@ -44,8 +44,8 @@ Typed hypergraph schemas and protocol definitions.
 | `src/schema.rs` | `Schema`, `Vertex`, `Edge`, `HyperEdge`, `Constraint` structs |
 | `src/builder.rs` | `SchemaBuilder` for fluent schema construction |
 | `src/protocol.rs` | `Protocol` trait, `EdgeRule` struct |
-| `src/validate.rs` | `validate()` --- check a schema against protocol rules |
-| `src/normalize.rs` | `normalize()` --- collapse reference chains and canonicalize |
+| `src/validate.rs` | `validate()` — check a schema against protocol rules |
+| `src/normalize.rs` | `normalize()` — collapse reference chains and canonicalize |
 | `src/error.rs` | `SchemaError` enum |
 
 ## crates/panproto-inst --- Instances (W-type and functor)
@@ -79,11 +79,11 @@ Compiles, executes, composes, and inverts migrations.
 |---|---|
 | `src/lib.rs` | Public API re-exports |
 | `src/migration.rs` | `Migration`, `CompiledMigration` structs |
-| `src/compile.rs` | `compile()` --- produce a compiled migration from a theory morphism diff |
-| `src/existence.rs` | `existence_check()` --- verify a migration can be applied to an instance |
-| `src/lift.rs` | `lift()` --- backward migration (target to source) |
-| `src/compose.rs` | `compose()` --- chain two migrations into one |
-| `src/invert.rs` | `invert()` --- reverse a migration (requires lens complement) |
+| `src/compile.rs` | `compile()` — produce a compiled migration from a theory morphism diff |
+| `src/existence.rs` | `existence_check()` — verify a migration can be applied to an instance |
+| `src/lift.rs` | `lift()` — backward migration (target to source) |
+| `src/compose.rs` | `compose()` — chain two migrations into one |
+| `src/invert.rs` | `invert()` — reverse a migration (requires lens complement) |
 | `src/error.rs` | `MigError` enum |
 | `benches/mig_bench.rs` | divan benchmarks for compile, lift, compose |
 
@@ -117,8 +117,8 @@ Diff, classify, and report schema changes.
 | File | Description |
 |---|---|
 | `src/lib.rs` | Public API re-exports |
-| `src/diff.rs` | `diff()` --- compute structural diff between two schemas |
-| `src/classify.rs` | `classify()` --- label each diff entry as breaking, compatible, or informational |
+| `src/diff.rs` | `diff()` — compute structural diff between two schemas |
+| `src/classify.rs` | `classify()` — label each diff entry as breaking, compatible, or informational |
 | `src/report.rs` | `Report` struct, human-readable and machine-readable output |
 | `src/error.rs` | `CheckError` enum |
 

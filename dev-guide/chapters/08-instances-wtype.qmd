@@ -30,7 +30,7 @@ A `WInstance` is a tree-shaped data instance conforming to a schema. Nodes are k
 ```{.rust include="../../crates/panproto-inst/src/wtype.rs" start-line=49 end-line=70}
 ```
 
-### Node Structure
+### Node structure
 
 Each `Node` (defined in `inst/src/metadata.rs`) carries:
 
@@ -40,7 +40,7 @@ Each `Node` (defined in `inst/src/metadata.rs`) carries:
 - `discriminator: Option<String>`: for union-typed nodes, the `$type` tag.
 - `extra_fields: HashMap<String, Value>`: unrecognized JSON fields preserved for round-trip fidelity.
 
-### Arcs and Trees
+### Arcs and trees
 
 An arc `(parent_id, child_id, Edge)` connects a parent node to a child node along a schema edge. The tree invariant is enforced structurally: every non-root node has exactly one parent. The `parent_map` and `children_map` are precomputed in `WInstance::new()` from the arc list.
 
@@ -48,7 +48,7 @@ An arc `(parent_id, child_id, Edge)` connects a parent node to a child node alon
 The `children_map` uses `SmallVec<u32, 4>` because most instance nodes have between 1 and 4 children. This avoids heap allocation for the common case while still supporting arbitrarily large fan-outs for array nodes.
 :::
 
-## RestrictState and the Arena Allocator
+## RestrictState and the arena allocator
 
 The restrict pipeline uses a `RestrictState` struct to carry intermediate results between steps without re-allocating:
 
@@ -63,7 +63,7 @@ All three collections are allocated once at pipeline entry and reused across ste
 For small instances (fewer than 100 nodes), per-step allocation is negligible. For large instances (100k+ nodes from format-specific parsers like HTML or CoNLL-U), the allocator overhead of five separate `Vec`/`HashMap` constructions becomes measurable. The fused single-pass design keeps allocation count constant regardless of instance size.
 :::
 
-## The 5-Step Restrict Pipeline (Fused Single-Pass)
+## The 5-step restrict pipeline (fused single-pass)
 
 The `wtype_restrict` function projects an instance along a compiled migration. Conceptually it's five steps; the implementation fuses Steps 1 and 2 into a single BFS pass and Steps 3 and 4 into a single ancestor-walk pass.
 
@@ -86,7 +86,7 @@ flowchart TD
     style S5 fill:#e8f0fe,stroke:#1a73e8
 ```
 
-### Step 1: Signature Restriction (anchor_surviving)
+### Step 1: signature restriction (anchor_surviving)
 
 The first step selects the subset of instance nodes whose schema anchor vertex is retained by the migration. This is a pure filter: if a node's `anchor` is in `CompiledMigration::surviving_verts`, it's a candidate; otherwise it's dropped.
 
@@ -95,7 +95,7 @@ The first step selects the subset of instance nodes whose schema anchor vertex i
 
 After this step, some surviving nodes may be orphaned (their parent was dropped) or disconnected (reachable only through dropped intermediaries). Steps 2 and 3 handle these cases.
 
-### Step 2: Reachability BFS (reachable_from_root)
+### Step 2: reachability BFS (reachable_from_root)
 
 Not all anchor-surviving nodes are necessarily reachable from the root. Step 2 performs a breadth-first search starting from the root (if it survived Step 1) through children that are also in the candidate set.
 
@@ -108,7 +108,7 @@ If the root itself doesn't survive anchor restriction, the entire instance is pr
 The BFS traversal follows the instance tree's parent-child arcs, not the schema graph's edges. A node is reachable if there's a path of surviving nodes from the root to it through the instance tree.
 :::
 
-### Step 3: Ancestor Contraction (ancestor_contraction)
+### Step 3: ancestor contraction (ancestor_contraction)
 
 When intermediate nodes are pruned, their children need to be re-attached to the nearest surviving ancestor. Step 3 walks up the parent chain for each surviving non-root node to find that ancestor.
 
@@ -119,7 +119,7 @@ The result is a map from each surviving node to its nearest surviving ancestor. 
 
 The function includes cycle detection as a safety measure. In a well-formed tree instance, cycles in the parent chain can't occur (the tree invariant forbids them), but the guard prevents infinite loops if an invalid instance is passed in.
 
-### Step 4: Edge Resolution (resolve_edge)
+### Step 4: edge resolution (resolve_edge)
 
 Each contracted arc needs a schema edge in the target schema. Step 4 resolves the edge for each `(ancestor, child)` pair by:
 
@@ -132,7 +132,7 @@ Each contracted arc needs a schema edge in the target schema. Step 4 resolves th
 
 The resolver is populated during migration compilation by `panproto-mig`. In practice, ambiguity is rare. Most vertex pairs in a schema are connected by at most one edge. When it does occur (e.g., a vertex has both a `"prop"` and a `"ref"` edge to the same target), the migration specification must include an explicit resolution.
 
-### Step 5: Fan Reconstruction (reconstruct_fans)
+### Step 5: fan reconstruction (reconstruct_fans)
 
 For schemas that use hyper-edges, the final step rebuilds the hyper-edge fans. A _fan_ is an instance-level manifestation of a hyper-edge: it connects a parent node to multiple child nodes via labeled slots.
 
@@ -148,17 +148,17 @@ Fans whose parent was pruned are dropped entirely. Fans with no surviving childr
 Only for protocols whose schema theory includes the `HyperEdge` sort (Group B protocols: SQL, Parquet, Cassandra, etc.). For Group A protocols (JSON Schema, AT Protocol, OpenAPI), there are no hyper-edges and Step 5 is a no-op. The cost is a single emptiness check on the fan list.
 :::
 
-## Functor Instances (functor_restrict)
+## Functor instances (functor_restrict)
 
 `panproto-inst` also provides an alternative instance representation for relational (tabular) data: `FInstance`, a set-valued table. Each schema vertex maps to a table (a `Vec` of row maps), and each edge maps to foreign-key relationships.
 
-The restrict operation for functor instances is straightforward: for each vertex in the target schema, pull the corresponding table from the source instance via the migration's vertex map.^[Categorically, this is the pullback functor $\Delta_F$ [@spivak2012]. It composes correctly by construction: restricting along a composed migration is the same as restricting twice.]
+The restrict operation for functor instances is simpler than the W-type pipeline: for each vertex in the target schema, pull the corresponding table from the source instance via the migration's vertex map.^[Categorically, this is the pullback functor $\Delta_F$ [@spivak2012]. It composes correctly by construction: restricting along a composed migration is the same as restricting twice.]
 
 ::: {.callout-tip}
 Use `FInstance` and `functor_restrict` for relational protocols (SQL, MongoDB). Use `WInstance` and `wtype_restrict` for document protocols (AT Protocol, JSON Schema, OpenAPI). The choice is determined by the protocol's `instance_theory` field.
 :::
 
-## JSON Round-Trip (parse_json / to_json)
+## Json round-trip (parse_json / to_json)
 
 The `parse` module provides schema-guided JSON parsing and serialization:
 
@@ -171,7 +171,7 @@ The round-trip preserves:
 - **Extra fields**: JSON properties not recognized by the schema are stored in `Node::extra_fields` and re-emitted on serialization.
 - **Discriminators**: `$type` tags on union-typed objects are preserved via `Node::discriminator`.
 
-## Validation Axioms (I1 through I7)
+## Validation axioms (i1 through i7)
 
 The `validate` module checks that a `WInstance` satisfies seven structural axioms:
 
@@ -193,7 +193,7 @@ The `validate` module checks that a `WInstance` satisfies seven structural axiom
 The restrict pipeline is designed to preserve axioms I1 through I7. If the source instance is valid and the compiled migration is well-formed, the restricted instance is guaranteed to be valid with respect to the target schema.
 :::
 
-### Axiom Preservation Through the Pipeline
+### Axiom preservation through the pipeline
 
 Each step of the restrict pipeline maintains or establishes specific axioms:
 
@@ -205,11 +205,11 @@ Each step of the restrict pipeline maintains or establishes specific axioms:
 
 I3 (root exists) is checked explicitly. If the root is pruned, the pipeline returns an error rather than producing an invalid instance.
 
-## The AcsetOps Trait
+## The acsetops trait
 
 The `AcsetOps` trait provides a unified interface for operations across all three instance shapes: `WInstance`, `FInstance`, and `GInstance`.
 
-### Trait Definition
+### Trait definition
 
 ```rust
 pub trait AcsetOps: Clone + std::fmt::Debug {
@@ -251,7 +251,7 @@ The four methods cover the core operations:
 
 Note that `FInstance::restrict` and `GInstance::restrict` don't use the `src_schema` and `tgt_schema` parameters. Their restrict operations depend only on the compiled migration. The schema parameters are required by `WInstance::restrict` for the ancestor contraction and fan reconstruction steps. The trait uses the most general signature to accommodate all shapes.
 
-### The Instance Enum
+### The instance Enum
 
 ```rust
 pub enum Instance {
@@ -263,7 +263,7 @@ pub enum Instance {
 
 `Instance` dispatches `restrict`, `extend`, `element_count`, and `shape_name` to the inner type's `AcsetOps` implementation. This is the type used by the CLI's `schema lift` command and by the VCS layer when storing instances in the object store.
 
-### GInstance: Graph-Shaped Instances
+### Ginstance: graph-shaped instances
 
 The `GInstance` type handles the most general instance shape: a directed graph of nodes and edges with no distinguished root and cycles allowed. Both `WInstance` (trees) and `FInstance` (tables) are special cases.
 
@@ -273,21 +273,21 @@ The `GInstance` type handles the most general instance shape: a directed graph o
 Use `GInstance` when your protocol's data is inherently graph-shaped (no natural root node, cycles expected). For tree-structured data (JSON, XML), use `WInstance`. For tabular data (SQL, CSV), use `FInstance`. The `AcsetOps` trait ensures that the migration engine works identically regardless of which shape you choose.
 :::
 
-## Polynomial Operations and Fibers
+## Polynomial operations and fibers
 
 `panproto-inst` also provides polynomial functor operations in `poly.rs` and `hom.rs`. These include fiber decomposition (preimage of a migration at a target anchor), section construction (enriching a base instance with annotation data), group-by (partitioning by migration image), join (pullback of two instances along shared projections), and the internal hom (a schema whose instances represent migrations). The `restrict_with_complement` function in `poly.rs` extends the restrict pipeline to track dropped nodes and arcs, enabling `fiber_at_node` queries. For full details, see @sec-polynomial-operations.
 
-## Design Rationale
+## Design rationale
 
-### Why Separate Node IDs from Anchors
+### Why separate node ids from anchors
 
 Node IDs are `u32` values. Anchors are `String` schema vertex IDs. Multiple nodes can share the same anchor (e.g., an array of strings all anchored to the same `"items"` vertex). Keeping IDs numeric and anchors semantic gives $O(1)$ node lookup by ID while preserving the schema-level meaning through the anchor.
 
-### Why Precomputed Parent and Children Maps
+### Why precomputed parent and children maps
 
 The `parent_map` and `children_map` are computed once in `WInstance::new()` and never updated. This is safe because `WInstance` is immutable after construction. The restrict pipeline creates a new `WInstance` rather than mutating the source.
 
-### Why Five Steps Instead of One
+### Why five steps instead of one
 
 Decomposing the restrict algorithm into five independent functions serves two purposes:
 

@@ -6,23 +6,21 @@
 This tutorial is nearly fully LLM-generated. Proceed with caution. We appreciate [bug reports](https://github.com/panproto/panproto/issues).
 :::
 
-panproto is a schematic version control system parameterized over algebraic theories. It derives migration validation, data transformation, bidirectional lenses, and breaking-change detection from the pair of theories that define a schema language: one theory for the shape of schemas, one for the shape of data. The same algorithms apply to ATProto Lexicons, SQL DDL, Protobuf, GraphQL, and [76 other protocols](appendices/C-protocol-catalog.qmd). This tutorial teaches you how to use them.
+panproto is a schema migration engine parameterized over algebraic theories.  A pair of theories---one for the shape of schemas, one for the shape of data---pins down what a particular format means, and the engine derives migration, validation, bidirectional lenses, and breaking-change detection from that pair alone.  The algorithms never mention a specific format; they operate on the theories.  This is why the same engine handles 76 protocols whose surface syntax has nothing in common.
 
-## What this tutorial covers
+This tutorial teaches you how to use those algorithms and, when it matters, why they work.
 
-The tutorial is organized in seven parts:
+## What you will learn
 
-- **Part I**: the schema migration problem, concretely.
-- **Part II**: the structural foundation (schemas as graphs, theories, protocols as pairs of theories).
-- **Part III**: migration end-to-end (writing, validating, executing migrations; bidirectional lenses; CI integration).
-- **Part IV**: data lifting, custom protocols, schema version control, cross-protocol translation.
-- **Part V**: naming, automatic migration discovery, the building-block theory library, testing.
-- **Part VI**: automated lenses (protolenses, automatic lens generation, symmetric lenses).
-- **Part VII**: data versioning and value-dependent transforms.
+The tutorial has eight parts.  The first three are the core: they take you from a concrete problem (schemas change and data breaks) through the mathematical framework (schemas as graphs, algebraic theories, protocols as theory pairs) to working migrations you can run.  The remaining parts extend the framework in directions you can read in any order.
+
+Part I poses the problem concretely, with four real schema languages describing the same data.  Part II develops the structural foundation: directed graphs, theories, dependent sorts, and the two-parameter protocol architecture.  Part III walks through migration end to end---writing a migration by hand, seeing what the engine checks, building bidirectional lenses, and wiring breaking-change detection into CI.
+
+Parts IV through VIII cover the rest of the toolkit: data lifting, custom protocols, schema version control, cross-protocol translation, naming, automatic migration discovery, the building-block theory library, testing, automated lenses, data versioning, value-dependent transforms, full-AST parsing, and LLVM integration.
 
 ## Who this is for
 
-You write software that handles structured data. You know what a Protobuf message, a SQL table, or a JSON Schema looks like. We introduce every algebraic concept as we need it; formal foundations are collected in [Appendix A](appendices/A-formal-foundations.qmd).
+You write software that handles structured data.  You know what a Protobuf message, a SQL table, or a JSON Schema looks like.  We introduce every algebraic concept as we need it; if you want the full formal treatment up front, [Appendix A](appendices/A-formal-foundations.qmd) collects the mathematics in one place.
 
 ## Installation
 
@@ -49,4 +47,4 @@ pip install panproto
 
 :::
 
-Code examples use the panproto TypeScript SDK (`@panproto/core`), Rust API (`panproto-core`), and Python SDK (`panproto`). All code is pulled from source files using the [`include-code-files`](https://github.com/quarto-ext/include-code-files) Quarto extension, so what you see matches the implementation.
+Code examples appear in all three languages.  All code is pulled from source files using the [`include-code-files`](https://github.com/quarto-ext/include-code-files) Quarto extension, so what you see matches the implementation.

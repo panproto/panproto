@@ -1,12 +1,12 @@
 # Querying Instances {#sec-querying-instances}
 
-Every schema instance is a graph: vertices carry data, edges encode relationships. The previous chapters showed how to build instances, version them, and migrate their data when the schema changes. But at some point you want to *ask questions* about the data: which posts got the most engagement, which annotations belong to a particular layer, which nodes satisfy some computed condition. That is what the query engine is for.
+Every schema instance is a graph: vertices carry data, edges encode relationships. Previous chapters showed how to build instances, version them, and migrate their data. But now you want to *ask questions* about the data: which posts got the most engagement? Which annotations belong to a particular layer? Which nodes satisfy some computed condition? The query engine answers these questions.
 
-panproto provides two pieces that work together. The first is a Haskell-style expression language for writing predicates, projections, and computed values. The second is a declarative query engine (`InstanceQuery`) that uses those expressions to select, filter, and reshape nodes from a schema instance. This chapter covers both.
+panproto provides two pieces that work together. The first is a Haskell-style expression language for writing predicates, projections, and computed values. The second is a declarative query engine (`InstanceQuery`) that uses those expressions to select, filter, and reshape nodes from an instance. This chapter covers both.
 
 ## The expression language {#sec-expression-language}
 
-The expression language is a small functional language designed to feel natural if you have written Haskell, ML, or even spreadsheet formulas. It is used everywhere panproto needs to express computation over values: query predicates, field transforms (as seen in @sec-value-dependent-transforms), computed fields, and conditional survival.
+The expression language is a small functional language designed to feel natural if you've written Haskell, ML, or even spreadsheet formulas. It appears everywhere panproto needs to express computation: query predicates, field transforms (as seen in @sec-value-dependent-transforms), computed fields, and conditional survival.
 
 ### Literals {#sec-expr-literals}
 
@@ -166,7 +166,7 @@ List comprehensions follow Haskell syntax, with generators (`<-`) and guards:
 [ x + 1 | x <- xs, x > 0 ]
 ```
 
-This reads: for each `x` drawn from `xs`, if `x > 0`, yield `x + 1`. Multiple generators and guards can be combined:
+This reads: for each `x` drawn from `xs`, if `x > 0`, yield `x + 1`. You can combine multiple generators and guards:
 
 ```{.haskell}
 [ x ++ y | x <- prefixes, y <- suffixes, length (x ++ y) < 10 ]
@@ -211,7 +211,7 @@ fold (\acc x -> acc + x) 0 scores
 
 ## The declarative query engine {#sec-query-engine}
 
-The query engine operates on `WInstance` values (W-type instances, the tree-shaped data that conforms to a schema). An `InstanceQuery` is a declarative description of what you want: which vertex type to start from, which edges to follow, what conditions to check, and which fields to return. The engine evaluates the query in a fixed pipeline.
+The query engine operates on `WInstance` values (W-type instances, the tree-shaped data that conforms to a schema). An `InstanceQuery` is a declarative description of what you want: which vertex type to start from, which edges to follow, what conditions to check, and which fields to return. The engine executes a fixed pipeline.
 
 ### Query structure {#sec-query-structure}
 
@@ -295,7 +295,7 @@ let results = execute(&query, &instance);
 // document -> layers -> annotations
 ```
 
-Path navigation is especially useful when you want to scope a query to a particular subgraph. Without it, anchoring on `"annotation"` would return every annotation in the instance. With a path, you can restrict to annotations reachable through a specific edge sequence.
+Path navigation is especially useful when you want to scope a query to a particular subgraph. Without it, anchoring on `"annotation"` would return every annotation in the instance. With a path, you restrict to annotations reachable through a specific edge sequence.
 
 ### Projection {#sec-projection}
 
@@ -310,7 +310,7 @@ let query = InstanceQuery {
     ..Default::default()
 };
 let results = execute(&query, &instance);
-// Each result has only the "title" field
+// each result has only the "title" field
 ```
 
 This is useful when nodes carry many fields but you only need one or two. Projection does not affect filtering; the predicate still has access to all fields when it evaluates.
@@ -353,7 +353,7 @@ let query = InstanceQuery {
 };
 let results = execute(&query, &instance);
 
-// Collect unique tags across all posts
+// collect unique tags across all posts
 let all_tags: Vec<&Value> = results
     .iter()
     .filter_map(|r| r.fields.get("tags"))
@@ -396,7 +396,7 @@ In the surface syntax this would be `likes > 10 && author == "alice"`.
 
 ### Using comprehensions to reshape results {#sec-comprehension-reshaping}
 
-List comprehensions in the expression language are useful for computed predicates and transforms, not just standalone evaluation. You might use a comprehension inside a `ComputeField` to derive a summary value:
+List comprehensions in the expression language are useful for computed predicates and transforms. You might use a comprehension inside a `ComputeField` to derive a summary value:
 
 ```{.haskell}
 let active = [ u | u <- users, u.lastLogin > cutoff ]

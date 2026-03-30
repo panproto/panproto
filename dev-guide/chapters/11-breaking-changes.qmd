@@ -1,6 +1,6 @@
 # panproto-check: Breaking Change Detection {#sec-breaking-changes}
 
-The check pipeline is a three-stage function composition: $\mathrm{report} \circ \mathrm{classify} \circ \mathrm{diff}$. Given two schemas $S_1$ and $S_2$ and a protocol $P$, `diff` computes the structural delta, `classify` assigns severity based on $P$'s edge rules and constraint sorts, and `report` renders the result. For example, removing a vertex is always breaking; adding a vertex is always non-breaking; tightening a constraint is breaking only when the protocol recognizes that constraint sort.
+The breaking change pipeline chains three functions: $\mathrm{diff}$ computes structural deltas, $\mathrm{classify}$ assigns severity based on protocol semantics, and $\mathrm{report}$ renders human and machine-readable output. Take two schemas $S_1$ and $S_2$ and a protocol $P$. The pipeline tells you whether $S_2$ is backward-compatible with $S_1$ under $P$'s rules.
 
 ```{mermaid}
 flowchart LR
@@ -14,36 +14,36 @@ flowchart LR
     CR --> RJ[report_json]
 ```
 
-## Structural Diffing
+## Structural diffing
 
-### SchemaDiff
+### What diff produces
 
-The `SchemaDiff` struct records every structural difference between two schema revisions:
+The `SchemaDiff` struct records every structural change between two schema revisions. It captures changes across all 13 schema fields: vertices, edges, constraints, hyper-edges, required edges, NSIDs, variants, orderings, recursion points, usage modes, spans, and nominal flags.
 
 ```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=14 end-line=95}
 ```
 
-The struct captures changes across all 13 schema fields: vertices, edges, constraints, hyper-edges, required edges, NSIDs, variants, orderings, recursion points, usage modes, spans, and nominal flags. Each category is a simple collection; the diff doesn't assign severity to any change.
+Each category uses simple collections of added and removed elements. The diff doesn't assign severity; that's `classify`'s job. Think of it as a structural delta independent of any protocol.
 
-### Constraint and Kind Changes
+### Constraint and kind changes
 
-Constraint changes are captured at a finer granularity through `ConstraintDiff`, `ConstraintChange`, and `KindChange`:
+Fine-grained tracking of constraint mutations comes through `ConstraintDiff`, `ConstraintChange`, and `KindChange`:
 
 ```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=97 end-line=128}
 ```
 
-`ConstraintDiff` records three sub-categories for each vertex: constraints that were added (present in new but not old), constraints that were removed (present in old but not new), and constraints whose value changed (present in both but with different values). The `ConstraintChange` struct captures the sort, old value, and new value for each changed constraint, providing enough information for the classifier to determine the direction of change.
+For each vertex, `ConstraintDiff` tracks three categories: constraints added (new but not old), removed (old but not new), and changed (both present but different). The `ConstraintChange` struct captures the sort, old value, and new value. This detail lets the classifier determine the direction of change—tightening or relaxing.
 
-`KindChange` records vertices whose `kind` field changed between versions (e.g., a vertex that was `"string"` in the old schema but `"integer"` in the new schema).
+`KindChange` records vertices whose kind field shifted (e.g., `"string"` to `"integer"`). A kind change always signals incompatibility because existing data may not conform to the new kind.
 
-### Extended Change Types
+### Extended change types
 
 The diff also tracks fine-grained changes to hyper-edges, variants, recursion points, and spans:
 
 ```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=130 end-line=180}
 ```
 
-### The diff Function
+### The diff function
 
 ```{.rust include="../../crates/panproto-check/src/diff.rs" start-line=182 end-line=189}
 ```
@@ -51,123 +51,121 @@ The diff also tracks fine-grained changes to hyper-edges, variants, recursion po
 The function compares all schema fields using set operations. Output is deterministic: added and removed lists are sorted for consistent comparison in tests and CI.
 
 ::: {.callout-note}
-The diff operates on panproto's graph-level schema representation, not on any protocol-specific format. A `SchemaDiff` between two JSON Schema versions and a `SchemaDiff` between two Protobuf versions have the same type and structure. Protocol-specific semantics only enter at the classification stage.
+The diff operates on panproto's graph-level schema representation, not on protocol-specific formats. A `SchemaDiff` between two JSON Schema versions and a `SchemaDiff` between two Protobuf versions have the same type and structure. Protocol-specific semantics only matter during classification.
 :::
 
-### What diff Does Not Do
+### What diff does not track
 
-The diff is purely structural. It doesn't:
+The diff is purely structural. It doesn't determine breaking vs. non-breaking (that's `classify`'s responsibility). It can't detect renames—a rename appears as a removal plus addition. It doesn't identify semantic equivalences—two structurally different but semantically equivalent schemas will produce a non-empty diff.
 
-- Determine whether a change is breaking or non-breaking (that's `classify`'s job).
-- Track renames (a rename appears as a removal plus addition of different vertices/edges).
-- Detect semantic equivalences (two schemas that are structurally different but semantically equivalent will produce a non-empty diff).
+For rename detection, use the migration engine (@sec-migration-engine) to compute an explicit mapping, then classify the migration's implied diff.
 
-If you need rename detection, use the migration engine (@sec-migration-engine) to compute an explicit mapping, then use `classify` on the migration's implied diff.
+## Protocol-aware classification
 
-## Protocol-Aware Classification
+Classification is where protocol semantics enter. The `classify` function takes a `SchemaDiff` and a `Protocol` and determines each change's severity based on the protocol's edge rules and constraint sorts.
 
-Classification is where protocol semantics enter. The `classify` function takes a `SchemaDiff` and a `Protocol` and determines the severity of each change based on the protocol's edge rules and constraint sorts.
-
-### Breaking Changes
+### Breaking change rules
 
 | Change | When Breaking | Rationale |
 |---|---|---|
-| Vertex removal | Always | Consumers depending on the vertex will fail |
-| Edge removal | When the edge kind matches a protocol edge rule | Protocol-governed edges are part of the structural contract |
-| Kind change | Always | Existing data may not conform to the new kind |
-| Constraint tightening | When the sort is recognized by the protocol | Existing data may violate the tighter constraint |
-| Constraint addition | When the sort is recognized by the protocol | Existing data may violate the new constraint |
+| Vertex removal | Always | Consumers depending on it will fail |
+| Edge removal | When edge kind matches a protocol edge rule | Protocol-governed edges are structural contracts |
+| Kind change | Always | Existing data may not conform |
+| Constraint tightening | When protocol recognizes the sort | Existing data may violate tighter constraints |
+| Constraint addition | When protocol recognizes the sort | Existing data may violate new constraints |
 
-Vertex removal is unconditionally breaking because any consumer relying on that vertex (reading a field, following an edge, anchoring a node) will fail.
+Vertex removal is unconditionally breaking because any consumer (reading a field, following an edge, anchoring a node) will fail.
 
-Edge removal is protocol-dependent. The protocol's `edge_rules` declare which edge kinds are structurally significant. For example, JSON Schema protocols declare `"prop"` edges as governed; SQL protocols declare `"fk"` (foreign key) edges. Removing a governed edge is breaking; removing an ungoverned edge (e.g., a metadata annotation) is not.
+Edge removal depends on the protocol. The protocol's `edge_rules` declare which edge kinds matter structurally. JSON Schema protocols govern `"prop"` edges; SQL protocols govern `"fk"` edges. Removing a governed edge breaks the contract. Removing an ungoverned edge (metadata, annotations) does not.
 
-Kind changes are unconditionally breaking. Changing a vertex from `"string"` to `"integer"` means that existing string data can't be interpreted as integers without an explicit coercion.
+Kind changes are unconditionally breaking. Changing a vertex from `"string"` to `"integer"` means existing string data can't be interpreted as integers without explicit coercion.
 
-### Non-Breaking Changes
+### Non-breaking changes
 
 | Change | Rationale |
 |---|---|
-| Vertex addition | New consumers can use it; existing consumers ignore it |
-| Edge addition | Additive change; existing consumers are unaffected |
+| Vertex addition | New consumers use it; existing consumers ignore it |
+| Edge addition | Additive; existing consumers unaffected |
 | Constraint relaxation | Existing data remains valid under looser constraints |
-| Constraint removal | Equivalent to maximally relaxing the constraint |
+| Constraint removal | Equivalent to maximally relaxing |
 
-Vertex and edge additions are the bread and butter of backward-compatible evolution. Adding an optional field to a JSON Schema, a new column to a SQL table, or a new message type to a Protobuf definition: all of these are non-breaking because existing consumers simply ignore the additions.
+Vertex and edge additions are the workhorse of backward-compatible evolution. Adding an optional field to JSON Schema, a new column to SQL, a new message to Protobuf—all are non-breaking.
 
-Constraint relaxation is non-breaking because existing data was valid under the tighter constraint and therefore remains valid under the looser one. Raising `maxLength` from 300 to 3000, for example, doesn't invalidate any existing strings.
+Constraint relaxation preserves existing data. Raising `maxLength` from 300 to 3000 doesn't invalidate any existing strings.
 
 ::: {.callout-caution}
-## What about edge removal for an ungoverned edge kind?
-If the protocol doesn't have an `EdgeRule` for the removed edge's kind, the removal is classified as non-breaking. This is intentional: ungoverned edges are considered metadata or annotations, not structural contracts. If you want all edge removals to be breaking, add a catch-all edge rule to your protocol.
+## Edge Removal Without Protocol Governance
+
+If the protocol has no `EdgeRule` for a removed edge's kind, the removal is classified as non-breaking. Ungoverned edges are metadata or annotations, not structural contracts. To make all edge removals breaking, add a catch-all edge rule to the protocol.
 :::
 
-### Constraint Direction
+### Constraint direction
 
-For numeric constraints, the classification engine determines direction automatically:
+Numeric constraints are analyzed for direction automatically:
 
-- **Upper bounds** (`maxLength`, `maxSize`, `maximum`, `maxGraphemes`): a smaller new value is tightening (breaking); a larger new value is relaxing (non-breaking).
-- **Lower bounds** (`minLength`, `minimum`): a larger new value is tightening (breaking); a smaller new value is relaxing (non-breaking).
-- **Other constraints**: any value change is treated as tightening (breaking), since the engine can't infer the direction for arbitrary constraint sorts without additional metadata.
+- **Upper bounds** (`maxLength`, `maxSize`, `maximum`, `maxGraphemes`): a smaller new value is tightening (breaking); larger is relaxing (non-breaking).
+- **Lower bounds** (`minLength`, `minimum`): a larger new value is tightening (breaking); smaller is relaxing (non-breaking).
+- **Other constraints**: any value change is treated as tightening (breaking) unless the protocol provides direction metadata.
 
 ::: {.callout-tip}
-If your protocol defines custom constraint sorts with known directionality, you can extend the `is_constraint_tightened` function in `classify.rs` to handle them. Unrecognized sorts default to "any change is breaking," which is the conservative choice.
+For custom constraint sorts with known directionality, extend the `is_constraint_tightened` function in `classify.rs`. Unrecognized sorts default to "any change is breaking"—the conservative choice.
 :::
 
-### Compatibility Levels
+### Compatibility levels
 
-The `CompatReport` assigns one of three implicit compatibility levels based on its contents:
+The `CompatReport` assigns one of three implicit levels:
 
-- **Fully compatible**: the `breaking` and `non_breaking` lists are both empty. The schemas are structurally identical.
-- **Backward compatible**: the `breaking` list is empty but `non_breaking` is not. Existing consumers are safe; new consumers can use the additions. The `compatible` field is `true`.
+- **Fully compatible**: both `breaking` and `non_breaking` lists are empty. The schemas are structurally identical.
+- **Backward compatible**: `breaking` is empty but `non_breaking` is not. Existing consumers are safe; new ones can use additions. The `compatible` field is `true`.
 - **Breaking**: the `breaking` list is non-empty. At least one change is incompatible. The `compatible` field is `false`.
 
 ::: {.callout-important}
-Classification is protocol-dependent. The same `SchemaDiff` can produce different `CompatReport` results for different protocols. For example, removing an edge with kind `"fk"` is breaking under the SQL protocol (which has an edge rule for foreign keys) but might be non-breaking under a protocol that doesn't govern that edge kind. Always pass the correct protocol to `classify`.
+Classification is protocol-dependent. The same `SchemaDiff` can produce different `CompatReport` results for different protocols. Removing an edge with kind `"fk"` is breaking under the SQL protocol but might be non-breaking under a protocol that doesn't govern that edge kind. Always pass the correct protocol to `classify`.
 :::
 
 ## Reporting
 
-The report module converts a `CompatReport` into output suitable for humans or machines.
+The report module produces output suitable for humans or machines.
 
-### Text Reports
+### Text reports
 
-`report_text` produces a plain-text summary suitable for terminal display:
+`report_text` produces plain-text output for terminals:
 
 1. A compatibility verdict: `"COMPATIBLE: No breaking changes detected."` or `"INCOMPATIBLE: Breaking changes detected."`
-2. An itemized list of breaking changes (if any), with a count header and numbered entries.
-3. An itemized list of non-breaking changes (if any), with a count header and numbered entries.
+2. A numbered list of breaking changes (if any), with count header.
+3. A numbered list of non-breaking changes (if any), with count header.
 4. If both lists are empty: `"No changes detected."`
 
-This is what the `schema check` CLI command displays by default.
+This is what `schema check` displays by default.
 
-### JSON Reports
+### Json reports
 
 `report_json` produces a `serde_json::Value` with three fields:
 
 - `compatible` (bool): whether the migration is backward-compatible.
-- `breaking` (array): each entry describes a breaking change with its type and details.
-- `non_breaking` (array): each entry describes a non-breaking change with its type and details.
+- `breaking` (array): each entry describes a breaking change with type and details.
+- `non_breaking` (array): each entry describes a non-breaking change with type and details.
 
-This format is consumed by CI integrations (e.g., GitHub Actions annotations), the TypeScript SDK, and any tooling that needs machine-readable compatibility verdicts.
+Consumed by CI integrations (GitHub Actions annotations), the TypeScript SDK, and any tooling needing machine-readable verdicts.
 
-### Choosing a Report Format
+### Choosing a report format
 
-Use `report_text` for developer-facing output (CLI, pull request comments). Use `report_json` for machine-facing output (CI gates, automated migration generators, monitoring dashboards).
+Use `report_text` for developer-facing output (CLI, PR comments). Use `report_json` for machine-facing output (CI gates, automated migration generators, monitoring).
 
 ::: {.callout-caution}
-## How do you integrate the JSON report with GitHub Actions?
-Parse the JSON output and create inline annotations using the GitHub Checks API. The `breaking` array entries contain vertex IDs and edge descriptions that can be mapped back to source locations if your schema files have line-number metadata. See the CI chapter (Chapter 17) for a working example.
+## Integrating JSON Reports with GitHub Actions
+
+Parse the JSON and create inline annotations using the GitHub Checks API. The `breaking` array entries contain vertex IDs and edge descriptions that map back to source locations if metadata includes line numbers. See Chapter 17 for a worked example.
 :::
 
-## Relationship to Migrations and Lenses
+## Relationship to migrations and lenses
 
-Breaking change detection is complementary to the migration and lens systems:
+Breaking change detection complements the migration and lens systems:
 
-- **Before migration**: run `diff` + `classify` to determine whether a migration is safe. If the report says "breaking," the developer knows to provide a migration with resolvers, supply default values, or use a lens with complement tracking.
-- **With lenses**: the `RemoveField` combinator in `panproto-lens` always produces a non-empty complement. The check crate can confirm that the corresponding schema change is indeed breaking, validating that the lens is necessary and correctly scoped.
-- **In CI**: the `schema check` CLI command runs this pipeline and exits with a non-zero status on breaking changes, enabling automated gatekeeping. Pull requests that introduce breaking changes without an accompanying migration can be flagged automatically.
-- **In documentation**: the text report can be included in changelog entries or release notes to communicate the nature of schema changes to downstream consumers.
+- **Before migration**: run `diff` + `classify` to assess safety. If the report says "breaking," provide a migration with resolvers, supply defaults, or use a lens with complement tracking.
+- **With lenses**: the `RemoveField` combinator in `panproto-lens` produces a non-empty complement. The check crate confirms the corresponding schema change is indeed breaking, validating the lens is necessary and correctly scoped.
+- **In CI**: the `schema check` command runs this pipeline and exits with non-zero status on breaking changes, enabling gatekeeping. PRs introducing breaking changes without accompanying migrations can be flagged automatically.
+- **In documentation**: the text report can be included in changelog entries or release notes to communicate schema changes to downstream consumers.
 
 ## Integration with CI
 
@@ -181,42 +179,42 @@ Exit codes:
 
 - `0`: fully compatible or backward compatible.
 - `1`: breaking changes detected.
-- `2`: error (e.g., malformed schema, unknown protocol).
+- `2`: error (malformed schema, unknown protocol, etc.).
 
-## Performance Considerations
+## Performance
 
-The entire pipeline is designed to be fast enough for interactive use:
+The entire pipeline is designed for interactive use:
 
 - **`diff`** is $O(|V_{\mathrm{old}}| + |V_{\mathrm{new}}| + |E_{\mathrm{old}}| + |E_{\mathrm{new}}| + |C_{\mathrm{old}}| + |C_{\mathrm{new}}|)$ where $V$, $E$, and $C$ are vertex, edge, and constraint counts. For typical schemas with hundreds of vertices, this completes in microseconds.
 - **`classify`** is $O(|\mathrm{diff}|)$, iterating once over each change category.
 - **`report_text`** and **`report_json`** are $O(|\mathrm{report}|)$.
 
-The pipeline can be run on every commit in CI without measurable impact on build times.
+The pipeline runs on every commit in CI without measurable impact.
 
-## Error Handling
+## Error handling
 
-The `panproto-check` crate defines a `CheckError` type for failures that prevent the pipeline from completing:
+The `panproto-check` crate defines a `CheckError` type for failures that prevent analysis:
 
 - Schema deserialization failures (malformed input).
 - Protocol lookup failures (unknown protocol name).
 
-A `CompatReport` with breaking changes is _not_ an error. It's a successful analysis that found incompatibilities. The error types cover only cases where the analysis itself can't be performed.
+A `CompatReport` with breaking changes is not an error; it's a successful analysis. Errors cover only cases where the analysis itself can't proceed.
 
-## Module Map
+## Module map
 
 | Module | Exports | Purpose |
 |---|---|---|
 | `diff` | `SchemaDiff`, `ConstraintDiff`, `ConstraintChange`, `KindChange`, `diff` | Protocol-agnostic structural diffing |
 | `classify` | `CompatReport`, `BreakingChange`, `NonBreakingChange`, `classify` | Protocol-aware severity classification |
-| `report` | `report_text`, `report_json` | Human-readable and machine-readable output |
-| `error` | `CheckError` | Error types for pipeline failures |
+| `report` | `report_text`, `report_json` | Human and machine-readable output |
+| `error` | `CheckError` | Error types |
 
 All public types are re-exported from the crate root.
 
-## Testing Strategy
+## Testing strategy
 
-The test suite validates each pipeline stage:
+The test suite validates each stage:
 
-- **Diff tests** verify that specific structural changes (vertex addition/removal, edge addition/removal, constraint modification, kind change) produce the expected `SchemaDiff` entries. An important invariant: diffing identical schemas produces an empty diff.
-- **Classification tests** verify that breaking and non-breaking changes are correctly assigned based on protocol edge rules and constraint sorts. Tests cover edge cases like removing an edge whose kind isn't governed by any edge rule (should be non-breaking) and tightening a constraint whose sort isn't recognized by the protocol (should be ignored).
-- **Report tests** verify that text and JSON output formats are correctly structured and contain the expected information.
+- **Diff tests** verify that specific structural changes (vertex addition/removal, edge changes, constraint modification, kind change) produce expected `SchemaDiff` entries. An important invariant: diffing identical schemas produces an empty diff.
+- **Classification tests** verify that breaking and non-breaking changes are correctly assigned based on protocol edge rules and constraint sorts. Edge cases include removing an edge whose kind isn't governed (should be non-breaking) and tightening a constraint whose sort isn't recognized (should be ignored).
+- **Report tests** verify that text and JSON formats are correctly structured and contain expected information.

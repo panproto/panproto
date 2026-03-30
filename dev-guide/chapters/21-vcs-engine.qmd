@@ -2,7 +2,9 @@
 
 The `panproto-vcs` crate implements schematic version control. Schemas are content-addressed objects stored in a commit DAG, with branches, three-way merge, and data lifting through history.
 
-## Module Layout
+## Module layout
+
+The VCS engine is organized into focused modules:
 
 ```
 crates/panproto-vcs/src/
@@ -31,9 +33,9 @@ crates/panproto-vcs/src/
   gc.rs            -- garbage collection
 ```
 
-## Object Store
+## Object store
 
-`ObjectId` is a blake3 hash of the canonical MessagePack serialization. Canonical forms use `BTreeMap` instead of `HashMap` and exclude precomputed indices, which are derived data. The following object types live in the store:
+`ObjectId` is a blake3 hash of the canonical MessagePack serialization. Canonical forms use `BTreeMap` instead of `HashMap` and exclude precomputed indices (derived data). The store contains:
 
 - `Object::Schema(Schema)`: a schema snapshot
 - `Object::Migration { src, tgt, mapping }`: a morphism between two schemas
@@ -44,6 +46,8 @@ crates/panproto-vcs/src/
 - `Object::Protocol(Protocol)`: a protocol definition
 - `Object::Expr(Expr)`: a standalone expression
 - `Object::EditLog(EditLogObject)`: a sequence of edits for incremental migration
+
+A `CommitObject` stores the core schema history:
 
 ```rust
 pub struct CommitObject {
@@ -62,7 +66,7 @@ pub struct CommitObject {
 }
 ```
 
-## Merge Options
+## Configuration and options
 
 `MergeOptions` controls merge behavior:
 
@@ -76,33 +80,31 @@ pub struct MergeOptions {
 }
 ```
 
-## Cherry-Pick and GC Options
-
 `CherryPickOptions` controls cherry-pick behavior: `no_commit` stages without committing, `record_origin` appends the source commit ID to the message.
 
 `GcOptions` has a single `dry_run` field. When true, `gc::gc` reports unreachable objects without deleting them.
 
-## DAG Algorithms
+## Dag algorithms
 
 All DAG algorithms operate on the commit graph $G = (V, E)$ where $V$ is the set of commits and $E$ is the parent relation.
 
-- **Merge base**: Two-frontier BFS. We alternately expand from each side; the first vertex visited by both frontiers is the lowest common ancestor. For commits $a$ and $b$, this finds $\text{LCA}(a, b) = \arg\min_{c \in \text{Anc}(a) \cap \text{Anc}(b)} \text{depth}(c)$. Complexity: $O(|V|)$ worst case, typically much less.
+- **Merge base**: Two-frontier BFS. Alternately expand from each side; the first vertex visited by both frontiers is the lowest common ancestor. For commits $a$ and $b$, this finds $\text{LCA}(a, b)$ in $O(|V|)$ worst case, typically much less.
 - **Path finding**: BFS backwards from target, reconstruct via parent map. Returns the sequence of commits $(c_0, c_1, \ldots, c_k)$ where $c_0$ is the source and $c_k$ is the target.
 - **Log walk**: Max-heap ordered by timestamp for topological-chronological order. Each commit is visited exactly once (tracked via a `HashSet`). Merge commits push both parents onto the heap. Complexity: $O(n \log n)$ for $n$ commits.
-- **Compose path**: Given a path $(c_0, \ldots, c_k)$, chains migrations via `panproto_mig::compose`. The composed migration $M_{0 \to k} = M_{k-1 \to k} \circ \cdots \circ M_{0 \to 1}$ transforms data from schema $S_0$ to schema $S_k$.
+- **Compose path**: Given a path $(c_0, \ldots, c_k)$, chain migrations via `panproto_mig::compose`. The composed migration $M_{0 \to k} = M_{k-1 \to k} \circ \cdots \circ M_{0 \to 1}$ transforms data from schema $S_0$ to schema $S_k$.
 - **Is ancestor**: BFS reachability check from candidate to target. Returns true if there exists a path in $G$ from the candidate to the target following parent edges.
 
 ::: {.callout-note}
-## Why a max-heap for log walk instead of simple DFS?
+## Max-Heap Over DFS for Log Walk
 
-DFS would visit one branch fully before starting the other, producing non-chronological output for interleaved branches. The timestamp-ordered heap interleaves branches chronologically, matching what users expect from `git log`.
+DFS visits one branch fully before starting the other, producing non-chronological output for interleaved branches. The timestamp-ordered heap interleaves branches chronologically, matching what users expect from `git log`.
 :::
 
-## Repository Operations
+## Repository operations
 
-Beyond the core commit flow, `repo.rs` exposes several additional operations:
+Beyond core commits, `repo.rs` exposes additional operations:
 
-- `Repository::amend()`: creates a commit with the same parent(s) as the current HEAD but updated schema, migration, and message. The previous HEAD commit becomes unreachable (collectible by `gc`).
+- `Repository::amend()`: creates a commit with the same parent(s) as current HEAD but updated schema, migration, and message. The previous HEAD becomes unreachable (collectible by `gc`).
 - `refs::force_delete_branch`: deletes a branch regardless of merge status
 - `refs::rename_branch`: renames a branch ref, updating HEAD if the current branch is renamed
 - `refs::create_and_checkout_branch`: creates a branch at HEAD and switches to it atomically
@@ -112,7 +114,7 @@ Beyond the core commit flow, `repo.rs` exposes several additional operations:
 - `stash::stash_show`: returns the schema diff between the stash entry and its parent
 - `stash::stash_clear`: drops all stash entries and removes the `refs/stash` ref
 
-## Error Variants
+## Error handling
 
 `VcsError` is `#[non_exhaustive]` and includes:
 
@@ -124,11 +126,11 @@ Beyond the core commit flow, `repo.rs` exposes several additional operations:
 - `StashEmpty`, `InvalidRef`, `CorruptObject`
 - `RemoteNotSupported`
 
-## Three-Way Merge (Combining Diverged Branches)
+## Three-way merge
 
-Given schemas `base`, `ours`, `theirs`, the merge computes a combined result. Categorically, this is a pushout (colimit) over the shared base.[^merge-pushout]
+Given schemas `base`, `ours`, `theirs`, the merge computes a combined result. Categorically, this is a pushout (colimit) over the shared base.
 
-[^merge-pushout]: The merge combines the two branch schemas along their shared base, producing a unified result. Formally, let $S_b$ be the base schema, $S_o$ the "ours" schema, and $S_t$ the "theirs" schema. The merged schema $S_m$ is the pushout of the span $S_o \leftarrow S_b \rightarrow S_t$ in the category of schemas.
+The algorithm:
 
 1. `diff(base, ours)` and `diff(base, theirs)`: the extended diff covers all 13 schema fields (vertices, edges, constraints, hyper-edges, required, NSIDs, variants, orderings, recursion points, usage modes, spans, nominal)
 2. For every element in every field, classify its fate on each side: unchanged, added, removed, or modified
@@ -138,158 +140,65 @@ Given schemas `base`, `ours`, `theirs`, the merge computes a combined result. Ca
 6. Derive migrations from ours to merged and theirs to merged via `auto_mig::derive_migration`
 
 ::: {.callout-tip}
-## Why is commutativity important for merge?
+## Commutativity in Merge
 
-Commutativity means the merge result doesn't depend on which branch we call "ours" vs "theirs." This eliminates an entire class of bugs where merge order affects the outcome. It's a stronger guarantee than git's text merge, which can produce different conflict markers depending on merge direction.
+Commutativity means the merge result doesn't depend on which branch is "ours" vs "theirs." This eliminates bugs where merge order affects the outcome. It's a stronger guarantee than git's text merge, which can produce different conflict markers depending on merge direction.
 :::
 
-## Rename Detection
+## Rename detection
 
-The `rename_detect` module provides heuristic rename detection between schema versions. When `auto_mig::derive_migration` encounters a vertex that is absent in one schema version and a structurally similar vertex appears in the other, the rename detector can identify this as a rename rather than a delete-and-add.
+The `rename_detect` module detects renames between schema versions. When `auto_mig::derive_migration` encounters a vertex absent in one schema and a structurally similar vertex in the other, the detector identifies this as a rename rather than a delete-and-add.
 
 ### Algorithm
 
-For vertex rename detection (`detect_vertex_renames`):
+For vertex rename detection:
 
 1. Collect removed vertices (in old, not in new) and added vertices (in new, not in old)
 2. For each (removed, added) pair, compute structural similarity:
    - Same vertex kind: +0.3
    - Same outgoing edge names: +0.3
    - Same incoming edge names: +0.2
-   - Edit distance of vertex ID names <= 3: +0.2
+   - Edit distance of vertex ID names ≤ 3: +0.2
 3. Greedy bipartite matching: take highest-scoring pairs first
-4. Return pairs >= threshold
+4. Return pairs ≥ threshold
 
-For edge label rename detection (`detect_edge_renames`), the algorithm compares removed and added edges between the same surviving vertex pair, scoring by name edit distance normalized to string length.
+For edge label rename detection, the algorithm compares removed and added edges between the same surviving vertex pair, scoring by name edit distance normalized to string length.
 
-### CommitObject Integration
+### Commitobject integration
 
 Detected renames are stored in `CommitObject.renames` as `Vec<SiteRename>`. This field is `#[serde(default, skip_serializing_if = "Vec::is_empty")]`, so old commits without renames deserialize correctly.
 
 See @sec-naming-identity-section for the full naming and identity architecture.
 
-## Related Work and Differentiation
+## Differentiation from related work
 
-The term "schematic version control" distinguishes panproto from "semantic version control" (AST-aware diffing tools for source code) and from schema registries (which store schema versions linearly without branching or merge).
+panproto-vcs distinguishes itself from semantic version control tools (AST-aware diffing for source code) and schema registries (which store versions linearly without branching).
 
-### Semantic/Structural Version Control for Source Code
+### Versus semantic VCS tools (sem, cow, difftastic, mergiraf)
 
-These tools bring structure-awareness to source code via AST/CST parsing. They understand syntax but not the semantics of the data being versioned.
+These tools understand syntax but not the semantics of the data being versioned. sem and weave provide entity-level merge for source code but sit on top of git, not replacing it. Cow works on parse trees but can't understand typed schema structure. Mergiraf falls back to line-based merging when AST merge fails. panproto-vcs's merge always produces a result with explicit typed conflict descriptors.
 
-#### [sem](https://github.com/Ataraxy-Labs/sem) and [weave](https://github.com/Ataraxy-Labs/weave) (Ataraxy Labs)
+### Versus algebraic VCS (darcs, pijul)
 
-sem is a Rust CLI that provides entity-level diff, blame, graph, and impact analysis for code across 16 languages via tree-sitter. It uses structural hashing to distinguish cosmetic changes from real logic changes. weave is its companion merge driver, which resolves conflicts at the entity level and achieves 31/31 clean merges on a benchmark where git manages 15/31.
+Darcs uses syntactic patches (line insertions/deletions). Pijul uses byte-chunk graphs. Both lack the type information that panproto uses to distinguish "both branches renamed vertex X" (conflict) from "both branches added unrelated vertices" (clean merge). panproto can migrate instance data through history via lifting, which requires understanding the semantics of the objects being versioned.
 
-Both tools sit on top of git. They don't replace git's object store or DAG; they provide a smarter view of git's existing data. sem parses source code into entity trees (functions, classes, interfaces). panproto-vcs operates on a different kind of object: mathematical schema structure expressed as GAT models with sorts (types in a formal theory, not sorting operations), operations, and equations. weave's merge works by entity-level pattern matching. panproto-vcs's merge computes the combined result over a shared base theory (a pushout in the category of GATs).
+### Versus schema migration tools (cambria, buf, atlas, flyway, liquibase)
 
-#### [Cow](https://jelv.is/cow/) (Tikhon Jelvis)
+These manage schema evolution but aren't version control systems. They lack content-addressing, commit DAGs, branching, and structural merge. Cambria operates only on JSON; panproto works across 76 protocols. Atlas generates imperative migration scripts; panproto provides declarative, semantics-preserving lenses with lens law checking.
 
-Cow is a Haskell project that diffs and merges parse trees instead of text. It uses a modification of the Wagner-Fischer algorithm to compute tree edit distance, and can detect moves and group related changes.
+### Versus schema registries (confluent, schemaver, apicurio)
 
-Cow works on generic parse trees and is language-agnostic. panproto-vcs works on typed schema graphs where the types (sorts, operations, equations) constrain what counts as a valid change. Cow's merge minimizes edit distance; panproto-vcs computes a merge with universal-property guarantees that edit-distance approaches lack.
+Schema registries store versions linearly with no branching or merge. Versions are identified by sequential numbers rather than by their structure. panproto uses content-addressing: identity is derived from structure.
 
-#### [difftastic](https://github.com/Wilfred/difftastic) (Wilfred Hughes)
+### The capability difference
 
-difftastic is a Rust structural diff tool using tree-sitter for 30+ languages. It produces human-readable diffs that understand syntax and ignore whitespace, but it's purely a diff tool. It can't merge, has no VCS, and has no schema awareness.
+panproto-vcs combines:
 
-#### [Mergiraf](https://codeberg.org/mergiraf/mergiraf)
+- **Structure understanding**: GAT models with protocol-specific sorts, operations, equations, and constraints
+- **Content-addressing**: blake3 hashing for structural identity
+- **Commit DAG**: full version control with branching and merging
+- **Structural merge**: pushout in the category of GATs, not heuristic
+- **Instance data migration**: lifting through history with round-trip fidelity via lens complements
+- **Cross-protocol**: the same merge algorithm works across 76 data formats
 
-Mergiraf is a Rust syntax-aware three-way merge tool for git using tree-sitter, supporting 33 languages. When the AST merge fails, it falls back to line-based merging.
-
-The fallback is the important difference. Mergiraf is heuristic: when its structured approach fails, it silently degrades to a less-informed algorithm. panproto-vcs's merge always produces a result. Conflicts are reported explicitly, never papered over.
-
-#### SemanticMerge, Spork, JDime, jFSTMerge, IntelliMerge
-
-SemanticMerge (Plastic SCM / Unity) is a commercial structure-based merge for C#, Java, VB.NET, and C. Spork is a Java-only AST merge using the 3DM-Merge algorithm. JDime, jFSTMerge, and IntelliMerge are academic structured merge tools for Java.
-
-All of these are language-specific merge tools for source code. panproto-vcs is protocol-parametric: the same merge algorithm works across 77 data formats because it operates on the abstract schema graph.
-
-### Theoretical Proposals
-
-#### Structure-aware VCS via observational bridge types [@topos2024]
-
-This proposal uses logical relations and bridge types from HoTT to formally specify what constitutes a valid structural change. It applies parametricity to version control. There is no implementation.
-
-This is the closest work in mathematical spirit. Both panproto-vcs and the Topos proposal use type-theoretic foundations to define valid changes. panproto-vcs uses GATs [@cartmell1986]; the Topos proposal uses bridge types from cubical type theory. The two approaches may be compatible: bridge types could serve as an alternative formalization of migration validity within panproto's framework.
-
-#### A Categorical Theory of Patches [@mimram2013]
-
-Mimram and Di Giusto define a category where objects are files and morphisms are patches, with merge defined as a pushout.[^mimram-pushout] They investigate the free completion of this category under finite merges and give an explicit description where objects are finite sets labeled by lines equipped with a transitive relation.
-
-[^mimram-pushout]: The merge combines structures along shared elements, producing a universal result. Categorically, this is a pushout (colimit).
-
-panproto-vcs implements this idea for schemas rather than text files. The objects in Mimram and Di Giusto's category are sequences of lines, a flat structure. panproto's objects are models of GATs: typed graphs with protocol-specific sorts, operations, equations, and constraints. The richer structure gives the merge more to work with.
-
-#### DVCS for Structured Data [@schurmann2020]
-
-Schurmann's manifesto calls for version control over relational algebra and algebraic datatypes. It identifies the gap but provides no implementation. panproto-vcs realizes this vision.
-
-### Algebraic/Categorical VCS
-
-#### [Darcs](http://darcs.net/)
-
-Darcs is a Haskell VCS where patches are algebraic objects with inverse and commutation operations. Merge works by finding a reordering of patches that lets both sides apply cleanly.
-
-Darcs's patches are syntactic: line insertions and deletions that can commute when they touch different lines. panproto's migrations are semantic: vertex and edge maps that compose associatively and merge over shared structure. Darcs has no notion of typed structure.[^darcs-pijul]
-
-[^darcs-pijul]: Both [Darcs](http://darcs.net/) and [Pijul](https://pijul.org/) use algebraic patch theories, but their objects are untyped text (lines and insertions). panproto's objects are typed schema graphs with sorts, operations, and equations, which allows the merge to exploit type information for conflict detection.
-
-#### [Pijul](https://pijul.org/)
-
-Pijul is a Rust DVCS based on @mimram2013's categorical patch theory. Merge is the pushout in a category of files and patches, giving commutativity and associativity.[^pijul-pushout]
-
-[^pijul-pushout]: Both Pijul and panproto-vcs use pushouts for merge. The difference is in the objects being merged.
-
-Pijul's objects are byte-chunk graphs, essentially ordered sequences of text blocks. panproto's are models of GATs with protocol-specific theories, constraints, and edge rules. panproto's merge has access to type information that lets it distinguish "both branches renamed vertex X" (conflict) from "both branches added unrelated vertices" (clean merge). Pijul can't make this distinction. Additionally, panproto can migrate instance data through the DAG via lifting, which requires understanding the semantics of the objects being versioned.
-
-### Schema Migration Tools
-
-These tools manage schema evolution but aren't version control systems. They lack content-addressing, commit DAGs, branching, and structural merge.
-
-#### Cambria [@litt2021]
-
-Cambria is a JS/TS library for JSON schema evolution via bidirectional lenses, using combinators (rename, add, remove, hoist, wrap). It targets local-first and CRDT-based collaboration.
-
-panproto subsumes Cambria's combinator model in panproto-lens. Cambria operates only on JSON; panproto works across 76 protocols. Cambria has no VCS layer. Cambria's `convert` combinator breaks the lens laws, as acknowledged by @litt2021; panproto preserves round-trip fidelity via explicit complement tracking.
-
-#### [buf](https://buf.build/) (Buf Technologies)
-
-[Buf](https://buf.build/) is a Go tool for Protobuf schema linting, breaking change detection, and schema registry. It integrates with CI/CD to enforce compatibility.
-
-Buf is a registry and linter for a single protocol. It relies on git for version control, can't migrate instance data, has no merge algorithm, and doesn't work across protocol boundaries.
-
-#### [Atlas](https://atlasgo.io/) (Ariga)
-
-Atlas is a Go tool for declarative database schema management, supporting several SQL dialects. It generates migration SQL scripts from declarative schema definitions.
-
-Atlas is database-specific and generates imperative migration scripts. It relies on git for version history. panproto-vcs is protocol-parametric and provides its own version control with structural merge.
-
-#### [Prisma Migrate](https://www.prisma.io/migrate), [Flyway](https://flywaydb.org/), [Liquibase](https://www.liquibase.com/)
-
-These tools produce linear migration sequences (SQL scripts). No branching, no merge, no content-addressing.
-
-### Schema Registries
-
-Schema registries store schema versions but don't provide version control. Versions are linearly ordered per subject with no branching or merge.
-
-#### [Confluent Schema Registry](https://docs.confluent.io/platform/current/schema-registry/)
-
-Confluent's Schema Registry provides a REST API for Avro, JSON Schema, and Protobuf schemas, with compatibility checking modes (BACKWARD, FORWARD, FULL, etc.) and linear version history per subject. Schemas are identified by sequential version numbers rather than by their structure.
-
-#### SchemaVer, AWS Glue Schema Registry, Apicurio
-
-SchemaVer is a versioning scheme (MODEL-REVISION-ADDITION), analogous to SemVer for schemas. panproto-vcs uses content-addressing: identity is derived from structure, not assigned. AWS Glue Schema Registry and Apicurio are cloud and self-hosted schema registries for event streaming, similar to Confluent.
-
-### Capability Matrix
-
-| Capability | sem/weave | Cow | Pijul | Darcs | Cambria | buf | Atlas | Confluent SR | **panproto-vcs** |
-|---|---|---|---|---|---|---|---|---|---|
-| Understands structure | AST (code) | Parse tree (code) | Lines | Lines | JSON | Protobuf | SQL DDL | Avro/Proto/JSON | **GAT models (76 protocols)** |
-| Content-addressing | No (uses git) | No | Yes | Yes | No | No | No | No | **Yes (blake3)** |
-| Commit DAG | No (uses git) | No | Yes | Yes | No | No | No | No (linear) | **Yes** |
-| Branching | No (uses git) | No | Yes | Yes | No | No | No | No | **Yes** |
-| Structural merge | Entity-level | Tree-edit | Pushout (lines) | Commutation | No | No | No | No | **Pushout (typed graphs)** |
-| Instance data migration | No | No | No | No | JSON transform | No | SQL scripts | No | **Yes (lifting)** |
-| Round-trip guarantee | No | No | No | No | Partial | No | No | No | **Yes (lens complement)** |
-| Cross-protocol | No | No | No | No | No | No | No | Multi-format | **Yes (76 protocols, same algebra)** |
-| Breaking change detection | No | No | No | No | No | Yes | Yes | Yes | **Yes (built into staging)** |
+This combination is unique. No other tool provides all six capabilities.

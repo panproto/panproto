@@ -1,133 +1,76 @@
+---
+title: "Breaking Changes and CI"
+id: sec-breaking-changes
+---
+
 # Breaking Changes and CI {#sec-breaking-changes}
 
-A schema change is fully compatible if migrations exist in both directions. Backward compatible if only the forward migration exists. Breaking if the forward migration doesn't exist. Formally, given schemas $S_\text{old}$ and $S_\text{new}$, the classification reduces to checking whether morphisms $m: S_\text{old} \to S_\text{new}$ and $m': S_\text{new} \to S_\text{old}$ exist in the category of schema migrations. We'll use four concrete examples to make these definitions precise, then wire the check into CI.
+You can classify every schema change by asking two questions: does a forward migration exist (can old data be read by new code)?  And does a backward migration exist (can new data be read by old code)?  The answers determine whether the change is safe to deploy, and under what conditions.
+
+panproto makes this classification decidable and automatic.  There is no heuristic, no pattern-matching on the diff, and no approximation.  The engine checks whether the required migrations exist using the existence conditions from the previous chapter, and reports a definitive answer.^[The proof that this classification is decidable relies on properties of adhesive categories [@lack2005].  See [Appendix A](../appendices/A-formal-foundations.qmd).]
 
 
-## The diff {#sec-diff}
+## The structural diff {#sec-diff}
 
-panproto's diff algorithm operates on the schema's graph structure (vertices, edges, and their attributes) rather than on a textual representation. Two schemas that are textually different but structurally identical (e.g., fields listed in a different order) produce an empty diff.
+Before classifying compatibility, panproto computes a structural diff between the two schemas.  This operates on the graph representation---vertices, edges, constraints---not on the textual source files.  Two schemas that are textually different but structurally identical (fields in a different order, different internal `$defs` names, inline vs. referenced definitions) produce an empty diff.
 
 ```{.typescript include="../code/ts/09-breaking-changes.ts" snippet="diff"}
 ```
 
-The diff produces a list of **change descriptors**, each identifying:
-
-- **What changed:** a vertex, an edge, a constraint, or a structural relationship.
-- **How it changed:** added, removed, modified, or moved.
-- **Where it changed:** the path from the root to the affected element.
-
-The change descriptors are the input to the compatibility classifier.
-
-### Structural diffing vs. textual diffing
-
-A textual diff (like `git diff`) operates on serialized representations and is sensitive to formatting, ordering, and encoding choices. A structural diff operates on the mathematical object (the labeled graph) and is invariant to these surface-level differences.
-
-This matters because two schema files can look very different textually while representing the same graph. Reordering fields in a JSON Schema, renaming internal `$defs`, or switching between inline and referenced definitions can all produce large textual diffs with zero structural changes. panproto's diff sees through these differences.
+The diff produces a list of change descriptors, each identifying what changed (a vertex, edge, or constraint), how it changed (added, removed, modified, or moved), and where (the path from the root to the affected element).  These descriptors are useful for reporting---they tell a human reviewer what happened---but they do not drive the compatibility classification.  The classification comes from migration existence, not from the diff.
 
 :::{.callout-note}
 ## Canonicalization
 
-Before diffing, panproto canonicalizes both schemas: it resolves all references, normalizes naming, sorts vertices and edges by a deterministic order, and strips metadata that does not affect the schema's mathematical structure. The diff operates on canonical forms, ensuring that equivalent schemas always produce an empty diff.
+Before diffing, panproto canonicalizes both schemas: it resolves all references, normalizes naming, sorts vertices and edges deterministically, and strips metadata that does not affect the graph structure.  The diff operates on canonical forms, ensuring that equivalent schemas always produce an empty diff.
 :::
 
 
-## Compatibility levels {#sec-compat-levels}
-
-panproto classifies schema changes into three levels. The classification is *theory-derived*: it follows directly from the existence conditions for migrations (@sec-when-migrations-break) rather than from ad hoc rules.
+## Three compatibility levels {#sec-compat-levels}
 
 ### Fully compatible
 
-Both **forward** and **backward** migrations exist.
+Both forward and backward migrations exist.  Old data can be read by new code, and new data can be read by old code.  Deploying a fully compatible change requires no coordination: old and new consumers can coexist indefinitely.
 
-- Old data can be read by new code (forward migration: $S_\text{old} \to S_\text{new}$).
-- New data can be read by old code (backward migration: $S_\text{new} \to S_\text{old}$).
-
-Deploying a fully compatible change requires no coordination: old and new consumers can coexist indefinitely.
-
-**Examples:** Renaming a field (with a migration that maps the old name to the new name). Adding an optional field with a default. Reordering fields.
+Examples: renaming a field (with a migration that maps the old name to the new), adding an optional field with a default, reordering fields.
 
 ### Backward compatible
 
-A **forward** migration exists, but no backward migration.
+A forward migration exists, but no backward migration.  Old data can be read by new code, but new data may not be readable by old code.  This is acceptable for rolling deployments where consumers update before producers, or where old consumers can gracefully handle unknown data.
 
-- Old data can be read by new code.
-- New data may *not* be readable by old code.
-
-This is acceptable for rolling deployments where consumers update before producers, or where old consumers can gracefully handle unknown data (e.g., by ignoring unrecognized fields).
-
-**Examples:** Removing a field (old data is fine without it; new data lacks what old code expects). Adding a required field (old data can be given a default; new data has a field old code doesn't know about).
+Examples: removing a field (old data is fine without it; new data lacks what old code expects), adding a required field (old data can be given a default; new data has a field old code does not know about).
 
 ### Breaking
 
-No valid **forward** migration exists.
+No valid forward migration exists.  Existing data cannot be transformed to conform to the new schema without loss or corruption.
 
-- Existing data cannot be transformed to conform to the new schema.
+Examples: tightening a constraint below existing values, changing a field's type incompatibly, removing a vertex that other vertices depend on.
 
-A breaking change means that some existing data will be rejected or misinterpreted by code targeting the new schema. Deploying a breaking change without a data migration plan will cause failures.
-
-**Examples:** Tightening a constraint below existing values. Changing a field's type incompatibly. Removing a vertex that other vertices depend on.
-
-:::{.callout-note}
-## The classification is decidable
-
-The compatibility classification reduces to checking migration existence in both directions. As established in @sec-when-migrations-break, migration existence is decidable for the class of schemas that panproto supports. There's no approximation or heuristic involved: panproto gives a definitive answer.^[The mathematical proof that this classification is decidable relies on properties of adhesive categories [@lack2005]. See [Appendix A](../appendices/A-formal-foundations.qmd).]
-:::
-
-
-## The connection to existence conditions
-
-The compatibility classifier delegates entirely to the migration existence checker from @sec-when-migrations-break.
-
-Given schemas $S_\text{old}$ and $S_\text{new}$:
-
-1. **Check forward existence:** Does a migration $m: S_\text{old} \to S_\text{new}$ exist? If yes, old data can be transformed to the new schema.
-2. **Check backward existence:** Does a migration $m': S_\text{new} \to S_\text{old}$ exist? If yes, new data can be transformed to the old schema.
-
-The classification follows:
+The classification reduces to a two-by-two table:
 
 | Forward exists | Backward exists | Classification |
 |:-:|:-:|:--|
 | Yes | Yes | Fully compatible |
 | Yes | No | Backward compatible |
-| No | Yes | Forward compatible only |
+| No | Yes | Forward compatible only (rare; treated as breaking) |
 | No | No | Breaking |
 
-The "forward compatible only" case (new data can be read by old code, but old data can't be read by new code) is theoretically possible but rare in practice. panproto reports this case but treats it as breaking for safety, since the typical deployment assumption is that old data must be readable by new code.
+The "forward compatible only" case is theoretically possible but rare in practice.  panproto reports it but treats it as breaking for safety, since the typical deployment assumption is that old data must be readable by new code.
 
 :::{.callout-note}
-## Why not just check the diff?
+## Why not classify based on the diff?
 
-Some schema registries classify changes by pattern-matching on the diff: "adding a field is backward compatible," "removing a field is breaking," and so on. This works for simple cases but fails for composed changes. Adding an optional field *and* tightening a constraint on an unrelated field is not the conjunction of "backward compatible" and "breaking"; the interaction between changes can produce surprising results.
-
-panproto avoids this problem by not classifying individual changes at all. It classifies the *migration as a whole* by checking existence. The diff is useful for *reporting* what changed (so humans can understand the result), but it doesn't drive the classification.
-:::
-
-:::{.callout-caution}
-## Question
-
-Suppose a schema has a required field `email: string` with `format: email`. A new version changes the format to `format: uri`. The forward migration maps old emails to the new schema, but old values like `alice@example.com` aren't valid URIs. Is this change backward compatible, breaking, or does it depend on the data? Why does panproto classify it *structurally* rather than inspecting actual values?
-:::
-
-::: {.callout-tip collapse=true}
-## Answer
-
-Breaking. panproto classifies it structurally: the format constraint changed, and existing values (`alice@example.com`) do not satisfy the new constraint (`format: uri`). The engine does not inspect actual data values; it reasons about the *space* of valid values. Since the set of valid emails is not a subset of valid URIs (and vice versa), no structural migration exists in either direction. Even though some email addresses happen to be valid URIs, the structural classification is breaking.
+Some schema registries classify changes by pattern: "adding a field is backward compatible," "removing a field is breaking," and so on.  This works for simple, isolated changes but fails for compositions.  Adding an optional field *and* tightening a constraint on an unrelated field is not the conjunction of their individual classifications; the changes can interact.  panproto avoids this problem by not classifying individual changes at all.  It classifies the migration as a whole by checking existence.
 :::
 
 
-## Examples {#sec-compat-examples}
+## Four examples
 
-### Example 1: Adding an optional field
+### Adding an optional field
 
-**Change:** Add an optional `labels` field (type: `array<string>`, default: `[]`) to `postView`.
+Add an optional `labels` field (type: `array<string>`, default: `[]`) to `postView`.
 
-**Forward migration ($S_\text{old} \to S_\text{new}$):** Exists. Old data lacks `labels`, but the default value `[]` fills it in.
-
-**Backward migration ($S_\text{new} \to S_\text{old}$):** Exists. New data has `labels`, which the backward migration discards (the restrict pipeline handles this in step 1).
-
-**Classification: Fully compatible.**
-
-Both directions work. Old consumers ignore the new field (it's not in their schema). New consumers see the default value for old data.
+The forward migration exists: old data lacks `labels`, but the default fills it in.  The backward migration also exists: new data has `labels`, which the restrict pipeline discards.  Classification: **fully compatible**.
 
 ```
 Schema diff:
@@ -138,18 +81,11 @@ Compatibility: FULLY COMPATIBLE
   Backward migration: ✓ exists (drop field)
 ```
 
+### Removing a field
 
-### Example 2: Removing a field
+Remove `likeCount` from `postView`.
 
-**Change:** Remove the `likeCount` field from `postView`.
-
-**Forward migration ($S_\text{old} \to S_\text{new}$):** Exists. Old data has `likeCount`, which the forward migration discards.
-
-**Backward migration ($S_\text{new} \to S_\text{old}$):** Does not exist. New data lacks `likeCount`, and the old schema requires it. There's no way to conjure a valid value from nothing.
-
-**Classification: Backward compatible.**
-
-Old data can be read by new code (just drop `likeCount`). New data can't be read by old code (the required field is missing). Consumers must update before producers stop sending `likeCount`.
+The forward migration exists: old data has `likeCount`, which the forward migration discards.  The backward migration does not: new data lacks `likeCount`, and the old schema requires it.  There is no way to conjure a valid value from nothing.  Classification: **backward compatible**.
 
 ```
 Schema diff:
@@ -160,24 +96,13 @@ Compatibility: BACKWARD COMPATIBLE
   Backward migration: ✗ no valid migration (required field missing)
 ```
 
-:::{.callout-note}
-## What if the removed field were optional?
+If `likeCount` had been optional in the old schema, the backward migration would exist (new data simply omits the field, which is valid), and the classification would be fully compatible.  This is why marking fields as optional from the start is good protocol hygiene.
 
-If `likeCount` had been optional in the old schema, the backward migration would exist: new data simply omits the field, which is valid because the old schema doesn't require it. The classification would be fully compatible.
+### Tightening a constraint
 
-This is why marking fields as optional from the start is good protocol hygiene. An optional field can be added or removed without breaking compatibility in either direction.
-:::
+Reduce `postView.text` maxLength from 3000 to 300.
 
-
-### Example 3: Tightening a constraint
-
-**Change:** Reduce the maximum length of `postView.text` from 3000 characters to 300 characters.
-
-**Forward migration ($S_\text{old} \to S_\text{new}$):** Does not exist. Old data may contain `text` values up to 3000 characters, which violate the new 300-character limit. Truncation isn't a valid structural transformation; it changes the data's meaning.
-
-**Backward migration ($S_\text{new} \to S_\text{old}$):** Exists. New data has `text` values up to 300 characters, which satisfy the old 3000-character limit ($300 \leq 3000$).
-
-**Classification: Breaking.**
+The forward migration does not exist: old data may contain text up to 3000 characters, which violates the new 300-character limit.  Truncation would change the data's meaning and is not a valid structural transformation.  The backward migration exists: new data has text at most 300 characters, which satisfies the old 3000-character limit.  Classification: **breaking**.
 
 ```
 Schema diff:
@@ -185,75 +110,46 @@ Schema diff:
 
 Compatibility: BREAKING
   Forward migration:  ✗ constraint violation (existing data may exceed new limit)
-  Backward migration: ✓ exists (new constraint is stricter, old is satisfied)
+  Backward migration: ✓ exists (new constraint is stricter)
 ```
 
-The diff alone might mislead here. "Changing a maxLength" sounds minor. But the *direction* of the change matters: tightening is breaking, loosening is (backward) compatible.
+The diff alone is misleading here.  "Changing a maxLength" sounds minor, but the direction matters: tightening is breaking, loosening is backward compatible.
 
+### Changing a vertex kind
 
-### Example 4: Changing a vertex kind
+Change `postView.likeCount` from `integer` to `string`.
 
-**Change:** Change `postView.likeCount` from `integer` to `string`.
-
-**Forward migration ($S_\text{old} \to S_\text{new}$):** Does not exist. Old data has integer values (`42`), which aren't valid strings in the target schema. panproto doesn't perform semantic coercions during structural migration; the types must be structurally compatible.
-
-**Backward migration ($S_\text{new} \to S_\text{old}$):** Does not exist. New data has string values (`"42"` or `"many"`), which aren't valid integers.
-
-**Classification: Breaking.**
-
-```
-Schema diff:
-  ~ postView.likeCount: integer → string
-
-Compatibility: BREAKING
-  Forward migration:  ✗ type mismatch (integer ≠ string)
-  Backward migration: ✗ type mismatch (string ≠ integer)
-```
+Neither migration exists.  Old integer values are not valid strings; new string values are not valid integers.  Classification: **breaking**.
 
 :::{.callout-note}
-## Coercions and combinators
+## Coercions and manual overrides
 
-If you *want* to change a type with a known coercion (e.g., integer to string via formatting), you can use the `coerceType` combinator from @sec-combinators to build a manual migration. The combinator includes both directions (format and parse), so it satisfies the lens laws. But panproto won't infer this coercion automatically; you must explicitly declare it. The compatibility checker reports the *structural* classification; manual migrations can override it.
+If you *want* to change a type with a known coercion (integer to string via formatting, say), you can use the `coerceType` combinator from the previous chapter to build a manual migration.  The combinator includes both directions, so it satisfies the lens laws.  But panproto will not infer this coercion automatically.  The compatibility checker reports the structural classification; manual migrations can override it.
 :::
 
-:::{.callout-caution}
-## Question
-
-Example 3 (tightening `maxLength` from 3000 to 300) is breaking, and Example 1 (adding an optional field with a default) is fully compatible. What's the composed classification if both changes ship in the same version? Can you determine this by taking the "worst" of the two individual classifications, or do you need to check migration existence on the composed schemas? Why?
-:::
-
-::: {.callout-tip collapse=true}
-## Answer
-
-You must check existence on the composed schemas. The "worst of two" heuristic fails because changes can interact. Adding an optional field (fully compatible) combined with tightening a constraint (breaking) is breaking, but not because one individual change is breaking. It is because the existence checker, applied to the full old and new schemas simultaneously, finds no valid forward migration. Composition of compatibility levels is not a lattice operation.
-:::
 
 ## Composed changes {#sec-composed}
 
-Real schema evolutions rarely consist of a single change. A new version might simultaneously add fields, remove fields, tighten one constraint, and loosen another. The compatibility of the composed change is not the "worst" individual classification; it's determined by checking migration existence for the composed schemas.
+Real schema evolutions rarely consist of a single change.  A new version might simultaneously add fields, remove fields, tighten one constraint, and loosen another.
 
-Consider a version bump that:
+The compatibility of the composed change is *not* the "worst" individual classification.  It is determined by checking migration existence on the composed schemas.  Composition of compatibility levels is not a lattice operation; changes can interact in surprising ways.
 
-1. Adds an optional `labels` field (fully compatible individually)
-2. Removes `likeCount` (backward compatible individually)
-3. Tightens `text` maxLength from 3000 to 300 (breaking individually)
+::: {.callout-caution}
+## Exercise
 
-The composed change is **breaking**, because the forward migration doesn't exist (the constraint tightening prevents it). But this isn't simply because "one change is breaking." It's because the existence checker, applied to the full old and new schemas, finds no valid forward migration.
+Adding an optional `labels` field is fully compatible individually.  Tightening `text` maxLength from 3000 to 300 is breaking individually.  What is the classification of both changes shipped together?  Can you determine this by taking the "worst" of the two, or do you need to check the composed schemas?
+:::
 
-Now consider a different composition:
+::: {.callout-tip collapse=true}
+## Solution
 
-1. Adds an optional `labels` field (fully compatible)
-2. Removes `likeCount` (backward compatible)
-3. *Loosens* `text` maxLength from 300 to 3000 (backward compatible)
-
-The composed change is **backward compatible**: the forward migration exists (drop `likeCount`, add `labels` with default, existing text satisfies the loosened constraint), but the backward migration doesn't (new data may have text up to 3000 characters, which exceeds the old 300-character limit).
-
-Composition of compatibility levels is not a lattice operation. It depends on the specific changes and how they interact. Checking migration existence on the composed schemas is the only reliable method.
+You must check the composed schemas.  The composed change is breaking, because the forward migration does not exist (the constraint tightening prevents it).  In this particular case the answer happens to match the "worst of two" heuristic, but that is coincidental.  Consider instead: loosening `text` maxLength from 300 to 3000 (backward compatible) combined with adding an optional field (fully compatible).  The composed change is backward compatible---matching the "worst"---but there are edge cases involving interacting constraints where the composition is worse than either individual change.  Checking existence on the composed schemas is the only reliable method.
+:::
 
 
 ## The diff report {#sec-diff-report}
 
-panproto produces a human-readable diff report that combines the structural diff with the compatibility classification. The report is designed for code review: a developer should be able to read it and understand both *what* changed and *whether it is safe*.
+panproto combines the structural diff with the compatibility classification into a single report designed for code review.  A developer should be able to read it and understand both what changed and whether it is safe.
 
 ```
 schema diff v1/schema.json v2/schema.json
@@ -284,7 +180,7 @@ Recommendation: Safe to deploy if consumers update before producers.
 
 ## CI integration {#sec-ci}
 
-Schema compatibility checks belong in CI, not in code review checklists. Here's a minimal GitHub Actions workflow that blocks breaking changes on every pull request:
+Schema compatibility checks belong in CI, not in code review checklists.  Here is a minimal GitHub Actions workflow that blocks breaking changes on every pull request:
 
 ```yaml
 name: Schema Compatibility Check
@@ -319,77 +215,55 @@ jobs:
             --level backward-compatible
 ```
 
-The `schema check` command accepts a `--level` flag:
+The `schema check` command accepts a `--level` flag: `fully-compatible` (fail unless both directions work), `backward-compatible` (fail unless at least the forward migration exists; this is the default), or `breaking` (never fail, only report, useful for auditing).
 
-- `--level fully-compatible`: Fail unless the change is fully compatible in both directions.
-- `--level backward-compatible`: Fail unless at least a forward migration exists (the default).
-- `--level breaking`: Never fail (only report). Useful for auditing.
-
-### CLI usage
-
-For local development, the same commands work without CI:
+For local development, the same commands work:
 
 ```bash
-# Show the diff and classification
+# show the diff and classification
 schema diff old-schema.json new-schema.json
 
-# Check against a specific compatibility level (exit code 0 = pass, 1 = fail)
+# check against a level (exit 0 = pass, 1 = fail)
 schema check --src old-schema.json --tgt new-schema.json --level backward-compatible
 
-# Output as JSON for programmatic consumption
+# JSON output for programmatic consumption
 schema diff old-schema.json new-schema.json --format json
 ```
 
-### Schema registry integration
-
-For teams that use a schema registry, panproto can check compatibility against the latest registered version:
+For teams that use a schema registry, panproto can check against the latest registered version:
 
 ```bash
-# Check against the latest version in the registry
 schema check \
   --src "registry://app.bsky.feed.defs#threadViewPost@latest" \
   --tgt schemas/schema.json
 ```
 
-:::{.callout-caution}
-## Question
+::: {.callout-caution}
+## Exercise
 
-Your CI pipeline uses `--level backward-compatible`, which allows changes where the forward migration exists but the backward migration doesn't. Under what deployment ordering constraint is this safe? What could go wrong if producers deploy the new schema before consumers have updated?
+Your CI uses `--level backward-compatible`, which allows changes where the forward migration exists but the backward does not.  Under what deployment ordering constraint is this safe?  What goes wrong if producers deploy first?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-Safe only if consumers deploy the new schema before producers stop sending old-format data. "Backward compatible" means old data can be read by new code (forward migration exists), but new data may be unreadable by old code (no backward migration). If a producer deploys first and starts emitting new-format data, old consumers will fail. The ordering constraint is: consumers first, then producers.
+Consumers must deploy the new schema before producers stop sending old-format data.  "Backward compatible" means old data can be read by new code, but new data may be unreadable by old code.  If a producer deploys first and starts emitting new-format data, old consumers will fail.
 :::
+
 
 ## Versioning strategies {#sec-versioning}
 
-The compatibility classification informs but doesn't dictate versioning strategy. Different protocols adopt different conventions.
+The compatibility classification informs but does not dictate versioning.  Different protocols adopt different conventions.
 
-### Semantic versioning
+**Semantic versioning** maps compatibility levels to semver: fully compatible → patch or minor, backward compatible → minor, breaking → major.  This is the most common approach for protocols with external consumers.
 
-Map compatibility levels to semver:
+**Chronological versioning**, as used by ATProto's Lexicon, uses date-based or sequential version numbers without semver semantics.  The compatibility level is still useful for deployment decisions.
 
-- **Fully compatible**: patch or minor version bump
-- **Backward compatible**: minor version bump
-- **Breaking**: major version bump
-
-This is the most common approach and works well for protocols with external consumers.
-
-### Chronological versioning
-
-Some protocols (ATProto's Lexicon) use date-based or sequential version numbers without semver semantics. The compatibility level is still useful for deployment decisions, but it doesn't drive the version number.
-
-### Continuous evolution
-
-Some internal protocols avoid versioning entirely, relying on the lens mechanism (@sec-lenses) to keep old and new consumers working simultaneously. In this model, every change is deployed with its migration, and the compatibility level determines whether old consumers need changes:
-
-- **Fully compatible:** Deploy freely.
-- **Backward compatible:** Deploy new consumers first, then new producers.
-- **Breaking:** Deploy a data migration, then new consumers, then new producers.
+**Continuous evolution** avoids explicit versioning entirely, relying on the lens mechanism to keep old and new consumers working simultaneously.  Every change ships with its migration, and the compatibility level determines the deployment order: fully compatible changes deploy freely, backward compatible changes require consumers first, and breaking changes require a data migration followed by consumers followed by producers.
 
 
 ## Further reading
 
-The graph-theoretic foundation for schema compatibility draws on @ehrig2006, particularly the treatment of pushout complements and the gluing condition in the context of typed attributed graph grammars. For the practical aspects of schema compatibility checking in production systems, the Confluent Schema Registry documentation provides useful context on how compatibility levels are used in event-streaming architectures. panproto's classification is more fine-grained (because it reasons about structural migrations rather than syntactic patterns), but the deployment strategies are similar.
+The graph-theoretic foundation for schema compatibility draws on @ehrig2006, particularly the treatment of pushout complements and the gluing condition for typed attributed graph grammars.  For practical context on how compatibility levels are used in event-streaming architectures, the Confluent Schema Registry documentation is useful.  panproto's classification is more fine-grained (because it reasons about structural migrations rather than syntactic patterns), but the deployment strategies are similar.
+
+With migration, lenses, existence checking, and CI integration covered, we have the complete workflow for evolving schemas safely.  The next part of the tutorial extends the toolkit: data lifting, custom protocols, schema version control, and cross-protocol translation.

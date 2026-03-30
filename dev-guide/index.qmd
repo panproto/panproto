@@ -6,7 +6,7 @@
 This guide is nearly fully LLM-generated. Proceed with caution. We appreciate [bug reports](https://github.com/panproto/panproto/issues).
 :::
 
-This is the panproto developer guide. It documents crate architecture, algebraic internals, and contributor workflow for the panproto schematic version control system. We assume Rust (ownership, traits, generics, `Result`-based error handling; Edition 2024) and basic algebraic thinking (sorts, operations, equations). The [tutorial's formal foundations appendix](https://panproto.dev/tutorial/appendices/A-formal-foundations.html) provides relevant background on the algebraic concepts.
+This is the panproto developer guide.  It documents crate architecture, algebraic internals, and contributor workflow for the panproto schematic version control system.  We assume familiarity with Rust (ownership, traits, generics, `Result`-based error handling; Edition 2024) and basic algebraic thinking (sorts, operations, equations).  If the algebraic vocabulary is new to you, the [tutorial's formal foundations appendix](https://panproto.dev/tutorial/appendices/A-formal-foundations.html) provides the necessary background.
 
 ## Crate map
 
@@ -19,24 +19,15 @@ This is the panproto developer guide. It documents crate architecture, algebraic
 | 3.5 | `panproto-io` | Instance-level presentation: format-specific parse/emit |
 | 4 | `panproto-core`, `panproto-wasm`, `panproto-cli` | Re-export facade, WASM boundary, CLI |
 
-## Organization
-
-The guide is organized into six parts:
-
-- **Part I (Getting Started):** orientation and your first contribution.
-- **Part II (Development Environment):** building, testing, debugging, profiling.
-- **Part III (Architecture and Internals):** deep dives into each crate and subsystem. Read the architecture overview first, then jump to whichever crate you're working on.
-- **Part IV (Contributing Process):** coding conventions, testing philosophy, PR workflow.
-- **Part V (Project Operations):** release process and versioning policy.
-- **Appendices:** glossary (A), source code map (B), troubleshooting FAQ (C), optimization guide (D), benchmark results (E).
+Each level depends only on the levels below it.  `panproto-gat` has no panproto dependencies.  `panproto-core` re-exports everything.
 
 ## Reading paths
 
-**Contributors** landing a fix or feature: chapters 1 through 2, then chapter 3 (build), then chapters 16 through 18 (PR workflow).
+**Contributors** landing a fix or feature: start with Chapters 1 and 2, then Chapter 3 (building the project), then Chapters 16 through 18 (the PR workflow).
 
-**Protocol authors** adding a new schema language: chapters 5 (architecture), 6 (GAT engine), then the protocol chapter (12).
+**Protocol authors** adding a new schema language: read Chapter 5 (architecture overview), Chapter 6 (the GAT engine), then Chapter 12 (protocols).
 
-**Researchers** exploring the internals: chapters 5 through 6, then @sec-advanced-internals, then @sec-protolens-engine and @sec-auto-lens-pipeline.
+**Researchers** exploring the internals: read Chapters 5 and 6 sequentially, then @sec-advanced-internals, then @sec-protolens-engine and @sec-auto-lens-pipeline.
 
 ## Links
 
@@ -46,10 +37,6 @@ The guide is organized into six parts:
 
 ## Conventions
 
-- Inline code like `panproto-gat` refers to a crate name.
-- File paths like `crates/panproto-gat/src/theory.rs` are relative to the repository root.
-- Shell commands assume a Unix-like environment (macOS or Linux).
-
----
+Inline code like `panproto-gat` refers to a crate name.  File paths like `crates/panproto-gat/src/theory.rs` are relative to the repository root.  Shell commands assume a Unix-like environment (macOS or Linux).
 
 *Aaron Steven White*

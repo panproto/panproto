@@ -1,8 +1,8 @@
 # Coding Conventions and API Design {#sec-conventions}
 
-The panproto codebase follows a consistent set of coding conventions and API design patterns. Following these keeps the code predictable and the review process efficient.
+The panproto codebase follows a consistent set of conventions and API design patterns. Following these keeps the code predictable and the review process efficient.
 
-## Rust Edition and Toolchain
+## Rust edition and toolchain
 
 The workspace targets **Rust Edition 2024**, which requires rustc 1.85 or later. The workspace `Cargo.toml` enforces this:
 
@@ -13,7 +13,7 @@ The workspace targets **Rust Edition 2024**, which requires rustc 1.85 or later.
 Edition 2024 enables several language changes including the new `use<>` capture syntax and refined `impl Trait` behavior. If your local toolchain is older than 1.85, `rustup update stable` will get you there.
 :::
 
-## Workspace Lints
+## Workspace lints
 
 Strict linting is configured at the workspace level. Every crate inherits these settings:
 
@@ -29,7 +29,7 @@ Key policies:
 
 The release profile enables LTO, single codegen unit, and symbol stripping for minimal binary size. The `release-wasm` profile inherits from release but uses `opt-level = "z"` for aggressive size optimization.
 
-## Immutable Fluent Builder Pattern
+## Immutable fluent Builder pattern
 
 Both `SchemaBuilder` (Rust) and `SchemaBuilder`/`MigrationBuilder` (TypeScript) use the immutable fluent builder pattern. In Rust, `SchemaBuilder` takes `self` by value and returns `Result<Self, SchemaError>`:
 
@@ -55,11 +55,11 @@ vertex(id: string, kind: string, options?: VertexOptions): SchemaBuilder {
 Mark all builder constructors and pure functions with `#[must_use]`. This catches the common mistake of calling a builder method without binding the result.
 :::
 
-## Error Design
+## Error design
 
 The codebase uses a two-tier error strategy:
 
-### Library Crates: `thiserror`
+### Library crates: `thiserror`
 
 Every library crate defines its own error enum with `thiserror`:
 
@@ -76,7 +76,7 @@ pub enum SchemaError {
 
 These errors are structured, matchable, and carry no formatting dependencies. They compose naturally with `?` across crate boundaries.
 
-### CLI Crate: `miette`
+### CLI crate: `miette`
 
 Only `panproto-cli` uses `miette` for user-facing diagnostics. Library errors are converted via `.into_diagnostic()`:
 
@@ -87,12 +87,12 @@ let schema = load_json(path)?;  // returns miette::Result
 This keeps the library crates lightweight. A GUI or web consumer of `panproto-core` never pulls in `miette`'s terminal formatting code.
 
 ::: {.callout-note}
-## Why two error crates?
+## Why Two Error Crates?
 
 `thiserror` generates zero-overhead error types with structured fields. `miette` generates rich terminal output with colors, source labels, and suggestions. Library consumers need the first; CLI users need the second. Keeping them separate respects that boundary.
 :::
 
-## `#[must_use]` on Builders and Pure Functions
+## `#[must_use]` on builders and pure functions
 
 All builder types and pure functions are annotated with `#[must_use]`:
 
@@ -108,7 +108,7 @@ builder.vertex("post", "record", None)?;  // Warning: unused result
 // Should be: builder = builder.vertex(...)?;
 ```
 
-## Collection Choices
+## Collection choices
 
 The codebase makes deliberate collection choices based on usage patterns:
 
@@ -123,7 +123,7 @@ The codebase makes deliberate collection choices based on usage patterns:
 `SmallVec` uses the 2.0.0-alpha series with serde support. `FxHashSet` comes from the `rustc-hash` crate, the same hasher used inside the Rust compiler.
 :::
 
-## Documentation Standards
+## Documentation standards
 
 Every public item must have a doc comment. The conventions are:
 
@@ -147,7 +147,7 @@ pub fn edge(self, src: &str, tgt: &str, kind: &str, name: Option<&str>)
     -> Result<Self, SchemaError>
 ```
 
-## Naming Conventions
+## Naming conventions
 
 - **Crates**: `panproto-<name>` (kebab-case)
 - **Modules**: snake_case, matching the domain concept (`schema`, `migration`, `existence`)
@@ -155,7 +155,7 @@ pub fn edge(self, src: &str, tgt: &str, kind: &str, name: Option<&str>)
 - **Functions**: snake_case, with `check_` prefix for validation functions and `cmd_` prefix for CLI handlers
 - **TypeScript**: camelCase for functions and variables, PascalCase for classes and interfaces, matching standard JS conventions
 
-## Dependency Policy
+## Dependency policy
 
 - Prefer workspace-level dependency declarations in the root `Cargo.toml`
 - Pin major versions but allow minor/patch updates

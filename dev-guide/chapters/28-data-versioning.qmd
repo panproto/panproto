@@ -2,7 +2,7 @@
 
 The `panproto-vcs` object model extends beyond schemas and migrations to include data snapshots, complements, and protocol definitions as first-class versioned objects. For the user-facing workflow, see the [tutorial's data versioning chapter](https://panproto.dev/tutorial/chapters/19-data-versioning.html).
 
-## Object model: DataSetObject, ComplementObject, Protocol {#sec-data-object-model}
+## Object model: datasetobject, complementobject, Protocol {#sec-data-object-model}
 
 **File**: `crates/panproto-vcs/src/objects.rs`
 
@@ -175,7 +175,7 @@ For backward segments of a path (when the target is an ancestor), the function u
 The function returns `Error::MissingComplement` with the migration ID and data set ID. This can happen if someone ran `schema gc` and the complement was collected. The remedy is to re-migrate forward from an older snapshot that still has its complements.
 :::
 
-## Complement lifecycle: creation, storage, retrieval, GC {#sec-complement-lifecycle}
+## Complement lifecycle: creation, storage, retrieval, gc {#sec-complement-lifecycle}
 
 Complements follow the same lifecycle as other objects in the store:
 
@@ -263,7 +263,7 @@ pub fn merge_with_data(
 
 If the merge has conflicts, data migration is skipped. The `MergeResult` contains the conflicts, and the caller must resolve them before migrating data.
 
-## Index staging: StagedData, staged_protocol {#sec-index-staging}
+## Index staging: stageddata, staged_protocol {#sec-index-staging}
 
 **File**: `crates/panproto-vcs/src/objects.rs`
 

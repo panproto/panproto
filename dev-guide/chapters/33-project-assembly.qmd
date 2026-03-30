@@ -1,6 +1,6 @@
 # Project Assembly and Git Bridge {#sec-project-assembly}
 
-The `panproto-project` and `panproto-git` crates handle multi-file projects and bidirectional translation with git repositories.
+A real codebase is not one file.  It is hundreds of files in dozens of directories, each parsed by a different grammar, all woven together by imports and references.  The `panproto-project` crate assembles per-file schemas into a single project-level schema (a categorical coproduct), while `panproto-git` bridges the gap between panproto's content-addressed VCS and ordinary git repositories.
 
 ## panproto-project
 

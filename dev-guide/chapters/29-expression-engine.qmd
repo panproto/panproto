@@ -1,6 +1,6 @@
 # Expression Parser & Query Engine {#sec-expression-engine}
 
-panproto includes a pure functional expression language and a declarative query engine for operating on W-type instances. The expression engine spans two crates (`panproto-expr` and `panproto-expr-parser`) and integrates with the instance layer (`panproto-inst`), the VCS (`panproto-vcs`), and the WASM boundary (`panproto-wasm`).
+Migrations need more than structural rewiring.  They need to compute values: parse a string into an integer, concatenate two name fields, filter nodes by a predicate, choose a default based on the target schema's constraints.  panproto's expression language handles all of this—a small, pure functional language embedded in two crates (`panproto-expr` for the AST and evaluator, `panproto-expr-parser` for the surface syntax) and integrated throughout the instance layer, VCS, and WASM boundary.
 
 ::: {.callout-note}
 For the user-facing walkthrough of value-dependent migration (which uses expressions for field transforms), see [the tutorial](https://panproto.dev/tutorial/chapters/20-value-dependent-transforms.html).
@@ -23,8 +23,6 @@ This crate provides the core computational substrate. Its modules are:
 | `builtin.rs` | `apply_builtin` dispatch for all non-graph builtins |
 | `subst.rs` | `substitute`, `free_vars`, `pattern_vars` for symbolic manipulation |
 | `error.rs` | `ExprError` enum covering type mismatches, arity errors, unbound variables, and resource limits |
-
-: `panproto-expr` modules. {#tbl-expr-modules}
 
 The `Expr` enum is the canonical AST representation used throughout panproto. All variants derive `Serialize`/`Deserialize`, making expressions content-addressable and portable across the WASM boundary:
 
@@ -50,13 +48,13 @@ This crate provides the Haskell-style surface syntax. It has four modules:
 
 **`token.rs`**: A `logos`-based token enum with 50+ token kinds. Keywords (`do`, `let`, `where`, `if`, `then`, `else`, `case`, `of`, `guard`, `not`, `mod`, `div`, `otherwise`) are recognized during lexing. Three virtual token kinds (`Indent`, `Dedent`, `Newline`) are reserved for the layout pass.
 
-**`lexer.rs`**: Two-pass tokenization. The first pass runs `logos` for fast regex-based tokenization. The second pass (`insert_layout`) implements GHC-style layout insertion: when a layout keyword (`let`, `where`, `do`, `of`) is followed by a newline with increased indentation, an `Indent` token is inserted. When indentation decreases, `Dedent` tokens are inserted. Equal indentation within a layout block produces `Newline` tokens. If the layout keyword is followed by `{`, layout insertion is suppressed (explicit delimiters).
+**`lexer.rs`**: Two-pass tokenization. The first pass runs `logos` for fast regex-based tokenization. The second pass (`insert_layout`) implements GHC-style layout insertion: when a layout keyword (`let`, `where`, `do`, `of`) is followed by a newline with increased indentation, an `Indent` token is inserted. When indentation decreases, `Dedent` tokens are inserted. Equal indentation within a layout block produces `Newline` tokens. If the layout keyword is followed by `{`, layout insertion is suppressed.
 
 **`parser.rs`**: A chumsky 1.0 parser combining recursive descent with Pratt precedence parsing. Layout tokens are consumed as block delimiters alongside explicit braces.
 
 **`pretty.rs`**: Precedence-aware pretty printer that minimizes parentheses. Designed to round-trip: `parse(tokenize(pretty_print(&e))) == e` for well-formed expressions.
 
-## The BuiltinOp system {#sec-builtin-ops}
+## The builtinop system {#sec-builtin-ops}
 
 `BuiltinOp` is a 50-variant enum organized into nine domains:
 
@@ -72,8 +70,6 @@ This crate provides the Haskell-style surface syntax. It has four modules:
 | Type coercion | 6 | `IntToFloat`, `FloatToInt`, `IntToStr`, `FloatToStr`, `StrToInt`, `StrToFloat` |
 | Type inspection | 3 | `TypeOf`, `IsNull`, `IsList` |
 | Graph traversal | 5 | `Edge`, `Children`, `HasEdge`, `EdgeCount`, `Anchor` |
-
-: `BuiltinOp` domains. {#tbl-builtin-domains}
 
 Every builtin has a fixed arity enforced by `BuiltinOp::arity()`. The arity is either 1 (unary), 2 (binary), or 3 (ternary; only `Slice`, `Replace`, and `Fold`). The evaluator checks arity before dispatch: if the argument count doesn't match, evaluation fails with `ExprError::ArityMismatch`.
 
@@ -110,8 +106,6 @@ Each graph builtin resolves against the instance's arc and node maps:
 | `HasEdge` | `(node_ref, edge_kind) -> bool` | Checks if any arc matches |
 | `EdgeCount` | `(node_ref) -> int` | Counts outgoing arcs |
 | `Anchor` | `(node_ref) -> string` | Returns the node's schema anchor name |
-
-: Graph builtin behavior. {#tbl-graph-builtins}
 
 ### Node reference resolution
 
@@ -246,8 +240,6 @@ The Pratt parser defines nine precedence levels. Higher levels bind more tightly
 | 9 | Prefix | `-` (unary), `not` | `Builtin(Neg\|Not, ...)` |
 | 10+ | Left | juxtaposition (application) | `App(func, arg)` or `Builtin(op, args)` |
 
-: Operator precedence table. {#tbl-operator-precedence}
-
 Postfix operations (`.field` and `->edge`) bind tighter than application. They are parsed as a left-fold over the `atom` parser, before the Pratt parser sees the expression.
 
 ### Desugaring rules
@@ -323,7 +315,7 @@ When the parser encounters juxtaposition (function application), `resolve_applic
 
 Both snake_case and camelCase names are accepted for multi-word builtins (e.g., `flat_map` and `flatMap` both resolve to `FlatMap`).
 
-## VCS integration {#sec-expr-vcs}
+## VCS integration {#sec-expr-VCS}
 
 Expressions participate in panproto's content-addressed object store via the `Object::Expr` variant in `panproto-vcs`.
 
@@ -344,7 +336,7 @@ The VCS hashes `Object::Expr` via `hash::hash_expr`, which serializes the `Expr`
 
 Expressions are leaf objects in the VCS DAG: they have no outgoing references to other objects. The garbage collector (`gc.rs`) treats them as terminal nodes during reachability analysis.
 
-## WASM boundary {#sec-expr-wasm}
+## WASM boundary {#sec-expr-WASM}
 
 Three WASM exports in `panproto-wasm/src/api.rs` expose the expression engine to JavaScript/TypeScript:
 

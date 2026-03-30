@@ -2,7 +2,7 @@
 
 panproto uses a layered testing strategy: fast unit tests for individual functions, integration tests that exercise cross-crate workflows, property-based tests for algebraic invariants, and TypeScript tests for the SDK.
 
-## Test Pyramid
+## Test pyramid
 
 | Layer | Tool | Scope | Run Command |
 |---|---|---|---|
@@ -18,7 +18,7 @@ panproto uses a layered testing strategy: fast unit tests for individual functio
 Use `cargo nextest run` instead of `cargo test` for the integration suite. Nextest runs each test as a separate process, which avoids thread-local state contamination from the WASM slab allocator.
 :::
 
-## Unit Tests
+## Unit tests
 
 Each crate has inline `#[cfg(test)] mod tests` blocks adjacent to the code they test. The convention:
 
@@ -34,7 +34,7 @@ cargo test -p panproto-mig
 cargo test -p panproto-gat
 ```
 
-## Integration Tests
+## Integration tests
 
 The `tests/integration` crate contains 14 integration tests that exercise end-to-end workflows. Each test file focuses on a specific scenario:
 
@@ -67,11 +67,11 @@ Run a single integration test:
 cargo nextest run -p panproto-integration -- atproto_roundtrip
 ```
 
-## Property-Based Testing with `proptest`
+## Property-based testing with `proptest`
 
 Property-based tests verify algebraic invariants that must hold for all valid inputs. The `proptest` crate generates random inputs and shrinks failing cases to minimal counterexamples.
 
-### Heavily Property-Tested Functions
+### Heavily property-tested functions
 
 The existence checker is a prime example of a function with rich algebraic properties:
 
@@ -85,7 +85,7 @@ Properties tested for `check_existence` include:
 - **Constraint monotonicity**: loosening a constraint never introduces `ConstraintTightened` errors
 - **Composition preserves validity**: if migration A is valid and migration B is valid, their composition should pass the same checks
 
-### Writing a `proptest` Strategy for a New Type
+### Writing a `proptest` strategy for a new Type
 
 To property-test a new type, define a `proptest` strategy that generates valid instances. The pattern:
 
@@ -136,7 +136,7 @@ Strategies should generate structurally valid inputs (well-formed schemas with c
 
 When `proptest` finds a failing case, it automatically shrinks the input to a minimal counterexample. For complex types like `Schema`, this means reducing the number of vertices and edges to the smallest set that still triggers the failure. The shrunk counterexample is printed in the test output and saved to a regression file.
 
-## TypeScript Tests
+## TypeScript tests
 
 The TypeScript SDK has its own test suite:
 
@@ -175,7 +175,7 @@ cargo bench -p panproto-inst      # Instance parsing benchmarks
 - Automatic iteration count tuning
 - Comparison between groups via `#[divan::bench(args = [...])]`
 
-### CI Regression Detection
+### CI regression detection
 
 The `bench.yml` workflow runs on every PR against `main`. It:
 
@@ -189,7 +189,7 @@ The `bench.yml` workflow runs on every PR against `main`. It:
 Benchmark results are inherently noisy on shared CI runners. A 120% threshold means the regression must be at least 20% worse than baseline to trigger an alert. If you see a spurious alert, re-run the workflow; true regressions will be consistent.
 :::
 
-## VCS Workflow Tests
+## VCS workflow tests
 
 The `panproto-vcs` crate has approximately 63 tests organized into 20 groups, covering the full repository lifecycle. Each group targets a specific area:
 
@@ -213,7 +213,7 @@ Run the full VCS workflow suite:
 cargo nextest run -p panproto-vcs --test workflows
 ```
 
-## CLI Binary Tests
+## CLI binary tests
 
 The `panproto-cli` crate includes approximately 40 `assert_cmd`-based tests that exercise the `schema` binary end-to-end. These tests verify:
 
@@ -230,12 +230,12 @@ cargo nextest run -p panproto-cli --test cli_workflows
 ```
 
 ::: {.callout-tip}
-## When should I add a property test vs. an integration test?
+## Property Tests vs. Integration Tests?
 
 Property tests are best for algebraic invariants (commutativity, associativity, round-trip laws) where the property should hold for *all* valid inputs. Integration tests are best for specific workflows where you need to verify that multiple crates cooperate correctly on a concrete example.
 :::
 
-## Writing Tests for a New Feature
+## Writing tests for a new feature
 
 When adding a new feature, add tests at multiple levels:
 

@@ -5,15 +5,17 @@ id: sec-schema-migration-problem
 
 # The Schema Migration Problem
 
-A *schema migration* maps data described by one schema to data described by another. The transformation must be safe, predictable, and (ideally) automated.
+Every schema language has the same problem: data outlives the schema it was written against.  The moment a schema changes, a gap opens between old data and new expectations, and something must close it.  That something is a migration---a transformation derived from the relationship between the two schema versions.
 
-To see what this means concretely, here are four descriptions of the same entity: a social media post, modeled on Bluesky's `app.bsky.feed.post`.
+panproto starts from the observation that schema languages, despite their surface differences, all describe the same kind of structural object: named containers holding typed, constrained members connected by edges.  Because the structure is shared, the migration machinery can be shared too.
 
-## Four Schemas for a Post
+## Four schemas for a post
+
+To make the pattern concrete, here is the same entity---a social media post---described in four different schema languages.
 
 ### ATProto Lexicon
 
-Lexicon is a JSON-based schema language with protocol-specific concepts: NSIDs (namespaced identifiers), record types, and grapheme-cluster counting.
+Lexicon is a JSON-based schema language with protocol-specific concepts: namespaced identifiers (NSIDs), record types, and grapheme-cluster counting.
 
 ```json
 {
@@ -53,7 +55,7 @@ Lexicon is a JSON-based schema language with protocol-specific concepts: NSIDs (
 }
 ```
 
-The NSID `app.bsky.feed.post` identifies this record type across the network. `"key": "tid"` specifies a timestamp-based ID strategy. Inside the `record` block, the shape language resembles JSON Schema: `required` array, `properties` object, `type` annotations. `maxGraphemes` is Lexicon-specific: it counts Unicode grapheme clusters, not bytes or code points.
+The NSID `app.bsky.feed.post` identifies this record type across the AT Protocol network.  Inside the `record` block, the shape language looks a lot like JSON Schema: a `required` array, a `properties` object, `type` annotations on each property.  The one thing that is distinctly Lexicon is `maxGraphemes`, which counts Unicode grapheme clusters rather than bytes or code points.
 
 ### SQL DDL (PostgreSQL)
 
@@ -66,7 +68,7 @@ CREATE TABLE posts (
 );
 ```
 
-SQL brings concepts the other formats lack: identity (`PRIMARY KEY`), defaults (`DEFAULT now()`), and operational constraints enforced at write time (`NOT NULL`). The `TEXT[]` type is PostgreSQL's array syntax; other databases would model tags as a join table, which is itself a schema design decision with migration consequences.
+SQL brings concepts the other formats lack: identity (`PRIMARY KEY`), server-side defaults (`DEFAULT now()`), and write-time enforcement (`NOT NULL`).  The `TEXT[]` type is PostgreSQL's array syntax; most other databases would model tags as a join table, which is itself a schema design decision with migration consequences.
 
 ### Protocol Buffers
 
@@ -84,7 +86,7 @@ message Post {
 }
 ```
 
-Protobuf's defining feature is field numbers (`= 1`, `= 2`, `= 3`), which decouple wire encoding from field names. You can rename a field without breaking existing consumers, but you can never reuse a field number. There's no built-in constraint language; `maxLength` validation requires an external tool like [Buf](https://buf.build/) and its `protovalidate` toolchain.
+Protobuf's distinguishing feature is field numbers (`= 1`, `= 2`, `= 3`).  They decouple the wire encoding from field names, which means you can rename a field without breaking existing consumers.  The trade-off is that you can never reuse a field number.  There is no built-in constraint language; if you want `maxLength` validation, you reach for an external tool like [Buf](https://buf.build/) and its `protovalidate` toolchain.
 
 ### GraphQL SDL
 
@@ -97,12 +99,12 @@ type Post {
 }
 ```
 
-GraphQL describes API surfaces, not storage. The `!` suffix means non-nullable (GraphQL's analog of `required`). `[String!]` is a nullable list of non-nullable strings; nullability is a type-level concern, not a separate constraint. There's no `maxLength` in the SDL. Validation happens in resolvers or custom directives.
+GraphQL describes API surfaces, not storage.  The `!` suffix means non-nullable (GraphQL's analog of `required`).  `[String!]` is a nullable list of non-nullable strings; nullability is a type-level concern here, not a separate constraint annotation.  There is no `maxLength` in the SDL.  Validation happens in resolvers or custom directives.
 
 
-## The Structural Pattern
+## What these four descriptions share
 
-These four formats use different syntax, different terminology, and different operational semantics. They all describe the same structural anatomy:
+The syntax is different.  The terminology is different.  The operational semantics are different.  But look at the structure:
 
 | Concept          | ATProto Lexicon | SQL DDL       | Protobuf        | GraphQL SDL   |
 |------------------|-----------------|---------------|-----------------|---------------|
@@ -113,54 +115,52 @@ These four formats use different syntax, different terminology, and different op
 | Length constraint | maxLength       | VARCHAR(n)    | (external)      | (external)    |
 | List marker      | type: array     | ARRAY / table | repeated        | `[T]` syntax  |
 
-Every schema language has containers that hold named, typed members. Some members are required. Some have constraints. The differences are real (SQL has foreign keys, Protobuf has field numbers, GraphQL has nullability in its type system, Lexicon has grapheme counting), but they are parametric variations on a shared structure, not fundamentally different kinds of things.
-
-The questions below probe the limits of this shared structure: what happens when a constraint exists in one language but not another?
+The table has one row per structural concept and one column per language.  Every column is filled.  The differences are real---foreign keys, field numbers, nullability operators, grapheme counting---but they are extensions to a shared core, not alternative foundations.  If the differences were superficial, a format converter would suffice.  If they were fundamental, no general tool could help.  The reality is in between, and that middle ground is what panproto formalizes.
 
 ::: {.callout-caution}
-## Question
+## Exercise
 
-Which of these four languages can express that `tags` has at most 8 elements? Which cannot? What does this tell you about how migration between these languages must handle constraints?
+Which of these four languages can express that `tags` has at most 8 elements?  Which cannot?  What does this tell you about how migration between these languages must handle constraints?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-ATProto Lexicon (via `maxLength: 8` on the array) and JSON Schema (via `maxItems: 8`) can express this directly. SQL can approximate it with a CHECK constraint but has no native array-length syntax in the DDL. Protobuf and GraphQL cannot; they have no constraint vocabulary in their schema languages. Cross-protocol migration must either silently drop the constraint, carry it as an out-of-band annotation, or reject the translation as lossy.
+ATProto Lexicon can express it directly (`maxLength: 8` on the array).  SQL can approximate it with a CHECK constraint but has no native array-length syntax in the DDL.  Protobuf and GraphQL cannot; they have no constraint vocabulary in their schema languages.  Cross-protocol migration must either silently drop the constraint, carry it as an out-of-band annotation, or reject the translation as lossy.
 :::
 
-Each of these schemas is a directed graph $G = (V, E, s, t)$ where $V$ is a set of types, $E$ is a set of fields, and $s, t: E \to V$ map each field to its source and target. The post schema has three vertices (`Post`, `String`, `DateTime`) and three edges (`text`, `createdAt`, `tags`). We formalize this in @sec-schemas-have-in-common.
+Structurally, the post schema is a directed graph: three vertices (`Post`, `String`, `DateTime`) and three edges (`text`, `createdAt`, `tags`).  The next chapter makes that precise.
 
 ::: {.callout-caution}
-## Question
+## Exercise
 
-SQL has a `PRIMARY KEY` concept. Does any other language in the table above have an equivalent? What does this asymmetry mean for cross-protocol translation?
+SQL has a `PRIMARY KEY` concept.  Does any other language in the table above have an equivalent?  What does this asymmetry mean for cross-protocol translation?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-None of the other three languages has a direct equivalent. GraphQL has no identity concept in the SDL. Protobuf's field numbers are wire-format metadata, not primary keys. ATProto's `key: "tid"` is the closest analog, specifying an ID generation strategy, but it is a record-level annotation rather than a structural constraint. Cross-protocol translation must either drop PRIMARY KEY information or carry it as an opaque annotation.
+None of the other three has a direct equivalent.  GraphQL has no identity concept in the SDL.  Protobuf's field numbers are wire-format metadata, not primary keys.  ATProto's `key: "tid"` is the closest analog---it specifies an ID generation strategy---but it is a record-level annotation rather than a structural constraint on a column.  Cross-protocol translation must either drop the PRIMARY KEY information or carry it as an opaque annotation.
 :::
 
-Comparing schemas therefore requires more than syntax translation. We need a representation that can track what each language expresses and what it leaves out.
+Comparing schemas, then, requires more than syntax translation.  We need a representation that can track what each language expresses and what it leaves out.
 
-## Building Schemas in panproto
+## Building schemas in panproto
 
-Here is the same post schema built with panproto's TypeScript SDK for two protocols.
+Here is the same post schema built with panproto's TypeScript SDK for two protocols.  The point is not the API surface (which you can look up in the reference); the point is the shape of the construction.
 
 ### ATProto
 
 ```{.typescript include="../code/ts/01-atproto-schema.ts" snippet="build-schema"}
 ```
 
-Schema types become **vertices** and the fields connecting them become **edges**: the graph structure that @sec-schemas-have-in-common makes precise. The builder API mirrors Lexicon's structure: vertices for the record, the inner object, and each property's type; edges connecting them; constraints attached to specific vertices.
+Schema types become vertices.  The fields connecting them become edges.  Constraints are annotations on vertices.  The builder API mirrors Lexicon's own structure: vertices for the record, the inner object, and each property's type; edges connecting them; constraints attached where they belong.
 
 ### SQL
 
 ```{.typescript include="../code/ts/01-sql-schema.ts" snippet="build-schema"}
 ```
 
-Same pattern: vertices for the table and its column types, edges for the columns, constraints on the vertices. The vocabulary changes (`table` instead of `record`, `column` instead of `prop`), but the construction logic is identical. The shape of the construction (declare vertices, connect them with edges, attach constraints) is invariant across protocols. What varies is the vocabulary of vertex kinds, edge kinds, and constraint types. In @sec-schemas-have-in-common, we make this variation precise using algebraic theories.
+Same shape.  Different vocabulary.  The word "table" replaces "record," "column" replaces "property," but the construction logic---declare vertices, connect them with edges, attach constraints---is identical.  What varies is the *vocabulary* of vertex kinds, edge kinds, and constraint types.
 
-What exactly do these graph structures have in common, and how can we describe the variation between schema languages formally enough for an engine to compute with it?
+That vocabulary is exactly what we will formalize next.  The next chapter asks: what, precisely, do these graph structures have in common, and how can we describe the variation between schema languages formally enough for an engine to compute with it?

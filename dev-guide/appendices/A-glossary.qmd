@@ -5,7 +5,7 @@ This appendix defines every domain term used in the panproto codebase and docume
 ## Algebraic foundations
 
 GAT (Generalized Algebraic Theory)
-: A theory with sorts, typed operations, and equations between terms --- the core abstraction panproto uses to represent schema languages. Implemented in `panproto-gat`.
+: A theory with sorts, typed operations, and equations between terms. The core abstraction panproto uses to represent schema languages. Implemented in `panproto-gat`.
 
 Sort
 : A named type within a GAT, optionally parameterized by other sorts. In panproto, schema elements like "vertex," "edge," and "constraint" are sorts.
@@ -60,7 +60,7 @@ NSID
 ## Instance layer
 
 Instance
-: A concrete dataset that conforms to a schema --- the "data" as opposed to the "shape." Represented in `panproto-inst`.
+: A concrete dataset that conforms to a schema — the "data" as opposed to the "shape." Represented in `panproto-inst`.
 
 W-type instance
 : panproto's tree-structured representation of instance data, based on W-types from type theory. Each node has a label (vertex), children (edges), and a value.
@@ -124,7 +124,7 @@ Naturality
 : The coherence condition on a protolens: instantiating at one schema and then migrating must produce the same result as migrating first and then instantiating. Naturality ensures that protolenses are well-behaved families of lenses, not ad-hoc collections.
 
 Instantiation (Pi-elimination)
-: The operation of applying a protolens to a specific schema and protocol to produce a concrete `Lens`. Mathematically, this is Pi-type elimination---evaluating a dependent function at a specific argument. Performed by `Protolens::instantiate`.
+: The operation of applying a protolens to a specific schema and protocol to produce a concrete `Lens`. Mathematically, this is Pi-type elimination—evaluating a dependent function at a specific argument. Performed by `Protolens::instantiate`.
 
 Factorization (morphism decomposition)
 : The decomposition of a theory morphism into a sequence of elementary endofunctor steps (drops, renames, adds). Each step maps to an elementary protolens constructor. Implemented by `factorize()` in `crates/panproto-gat/src/factorize.rs`.
@@ -136,10 +136,10 @@ Put
 : The backward direction of a lens: given updated target data and a complement, reconstructs a source instance.
 
 GetPut law
-: The round-trip law stating that `put(get(s), s) = s` --- putting back unchanged data recovers the original source.
+: The round-trip law stating that `put(get(s), s) = s` — putting back unchanged data recovers the original source.
 
 PutGet law
-: The round-trip law stating that `get(put(t, s)) = t` --- getting after a put yields the updated target.
+: The round-trip law stating that `get(put(t, s)) = t` — getting after a put yields the updated target.
 
 ## Edit lens layer
 

@@ -1,27 +1,23 @@
 # Building Your Own Protocol {#sec-building-protocol}
 
-Merging two theories is like merging two branches in version control: the shared base is the common ancestor, and the merge identifies everything they agree on while combining what is new from each side.
+A protocol is defined by composing building-block theories via colimit---the categorical operation that merges two structures while identifying anything they share.  Two theories that both mention a $\mathrm{Vertex}$ sort get merged into one theory with a single $\mathrm{Vertex}$, not two copies of it.  This chapter walks through building a Kubernetes CRD protocol from $\mathrm{colimit}(\text{ThConstrainedGraph}, \text{ThWType})$.
 
-A new protocol is defined by composing building-block theories via colimit. We'll define a Kubernetes CRD protocol from $\mathrm{colimit}(\text{ThConstrainedGraph}, \text{ThWType})$.
+## How composition works
 
-Given two theories $T_1$ and $T_2$ sharing a common sub-theory $S$ via theory morphisms, the colimit $T_1 +_S T_2$ merges them with shared structure identified.^[This is a categorical pushout. See [Appendix A](../appendices/A-formal-foundations.qmd) for the formal definition.] The result contains all sorts and operations from both inputs, identifies anything from the shared base (so nothing is duplicated), and preserves all equations from both sides.
-
-The Rust API exposes this as a single function:
+When two theories $T_1$ and $T_2$ share a common sub-theory $S$ through theory morphisms, the colimit $T_1 +_S T_2$ merges them carefully: shared structure gets identified (never duplicated), all sorts and operations from both sides survive, and equations from both are preserved.^[This is a categorical pushout. See Appendix A for the formal definition.] The Rust API is a single function:
 
 ```rust
 pub fn compose(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatError>;
 ```
 
-### A concrete example
-
-Consider two theories:
+A concrete example.  Suppose we have two theories:
 
 - **ThGraph** with sorts $\{\mathrm{Vertex}, \mathrm{Edge}\}$ and operations $\{\mathrm{src}: \mathrm{Edge} \to \mathrm{Vertex},\; \mathrm{tgt}: \mathrm{Edge} \to \mathrm{Vertex}\}$.
 - **ThConstraint** with sorts $\{\mathrm{Vertex}, \mathrm{Constraint}\}$ and operations $\{\mathrm{target}: \mathrm{Constraint} \to \mathrm{Vertex}\}$.
 
-Both theories contain the sort $\mathrm{Vertex}$. The shared base **ThVertex** is the theory with the single sort $\{\mathrm{Vertex}\}$ and no operations.
+Both mention $\mathrm{Vertex}$. The shared base **ThVertex** contains just $\{\mathrm{Vertex}\}$ with no operations.
 
-Composing them gives $\mathrm{ThConstrainedGraph} = \mathrm{compose}(\mathrm{ThGraph}, \mathrm{ThConstraint}, \mathrm{ThVertex})$:
+When we compose, calling $\mathrm{ThConstrainedGraph} = \mathrm{compose}(\mathrm{ThGraph}, \mathrm{ThConstraint}, \mathrm{ThVertex})$, we get:
 
 - **Sorts**: $\{\mathrm{Vertex}, \mathrm{Edge}, \mathrm{Constraint}\}$. $\mathrm{Vertex}$ appears once, not twice.
 - **Operations**: $\{\mathrm{src}, \mathrm{tgt}, \mathrm{target}\}$. All operations are retained.
@@ -36,18 +32,14 @@ graph LR
     ThConstraint -->|compose leg| ThConstrainedGraph
 ```
 
-The composition legs are theory morphisms from each component into the result. These morphisms track the provenance of each sort and operation, which is essential for computing migrations later.
-
-This compositional approach to theory building was pioneered by [GATlab](https://algebraicjulia.github.io/GATlab.jl/), the Julia framework for computational category theory [@lynch2024]. panproto follows the same algebraic blueprint, implemented in Rust for the WASM target.
+Each composition leg is a theory morphism tracking where each sort and operation came from. These provenance records are crucial for computing migrations later. The compositional approach was pioneered by [GATlab](https://algebraicjulia.github.io/GATlab.jl/), Julia's computational category theory framework [@lynch2024]. panproto follows the same algebraic blueprint, implemented in Rust for the WASM target.
 
 
 ## Building a custom protocol: Kubernetes CRDs
 
-Kubernetes Custom Resource Definitions (CRDs) define the shape of custom API objects. A CRD schema has API groups, versions, resource kinds, and typed fields with validation rules. Modeling this in panproto means choosing the right building-block theories and composing them.
+Kubernetes Custom Resource Definitions (CRDs) define the shape of custom API objects: groups, versions, resource kinds, and typed fields with validation. To model this in panproto, pick the right building-block theories and compose them.
 
-### Defining the protocol
-
-We compose component theories to describe the shape of CRD schemas:
+Here's how you define the protocol:
 
 ```typescript
 import { Panproto } from '@panproto/core';
@@ -69,11 +61,7 @@ const k8sCrd = panproto.defineProtocol({
 });
 ```
 
-The protocol definition tells panproto what kinds of things a CRD schema can contain (API groups, objects, arrays, typed fields) and how they connect. Under the hood, this merges the component theories we selected into a single combined theory, using the same $\mathrm{colimit}$ operation described in @sec-protocols-as-parameters.
-
-### Using the protocol
-
-With the protocol defined, we can build schemas within it:
+This declares what a CRD schema can contain: API groups, objects, arrays, fields. Behind the scenes, panproto merges the component theories using colimit. With the protocol defined, build actual schemas within it:
 
 ```typescript
 const certManagerCrd = k8sCrd.schema()
@@ -98,59 +86,59 @@ const certManagerCrd = k8sCrd.schema()
   .build();
 ```
 
-This models a simplified cert-manager `Certificate` CRD. The schema captures the structural shape (groups, nested objects, arrays, typed fields) along with validation constraints like `required` and `enum`.
+This models a simplified cert-manager `Certificate` CRD: the structural shape (groups, nested objects, arrays) plus validation constraints like `required` and `enum`.
 
-### Everything works immediately
+## Everything works immediately
 
-Because the protocol is defined as a composed theory, every piece of panproto's machinery operates on it without any additional code.
+Since the protocol is defined as a composed theory, every tool in panproto's machinery operates on it with no additional code.
 
-**Diff** detects what changed between two CRD versions:
+**Diff** detects what changed between versions:
 
 ```typescript
 const report = panproto.diff(certV1, certV2);
-// Reports: added field "duration" in spec,
+// reports: added field "duration" in spec,
 //          changed constraint on issuerRef.kind (added "ExternalIssuer")
 ```
 
-**Existence checking** tells you whether a migration between two CRD versions can be constructed:
+**Existence checking** tells you whether a migration between versions can be constructed:
 
 ```typescript
 const existence = panproto.checkExistence(certV1, certV2, migration);
-// Reports whether the proposed migration handles all changes
+// reports whether the proposed migration handles all changes
 ```
 
-**Lifting** migrates actual CRD instances through the schema change:
+**Lifting** migrates actual data through the schema change:
 
 ```typescript
 const newCert = migration.lift(oldCert);
-// Adds default "duration" field, preserves existing values
+// adds default "duration" field, preserves existing values
 ```
 
-**Lens decomposition** gives you bidirectional access:
+**Lens decomposition** gives bidirectional access:
 
 ```typescript
 const view = migration.get(oldCert);         // forward view
 const restored = migration.put(view, complement);  // round-trip
 ```
 
-None of this required writing CRD-specific migration logic. The theory determined the protocol's structure; panproto's generic engine did the rest.
+All of this came free from defining the theory. The generic engine did the work.
 
 :::{.callout-caution}
-## Question: Why does colimit preserve equations?
+## Exercise: Why does colimit preserve equations?
 
-If $T_1$ and $T_2$ both impose equations on the shared sort $\mathrm{Vertex}$, what guarantees those equations remain consistent in $T_1 +_S T_2$? Under what conditions could a colimit produce a theory with contradictory equations?
+If $T_1$ and $T_2$ both impose equations on the shared sort $\mathrm{Vertex}$, what guarantees those equations remain consistent in $T_1 +_S T_2$? Under what conditions could a colimit produce contradictory equations?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-The colimit preserves all equations from both sides. If $T_1$ requires `src(id(v)) = v` (every vertex has a self-loop) and $T_2$ requires that no vertex has a self-loop, the colimit contains both equations, which are contradictory: no model can satisfy both simultaneously. The colimit itself is well-formed as a theory, but it has no models. panproto detects this at commit time during equation type-checking and rejects the composition.
+The colimit preserves all equations from both sides. If $T_1$ requires `src(id(v)) = v` and $T_2$ requires that no vertex has a self-loop, the colimit contains both, creating a contradiction. No model can satisfy both. panproto detects this at commit time during equation type-checking and rejects the composition.
 :::
 
 
 ## An alternative: Terraform HCL
 
-Here is the same composition applied to [Terraform](https://www.terraform.io/) HCL, modeling infrastructure-as-code resource definitions:
+The same composition approach applies to [Terraform](https://www.terraform.io/) HCL, modeling infrastructure-as-code resource definitions:
 
 ```typescript
 const terraformHcl = panproto.defineProtocol({
@@ -180,10 +168,10 @@ const awsInstance = terraformHcl.schema()
   .build();
 ```
 
-When your Terraform provider adds a new required attribute or restructures a nested block, panproto can diff the schema versions, check migration existence, and lift your `.tfstate` data through the change. The HCL protocol is just another composed theory.
+When your Terraform provider adds a required attribute or restructures nested blocks, panproto diffs the schema versions, checks migration existence, and lifts your `.tfstate` data through the change. The HCL protocol is just another composed theory.
 
 :::{.callout-caution}
-## Question: Shared sub-theory choice
+## Exercise: Shared sub-theory choice
 
 The K8s CRD and Terraform HCL protocols both use `ThConstrainedGraph` and `ThWType`. Does the choice of shared sub-theory $S$ in the colimit $T_1 +_S T_2$ affect the resulting protocol? What happens if you pick a larger or smaller $S$?
 :::
@@ -191,7 +179,7 @@ The K8s CRD and Terraform HCL protocols both use `ThConstrainedGraph` and `ThWTy
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Yes. A larger shared sub-theory $S$ identifies more structure between $T_1$ and $T_2$, producing a smaller colimit (fewer duplicate sorts). A smaller $S$ identifies less, producing a larger colimit with more independent sorts. In the extreme, $S = \emptyset$ (no shared structure) gives the disjoint union of the two theories. The choice of $S$ determines which concepts are treated as "the same thing" versus "different things that happen to look similar."
+Yes. A larger shared sub-theory $S$ identifies more structure between $T_1$ and $T_2$, producing a smaller colimit. A smaller $S$ identifies less, producing a larger colimit with more independent sorts. In the extreme, $S = \emptyset$ (no shared structure) gives the disjoint union. The choice of $S$ determines which concepts are treated as "the same thing" versus "different things that happen to look similar."
 :::
 
 
@@ -210,18 +198,16 @@ panproto ships with a library of reusable component theories designed for compos
 | **ThFunctor** | Functorial mappings between graph-like structures |
 | **ThFlat** | Flat key-value records (no nesting) |
 
-The full catalog of building-block theories is in [Appendix C](../appendices/C-protocol-catalog.qmd).
-
-Every protocol panproto ships is defined as a composition of theories from this library. The library is not closed; you can define your own component theories and use them in compositions alongside the built-in ones.
+See Appendix C for the complete catalog. Every protocol panproto ships is a composition of theories from this library. The library isn't closed; define your own component theories and use them alongside the built-in ones.
 
 :::{.callout-note}
-The compositional nature of theory merging means that if two protocols share a component theory, panproto can automatically construct a partial translation between them. This is the foundation for cross-protocol translation (@sec-cross-protocol).
+Since two protocols sharing a component theory have overlapping theories, panproto can automatically construct partial translations between them. This is the foundation for cross-protocol translation (@sec-cross-protocol).
 :::
 
 
 ## All protocols as compositions
 
-Every one of panproto's 76 built-in protocols falls into one of six theory groups, determined by which component theories its composition requires. See @sec-protocols-as-parameters for the theory group definitions.
+Every one of panproto's 76 built-in protocols belongs to one of six theory groups, determined by which component theories its composition requires. See @sec-protocols-as-parameters for the definitions.
 
 | Theory Group | Schema Theory | Instance Theory | Count | Examples |
 |---|---|---|---|---|
@@ -234,23 +220,23 @@ Every one of panproto's 76 built-in protocols falls into one of six theory group
 
 : The six theory groups organizing panproto's 76 built-in protocols. {#tbl-protocol-groups}
 
-Group membership determines which generic algorithms apply and how cross-group migrations are constructed. Migrating from a Group C protocol (Protobuf) to a Group A protocol (JSON Schema) requires a theory morphism that embeds the simpler $\text{ThSimpleGraph}$ into the richer $\mathrm{compose}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$. The migration morphism itself remains the same kind of graph homomorphism described throughout this tutorial.
+Group membership determines which algorithms apply and how cross-group migrations work. Migrating from Group C (Protobuf) to Group A (JSON Schema) requires embedding the simpler $\text{ThSimpleGraph}$ into the richer $\mathrm{compose}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$. The migration morphism itself remains a graph homomorphism.
 
-See @sec-protocol-catalog for the complete catalog of all 76 protocols with their theory group assignments.
+See @sec-protocol-catalog for the complete catalog with theory group assignments.
 
 :::{.callout-caution}
-## Question: Cross-group migration cost
+## Exercise: Cross-group migration cost
 
-If Group C protocols use $\text{ThSimpleGraph}$ and Group A protocols use $\mathrm{compose}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$, migrating C to A embeds a simpler theory into a richer one. Is the reverse direction (A to C) always possible? What structural information could be lost?
+Group C protocols use $\text{ThSimpleGraph}$ and Group A protocols use $\mathrm{compose}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$. Migrating C to A embeds a simpler theory into a richer one. Is the reverse direction (A to C) always possible? What structural information could be lost?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Not always. Group A schemas use multigraph structure (parallel edges, constraints, multiplicity) that Group C's simple graph theory cannot represent. Converting A to C loses parallel edges (two fields of the same type collapse into one), constraint annotations (no constraint vocabulary in ThSimpleGraph), and multiplicity metadata. If the Group A schema has no parallel edges and no constraints, the embedding into Group C is lossless. Otherwise, information is dropped at the theory level before data migration even begins.
+Not always. Group A schemas use multigraph structure (parallel edges, constraints, multiplicity) that Group C's simple graph theory cannot represent. Converting A to C loses parallel edges, constraint annotations, and multiplicity metadata. If the Group A schema has no parallel edges and no constraints, the embedding into Group C is lossless. Otherwise, information is dropped at the theory level.
 :::
 
 
 ## Further reading
 
-The theory of composing generalized algebraic theories is developed in @cartmell1986. The computational algorithm for computing compositions of GAT presentations, which panproto's implementation follows, is described in @lynch2024. The [GATlab](https://algebraicjulia.github.io/GATlab.jl/) documentation provides an accessible introduction to the same ideas in a Julia context.
+The theory of composing generalized algebraic theories is developed in @cartmell1986. The computational algorithm for computing compositions of GAT presentations is described in @lynch2024. The [GATlab](https://algebraicjulia.github.io/GATlab.jl/) documentation provides an accessible introduction in a Julia context.

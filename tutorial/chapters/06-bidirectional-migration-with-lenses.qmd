@@ -1,130 +1,138 @@
+---
+title: "Bidirectional Migration with Lenses"
+id: sec-lenses
+---
+
 # Bidirectional Migration with Lenses {#sec-lenses}
 
-Migration so far has been one-directional: given a v2 record, produce a v1 record. But what if you need to go back? A lens captures both directions in a single structure, recording what was discarded so it can be restored.
+Everything so far has been one-directional: given a v2 record, produce a v1 record.  The `tags` field disappears, and that is that.  But what if you need to go *back*?  A Mastodon bridge translates a Bluesky post into ActivityPub format, a user edits the translated version, and the bridge needs to reconstruct a Bluesky post from the edited result.  The naive approach is to re-translate from scratch, but that loses every ATProto-specific field that ActivityPub has no concept of---like counts, reply threading, and labels.
 
-An asymmetric lens $\ell: S \rightleftarrows V$ consists of $\mathrm{get}: S \to (V, C)$ and $\mathrm{put}: (V, C) \to S$. The complement $C$ records everything `get` discarded so that `put` can restore it. We'll make this concrete with a store receipt analogy: when you buy an item (`get`), you receive the item and a receipt; when you return it (`put`), you hand back the item and the receipt, and the store restores its original state.
+A *lens* solves this by recording what the forward translation discarded, so the backward translation can restore it.  Think of it as a store receipt: when you buy an item (`get`), you receive the item plus a receipt.  When you return the item (`put`), you hand back the item and the receipt, and the store restores its original state.
 
-The operations satisfy two laws.
 
-### GetPut (round-tripping)
+## The lens abstraction
 
-Getting and then putting back (without modifying the view) recovers the original source exactly. No information is lost.
+An asymmetric lens $\ell\colon S \rightleftarrows V$ consists of two operations:
 
-$$\mathtt{put}(\mathtt{get}(s)) = s$$
+$$\mathtt{get}\colon S \to (V, C) \qquad \mathtt{put}\colon (V, C) \to S$$
 
-### PutGet (view consistency)
+The source $S$ is the full data (a Bluesky post), the view $V$ is the projected data (an ActivityPub note), and the complement $C$ is the receipt---everything `get` discarded so `put` can reconstruct the original.
 
-Putting a view $v$ into the source and then getting it back returns $v$. The view is faithfully represented in the reconstructed source.
+These two operations must satisfy two laws.
 
-$$\pi_1(\mathtt{get}(\mathtt{put}(v, c))) = v$$
+**GetPut (round-tripping).**  Getting and then putting back without modifying the view recovers the original source exactly:
 
-Together, these laws say that `get` and `put` are mutual inverses up to the complement. The complement is the "slack" that allows the source to carry more information than the view without violating invertibility.
+$$\mathtt{put}(\mathtt{get}(s)) = s.$$
 
-::: {.callout-note}
+No information is lost.
+
+**PutGet (view consistency).**  Putting a view into the source and then getting it back returns the view you put in:
+
+$$\pi_1(\mathtt{get}(\mathtt{put}(v, c))) = v.$$
+
+The view is faithfully represented in the reconstructed source.
+
+Together, these laws say that `get` and `put` are mutual inverses up to the complement.  The complement is the slack that allows the source to carry more information than the view without violating invertibility.
+
+:::{.callout-note}
 ## Why "lens"?
 
-The name comes from the idea of *focusing*: a lens focuses on a part of a larger structure (the view), while keeping the rest (the complement) available for reconstruction. Like an optical lens, a panproto lens lets you see a specific slice of the data while the surrounding context remains intact but out of focus.
+The name comes from the idea of focusing.  A lens focuses on a part of a larger structure (the view) while keeping the rest (the complement) available for reconstruction.  Like an optical lens, it lets you see a specific slice while the surrounding context remains intact but out of focus.
 :::
 
-The lens laws guarantee round-tripping, but the mechanism that makes it work is the complement.
 
 ## The complement as data receipt {#sec-complement}
 
-The complement is the central data structure of the lens. It records exactly what `get` threw away, organized by pipeline step.
+The complement is the central data structure.  It records exactly what `get` discarded, organized by pipeline step.
 
 ```rust
 pub struct Complement {
-    /// Nodes pruned in step 1 (anchor not surviving).
+    /// nodes pruned in step 1 (anchor not surviving)
     pub dropped_nodes: HashMap<u32, Node>,
 
-    /// Arcs connecting pruned nodes to surviving nodes.
+    /// arcs connecting pruned nodes to surviving nodes
     pub dropped_arcs: Vec<(u32, u32, Edge)>,
 
-    /// Edge labels chosen by the resolver in step 4.
+    /// edge labels chosen by the resolver in step 4
     pub contraction_choices: HashMap<(u32, u32), Vec<VertexId>>,
 
-    /// Original parent of each contracted node (before re-parenting).
+    /// original parent of each contracted node (before re-parenting)
     pub original_parent: HashMap<u32, u32>,
 
-    /// Fan children pruned in step 5 (hypergraph schemas only).
+    /// fan children pruned in step 5 (hypergraph schemas only)
     pub pruned_fan_children: HashMap<FanId, Vec<u32>>,
 }
 ```
 
-Each field corresponds to a pipeline step:
+Each field corresponds to a step of the restrict pipeline from the previous chapters:
 
 | Complement field | Pipeline step | What it records |
 |------------------|---------------|-----------------|
 | `dropped_nodes` | Step 1: `anchor_surviving` | Nodes whose anchor was pruned |
 | `dropped_arcs` | Step 2: `reachable_from_root` | Edges to unreachable nodes |
-| `contraction_choices` | Steps 3, 4: contraction + resolution | The intermediate path that was collapsed |
+| `contraction_choices` | Steps 3–4: contraction + resolution | The intermediate path that was collapsed |
 | `original_parent` | Step 3: `ancestor_contraction` | Original parent before re-parenting |
 | `pruned_fan_children` | Step 5: `reconstruct_fans` | Fan children that were removed |
 
-The complement is proportional to what the migration discards. A migration that removes two leaf fields from a 10-field schema produces a complement roughly 20% the size of the source. A migration that projects away 90% of the schema produces a large complement.
+The complement's size is proportional to what the migration discards.  A migration that removes two leaf fields from a ten-field schema produces a complement roughly 20% the size of the source.  A migration that projects away 90% of the schema produces a large complement.
 
-:::{.callout-note}
-## The complement is opaque
-
-Application code should treat the complement as an opaque blob. Its internal structure is an implementation detail of the pipeline. The only valid operation on a complement is passing it to `put`. Inspecting or modifying the complement voids the lens laws.
-:::
+Application code should treat the complement as opaque.  Its internal structure is an implementation detail of the pipeline.  The only valid operation on a complement is passing it to `put`.
 
 ::: {.callout-caution}
-## Question: Complement for `renameField`
+## Exercise
 
-The complement for `removeField` stores the removed value. What does the complement for `renameField` store? Why?
+The complement for `removeField` stores the removed value.  What does the complement for `renameField` store?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-Nothing. The complement is empty. A rename is a bijection: given the old name and the new name, you can always reconstruct the original field label without storing any additional data. The `put` operation simply renames back. This is why rename combinators are classified as lossless in the combinator table.
+Nothing.  A rename is a bijection: given the old name and the new name, you can always reconstruct the original field label without storing anything.  The `put` operation renames back.  This is why renames are classified as lossless.
 :::
 
-In panproto, the abstract get/put operations map directly onto the restrict pipeline.
 
 ## Lenses in panproto
 
-In panproto, `get` is the restrict pipeline from @sec-lifting-data plus complement capture. `put` is reconstruction from the complement.
+In panproto, `get` is the restrict pipeline plus complement capture.  `put` is reconstruction from the complement.
 
-- **`get`** runs the five-step W-type restrict pipeline (or functor restrict for SQL) and simultaneously records what was removed at each step.
-- **`put`** replays the removal in reverse: re-attach fans, re-resolve edges, re-expand contracted ancestors, re-attach unreachable nodes, and restore pruned anchors.
-
-The lens laws hold because the complement records *exactly* what `get` discarded, no more, no less. `put` has enough information to invert each step, and the sequential structure of the pipeline means the inversions compose correctly.
+The `get` direction runs the five-step W-type restrict pipeline (or functor restrict for SQL) and simultaneously records what was removed at each step.  The `put` direction replays the removals in reverse: restore pruned fans, re-expand contracted ancestors, re-attach unreachable nodes, and restore pruned anchors.
 
 ```rust
 pub fn put(view: &WTree, complement: &Complement) -> WTree {
     let mut tree = view.clone();
 
-    // Step 5 inverse: restore pruned fan children
+    // step 5 inverse: restore pruned fan children
     restore_fan_children(&mut tree, &complement.pruned_fan_children);
 
-    // Step 3 inverse: re-expand contracted paths
+    // step 3 inverse: re-expand contracted paths
     expand_contractions(&mut tree, &complement.original_parent,
                         &complement.contraction_choices);
 
-    // Step 2 inverse: re-attach unreachable nodes
+    // step 2 inverse: re-attach unreachable nodes
     reattach_unreachable(&mut tree, &complement.dropped_arcs);
 
-    // Step 1 inverse: restore pruned nodes
+    // step 1 inverse: restore pruned nodes
     restore_nodes(&mut tree, &complement.dropped_nodes);
 
     tree
 }
 ```
 
-The key property: if the view has been modified (e.g., a field value changed), the modification is preserved in the reconstructed source. The complement only fills in the *missing* parts; it does not overwrite the view's content. This is what makes the lens useful for bidirectional synchronization.
+The lens laws hold because the complement records *exactly* what `get` discarded.  `put` has enough information to invert each step, and the sequential structure of the pipeline means the inversions compose correctly.
+
+If the view has been modified (a field value changed, say), the modification is preserved in the reconstructed source.  The complement fills in only the *missing* parts; it does not overwrite the view's content.  This is what makes lenses useful for bidirectional synchronization, not just round-tripping.
+
 
 ## Cambria-style combinators {#sec-combinators}
 
-Building migrations by hand (specifying vertex maps, edge maps, and resolver tables) is precise but tedious. For common schema changes, panproto provides **combinators**: small, pre-built lenses that you compose into a pipeline.
+Building migrations by hand---specifying vertex maps, edge maps, and resolver tables---is precise but tedious.  For common schema changes, panproto provides *combinators*: small, pre-built lenses that you compose into a pipeline.
 
-The design follows Cambria's lens combinators [@litt2022], adapted to panproto's categorical framework. Each combinator is a well-behaved lens (satisfies GetPut and PutGet). Composition of well-behaved lenses is a well-behaved lens. So a pipeline of combinators automatically satisfies the lens laws.
+The design follows the Cambria project's lens combinators [@litt2022], adapted to panproto's categorical framework.  Each combinator is a well-behaved lens (it satisfies GetPut and PutGet).  Composition of well-behaved lenses is a well-behaved lens.  So a pipeline of combinators automatically satisfies the lens laws.
 
 ```{.typescript include="../code/ts/08-lens-combinators.ts" snippet="combinators"}
 ```
 
-### Available combinators
+### The combinator catalog
 
 | Combinator | Forward ($\mathrm{get}$) | Backward ($\mathrm{put}$) |
 |------------|-----------------|-------------------|
@@ -133,11 +141,11 @@ The design follows Cambria's lens combinators [@litt2022], adapted to panproto's
 | `removeField(name)` | Remove the field | Restore from complement |
 | `wrapInObject(field, wrapper)` | Nest field inside a new object | Unwrap |
 | `hoistField(path)` | Move a nested field up one level | Move back down |
-| `coerceType(field, from, to)` | Convert value (e.g., string to int) | Convert back |
+| `coerceType(field, from, to)` | Convert value (e.g., string → int) | Convert back |
 
-: Cambria-inspired combinators. All are lossless except `removeField`. {#tbl-original-combinators}
+: Schema-change combinators.  All are lossless except `removeField`. {#tbl-original-combinators}
 
-In addition to these, panproto provides **naming combinators** that operate on the nine naming sites described in @sec-names:
+panproto also provides naming combinators that operate on the nine naming sites described in the chapter on names:
 
 | Combinator | What it renames | Cascades? |
 |------------|----------------|-----------|
@@ -149,13 +157,11 @@ In addition to these, panproto provides **naming combinators** that operate on t
 | `applyTheoryMorphism(sortMap, opMap)` | Vertex kinds + edge kinds | Yes, via theory morphism |
 | `rename(site, old, new)` | Any naming site | Depends on site |
 
-: Naming combinators. All are lossless (empty complement). {#tbl-naming-combinators}
+: Naming combinators.  All are lossless (empty complement). {#tbl-naming-combinators}
 
-The `applyTheoryMorphism` combinator is the "top of the morphism tower" described in @sec-name-mapping-tower: a single theory morphism cascades into vertex kind and edge kind renames automatically.
+Each combinator handles its own complement.  `removeField` stores the removed value.  `addField` stores nothing (the default is known).  `renameField` stores nothing (the mapping is invertible).  `wrapInObject` stores the wrapper structure.
 
-Each combinator handles its own complement. `removeField` stores the removed value. `addField` stores nothing (the default is known). `renameField` stores nothing (the mapping is invertible). `wrapInObject` stores the wrapper structure. And so on.
-
-### Composition
+### Composing combinators
 
 Combinators compose via `pipeline()`:
 
@@ -168,27 +174,29 @@ const migration = pipeline(
 );
 ```
 
-The pipeline applies combinators left to right for `get` and right to left for `put`. The complement is a stack: each combinator pushes its complement fragment during `get`, and `put` pops them in reverse order.
+The pipeline applies combinators left to right for `get` and right to left for `put`.  The complement is a stack: each combinator pushes its complement fragment during `get`, and `put` pops them in reverse order.
 
-This is function composition in the lens category. If $\ell_1: S \rightleftarrows T$ and $\ell_2: T \rightleftarrows V$, the composite $\ell_2 \circ \ell_1: S \rightleftarrows V$ has:
+Mathematically, this is function composition in the lens category.  If $\ell_1\colon S \rightleftarrows T$ and $\ell_2\colon T \rightleftarrows V$, the composite $\ell_2 \circ \ell_1\colon S \rightleftarrows V$ has:
 
 $$\mathtt{get}_{2 \circ 1}(s) = \mathtt{get}_2(\pi_1(\mathtt{get}_1(s)))$$
 $$\mathtt{put}_{2 \circ 1}(v, (c_1, c_2)) = \mathtt{put}_1(\mathtt{put}_2(v, c_2), c_1)$$
 
-The complement of the composite is the pair $(c_1, c_2)$: the complements from each stage.
+The complement of the composite is the pair $(c_1, c_2)$.
 
-## Worked example: get/put {#sec-get-put-example}
+
+## Worked example: get and put {#sec-get-put-example}
 
 ```{.typescript include="../code/ts/08-lens-combinators.ts" snippet="get-put"}
 ```
 
-The critical observation: `restored.data.legacyField` is `"old-data"` even though the view never contained it. The complement remembered it, and `put` restored it. Meanwhile, `restored.data.name` is `"Alice (updated)"` (from the modified view), not `"Alice"` (from the original source). The lens respected the view modification.
+The critical observation: `restored.data.legacyField` is `"old-data"` even though the view never contained it.  The complement remembered it, and `put` restored it.  Meanwhile, `restored.data.name` is `"Alice (updated)"` (from the modified view), not `"Alice"` (from the original source).  The lens respected the view modification.
 
-The GetPut law guarantees that if we hadn't modified the view, `put(get(source))` would have returned the original source exactly. The PutGet law guarantees the converse: getting from the put result returns a view with `name = "Alice (updated)"`.
+GetPut guarantees that if we had not modified the view, `put(get(source))` would have returned the original source exactly.  PutGet guarantees the converse: getting from the put result returns a view with `name = "Alice (updated)"`.
 
-## Real-world example: a Mastodon-Bluesky bridge {#sec-bridge-example}
 
-Consider a concrete interoperability problem: you're building a bridge between Bluesky (ATProto) and Mastodon (ActivityPub). A Bluesky post arrives as camelCase ATProto; the Mastodon side expects snake_case ActivityPub.
+## A real-world example: a Mastodon-to-Bluesky bridge {#sec-bridge-example}
+
+Consider the interoperability problem from the introduction: you are building a bridge between Bluesky (ATProto) and Mastodon (ActivityPub).  A Bluesky post arrives in camelCase ATProto format; the Mastodon side expects snake_case ActivityPub.
 
 ```typescript
 // ATProto post → ActivityPub Note
@@ -203,7 +211,7 @@ const atprotoToActivityPub = pipeline(
   wrapInObject("attributed_to", "actor"),
 );
 
-// A Bluesky post arrives
+// a Bluesky post arrives
 const bskyPost = {
   text: "Hello from Bluesky!",
   createdAt: "2025-12-01T12:00:00Z",
@@ -212,7 +220,7 @@ const bskyPost = {
   repostCount: 7,
 };
 
-// Forward: translate to ActivityPub
+// forward: translate to ActivityPub
 const { view: apNote, complement } = atprotoToActivityPub.get(bskyPost);
 // apNote:
 // {
@@ -223,7 +231,7 @@ const { view: apNote, complement } = atprotoToActivityPub.get(bskyPost);
 //   type: "Note",
 // }
 
-// A Mastodon user replies. The bridge modifies the note and sends it back.
+// a Mastodon user replies; the bridge modifies the note and sends it back
 const modifiedNote = { ...apNote, content: "Hello from Bluesky! (edited)" };
 const restored = atprotoToActivityPub.put(modifiedNote, complement);
 // restored:
@@ -236,79 +244,62 @@ const restored = atprotoToActivityPub.put(modifiedNote, complement);
 // }
 ```
 
-The `likeCount` and `repostCount` survive the round trip even though ActivityPub has no concept of them. The complement held onto the ATProto-specific data, and `put` restored it. The edit to `content` propagated back as an edit to `text`. No data was lost; no data was invented.
+`likeCount` and `repostCount` survive the round trip even though ActivityPub has no concept of them.  The complement held onto the ATProto-specific data, and `put` restored it.  The edit to `content` propagated back as an edit to `text`.  No data was lost; no data was invented.
 
-This is the pattern that makes bidirectional protocol bridges viable. Without the complement, you'd need to store the original ATProto record somewhere and diff against it on the return trip, essentially re-inventing the lens machinery by hand.
+This is the pattern that makes bidirectional protocol bridges viable.  Without the complement, you would need to store the original ATProto record somewhere and diff against it on the return trip, which amounts to reinventing the lens machinery by hand.
 
 ::: {.callout-caution}
-## Question: Complement size vs. source size
+## Exercise
 
-Is there a schema change where the complement is larger than the source data? If so, construct one. If not, why not?
+Is there a schema change where the complement is larger than the source data?  If so, construct one.  If not, explain why not.
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-Yes. Consider a migration that wraps every leaf field in a new container object: `wrapInObject("name", "nameWrapper")` applied to every field. The complement must store the wrapper structure for each field so that `put` can unwrap them. If the schema has many fields and each wrapper adds structural metadata (edge labels, vertex kinds), the complement's structural overhead can exceed the original flat data. In practice this is rare, but theoretically the complement is proportional to what the migration *adds*, not just what it removes.
+Yes.  Consider a migration that wraps every leaf field in a new container object: `wrapInObject("name", "nameWrapper")` applied to every field.  The complement must store the wrapper structure for each field so that `put` can unwrap them.  If the schema has many fields and each wrapper adds structural metadata, the complement's structural overhead can exceed the original flat data.  In practice this is rare, but theoretically the complement is proportional to what the migration *adds*, not just what it removes.
 :::
+
 
 ## Complement serialization
 
-The complement must be stored somewhere between `get` and `put`. panproto serializes it as CBOR (Concise Binary Object Representation), which is compact and fast to parse.
+The complement must be stored somewhere between `get` and `put`.  panproto serializes it as CBOR (Concise Binary Object Representation), which is compact and fast to parse.
 
-For a typical protocol evolution (removing a few fields from a 20-field schema), the serialized complement is a few hundred bytes per record. For bulk migrations, complements can be batched into a single CBOR array, compressed with zstd, and stored alongside the migrated data.
+For a typical schema evolution---removing a few fields from a 20-field schema---the serialized complement is a few hundred bytes per record.  For bulk migrations, complements can be batched into a single CBOR array, compressed with zstd, and stored alongside the migrated data.
 
-The storage strategy depends on the application:
+The storage strategy depends on the application.  An *ephemeral complement* lives in memory during a request-response cycle: translate on the way in, translate back on the way out.  A *persistent complement* lives in a database column or object store, enabling deferred round-tripping: migrate data forward today, receive modifications over time, migrate back later.  A *streaming complement* attaches to a message header in a pipeline (Kafka, NATS), so downstream consumers can round-trip without access to the original source.
 
-- **Ephemeral complement:** Store in memory during a request-response cycle. The complement lives only as long as the request.
-- **Persistent complement:** Store in a database column or object store. Enables deferred round-tripping: migrate data forward today, receive modifications over time, migrate back later.
-- **Streaming complement:** In a pipeline (Kafka, NATS), attach the complement as a message header. Downstream consumers can round-trip without access to the original source.
+Because the complement consists mostly of dropped field values, which are often repetitive (many records with `likeCount = 0` or `displayName = null`), it compresses well.  In benchmarks on ATProto data, zstd compression reduces complement size by 85–95%.
 
-:::{.callout-note}
-## Complement compression
 
-Because the complement consists mostly of dropped field values, which are often repetitive (e.g., many records with `likeCount = 0` or `displayName = null`), it compresses extremely well. In benchmarks on ATProto data, zstd compression reduces complement size by 85 to 95%.
-:::
+## How lenses relate to the restrict pipeline
 
-## Lenses and the restrict pipeline
+The restrict pipeline from the previous chapters is `get` without complement capture.  panproto implements `get` by running the restrict pipeline and simultaneously building the complement at each step: step 1 records pruned nodes, step 2 records dropped arcs, step 3 records original parents, step 4 records contraction choices, step 5 records pruned fan children.
 
-The restrict pipeline from @sec-lifting-data is `get` without complement capture: the forward direction of the lens. panproto implements `get` by running the restrict pipeline and simultaneously building the complement at each step:
-
-1. **Step 1** (`anchor_surviving`): Record each pruned node in `dropped_nodes`.
-2. **Step 2** (`reachable_from_root`): Record arcs to unreachable nodes in `dropped_arcs`.
-3. **Step 3** (`ancestor_contraction`): Record original parents in `original_parent`.
-4. **Step 4** (`resolve_edge`): Record intermediate paths in `contraction_choices`.
-5. **Step 5** (`reconstruct_fans`): Record pruned fan children in `pruned_fan_children`.
-
-The complement is built *during* the forward pass, not after. The restrict pipeline makes a single pass over the instance tree, and complement capture adds only constant overhead per node.
-
-The `put` operation replays the steps in reverse, using the complement to undo each one. The result is a reconstructed source that agrees with the original on every field except those modified in the view.
+The complement is built *during* the forward pass, not after.  The restrict pipeline makes a single pass over the instance tree, and complement capture adds only constant overhead per node.
 
 ::: {.callout-caution}
-## Question: Pipeline ordering and complement correctness
+## Exercise
 
-Suppose we swapped the order of steps 3 and 4 in the restrict pipeline. Would the complement still produce a correct round-trip? What property of the pipeline ensures that reversing the step order in `put` works?
+Suppose we swapped the order of steps 3 and 4 in the restrict pipeline.  Would the complement still produce a correct round-trip?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-No. Step 3 (ancestor contraction) determines *which* parent-child pairs need new edge labels. Step 4 (edge resolution) assigns those labels. If you resolve edges first, you would be assigning labels to the original (pre-contraction) tree, where the parent-child relationships are different. The complement recorded during a swapped-order `get` would encode the wrong structural associations, and `put` would reconstruct an incorrect tree. The pipeline's correctness depends on each step's complement being recorded in the context established by all previous steps.
+No.  Step 3 (ancestor contraction) determines which parent-child pairs need new edge labels.  Step 4 (edge resolution) assigns those labels.  If you resolve edges before contracting ancestors, you assign labels to the original (pre-contraction) tree, where the parent-child relationships are different.  The complement recorded during a swapped-order `get` would encode the wrong structural associations, and `put` would reconstruct an incorrect tree.  The pipeline's correctness depends on each step's complement being recorded in the context established by all previous steps.
 :::
-
-## Cambria and panproto
-
-Cambria [@litt2022] demonstrated that lens combinators are a viable approach to schema evolution in real systems, specifically collaborative editing with CRDTs. panproto's combinators operate on the graph structure of schemas rather than on flat JSON paths. They compose correctly even when schemas have shared sub-structures, recursive types, or fan-out nodes.^[Tracking complements through lens composition gives the lens system the structure of a *fibration*: a mathematical way to describe how "extra data" propagates through a pipeline. See [Appendix A](../appendices/A-formal-foundations.qmd) for the formal treatment [@johnson2013; @clarke2020]. Two specific differences from Cambria are worth noting: (1) panproto handles recursive schemas with arbitrary nesting depth, whereas Cambria operates on flat JSON objects; (2) panproto handles translation between genuinely different protocol families (ATProto, ActivityPub, GraphQL, OpenAPI), whereas Cambria assumes a single document format evolving over time.]
 
 
 ## Batch mode and incremental mode
 
-Lenses operate in two modes. In **batch mode**, `get` and `put` operate on whole instances: you hand `get` a complete record and receive a complete view plus complement. This is the mode described throughout this chapter, and it is the right tool for format conversion and VCS migration (see @sec-data-versioning). In **incremental mode**, `get_edit` and `put_edit` operate on individual edits (patches): you hand `get_edit` a single field update or node insertion, and it returns the corresponding edit in the view schema, updating the complement as a state machine. Incremental mode is the right tool for live synchronization, where re-migrating the entire data set on every edit would be prohibitively expensive. See @sec-edit-lenses for the full treatment.
+Lenses operate in two modes.  In *batch mode*, `get` and `put` operate on whole instances: you hand `get` a complete record and receive a complete view plus complement.  This is the mode described throughout this chapter, and it is the right tool for format conversion and VCS migration.
+
+In *incremental mode*, `get_edit` and `put_edit` operate on individual edits (patches): you hand `get_edit` a single field update or node insertion, and it returns the corresponding edit in the view schema, updating the complement as a state machine.  Incremental mode is the right tool for live synchronization, where re-migrating the entire dataset on every edit would be too expensive.  The chapter on edit lenses covers this in detail.
+
 
 ## Further reading
 
-The foundational paper on asymmetric lenses for bidirectional programming is @foster2007. The treatment there is in terms of string lenses (regular-expression-based transformations on strings), but the abstract framework applies directly to tree and graph transformations.
+The foundational paper on asymmetric lenses for bidirectional programming is @foster2007, which treats the string case (regular-expression-based transformations) but whose abstract framework applies directly to trees and graphs.  @johnson2013 generalized both asymmetric and symmetric lenses to the delta lens framework, connecting lenses to fibrations and indexed categories.  @litt2022 is the practical inspiration for panproto's combinator API; Cambria demonstrated that lens combinators work for real schema evolution.  panproto extends Cambria's approach from flat JSON schemas to recursive, polynomial-functor schemas.^[Tracking complements through lens composition gives the system the structure of a fibration, a mathematical framework for propagating "extra data" through a pipeline.  See [Appendix A](../appendices/A-formal-foundations.qmd) for the formal treatment [@johnson2013; @clarke2020].]
 
-@johnson2013 generalized both asymmetric and symmetric lenses to the delta lens framework, connecting lenses to fibrations and indexed categories.
-
-@litt2022 is the practical inspiration for panproto's combinator API. Cambria demonstrated that lens combinators are a viable approach to schema evolution in real systems. panproto extends Cambria's approach from flat JSON schemas to recursive, polynomial-functor schemas.
+The next chapter wires all of this into CI: classifying schema changes as fully compatible, backward compatible, or breaking, and enforcing the classification in a pull request workflow.

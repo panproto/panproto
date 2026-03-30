@@ -56,7 +56,7 @@ pub fn fiber_at_node(
 ) -> Vec<u32>
 ```
 
-Computes the fiber at a specific node ID in the restricted (target) instance, rather than at an anchor. Finds source nodes in two ways: (a) direct preimage via anchor matching, and (b) nodes from the `Complement` that were contracted into the target node during ancestor contraction. Requires a `Complement` from `restrict_with_complement`.
+Computes the fiber at a specific node ID in the restricted (target) instance. Finds source nodes in two ways: (a) direct preimage via anchor matching, and (b) nodes from the `Complement` that were contracted into the target node during ancestor contraction. Requires a `Complement` from `restrict_with_complement`.
 
 ## Complement tracking {#sec-complement-tracking}
 
@@ -96,7 +96,7 @@ pub fn restrict_with_complement(
 
 A BFS-based restrict that produces both the restricted instance and a `Complement`. The BFS traversal tracks the nearest surviving ancestor for each node. Surviving nodes are remapped and have field transforms applied; non-surviving nodes are recorded in the complement.
 
-This is distinct from the `Complement` in `panproto-lens/src/asymmetric.rs`, which tracks dropped nodes, arcs, fans, contraction choices, and original parents for the bidirectional lens. The `poly.rs` complement is a lighter-weight structure focused on fiber operations.
+This differs from the `Complement` in `panproto-lens/src/asymmetric.rs`, which tracks dropped nodes, arcs, fans, contraction choices, and original parents for the bidirectional lens. The `poly.rs` complement is lighter-weight and focuses on fiber operations.
 
 ## Section construction {#sec-section-construction}
 
@@ -132,7 +132,7 @@ Constructs an S-instance from a T-instance (the base) plus enrichment nodes. The
 2. Remaps arcs to use source-schema anchors.
 3. Adds enrichment nodes with fresh IDs, connected to base nodes via the specified edges.
 
-The roundtrip property: `restrict(section(base, projection, enrichments), projection) ≅ base`. The restricted section has the same nodes and anchors as the base.
+The roundtrip property holds: `restrict(section(base, projection, enrichments), projection) ≅ base`. The restricted section has the same nodes and anchors as the base.
 
 ## Group-by and join {#sec-group-by-join}
 
@@ -214,7 +214,7 @@ Evaluates an instance of `[S, T]` against an instance of S to produce an instanc
 2. Extract edge remap from backward nodes: scan for `backward_`-prefixed anchors, read source/target edge metadata from extra fields.
 3. Build a `CompiledMigration` and apply `wtype_restrict`.
 
-The roundtrip property: `eval_hom(curry_migration(m, S, [S,T]), x, S, T) = wtype_restrict(x, S, T, m)`.
+The roundtrip property holds: `eval_hom(curry_migration(m, S, [S,T]), x, S, T) = wtype_restrict(x, S, T, m)`.
 
 ## Lawvere metric {#sec-lawvere-metric}
 
@@ -236,8 +236,6 @@ Assigns a numeric cost to each `ComplementConstructor` variant:
 | `AddedElement` | 0.5 |
 | `NatTransKernel` | 10.0 |
 | `Composite(children)` | `sum(children)` |
-
-: Complement cost table. {.striped}
 
 `chain_cost` sums the complement costs of all steps in a `ProtolensChain`.
 
@@ -263,7 +261,7 @@ A weighted directed graph of schemas. Key methods:
 
 The Floyd-Warshall implementation is $O(n^3)$ where $n$ is the number of schemas. This is acceptable because lens graphs are typically small (tens of schemas, not thousands).
 
-## WASM boundary {#sec-poly-wasm}
+## WASM boundary {#sec-poly-WASM}
 
 Five WASM exports in `panproto-wasm/src/api.rs` expose polynomial operations:
 
@@ -275,11 +273,9 @@ Five WASM exports in `panproto-wasm/src/api.rs` expose polynomial operations:
 | `preferred_conversion_path` | edges, src name, tgt name | `(cost, chain)` | `LensGraph::preferred_path` |
 | `conversion_distance` | edges, src name, tgt name | `f64` | `LensGraph::distance` |
 
-: WASM exports for polynomial operations. {.striped}
-
 `preferred_conversion_path` and `conversion_distance` both construct a `LensGraph` from the provided edges and call `compute_distances()` before querying. The graph is not cached across calls; each invocation builds it from scratch.
 
-## TypeScript SDK {#sec-poly-typescript}
+## TypeScript SDK {#sec-poly-TypeScript}
 
 The TypeScript SDK wraps these WASM exports in three modules:
 

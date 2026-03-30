@@ -1,11 +1,11 @@
 # Cross-Protocol Translation {#sec-cross-protocol}
 
-Every protocol in panproto ships with a $\mathrm{parse}_P$ function that reads a native schema document into the universal Schema graph $G$ and an $\mathrm{emit}_P$ function that writes $G$ back out to a native format. The translation pipeline is: $\mathrm{emit}_B \circ\; m \circ\; \mathrm{parse}_A$, where $m$ is an optional migration or transform. This is, in effect, pandoc for schemas: a shared intermediate representation connecting every pair of formats.
+Every protocol in panproto has two functions: $\mathrm{parse}_P$ reads a native schema document into the universal Schema graph $G$, and $\mathrm{emit}_P$ writes $G$ back out to native format. The translation pipeline is $\mathrm{emit}_B \circ\; m \circ\; \mathrm{parse}_A$, where $m$ is an optional migration. This is pandoc for schemas: a shared intermediate representation connecting every pair of formats.
 
 
 ## The parse / schema / migrate / emit pipeline
 
-The general pipeline has four stages:
+Every translation has four stages:
 
 ```{mermaid}
 %%| label: fig-translation-pipeline
@@ -21,20 +21,20 @@ graph LR
     C -->|"emit_*()"| D
 ```
 
-**Parse.** $\mathrm{parse}_A$ reads native schema notation and constructs a Schema graph $G$. Constructs that have no graph-level equivalent are dropped or converted to best-effort annotations.
+**Parse.** The function $\mathrm{parse}_A$ reads native schema notation and constructs a Schema graph $G$. Constructs with no graph-level equivalent are dropped or converted to best-effort annotations.
 
-**Schema graph.** The universal intermediate representation is the same Schema graph that panproto uses for diffs, migrations, lens derivation, and breaking-change detection. It isn't a separate format invented for translation; it's the standard representation.
+**Schema graph.** The universal intermediate representation is the same Schema graph used for diffs, migrations, lens derivation, and breaking-change detection. It isn't a separate format; it's the standard representation.
 
-**Migrate / transform.** This stage is optional. You can apply a panproto migration to $G$ between parse and emit, for example to rename a field, flatten a nested type, or restructure a hierarchy. Without this stage, the pipeline is a direct format translation; with it, the pipeline can simultaneously translate and transform.
+**Migrate / transform.** This stage is optional. Apply a panproto migration to $G$ between parse and emit to rename a field, flatten a nested type, or restructure a hierarchy. Without this stage, the pipeline is direct format translation; with it, you translate and transform simultaneously.
 
-**Emit.** $\mathrm{emit}_B$ walks the Schema graph and produces native schema notation, assigning field numbers, choosing appropriate type names, and generating the correct syntax.
+**Emit.** The function $\mathrm{emit}_B$ walks the Schema graph and produces native schema notation, assigning field numbers, choosing appropriate type names, and generating the correct syntax.
 
-Every one of panproto's 76 built-in protocols has both a parse and an emit function. Every pair of protocols is connected by a potential translation path through the shared Schema graph.
+Every one of panproto's 76 built-in protocols has both a parse and an emit function. Every pair of protocols is connected by a potential translation path.
 
 
 ## A real example: Protobuf to GraphQL
 
-Consider a common infrastructure problem: you have gRPC services defined in `.proto` files and you want to expose them through a GraphQL API. Tools like [grpc-gateway](https://github.com/grpc-ecosystem/grpc-gateway) and [Rejoiner](https://github.com/google/rejoiner) solve this with hand-written glue code. With panproto, the schema translation is structural.
+You have gRPC services defined in `.proto` files and want to expose them through a GraphQL API. Tools like [grpc-gateway](https://github.com/grpc-ecosystem/grpc-gateway) solve this with hand-written glue code. With panproto, the schema translation is structural.
 
 Here is the Protobuf service definition:
 
@@ -70,7 +70,7 @@ service UserService {
 }
 ```
 
-And here is what panproto emits as GraphQL SDL:
+panproto emits this as GraphQL SDL:
 
 ```graphql
 type UserProfile {
@@ -101,7 +101,7 @@ type UserProfileEdge {
 }
 ```
 
-The translation pipeline:
+The translation pipeline looks like this:
 
 ```typescript
 import { parse_proto, emit_graphql, PROTOBUF_SPEC, GRAPHQL_SPEC } from "@panproto/core";
@@ -110,19 +110,19 @@ const schema = parse_proto(protoSource, PROTOBUF_SPEC);
 const graphqlSdl = emit_graphql(schema, GRAPHQL_SPEC);
 ```
 
-What happened during translation:
+What happens during translation:
 
-- **Message types** became GraphQL `type` declarations. Field names were converted from `snake_case` to `camelCase`.
-- **Enums** carried over directly, minus the `UNSPECIFIED` sentinel (which has no GraphQL equivalent).
-- **Field numbers** were dropped. GraphQL has no wire-format metadata.
-- **`repeated` fields** became GraphQL list types (`[String!]!`).
-- **RPC methods** became `Query` fields. The request message was flattened into arguments; the response message became the return type.
-- **Service definitions** drove the generation of connection/edge types for list endpoints (Relay pagination pattern).
+- **Message types** become GraphQL `type` declarations. Field names shift from `snake_case` to `camelCase`.
+- **Enums** carry over directly, minus the `UNSPECIFIED` sentinel (no GraphQL equivalent).
+- **Field numbers** are dropped. GraphQL has no wire-format metadata.
+- **`repeated` fields** become GraphQL list types (`[String!]!`).
+- **RPC methods** become `Query` fields. The request message is flattened into arguments; the response becomes the return type.
+- **Service definitions** drive generation of connection/edge types for list endpoints (Relay pagination pattern).
 
-The structural content (type names, field names, field types, enum variants, nesting relationships) survived intact. What was lost is Protobuf-specific wire metadata (field numbers). What was gained is GraphQL-specific idiom (connection types, camelCase).
+The structural content (type names, field names, field types, enum variants, nesting relationships) survives. What was lost is Protobuf-specific wire metadata. What was gained is GraphQL-specific idiom.
 
 :::{.callout-caution}
-## Question: Translation composition
+## Exercise: Translation composition
 
 If you translate Protobuf to GraphQL and then GraphQL to OpenAPI, do you get the same result as translating Protobuf directly to OpenAPI? Under what conditions does $\mathrm{emit}_C \circ \mathrm{parse}_C \circ \mathrm{emit}_B \circ \mathrm{parse}_A = \mathrm{emit}_C \circ \mathrm{parse}_A$?
 :::
@@ -130,13 +130,13 @@ If you translate Protobuf to GraphQL and then GraphQL to OpenAPI, do you get the
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Not in general. The intermediate round-trip through format B ($\mathrm{emit}_B \circ \mathrm{parse}_B$) can lose information. If B's theory is a strict subset of A's, the first translation drops what B cannot represent, and the second translation cannot recover it. The equation holds only when the intermediate format B can represent everything that the Schema graph carries from format A. In practice, this means B's theory must be at least as expressive as A's for the relevant constructs. Within a theory group (where protocols share the same theories), the equation holds.
+Not in general. The intermediate round-trip through format B can lose information. If B's theory is a strict subset of A's, the first translation drops what B cannot represent, and the second translation cannot recover it. The equation holds only when B can represent everything that the Schema graph carries from A. Within a theory group (where protocols share theories), the equation holds.
 :::
 
 
 ## Another example: ATProto Lexicon to ActivityPub
 
-For a federated social web bridge between [Bluesky](https://bsky.app/) and [Mastodon](https://joinmastodon.org/), you need to translate between ATProto's Lexicon schema format and ActivityPub's JSON-LD vocabulary.
+You need to bridge [Bluesky](https://bsky.app/) and [Mastodon](https://joinmastodon.org/) by translating between ATProto's Lexicon schema format and ActivityPub's JSON-LD vocabulary.
 
 ATProto Lexicon (Bluesky post schema):
 
@@ -199,6 +199,8 @@ Translated to an ActivityPub `Note` (JSON-LD):
 }
 ```
 
+Two function calls handle it:
+
 ```typescript
 import { parse_lexicon, emit_activitypub } from "@panproto/core";
 
@@ -208,24 +210,24 @@ const apSchema = emit_activitypub(schema, ACTIVITYPUB_SPEC);
 
 The translation maps:
 
-- `text` (with `maxLength: 3000` bytes and `maxGraphemes: 300` grapheme clusters) to `content` (with `maxLength: 300`): constraint approximation, since ATProto tracks both byte length and grapheme cluster count while ActivityPub has only a single length concept
+- `text` (with `maxLength: 3000` bytes and `maxGraphemes: 300` grapheme clusters) to `content` (with `maxLength: 300`): constraint approximation, since ATProto tracks both byte and grapheme length while ActivityPub has a single length concept
 - `createdAt` to `published`: direct datetime mapping
 - `reply.ref` to `inReplyTo`: reference semantics preserved
-- `embed` union (images, video, external links, record embeds, recordWithMedia) to `attachment` set with `oneOf`: union-to-set mapping
+- `embed` union (images, video, external links, record embeds) to `attachment` set with `oneOf`: union-to-set mapping
 - `langs` array to `contentMap` language map: structural reinterpretation
 
-The Bluesky-specific dual constraints (`maxLength` for bytes and `maxGraphemes` for grapheme clusters) are approximated to a single `maxLength` in ActivityPub. The ATProto `tid` key has no ActivityPub equivalent and is dropped. But the core content structure (text, timestamps, replies, embeds, language tags) translates faithfully.
+The Bluesky-specific dual constraints are approximated to a single `maxLength`. The ATProto `tid` key has no ActivityPub equivalent and is dropped. The core content structure (text, timestamps, replies, embeds, language tags) translates faithfully.
 
 
 ## Round-trip fidelity
 
 Translation is not lossless in general. What survives a round trip ($\mathrm{parse}_A \to \mathrm{emit}_B \to \mathrm{parse}_B \to \mathrm{emit}_A$) depends on how much structural territory the two formats share.
 
-There are two sources of information loss:
+Two sources of information loss exist.
 
-**Parse loss.** When $\mathrm{parse}_A$ reads a source document, constructs that have no graph-level equivalent are dropped. SQL `CHECK` constraints containing arbitrary expressions may be captured only as opaque annotations; their semantics aren't machine-processable at the schema level.
+**Parse loss.** When $\mathrm{parse}_A$ reads a source document, constructs with no graph-level equivalent are dropped. SQL `CHECK` constraints containing arbitrary expressions may be captured only as opaque annotations.
 
-**Emit loss.** When $\mathrm{emit}_B$ writes a target document, constructs in the Schema graph that have no target-format equivalent are dropped or approximated. Hyperedges are dropped when emitting to a format with no hyperedge concept. Constraint keywords are dropped when emitting to a format with no constraint vocabulary.
+**Emit loss.** When $\mathrm{emit}_B$ writes a target document, constructs in the Schema graph with no target-format equivalent are dropped or approximated. Hyperedges are dropped when emitting to a format with no hyperedge concept.
 
 | Translation | What survives | What is typically lost |
 |---|---|---|
@@ -236,14 +238,14 @@ There are two sources of information loss:
 | Protobuf to GraphQL | Type names, field names, types, enums | Field numbers, wire encoding, streaming RPCs |
 | ATProto Lexicon to ActivityPub | Content structure, timestamps, references | Grapheme constraints, record keys, NSIDs |
 
-The middle column (what survives) corresponds to the structural skeleton: the graph of types and relationships. The right column corresponds to format-specific decorations that lie outside the Schema graph's representational scope.
+The middle column corresponds to the structural skeleton: the graph of types and relationships. The right column corresponds to format-specific decorations outside the Schema graph's scope.
 
 
 ## The theory group advantage {#sec-theory-groups}
 
-The theory architecture explains *why* some translations are lossless and others are not.
+The theory architecture explains why some translations are lossless and others are not.
 
-Every protocol is characterized by a pair of theories: a schema theory and an instance theory (@sec-building-protocol). Protocols whose theories are closely related produce higher-fidelity translations. This gives "structural comparability" a precise meaning.
+Every protocol has a pair of theories: a schema theory and an instance theory (@sec-building-protocol). Protocols with closely related theories produce higher-fidelity translations. This gives "structural comparability" a precise meaning.
 
 panproto's built-in protocols cluster into theory groups based on their schema and instance theories:
 
@@ -257,9 +259,9 @@ panproto's built-in protocols cluster into theory groups based on their schema a
 
 : Theory groups for selected protocols. Protocols in the same group share the same schema and instance theories. {#tbl-theory-groups}
 
-**Within-group translation is structurally lossless.** Two Group C protocols (say, Avro and Protobuf) share the same schema theory. A Schema graph that is a valid Avro schema is, structurally, also a valid Protobuf schema. The translation reduces to remapping surface syntax: Avro's `"type": "record"` becomes Protobuf's `message`, Avro's `"type": ["null", "string"]` becomes Protobuf's `optional string`. The graph structure itself doesn't change.
+**Within-group translation is structurally lossless.** Two Group C protocols (Avro and Protobuf) share the same schema theory. A Schema graph that is a valid Avro schema is, structurally, also a valid Protobuf schema. The translation reduces to remapping surface syntax: Avro's `"type": "record"` becomes Protobuf's `message`. The graph structure itself doesn't change.
 
-**Cross-group translation involves structural mismatch.** Converting from Group B (SQL, hypergraph) to Group C (Protobuf, multigraph) loses hyperedge structure: foreign keys, composite unique constraints, and multi-column primary keys can't be expressed in Group C's multigraph theory. Converting from Group C to Group B in the other direction loses tree-shaped instance semantics: SQL rows are flat, and the nested document structure of a Group C instance doesn't survive the trip to a relational table without denormalization decisions that the engine can't make automatically.
+**Cross-group translation involves structural mismatch.** Converting from Group B (SQL, hypergraph) to Group C (Protobuf, multigraph) loses hyperedge structure: foreign keys, composite unique constraints, and multi-column primary keys can't be expressed in Group C's multigraph theory. Converting in the other direction loses tree-shaped instance semantics: SQL rows are flat, and nested document structure doesn't survive without denormalization decisions the engine can't make.
 
 ```{mermaid}
 %%| label: fig-theory-groups
@@ -282,25 +284,25 @@ graph LR
     C <-.->|"structural loss<br/>(instance theory mismatch)"| E
 ```
 
-Group membership is determined by which building-block theories a protocol's definition composes (@sec-building-protocol). When two protocols share the same building blocks, their Schema graphs have the same shape, and translation is a matter of relabeling. When the building blocks differ, translation must bridge a structural gap, and that gap is where information is lost.
+Group membership is determined by which building-block theories a protocol composes (@sec-building-protocol). When two protocols share the same building blocks, their Schema graphs have the same shape, and translation is relabeling. When the building blocks differ, translation must bridge a structural gap, and information is lost there.
 
 :::{.callout-caution}
-## Question: Theory group boundaries
+## Exercise: Theory group boundaries
 
-Group C and Group D differ only by $\text{ThInterface}$. Does a Group D protocol always embed losslessly into a "Group D without interfaces" representation? Or does the presence of $\text{ThInterface}$ in the colimit change the structure of sorts that existed before the interface theory was composed in?
+Group C and Group D differ only by $\text{ThInterface}$. Does a Group D protocol always embed losslessly into a "Group D without interfaces" representation? Or does the presence of $\text{ThInterface}$ in the colimit change the structure of sorts that existed before?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Not always. The presence of $\text{ThInterface}$ in the colimit can introduce new equations and sort identifications. If a Group D schema uses interface types (e.g., a GraphQL `Node` interface implemented by `User` and `Post`), removing $\text{ThInterface}$ from the theory loses the subtyping relationships. The `User` and `Post` types would appear as unrelated vertices, erasing the structural information that they share a common interface. Whether this matters depends on whether the schema actively uses interface features.
+Not always. The presence of $\text{ThInterface}$ in the colimit can introduce new equations and sort identifications. If a Group D schema uses interface types (e.g., a GraphQL `Node` interface implemented by `User` and `Post`), removing $\text{ThInterface}$ loses the subtyping relationships. The `User` and `Post` types would appear as unrelated vertices, erasing the information that they share a common interface.
 :::
 
 ### A note on "lossless"
 
-"Structurally lossless at the schema level" means the graph structure of the schema survives the round trip. It does not mean the round trip produces identical source bytes, or that all protocol-specific metadata is preserved. Protobuf field numbers, for example, aren't part of the multigraph structure; they're a surface feature of the wire format. A Protobuf-to-Avro-to-Protobuf round trip won't preserve field numbers; the emit step will assign fresh ones. The schema graph (the message names, field names, types, and relationships) will be intact.
+"Structurally lossless at the schema level" means the graph structure of the schema survives the round trip. It does not mean the round trip produces identical source bytes, or that all protocol-specific metadata is preserved. Protobuf field numbers aren't part of the multigraph structure; they're a surface feature of the wire format. A Protobuf-to-Avro-to-Protobuf round trip won't preserve field numbers; the emit step assigns fresh ones. The schema graph (message names, field names, types, relationships) will be intact.
 
-If your translation requirements include preserving wire-format metadata, you can carry it as an opaque annotation through the Schema graph. The Schema graph supports arbitrary key-value metadata on vertices and edges; the parse functions use this to preserve information that is meaningful to the source format but has no universal semantic. A custom emit wrapper can then read and apply these annotations selectively.
+If your translation requirements include preserving wire-format metadata, carry it as an opaque annotation through the Schema graph. The Schema graph supports arbitrary key-value metadata on vertices and edges; parse functions use this to preserve information meaningful to the source format. A custom emit wrapper can then read and apply these annotations selectively.
 
 
 ## Comparison with pandoc
@@ -309,11 +311,11 @@ The pandoc analogy is worth examining in detail, because the structural parallel
 
 **What's the same.** Both pandoc and panproto translate between multiple formats using a shared intermediate representation. pandoc's IR is a document abstract syntax tree. panproto's IR is the Schema graph $G$. In both systems, all translation goes through the IR; neither system converts directly between pairs of formats.
 
-Both systems face the same fundamental limitation: information that can't be represented in the IR is lost. pandoc can't round-trip Word documents with custom styles and tracked changes. panproto can't round-trip SQL schemas with arbitrary `CHECK` expressions.
+Both face the same fundamental limitation: information that can't be represented in the IR is lost. pandoc can't round-trip Word documents with custom styles and tracked changes. panproto can't round-trip SQL schemas with arbitrary `CHECK` expressions.
 
 **What's different.** pandoc's IR is a fixed, hand-designed document AST. Adding a new element type requires changing pandoc's source code. panproto's IR isn't fixed; its structure is determined by the protocol theories. Adding a new structural concept means extending a theory via composition (@sec-building-protocol), not patching the IR definition.
 
-The second difference is in the use of the IR. In pandoc, the IR exists solely for conversion; you interact with it by writing filters. In panproto, the Schema graph is the primary representation for *all* operations: diff, migration, existence checking, lens derivation, breaking-change detection, and translation all operate on the same object.
+The second difference is in the use of the IR. In pandoc, the IR exists solely for conversion. In panproto, the Schema graph is the primary representation for *all* operations: diff, migration, existence checking, lens derivation, breaking-change detection, and translation all operate on the same object.
 
 | | pandoc | panproto |
 |---|---|---|
@@ -327,20 +329,20 @@ The second difference is in the use of the IR. In pandoc, the IR exists solely f
 : Structural comparison between pandoc and panproto. {#tbl-pandoc-comparison}
 
 :::{.callout-caution}
-## Question: IR extensibility tradeoff
+## Exercise: IR extensibility tradeoff
 
-pandoc's fixed IR means every format author targets the same stable structure. panproto's extensible IR means theories can grow. If protocol A extends the IR with a new sort via composition, does protocol B (which was written before that extension) need to be updated? What guarantees backward compatibility of the shared IR?
+pandoc's fixed IR means every format author targets the same stable structure. panproto's extensible IR means theories can grow. If protocol A extends the IR with a new sort via composition, does protocol B (written before that extension) need to be updated? What guarantees backward compatibility of the shared IR?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-No. Protocol B targets the building-block theories it was composed from. A new sort added by protocol A via composition lives in A's theory, not in the shared building blocks. The shared IR (the building-block theories) is stable; extensions happen in individual protocol theories, not in the common base. Backward compatibility of the shared IR is guaranteed by the colimit construction: adding new sorts to a component theory does not alter the existing sorts or operations in the shared base.
+No. Protocol B targets the building-block theories it was composed from. A new sort added by protocol A via composition lives in A's theory, not in the shared building blocks. The shared IR (the building-block theories) is stable; extensions happen in individual protocol theories. Backward compatibility of the shared IR is guaranteed by the colimit construction: adding new sorts to a component theory does not alter the existing sorts or operations in the shared base.
 :::
 
 
 ## Further reading
 
-The functorial data migration framework that underlies cross-protocol translation is due to @spivak2012. The theory group structure is a consequence of the compositional protocol definitions described in @lynch2024. The connection between theory morphisms and information-preserving translations is developed in @cartmell1986.
+The functorial data migration framework underlying cross-protocol translation is due to @spivak2012. The theory group structure is a consequence of the compositional protocol definitions described in @lynch2024. The connection between theory morphisms and information-preserving translations is developed in @cartmell1986.
 
-Cross-protocol translation works because panproto gives every schema element a structural identity, but that identity is protocol-relative. Two elements in different protocols may refer to "the same thing" under different names, and the next chapter formalizes how those naming correspondences are established, tracked, and composed.
+Cross-protocol translation works because panproto gives every schema element a structural identity. That identity is protocol-relative: two elements in different protocols may refer to "the same thing" under different names. The next chapter formalizes how naming correspondences are established, tracked, and composed.

@@ -1,17 +1,15 @@
 # Testing and Simplification {#sec-testing-simplification}
 
-`schema scaffold` generates the simplest valid instance for a given schema. For a graph schema, that might be a single vertex and a single edge connecting it to itself. For a reflexive graph schema, it would include the identity edge required by the reflexivity equation.
+How do you test whether a migration preserves the equations it claims to preserve? You need concrete data that actually exercises those equations—data that makes them active, not trivially true. `schema scaffold` generates exactly that: the simplest valid instance for any schema, the minimal dataset that touches every part of the theory.
 
-Formally, the simplest valid instance is the smallest model $M$ of a theory $T$ such that every sort $s \in T$ has at least one element in $M$ and every equation $e \in T$ is exercised by at least one tuple in $M$.
+Formally, the simplest valid instance is the smallest model $M$ of a theory $T$ such that every sort $s \in T$ has at least one element and every equation $e \in T$ is exercised by at least one tuple.
 
 
 ## Generating test data with `schema scaffold` {#sec-scaffold}
 
-Every schema theory has equations (see @sec-schemas-have-in-common for the definition of theories). A migration must preserve those equations. To test whether it does, we need data that actually *uses* the equations: instances where they're active, not just trivially satisfied.
+Every schema theory has equations (@sec-schemas-have-in-common for details). A migration must preserve those equations. The scaffolder generates minimal data that exercises all of them.
 
-The simplest valid data is the smallest possible instance that satisfies all of the theory's equations without any unnecessary duplication or extra structure. Think of it as the "hello world" of your schema: the minimal dataset that exercises every sort, every operation, and every equation at least once.
-
-The key property: if a migration correctly handles the simplest valid data, it will handle the structural aspects of any valid data. The simplest valid data is a *universal test case* for structural correctness.
+Think of scaffolded data as the "hello world" of your schema: the minimal dataset that exercises every sort, every operation, and every equation at least once. The key property: if a migration correctly handles the simplest valid data, it will handle the structural aspects of any valid data. Simplest valid data is a *universal test case* for structural correctness.
 
 ### Basic usage
 
@@ -19,7 +17,7 @@ The key property: if a migration correctly handles the simplest valid data, it w
 schema scaffold --protocol atproto --schema my-schema.json
 ```
 
-This reads your schema, determines which theory it uses, and generates a minimal instance that satisfies all equations. The output is a JSON file conforming to your schema.
+This reads your schema, determines which theory it uses, and generates a minimal instance that satisfies all equations. The output is JSON conforming to your schema.
 
 For a blog post schema with vertices `{post, author, tag}` and edges `{written_by, tagged_with}`, the scaffolded data might look like:
 
@@ -33,11 +31,11 @@ For a blog post schema with vertices `{post, author, tag}` and edges `{written_b
 }
 ```
 
-One element per sort, one mapping per operation. This is the simplest instance that populates every part of the schema.
+One element per sort, one mapping per operation. This populates every part of the schema with minimal cardinality.
 
 ### Controlling generation size
 
-The minimal instance is useful for smoke tests, but sometimes we want richer data that exercises more combinations. Two flags control this.
+The minimal instance is useful for smoke tests, but you often want richer data that exercises more combinations. Two flags control this.
 
 **`--depth`**: Controls how many layers of structure to generate. At depth 1 (the default), you get one element per sort. At depth 2, you get enough elements to exercise every *pair* of operations. At depth 3, every triple, and so on.
 
@@ -45,7 +43,7 @@ The minimal instance is useful for smoke tests, but sometimes we want richer dat
 schema scaffold --protocol atproto --schema my-schema.json --depth 2
 ```
 
-At depth 2, the blog post schema might produce multiple posts with different authors, exercising both the `written_by` and `tagged_with` edges in various combinations.
+At depth 2, the blog post schema might produce multiple posts with different authors, exercising both `written_by` and `tagged_with` edges in various combinations.
 
 **`--max-terms`**: Caps the total number of generated elements across all sorts. Useful when higher depths would produce more data than you want.
 
@@ -54,9 +52,9 @@ schema scaffold --protocol atproto --schema my-schema.json --depth 3 --max-terms
 ```
 
 :::{.callout-caution}
-## Does the simplest valid instance always exist?
+## Exercise: Existence and termination
 
-Yes, for panproto's equational theories. The construction is guaranteed to terminate because the theories are purely algebraic (no recursive constraints). For theories with recursive types, the scaffolder uses an unfolding bound to ensure termination.
+Does the simplest valid instance always exist for panproto's theories? When does construction terminate?
 :::
 
 ::: {.callout-tip collapse=true}
@@ -84,7 +82,7 @@ schema scaffold --protocol protobuf --schema messages.proto
 schema scaffold --protocol graphql --schema schema.graphql
 ```
 
-The structural properties are the same regardless of protocol. The simplest valid data exercises every equation in the theory, and migrations that handle it correctly are structurally sound.
+The structural properties are the same regardless of protocol. Simplest valid data exercises every equation in the theory, and migrations that handle it correctly are structurally sound.
 
 
 ## Testing migrations with scaffolded data {#sec-migration-testing}
@@ -111,7 +109,7 @@ schema lift --migration mig.json \
 schema scaffold --protocol atproto --schema v2.json -o expected-v2.json
 ```
 
-The migrated data (`test-data-v2.json`) should be a valid instance of the new schema. If the migration is correct, it'll have the same structural shape as the freshly scaffolded data (`expected-v2.json`), though the specific element names may differ.
+The migrated data (`test-data-v2.json`) should be a valid instance of the new schema. If the migration is correct, it'll have the same structural shape as the freshly scaffolded data (`expected-v2.json`), though element names may differ.
 
 **Step 4: Validate.**
 
@@ -127,32 +125,30 @@ Scaffolded data tests structural correctness: do the sorts, operations, and equa
 
 For validation testing, you need data that exercises the boundary conditions of each constraint. panproto doesn't generate this automatically. Constraint boundaries are domain-specific and often require human judgment about what constitutes a meaningful test case.
 
-The recommended approach: use `schema scaffold` for structural regression tests (automated, run in CI), and write hand-crafted test cases for validation boundary tests (manual, reviewed by domain experts). Together, they cover the two layers of schema correctness that @sec-self-description introduced: the algebraic structure (sorts, operations, equations) and the validation layer (constraints).
+The recommended approach: use `schema scaffold` for structural regression tests (automated, run in CI), and write hand-crafted test cases for validation boundary tests (manual, reviewed by domain experts). Together, they cover the two layers of schema correctness: the algebraic structure (sorts, operations, equations) and the validation layer (constraints).
 
 :::{.callout-caution}
-## Can scaffolded data miss migration bugs?
+## Exercise: Limitations of structural testing
 
-Scaffolded data is a universal test case for *structural* correctness (equations, sorts, operations). It can't catch validation bugs (wrong `maxLength`, broken regex) or semantic bugs (mapping `email` to `username`). Use it alongside hand-crafted boundary tests.
+Scaffolded data is a universal test case for *structural* correctness. What categories of bugs can it miss?
 :::
 
 ::: {.callout-tip collapse=true}
 ## Answer
 
-Yes. Scaffolded data is a universal test case for *structural* correctness: it exercises every sort, operation, and equation. But it cannot catch validation bugs (a `maxLength` set to the wrong value), semantic bugs (mapping `email` to `username`), or boundary condition bugs (data at exactly the constraint limit). Structural tests and hand-crafted boundary tests cover different failure modes and are complementary.
+Scaffolded data is a universal test case for *structural* correctness: it exercises every sort, operation, and equation. But it cannot catch validation bugs (a `maxLength` set to the wrong value), semantic bugs (mapping `email` to `username`), or boundary condition bugs (data at exactly the constraint limit). Structural tests and hand-crafted boundary tests cover different failure modes and are complementary.
 :::
 
 
 ## Simplifying schemas with `schema normalize` {#sec-normalize}
 
-Schemas accumulate cruft. A field gets copied instead of referenced. Two teams independently define the same concept under different names. A refactor leaves behind duplicate type definitions that are structurally identical but syntactically distinct. Over time, the schema grows redundancies that make migrations harder, diffs noisier, and the overall structure harder to reason about.
-
-`schema normalize` identifies equivalent definitions, merges them, and produces a simplified schema that is structurally identical to the original but without the duplication.
+Schemas accumulate cruft. A field gets copied instead of referenced. Two teams independently define the same concept under different names. A refactor leaves behind duplicate type definitions that are structurally identical but syntactically distinct. `schema normalize` identifies equivalent definitions, merges them, and produces a simplified schema that is structurally identical to the original but without the duplication.
 
 ### When schemas have duplicates
 
 Consider an ATProto schema where two contributors independently defined type nodes for timestamps: `DateTime` and `Timestamp`. Both have exactly the same structure: same sort, same constraints, same edges. The schema has two names for the same concept.
 
-This isn't a bug. Both definitions are valid, and instances using either one are well-formed. But it's a problem for migrations. When you diff two versions of this schema, changes to `DateTime` and changes to `Timestamp` show up as separate modifications, even though they're logically the same thing. Merge conflicts between the two are spurious. Migration mappings have to map both, doubling the work.
+This isn't a bug. Both definitions are valid, and instances using either one are well-formed. But it's a problem for migrations. When you diff two versions, changes to `DateTime` and changes to `Timestamp` show up as separate modifications, even though they're logically the same thing. Merge conflicts between the two are spurious. Migration mappings have to map both, doubling the work.
 
 ### Basic usage
 
@@ -166,7 +162,7 @@ This tells panproto: "treat `DateTime` and `Timestamp` as the same thing." The o
 
 1. **One definition survives.** By default, the first-named element (`DateTime`) is kept and the second (`Timestamp`) is removed.
 2. **All references are updated.** Every edge that pointed to `Timestamp` points to `DateTime` instead. Every constraint attached to `Timestamp` is merged into `DateTime`'s constraint set.
-3. **Equations are re-verified.** The simplified schema's theory is type-checked to ensure that merging the two definitions didn't break any equations.
+3. **Equations are re-verified.** The simplified schema's theory is type-checked to ensure that merging didn't break any equations.
 
 You can choose which name survives with `--prefer`:
 
@@ -175,7 +171,7 @@ schema normalize --protocol atproto --schema my-schema.json \
   --identify DateTime=Timestamp --prefer Timestamp
 ```
 
-If the two elements have different kinds (say, one is a `string` vertex and the other is an `integer` vertex), normalization fails with an error. You can only identify elements that are structurally compatible.
+If the two elements have different kinds (one is `string` and the other is `integer`), normalization fails. You can only identify elements that are structurally compatible.
 
 
 ### What happens during normalization
@@ -211,7 +207,7 @@ For larger schemas, `schema normalize` has a discovery mode:
 schema normalize --protocol atproto --schema my-schema.json --suggest
 ```
 
-This analyzes the schema and reports pairs of elements that are structurally similar: same sort kind, same or similar edge patterns, same or similar constraints. Each suggestion includes a similarity score and a brief explanation of what differs (if anything).
+This analyzes the schema and reports pairs of elements that are structurally similar: same sort kind, same or similar edge patterns, same or similar constraints. Each suggestion includes a similarity score and explanation.
 
 ```
 Suggested identifications:
@@ -223,7 +219,13 @@ Suggested identifications:
 A score of 1.00 means the elements are structurally identical; they can be merged with no loss. Lower scores indicate partial similarity where merging would require choosing which constraints or edges to keep.
 
 :::{.callout-caution}
-## When should you *not* normalize?
+## Exercise: When not to normalize
+
+Two elements might be structurally identical today but semantically different. When should you resist the temptation to normalize?
+:::
+
+::: {.callout-tip collapse=true}
+## Answer
 
 Two elements might be structurally identical today but semantically different. For example, `EmailAddress` and `Username` might both be `string` vertices with a `maxLength` constraint. Merging them would lose the distinction. A future schema change might add a `pattern` constraint to `EmailAddress` (requiring an `@` sign) that shouldn't apply to `Username`. Normalize only when the elements are genuinely the same concept under different names.
 :::
@@ -255,4 +257,4 @@ schema commit -m "normalize: merge DateTime and Timestamp"
 
 The commit's migration mapping captures exactly what changed: `Timestamp` vertices are mapped to `DateTime` vertices, and all downstream edges are remapped accordingly. This migration is invertible (with complement data), so you can reconstruct the pre-normalization schema if needed.
 
-Normalization commits are especially useful before a merge. If two branches independently added similar definitions, normalizing one or both branches before merging reduces the chance of spurious conflicts.
+Normalization commits are especially useful before a merge. If two branches independently added similar definitions, normalizing one or both before merging reduces the chance of spurious conflicts.

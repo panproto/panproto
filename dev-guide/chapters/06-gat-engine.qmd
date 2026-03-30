@@ -1,141 +1,90 @@
 # panproto-gat: The GAT Engine {#sec-gat-engine}
 
-A sort is a type in a GAT. An operation is a function between sorts. An equation constrains operations. The Rust representations follow. In the theory of categories, for instance, we have sorts $\mathrm{Ob}$ and $\mathrm{Hom}(a: \mathrm{Ob}, b: \mathrm{Ob})$, operations $\mathrm{id}: \mathrm{Ob} \to \mathrm{Hom}(a, a)$ and $\mathrm{comp}: \mathrm{Hom}(a, b) \times \mathrm{Hom}(b, c) \to \mathrm{Hom}(a, c)$, and equations for associativity and unitality.
+Every protocol panproto supports—ATProto, SQL, Protobuf, GraphQL, the rest—bottoms out in the same algebraic vocabulary.  That vocabulary lives in `panproto-gat`, the Level 0 crate at the base of the dependency hierarchy.  Nothing in panproto depends on anything lower.  Everything above—schemas, instances, migrations, lenses, the CLI—depends on the structures defined here.
 
-This crate is Level 0 of the panproto hierarchy: the algebraic foundation on which everything else is built. It implements GATs as defined by @cartmell1986.
+The crate implements Generalized Algebraic Theories as defined by @cartmell1986.  If you have worked through the tutorial's chapter on theories, you already have the intuitions.  This chapter is the Rust-level view: what the data structures look like, how the algorithms work, and where the performance-sensitive paths are.
 
-## Sorts and Sort Parameters
 
-### Math
+## Sorts and sort parameters
 
-A sort $S$ in a GAT has arity $n \geq 0$. When $n = 0$, $S$ is a _simple sort_. When $n > 0$, $S$ is a _dependent sort_ parameterized by terms of other sorts. The distinction between simple and dependent sorts is what separates GATs from ordinary algebraic theories in the sense of @lawvere1963.
+Consider the theory of categories.  It has a sort $\mathrm{Ob}$ for objects and a sort $\mathrm{Hom}(a{:}\,\mathrm{Ob},\; b{:}\,\mathrm{Ob})$ for morphisms between two objects.  The first sort is *simple*—it stands alone, no parameters.  The second is *dependent*—it only makes sense once you pick two objects.  That distinction between simple and dependent sorts is what separates GATs from ordinary algebraic theories in the sense of @lawvere1963, and it is the reason panproto needs GATs rather than something simpler.
 
-A sort parameter names a dependency of a sort on a term of another sort. For example, $\mathrm{Hom}(a: \mathrm{Ob}, b: \mathrm{Ob})$ has two parameters, each of sort $\mathrm{Ob}$.
-
-### Rust
+In Rust, a sort is a name plus a (possibly empty) list of parameters:
 
 ```{.rust include="../../crates/panproto-gat/src/sort.rs" start-line=1 end-line=38}
 ```
 
-The `arity()` method returns the number of parameters. This is the key invariant that theory morphisms must preserve.
+The `arity()` method—the number of parameters—is the key invariant that theory morphisms must preserve.  A morphism that sends a 2-ary sort to a 0-ary sort is ill-formed, full stop.
 
-### Concrete Examples
+The sorts you will encounter most often in panproto's protocol definitions are `Vertex` and `Edge` (both simple, arity 0), `Constraint(v: Vertex)` (dependent, arity 1, tying a constraint to a specific vertex), and `Hom(a: Ob, b: Ob)` (dependent, arity 2, from the categorical machinery).
 
-Sorts you'll encounter in panproto protocol definitions:
-
-- `Vertex`: simple sort, arity 0. The vertices of a schema graph.
-- `Edge`: simple sort, arity 0. Directed edges between vertices.
-- `Hom(a: Ob, b: Ob)`: dependent sort, arity 2. Morphisms in a category.
-- `Constraint(v: Vertex)`: dependent sort, arity 1. Constraints attached to a specific vertex.
-
-::: {.callout-tip}
-In panproto's schema theories, most sorts are simple (`Vertex`, `Edge`, `Constraint`). Dependent sorts appear when a schema theory needs to express constraints that depend on a vertex (e.g., `Constraint(v: Vertex)`), or when modeling categories where morphisms depend on their source and target objects.
-:::
 
 ## Operations
 
-### Math
+Sorts name the types.  Operations name the functions between them.  In a graph theory, `src` and `tgt` are operations: `src` takes an edge and returns a vertex, `tgt` does the same.  A monoid theory has a nullary operation `unit` (a constant—zero inputs, one output) and a binary operation `mul`.
 
-An operation $f: (a_1: S_1, \ldots, a_n: S_n) \to T$ is a function in a GAT. Each operation has typed inputs and a typed output. Operations with zero inputs are constants (nullary constructors). The type signature of an operation is the pair $(\langle S_1, \ldots, S_n \rangle, T)$. Theory morphisms must preserve these signatures up to the sort mapping.
-
-### Rust
+An operation's *signature* is the pair of its input sorts and its output sort.  Morphisms must preserve these signatures after applying the sort mapping.
 
 ```{.rust include="../../crates/panproto-gat/src/op.rs" start-line=1 end-line=23}
 ```
 
-The `inputs` field stores `(param_name, sort_name)` pairs. This is sufficient for first-order operations. Higher-order operations (operations whose inputs are themselves operations) aren't directly supported; panproto doesn't need them for its protocol modeling use case.
+The `inputs` field stores `(param_name, sort_name)` pairs—enough for first-order operations.  panproto does not need higher-order operations (operations whose inputs are themselves operations), so the representation stays simple.
 
-### Concrete Examples
-
-In a graph schema theory:
-
-- `src: (e: Edge) -> Vertex`: the source vertex of an edge.
-- `tgt: (e: Edge) -> Vertex`: the target vertex of an edge.
-- `unit: () -> Carrier`: a nullary operation (constant) in a monoid theory.
 
 ## Equations
 
-### Math
+Operations without constraints can do anything.  Equations rein them in.  An equation $\ell = r$ asserts that two terms built from variables and operation applications are equal.  In a category theory, the associativity equation says that composing three morphisms in two different groupings yields the same result.  In a monoid theory, the identity equations say that multiplying by the unit is a no-op.
 
-An equation (axiom) in a GAT asserts that two terms are equal: $\ell = r$ where $\ell$ and $r$ are built from variables and operation applications. Equations constrain the behavior of operations. They aren't computationally evaluated; they serve as proof obligations that theory morphisms must preserve.
+panproto represents terms with a small two-variant enum: `Term::Var(name)` for variable references and `Term::App(op_name, args)` for operation applications.  Equations are pairs of terms.  They are not computationally evaluated—they serve as proof obligations.  When the engine checks a theory morphism, it verifies that mapping each equation through the morphism yields an equation that holds in the target theory.
 
-### Rust
 
-panproto uses a simple term language:
+## Sort kinds
 
-- `Term::Var(name)`: a variable reference.
-- `Term::App(op_name, args)`: application of an operation to arguments.
+Not all sorts play the same role.  panproto classifies each sort by a *kind* that separates structural schema-level sorts from data-level value sorts:
 
-When `panproto-gat` checks a morphism, it verifies that for each equation $\ell = r$ in the domain theory, the mapped equation $F(\ell) = F(r)$ exists in the codomain theory.
+**Structural** (the default) covers sorts like `Vertex`, `Edge`, and `Constraint`—the scaffolding of a schema graph.
 
-## Sort Kinds
+**Val(kind)** marks a sort that carries data of a specific `ValueKind`: Bool, Int, Float, Str, Bytes, Token, Null, or Any.  The sort `Val(Str)` classifies string values.
 
-### Math
+**Coercion { from, to }** marks a sort whose values are directed morphisms between value kinds.  A `Coercion { from: Str, to: Int }` classifies functions that convert strings to integers—`parse_int` and its cousins.
 
-Sorts are classified by a _kind_ that distinguishes structural sorts from value-level sorts. The classification forms a sum type: $\mathrm{SortKind} = \mathrm{Structural} \mid \mathrm{Val}(k) \mid \mathrm{Coercion}(k_1, k_2) \mid \mathrm{Merger}(k)$ where $k, k_1, k_2 \in \mathrm{ValueKind}$.
+**Merger(kind)** marks a sort whose values combine (merge) two values of the same kind.  The VCS merge algorithm uses mergers to reconcile conflicting edits.
 
-### Rust
 
-- **`Structural`** (default): standard schema-level sorts like `Vertex`, `Edge`, `Constraint`.
-- **`Val(kind)`**: value sorts carrying data of a specific `ValueKind` (Bool, Int, Float, Str, Bytes, Token, Null, Any).
-- **`Coercion { from, to }`**: coercion sorts representing directed morphisms between value kinds.
-- **`Merger(kind)`**: merger sorts that combine values of a specific kind.
+## Directed equations
 
-### Concrete Example
+Standard equations are symmetric: $\ell = r$ means the same thing as $r = \ell$.  But migrations need direction.  When the engine encounters a value matching $\ell$, it should rewrite to $r$, not the other way around.
 
-Value sorts bridge the schema level and the instance level. A sort like `Val(Str)` classifies string values. `Coercion { from: Str, to: Int }` classifies functions that convert strings to integers (e.g., `parse_int`).
+A *directed equation* $\ell \longrightarrow r$ adds an `impl_term`—a computable expression from `panproto-expr` (a pure functional language with lambdas, pattern matching, records, lists, and roughly 50 built-in operations)—and an optional `inverse` for the backward (put) direction of a lens.  The directed equation is the mechanism that turns an abstract algebraic relationship into executable migration code.
 
-## Directed Equations
 
-### Math
+## Conflict policies
 
-A directed equation $\ell \longrightarrow r$ extends the standard equation with a computation direction. Where an equation $\ell = r$ is an undirected assertion, a directed equation specifies a rewrite rule: when the migration engine encounters a value matching $\ell$, it rewrites to $r$ using the implementation term.
+When two branches of a VCS merge produce different values for the same field, someone has to decide who wins.  A `ConflictPolicy` attached to a sort kind makes that decision: `KeepLeft` always prefers the left branch, `KeepRight` the right, `Fail` reports a conflict (the default), and `Custom(expr)` evaluates a `panproto_expr::Expr` to decide programmatically.
 
-### Rust
 
-Each directed equation carries:
+## Theories
 
-- `impl_term`: a `panproto_expr::Expr`, the computable implementation of the rewrite.
-- `inverse`: an optional `panproto_expr::Expr` for the backward (put) direction.
-
-The expression language is defined in the `panproto-expr` crate, a pure functional language with lambda calculus, pattern matching, records, lists, and approximately 50 built-in operations.
-
-## Conflict Policies
-
-A `ConflictPolicy` specifies how merge conflicts are resolved for values of a given kind:
-
-- `KeepLeft`: always prefer the left branch.
-- `KeepRight`: always prefer the right branch.
-- `Fail`: report a conflict (default behavior).
-- `Custom(expr)`: evaluate a `panproto_expr::Expr` to decide.
-
-## Theory
-
-### Math
-
-A theory $\mathcal{T} = (S, \Omega, E)$ consists of a set of sorts $S$, a set of operations $\Omega$ (each with typed inputs and output drawn from $S$), and a set of equations $E$ over terms built from $\Omega$. We extend this with directed equations, conflict policies, and an inheritance relation.
-
-### Rust
+All of the above—sorts, operations, equations, directed equations, sort kinds, conflict policies—come together in a single structure:
 
 ```{.rust include="../../crates/panproto-gat/src/theory.rs" start-line=10 end-line=44}
 ```
 
-### Theory Inheritance
+A theory $\mathcal{T} = (S, \Omega, E)$ in the classical sense is a set of sorts, a set of operations typed over those sorts, and a set of equations over terms built from the operations.  panproto extends this with the directed equations, conflict policies, and an inheritance relation (`extends`).
 
-The `extends` field enables compositional theory construction. When theory B extends theory A, B inherits all of A's sorts, operations, and equations. The `resolve_theory` function computes the transitive closure of the inheritance chain, merging declarations and detecting cycles.
+### Inheritance
 
-Diamond inheritance is handled correctly. If theories B and C both extend A, and theory D extends both B and C, the shared declarations from A appear exactly once in the resolved theory D.
+The `extends` field enables compositional theory construction.  When theory B extends theory A, B inherits all of A's sorts, operations, and equations.  The `resolve_theory` function computes the transitive closure of the inheritance chain, merging declarations and detecting cycles.
+
+Diamond inheritance works correctly.  If theories B and C both extend A, and theory D extends both B and C, the shared declarations from A appear exactly once in the resolved D.  This is checked, not assumed.
 
 ::: {.callout-note}
 For the conceptual introduction to GATs, see the [tutorial chapter 3](https://panproto.dev/tutorial/chapters/03-what-is-a-theory.html).
 :::
 
-::: {.callout-caution}
-## When should you use theory inheritance vs. colimits?
-Use `extends` when the child genuinely specializes the parent (adding sorts or operations to an existing vocabulary). Use colimits when composing two independent theory fragments that share a common sub-theory. The rule of thumb: if the shared structure is "accidental" (same name, same role, but developed independently), use a colimit. If it's intentional (the child is meant to extend the parent), use `extends`.
-:::
+When should you use inheritance versus colimits?  Use `extends` when the child genuinely specializes the parent—adding sorts or operations to an existing vocabulary.  Use colimits (described below) when composing two independent theory fragments that happen to share a sub-theory.  The heuristic: if the overlap is intentional (the child is meant to be a refinement of the parent), inherit.  If the overlap is accidental (same names, same roles, but developed independently), take a colimit.
 
-### Theory Structure Diagram
+### Structure diagram
 
 ```{mermaid}
 %%| label: fig-theory-structure
@@ -191,57 +140,48 @@ classDiagram
     Operation ..> Sort : references by name
 ```
 
-## Theory Morphisms
 
-### Math
+## Theory morphisms
 
-A theory morphism $F: \mathcal{T}_1 \to \mathcal{T}_2$ is a structure-preserving map. It maps sorts to sorts and operations to operations, subject to three preservation conditions:
-
-1. **Arity preservation**: if sort $S$ has arity $n$, then $F(S)$ must also have arity $n$.
-2. **Signature preservation**: if operation $f: (a: A, b: B) \to C$, then $F(f): (a: F(A), b: F(B)) \to F(C)$.
-3. **Equation preservation**: if $\ell = r$ is an equation in $\mathcal{T}_1$, then $F(\ell) = F(r)$ must be an equation in $\mathcal{T}_2$.
-
-### Rust
+A theory morphism $F\colon \mathcal{T}_1 \to \mathcal{T}_2$ is the mathematical heart of a migration.  It maps sorts to sorts and operations to operations, preserving three things: arity (a 2-ary sort maps to a 2-ary sort), signature (if $f\colon A \times B \to C$, then $F(f)\colon F(A) \times F(B) \to F(C)$), and equations (if $\ell = r$ in $\mathcal{T}_1$, then $F(\ell) = F(r)$ in $\mathcal{T}_2$).
 
 ```{.rust include="../../crates/panproto-gat/src/morphism.rs" start-line=8 end-line=24}
 ```
 
-The `check_morphism` function validates all three conditions. This is the critical correctness check for schema migrations: a migration specification is valid if and only if it induces a valid theory morphism between the source and target schema theories.
+The `check_morphism` function validates all three preservation conditions.  This is the critical correctness check for migrations: a migration specification is valid if and only if it induces a valid theory morphism between the source and target schema theories.
 
-### Why Morphisms Matter for Migration
+### Why the direction is reversed
 
-When we migrate data from schema v1 to schema v2, the migration is mathematically a theory morphism from v2's schema theory to v1's schema theory (note the direction reversal; this is the contravariance of restriction functors). The `CompiledMigration` in `panproto-inst` is the executable form of this morphism. The `wtype_restrict` pipeline is the functor it induces on instances.
+When we migrate data from schema v1 to schema v2, the morphism goes from v2's theory to v1's theory—backwards from what you might expect.  The reason is contravariance.  The restrict functor that lifts instances goes in the opposite direction from the schema morphism, just as a pullback in topology goes in the opposite direction from a continuous map.  The `CompiledMigration` in `panproto-inst` is the executable form of this morphism.  The `wtype_restrict` pipeline is the functor it induces on instances.
 
-This is the fundamental guarantee. Because the restrict operation is functorial, composing two migrations and restricting is the same as restricting twice [@spivak2012]. There are no "migration bugs" that arise from order-of-operations issues.
+Because restriction is functorial, composing two migrations and restricting once is the same as restricting twice [@spivak2012].  There are no migration bugs that arise from order-of-operations issues—the algebra rules them out.
 
-### Inducing Schema Renames
+### Inducing schema renames
 
-Theory morphisms induce schema-level renames via `induce_schema_renames()`. Sort-map entries where `old ≠ new` become `NameSite::VertexKind` renames (since sorts map to vertex kinds at the schema level). Op-map entries where `old ≠ new` become `NameSite::EdgeKind` renames. This is the top of the _morphism tower_ described in @sec-naming-identity-section.
+Theory morphisms induce schema-level renames via `induce_schema_renames()`.  Sort-map entries where old $\neq$ new become `NameSite::VertexKind` renames (sorts map to vertex kinds at the schema level).  Op-map entries where old $\neq$ new become `NameSite::EdgeKind` renames.  This sits at the top of the *morphism tower* described in @sec-naming-identity-section.
 
-## Identity and Naming
 
-The `ident` module provides three types that separate identity from display name:
+## Identity and naming
 
-- **`ScopeTag`**: an opaque scope tag distinguishing different naming contexts, generated via `ScopeTag::fresh()`.
-- **`Ident`**: a first-class identifier where equality uses `(scope, index)` only, not the display name. Follows `GATlab` [@lynch2024].
-- **`Name`**: an interned string handle (`Arc<str>`) with a pointer-equality fast path. Drop-in replacement for `String` in hot-path types.
+The `ident` module solves a problem that bites most algebraic implementations eventually: conflating identity with display name.  A sort named "Vertex" in protocol A and a sort named "Vertex" in protocol B are not the same sort, even though they print the same way.  panproto uses three types to keep the distinction clean:
 
-The `NameSite` enum enumerates the nine naming sites (edge labels, vertex IDs, vertex kinds, edge kinds, NSIDs, constraint sorts, instance anchors, theory names, sort names). `SiteRename` is a site-qualified rename operation used in schema morphism provenance and VCS commit metadata.
+**`ScopeTag`** is an opaque scope identifier generated by `ScopeTag::fresh()`.  Two sorts in different scopes are always distinct, regardless of their display names.
 
-See @sec-naming-identity-section for the full contributor guide.
+**`Ident`** is a first-class identifier whose equality uses `(scope, index)` only, never the display name.  This follows the design of GATlab [@lynch2024].
 
-## Colimits (Merging Theories)
+**`Name`** is an interned string handle (`Arc<str>`) with a pointer-equality fast path—a drop-in replacement for `String` in hot-path types, avoiding repeated allocation and comparison of the same string.
 
-### Math
+The `NameSite` enum lists the nine naming sites (edge labels, vertex IDs, vertex kinds, edge kinds, NSIDs, constraint sorts, instance anchors, theory names, sort names).  `SiteRename` pairs a site with a rename operation.  The full contributor guide is in @sec-naming-identity-section.
 
-The colimit (pushout) of two theories $T_1$ and $T_2$ over a shared base $S$ is a combined theory $T_1 +_S T_2$ containing all declarations from both, with the shared declarations identified (not duplicated). Formally, given inclusions $i_1: S \hookrightarrow T_1$ and $i_2: S \hookrightarrow T_2$, the pushout is the universal cocone.
 
-### Rust
+## Colimits: merging theories
+
+Protocol schema theories are not written monolithically.  The ATProto schema theory, for example, is assembled by combining a base graph theory (`ThGraph`, with `Vertex`, `Edge`, `src`, `tgt`) with a constraint theory (`ThConstraint`, with `Constraint`, `target`) over their shared `ThVertex`.  The combining operation is a *colimit*—specifically, a pushout.
+
+Given inclusions $i_1\colon S \hookrightarrow T_1$ and $i_2\colon S \hookrightarrow T_2$ of a shared base theory $S$ into two extensions, the pushout $T_1 +_S T_2$ contains all declarations from both, with the shared declarations identified (appearing once, not duplicated).
 
 ```{.rust include="../../crates/panproto-gat/src/colimit.rs" start-line=6 end-line=24}
 ```
-
-### Pushout Diagram
 
 ```{mermaid}
 %%| label: fig-pushout
@@ -260,37 +200,23 @@ graph LR
     style C fill:#e8f4e8,stroke:#2d7d2d
 ```
 
-### Conflict Detection
+### Conflict detection
 
-The colimit function detects three kinds of conflicts:
+Three kinds of conflicts can arise during a colimit.  *Sort conflicts*: $T_1$ and $T_2$ both declare a sort with the same name but different parameter lists, and the sort is not in the shared base.  *Operation conflicts*: same-named operations with incompatible signatures.  *Equation conflicts*: same-named equations with different term content.
 
-- **Sort conflicts**: $T_1$ and $T_2$ both declare a sort with the same name but different parameter lists, and the sort is not in the shared base.
-- **Operation conflicts**: same-named operations with incompatible signatures.
-- **Equation conflicts**: same-named equations with different term content.
-
-Compatible duplicates (same name, same definition) are silently deduplicated. This allows independent protocol extensions to share common vocabulary without coordination, as long as they agree on the meaning of shared names.
-
-### Concrete Example: Composing Schema Theories
-
-The `panproto-protocols` crate uses colimits extensively. The AT Protocol schema theory is built by combining a base graph theory (`ThGraph` with Vertex, Edge, src, tgt) with a constraint theory (`ThConstraint` with Constraint, target) over their shared `ThVertex`. The colimit produces a theory with all three sorts and all three operations, ready to serve as the schema theory for the AT Protocol.
+Compatible duplicates—same name, same definition—are silently deduplicated.  This allows independent protocol extensions to share common vocabulary without coordination, as long as they agree on what the shared names mean.
 
 ::: {.callout-caution}
 ## What happens when two protocol fragments define the same sort name with different arities?
-The colimit function returns a `GatError::SortConflict`. You must either rename one of the sorts before merging or use a quotient to explicitly identify them. There's no implicit resolution.
+The colimit function returns a `GatError::SortConflict`.  You must either rename one sort before merging or use a quotient to explicitly identify them.  There is no implicit resolution.
 :::
 
-## Type-Checking
 
-### Math
+## Type-checking
 
-Type-checking verifies that terms and equations are well-typed with respect to a theory's operation signatures. For a term $f(t_1, \ldots, t_n)$ where $f: (a_1: S_1, \ldots, a_n: S_n) \to T$, type-checking confirms that each $t_i$ has sort $S_i$ and infers the result sort $T$.
+With the data structures in place, we need a way to verify that a theory is internally consistent—that every equation is well-typed, that every operation application uses the right number of arguments of the right sorts.
 
-### Rust
-
-The core function `typecheck_term` infers the output sort of a term given a variable typing context and a theory. It walks the term tree recursively:
-
-- For `Term::Var(x)`: returns the sort from the context, or `GatError::UnboundVariable`.
-- For `Term::App { op, args }`: looks up `op` in the theory, recursively typechecks each argument, verifies that each argument's sort matches the operation's input signature, and returns the output sort.
+The core function, `typecheck_term`, infers the output sort of a term given a variable typing context and a theory.  For `Term::Var(x)`, it returns the sort from the context (or `GatError::UnboundVariable`).  For `Term::App { op, args }`, it looks up the operation, recursively typechecks each argument, checks that each argument's sort matches the operation's signature, and returns the output sort.
 
 ```rust
 pub fn typecheck_term(
@@ -300,101 +226,48 @@ pub fn typecheck_term(
 ) -> Result<Arc<str>, GatError>
 ```
 
-The `VarContext` type is a `FxHashMap<Arc<str>, Arc<str>>` mapping variable names to their sort names. Callers construct a context manually when type-checking a standalone term, but more commonly the context is inferred automatically by `infer_var_sorts`.
+The `VarContext` is a `FxHashMap<Arc<str>, Arc<str>>` mapping variable names to sort names.  You can construct one manually, but more commonly the engine infers it automatically via `infer_var_sorts`, which walks both sides of an equation collecting sort constraints from every operation application site.  If the same variable appears at two positions requiring different sorts, the function returns `GatError::ConflictingVarSort`.
 
-### infer_var_sorts
-
-`infer_var_sorts` walks both sides of an equation, collecting sort constraints from every operation application site. A variable used as argument $i$ of operation $f$ must have the sort declared for that input position. If the same variable appears at two positions requiring different sorts, the function returns `GatError::ConflictingVarSort`.
-
-```rust
-pub fn infer_var_sorts(eq: &Equation, theory: &Theory) -> Result<VarContext, GatError>
-```
-
-This function is the entry point for automatic variable sort inference. It's used by `typecheck_equation`, `check_model`, and `free_model`. It eliminates the need for explicit sort annotations on equation variables.
-
-### typecheck_equation and typecheck_theory
-
-`typecheck_equation` combines inference and checking: it infers variable sorts from the equation structure, typechecks both sides, and verifies they produce the same output sort. If the two sides have different sorts, it returns `GatError::EquationSortMismatch`.
-
-`typecheck_theory` iterates over all equations in a theory and typechecks each one, returning the first error encountered. This is the function called during VCS validation to ensure that a protocol's schema theory is internally consistent.
-
-```rust
-pub fn typecheck_theory(theory: &Theory) -> Result<(), GatError>
-```
+Building on these, `typecheck_equation` infers variable sorts, typechecks both sides, and verifies they produce the same output sort.  `typecheck_theory` iterates over all equations and typechecks each one.  The VCS pipeline calls `typecheck_theory` on every `schema add` and `schema commit`.
 
 ::: {.callout-tip}
-Type-checking is fast. It's linear in the size of the term tree for each equation. Even theories with hundreds of equations typecheck in microseconds. The VCS pipeline runs `typecheck_theory` on every `schema add` and `schema commit` without measurable overhead.
+Type-checking is fast—linear in the size of the term tree for each equation.  Even theories with hundreds of equations typecheck in microseconds.
 :::
 
-### Type-Checking Errors
-
-The type-checking functions produce specific error variants that carry enough context for actionable diagnostics:
+The error variants carry enough context for actionable diagnostics:
 
 | Error variant | Cause |
 |---|---|
-| `UnboundVariable` | A variable name is not in the typing context |
-| `OpNotFound` | An operation name does not exist in the theory |
+| `UnboundVariable` | Variable name not in the typing context |
+| `OpNotFound` | Operation name does not exist in the theory |
 | `TermArityMismatch` | Wrong number of arguments to an operation |
-| `ArgTypeMismatch` | An argument's sort does not match the expected input sort |
-| `EquationSortMismatch` | The two sides of an equation have different sorts |
-| `ConflictingVarSort` | A variable is used at positions requiring incompatible sorts |
+| `ArgTypeMismatch` | Argument sort does not match expected input sort |
+| `EquationSortMismatch` | Two sides of an equation have different sorts |
+| `ConflictingVarSort` | Variable used at positions requiring incompatible sorts |
 
 : Type-checking error variants. {#tbl-typecheck-errors}
 
-## Model Checking
 
-### Math
+## Model checking
 
-A model $M$ of a theory $\mathcal{T}$ is an interpretation: each sort $S$ maps to a carrier set $M(S)$, and each operation $f: S_1 \times \cdots \times S_n \to T$ maps to a function $M(f): M(S_1) \times \cdots \times M(S_n) \to M(T)$. The model satisfies $\mathcal{T}$ if every equation $\ell = r$ evaluates to equal values under all variable assignments drawn from the carrier sets.
+Type-checking tells you whether a theory's equations are well-formed.  Model checking tells you whether a concrete interpretation satisfies them.
 
-### Rust
+A model $M$ of a theory $\mathcal{T}$ assigns a carrier set $M(S)$ to each sort and a function $M(f)\colon M(S_1) \times \cdots \times M(S_n) \to M(T)$ to each operation.  The model satisfies $\mathcal{T}$ if every equation evaluates to equal values under all variable assignments drawn from the carriers.
 
-A `Model` provides an interpretation of a theory: each sort maps to a carrier set (a `Vec<ModelValue>`), and each operation maps to a Rust closure. `ModelValue` is an enum with `Int(i64)` and `Str(String)` variants, enough for the finite models that panproto needs for equation verification.
+In Rust, a `Model` maps each sort to a `Vec<ModelValue>` and each operation to a closure.  `ModelValue` is a small enum—`Int(i64)` and `Str(String)`—sufficient for the finite models panproto needs for equation verification.
 
 ```rust
 pub fn check_model(model: &Model, theory: &Theory) -> Result<Vec<EquationViolation>, GatError>
-
-pub fn check_model_with_options(
-    model: &Model,
-    theory: &Theory,
-    options: &CheckModelOptions,
-) -> Result<Vec<EquationViolation>, GatError>
 ```
 
-For each equation, the checker infers variable sorts, builds the cartesian product of the carrier sets for those sorts, and evaluates both sides under every assignment. If `lhs_value != rhs_value`, the assignment is recorded as an `EquationViolation`.
+For each equation, the checker infers variable sorts, builds the cartesian product of the relevant carrier sets, and evaluates both sides under every assignment.  When the two sides disagree, the assignment is recorded as an `EquationViolation`, which captures the equation name, the variable assignment, and the two values—enough for the CLI to print something like "equation 'assoc' violated when a=2, b=3, c=1: LHS=6, RHS=4".
 
-### EquationViolation
+The `CheckModelOptions` struct provides safety bounds.  The `max_assignments` field (default: 10,000) caps the total assignments evaluated per equation.  An equation with 3 variables over a carrier of 100 elements would require 1,000,000 assignments; the limit prevents this from running for minutes.  When exceeded, the function returns `GatError::ModelError` rather than silently skipping.  The VCS layer reports this as a non-blocking warning.
 
-Each violation captures the equation name, the variable assignment that triggered it, and the values that the two sides evaluated to:
 
-```rust
-pub struct EquationViolation {
-    pub equation: Arc<str>,
-    pub assignment: FxHashMap<Arc<str>, ModelValue>,
-    pub lhs_value: ModelValue,
-    pub rhs_value: ModelValue,
-}
-```
+## Pullbacks: finding shared structure
 
-This gives enough information for the CLI to print a precise diagnostic: "equation 'assoc' violated when a=2, b=3, c=1: LHS=6, RHS=4".
-
-### CheckModelOptions
-
-The `CheckModelOptions` struct provides safety bounds for enumeration. The `max_assignments` field (default: 10,000) caps the total number of variable assignments evaluated per equation. An equation with 3 variables over a carrier of 100 elements would require 1,000,000 assignments. The limit prevents this from running for minutes.
-
-When the limit is exceeded, the function returns a `GatError::ModelError` rather than silently skipping the check. The VCS layer reports this as a non-blocking warning.
-
-## Pullbacks (Finding Shared Structure)
-
-### Math
-
-Given morphisms $m_1: T_1 \to C$ and $m_2: T_2 \to C$, the pullback theory $P$ contains:
-
-- A sort for each pair $(s_1 \in T_1, s_2 \in T_2)$ where $m_1(s_1) = m_2(s_2)$ and $s_1$, $s_2$ have the same arity.
-- An operation for each pair $(f_1 \in T_1, f_2 \in T_2)$ where $m_1(f_1) = m_2(f_2)$ and their input and output sort pairs exist in the pullback.
-- An equation for each pair $(e_1 \in T_1, e_2 \in T_2)$ where $m_1(e_1) = m_2(e_2)$.
-
-### Rust: PullbackResult
+Colimits combine theories.  Pullbacks go the other direction: given two morphisms $m_1\colon T_1 \to C$ and $m_2\colon T_2 \to C$ into a common codomain, the pullback theory $P$ contains a sort for each pair $(s_1, s_2)$ where $m_1(s_1) = m_2(s_2)$ and the arities match, an operation for each compatible pair of operations, and an equation for each compatible pair of equations.
 
 ```rust
 pub struct PullbackResult {
@@ -404,15 +277,11 @@ pub struct PullbackResult {
 }
 ```
 
-The result includes projection morphisms $\pi_1: P \to T_1$ and $\pi_2: P \to T_2$ satisfying the universal property: $m_1 \circ \pi_1 = m_2 \circ \pi_2$. Both projections are validated by `check_morphism` in the test suite.
+The result includes projection morphisms $\pi_1\colon P \to T_1$ and $\pi_2\colon P \to T_2$ satisfying $m_1 \circ \pi_1 = m_2 \circ \pi_2$.  Both projections are validated by `check_morphism` in the test suite.
 
-### Pullback Naming
+When both sides contribute an element with the same name, the pullback element keeps that name.  When the names differ, it gets a compound name: pulling back theories where `V1` and `V2` both map to `Vertex` in the codomain produces a pullback sort named `V1=V2`.
 
-When both sides contribute an element with the same name, the pullback element keeps that name. When the names differ, the pullback element is named `"name1=name2"`. For example, pulling back theories where `V1` and `V2` both map to `Vertex` in the codomain produces a pullback sort named `V1=V2`.
-
-### Concrete Example: Merge Overlap Detection
-
-The VCS merge algorithm uses pullbacks to detect structural overlap between two branches. When merging branch A and branch B, the three-way merge computes the pullback of the two branch theories over the merge base theory. Non-empty pullback elements indicate shared structure that must be reconciled. Empty pullback means the branches modified disjoint parts of the schema.
+The VCS merge algorithm is the primary consumer.  When merging branches A and B, the three-way merge computes the pullback of the two branch theories over the merge base theory.  Non-empty pullback elements indicate shared structure that must be reconciled; an empty pullback means the branches touched disjoint parts of the schema.
 
 ```{mermaid}
 %%| label: fig-pullback
@@ -431,13 +300,10 @@ graph LR
     style P fill:#e8f4e8,stroke:#2d7d2d
 ```
 
-## Natural Transformations (Maps Between Mappings)
 
-### Math
+## Natural transformations: maps between mappings
 
-Given morphisms $F, G: \mathcal{T}_1 \to \mathcal{T}_2$, a natural transformation $\alpha: F \Rightarrow G$ assigns to each sort $S$ in $\mathcal{T}_1$ a term $\alpha_S$ that maps values of sort $F(S)$ to values of sort $G(S)$, subject to naturality: for each operation $f: S_1 \to S_2$, we have $\alpha_{S_2} \circ F(f) = G(f) \circ \alpha_{S_1}$.
-
-### Rust
+Sometimes you have two morphisms $F, G\colon \mathcal{T}_1 \to \mathcal{T}_2$—two different migration paths between the same pair of theories—and you need to relate them.  A natural transformation $\alpha\colon F \Rightarrow G$ assigns to each sort $S$ a term $\alpha_S$ that converts values of sort $F(S)$ into values of sort $G(S)$, subject to a coherence condition: for each operation $f\colon S_1 \to S_2$, the naturality square must commute ($\alpha_{S_2} \circ F(f) = G(f) \circ \alpha_{S_1}$).
 
 ```rust
 pub struct NaturalTransformation {
@@ -448,141 +314,65 @@ pub struct NaturalTransformation {
 }
 ```
 
-Each component is a `Term` with a single free variable `"x"` representing the input value. For the identity natural transformation, every component is `Term::Var("x")`.
+Each component is a `Term` with a single free variable `"x"` representing the input value.  For the identity transformation, every component is `Term::Var("x")`.
 
-### check_natural_transformation
+The checker, `check_natural_transformation`, verifies four conditions: domain/codomain agreement ($F$ and $G$ must share a domain and codomain), component completeness (every sort in the domain needs a component), component validity (all operations in the component terms must exist in the codomain), and naturality itself (verified symbolically by substituting and comparing term trees).
 
-```rust
-pub fn check_natural_transformation(
-    nt: &NaturalTransformation,
-    f: &TheoryMorphism,
-    g: &TheoryMorphism,
-    domain: &Theory,
-    codomain: &Theory,
-) -> Result<(), GatError>
-```
+### Vertical and horizontal composition
 
-The checker verifies four conditions:
+Natural transformations compose in two ways.  *Vertical composition* chains two transformations end to end: given $\alpha\colon F \Rightarrow G$ and $\beta\colon G \Rightarrow H$, `vertical_compose` produces $\beta \circ \alpha\colon F \Rightarrow H$ by substituting $\alpha$'s components into $\beta$'s.  The function checks that `alpha.target == beta.source`—the intermediate morphism must match—and returns `GatError::NatTransComposeMismatch` if they disagree.
 
-1. **Domain/codomain agreement**: $F$ and $G$ must have the same domain and codomain theories.
-2. **Component completeness**: every sort in the domain must have a component.
-3. **Component validity**: all operations used in component terms must exist in the codomain theory.
-4. **Naturality**: for each operation $f: S_1 \to S_2$ in the domain, the naturality square must commute: $\alpha_{S_2}[x := F(f)(x)] = G(f)(\alpha_{S_1}(x))$.
+*Horizontal composition* combines transformations along different morphism pairs: given $\alpha\colon F \Rightarrow G$ (between $T_1$ and $T_2$) and $\beta\colon H \Rightarrow K$ (between $T_2$ and $T_3$), `horizontal_compose` produces $\beta * \alpha\colon H \circ F \Rightarrow K \circ G$.  The VCS merge pipeline uses horizontal composition when composing migration paths through different branch histories.
 
-The naturality check is performed symbolically by substituting and comparing term trees. For n-ary operations, the check uses variables `x0, x1, ...` for each input.
 
-### Vertical Composition (Chaining Transforms)
+## Free models: minimal valid instances
 
-`vertical_compose` chains two natural transformations: given $\alpha: F \Rightarrow G$ and $\beta: G \Rightarrow H$, it produces $\beta \circ \alpha: F \Rightarrow H$. For each sort $S$, the composed component is $\beta_S[x := \alpha_S(x)]$.
+The *free model* of a theory is its most economical interpretation—the smallest model that satisfies all equations, with nothing extra thrown in.  Its carrier sets are equivalence classes of closed terms (terms with no free variables), quotiented by the equations.
 
-The function checks that `alpha.target == beta.source` (the intermediate morphism must match) and returns `GatError::NatTransComposeMismatch` if they disagree.
-
-### Horizontal Composition (Combining Independent Transforms)
-
-`horizontal_compose` composes natural transformations along different morphism pairs: given $\alpha: F \Rightarrow G$ (between $T_1$ and $T_2$) and $\beta: H \Rightarrow K$ (between $T_2$ and $T_3$), it produces $\beta * \alpha: H \circ F \Rightarrow K \circ G$.
-
-For each sort $S$ in the domain, the composed component is $\beta_{G(S)}[x := H(\alpha_S)]$, where $G(S)$ is the sort that $G$ maps $S$ to, and $H(\alpha_S)$ is the result of applying $H$'s operation renaming to $\alpha$'s component at $S$.
-
-::: {.callout-note}
-Horizontal composition is used in the VCS merge pipeline when composing migration paths through different branch histories. The `compose_path` function in `panproto-vcs` assembles a chain of natural transformations to verify that the composed migration path is coherent.
-:::
-
-## Free Models (Minimal Valid Instances)
-
-### Math
-
-The free (initial) model of a theory $\mathcal{T}$ is the minimal model satisfying all equations. Its carrier sets are equivalence classes of closed terms (terms with no free variables), quotiented by the equations.
-
-### Rust
-
-The construction proceeds in three phases:
-
-1. **Term generation**: enumerate all closed terms up to a configurable depth bound, organized by sort. Nullary operations (constants) provide the seed. Non-nullary operations are applied to all combinations of existing terms of the correct sorts.
-
-2. **Quotient by equations**: use a union-find data structure to identify terms that must be equal according to the theory's equations. For each equation, enumerate all valid variable substitutions (using the generated terms as values) and union the global indices of the LHS and RHS results.
-
-3. **Build model**: select one representative per equivalence class as the carrier set elements, and define operations by symbolic term application.
-
-### FreeModelConfig
+The construction proceeds in three phases.  First, *term generation*: enumerate all closed terms up to a configurable depth, organized by sort.  Nullary operations (constants) provide the seed; non-nullary operations are applied to all combinations of existing terms of the correct sorts.  Second, *quotient by equations*: use a union-find to identify terms that the equations force to be equal.  For each equation, enumerate all valid variable substitutions using the generated terms and union the LHS and RHS.  Third, *build the model*: select one representative per equivalence class as the carrier, and define operations by symbolic term application.
 
 ```rust
 pub struct FreeModelConfig {
-    pub max_depth: usize,           // Default: 3
-    pub max_terms_per_sort: usize,  // Default: 1000
+    pub max_depth: usize,           // default: 3
+    pub max_terms_per_sort: usize,  // default: 1000
 }
 ```
 
-The depth bound controls how deep the term enumeration goes. For a theory with a successor operation, depth 3 generates `zero`, `succ(zero)`, `succ(succ(zero))`, and `succ(succ(succ(zero)))`. The per-sort limit prevents combinatorial explosion in theories with binary operations.
+The depth bound controls how deep the enumeration goes.  For a theory with a successor operation, depth 3 generates `zero`, `succ(zero)`, `succ(succ(zero))`, and `succ(succ(succ(zero)))`.  The per-sort limit prevents combinatorial explosion in theories with binary operations.
 
-### Concrete Examples
+Some illustrative cases: a pointed set theory (one sort, one constant) has a free model with exactly 1 element.  Two constants and no equations: 2 elements.  Two constants with $a = b$: 1 element (the equation collapses them).  A monoid with identity laws: at depth 1, the free model collapses `mul(unit, x)` and `mul(x, unit)` with `x`, leaving only the identity element.  A graph theory with no constants has empty carriers, since there are no closed terms to start from.
 
-- **Pointed set** (one sort, one constant): free model has exactly 1 element.
-- **Two constants, no equations**: free model has 2 elements.
-- **Two constants with $a = b$ equation**: free model has 1 element (the equation collapses them).
-- **Monoid with identity laws**: at depth 1, the free model collapses `mul(unit, x)` and `mul(x, unit)` with `x`, leaving only the identity element.
-- **Graph theory** (no constants): free model has empty carrier sets for both Vertex and Edge, since there are no closed terms.
+The `schema scaffold` CLI command uses `free_model` to generate skeleton instances.  Its `--depth` and `--max-terms` flags map directly to `FreeModelConfig`.
 
-### CLI Integration
 
-The `schema scaffold` command uses `free_model` to generate skeleton instances. The `--depth` and `--max-terms` flags map directly to `FreeModelConfig` fields.
+## Quotient theories: identifying equivalent elements
 
-## Quotient Theories (Identifying Equivalent Elements)
+Colimits glue theories together along shared structure.  Quotients do something complementary: they collapse existing structure by declaring that certain elements are the same.
 
-### Math
+Given a theory and a list of identification pairs $(a, b)$, the quotient function classifies each pair as a sort or operation identification, builds a union-find for each, computes the transitive closure, verifies compatibility (identified sorts must have the same arity; identified operations must have compatible signatures after sort renaming), and rebuilds the theory with one representative per equivalence class.  Sort parameters, operation inputs, and equation terms are all renamed through the resulting maps.  Equations that become duplicates after renaming are deduplicated.
 
-A quotient of a theory $\mathcal{T}$ by a set of identification pairs $\{(a_i, b_i)\}$ produces a new theory $\mathcal{T}/{\sim}$ where each identified pair becomes the same element. This is the dual of theory extension: where extension adds new structure, quotienting collapses existing structure.
+Quotients are most useful when composing protocol fragments that have structurally equivalent but differently-named elements.  If protocol A has sort `Node` and protocol B has sort `Vertex`, and both play the same role in the combined theory, quotienting by `(Node, Vertex)` collapses them into one sort.  The alphabetically-first representative is selected deterministically.
 
-### Rust
+Errors: `GatError::QuotientIncompatible` when identified elements have incompatible structure, and the usual `SortNotFound` / `OpNotFound` when a name referenced during rebuilding does not exist.
 
-Given a theory and a list of identification pairs `(a, b)`, the function:
 
-1. Classifies each pair as a sort identification or operation identification.
-2. Builds a union-find for sorts and a union-find for operations, computing the transitive closure.
-3. Verifies compatibility: identified sorts must have the same arity; identified operations must have the same signature after sort renaming.
-4. Rebuilds the theory with one representative per equivalence class. Sort parameters, operation input sorts, and equation terms are all renamed through the sort and operation rename maps.
-5. Deduplicates equations that become identical after renaming.
+## Schema transforms and factorization {#sec-schema-endofunctors}
 
-### Error Conditions
+The `schema_functor` and `factorize` modules extend the GAT engine with theory endofunctors and morphism decomposition—the machinery that the protolens engine (@sec-protolens-engine) builds on.
 
-- `GatError::QuotientIncompatible`: the identified elements have incompatible structure (different arities or signatures).
-- `GatError::SortNotFound` / `GatError::OpNotFound`: a name referenced during rebuilding doesn't exist.
-
-### Concrete Example
-
-Quotient theories are used when composing protocol fragments that have structurally equivalent but differently-named elements. If protocol A has sort `Node` and protocol B has sort `Vertex`, and both have the same role in the combined theory, quotienting by `(Node, Vertex)` produces a single sort. The alphabetically-first representative (`Node`) is selected deterministically.
-
-## Schema Transforms and Factorization {#sec-schema-endofunctors}
-
-The `schema_functor` and `factorize` modules extend `panproto-gat` with theory endofunctors and morphism decomposition. These provide the GAT-level machinery that the protolens engine (@sec-protolens-engine) builds on.
-
-### Math
-
-A theory endofunctor $\Phi$ maps theories to theories. It pairs a precondition (a predicate specifying which theories it applies to) with a transformation. The factorization of a morphism $F: T_1 \to T_2$ decomposes $F$ into a sequence of elementary endofunctors, following a fixed phase ordering:
+A *theory endofunctor* $\Phi$ maps theories to theories.  It pairs a precondition (which theories it applies to) with a transformation.  The interesting part is *factorization*: given a morphism $F\colon T_1 \to T_2$, decompose it into a sequence of elementary endofunctors, following a fixed phase ordering:
 
 1. **Drops** (equations, then operations, then sorts): remove elements not in the codomain.
 2. **Renames** (sorts, then operations): apply the sort-map and op-map.
-3. **Adds** (sorts topologically sorted by dependencies, then operations, then equations): add elements in the codomain but not in the (renamed) domain.
-
-### Rust: TheoryTransform
-
-**File**: `crates/panproto-gat/src/schema_functor.rs`
+3. **Adds** (sorts topologically sorted by dependencies, then operations, then equations): introduce elements in the codomain but not in the (renamed) domain.
 
 ```{.rust include="../../crates/panproto-gat/src/schema_functor.rs" start-line=69 end-line=77}
 ```
 
-The key design principle is _cascading_: dropping a sort automatically drops all operations that reference it. Dropping an operation automatically drops all equations that reference it. This ensures that `TheoryTransform::apply` always produces a well-formed theory.
+The ordering matters.  Drops come before renames because renaming a sort that will be dropped wastes work and risks name collisions.  Renames come before adds because a newly-added sort might share a name with one being renamed away.  Violating this ordering can produce intermediate theories that are ill-formed.
 
-Endofunctors compose via `TheoryEndofunctor::compose`, producing a new endofunctor whose transform is `Compose(self.transform, other.transform)`. The precondition of the composed endofunctor conservatively requires the first endofunctor's precondition and defers the second's to runtime checking.
+A key design principle is *cascading*: dropping a sort automatically drops all operations that reference it, and dropping an operation automatically drops all equations that reference it.  `TheoryTransform::apply` always produces a well-formed theory; you cannot accidentally leave a dangling reference.
 
-### Rust: Factorization
+Endofunctors compose via `TheoryEndofunctor::compose`.  The precondition of the composite conservatively requires the first endofunctor's precondition and defers the second's to runtime checking.
 
-**File**: `crates/panproto-gat/src/factorize.rs`
-
-The `Factorization` struct holds the ordered step sequence. `validate_factorization` applies the steps to the domain and checks that the result matches the codomain, providing an end-to-end correctness guarantee.
-
-This factorization is the foundation of the automated lens generation pipeline (@sec-auto-lens-pipeline): each elementary step maps directly to a protolens constructor, and the full step sequence becomes a `ProtolensChain`.
-
-::: {.callout-caution}
-## Why does the factorization follow a fixed phase ordering?
-Drops must come before renames because renaming a sort that will be dropped wastes work and can create name collisions. Renames must come before adds because a newly-added sort might have the same name as a sort being renamed away. Violating this ordering can produce intermediate theories that are ill-formed.
-:::
+The `Factorization` struct holds the ordered step sequence, and `validate_factorization` applies the steps to the domain and checks that the result matches the codomain—an end-to-end correctness guarantee.  This factorization is the foundation of the automated lens generation pipeline (@sec-auto-lens-pipeline): each elementary step maps directly to a protolens constructor, and the full sequence becomes a `ProtolensChain`.

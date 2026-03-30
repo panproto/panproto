@@ -1,8 +1,8 @@
 # Protocol Catalog {#sec-protocol-catalog .appendix}
 
-This appendix provides a complete reference for all 76 built-in protocols shipped with panproto. Each entry lists the protocol's native format or file extension, its theory group assignment (A through F), and the names of the parse and emit functions that implement it. The theory group determines which categorical structure underlies the protocol's schema representation and governs which cross-format conversions are lossless.
+This appendix catalogs all 76 built-in protocols shipped with panproto. Each entry lists the protocol's native format or file extension, its theory group assignment (A through E), and the parse and emit function names. The theory group determines which categorical structure underlies the protocol's schema representation and governs which cross-format conversions are lossless.
 
-## Serialization Protocols
+## Serialization protocols
 
 | Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
 |---|---|:---:|---|---|
@@ -15,7 +15,7 @@ This appendix provides a complete reference for all 76 built-in protocols shippe
 | Bond | `.bond` | C | `parse_bond` | `emit_bond` |
 | MsgPack Schema | JSON | A | `parse_msgpack_schema` | `emit_msgpack_schema` |
 
-## Data Schema Protocols
+## Data schema protocols
 
 | Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
 |---|---|:---:|---|---|
@@ -28,7 +28,7 @@ This appendix provides a complete reference for all 76 built-in protocols shippe
 | INI Schema | JSON | A | `parse_ini_schema` | `emit_ini_schema` |
 | BSON Schema | JSON | A | `parse_bson_schema` | `emit_bson_schema` |
 
-## API Protocols
+## API protocols
 
 | Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
 |---|---|:---:|---|---|
@@ -38,7 +38,7 @@ This appendix provides a complete reference for all 76 built-in protocols shippe
 | RAML | `.raml` | A | `parse_raml` | `emit_raml` |
 | JSON:API | JSON | A | `parse_jsonapi` | `emit_jsonapi` |
 
-## Database Protocols
+## Database protocols
 
 | Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
 |---|---|:---:|---|---|
@@ -49,7 +49,7 @@ This appendix provides a complete reference for all 76 built-in protocols shippe
 | Neo4j | Cypher | E | `parse_neo4j` | `emit_neo4j` |
 | Redis | FT.CREATE | C | `parse_redis` | `emit_redis` |
 
-## Type System Protocols
+## Type system protocols
 
 | Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
 |---|---|:---:|---|---|
@@ -62,7 +62,7 @@ This appendix provides a complete reference for all 76 built-in protocols shippe
 | Kotlin | `.kt` | D | `parse_kotlin` | `emit_kotlin` |
 | C# | `.cs` | D | `parse_csharp` | `emit_csharp` |
 
-## Web and Document Protocols
+## Web and document protocols
 
 | Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
 |---|---|:---:|---|---|
@@ -77,7 +77,7 @@ This appendix provides a complete reference for all 76 built-in protocols shippe
 | Svelte | `.svelte` | D | `parse_svelte` | `emit_svelte` |
 | XML/XSD | `.xsd` | E | `parse_xsd` | `emit_xsd` |
 
-## Data Science Protocols
+## Data science protocols
 
 | Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
 |---|---|:---:|---|---|
@@ -85,7 +85,7 @@ This appendix provides a complete reference for all 76 built-in protocols shippe
 | Arrow | JSON | B | `parse_arrow` | `emit_arrow` |
 | DataFrame | JSON | B | `parse_dataframe` | `emit_dataframe` |
 
-## Domain Protocols
+## Domain protocols
 
 | Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
 |---|---|:---:|---|---|
@@ -96,7 +96,7 @@ This appendix provides a complete reference for all 76 built-in protocols shippe
 | EDI X12 | JSON | B | `parse_edi_x12` | `emit_edi_x12` |
 | SWIFT MT | JSON | B | `parse_swift_mt` | `emit_swift_mt` |
 
-## Config Protocols
+## Config protocols
 
 | Protocol | Native Format / Ext. | Theory Group | Parse Function | Emit Function |
 |---|---|:---:|---|---|
@@ -105,36 +105,36 @@ This appendix provides a complete reference for all 76 built-in protocols shippe
 | CloudFormation | JSON | A | `parse_cloudformation` | `emit_cloudformation` |
 | Ansible | YAML | A | `parse_ansible` | `emit_ansible` |
 
-## Theory Groups
+## Theory groups
 
-Each protocol is assigned to one of six theory groups. The group determines the categorical theory used to represent the protocol's schema internally and governs how models migrate between protocols.
+Each protocol is assigned to one of six theory groups. The group determines the categorical theory used internally to represent the protocol's schema and governs how models migrate between protocols.
 
 | Group | Theory Combination | Description |
 |:---:|---|---|
-| A | `colimit(ThGraph, ThConstraint, ThMulti)` + `ThWType` | Constrained multigraph with W-types. The most general setting for hierarchical, constraint-bearing schemas expressed in JSON or YAML surface syntax. |
-| B | `colimit(ThHypergraph, ThConstraint)` + `ThFunctor` | Hypergraph with functorial structure. Used for tabular and relational schemas where rows, columns, and foreign-key relationships are first-class. |
-| C | `colimit(ThSimpleGraph, ThConstraint)` + `ThFlat` | Simple graph with flat structure. Used for binary wire formats and IDL-defined schemas that lack recursive or dependent types. |
-| D | `colimit(ThGraph, ThConstraint, ThMulti, ThInterface)` + `ThWType` | Typed graph with interfaces and W-types. Used for host-language type systems that support interfaces, generics, and recursive types. |
-| E | `colimit(ThGraph, ThConstraint, ThMulti)` + `colimit(ThWType, ThMeta)` | Multigraph with W-types and meta-level structure. Used for document and markup formats where presentation, content, and schema are interleaved. |
+| A | `colimit(ThGraph, ThConstraint, ThMulti)` + `ThWType` | Constrained multigraph with W-types. Handles hierarchical, constraint-bearing schemas in JSON or YAML surface syntax. The most general setting. |
+| B | `colimit(ThHypergraph, ThConstraint)` + `ThFunctor` | Hypergraph with functorial structure. Tabular and relational schemas where rows, columns, and foreign-key relationships are first-class. |
+| C | `colimit(ThSimpleGraph, ThConstraint)` + `ThFlat` | Simple graph with flat structure. Binary wire formats and IDL-defined schemas lacking recursive or dependent types. |
+| D | `colimit(ThGraph, ThConstraint, ThMulti, ThInterface)` + `ThWType` | Typed graph with interfaces and W-types. Host-language type systems supporting interfaces, generics, and recursive types. |
+| E | `colimit(ThGraph, ThConstraint, ThMulti)` + `colimit(ThWType, ThMeta)` | Multigraph with W-types and meta-level structure. Document and markup formats where presentation, content, and schema interleave. |
 
-The theory group of a protocol is determined by the expressive requirements of its schema language, not by its surface syntax. Two protocols with different surface syntaxes may share a theory group if they require the same categorical structure.
+The theory group reflects the expressive requirements of a schema language, not its surface syntax. Two protocols with different surfaces may share a theory group if they require identical categorical structure.
 
-## Cross-Format Compatibility
+## Cross-format compatibility
 
-Conversions between protocols in the same theory group are **lossless**: both the parse and emit functors factor through the same internal representation, so no information is destroyed in the round-trip. For example, migrating a schema from JSON Schema (Group A) to OpenAPI (Group A) to YAML Schema (Group A) and back yields the original schema up to syntactic normalization.
+Conversions between protocols in the same theory group are **lossless**: both parse and emit functors factor through the same internal representation, so no information is destroyed in round-trips. Migrating a schema from JSON Schema (Group A) to OpenAPI (Group A) to YAML Schema (Group A) and back yields the original schema up to syntactic normalization.
 
-Conversions between protocols in different theory groups are **lossy in general**: the target theory may lack the expressive capacity to represent all structures definable in the source theory. The direction and degree of loss depend on the relationship between the two groups.
+Conversions between different theory groups are **lossy in general**: the target theory may lack expressive capacity for structures definable in the source. The direction and degree of loss depend on how the two groups relate.
 
 | Source Group | Target Group | Typical Loss |
 |:---:|:---:|---|
-| A | B | Recursive and W-type structure is flattened; only the relational skeleton is preserved. |
-| A | C | Constraints and multi-edges are preserved; W-type recursion is unrolled to a fixed depth. |
-| A | D | Lossless for schemas that fit within a typed-graph model; interface declarations are synthesized. |
-| A | E | Lossless for schema content; meta-level presentation markup is synthesized with defaults. |
-| D | A | Interface and generic structure is erased; the remaining graph and W-type content is preserved. |
-| D | C | Interface and W-type structure is flattened; only the simple-graph skeleton is preserved. |
-| E | A | Meta-level markup is stripped; schema content is preserved. |
-| B | A | Hyperedges are decomposed into binary edges; functorial structure is encoded as constraints. |
-| C | A | Flat structure is embedded; W-type positions are left empty. |
+| A | B | Recursive and W-type structure flattens; only relational skeleton survives. |
+| A | C | Constraints and multi-edges preserve; W-type recursion unrolls to fixed depth. |
+| A | D | Lossless for schemas fitting typed-graph model; interfaces synthesized. |
+| A | E | Lossless for schema content; meta-level presentation markup synthesized with defaults. |
+| D | A | Interface and generic structure erases; remaining graph and W-type content survives. |
+| D | C | Interface and W-type structure flattens; only simple-graph skeleton survives. |
+| E | A | Meta-level markup strips; schema content survives. |
+| B | A | Hyperedges decompose into binary edges; functorial structure encodes as constraints. |
+| C | A | Flat structure embeds; W-type positions stay empty. |
 
 When a lossy conversion is required, panproto emits a diagnostic listing which structures were approximated and what information was discarded. Lossless conversions produce no diagnostics.

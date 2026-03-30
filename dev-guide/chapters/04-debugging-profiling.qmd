@@ -1,6 +1,6 @@
 # Debugging and Profiling {#sec-debugging-profiling}
 
-## Tracing with RUST_LOG
+## Tracing with rust_log
 
 panproto uses the `tracing` crate for structured logging. Control verbosity through the `RUST_LOG` environment variable:
 
@@ -28,11 +28,11 @@ RUST_LOG=panproto_mig=debug cargo nextest run -p panproto-mig -- test_lift_round
 ```
 :::
 
-## Stepping through the W-type restrict pipeline
+## Stepping through the w-type restrict pipeline
 
 The restrict pipeline in `panproto-inst` transforms a W-type instance (a tree-shaped data record whose structure is determined by the schema) when a migration removes or restructures schema elements. The pipeline has five key functions that serve as natural debugging waypoints:
 
-1. **`anchor_surviving()`** in `crates/panproto-inst/src/wtype.rs`: determines which nodes survive the migration. If your output is missing data, check whether the surviving set is too small.
+1. **`anchor_surviving()`** in `crates/panproto-inst/src/wtype.rs`: determines which nodes survive the migration. If output is missing data, check whether the surviving set is too small.
 
 2. **`reachable_from_root()`** in `crates/panproto-inst/src/wtype.rs`: BFS from root through anchor-surviving nodes. If nodes appear unreachable despite surviving, the reachability check is the place to look.
 
@@ -42,7 +42,7 @@ The restrict pipeline in `panproto-inst` transforms a W-type instance (a tree-sh
 
 5. **`reconstruct_fans()`** in `crates/panproto-inst/src/wtype.rs`: rebuilds fan structures (ordered child collections) after restrict. Missing or reordered children point to fan reconstruction issues.
 
-Set `RUST_LOG=panproto_inst=debug` to see entry/exit traces for each of these functions, including the sizes of intermediate data structures.
+Set `RUST_LOG=panproto_inst=debug` to see entry/exit traces for each function, including the sizes of intermediate data structures.
 
 ## Inspecting WASM boundary data
 

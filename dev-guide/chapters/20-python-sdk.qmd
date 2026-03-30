@@ -6,7 +6,7 @@ The `panproto` PyPI package provides a Python 3.13+ interface to the panproto WA
 For a quick-reference listing of all public APIs with parameter types, see the tutorial's API reference appendix.
 :::
 
-## Architecture Overview
+## Architecture overview
 
 The SDK is organized into eight modules, each with a focused responsibility:
 
@@ -71,7 +71,7 @@ classDiagram
     MigrationBuilder --> CompiledMigration : compile()
 ```
 
-## Project Structure
+## Project structure
 
 The SDK lives at `sdk/python/` and follows a standard `src` layout:
 
@@ -96,7 +96,7 @@ sdk/python/
 
 All private modules use the underscore prefix (`_wasm.py`, `_types.py`, etc.). The public surface is defined entirely in `__init__.py` via `__all__`.
 
-## Building and Testing
+## Building and testing
 
 The SDK uses [Hatch](https://hatch.pypa.io/) as its build backend. Runtime dependencies are minimal: `wasmtime>=29.0.0` and `msgpack>=1.1.0`.
 
@@ -117,7 +117,7 @@ ruff format sdk/python/src/
 
 The `[dev]` extra pulls in `pytest>=8.0`, `ruff>=0.5`, and `pyright>=1.1`.
 
-## WASM Interaction Layer (`_wasm.py`) {#sec-python-wasm}
+## WASM interaction layer (`_wasm.py`) {#sec-Python-WASM}
 
 The `_wasm.py` module handles WASM binary loading, instance creation, and resource lifecycle. It contains three key components: `WasmModule`, `WasmHandle`, and the `load_wasm` factory.
 
@@ -168,7 +168,7 @@ The `load_wasm` factory reads a `.wasm` binary from disk, creates a `wasmtime.En
 
 Unlike the TypeScript SDK's async `init()`, the Python factory is synchronous; `wasmtime-py` loads modules on the calling thread.
 
-## Type System (`_types.py`) {#sec-python-types}
+## Type system (`_types.py`) {#sec-Python-types}
 
 The `_types.py` module defines all data-carrying types that cross the MessagePack boundary. It mirrors the Rust structures and the TypeScript SDK interfaces using Python 3.13+ conventions:
 
@@ -195,7 +195,7 @@ Optional fields use `NotRequired` from `typing`:
 ```{.python include="../../sdk/python/src/panproto/_types.py" start-line=166 end-line=184}
 ```
 
-### PEP 695 Type Aliases
+### PEP 695 Type aliases
 
 The module uses `type` statement syntax (PEP 695) for all type aliases:
 
@@ -210,7 +210,7 @@ Literal union aliases define the closed sets of enum-like strings:
 - **`Compatibility`**: Three-way classification: `"fully-compatible"`, `"backward-compatible"`, `"breaking"`.
 - **`ExistenceErrorKind`**: Ten structured error kinds emitted by the existence checker.
 
-### Wire Format Types
+### Wire format types
 
 Internal wire-format types (prefixed with `_`) match the exact field names expected by Rust's `serde`:
 
@@ -218,7 +218,7 @@ Internal wire-format types (prefixed with `_`) match the exact field names expec
 - **`SchemaOp`**: A PEP 695 union of the five variants.
 - **`MigrationMapping`**: Wire-format migration mapping with `vertex_map`, `edge_map`, and `resolver`.
 
-## MessagePack Boundary (`_msgpack.py`) {#sec-python-msgpack}
+## Messagepack boundary (`_msgpack.py`) {#sec-Python-msgpack}
 
 The `_msgpack.py` module provides four encoding helpers that wrap the `msgpack` library:
 
@@ -237,9 +237,9 @@ The `Packable` type alias defines the universe of MessagePack-serializable value
 
 It extends `JsonValue` with `bytes`, since MessagePack natively supports binary data (used for opaque complements).
 
-## Protocol Definitions (`_protocol.py`) {#sec-python-protocol}
+## Protocol definitions (`_protocol.py`) {#sec-Python-protocol}
 
-A `Protocol` holds a WASM-side handle to the registered protocol specification and provides the `schema()` factory for building schemas within that protocol:
+A `Protocol` holds a WASM-side handle to the registered protocol specification and provides the `schema()` factory:
 
 ```{.python include="../../sdk/python/src/panproto/_protocol.py" start-line=30 end-line=128}
 ```
@@ -249,16 +249,16 @@ The `define_protocol` module-level function serializes a `ProtocolSpec` to its w
 ```{.python include="../../sdk/python/src/panproto/_protocol.py" start-line=136 end-line=181}
 ```
 
-### Built-in Protocols
+### Built-in protocols
 
 Five built-in protocol specs are provided as module-level constants: `ATPROTO_SPEC`, `SQL_SPEC`, `PROTOBUF_SPEC`, `GRAPHQL_SPEC`, and `JSON_SCHEMA_SPEC`. They're auto-registered on first access via `panproto.protocol("atproto")`. The `BUILTIN_PROTOCOLS` mapping provides a name-to-spec lookup table:
 
 ```{.python include="../../sdk/python/src/panproto/_protocol.py" start-line=278 end-line=285}
 ```
 
-## Schema Builder (`_schema.py`) {#sec-python-schema}
+## Schema Builder (`_schema.py`) {#sec-Python-schema}
 
-`SchemaBuilder` is an immutable fluent builder. Each method returns a **new** builder instance, leaving the original unchanged. This makes it safe to branch schema definitions from a common base:
+`SchemaBuilder` is an immutable fluent builder. Each method returns a **new** builder instance, leaving the original unchanged. This makes it safe to branch schema definitions:
 
 ```{.python include="../../sdk/python/src/panproto/_schema.py" start-line=35 end-line=72}
 ```
@@ -277,7 +277,7 @@ The builder accumulates `SchemaOp` objects (matching the Rust `BuildOp` tagged e
 
 The `data` property returns the full `SchemaData` TypedDict. Convenience properties `protocol`, `vertices`, and `edges` provide direct access to the most commonly used fields.
 
-## Migration Builder (`_migration.py`) {#sec-python-migration}
+## Migration Builder (`_migration.py`) {#sec-Python-migration}
 
 `MigrationBuilder` follows the same immutable fluent pattern. It accumulates vertex mappings, edge mappings, and resolvers:
 
@@ -303,14 +303,14 @@ The `compile()` method packs the mapping and sends it to the `compile_migration`
 The `complement` from `get()` is an opaque `bytes` object. It captures the data discarded by the forward projection, enabling lossless round-tripping. Treat it as a black box; its internal format is a MessagePack-encoded Rust `Complement` struct.
 :::
 
-### Module-level Functions
+### Module-level functions
 
 Two additional functions are exported at module level:
 
 - **`check_existence(src, tgt, spec, wasm)`**: Validate that a migration specification satisfies all protocol-derived existence conditions.
 - **`compose_migrations(m1, m2, wasm)`**: Compose two compiled migrations into one. The resulting migration is equivalent to applying *m1* first, then *m2*.
 
-## Lens API (`_lens.py`) {#sec-python-lens}
+## Lens API (`_lens.py`) {#sec-Python-lens}
 
 The `_lens.py` module provides three handle classes for bidirectional schema transformations: `ProtolensChainHandle` for schema-independent lens families, `LensHandle` for concrete lenses, and `SymmetricLensHandle` for symmetric bidirectional sync.
 
@@ -336,7 +336,7 @@ Key methods:
 - **`LensHandle.put(view, complement)`**: Backward put: restore from view and complement.
 - **`LensHandle.check_laws(instance)`**: Verify GetPut and PutGet laws.
 
-## Error Hierarchy (`_errors.py`) {#sec-python-errors}
+## Error hierarchy (`_errors.py`) {#sec-Python-errors}
 
 The SDK defines a four-class error hierarchy, all extending `PanprotoError`:
 
@@ -351,7 +351,7 @@ The SDK defines a four-class error hierarchy, all extending `PanprotoError`:
 
 All leaf exception classes are decorated with `@final` to prevent subclassing. Each exception class uses `__slots__` for memory efficiency and provides a custom `__repr__` for better debug output.
 
-## The `Panproto` Class {#sec-python-panproto}
+## The `panproto` class {#sec-Python-panproto}
 
 `Panproto` is the main entry point. It loads the WASM module and provides the top-level API:
 
@@ -373,7 +373,7 @@ Key methods:
 ```{.python include="../../sdk/python/src/panproto/_panproto.py" start-line=638 end-line=656}
 ```
 
-## Schema Enrichment
+## Schema enrichment
 
 The `SchemaBuilder` supports enrichment through constraints, which encode defaults, coercions, and merge policies:
 
@@ -393,7 +393,7 @@ with (
 
 Constraints serve triple duty: they encode refinement types (value bounds), default behaviors (when a field has a known initial value), and coercion hints (when a field can be safely converted between representations). The protocol's `constraint_sorts` list determines which constraint sorts are recognized during compatibility checking.
 
-## Migration Analysis
+## Migration analysis
 
 The SDK provides analysis capabilities through the diff/classify pipeline:
 
@@ -425,7 +425,7 @@ with ProtolensChainHandle.auto_generate(schema1, schema2, wasm) as chain:
         # "DroppedSortData" in complement means lens
 ```
 
-## GAT Engine Access
+## GAT Engine access
 
 The SDK provides direct access to the GAT engine for theory construction and composition:
 
@@ -450,7 +450,7 @@ with pp.create_theory(theory_spec) as th_graph:
         pass  # use composed theory
 ```
 
-## VCS Integration
+## VCS integration
 
 The SDK exposes version control operations for schemas and data:
 
@@ -466,7 +466,7 @@ with pp.vcs_init("atproto") as repo:
     status = pp.vcs_status(repo)
 ```
 
-## Usage Pattern
+## Usage pattern
 
 A typical SDK session:
 
@@ -510,7 +510,7 @@ with Panproto.load() as pp:
 The `with` statement ensures all WASM handles are freed when the block exits. Nested `with` blocks (or the parenthesized multi-context form shown above) are the Python equivalent of TypeScript's `using` keyword. If you need to manage handle lifetimes more flexibly, call `.close()` manually or use `contextlib.ExitStack`.
 :::
 
-## Conventions {#sec-python-conventions}
+## Conventions {#sec-Python-conventions}
 
 The Python SDK enforces the following project conventions:
 

@@ -2,7 +2,7 @@
 
 panproto uses tag-triggered releases. Pushing a `v*` tag to `main` triggers the full release pipeline: crate publishing, WASM build, npm publishing, changelog generation, and GitHub release creation.
 
-## Tag-Triggered Pipeline
+## Tag-triggered pipeline
 
 The `release.yml` workflow is triggered by tags matching `v*`:
 
@@ -21,7 +21,7 @@ flowchart LR
     PC --> GR[github-release]
 ```
 
-## Ordered Crate Publishing
+## Ordered crate publishing
 
 Crates must be published in dependency order. The `publish-crates` job publishes them sequentially:
 
@@ -43,7 +43,7 @@ Each crate is published with `--no-verify` to skip local rebuild (CI has already
 If a crate publish fails mid-pipeline (e.g., due to a network error or version conflict), the remaining crates won't be published. You may need to manually publish the failed crate and re-run the workflow, or bump the version and create a new tag.
 :::
 
-## WASM and npm Publishing
+## WASM and npm publishing
 
 The `publish-npm` job depends on `publish-crates` and handles the TypeScript SDK release:
 
@@ -55,7 +55,7 @@ The `--target bundler` flag produces a WASM binary optimized for bundlers (Vite,
 
 The npm package is published as `@panproto/core` with public access. The `NODE_AUTH_TOKEN` secret authenticates with the npm registry.
 
-## Changelog Generation with `git-cliff`
+## Changelog generation with `git-cliff`
 
 The `github-release` job uses `git-cliff` to generate a changelog from conventional commits:
 
@@ -75,7 +75,7 @@ The `cliff.toml` configuration file at the workspace root controls:
 
 The `--latest` flag generates only the changelog for the current tag (not the full history). The `--strip header` flag removes the title line, since the GitHub release UI provides its own title.
 
-## GitHub Release Creation
+## Github release creation
 
 After changelog generation, a GitHub release is created with the `softprops/action-gh-release` action:
 
@@ -89,7 +89,7 @@ After changelog generation, a GitHub release is created with the `softprops/acti
 
 The release body is the `git-cliff` output. `generate_release_notes: false` disables GitHub's auto-generated notes in favor of the structured changelog.
 
-## Version Bumping Strategy
+## Version bumping strategy
 
 panproto uses workspace-level versioning: all crates share the same version number, declared in `[workspace.package]`:
 
@@ -110,7 +110,7 @@ To bump the version:
 During the 0.x.y phase, minor version bumps may include breaking changes (per semver rules for pre-1.0). After 1.0, breaking changes require a major version bump. The `cargo-semver-checks` CI job will alert on accidental breakage.
 :::
 
-## Doc Deployments
+## Doc deployments
 
 Two documentation sites auto-deploy on push to `main`:
 
@@ -119,7 +119,7 @@ Two documentation sites auto-deploy on push to `main`:
 
 Both workflows build the Quarto site and push the rendered HTML to the `gh-pages` branch. Deployment is automatic; no manual steps are required after merging to `main`.
 
-## Pre-Release Checklist
+## Pre-release checklist
 
 Before creating a release tag:
 
@@ -131,7 +131,7 @@ Before creating a release tag:
 6. `cargo semver-checks` passes (or breaking changes are intentional and version-bumped)
 7. The tutorial and dev guide are up to date
 
-## Hotfix Releases
+## Hotfix releases
 
 For urgent fixes:
 

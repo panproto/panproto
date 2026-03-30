@@ -1,6 +1,6 @@
 # LLVM Integration and JIT Compilation {#sec-llvm-jit}
 
-The `panproto-llvm` and `panproto-jit` crates provide LLVM IR as a panproto protocol and JIT compilation of panproto expressions.
+panproto's expression language (`panproto-expr`) is interpreted by default: each `Expr` node is pattern-matched at runtime and evaluated recursively.  For migrations that touch millions of records, interpretation overhead adds up.  The `panproto-jit` crate eliminates it by compiling expressions to native code via LLVM.  Meanwhile, `panproto-llvm` treats LLVM IR itself as a panproto protocol—meaning you can model compiler lowering as a theory morphism and use the full migration/lens toolkit on IR transformations.
 
 ## panproto-llvm
 

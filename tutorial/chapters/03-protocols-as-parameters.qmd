@@ -5,30 +5,27 @@ id: sec-protocols-as-parameters
 
 # Protocols as Parameters {#sec-protocols-as-parameters}
 
-When a protocol combines multiple structural concerns, it merges their descriptions into one, identifying the parts they share. The result is a single coherent theory that the engine can reason about uniformly.
+A theory tells panproto what a schema looks like.  But knowing the shape of schemas is only half the story.  To migrate data, the engine also needs to know what *data* looks like: is it rows in a table?  Nested JSON documents?  Flat key-value records?  The answer varies by protocol, and it determines how migration actually works.
 
-A *protocol* is a pair of theories: one for the shape of schemas, one for the shape of data. ATProto's schema theory is $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$. Its instance theory is $\text{ThWType}$. Migration, diffing, breaking-change detection, and bidirectional lenses are all derived from that pair.
+panproto captures this with a simple idea: a protocol is a *pair* of theories.  One theory for the shape of schemas, one for the shape of data.  From that pair, the engine derives everything else---migration operators, existence checks, breaking-change classifiers, bidirectional lenses---without any protocol-specific code.
 
-panproto supports 76 protocols organized into six theory groups.
-
-
-## The Two-Parameter Architecture
+## The two-theory architecture
 
 Every supported protocol is described by exactly two parameters:
 
-1. **Schema theory** $\mathbb{T}_S$: the algebraic theory whose models are schemas. This determines what "a schema" looks like (vertices and edges, vertices and hyperedges, constraints, interfaces, or some combination).
+1. A **schema theory** $\mathbb{T}_S$, whose models are schemas.  This determines what "a schema" looks like: vertices and edges, hyperedges, constraints, interfaces, or some combination.
 
-2. **Instance theory** $\mathbb{T}_I$: the algebraic theory whose models are data instances conforming to a schema. This determines what "a record" or "a row" looks like once you have a schema in hand.
+2. An **instance theory** $\mathbb{T}_I$, whose models are data conforming to a schema.  This determines what "a record" or "a row" looks like once you have a schema in hand.
 
-A protocol is thus a pair $\mathcal{P} = (\mathbb{T}_S, \mathbb{T}_I)$. The following table shows representative protocols from each theory group. The full catalog of all 76 supported protocols is in [Appendix C](../appendices/C-protocol-catalog.qmd).
+A protocol is thus a pair $\mathcal{P} = (\mathbb{T}_S, \mathbb{T}_I)$.  The following table shows representative protocols from each of the six theory groups that panproto identifies.  (The full catalog of all 76 supported protocols is in [Appendix C](../appendices/C-protocol-catalog.qmd).)
 
-The `Th` prefix means "theory of": `ThGraph` is the theory of directed graphs, `ThConstraint` is the theory of constraint-decorated structures, and so on. $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$ means "merge these three theories together, identifying their shared parts." The result is a single theory combining graph structure, constraints, and multiplicity (parallel edges).
+A note on the naming convention: the `Th` prefix means "theory of."  `ThGraph` is the theory of directed graphs.  `ThConstraint` is the theory of constraint-decorated structures.  And $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$ means "merge these three theories into one, identifying their shared parts."  The colimit construction is how panproto assembles composite schema theories; we will come back to it later in this chapter.
 
-| Protocol | Schema Theory | Instance Theory | Restrict |
+| Protocol | Schema Theory | Instance Theory | Restriction Operator |
 |----------|--------------|----------------|----------|
 | **Group A: Constrained Multigraph + W-Type** | | | |
-| ATProto | colimit(ThGraph, ThConstraint, ThMulti) | ThWType + ThMeta | Sig. restriction + BFS + contraction |
-| JSON Schema | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Sig. restriction + BFS + contraction |
+| ATProto | colimit(ThGraph, ThConstraint, ThMulti) | ThWType + ThMeta | Signature restriction + BFS + contraction |
+| JSON Schema | colimit(ThGraph, ThConstraint, ThMulti) | ThWType | Signature restriction + BFS + contraction |
 | **Group B: Hypergraph + Set-Valued Map** | | | |
 | SQL | colimit(ThHypergraph, ThConstraint) | ThFunctor | `restrict` (precomposition) |
 | Parquet | colimit(ThHypergraph, ThConstraint) | ThFunctor | `restrict` (precomposition) |
@@ -36,168 +33,143 @@ The `Th` prefix means "theory of": `ThGraph` is the theory of directed graphs, `
 | Protobuf | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
 | Avro | ThSimpleGraph + ThConstraint | ThFlat | Field projection |
 | **Group D: Typed Graph + W-Type with Interfaces** | | | |
-| GraphQL | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
-| TypeScript | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Sig. restriction + BFS + contraction |
+| GraphQL | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Signature restriction + BFS + contraction |
+| TypeScript | colimit(ThGraph, ThConstraint, ThMulti, ThInterface) | ThWType | Signature restriction + BFS + contraction |
 | **Group E: Constrained Multigraph + W-Type + Meta** | | | |
-| XML/XSD | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Sig. restriction + BFS + contraction |
-| Neo4j | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Sig. restriction + BFS + contraction |
+| XML/XSD | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Signature restriction + BFS + contraction |
+| Neo4j | colimit(ThGraph, ThConstraint, ThMulti, ThMeta) | ThWType | Signature restriction + BFS + contraction |
 
 : Representative protocols from each theory group. {#tbl-protocol-table}
 
-Several patterns are visible:
+Three patterns jump out of this table.
 
-- **Schema theories are composed from building blocks.** Real-world protocols combine several concerns: graphs with constraints, multigraph structure with interfaces. panproto assembles the schema theory by merging simpler component theories, identifying shared structure along the way.^[This merge operation is formally a *colimit* (pushout) in the category of theories. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+First, schema theories are *assembled from building blocks*.  Real-world protocols combine orthogonal concerns---graph structure, constraints, multiplicity, interfaces---and panproto assembles the theory by merging smaller component theories.^[The merge operation is formally a colimit (pushout) in the category of theories.  [Appendix A](../appendices/A-formal-foundations.qmd) has the details.]
 
-- **Instance theories cluster into three families.** Set-valued maps ($\text{ThFunctor}$), tree-shaped data ($\text{ThWType}$), and flat records ($\text{ThFlat}$). This split determines how migration works at the data level.
+Second, instance theories cluster into just *three families*: set-valued maps ($\text{ThFunctor}$), tree-shaped data ($\text{ThWType}$), and flat records ($\text{ThFlat}$).  This is a surprisingly small number, given the diversity of formats.
 
-- **The restriction operator is determined by the instance theory.** Set-valued map instances migrate via `restrict` (precomposition). W-type instances migrate via the signature-restriction pipeline. Flat instances use field projection (the depth-1 specialization of tree surgery). You don't choose a migration strategy; it follows from the theory.
+Third, the restriction operator---the thing that actually migrates data---is *determined by the instance theory*.  You do not choose a migration strategy.  It follows from the theory.  Set-valued map instances migrate via `restrict` (precomposition).  W-type instances migrate via a tree surgery pipeline.  Flat instances use field projection.  The same migration morphism can be applied to any of these, but the data-level operation is different in each case.
 
 
-## Three Families of Instances
+## Three families of instances
 
-The instance theory determines what "data" means for a given schema, and therefore what "migrating data" means.
+The instance theory determines what "data" means for a given schema.  Each of the three families has a different data shape, a different migration operator, and different performance characteristics.
 
-### Set-Valued Maps ($\text{ThFunctor}$) {#sec-functor-instances}
+### Set-valued maps ($\text{ThFunctor}$) {#sec-functor-instances}
 
-Think of a set-valued map instance as a filing cabinet: each table gets a drawer, each drawer holds a set of rows, and foreign keys are cross-references between drawers.
+Think of a set-valued map instance as a filing cabinet.  Each table gets a drawer.  Each drawer holds a set of rows.  Foreign keys are cross-references between drawers: "for this row in the `posts` drawer, the author is this row in the `authors` drawer."
 
-In the set-valued map model, a schema is a collection of tables (or types) connected by foreign keys (or relationships).^[Formally, an instance is a functor $I: \mathcal{C}^{\mathrm{op}} \to \mathrm{Set}$, where $\mathcal{C}$ is the schema viewed as a category. See @spivak2012 and [Appendix A](../appendices/A-formal-foundations.qmd).] An *instance* of that schema assigns to each table a set of rows, and to each foreign key a lookup function mapping rows of the source table to rows of the target table. Referential integrity (following two foreign keys in sequence gives the same result whether you compose them first or chase them one at a time) is built into the structure.
+Formally, a schema is a collection of tables connected by foreign keys, and an instance assigns to each table a set of rows and to each foreign key a lookup function that maps rows of the source table to rows of the target table.^[An instance is a functor $I\colon \mathcal{C}^{\mathrm{op}} \to \mathrm{Set}$, where $\mathcal{C}$ is the schema viewed as a category.  See @spivak2012 and [Appendix A](../appendices/A-formal-foundations.qmd).]  Referential integrity is built into the structure: following two foreign keys in sequence gives the same result whether you compose them first or chase them one at a time.
 
-**Migration** is `restrict`: given a schema morphism $f: S_1 \to S_2$ and an instance $I$ over $S_2$, you get an instance $f^* I$ over $S_1$ by looking up each old table's corresponding new table and pulling back its rows. Foreign keys compose automatically.^[In categorical language, $f^*$ is the pullback functor $\Delta_f$, with left adjoint `extend` ($\Sigma_f$) and right adjoint `complete` ($\Pi_f$).]
+Migration in this family is `restrict`: given a schema morphism $f\colon S_1 \to S_2$ and an instance $I$ over $S_2$, you get an instance $f^* I$ over $S_1$ by looking up each old table's corresponding new table and pulling back its rows.  Foreign keys compose automatically.^[In categorical language, $f^*$ is the pullback functor $\Delta_f$, with left adjoint `extend` ($\Sigma_f$) and right adjoint `complete` ($\Pi_f$).]
 
-SQL databases, Confluent Schema Registry Avro schemas, Parquet files, and Arrow tables all fall into this family.
+SQL databases, Confluent Schema Registry with Avro, Parquet files, and Arrow tables all fall into this family.
 
-### W-Types: Tree-Shaped Data ($\text{ThWType}$) {#sec-wtype-instances}
+### W-Types: tree-shaped data ($\text{ThWType}$) {#sec-wtype-instances}
 
-Most protocols (ATProto, GraphQL, JSON Schema, TypeScript, and the majority of the 76 protocols panproto supports) traffic in *tree-shaped* data. A Bluesky post is not a row in a table; it is a JSON document with nested objects, arrays, and references.
+Most protocols---ATProto, GraphQL, JSON Schema, TypeScript, and the majority of the 76 panproto supports---traffic in *tree-shaped* data.  A Bluesky post is not a row in a table.  It is a JSON document with nested objects, arrays, and references.
 
-A W-type (wellfounded tree type) instance over a schema is a finitely-branching tree where:^[The mathematical model is a W-type studied by @gambino2004 in the context of dependent type theory and related to the containers of @abbott2005. See [Appendix A](../appendices/A-formal-foundations.qmd).]
+A W-type (wellfounded tree type) instance over a schema is a finitely-branching tree where each node is anchored to a schema vertex, each branch is labeled by a schema edge, and every path from root to leaf is finite.^[The mathematical model is a W-type from dependent type theory [@gambino2004], related to the containers of @abbott2005.  [Appendix A](../appendices/A-formal-foundations.qmd) spells this out.]  The root might be anchored to `Post`, a child to `Text`, a sibling to `CreatedAt`.
 
-- Each node is anchored to a schema vertex. The root might be anchored to `Post`, a child to `Text`, a sibling to `CreatedAt`.
-- Each branch is labeled by a schema edge.
-- The tree is wellfounded: every path from root to leaf is finite.
+Migration here runs a five-step pipeline: signature restriction, reachability BFS, ancestor contraction, edge resolution, and fan reconstruction.  The chapter on data lifting covers each step in detail.
 
-**Migration** runs a five-step pipeline: (1) signature restriction, (2) reachability BFS, (3) ancestor contraction, (4) edge resolution, (5) fan reconstruction. @sec-lifting-data covers this pipeline in full detail.
+### Flat instances ($\text{ThFlat}$) {#sec-flat-instances}
 
-### Flat Instances: Depth-1 Trees ($\text{ThFlat}$) {#sec-flat-instances}
+$\text{ThFlat}$ is a disciplined restriction of $\text{ThWType}$.  When the schema is a simple graph (no parallel edges, no recursive types) and instances are constrained to depth-1 trees, the full W-type machinery reduces to *field projection*: keep the fields whose schema edges appear in the image of the migration map, discard the rest.
 
-$\text{ThFlat}$ is a disciplined restriction of $\text{ThWType}$. When the schema is a simple graph (no parallel edges, no recursive types) and instances are constrained to depth-1 trees, the full W-type machinery reduces to *field projection*: keep the fields whose schema edges appear in the image of the migration map; discard the rest.
+This captures a real semantic boundary.  Protocols like Protobuf, Avro, and Thrift are deliberately flat.  They are designed for high-throughput serialization, where recursive nesting would impose unacceptable overhead.  Treating $\text{ThFlat}$ as a proper theory (rather than a runtime flag on $\text{ThWType}$) lets panproto enforce the depth-1 constraint structurally.
 
-This captures a genuine semantic boundary. Protocols like Protobuf, Avro, and Thrift are deliberately flat, designed for high-throughput serialization where recursive nesting would impose unacceptable overhead. Treating $\text{ThFlat}$ as a proper theory ensures that panproto enforces the depth-1 constraint at the theory level.
-
-$\text{ThFlat}$ is the depth-1 case of $\text{ThWType}$: every flat record is trivially a tree with no children, so any $\text{ThFlat}$ instance is automatically a valid $\text{ThWType}$ instance. The converse does not hold.
+Every flat record is trivially a depth-1 tree, so any $\text{ThFlat}$ instance is automatically a valid $\text{ThWType}$ instance.  The converse does not hold.
 
 ::: {.callout-caution}
-## Question
+## Exercise
 
-Protobuf uses $\text{ThFlat}$ for its instance theory. Why not $\text{ThWType}$? Protobuf messages *can* contain nested messages. What structural property of Protobuf makes $\text{ThFlat}$ sufficient?
+Protobuf uses $\text{ThFlat}$ for its instance theory, but Protobuf messages *can* contain nested messages.  Why is $\text{ThFlat}$ sufficient?  What structural property of Protobuf makes nesting different from, say, JSON nesting?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-Protobuf messages *can* contain nested messages, but each nested message is a separately addressable, independently encoded unit with its own field numbers. The nesting is a reference, not a recursive tree structure. A Protobuf message is fully described by its immediate fields, making it depth-1 by design. $\text{ThFlat}$ captures this: migration reduces to field projection, which is cheaper than the full W-type tree surgery pipeline.
+In Protobuf, each nested message is a separately addressable, independently encoded unit with its own field numbers.  The nesting is a reference, not a recursive tree structure.  A Protobuf message is fully described by its immediate fields, which makes it depth-1 by design.  Migration reduces to field projection, which is cheaper than the full tree surgery pipeline.
 :::
 
-## Comparing the Three Models
+### Comparing the three families
 
 | Aspect | Set-Valued Map ($\text{ThFunctor}$) | W-Type ($\text{ThWType}$) | Flat ($\text{ThFlat}$) |
 |--------|---------------------|-------------------|----------------|
-| Data shape | Tables of rows | Nested trees of nodes | Depth-1 key-value records |
-| Schema role | Objects + morphisms | Graph (vertices + edges) | Simple graph (no parallel edges) |
+| Data shape | Tables of rows | Nested trees | Depth-1 key-value records |
 | Migration | `restrict` (precomposition) | Tree surgery pipeline | Field projection |
 | Canonical users | SQL, Parquet, Arrow | ATProto, GraphQL, TypeScript | Protobuf, Avro, Thrift |
-| Compositionality | Automatic | Requires reachability analysis | Trivial (projection) |
+| Compositionality | Automatic | Requires reachability analysis | Trivial |
 
-: Comparing the three instance theory families. {#tbl-instance-comparison}
+: The three instance theory families. {#tbl-instance-comparison}
 
-No model is universally better. Set-valued maps have superior compositional properties (migration maps compose, and `extend`/`complete` give you round-tripping for free), but demand tabular data. W-types handle trees natively, at the cost of more complex migration logic. $\text{ThFlat}$ gives up arbitrary nesting in exchange for a migration operator so simple it's nearly free to compute.
-
-Each protocol declares its own instance theory, and the engine adapts. SQL gets `restrict`. ATProto gets tree surgery. Protobuf gets field projection. The outer framework (schema morphisms, existence checks, breaking-change detection) works uniformly across all three.
+No family is universally better.  Set-valued maps have the best compositional properties (migration maps compose, and `extend`/`complete` give you round-tripping for free), but they require tabular data.  W-types handle trees natively, at the cost of more complex migration logic.  $\text{ThFlat}$ trades away arbitrary nesting for a migration operator so cheap it is nearly free to compute.
 
 
-## Building a Protocol from Theories
+## Assembling schema theories from building blocks
 
-Here is how a protocol is defined in panproto's TypeScript API:
+Look at the schema theory column in @tbl-protocol-table again.  Almost every entry is a colimit of simpler theories.  This is not a coincidence: real-world protocols are assembled from orthogonal concerns, and the colimit construction lets panproto mirror that assembly mathematically.
+
+The building blocks are:
+
+- **ThGraph**: vertices and directed edges.
+- **ThConstraint**: invariants on vertex/edge data.
+- **ThMulti**: arrays, optional fields, repeated edges.
+- **ThInterface**: abstract types implemented by concrete ones.
+- **ThHyperEdge**: edges connecting more than two vertices simultaneously.
+- **ThMeta**: out-of-band annotation layers.
+
+ATProto needs graphs, constraints, and multiplicity: $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$.  GraphQL adds interfaces: $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti}, \text{ThInterface})$.  SQL replaces graphs with hypergraphs and drops multiplicity: $\mathrm{colimit}(\text{ThHypergraph}, \text{ThConstraint})$.  Each protocol gets exactly the combination it needs.
+
+The colimit itself is a category-theoretic construction that merges two theories while identifying their shared sub-theory.^[See @barr1990 for the general construction.]  In practice, it works like a type-safe merge: sorts with the same name in both theories are unified, operations with the same signature are unified, and conflicts (same name, different structure) are reported as errors.  The result is a single theory that simultaneously satisfies both components.
+
+The pattern is extensible.  If a new protocol needs graph structure, constraints, and some novel "versioning" concern, you write $\text{ThVersioning}$ as a new theory and take its colimit with the existing pieces.  The engine derives migration, existence checks, and breaking-change detection for the new combination automatically.
+
+
+## How the engine uses the pair
+
+When you instantiate panproto for a particular protocol, the engine reads the two theories and derives everything it needs:
+
+From $\mathbb{T}_S$ it determines what sorts exist (vertices, edges, constraints, hyperedges, interfaces, ...) and what operations connect them.  This gives the engine the *migration type*: a migration must carry a map for each sort.
+
+From $\mathbb{T}_I$ it determines the data representation (set-valued map, W-type, or flat) and therefore the *restriction operator*: how to apply a migration to an instance.
+
+From the axioms in $\mathbb{T}_S$ it derives the *existence checks*: which conditions a proposed migration must satisfy to be valid (the next chapter covers these in detail).
+
+From the interaction of $\mathbb{T}_S$ and $\mathbb{T}_I$ it derives the *breaking-change classifier*: which migrations are safe to deploy and which are not.
+
+None of this requires protocol-specific code.  The protocol author provides two theories; the engine provides the rest.
+
+
+## Defining a protocol in code
+
+Here is how a protocol is defined using panproto's TypeScript API:
 
 ```{.typescript include="../code/ts/10-custom-protocol.ts" snippet="define-protocol"}
 ```
 
-A protocol is a record with two fields: a schema theory and an instance theory. The engine reads the theory structure (what sorts exist, what operations connect them, what axioms constrain them) and derives:
-
-- **The migration type**: what data a migration must carry (vertex map, edge map, constraint map, ...).
-- **The restriction operator**: how to apply a migration to an instance (`restrict`, tree surgery, or field projection).
-- **The existence checks**: which conditions a proposed migration must satisfy to be valid (@sec-when-migrations-break).
-- **The breaking-change classifier**: which migrations are safe and which are breaking (@sec-breaking-changes).
+A protocol is a record with two fields.  The engine reads the theory structure and derives migration types, restriction operators, existence checks, and breaking-change classifiers from it.
 
 ::: {.callout-caution}
-## Question
+## Exercise
 
-If you designed a protocol with $\text{ThHypergraph}$ for schemas and $\text{ThWType}$ for instances, what kind of data format would it describe? Can you think of a real-world format that fits?
+If you designed a protocol with $\text{ThHypergraph}$ for schemas and $\text{ThWType}$ for instances, what kind of data format would it describe?  Can you think of a real-world format that fits?
 :::
 
 ::: {.callout-tip collapse=true}
-## Answer
+## Solution
 
-A format with multi-ary structural relationships (like SQL's compound foreign keys) but tree-shaped data instances (like JSON documents). This combination would describe something like a document database with compound keys and nested values. MongoDB comes close: its schemas involve multi-field indexes and compound shard keys (hyperedge structure), while its documents are nested JSON trees (W-type instances).
+A format with multi-ary structural relationships (like SQL's compound foreign keys) but tree-shaped data instances (like JSON documents).  This would describe something like a document database with compound keys and nested values.  MongoDB comes close: its schemas involve multi-field indexes and compound shard keys (hyperedge structure) while its documents are nested JSON trees (W-type instances).
 :::
 
-The protocol table shows that most schema theories are assembled from smaller pieces. This is not an accident.
 
-## Why Colimits for Schema Theories?
+## The protocol design space
 
-Most schema theories in @tbl-protocol-table are colimits of simpler theories. Real-world protocols are assembled from orthogonal concerns:
-
-- **Graph structure**: vertices and directed edges ($\text{ThGraph}$).
-- **Constraint structure**: invariants on vertex/edge data ($\text{ThConstraint}$).
-- **Multiplicity structure**: arrays, optional fields, repeated edges ($\text{ThMulti}$).
-- **Interface structure**: abstract types implemented by concrete ones ($\text{ThInterface}$).
-- **Hyperedge structure**: edges connecting more than two vertices simultaneously ($\text{ThHyperEdge}$).
-- **Metadata structure**: out-of-band annotation layers ($\text{ThMeta}$).
-
-These concerns are largely independent. ATProto needs graphs, constraints, and multiplicity. GraphQL adds interfaces. SQL replaces graphs with hypergraphs (for compound foreign keys) and drops multiplicity. The colimit construction assembles exactly the combination you need, with the categorical machinery ensuring the pieces fit together coherently.^[The colimit is taken in the category of algebraic theories. It identifies shared sorts and operations across the component theories, producing a theory that is simultaneously a model of each component. See @barr1990 for the general construction.]
-
-ATProto's schema theory is $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti})$: a structure that is simultaneously a graph, a constrained structure, and a multiplicity-aware structure. SQL's is $\mathrm{colimit}(\text{ThHypergraph}, \text{ThConstraint})$. GraphQL's is $\mathrm{colimit}(\text{ThGraph}, \text{ThConstraint}, \text{ThMulti}, \text{ThInterface})$.
-
-Group E protocols (XML/XSD, HTML, Neo4j) add $\text{ThMeta}$ to the constrained multigraph base. This captures the fact that these formats carry an additional annotation layer (XML attributes, HTML metadata, Neo4j property maps) alongside the tree structure. The instance theory correspondingly becomes $\mathrm{colimit}(\text{ThWType}, \text{ThMeta})$: a wellfounded tree plus a metadata layer that annotates nodes. Migration runs the standard W-type pipeline on the tree and a separate restriction pass on the metadata, with the two passes coupled at shared nodes.
-
-The pattern is modular. If a new protocol needs graph structure, constraints, and some novel "versioning" concern, you write $\text{ThVersioning}$ as a new theory and take the colimit with existing pieces. The engine derives migration, existence checks, and breaking-change detection for the new combination without protocol-specific code.
-
-
-## The Restrict Column
-
-The instance theory does more than describe data shape; it determines which migration operator the engine uses.
-
-The rightmost column of @tbl-protocol-table names the operation that applies a migration to data. This column is *determined by* the instance theory.
-
-**`restrict` (precomposition).** When $\mathbb{T}_I = \text{ThFunctor}$, the restriction operator is `restrict`. Given a schema morphism $f: S_1 \to S_2$ and an instance $I$ over $S_2$, the restricted instance $f^* I$ looks up each old table in the new schema and pulls back its rows.
-
-**Signature restriction + BFS + contraction.** When $\mathbb{T}_I = \text{ThWType}$, the restriction operator is the five-step tree surgery pipeline described in @sec-wtype-instances. Every step is necessary: skip reachability and you keep orphaned subtrees; skip contraction and you lose data that should survive; skip resolution and you get ambiguous edge labels.
-
-**Field projection.** When $\mathbb{T}_I = \text{ThFlat}$, the restriction operator reduces to keeping mapped fields and dropping the rest. The BFS is trivial (root plus leaves only), contraction never fires, and fan reconstruction is a simple list filter. All Group C protocols (Protobuf, Avro, Thrift, Cap'n Proto, FlatBuffers, ASN.1, Bond, Redis, HCL) use this operator.
-
-
-## From Table to Engine
-
-The protocol table is not just documentation. It is a *specification* that the engine reads at startup. When you instantiate panproto for a particular protocol, the engine:
-
-1. Parses $\mathbb{T}_S$ to determine what sorts ($\text{Vertex}$, $\text{Edge}$, $\text{Constraint}$, ...) exist and what operations connect them.
-2. Parses $\mathbb{T}_I$ to determine the data representation (set-valued map, W-type, or flat).
-3. Derives the migration type from $\mathbb{T}_S$'s sorts and operations. A migration must carry a map for each sort.
-4. Derives the restriction operator from $\mathbb{T}_I$.
-5. Derives existence checks from $\mathbb{T}_S$'s axioms (@sec-when-migrations-break).
-6. Derives the breaking-change classifier from the interaction of $\mathbb{T}_S$ and $\mathbb{T}_I$ (@sec-breaking-changes).
-
-Steps 3 through 6 are fully automatic. The protocol author provides the two theories; the engine provides the rest.
-
-
-## Protocols as a Design Space
-
-The two-parameter architecture organizes all 76 protocols into a *design space*. Each point is a $(\mathbb{T}_S, \mathbb{T}_I)$ pair; the six theory groups correspond to six clusters.
+The two-parameter architecture organizes all 76 supported protocols into a design space.  Each point is a $(\mathbb{T}_S, \mathbb{T}_I)$ pair; the six theory groups in @tbl-protocol-table are six clusters in that space.
 
 ```{mermaid}
 %%| label: fig-design-space
-%%| fig-cap: "The protocol design space. Horizontal axis: schema theory complexity. Vertical axis: instance theory family."
+%%| fig-cap: "The protocol design space. The horizontal axis is schema theory complexity; the vertical axis is instance theory family."
 graph LR
     subgraph "Set-Valued Map Instances"
         B["Group B<br/>Hypergraph + Set-Valued Map<br/>(11 protocols)<br/>SQL, Parquet, Arrow, ..."]
@@ -212,23 +184,25 @@ graph LR
     end
 ```
 
-Some natural questions this framing surfaces:
+Some questions this framing makes natural:
 
-- **What separates Group A from Group D?** Both use $\text{ThWType}$ instances over constrained multigraph schemas. Group D adds $\text{ThInterface}$: abstract types (interfaces, traits, type classes) as first-class schema citizens.
-- **What makes Group E distinct from Group A?** Group E adds $\text{ThMeta}$ to the schema colimit and lifts the instance theory to $\mathrm{colimit}(\text{ThWType}, \text{ThMeta})$. The metadata layer participates in migration.
-- **What lives between Group B and Group A?** A protocol with hypergraph schemas but W-type instances (perhaps a document database with compound keys and nested values). panproto can accommodate this by combining $\text{ThHypergraph}$, $\text{ThConstraint}$, and $\text{ThWType}$.
+What separates Group A from Group D?  Both use W-type instances over constrained multigraph schemas.  The difference is that Group D adds $\text{ThInterface}$: abstract types (interfaces, traits, type classes) as first-class schema citizens.
 
-The design space is open.
+What makes Group E distinct from Group A?  Group E adds $\text{ThMeta}$ to the schema colimit and lifts the instance theory to $\mathrm{colimit}(\text{ThWType}, \text{ThMeta})$.  The metadata layer participates in migration.  This captures the fact that formats like XML, HTML, and Neo4j carry an annotation layer (XML attributes, HTML metadata, Neo4j property maps) alongside the tree structure.
+
+What lives between Group B and Group A?  A protocol with hypergraph schemas but W-type instances---perhaps a document database with compound keys and nested values.  panproto can accommodate this by combining $\text{ThHypergraph}$, $\text{ThConstraint}$, and $\text{ThWType}$.
+
+The design space is open.  Adding a new protocol means adding a new point.
 
 
-## Historical Context
+## Historical context
 
 The idea that data migration can be parameterized by algebraic structure has roots in several traditions.
 
-@spivak2012 showed that migration via structure-preserving maps between schema categories gives a clean, compositional account of SQL-style migration. The CQL project [@schultz2017] turned this into a practical tool for relational databases.
+@spivak2012 showed that migration via structure-preserving maps between schema categories gives a clean, compositional account of SQL-style migration.  The CQL project [@schultz2017] turned this into a practical tool for relational databases.
 
-The W-type framework comes from type theory, where @gambino2004 showed that tree-shaped data structures arise naturally as initial algebras (the simplest data types that can represent arbitrary recursion). @abbott2005 connected this to "containers," a way of describing data shapes that panproto uses to determine how a schema's structure constrains the tree shape of its instances.
+The W-type framework comes from type theory, where @gambino2004 showed that tree-shaped data structures arise naturally as initial algebras of polynomial functors.  @abbott2005 connected this to "containers," a way of describing data shapes that panproto uses to determine how a schema's structure constrains the tree shape of its instances.
 
-The insight that these traditions can be unified (that set-valued map instances, W-type instances, and flat instances all arise as models of different instance theories, with migration derived from the theory structure, and that 76 real-world protocols fall cleanly into six theory groups under this classification) is, as far as we know, original to panproto.
+The insight that these traditions can be unified---that set-valued map instances, W-type instances, and flat instances all arise as models of different instance theories, with migration derived from the theory structure, and that 76 real-world protocols fall cleanly into six theory groups under this classification---is, as far as we know, original to panproto.
 
-We now have the tools to walk through a concrete migration.
+We now have the mathematical framework.  The next chapter puts it to work: we will walk through a concrete migration, step by step, and see how the engine uses the theory pair to transform data.

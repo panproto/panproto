@@ -1,6 +1,6 @@
 # LLVM Integration: Compilation as Theory Morphism {#sec-llvm-integration}
 
-Compilation is a theory morphism. When a TypeScript function becomes LLVM IR instructions, the structural relationships (parameter passing, control flow, data dependencies) are preserved. panproto makes this explicit: lowering from a language AST to LLVM IR is a `TheoryMorphism` in the GAT system.
+Compilation is a theory morphism. When a TypeScript function becomes LLVM IR instructions, the structural relationships are preserved: parameter passing, control flow, data dependencies. panproto makes this explicit—lowering from a language AST to LLVM IR is a `TheoryMorphism` in the GAT system.
 
 ## LLVM IR as a protocol
 
@@ -29,7 +29,7 @@ Edge kinds capture structural relationships:
 
 With the `inkwell-backend` feature enabled, panproto can parse `.ll` text files directly:
 
-```rust
+```{.rust}
 use panproto_llvm::parse_llvm_ir;
 
 let schema = parse_llvm_ir(r#"
@@ -47,7 +47,7 @@ The parser walks the LLVM module via inkwell, creating vertices for functions, p
 
 A lowering morphism maps AST sorts and operations to LLVM IR sorts and operations:
 
-```rust
+```{.rust}
 use panproto_llvm::lowering::lower_typescript;
 
 let morph = lower_typescript();
@@ -67,7 +67,7 @@ Change a TypeScript type, and the LLVM IR migration is automatically derived via
 
 The `panproto-jit` crate compiles `panproto-expr` expressions to native code:
 
-```rust
+```{.rust}
 use panproto_jit::JitCompiler;
 use panproto_expr::{Expr, Literal, BuiltinOp};
 
@@ -85,6 +85,9 @@ The JIT compiles arithmetic, comparison, boolean, type coercions, rounding, let 
 ## Exercises
 
 1. Parse a simple LLVM IR function and inspect the panproto schema. How many vertices does `define i32 @add(i32 %a, i32 %b) { ... }` produce?
+
 2. Apply the TypeScript lowering morphism to a parsed TypeScript file. What happens to `function_declaration` vertices? What about `binary_expression`?
+
 3. JIT-compile a complex arithmetic expression and verify the result matches the interpreter: `let x = 10 in let y = 20 in (x + y) * 2`.
+
 4. Compare the execution time of the JIT-compiled expression vs. the interpreter for 1 million evaluations.
