@@ -46,6 +46,7 @@ book:
         - chapters/22-advanced-internals.qmd
         - chapters/26-protolens-engine.qmd
         - chapters/27-auto-lens-pipeline.qmd
+        - chapters/35-dependent-optics.qmd
         - chapters/28-data-versioning.qmd
         - chapters/23-field-transforms.qmd
         - chapters/29-expression-engine.qmd

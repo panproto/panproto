@@ -1,8 +1,14 @@
 //! Integration tests for protolens combinators.
 //!
-//! Verifies that derived combinators (rename_field, remove_field, add_field,
-//! hoist_field, pipeline) produce correct schema transformations and satisfy
+//! Verifies that derived combinators (`rename_field`, `remove_field`, `add_field`,
+//! `hoist_field`, `pipeline`) produce correct schema transformations and satisfy
 //! lens laws on concrete instances.
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::cast_possible_truncation,
+    clippy::missing_panics_doc
+)]
 
 use std::collections::HashMap;
 
@@ -90,10 +96,7 @@ fn make_instance(root_vertex: &str, children: &[(&str, &str, &str)]) -> WInstanc
     let mut nodes = HashMap::new();
     let mut arcs = Vec::new();
     let root_id = 0u32;
-    nodes.insert(
-        root_id,
-        Node::new(root_id, root_vertex),
-    );
+    nodes.insert(root_id, Node::new(root_id, root_vertex));
     for (i, (vertex_id, edge_name, value)) in children.iter().enumerate() {
         let child_id = (i + 1) as u32;
         let mut node = Node::new(child_id, *vertex_id);
@@ -110,13 +113,7 @@ fn make_instance(root_vertex: &str, children: &[(&str, &str, &str)]) -> WInstanc
             },
         ));
     }
-    WInstance::new(
-        nodes,
-        arcs,
-        Vec::new(),
-        root_id,
-        Name::from(root_vertex),
-    )
+    WInstance::new(nodes, arcs, Vec::new(), root_id, Name::from(root_vertex))
 }
 
 // ---------------------------------------------------------------------------
@@ -195,10 +192,10 @@ fn remove_field_complement_captures_data() {
     let chain = combinators::remove_field("tags");
     let lens = chain.instantiate(&src, &protocol).unwrap();
 
-    let instance = make_instance("post", &[
-        ("text", "text", "hello"),
-        ("tags", "tags", "[\"rust\"]"),
-    ]);
+    let instance = make_instance(
+        "post",
+        &[("text", "text", "hello"), ("tags", "tags", "[\"rust\"]")],
+    );
 
     let (view, complement) = get(&lens, &instance).unwrap();
     // View should not have the tags node.
@@ -254,10 +251,10 @@ fn pipeline_satisfies_lens_laws() {
     ]);
     let lens = chain.instantiate(&src, &protocol).unwrap();
 
-    let instance = make_instance("post", &[
-        ("text", "text", "hello"),
-        ("tags", "tags", "[\"rust\"]"),
-    ]);
+    let instance = make_instance(
+        "post",
+        &[("text", "text", "hello"), ("tags", "tags", "[\"rust\"]")],
+    );
     check_laws(&lens, &instance).unwrap();
 }
 
@@ -342,8 +339,8 @@ mod property {
 
     /// Generate a flat schema (root + N leaf children) with prop edges,
     /// a matching instance with random string values, and a protocol.
-    fn arb_schema_and_instance()
-    -> impl Strategy<Value = (Schema, WInstance, Protocol, Vec<String>)> {
+    fn arb_schema_and_instance() -> impl Strategy<Value = (Schema, WInstance, Protocol, Vec<String>)>
+    {
         (2..=5usize).prop_flat_map(|n_children| {
             prop::collection::vec("[a-z]{1,8}".prop_map(String::from), n_children..=n_children)
                 .prop_map(move |values| {
@@ -383,13 +380,7 @@ mod property {
                             },
                         ));
                     }
-                    let instance = WInstance::new(
-                        nodes,
-                        arcs,
-                        Vec::new(),
-                        0,
-                        Name::from("root"),
-                    );
+                    let instance = WInstance::new(nodes, arcs, Vec::new(), 0, Name::from("root"));
                     let protocol = make_protocol();
                     (schema, instance, protocol, field_names)
                 })

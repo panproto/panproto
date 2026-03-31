@@ -1,0 +1,169 @@
+# Dependent Optics and Scoped Transforms {#sec-dependent-optics}
+
+A single `TheoryTransform` operates on the entire theory. But what happens when you need a transform that only touches the sorts reachable from one vertex, leaving the rest unchanged? And what happens when that vertex is the element type of an array, so the transform must apply independently to each element?
+
+These questions sit at the intersection of two bodies of work: the optics hierarchy from functional programming [@riley2018] and the Grothendieck fibration structure that panproto already uses for schema-level metadata (@sec-fibration). This chapter explains how `ScopedTransform` and `RenameEdgeName` extend the protolens algebra with scoped, dependent operations.
+
+
+## `RenameEdgeName`: a fiber-level isomorphism {#sec-rename-edge-name}
+
+Recall that panproto schemas have two levels of naming. A vertex has an **ID** (unique within the schema graph) and a **kind** (drawn from the protocol's recognized vertex kinds). An edge has a **kind** (the operation name from the theory) and a **name** (the JSON property key for serialization). The edge name is metadata in the Grothendieck fibration: it lives in the fiber over the schema, not in the base theory.
+
+`RenameEdgeName` changes an edge's `name` attribute without modifying the theory. At the theory level, `apply()` returns the theory unchanged. At the schema level, `apply_theory_transform_to_schema` finds the edge between `src_sort` and `tgt_sort` with `name == old_name` and replaces it with `new_name`.
+
+```rust
+// crates/panproto-gat/src/schema_functor.rs
+Self::RenameEdgeName { .. } => {
+    // Fiber-level operation: the theory is unchanged.
+    Ok(theory.clone())
+}
+```
+
+```rust
+// crates/panproto-lens/src/protolens.rs
+TheoryTransform::RenameEdgeName { src_sort, tgt_sort, old_name, new_name } => {
+    let mut new_edges = HashMap::new();
+    for (edge, kind) in &schema.edges {
+        let mut e = edge.clone();
+        if *e.src == **src_sort && *e.tgt == **tgt_sort
+            && e.name.as_deref() == Some(&**old_name)
+        {
+            e.name = Some(Name::from(&**new_name));
+        }
+        new_edges.insert(e, kind.clone());
+    }
+    // Rebuild adjacency indices...
+}
+```
+
+Because the relabeling is bijective, the optic classification is `Iso`: the complement is always empty, and both `GetPut` and `PutGet` hold trivially. This is the simplest example of a dependent optic in panproto: the operation depends on schema-level data (the edge's `name` attribute) that does not exist at the theory level.
+
+
+## `ScopedTransform`: the Kan extension construction {#sec-scoped-transform}
+
+Given a schema $S$ and a vertex $v \in S$, the **sub-schema** $\text{Sub}(S, v)$ is the full subgraph reachable from $v$ via outgoing edges. The inclusion functor $\iota : \text{Sub}(S, v) \hookrightarrow S$ embeds the sub-schema into the full schema.
+
+A `ScopedTransform` applies an inner transform $\eta$ to the sub-schema while leaving everything outside unchanged. The result is the **pushout** of $S$ and $\eta(\text{Sub}(S, v))$ over $\text{Sub}(S, v)$:
+
+$$
+\begin{array}{ccc}
+\text{Sub}(S, v) & \xrightarrow{\iota} & S \\
+\downarrow \eta & & \downarrow \text{Scope}(v, \eta) \\
+\eta(\text{Sub}(S, v)) & \to & S'
+\end{array}
+$$
+
+This is the left Kan extension of $\eta$ along $\iota$ [@spivak2012].
+
+### Theory-level implementation
+
+At the theory level, `ScopedTransform` extracts the sub-theory reachable from the focus sort via directed operation edges (input sorts $\to$ output sort), applies the inner transform, and merges the result back:
+
+```rust
+// crates/panproto-gat/src/schema_functor.rs
+Self::ScopedTransform { focus, inner } => {
+    let reachable = reachable_sorts_from(theory, focus);
+    // Build sub-theory from reachable sorts and their ops...
+    let transformed_sub = inner.apply(&sub_theory)?;
+    // Merge: replace reachable sorts/ops with transformed versions
+}
+```
+
+The `reachable_sorts_from` function uses a BFS with directed edges: an operation `op(a: S) \to T` creates a directed edge from $S$ to $T$. This matches the schema-level BFS over outgoing edges.
+
+### Schema-level implementation
+
+At the schema level, the pushout is computed explicitly:
+
+1. BFS from the focus vertex via outgoing edges to find all reachable vertices.
+2. Extract the sub-schema (vertices, edges, constraints, defaults) restricted to the reachable set.
+3. Apply the inner transform to the sub-schema.
+4. Remove the old reachable vertices/edges from the full schema.
+5. Insert the transformed sub-schema vertices/edges.
+6. Rebuild adjacency indices.
+
+Cross-boundary edges (from outside the reachable set into it, or vice versa) are preserved because we only remove edges fully contained within the reachable set.
+
+
+## Optic classification for scoped transforms {#sec-optic-classification}
+
+The optic class of a scoped transform depends on the edge kind connecting the parent to the focus vertex. This is determined at **instantiation time**, not at theory level, because the edge kind is schema-level data.
+
+| Edge kind | Carrier optic | Result for inner kind $K$ |
+|-----------|---------------|--------------------------|
+| `prop`    | Lens          | $K$                      |
+| `item`    | Traversal     | Traversal                |
+| `variant` | Prism         | $K \circ \text{Prism}$   |
+
+The function `refine_scoped_optic` in `optic.rs` implements this:
+
+```rust
+pub fn refine_scoped_optic(edge_kind: &str, inner_kind: OpticKind) -> OpticKind {
+    let carrier = match edge_kind {
+        "item" | "items" => OpticKind::Traversal,
+        "variant" => OpticKind::Prism,
+        _ => OpticKind::Lens,
+    };
+    carrier.compose(inner_kind)
+}
+```
+
+At the theory level (before instantiation), the conservative static classification is `inner_kind.compose(Lens)`, which is tight for `prop` edges and conservatively correct for `item` edges [@riley2018].
+
+
+## Complement algebra for scoped transforms {#sec-scoped-complement}
+
+The `ComplementConstructor::Scoped` variant wraps an inner complement constructor with a focus vertex name:
+
+```rust
+ComplementConstructor::Scoped {
+    focus: Name,
+    inner: Box<ComplementConstructor>,
+}
+```
+
+For `prop` edges (single focus), the inner complement is applied once. For `item` edges (traversals), the concrete complement at runtime contains a list of inner complements, one per array element. This is the dependent product in the slice topos [@vertechi2022]:
+
+$$
+C(s) = \prod_{i \in \text{elements}(s)} C_\text{inner}(e_i)
+$$
+
+The complement cost (`cost.rs`) delegates to the inner complement cost, since scoping itself adds no storage overhead. The complement spec (`complement_type.rs`) prefixes the inner spec's summary with the focus vertex name.
+
+
+## Derived combinators as composed elementary operations {#sec-combinator-decomposition}
+
+Each high-level combinator in the `combinators` module decomposes into elementary protolens steps:
+
+| Combinator | Decomposition |
+|------------|---------------|
+| `rename_field(p, f, old, new)` | `rename_edge_name(p, f, old, new)` |
+| `remove_field(f)` | `drop_sort(f)` |
+| `add_field(p, n, k, d)` | `add_sort(n, k, d)` then `add_op(n, p, n, n)` |
+| `hoist_field(p, m, c)` | `add_op(c, p, c, c)` then `drop_sort(m)` |
+| `pipeline(chains)` | flatten all steps into one chain |
+| `map_items(focus, inner)` | `scoped(focus, inner)` |
+
+Composition preserves lens laws by naturality: each elementary step is a lawful lens (satisfies `GetPut` and `PutGet`), and sequential composition of lawful lenses is lawful. The proof follows from the standard result that the category of lawful lenses is closed under composition (Riley, Theorem 3.4 in @riley2018).
+
+
+## Testing scoped transforms {#sec-testing-scoped}
+
+The integration test suite includes both deterministic and property-based tests:
+
+**Deterministic tests** verify specific combinator behaviors: `rename_field_changes_edge_label`, `remove_field_complement_captures_data`, `pipeline_composes_multiple_steps`, `scoped_rename_applies_to_sub_schema`.
+
+**Property-based tests** (64 cases each via proptest) verify lens laws hold across arbitrary schemas:
+
+- `rename_field_satisfies_laws_proptest`: random schemas, random rename targets
+- `remove_field_satisfies_laws_proptest`: random schemas, remove last field
+- `pipeline_satisfies_laws_proptest`: random rename + remove pipelines
+- `rename_field_complement_is_empty_proptest`: verify iso classification
+- `remove_get_put_roundtrip_proptest`: verify node count preservation through get/put
+
+The key property is that scoped lens laws hold **pointwise per element**: for each array element $i$, the inner lens's `GetPut` and `PutGet` laws must hold independently. This is the content of the dependent optic framework [@vertechi2022; @capucci2024].
+
+
+## Bridge to field transforms {#sec-optics-bridge}
+
+Scoped transforms compose with value-level field transforms (@sec-field-transforms): you can apply a structural rename (via `rename_edge_name`) alongside a value-level coercion (via `CoerceSort`) within the same array element. The structural transforms operate on the schema graph; the value transforms operate on `extra_fields` and node values. Together, they give you both structural and value-level control within array elements.
