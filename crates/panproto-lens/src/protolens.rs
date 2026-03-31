@@ -1484,6 +1484,8 @@ fn apply_theory_transform_to_schema(
             }
 
             // 2. Build the sub-schema from reachable vertices and edges.
+            //    Include only the vertices, edges, constraints, and defaults
+            //    within the reachable set to form a well-formed sub-schema.
             let sub_vertices: HashMap<Name, Vertex> = schema
                 .vertices
                 .iter()
@@ -1496,26 +1498,44 @@ fn apply_theory_transform_to_schema(
                 .filter(|(e, _)| reachable.contains(&e.src) && reachable.contains(&e.tgt))
                 .map(|(e, k)| (e.clone(), k.clone()))
                 .collect();
+            let sub_constraints: HashMap<Name, Vec<panproto_schema::Constraint>> = schema
+                .constraints
+                .iter()
+                .filter(|(id, _)| reachable.contains(*id))
+                .map(|(id, c)| (id.clone(), c.clone()))
+                .collect();
+            let sub_defaults: HashMap<Name, panproto_expr::Expr> = schema
+                .defaults
+                .iter()
+                .filter(|(id, _)| reachable.contains(*id))
+                .map(|(id, d)| (id.clone(), d.clone()))
+                .collect();
             let mut sub_schema = schema.clone();
             sub_schema.vertices = sub_vertices;
             sub_schema.edges = sub_edges;
+            sub_schema.constraints = sub_constraints;
+            sub_schema.defaults = sub_defaults;
 
             // 3. Apply inner transform to the sub-schema.
             let transformed_sub = apply_theory_transform_to_schema(inner, &sub_schema, protocol)?;
 
-            // 4. Merge: start from the original schema, replace reachable vertices/edges
-            //    with their transformed counterparts.
+            // 4. Merge via pushout: start from the original schema, replace the
+            //    reachable sub-schema with its transformed version.
             let mut result = schema.clone();
-            // Remove old reachable vertices and edges.
+            // Remove old reachable vertices, edges, constraints, and defaults.
             result.vertices.retain(|id, _| !reachable.contains(id));
             result
                 .edges
                 .retain(|e, _| !(reachable.contains(&e.src) && reachable.contains(&e.tgt)));
-            // Insert transformed sub-schema vertices and edges.
+            result.constraints.retain(|id, _| !reachable.contains(id));
+            result.defaults.retain(|id, _| !reachable.contains(id));
+            // Insert transformed sub-schema data.
             result.vertices.extend(transformed_sub.vertices);
             result.edges.extend(transformed_sub.edges);
-            // Preserve cross-boundary edges (edges from outside to reachable or vice versa).
-            // These are already in result.edges since we only removed edges fully inside reachable.
+            result.constraints.extend(transformed_sub.constraints);
+            result.defaults.extend(transformed_sub.defaults);
+            // Cross-boundary edges (from outside → reachable or reachable → outside)
+            // are preserved since we only removed edges fully inside the reachable set.
 
             // 5. Rebuild adjacency indices.
             let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();

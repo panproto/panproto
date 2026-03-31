@@ -332,31 +332,28 @@ fn apply_pullback(theory: &Theory, morphism: &TheoryMorphism) -> Theory {
     result
 }
 
-/// Compute the set of sort names reachable from `start` via operations.
+/// Compute the set of sort names reachable from `start` via directed
+/// operation edges.
 ///
-/// Uses a BFS over the operation graph: a sort `s` is reachable if there
-/// exists an operation with `s` as an input or output sort and at least one
-/// of its other sorts is already reachable.
+/// An operation `op(a₁: S₁, …, aₙ: Sₙ) → T` creates directed edges
+/// from each input sort Sᵢ to the output sort T. Starting from `start`,
+/// we follow these directed edges to find all transitively reachable sorts.
+///
+/// This mirrors the schema-level BFS over outgoing edges: operations in
+/// the theory correspond to edges in the schema, and the input→output
+/// direction corresponds to the src→tgt direction.
 fn reachable_sorts_from(theory: &Theory, start: &str) -> FxHashSet<Arc<str>> {
-    let mut reachable = FxHashSet::default();
-    reachable.insert(Arc::from(start));
-    let mut changed = true;
-    while changed {
-        changed = false;
+    let start_arc: Arc<str> = Arc::from(start);
+    let mut reachable: FxHashSet<Arc<str>> = FxHashSet::default();
+    reachable.insert(Arc::clone(&start_arc));
+    let mut queue: std::collections::VecDeque<Arc<str>> = std::collections::VecDeque::new();
+    queue.push_back(start_arc);
+    while let Some(current) = queue.pop_front() {
         for op in &theory.ops {
-            let input_sorts: Vec<&Arc<str>> = op.inputs.iter().map(|(_, s)| s).collect();
-            let all_sorts: Vec<&Arc<str>> = input_sorts
-                .iter()
-                .copied()
-                .chain(std::iter::once(&op.output))
-                .collect();
-            let any_reachable = all_sorts.iter().any(|s| reachable.contains(*s));
-            if any_reachable {
-                for s in &all_sorts {
-                    if reachable.insert((*s).clone()) {
-                        changed = true;
-                    }
-                }
+            // If any input sort is the current sort, the output sort is reachable.
+            let has_current_as_input = op.inputs.iter().any(|(_, s)| **s == *current);
+            if has_current_as_input && reachable.insert(Arc::clone(&op.output)) {
+                queue.push_back(Arc::clone(&op.output));
             }
         }
     }
