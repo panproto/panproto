@@ -1843,6 +1843,82 @@ pub fn protolens_fleet(chain: u32, schema_handles: &[u32]) -> Result<Vec<u8>, Js
     })
 }
 
+/// Build a protolens chain from a pipeline of step specs.
+///
+/// Takes `MessagePack`-encoded array of `ProtolensStepSpec` objects.
+/// Returns a handle to the composed `ProtolensChain`.
+///
+/// # Errors
+///
+/// Returns `JsError` if deserialization or chain construction fails.
+#[wasm_bindgen]
+pub fn protolens_pipeline(steps_bytes: &[u8]) -> Result<u32, JsError> {
+    let specs: Vec<ProtolensStepSpec> =
+        rmp_serde::from_slice(steps_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let mut chains = Vec::with_capacity(specs.len());
+    for spec in &specs {
+        chains.push(build_chain_from_step_spec(spec)?);
+    }
+
+    let combined = lens::combinators::pipeline(chains);
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(combined))))
+}
+
+/// Auto-generate a protolens with initial morphism hints.
+///
+/// The `hints_bytes` are `MessagePack`-encoded `HashMap<String, String>`
+/// mapping source vertex names to target vertex names. These are used
+/// as seed correspondences for the morphism search, enabling alignment
+/// across schemas with different NSID namespaces.
+///
+/// Returns a handle to the generated `ProtolensChain`.
+///
+/// # Errors
+///
+/// Returns `JsError` if no morphism is found even with hints.
+#[wasm_bindgen]
+pub fn auto_generate_protolens_with_hints(
+    schema1: u32,
+    schema2: u32,
+    hints_bytes: &[u8],
+) -> Result<u32, JsError> {
+    let hints: std::collections::HashMap<String, String> = rmp_serde::from_slice(hints_bytes)
+        .map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let s1 = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let s2 = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let protocol =
+        lookup_builtin_protocol(&s1.protocol).unwrap_or_else(|| default_protocol(&s1.protocol));
+
+    let mut initial = std::collections::HashMap::new();
+    for (src, tgt) in &hints {
+        initial.insert(gat::Name::from(src.as_str()), gat::Name::from(tgt.as_str()));
+    }
+    let config = lens::auto_lens::AutoLensConfig {
+        try_overlap: true,
+        search_opts: panproto_core::mig::hom_search::SearchOptions {
+            initial,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let result = lens::auto_lens::auto_generate(&s1, &s2, &protocol, &config).map_err(|e| {
+        WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
+        result.chain,
+    ))))
+}
+
 // ---------------------------------------------------------------------------
 // Phase 4: Full protocol registry
 // ---------------------------------------------------------------------------
@@ -3418,7 +3494,9 @@ struct FactorizationStepInfo {
 #[derive(Debug, Deserialize)]
 struct ProtolensStepSpec {
     /// The type of step: `add_sort`, `drop_sort`, `rename_sort`,
-    /// `add_op`, `drop_op`, `rename_op`.
+    /// `add_op`, `drop_op`, `rename_op`, `rename_edge_name`, `scoped`,
+    /// `rename_field`, `hoist_field`, `remove_field`, `add_field`,
+    /// `nest_field`, `map_items`.
     step_type: String,
     /// Primary argument (sort/op name, or old name for renames).
     name: String,
@@ -3428,9 +3506,25 @@ struct ProtolensStepSpec {
     /// Third argument (vertex kind for `add_sort`).
     #[serde(default)]
     kind: String,
+    /// Source sort for `rename_edge_name`.
+    #[serde(default)]
+    src_sort: String,
+    /// Target sort for `rename_edge_name`.
+    #[serde(default)]
+    tgt_sort: String,
+    /// Parent vertex for combinators (`rename_field`, `add_field`, etc.).
+    #[serde(default)]
+    parent: String,
+    /// Intermediate vertex for `hoist_field` / `nest_field`.
+    #[serde(default)]
+    intermediate: String,
+    /// Inner step spec for `scoped` / `map_items`.
+    #[serde(default)]
+    inner: Option<Box<Self>>,
 }
 
 /// Build a `ProtolensChain` from a serialized step spec.
+#[allow(clippy::too_many_lines)]
 fn build_chain_from_step_spec(spec: &ProtolensStepSpec) -> Result<lens::ProtolensChain, JsError> {
     use panproto_core::gat::Name;
     use panproto_core::inst::value::Value;
@@ -3465,6 +3559,79 @@ fn build_chain_from_step_spec(spec: &ProtolensStepSpec) -> Result<lens::Protolen
             Name::from(spec.name.as_str()),
             Name::from(spec.target.as_str()),
         ),
+        "rename_edge_name" => lens::protolens::elementary::rename_edge_name(
+            Name::from(spec.src_sort.as_str()),
+            Name::from(spec.tgt_sort.as_str()),
+            Name::from(spec.name.as_str()),
+            Name::from(spec.target.as_str()),
+        ),
+        "scoped" | "map_items" => {
+            let inner_spec =
+                spec.inner
+                    .as_ref()
+                    .ok_or_else(|| WasmError::LensConstructionFailed {
+                        reason: format!("'{0}' requires an 'inner' step spec", spec.step_type),
+                    })?;
+            let inner_chain = build_chain_from_step_spec(inner_spec)?;
+            // If the inner chain has one step, use it directly;
+            // otherwise fuse into a single step for scoping.
+            let inner_step = if inner_chain.steps.len() == 1 {
+                // SAFETY: we just checked len == 1
+                #[allow(clippy::unwrap_used)]
+                inner_chain.steps.into_iter().next().unwrap()
+            } else {
+                inner_chain
+                    .fuse()
+                    .map_err(|e| WasmError::LensConstructionFailed {
+                        reason: format!("failed to fuse inner chain: {e}"),
+                    })?
+            };
+            lens::protolens::elementary::scoped(Name::from(spec.name.as_str()), inner_step)
+        }
+        // Derived combinators return ProtolensChains directly.
+        "rename_field" => {
+            return Ok(lens::combinators::rename_field(
+                Name::from(spec.parent.as_str()),
+                Name::from(spec.name.as_str()),
+                Name::from(spec.target.as_str()),
+            ));
+        }
+        "remove_field" => {
+            return Ok(lens::combinators::remove_field(Name::from(
+                spec.name.as_str(),
+            )));
+        }
+        "add_field" => {
+            return Ok(lens::combinators::add_field(
+                Name::from(spec.parent.as_str()),
+                Name::from(spec.name.as_str()),
+                Name::from(if spec.kind.is_empty() {
+                    spec.name.as_str()
+                } else {
+                    spec.kind.as_str()
+                }),
+                Value::Null,
+            ));
+        }
+        "hoist_field" => {
+            return Ok(lens::combinators::hoist_field(
+                Name::from(spec.parent.as_str()),
+                Name::from(spec.intermediate.as_str()),
+                Name::from(spec.name.as_str()),
+            ));
+        }
+        "nest_field" => {
+            return Ok(lens::combinators::nest_field(
+                Name::from(spec.parent.as_str()),
+                Name::from(spec.name.as_str()),
+                Name::from(spec.intermediate.as_str()),
+                Name::from(if spec.kind.is_empty() {
+                    spec.intermediate.as_str()
+                } else {
+                    spec.kind.as_str()
+                }),
+            ));
+        }
         other => {
             return Err(WasmError::LensConstructionFailed {
                 reason: format!("unknown step type: {other}"),
