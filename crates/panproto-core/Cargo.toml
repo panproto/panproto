@@ -36,8 +36,8 @@ panproto-vcs = { workspace = true }
 panproto-parse = { workspace = true, optional = true }
 panproto-project = { workspace = true, optional = true }
 panproto-git = { workspace = true, optional = true }
-panproto-llvm = { version = "0.21.0", path = "../panproto-llvm", optional = true }
-panproto-jit = { version = "0.21.0", path = "../panproto-jit", optional = true }
+panproto-llvm = { version = "0.22.0", path = "../panproto-llvm", optional = true }
+panproto-jit = { version = "0.22.0", path = "../panproto-jit", optional = true }
 
 [lints]
 workspace = true
