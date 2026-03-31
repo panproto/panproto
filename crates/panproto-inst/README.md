@@ -27,7 +27,9 @@ This crate provides three models for concrete data instances that conform to sch
 | `functor_pi` | Right Kan extension for functor instances |
 | `graph_restrict` | Restrict pipeline for graph-shaped instances |
 | `CompiledMigration` | Pre-computed migration data for fast per-record application |
-| `FieldTransform` | Value-level operation on node `extra_fields`: rename, drop, add, keep, or apply expression |
+| `FieldTransform` | Value-level operation on node `extra_fields`: rename, drop, add, keep, apply expression, or compute from the full fiber (including child scalar values) |
+| `collect_scalar_child_values` | Dependent-sum projection: collect scalar values from a node's immediate child vertices |
+| `build_env_with_children` | Build expression environment from the full fiber over a vertex (extra_fields + child scalars) |
 | `InstanceQuery` / `execute` | Declarative query engine: anchor selection, predicate filtering, path navigation, projection, grouping, limits |
 | `Complement` / `DroppedNode` | Complement data from restriction for backward migration |
 | `SectionEnrichment` | Enrichment specification for section construction |

@@ -2,46 +2,127 @@ use std::sync::Arc;
 
 /// Classification of a coercion's round-trip properties.
 ///
-/// Forms a three-element lattice under information loss: Iso ≤ Retraction ≤ Opaque.
-/// Categorically, this classifies the adjunction witness of a fiber morphism in
-/// the Grothendieck fibration over the schema category:
+/// Forms a four-element lattice under information loss, shaped as a
+/// diamond:
 ///
-/// - `Iso`: both unit and counit are identities (isomorphism in the fiber)
-/// - `Retraction`: unit is identity, counit is not (section/retraction pair)
-/// - `Opaque`: no adjoint exists (the complement stores the entire original value)
+/// ```text
+///          Iso
+///         /   \
+///  Retraction   Projection
+///         \   /
+///         Opaque
+/// ```
 ///
-/// Composition follows the lattice product: Iso ∘ Iso = Iso, anything ∘ Opaque = Opaque,
-/// otherwise Retraction.
+/// Categorically, this classifies the adjunction witness of a fiber
+/// morphism in the Grothendieck fibration over the schema category:
+///
+/// - `Iso`: both unit and counit are identities (isomorphism in the
+///   fiber). Complement stores nothing.
+/// - `Retraction`: the forward map has a left inverse
+///   (`inverse(forward(v)) = v`). The forward map is injective
+///   (information-preserving). Complement stores the residual between
+///   the original and the round-tripped value.
+/// - `Projection`: the forward map is a dependent projection from the
+///   total fiber. The result is deterministically re-derivable from
+///   the source data, but no inverse exists that recovers the source
+///   from the result alone. Complement stores nothing for the derived
+///   field because `get` re-derives it; this is the dual of
+///   `Retraction` in the information-loss lattice.
+/// - `Opaque`: no structural relationship between forward and backward
+///   maps. Complement stores the entire original value.
+///
+/// Composition follows the lattice meet (in the quality ordering):
+/// `Iso` is the identity, `Opaque` is the absorber, same-kind composes
+/// idempotently, and cross-kind (`Retraction` ∘ `Projection`) collapses
+/// to `Opaque`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]
 #[non_exhaustive]
 pub enum CoercionClass {
-    /// Isomorphism: both round-trip laws hold. Complement stores nothing for this coercion.
+    /// Isomorphism: both round-trip laws hold. Complement stores nothing
+    /// for this coercion.
     #[default]
     Iso,
-    /// Retraction: `inverse(forward(v)) = v` but `forward(inverse(w)) ≠ w` in general.
-    /// Complement stores the residual between the original and the round-tripped value.
+    /// Retraction: `inverse(forward(v)) = v` but
+    /// `forward(inverse(w)) ≠ w` in general. The forward map is
+    /// injective (information-preserving). Complement stores the
+    /// residual between the original and the round-tripped value.
     Retraction,
-    /// No inverse exists. Complement stores the entire original value.
+    /// Projection: the result is a deterministic function of the source
+    /// fiber, but no inverse recovers the source from the result alone.
+    /// This is the classification for `ComputeField` transforms that
+    /// derive data from child scalar values (the dependent-sum
+    /// projection). Complement stores nothing for the derived field
+    /// because `get` re-derives it deterministically; modifications to
+    /// the derived field in the view are not independently
+    /// round-trippable (analogous to SQL computed columns).
+    ///
+    /// Dual to `Retraction` in the information-loss lattice:
+    /// `Retraction` preserves information forward (left inverse exists),
+    /// `Projection` is re-derivable (no inverse, but deterministic).
+    Projection,
+    /// No inverse exists and no structural re-derivation property holds.
+    /// Complement stores the entire original value.
     Opaque,
 }
 
 impl CoercionClass {
-    /// Compose two coercion classes (lattice product in the information loss ordering).
+    /// Compose two coercion classes (lattice meet in the quality
+    /// ordering, equivalently lattice join in the information-loss
+    /// ordering).
+    ///
+    /// Laws:
+    /// - `Iso` is identity: `Iso.compose(x) = x`
+    /// - `Opaque` absorbs: `Opaque.compose(x) = Opaque`
+    /// - Same-kind is idempotent: `Retraction.compose(Retraction) = Retraction`,
+    ///   `Projection.compose(Projection) = Projection`
+    /// - Cross-kind collapses: `Retraction.compose(Projection) = Opaque`
+    ///   (a retraction followed by a projection, or vice versa, has
+    ///   neither a left inverse nor a re-derivation property)
     #[must_use]
     pub const fn compose(self, other: Self) -> Self {
         match (self, other) {
             (Self::Iso, x) | (x, Self::Iso) => x,
             (Self::Opaque, _) | (_, Self::Opaque) => Self::Opaque,
             (Self::Retraction, Self::Retraction) => Self::Retraction,
+            (Self::Projection, Self::Projection) => Self::Projection,
+            // Cross-kind: retraction composed with projection (or vice
+            // versa) has neither a left inverse nor re-derivability,
+            // so it collapses to Opaque.
+            (Self::Retraction, Self::Projection) | (Self::Projection, Self::Retraction) => {
+                Self::Opaque
+            }
         }
     }
 
     /// Returns `true` if this coercion is lossless (isomorphism).
+    ///
+    /// Only `Iso` is lossless: both round-trip laws hold. `Projection`
+    /// is NOT lossless (the derivation discards source information),
+    /// even though its complement happens to be empty (the derived value
+    /// is re-computable, not stored).
     #[must_use]
     pub const fn is_lossless(self) -> bool {
         matches!(self, Self::Iso)
+    }
+
+    /// Returns `true` if the complement must store data for this
+    /// coercion.
+    ///
+    /// `Iso` and `Projection` both have empty complements:
+    /// - `Iso`: no information lost, nothing to store.
+    /// - `Projection`: the derived value is re-computed by `get`
+    ///   deterministically from the source fiber, so the complement
+    ///   need not store it. (The source data itself survives through
+    ///   the tree structure, not through this coercion's complement.)
+    ///
+    /// `Retraction` and `Opaque` require complement storage:
+    /// - `Retraction`: stores the residual (the counit's failure).
+    /// - `Opaque`: stores the entire original value.
+    #[must_use]
+    pub const fn needs_complement_storage(self) -> bool {
+        matches!(self, Self::Retraction | Self::Opaque)
     }
 }
 
@@ -52,12 +133,28 @@ impl PartialOrd for CoercionClass {
 }
 
 impl Ord for CoercionClass {
+    /// Linear extension of the diamond partial order, reflecting
+    /// increasing lossiness: `Iso < Retraction < Projection < Opaque`.
+    ///
+    /// In the diamond lattice, `Retraction` and `Projection` are
+    /// incomparable (neither implies the other). This total order
+    /// linearizes them by ranking `Retraction` below `Projection`
+    /// because a retraction has a left inverse (the forward map
+    /// preserves all information), while a projection has no inverse
+    /// (though the result is re-derivable). The linearization is
+    /// consistent with `compose`: `compose(a, b) >= max(a, b)` holds
+    /// for all pairs.
+    ///
+    /// This ordering is used by the breaking-change detector: changing
+    /// a coercion from `Retraction` to `Projection` is a downgrade
+    /// (more structural information lost).
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         const fn rank(c: CoercionClass) -> u8 {
             match c {
                 CoercionClass::Iso => 0,
                 CoercionClass::Retraction => 1,
-                CoercionClass::Opaque => 2,
+                CoercionClass::Projection => 2,
+                CoercionClass::Opaque => 3,
             }
         }
         rank(*self).cmp(&rank(*other))
@@ -258,9 +355,10 @@ mod tests {
 
     // --- CoercionClass algebraic law tests ---
 
-    const ALL_CLASSES: [CoercionClass; 3] = [
+    const ALL_CLASSES: [CoercionClass; 4] = [
         CoercionClass::Iso,
         CoercionClass::Retraction,
+        CoercionClass::Projection,
         CoercionClass::Opaque,
     ];
 
@@ -380,5 +478,68 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn needs_complement_storage_consistent_with_lattice() {
+        // Iso and Projection have empty complement; Retraction and Opaque store data.
+        // This matches the diamond lattice: the "upper" pair (Retraction, Opaque)
+        // requires storage; the "lower" pair (Iso) and "re-derivable" (Projection)
+        // do not.
+        assert!(
+            !CoercionClass::Iso.needs_complement_storage(),
+            "Iso: lossless, no storage"
+        );
+        assert!(
+            CoercionClass::Retraction.needs_complement_storage(),
+            "Retraction: stores residual"
+        );
+        assert!(
+            !CoercionClass::Projection.needs_complement_storage(),
+            "Projection: derived value re-computed, no storage"
+        );
+        assert!(
+            CoercionClass::Opaque.needs_complement_storage(),
+            "Opaque: stores entire original"
+        );
+    }
+
+    #[test]
+    fn projection_compose_laws() {
+        // Projection-specific composition laws that verify the diamond
+        // lattice structure.
+
+        // Projection is idempotent.
+        assert_eq!(
+            CoercionClass::Projection.compose(CoercionClass::Projection),
+            CoercionClass::Projection,
+            "Projection . Projection = Projection (projections compose)"
+        );
+
+        // Cross-kind composition collapses to Opaque: a retraction
+        // (left inverse) composed with a projection (no inverse) has
+        // neither property.
+        assert_eq!(
+            CoercionClass::Retraction.compose(CoercionClass::Projection),
+            CoercionClass::Opaque,
+            "Retraction . Projection = Opaque (diamond lattice meet)"
+        );
+        assert_eq!(
+            CoercionClass::Projection.compose(CoercionClass::Retraction),
+            CoercionClass::Opaque,
+            "Projection . Retraction = Opaque (commutativity of meet)"
+        );
+
+        // Iso is identity for Projection.
+        assert_eq!(
+            CoercionClass::Iso.compose(CoercionClass::Projection),
+            CoercionClass::Projection,
+        );
+
+        // Opaque absorbs Projection.
+        assert_eq!(
+            CoercionClass::Opaque.compose(CoercionClass::Projection),
+            CoercionClass::Opaque,
+        );
     }
 }

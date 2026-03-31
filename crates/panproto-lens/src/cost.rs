@@ -28,7 +28,11 @@ pub fn complement_cost(complement: &ComplementConstructor) -> f64 {
         ComplementConstructor::NatTransKernel { .. } => 10.0,
         ComplementConstructor::AddedElement { .. } => 0.5,
         ComplementConstructor::CoercedSortData { class, .. } => match class {
-            panproto_gat::CoercionClass::Iso => 0.0,
+            // Iso: lossless, no complement needed.
+            // Projection: derived value is re-computed by `get`, so the
+            // complement stores nothing for it. Cost is zero because the
+            // field is deterministically re-derivable from the source fiber.
+            panproto_gat::CoercionClass::Iso | panproto_gat::CoercionClass::Projection => 0.0,
             panproto_gat::CoercionClass::Retraction => 1.0,
             panproto_gat::CoercionClass::Opaque | _ => f64::INFINITY,
         },

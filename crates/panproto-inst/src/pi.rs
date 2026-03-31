@@ -231,7 +231,8 @@ pub fn wtype_pi(
         }
         // Apply field transforms (coercions) to the Pi node.
         if let Some(transforms) = migration.field_transforms.get(&node.anchor) {
-            crate::wtype::apply_field_transforms(&mut new_node, transforms);
+            let scalars = crate::wtype::collect_scalar_child_values(instance, id);
+            crate::wtype::apply_field_transforms(&mut new_node, transforms, &scalars);
         }
         new_nodes.insert(id, new_node);
     }

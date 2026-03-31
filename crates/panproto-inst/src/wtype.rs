@@ -133,16 +133,38 @@ pub enum FieldTransform {
         /// The transform to apply at the resolved path.
         inner: Box<Self>,
     },
-    /// Compute a field value from an expression with access to ALL `extra_fields`.
+    /// Compute a field value from an expression with access to the full
+    /// fiber over the parent vertex.
     ///
     /// Unlike `ApplyExpr` which binds a single field, `ComputeField` binds
-    /// all `extra_fields` (and nested attrs) as variables, evaluates the
-    /// expression, and stores the result in the target field.
+    /// all `extra_fields`, nested attrs, AND scalar values from immediate
+    /// child nodes (the dependent-sum projection) as variables, evaluates
+    /// the expression, and stores the result in the target field.
+    ///
+    /// This means `ComputeField` can access any scalar property of the
+    /// parent object, whether it was parsed as an extra field or as a
+    /// schema-defined child vertex (e.g., a string field with a `"format"`
+    /// annotation like `"at-uri"`). Computed results are always written to
+    /// `extra_fields`, making them available to subsequent transforms and
+    /// to `to_json` serialization (where `extra_fields` overwrite child
+    /// values with the same key).
+    ///
+    /// Computed fields are classified by `coercion_class`:
+    /// - `Iso`: the computation is invertible via `inverse`; the lens law
+    ///   `PutGet` holds for modifications to the computed field.
+    /// - `Opaque`: no inverse exists; the complement stores the entire
+    ///   original value. Modifications to the computed field in the view
+    ///   are not independently round-trippable. This is analogous to SQL
+    ///   computed columns: the lens law holds for the independent
+    ///   (non-derived) components of the view, and the derived components
+    ///   are re-computed deterministically.
     ///
     /// This enables template name computation like
     ///   `target_key`: "name",
     ///   `expr`: `(concat "h" (int_to_str attrs.level))`
-    /// which computes "h1", "h2", etc. from the level attribute.
+    /// which computes "h1", "h2", etc. from the level attribute, as well
+    /// as AT-URI decomposition where the `repo` field is a schema-defined
+    /// child vertex.
     ComputeField {
         /// The field to store the computed result in.
         target_key: String,
@@ -204,7 +226,9 @@ impl FieldTransform {
     /// Compute the coercion class of this field transform.
     ///
     /// The class describes the round-trip properties: whether the transform
-    /// is lossless (Iso), has a retraction (Retraction), or is opaque.
+    /// is lossless (`Iso`), has a left inverse (`Retraction`), is a
+    /// deterministic derivation (`Projection`), or has no structural
+    /// round-trip property (`Opaque`).
     #[must_use]
     pub fn coercion_class(&self) -> panproto_gat::CoercionClass {
         match self {
@@ -723,7 +747,7 @@ pub fn wtype_restrict(
     let mut queue: VecDeque<(u32, Option<u32>)> = VecDeque::new();
 
     // Process root: remap, check conditional survival, apply field transforms.
-    let root_node_cloned = prepare_root_node(root_node, migration)?;
+    let root_node_cloned = prepare_root_node(root_node, migration, instance)?;
     new_nodes.insert(instance.root, root_node_cloned);
     surviving_set.insert(instance.root);
     queue.push_back((instance.root, None));
@@ -770,9 +794,12 @@ pub fn wtype_restrict(
                 if let Some(remapped) = migration.vertex_remap.get(&child_node.anchor) {
                     new_node.anchor.clone_from(remapped);
                 }
-                // Apply value-level field transforms if any exist for this vertex
+                // Apply value-level field transforms if any exist for this vertex.
+                // Collect scalar child values from the original instance so that
+                // ComputeField / Case / ApplyExpr can access the full fiber.
                 if let Some(transforms) = migration.field_transforms.get(&child_node.anchor) {
-                    apply_field_transforms(&mut new_node, transforms);
+                    let scalars = collect_scalar_child_values(instance, child_id);
+                    apply_field_transforms(&mut new_node, transforms, &scalars);
                 }
                 new_nodes.insert(child_id, new_node.clone());
 
@@ -829,7 +856,33 @@ pub fn wtype_restrict(
 ///
 /// Called during `wtype_restrict` after a node survives and its anchor
 /// is remapped. Operations are applied in order.
-pub fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
+///
+/// The `child_scalars` parameter provides the dependent-sum projection:
+/// scalar values from the node's immediate child vertices, keyed by edge
+/// name. This extends the expression environment beyond `extra_fields`
+/// to include the full fiber data over the parent vertex in the
+/// Grothendieck fibration. Binding precedence: `extra_fields` override
+/// `child_scalars` on key collision, which is correct because
+/// `extra_fields` may contain values already transformed by prior steps
+/// in the transform sequence.
+///
+/// Computed fields (via `ComputeField`) are derived data in the sense of
+/// dependent projections: they are functionally determined by the source
+/// fiber data. The `CoercionClass` on each `ComputeField` classifies the
+/// round-trip behavior:
+/// - `Iso`: the computation is invertible; `PutGet` holds for
+///   modifications to the computed field (via the `inverse` expression).
+/// - `Opaque`: no inverse exists; the complement stores the entire
+///   original value. Modifications to the computed field in the view
+///   are not independently round-trippable. This is analogous to SQL
+///   computed columns or database views with derived columns. `PutGet`
+///   holds for the independent (non-derived) components of the view,
+///   and derived components are re-computed deterministically.
+pub fn apply_field_transforms(
+    node: &mut Node,
+    transforms: &[FieldTransform],
+    child_scalars: &HashMap<String, Value>,
+) {
     for transform in transforms {
         match transform {
             FieldTransform::RenameField { old_key, new_key } => {
@@ -864,7 +917,17 @@ pub fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
                             ));
                         }
                     }
-                } else if let Some(val) = node.extra_fields.get(key) {
+                } else if let Some(val) = node
+                    .extra_fields
+                    .get(key)
+                    .or_else(|| child_scalars.get(key))
+                {
+                    // Check extra_fields first (may contain a value modified by
+                    // an earlier transform in the sequence), then child_scalars.
+                    // Result is always written to extra_fields regardless of where
+                    // the source was found: in to_json, extra_fields are serialized
+                    // after children, so the transform output is authoritative over
+                    // the original child vertex value.
                     let input = value_to_expr_literal(val);
                     let env =
                         panproto_expr::Env::new().extend(std::sync::Arc::from(key.as_str()), input);
@@ -878,7 +941,7 @@ pub fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
             FieldTransform::ComputeField {
                 target_key, expr, ..
             } => {
-                let env = build_env_from_extra_fields(&node.extra_fields);
+                let env = build_env_with_children(&node.extra_fields, child_scalars);
                 let config = panproto_expr::EvalConfig::default();
                 if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
                     node.extra_fields
@@ -887,8 +950,9 @@ pub fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
             }
             FieldTransform::PathTransform { path, inner } => {
                 if path.is_empty() {
-                    // Empty path = apply directly
-                    apply_field_transforms(node, std::slice::from_ref(inner));
+                    // Empty path = apply directly. PathTransform operates on nested
+                    // extra_fields, not the instance tree, so child_scalars is empty.
+                    apply_field_transforms(node, std::slice::from_ref(inner), &HashMap::new());
                 } else {
                     apply_path_transform(node, path, inner);
                 }
@@ -897,12 +961,15 @@ pub fn apply_field_transforms(node: &mut Node, transforms: &[FieldTransform]) {
                 apply_map_references(node, field, rename_map);
             }
             FieldTransform::Case { branches } => {
-                let env = build_env_from_extra_fields(&node.extra_fields);
+                // Case predicates evaluate against the full fiber (extra_fields +
+                // child scalars) so that branching can depend on schema-defined
+                // scalar child values.
+                let env = build_env_with_children(&node.extra_fields, child_scalars);
                 let config = panproto_expr::EvalConfig::default();
                 for branch in branches {
                     let result = panproto_expr::eval(&branch.predicate, &env, &config);
                     if matches!(result, Ok(panproto_expr::Literal::Bool(true))) {
-                        apply_field_transforms(node, &branch.transforms);
+                        apply_field_transforms(node, &branch.transforms, child_scalars);
                         break;
                     }
                 }
@@ -917,10 +984,12 @@ fn apply_path_transform(node: &mut Node, path: &[String], inner: &FieldTransform
     let first = &path[0];
     if let Some(Value::Unknown(map)) = node.extra_fields.get_mut(first) {
         if path.len() == 1 {
-            // At the target — apply inner transform to this map
+            // At the target — apply inner transform to this map.
+            // PathTransform operates on nested extra_fields, not the
+            // instance tree, so child_scalars is empty.
             let mut temp_node = Node::new(0, "");
             temp_node.extra_fields = std::mem::take(map);
-            apply_field_transforms(&mut temp_node, std::slice::from_ref(inner));
+            apply_field_transforms(&mut temp_node, std::slice::from_ref(inner), &HashMap::new());
             *map = temp_node.extra_fields;
         } else {
             // Recurse deeper — wrap the remaining path in a temporary node
@@ -985,6 +1054,69 @@ fn apply_map_references(
             _ => {}
         }
     }
+}
+
+/// Collect scalar values from a node's immediate children, keyed by edge name.
+///
+/// This is the dependent-sum projection from the total fiber over vertex
+/// `v` in the Grothendieck fibration. In the W-type model, a node at `v`
+/// with children via edges `e_i: v -> w_i` has total fiber
+///
+/// ```text
+/// Fiber(v) = ExtraFields(v) x Product_{i} Fiber(w_i)
+/// ```
+///
+/// This function projects the leaf (scalar) components of the product
+/// into a flat map, making them available to fiber endomorphisms (field
+/// transforms). Only children with a present leaf value are included;
+/// structural children (objects, arrays) are omitted because they are
+/// not representable as flat `Value` entries.
+#[must_use]
+pub fn collect_scalar_child_values(instance: &WInstance, node_id: u32) -> HashMap<String, Value> {
+    let mut result = HashMap::new();
+    for &(parent, child, ref edge) in &instance.arcs {
+        if parent != node_id {
+            continue;
+        }
+        let Some(child_node) = instance.nodes.get(&child) else {
+            continue;
+        };
+        if let Some(crate::value::FieldPresence::Present(val)) = &child_node.value {
+            let field_name = edge.name.as_deref().unwrap_or(&*edge.tgt);
+            result.insert(field_name.to_string(), val.clone());
+        }
+    }
+    result
+}
+
+/// Build an expression evaluation environment from the full fiber over a
+/// vertex: both `extra_fields` and scalar child values.
+///
+/// The binding order is `child_scalars` first, then `extra_fields`. This
+/// ensures that `extra_fields` take precedence on key collision, which
+/// is correct because `extra_fields` may contain values modified by
+/// earlier transforms in the same sequence, and the transform pipeline
+/// must see the most recent values.
+///
+/// Categorically, this constructs the left-biased coproduct injection
+/// `ExtraFields + ChildScalars → Env` where `ExtraFields` has priority:
+/// both maps contribute bindings, but on key collision the `ExtraFields`
+/// value wins. This models the fiber projection
+/// `π : ExtraFields(v) × Π_e Fiber(target(e)) → Env` where
+/// `ExtraFields` carries transform-local state and `ChildScalars`
+/// carries the dependent-sum projection of the structural children.
+#[must_use]
+pub fn build_env_with_children(
+    fields: &HashMap<String, Value>,
+    child_scalars: &HashMap<String, Value>,
+) -> panproto_expr::Env {
+    // Start with child scalars, then overlay extra_fields so that
+    // extra_fields take precedence.
+    let mut combined = child_scalars.clone();
+    for (key, val) in fields {
+        combined.insert(key.clone(), val.clone());
+    }
+    build_env_from_extra_fields(&combined)
 }
 
 /// Build an evaluation environment from a node's `extra_fields`.
@@ -1089,6 +1221,7 @@ pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
 fn prepare_root_node(
     root_node: &Node,
     migration: &CompiledMigration,
+    instance: &WInstance,
 ) -> Result<Node, RestrictError> {
     let mut node = root_node.clone();
     if let Some(remapped) = migration.vertex_remap.get(&root_node.anchor) {
@@ -1105,7 +1238,8 @@ fn prepare_root_node(
         }
     }
     if let Some(transforms) = migration.field_transforms.get(&root_node.anchor) {
-        apply_field_transforms(&mut node, transforms);
+        let scalars = collect_scalar_child_values(instance, root_node.id);
+        apply_field_transforms(&mut node, transforms, &scalars);
     }
     Ok(node)
 }
@@ -1145,8 +1279,11 @@ pub fn wtype_extend(
             continue;
         }
         // Apply field transforms (coercions) to the extended node.
+        // Collect scalar child values from the original instance for the
+        // full fiber projection.
         if let Some(transforms) = migration.field_transforms.get(&node.anchor) {
-            apply_field_transforms(&mut new_node, transforms);
+            let scalars = collect_scalar_child_values(instance, id);
+            apply_field_transforms(&mut new_node, transforms, &scalars);
         }
         new_nodes.insert(id, new_node);
     }
@@ -1783,7 +1920,7 @@ mod tests {
                 new_key: "new_attr".to_string(),
             }),
         };
-        apply_field_transforms(&mut node, &[transform]);
+        apply_field_transforms(&mut node, &[transform], &HashMap::new());
 
         match node.extra_fields.get("attrs") {
             Some(Value::Unknown(map)) => {
@@ -1807,7 +1944,7 @@ mod tests {
                 new_key: "colour".to_string(),
             }),
         };
-        apply_field_transforms(&mut node, &[transform]);
+        apply_field_transforms(&mut node, &[transform], &HashMap::new());
 
         assert!(!node.extra_fields.contains_key("color"));
         assert_eq!(
@@ -1831,7 +1968,7 @@ mod tests {
             field: "parent".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform]);
+        apply_field_transforms(&mut node, &[transform], &HashMap::new());
 
         assert_eq!(
             node.extra_fields.get("parent"),
@@ -1858,7 +1995,7 @@ mod tests {
             field: "parents".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform]);
+        apply_field_transforms(&mut node, &[transform], &HashMap::new());
 
         match node.extra_fields.get("parents") {
             Some(Value::Unknown(map)) => {
@@ -1888,7 +2025,7 @@ mod tests {
             field: "refs".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform]);
+        apply_field_transforms(&mut node, &[transform], &HashMap::new());
 
         match node.extra_fields.get("refs") {
             Some(Value::Unknown(map)) => {
@@ -2124,7 +2261,7 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Opaque,
         };
-        apply_field_transforms(&mut node, &[transform]);
+        apply_field_transforms(&mut node, &[transform], &HashMap::new());
 
         assert_eq!(
             node.extra_fields.get("name"),
@@ -2160,7 +2297,7 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Opaque,
         };
-        apply_field_transforms(&mut node, &[transform]);
+        apply_field_transforms(&mut node, &[transform], &HashMap::new());
 
         assert_eq!(
             node.extra_fields.get("name"),
@@ -2208,11 +2345,484 @@ mod tests {
             ],
         };
 
-        apply_field_transforms(&mut node, &[case]);
+        apply_field_transforms(&mut node, &[case], &HashMap::new());
 
         assert_eq!(
             node.extra_fields.get("name"),
             Some(&Value::Str("h1".into()))
         );
+    }
+
+    // --- Child scalar access tests (panproto/panproto#13) ---
+
+    /// Build a 3-node instance: root object + two string children.
+    fn instance_with_scalar_children() -> (WInstance, HashMap<String, Value>) {
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "body"));
+        nodes.insert(
+            1,
+            Node::new(1, "body.repo").with_value(FieldPresence::Present(Value::Str(
+                "at://did:plc:abc/app.bsky.feed.post/rkey123".into(),
+            ))),
+        );
+        nodes.insert(
+            2,
+            Node::new(2, "body.text")
+                .with_value(FieldPresence::Present(Value::Str("hello world".into()))),
+        );
+
+        let edge_repo = Edge {
+            src: "body".into(),
+            tgt: "body.repo".into(),
+            kind: "prop".into(),
+            name: Some("repo".into()),
+        };
+        let edge_text = Edge {
+            src: "body".into(),
+            tgt: "body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+
+        let arcs = vec![(0, 1, edge_repo), (0, 2, edge_text)];
+        let instance = WInstance::new(nodes, arcs, vec![], 0, "body".into());
+        let scalars = collect_scalar_child_values(&instance, 0);
+        (instance, scalars)
+    }
+
+    #[test]
+    fn compute_field_reads_scalar_child() {
+        // Reproduces panproto/panproto#13: ComputeField should access
+        // string fields stored as child vertices, not just extra_fields.
+        // This unit test verifies the basic access path; the integration
+        // test at_uri_decomposition_end_to_end exercises real Split/Index
+        // expressions for full AT-URI parsing.
+        let (_instance, scalars) = instance_with_scalar_children();
+        let mut node = Node::new(0, "body");
+
+        let expr = panproto_expr::Expr::Var(std::sync::Arc::from("repo"));
+
+        let transform = FieldTransform::ComputeField {
+            target_key: "repo_copy".to_string(),
+            expr,
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+        apply_field_transforms(&mut node, &[transform], &scalars);
+
+        assert_eq!(
+            node.extra_fields.get("repo_copy"),
+            Some(&Value::Str(
+                "at://did:plc:abc/app.bsky.feed.post/rkey123".into()
+            )),
+            "ComputeField should read scalar child value via dependent-sum projection"
+        );
+    }
+
+    #[test]
+    fn apply_expr_on_scalar_child() {
+        let (_instance, scalars) = instance_with_scalar_children();
+        let mut node = Node::new(0, "body");
+
+        // ApplyExpr on "text" (a child scalar): should find it and write
+        // the transformed result to extra_fields.
+        let expr = panproto_expr::Expr::Builtin(
+            panproto_expr::BuiltinOp::Concat,
+            vec![
+                panproto_expr::Expr::Var(std::sync::Arc::from("text")),
+                panproto_expr::Expr::Lit(panproto_expr::Literal::Str("!".into())),
+            ],
+        );
+        let transform = FieldTransform::ApplyExpr {
+            key: "text".to_string(),
+            expr,
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+        apply_field_transforms(&mut node, &[transform], &scalars);
+
+        assert_eq!(
+            node.extra_fields.get("text"),
+            Some(&Value::Str("hello world!".into())),
+            "ApplyExpr should read child scalar and write result to extra_fields"
+        );
+    }
+
+    #[test]
+    fn case_branch_on_scalar_child() {
+        use panproto_expr::{BuiltinOp, Expr, Literal};
+        use std::sync::Arc;
+
+        let (_instance, scalars) = instance_with_scalar_children();
+        let mut node = Node::new(0, "body");
+
+        // Branch: if (contains repo "did:plc") then add field "has_did" = true
+        let case = FieldTransform::Case {
+            branches: vec![CaseBranch {
+                predicate: Expr::builtin(
+                    BuiltinOp::Contains,
+                    vec![
+                        Expr::Var(Arc::from("repo")),
+                        Expr::Lit(Literal::Str("did:plc".into())),
+                    ],
+                ),
+                transforms: vec![FieldTransform::AddField {
+                    key: "has_did".into(),
+                    value: Value::Bool(true),
+                }],
+            }],
+        };
+        apply_field_transforms(&mut node, &[case], &scalars);
+
+        assert_eq!(
+            node.extra_fields.get("has_did"),
+            Some(&Value::Bool(true)),
+            "Case predicate should evaluate against child scalar values"
+        );
+    }
+
+    #[test]
+    fn drop_field_on_extra_field_still_works() {
+        let mut node = Node::new(0, "v");
+        node.extra_fields
+            .insert("keep".into(), Value::Str("yes".into()));
+        node.extra_fields
+            .insert("drop_me".into(), Value::Str("bye".into()));
+
+        let transform = FieldTransform::DropField {
+            key: "drop_me".into(),
+        };
+        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+
+        assert!(node.extra_fields.contains_key("keep"));
+        assert!(!node.extra_fields.contains_key("drop_me"));
+    }
+
+    #[test]
+    fn child_scalars_do_not_override_extra_fields() {
+        // When a key exists in both extra_fields and child_scalars,
+        // extra_fields must take precedence (binding order correctness).
+        let mut node = Node::new(0, "v");
+        node.extra_fields
+            .insert("repo".into(), Value::Str("from_extra_fields".into()));
+
+        let mut child_scalars = HashMap::new();
+        child_scalars.insert("repo".into(), Value::Str("from_child".into()));
+
+        let expr = panproto_expr::Expr::Var(std::sync::Arc::from("repo"));
+        let transform = FieldTransform::ComputeField {
+            target_key: "repo_copy".to_string(),
+            expr,
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+        apply_field_transforms(&mut node, &[transform], &child_scalars);
+
+        assert_eq!(
+            node.extra_fields.get("repo_copy"),
+            Some(&Value::Str("from_extra_fields".into())),
+            "extra_fields must take precedence over child_scalars"
+        );
+    }
+
+    #[test]
+    fn collect_scalar_child_values_completeness() {
+        let (instance, scalars) = instance_with_scalar_children();
+        assert_eq!(scalars.len(), 2, "should collect both scalar children");
+        assert_eq!(
+            scalars.get("repo"),
+            Some(&Value::Str(
+                "at://did:plc:abc/app.bsky.feed.post/rkey123".into()
+            ))
+        );
+        assert_eq!(scalars.get("text"), Some(&Value::Str("hello world".into())));
+
+        // Root node has no parent, so collecting from a non-existent parent returns empty
+        assert!(collect_scalar_child_values(&instance, 99).is_empty());
+    }
+
+    #[test]
+    fn env_monotonicity() {
+        // build_env_with_children must bind every key that
+        // build_env_from_extra_fields binds, with the same value.
+        let mut extra = HashMap::new();
+        extra.insert("alpha".into(), Value::Str("a".into()));
+        extra.insert("beta".into(), Value::Int(42));
+
+        let mut children = HashMap::new();
+        children.insert("gamma".into(), Value::Str("g".into()));
+        children.insert("delta".into(), Value::Bool(true));
+
+        let env_base = build_env_from_extra_fields(&extra);
+        let env_extended = build_env_with_children(&extra, &children);
+
+        // Every binding from base must be present in extended
+        let config = panproto_expr::EvalConfig::default();
+        for key in ["alpha", "beta"] {
+            let var = panproto_expr::Expr::Var(std::sync::Arc::from(key));
+            let base_result = panproto_expr::eval(&var, &env_base, &config).ok();
+            let ext_result = panproto_expr::eval(&var, &env_extended, &config).ok();
+            assert_eq!(
+                base_result, ext_result,
+                "binding for {key} must match between base and extended env"
+            );
+        }
+
+        // Extended env should also have child bindings
+        for key in ["gamma", "delta"] {
+            let var = panproto_expr::Expr::Var(std::sync::Arc::from(key));
+            assert!(
+                panproto_expr::eval(&var, &env_extended, &config).is_ok(),
+                "extended env should bind child scalar {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn compute_field_deterministic() {
+        // Applying the same ComputeField twice produces the same result
+        // (fiber endomorphism idempotence when source data is unchanged).
+        let (_instance, scalars) = instance_with_scalar_children();
+        let expr = panproto_expr::Expr::Var(std::sync::Arc::from("repo"));
+        let transform = FieldTransform::ComputeField {
+            target_key: "derived".to_string(),
+            expr,
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+
+        let mut node1 = Node::new(0, "body");
+        apply_field_transforms(&mut node1, std::slice::from_ref(&transform), &scalars);
+        let result1 = node1.extra_fields.get("derived").cloned();
+
+        let mut node2 = Node::new(0, "body");
+        apply_field_transforms(&mut node2, std::slice::from_ref(&transform), &scalars);
+        let result2 = node2.extra_fields.get("derived").cloned();
+
+        assert_eq!(result1, result2, "ComputeField must be deterministic");
+    }
+
+    // --- Property-based tests ---
+
+    #[cfg(test)]
+    #[allow(clippy::unwrap_used)]
+    mod property {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Generate a random schema + instance with N scalar children
+        /// under a root object node.
+        fn arb_instance_with_scalars()
+        -> impl Strategy<Value = (WInstance, HashMap<String, Value>, Vec<String>)> {
+            (1..=5usize).prop_flat_map(|n| {
+                prop::collection::vec("[a-z]{1,8}".prop_map(String::from), n..=n).prop_flat_map(
+                    move |values| {
+                        prop::collection::vec("[a-z]{1,6}".prop_map(String::from), n..=n).prop_map(
+                            move |names| {
+                                let values = values.clone();
+                                // Deduplicate names
+                                let mut seen = std::collections::HashSet::new();
+                                let deduped: Vec<String> = names
+                                    .iter()
+                                    .map(|name| {
+                                        let mut candidate = name.clone();
+                                        let mut i = 0;
+                                        while seen.contains(&candidate) {
+                                            candidate = format!("{name}{i}");
+                                            i += 1;
+                                        }
+                                        seen.insert(candidate.clone());
+                                        candidate
+                                    })
+                                    .collect();
+
+                                let mut nodes = HashMap::new();
+                                nodes.insert(0, Node::new(0, "root"));
+
+                                let mut arcs = Vec::new();
+                                for (i, (name, val)) in
+                                    deduped.iter().zip(values.iter()).enumerate()
+                                {
+                                    let nid = u32::try_from(i + 1).unwrap();
+                                    let anchor = format!("root.{name}");
+                                    nodes.insert(
+                                        nid,
+                                        Node::new(nid, anchor.as_str()).with_value(
+                                            FieldPresence::Present(Value::Str(val.clone())),
+                                        ),
+                                    );
+                                    arcs.push((
+                                        0,
+                                        nid,
+                                        Edge {
+                                            src: "root".into(),
+                                            tgt: Name::from(anchor.as_str()),
+                                            kind: "prop".into(),
+                                            name: Some(Name::from(name.as_str())),
+                                        },
+                                    ));
+                                }
+
+                                let instance =
+                                    WInstance::new(nodes, arcs, vec![], 0, "root".into());
+                                let scalars = collect_scalar_child_values(&instance, 0);
+                                (instance, scalars, deduped)
+                            },
+                        )
+                    },
+                )
+            })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(128))]
+
+            #[test]
+            fn prop_child_scalar_collection_complete(
+                (_instance, scalars, names) in arb_instance_with_scalars()
+            ) {
+                // Every child name must appear in the scalar collection.
+                for name in &names {
+                    prop_assert!(
+                        scalars.contains_key(name),
+                        "child scalar {name} missing from collection"
+                    );
+                }
+                prop_assert_eq!(
+                    scalars.len(), names.len(),
+                    "scalar count must match child count"
+                );
+            }
+
+            #[test]
+            fn prop_compute_field_reads_any_child(
+                (_instance, scalars, names) in arb_instance_with_scalars()
+            ) {
+                // ComputeField should be able to read any child scalar by name.
+                for name in &names {
+                    let expr = panproto_expr::Expr::Var(std::sync::Arc::from(name.as_str()));
+                    let transform = FieldTransform::ComputeField {
+                        target_key: format!("{name}_copy"),
+                        expr,
+                        inverse: None,
+                        coercion_class: panproto_gat::CoercionClass::Projection,
+                    };
+                    let mut node = Node::new(0, "root");
+                    apply_field_transforms(&mut node, &[transform], &scalars);
+                    let expected = scalars.get(name);
+                    let actual = node.extra_fields.get(&format!("{name}_copy"));
+                    prop_assert_eq!(
+                        actual, expected,
+                        "ComputeField should read child scalar"
+                    );
+                }
+            }
+
+            #[test]
+            fn prop_env_monotonicity(
+                (_instance, scalars, _names) in arb_instance_with_scalars()
+            ) {
+                // Adding child_scalars must not remove or change any existing
+                // extra_field binding. (Monotonicity of environment extension.)
+                let mut extra = HashMap::new();
+                extra.insert("sentinel".into(), Value::Str("sentinel_val".into()));
+
+                let env_base = build_env_from_extra_fields(&extra);
+                let env_extended = build_env_with_children(&extra, &scalars);
+
+                let var = panproto_expr::Expr::Var(std::sync::Arc::from("sentinel"));
+                let config = panproto_expr::EvalConfig::default();
+                let base_result = panproto_expr::eval(&var, &env_base, &config).ok();
+                let ext_result = panproto_expr::eval(&var, &env_extended, &config).ok();
+                prop_assert_eq!(
+                    base_result, ext_result,
+                    "existing extra_field binding must be preserved"
+                );
+            }
+
+            #[test]
+            fn prop_identity_restrict_preserves_all_values(
+                (instance, _scalars, _names) in arb_instance_with_scalars()
+            ) {
+                // Identity migration with empty field_transforms: passing
+                // child_scalars must not corrupt the instance.
+                use smallvec::SmallVec;
+
+                let mut vertices = HashMap::new();
+                let mut edges_map = HashMap::new();
+                let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+                let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+                let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
+
+                for node in instance.nodes.values() {
+                    vertices.insert(
+                        node.anchor.clone(),
+                        panproto_schema::Vertex {
+                            id: node.anchor.clone(),
+                            kind: if node.value.is_some() { "string".into() } else { "object".into() },
+                            nsid: None,
+                        },
+                    );
+                }
+                for (p, c, e) in &instance.arcs {
+                    let _ = p;
+                    let _ = c;
+                    edges_map.insert(e.clone(), e.kind.clone());
+                    outgoing.entry(e.src.clone()).or_default().push(e.clone());
+                    incoming.entry(e.tgt.clone()).or_default().push(e.clone());
+                    between.entry((e.src.clone(), e.tgt.clone())).or_default().push(e.clone());
+                }
+
+                let schema = panproto_schema::Schema {
+                    protocol: "test".into(),
+                    vertices,
+                    edges: edges_map,
+                    hyper_edges: HashMap::new(),
+                    constraints: HashMap::new(),
+                    required: HashMap::new(),
+                    nsids: HashMap::new(),
+                    variants: HashMap::new(),
+                    orderings: HashMap::new(),
+                    recursion_points: HashMap::new(),
+                    spans: HashMap::new(),
+                    usage_modes: HashMap::new(),
+                    nominal: HashMap::new(),
+                    coercions: HashMap::new(),
+                    mergers: HashMap::new(),
+                    defaults: HashMap::new(),
+                    policies: HashMap::new(),
+                    outgoing,
+                    incoming,
+                    between,
+                };
+
+                let surviving_verts = schema.vertices.keys().cloned().collect();
+                let surviving_edges = schema.edges.keys().cloned().collect();
+                let migration = CompiledMigration {
+                    surviving_verts,
+                    surviving_edges,
+                    vertex_remap: HashMap::new(),
+                    edge_remap: HashMap::new(),
+                    resolver: HashMap::new(),
+                    hyper_resolver: HashMap::new(),
+                    field_transforms: HashMap::new(),
+                    conditional_survival: HashMap::new(),
+                };
+
+                let result = wtype_restrict(&instance, &schema, &schema, &migration);
+                prop_assert!(result.is_ok(), "identity restrict should succeed");
+                let restricted = result.unwrap();
+                prop_assert_eq!(
+                    restricted.node_count(), instance.node_count(),
+                    "identity restrict must preserve node count"
+                );
+                for (&id, node) in &instance.nodes {
+                    let r_node = restricted.nodes.get(&id).unwrap();
+                    prop_assert_eq!(&node.anchor, &r_node.anchor);
+                    prop_assert_eq!(&node.value, &r_node.value);
+                    prop_assert_eq!(&node.extra_fields, &r_node.extra_fields);
+                }
+            }
+        }
     }
 }

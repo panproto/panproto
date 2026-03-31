@@ -88,6 +88,7 @@ pub use validate::validate_wtype;
 pub use value::{FieldPresence, Value};
 pub use wtype::{
     CaseBranch, CompiledMigration, FieldTransform, WInstance, ancestor_contraction,
-    anchor_surviving, build_env_from_extra_fields, expr_literal_to_value, reconstruct_fans,
-    resolve_edge, value_to_expr_literal, wtype_extend, wtype_restrict,
+    anchor_surviving, build_env_from_extra_fields, build_env_with_children,
+    collect_scalar_child_values, expr_literal_to_value, reconstruct_fans, resolve_edge,
+    value_to_expr_literal, wtype_extend, wtype_restrict,
 };

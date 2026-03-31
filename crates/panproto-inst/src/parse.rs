@@ -284,7 +284,12 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
         }
     }
 
-    // Add extra fields
+    // Add extra fields. These are serialized AFTER children: when both
+    // contain the same key, extra_fields take precedence. This is by
+    // design: field transforms (`ComputeField` deriving from child
+    // scalars, `ApplyExpr` transforming a child scalar value) write
+    // results to extra_fields, and the transform output must be
+    // authoritative over the original child value.
     for (key, val) in &node.extra_fields {
         map.insert(key.clone(), value_to_json(val));
     }

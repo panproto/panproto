@@ -214,6 +214,13 @@ fn coerced_sort_spec(
             ComplementKind::DataCaptured,
             format!("Retraction coercion on sort '{sort}' ({count} vertices): residual captured."),
         ),
+        panproto_gat::CoercionClass::Projection => (
+            ComplementKind::Empty,
+            format!(
+                "Projection coercion on sort '{sort}' ({count} vertices): \
+                 derived values re-computed by get, no complement storage needed."
+            ),
+        ),
         panproto_gat::CoercionClass::Opaque | _ => (
             ComplementKind::DataCaptured,
             format!(
@@ -224,14 +231,19 @@ fn coerced_sort_spec(
     ComplementSpec {
         kind,
         forward_defaults: vec![],
-        captured_data: if class.is_lossless() {
-            vec![]
-        } else {
+        // Only coercions that need complement storage (Retraction, Opaque)
+        // produce captured data. Iso stores nothing (lossless). Projection
+        // stores nothing (the derived value is re-computed by `get`
+        // deterministically from the source fiber; the source data itself
+        // survives via the tree structure's complement, not this coercion's).
+        captured_data: if class.needs_complement_storage() {
             vec![CapturedField {
                 element_name: sort.clone(),
                 element_kind: "coerced_sort".into(),
                 description: desc.clone(),
             }]
+        } else {
+            vec![]
         },
         summary: desc,
     }

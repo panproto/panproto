@@ -14,6 +14,7 @@ This is Level 0 of the panproto architecture: the only component implemented dir
 | `Theory` | Named collection of sorts, operations, equations, directed equations, and conflict policies |
 | `resolve_theory` | Resolve a theory by name from a registry |
 | `Sort` / `SortParam` / `SortKind` | Type declarations with kind classification (Structural, Val, Coercion, Merger) |
+| `CoercionClass` | Diamond lattice classifying coercion round-trip properties: `Iso`, `Retraction`, `Projection`, `Opaque` |
 | `ValueKind` | Primitive value kinds: Bool, Int, Float, Str, Bytes, Token, Null, Any |
 | `Operation` | Term constructor with typed inputs and outputs |
 | `Equation` / `Term` | Judgemental equalities between terms |

@@ -862,11 +862,20 @@ impl EditLens {
     }
 
     /// Remap a node's anchor and apply field transforms from the compiled migration.
+    ///
+    /// Note: this operates on an individual node without instance context,
+    /// so child scalar values are unavailable. `ComputeField` transforms that
+    /// read child scalars will only see `extra_fields` here. For full fiber
+    /// access, use the restrict/extend pipeline instead.
     fn remap_and_transform_node(&self, node: &panproto_inst::Node) -> panproto_inst::Node {
         let mut remapped = node.clone();
         // Apply field transforms if any exist for this source anchor.
         if let Some(transforms) = self.compiled.field_transforms.get(&node.anchor) {
-            panproto_inst::wtype::apply_field_transforms(&mut remapped, transforms);
+            panproto_inst::wtype::apply_field_transforms(
+                &mut remapped,
+                transforms,
+                &std::collections::HashMap::new(),
+            );
         }
         remapped.anchor = self.remap_anchor_forward(&node.anchor);
         remapped

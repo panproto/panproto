@@ -515,6 +515,110 @@ mod tests {
                     "projection lens should satisfy all laws",
                 );
             }
+
+            /// Verify GetPut holds when ComputeField transforms access
+            /// child scalar values. This tests the formal property that
+            /// the complement mechanism correctly handles computed
+            /// extra_fields derived from the dependent-sum projection.
+            ///
+            /// The correctness argument: ComputeField writes derived
+            /// data to extra_fields. The complement captures
+            /// `original_extra_fields` (pre-transform), which does NOT
+            /// contain the computed field. `put` restores
+            /// `original_extra_fields`, discarding the computed field.
+            /// Child scalar nodes survive via tree structure. So GetPut
+            /// holds: the restored instance equals the original.
+            #[test]
+            fn identity_lens_with_compute_field_satisfies_getput(
+                (lens, instance) in arb_identity_lens_with_compute_field()
+            ) {
+                prop_assert!(
+                    check_get_put(&lens, &instance).is_ok(),
+                    "identity lens with ComputeField should satisfy GetPut",
+                );
+            }
+        }
+
+        /// Generate an identity lens scenario WITH a `ComputeField` that
+        /// copies a child scalar to a new key. This tests that the
+        /// complement mechanism handles the new computed `extra_fields`
+        /// correctly.
+        fn arb_identity_lens_with_compute_field() -> impl Strategy<Value = (Lens, WInstance)> {
+            (2..=4usize).prop_flat_map(|n_children| {
+                prop::collection::vec("[a-z]{1,8}".prop_map(String::from), n_children..=n_children)
+                    .prop_map(move |values| {
+                        let root_name = "root";
+                        let child_names: Vec<String> =
+                            (0..n_children).map(|i| format!("child{i}")).collect();
+
+                        let mut vert_specs: Vec<(String, String)> =
+                            vec![(root_name.to_owned(), "object".to_owned())];
+                        let mut edges = Vec::new();
+                        for name in &child_names {
+                            vert_specs.push((name.clone(), "string".to_owned()));
+                            edges.push(Edge {
+                                src: root_name.into(),
+                                tgt: Name::from(name.as_str()),
+                                kind: "prop".into(),
+                                name: Some(Name::from(name.as_str())),
+                            });
+                        }
+                        let vert_refs: Vec<(&str, &str)> = vert_specs
+                            .iter()
+                            .map(|(a, b)| (a.as_str(), b.as_str()))
+                            .collect();
+                        let schema = make_schema(&vert_refs, &edges);
+
+                        let mut nodes = HashMap::new();
+                        nodes.insert(0, Node::new(0, root_name));
+                        for (i, val) in values.iter().enumerate() {
+                            let node_id = u32::try_from(i + 1).unwrap();
+                            nodes.insert(
+                                node_id,
+                                Node::new(node_id, child_names[i].as_str())
+                                    .with_value(FieldPresence::Present(Value::Str(val.clone()))),
+                            );
+                        }
+                        let arcs: Vec<(u32, u32, Edge)> = edges
+                            .iter()
+                            .enumerate()
+                            .map(|(i, e)| (0, u32::try_from(i + 1).unwrap(), e.clone()))
+                            .collect();
+                        let instance = WInstance::new(nodes, arcs, vec![], 0, root_name.into());
+
+                        // Add a ComputeField that copies child0 to a new key.
+                        // This exercises the child scalar access path.
+                        let compute = panproto_inst::FieldTransform::ComputeField {
+                            target_key: "derived_from_child0".into(),
+                            expr: panproto_expr::Expr::Var(std::sync::Arc::from("child0")),
+                            inverse: None,
+                            coercion_class: panproto_gat::CoercionClass::Projection,
+                        };
+
+                        let mut field_transforms = HashMap::new();
+                        field_transforms.insert(Name::from(root_name), vec![compute]);
+
+                        let surviving_verts: HashSet<Name> =
+                            schema.vertices.keys().cloned().collect();
+                        let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
+                        let lens = Lens {
+                            compiled: CompiledMigration {
+                                surviving_verts,
+                                surviving_edges,
+                                vertex_remap: HashMap::new(),
+                                edge_remap: HashMap::new(),
+                                resolver: HashMap::new(),
+                                hyper_resolver: HashMap::new(),
+                                field_transforms,
+                                conditional_survival: HashMap::new(),
+                            },
+                            src_schema: schema.clone(),
+                            tgt_schema: schema,
+                        };
+
+                        (lens, instance)
+                    })
+            })
         }
     }
 }

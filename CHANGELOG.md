@@ -4,6 +4,24 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-03-31
+
+### Added
+
+- **panproto-gat**: `CoercionClass::Projection` variant for classifying deterministic derivations from the total fiber (dependent-sum projections). Forms a diamond lattice with `Iso`, `Retraction`, and `Opaque`. Complement stores nothing for projections because `get` re-derives the value deterministically from the source fiber.
+- **panproto-gat**: `CoercionClass::needs_complement_storage()` predicate distinguishing "lossless" (`is_lossless`, true only for `Iso`) from "empty complement" (true for `Iso` and `Projection`). `Retraction` and `Opaque` require complement storage.
+- **panproto-inst**: `collect_scalar_child_values()` computes the dependent-sum projection from a node's total fiber, collecting scalar values from immediate child vertices keyed by edge name.
+- **panproto-inst**: `build_env_with_children()` constructs the expression evaluation environment from the full fiber over a vertex (extra_fields and child scalar values), with extra_fields taking precedence on key collision.
+- **panproto-inst**: `apply_field_transforms` now accepts child scalar values so that `ComputeField`, `ApplyExpr`, and `Case` transforms can access schema-defined scalar child vertices (not just `extra_fields`). This fixes panproto/panproto#13: `ComputeField` transforms can now decompose AT-URI fields and other format-annotated string properties stored as child vertices.
+- **panproto-inst**: property-based tests for child scalar collection completeness, environment monotonicity, `ComputeField` determinism, and identity restrict preservation.
+- **panproto-lens**: property-based test verifying `GetPut` lens law holds when `ComputeField` transforms access child scalar values via the dependent-sum projection.
+- **panproto-lens**: `Projection` complement handling: `ComplementKind::Empty` (re-derivable), cost 0.0, no captured data.
+- **integration**: `scalar_field_transforms.rs` with end-to-end tests for AT-URI decomposition via `Split`/`Index` expressions, multiple scalar transform composition, identity roundtrip, and property-based roundtrip verification.
+
+### Fixed
+
+- **panproto-inst**: `ComputeField`, `ApplyExpr`, and `Case` field transforms now access scalar values from schema-defined child vertices, not just `extra_fields`. Previously, string fields with format annotations (e.g., `"format": "at-uri"`) were stored as child vertices by `parse_json` and were invisible to field transforms, causing transforms like AT-URI decomposition to silently produce no output. (panproto/panproto#13)
+
 ## [0.21.0] - 2026-03-29
 
 ### Added
