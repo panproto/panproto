@@ -108,6 +108,19 @@ pub enum ComplementConstructor {
     },
     /// Composite complement from a chain.
     Composite(Vec<Self>),
+    /// Scoped complement: the inner complement is tracked per-element
+    /// when the focus vertex is reached via an array (item) edge.
+    ///
+    /// For prop edges (single focus), the inner complement is applied once.
+    /// For item edges (traversal), a list of inner complements is built,
+    /// one per array element. This is the dependent product in the slice
+    /// topos: `C(s) = Π_{i : elements(s)} C_inner(element_i)`.
+    Scoped {
+        /// The focus vertex name.
+        focus: Name,
+        /// The inner complement constructor.
+        inner: Box<Self>,
+    },
 }
 
 /// A protolens: a dependent function from schemas to lenses.
@@ -1076,6 +1089,99 @@ pub mod elementary {
                 transform: TheoryTransform::DropDirectedEquation(Arc::clone(&arc)),
             },
             complement_constructor: ComplementConstructor::Empty,
+        }
+    }
+
+    /// `η : Id ⟹ RenameEdgeName(src, tgt, old, new)` — rename a JSON
+    /// property key (edge label) without changing the theory structure.
+    ///
+    /// This is a fiber-level natural isomorphism in the Grothendieck
+    /// fibration: the theory and schema graph structure are unchanged,
+    /// only the `name` attribute on the edge between `src_sort` and
+    /// `tgt_sort` is relabeled. Always classified as `Iso` (empty
+    /// complement, bijective relabeling).
+    #[must_use]
+    pub fn rename_edge_name(
+        src_sort: impl Into<Name>,
+        tgt_sort: impl Into<Name>,
+        old_name: impl Into<Name>,
+        new_name: impl Into<Name>,
+    ) -> Protolens {
+        let src_sort = src_sort.into();
+        let tgt_sort = tgt_sort.into();
+        let old_name = old_name.into();
+        let new_name = new_name.into();
+        let src_arc = name_arc_clone(&src_sort);
+        let tgt_arc = name_arc_clone(&tgt_sort);
+        let old_arc = name_arc_clone(&old_name);
+        let new_arc = name_arc_clone(&new_name);
+        Protolens {
+            name: Name::from(format!("rename_edge_{old_name}_{new_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::All(vec![
+                    TheoryConstraint::HasSort(Arc::clone(&src_arc)),
+                    TheoryConstraint::HasSort(Arc::clone(&tgt_arc)),
+                ]),
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("rename_edge_{old_name}_{new_name}")),
+                precondition: TheoryConstraint::All(vec![
+                    TheoryConstraint::HasSort(Arc::clone(&src_arc)),
+                    TheoryConstraint::HasSort(Arc::clone(&tgt_arc)),
+                ]),
+                transform: TheoryTransform::RenameEdgeName {
+                    src_sort: src_arc,
+                    tgt_sort: tgt_arc,
+                    old_name: old_arc,
+                    new_name: new_arc,
+                },
+            },
+            complement_constructor: ComplementConstructor::Empty,
+        }
+    }
+
+    /// `η : Id ⟹ Scope(focus, inner)` — apply a protolens within the
+    /// sub-schema rooted at the focus vertex.
+    ///
+    /// Categorically, this is the left Kan extension of the inner
+    /// protolens along the inclusion `ι : Sub(S, focus) ↪ S`.
+    ///
+    /// At the instance level, the optic class depends on the edge kind
+    /// connecting the parent to the focus vertex:
+    ///   - `prop` edge → Lens (apply once, single-element focus)
+    ///   - `item` edge → Traversal (apply per array element)
+    ///   - `variant` edge → Prism (apply if variant present)
+    ///
+    /// The complement is indexed by the focus: for traversals (item edges),
+    /// a list of per-element inner complements is built.
+    #[must_use]
+    pub fn scoped(focus: impl Into<Name>, inner: Protolens) -> Protolens {
+        let focus = focus.into();
+        let focus_arc = name_arc_clone(&focus);
+        let inner_name = inner.name;
+        let inner_transform = inner.target.transform;
+        let inner_complement = inner.complement_constructor;
+        Protolens {
+            name: Name::from(format!("scoped_{focus}_{inner_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::HasSort(Arc::clone(&focus_arc)),
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("scope_{focus}")),
+                precondition: TheoryConstraint::HasSort(Arc::clone(&focus_arc)),
+                transform: TheoryTransform::ScopedTransform {
+                    focus: focus_arc,
+                    inner: Box::new(inner_transform),
+                },
+            },
+            complement_constructor: ComplementConstructor::Scoped {
+                focus,
+                inner: Box::new(inner_complement),
+            },
         }
     }
 }
