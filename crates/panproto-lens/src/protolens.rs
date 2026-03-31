@@ -819,9 +819,10 @@ pub mod elementary {
             target: TheoryEndofunctor {
                 name: Arc::from(&*format!("add_{sort_name}")),
                 precondition: TheoryConstraint::Unconstrained,
-                // Use sort_name as the theory sort name — this maps to
-                // the vertex ID in apply_theory_transform_to_schema.
-                transform: TheoryTransform::AddSort(Sort::simple(name_arc_clone(&sort_name))),
+                transform: TheoryTransform::AddSort {
+                    sort: Sort::simple(name_arc_clone(&sort_name)),
+                    vertex_kind: Some(Arc::from(&*vertex_kind)),
+                },
             },
             complement_constructor: ComplementConstructor::AddedElement {
                 element_name: sort_name,
@@ -1228,22 +1229,28 @@ fn apply_theory_transform_to_schema(
         }
         TheoryTransform::RenameOp { old, new } => Ok(apply_rename_op_to_schema(schema, old, new)),
         TheoryTransform::DropSort(name) => Ok(apply_drop_sort_from_schema(schema, name)),
-        TheoryTransform::AddSort(sort) => {
+        TheoryTransform::AddSort { sort, vertex_kind } => {
             let mut new_schema = schema.clone();
+            let kind = vertex_kind
+                .as_ref()
+                .map_or_else(|| sort.default_vertex_kind(), Arc::clone);
             let vertex = Vertex {
                 id: Name::from(&*sort.name),
-                kind: Name::from(&*sort.name),
+                kind: Name::from(&*kind),
                 nsid: None,
             };
             new_schema.vertices.insert(Name::from(&*sort.name), vertex);
             Ok(new_schema)
         }
-        TheoryTransform::AddSortWithDefault { sort, default_expr } => {
+        TheoryTransform::AddSortWithDefault { sort, vertex_kind, default_expr } => {
             let mut new_schema = schema.clone();
             let name = Name::from(&*sort.name);
+            let kind = vertex_kind
+                .as_ref()
+                .map_or_else(|| sort.default_vertex_kind(), Arc::clone);
             let vertex = Vertex {
                 id: name.clone(),
-                kind: name.clone(),
+                kind: Name::from(&*kind),
                 nsid: None,
             };
             new_schema.vertices.insert(name.clone(), vertex);
