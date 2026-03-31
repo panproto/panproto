@@ -91,6 +91,7 @@ export interface NestFieldStep {
   readonly name: string;
   readonly intermediate: string;
   readonly kind: string;
+  readonly target?: string;
 }
 
 /** Rename an edge label (JSON property key) without changing sorts. */

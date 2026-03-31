@@ -317,17 +317,25 @@ impl PyProtolensChain {
 // Combinator functions
 // ---------------------------------------------------------------------------
 
-/// Build a pipeline from combinator step dicts.
+/// Rename a field's JSON property key.
 ///
-/// Each step is a dict with a ``"step_type"`` key. Supported types:
-/// ``rename_field``, ``remove_field``, ``add_field``, ``hoist_field``,
-/// ``rename_sort``, ``drop_sort``, ``add_sort``.
+/// Parameters
+/// ----------
+/// parent : str
+///     The parent vertex ID.
+/// field : str
+///     The field's vertex ID (target of the edge from parent).
+/// `old_name` : str
+///     The current edge label (JSON property key).
+/// `new_name` : str
+///     The new edge label.
 #[pyfunction]
-pub fn rename_field(parent: &str, old_name: &str, new_name: &str) -> PyProtolensChain {
+pub fn rename_field(parent: &str, field: &str, old_name: &str, new_name: &str) -> PyProtolensChain {
     use panproto_core::gat::Name;
     PyProtolensChain {
         inner: Arc::new(lens::combinators::rename_field(
             Name::from(parent),
+            Name::from(field),
             Name::from(old_name),
             Name::from(new_name),
         )),

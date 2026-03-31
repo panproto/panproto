@@ -14,7 +14,7 @@ import { WasmError } from './types.js';
 import { WasmHandle, createHandle } from './wasm.js';
 import { packToWasm, unpackFromWasm } from './msgpack.js';
 import type { BuiltSchema } from './schema.js';
-import type { ComplementSpec, PipelineStep } from './protolens.js';
+import type { ComplementSpec, NestFieldStep, PipelineStep } from './protolens.js';
 
 // ---------------------------------------------------------------------------
 // ProtolensChainHandle — schema-independent lens family
@@ -334,8 +334,11 @@ export class PipelineBuilder {
   }
 
   /** Nest a field under a new intermediate vertex. */
-  nestField(parent: string, child: string, intermediate: string, kind: string): this {
-    this.#steps.push({ step_type: 'nest_field', parent, name: child, intermediate, kind });
+  nestField(parent: string, child: string, intermediate: string, kind: string, edgeKind?: string): this {
+    this.#steps.push({
+      step_type: 'nest_field', parent, name: child, intermediate, kind,
+      target: edgeKind ?? child,
+    } as NestFieldStep);
     return this;
   }
 

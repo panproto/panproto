@@ -3590,8 +3590,11 @@ fn build_chain_from_step_spec(spec: &ProtolensStepSpec) -> Result<lens::Protolen
         }
         // Derived combinators return ProtolensChains directly.
         "rename_field" => {
+            // name = old edge label (also used as field vertex ID),
+            // target = new edge label
             return Ok(lens::combinators::rename_field(
                 Name::from(spec.parent.as_str()),
+                Name::from(spec.name.as_str()),
                 Name::from(spec.name.as_str()),
                 Name::from(spec.target.as_str()),
             ));
@@ -3629,6 +3632,13 @@ fn build_chain_from_step_spec(spec: &ProtolensStepSpec) -> Result<lens::Protolen
                     spec.intermediate.as_str()
                 } else {
                     spec.kind.as_str()
+                }),
+                // edge_kind: the kind of the original edge from parent to child.
+                // Use target if specified, otherwise default to the child name.
+                Name::from(if spec.target.is_empty() {
+                    spec.name.as_str()
+                } else {
+                    spec.target.as_str()
                 }),
             ));
         }

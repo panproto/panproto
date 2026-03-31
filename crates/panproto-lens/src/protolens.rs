@@ -1198,25 +1198,32 @@ pub mod combinators {
     use super::ProtolensChain;
     use super::elementary;
 
-    /// Rename a field: changes both the vertex name (sort rename) and the
-    /// JSON property key (edge label rename).
+    /// Rename a field's JSON property key.
     ///
-    /// Categorically, this is the composition of two natural isomorphisms:
-    /// sort rename (theory level) followed by edge label rename (fiber level).
-    /// The result is an `Iso` (lossless, empty complement).
+    /// This renames the edge label (the `name` attribute on the edge from
+    /// `parent` to `field`) which controls the JSON property key during
+    /// serialization. The vertex ID and kind are unchanged: the rename
+    /// operates purely at the fiber level of the Grothendieck fibration.
+    ///
+    /// Categorically, this is a natural isomorphism on the fiber category
+    /// over the base theory. The result is an `Iso` (lossless, empty complement).
+    ///
+    /// The `field` parameter is the vertex ID of the field being renamed
+    /// (i.e., the target of the edge from `parent`).
     #[must_use]
     pub fn rename_field(
         parent: impl Into<Name>,
+        field: impl Into<Name>,
         old_name: impl Into<Name>,
         new_name: impl Into<Name>,
     ) -> ProtolensChain {
         let parent = parent.into();
+        let field = field.into();
         let old_name = old_name.into();
         let new_name = new_name.into();
-        ProtolensChain::new(vec![
-            elementary::rename_sort(old_name.clone(), new_name.clone()),
-            elementary::rename_edge_name(parent, new_name.clone(), old_name, new_name),
-        ])
+        ProtolensChain::new(vec![elementary::rename_edge_name(
+            parent, field, old_name, new_name,
+        )])
     }
 
     /// Remove a field (drop a sort and its incoming edges).
@@ -1276,20 +1283,25 @@ pub mod combinators {
     /// Nest a direct child under a new intermediate vertex.
     ///
     /// Given `parent →(e) child`, produces `parent →(e₁) new →(e₂) child`
-    /// by inserting a new intermediate vertex.
+    /// by inserting a new intermediate vertex. The original edge from parent
+    /// to child (identified by `edge_kind`) is removed and replaced with two
+    /// edges through the intermediate.
     ///
-    /// This is the adjoint of `hoist_field`.
+    /// This is the right adjoint of `hoist_field` in the category of schema
+    /// graph rewrites: `hoist ∘ nest ≅ id` (up to edge kind renaming).
     #[must_use]
     pub fn nest_field(
         parent: impl Into<Name>,
         child: impl Into<Name>,
         new_intermediate: impl Into<Name>,
         intermediate_kind: impl Into<Name>,
+        edge_kind: impl Into<Name>,
     ) -> ProtolensChain {
         let parent = parent.into();
         let child = child.into();
         let new_intermediate = new_intermediate.into();
         let intermediate_kind = intermediate_kind.into();
+        let edge_kind = edge_kind.into();
         ProtolensChain::new(vec![
             // Add the new intermediate vertex.
             elementary::add_sort(new_intermediate.clone(), intermediate_kind, Value::Null),
@@ -1301,14 +1313,9 @@ pub mod combinators {
                 new_intermediate.clone(),
             ),
             // Add edge from new intermediate to child.
-            elementary::add_op(
-                child.clone(),
-                new_intermediate,
-                child.clone(),
-                child.clone(),
-            ),
-            // Drop the direct edge from parent to child.
-            elementary::drop_op(child),
+            elementary::add_op(child.clone(), new_intermediate, child.clone(), child),
+            // Drop the original direct edge from parent to child.
+            elementary::drop_op(edge_kind),
         ])
     }
 
