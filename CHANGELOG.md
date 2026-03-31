@@ -4,6 +4,15 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-03-31
+
+### Fixed
+
+- **panproto-gat**: `AddSort`/`AddSortWithDefault` now carry an optional `vertex_kind` field for the schema-level Grothendieck fibration data. Previously, `apply_theory_transform_to_schema` set `vertex.kind = sort.name`, ignoring the vertex kind parameter from `elementary::add_sort`. (#18)
+- **panproto-gat**: `Sort::default_vertex_kind()` derives vertex kind from `SortKind`: `Val(vk)` maps to the canonical value kind name (e.g. "integer", "string"), `Structural` falls back to sort name.
+- **panproto-gat**: `ValueKind::as_str()` provides canonical string representations for all primitive value kinds.
+- **CI**: native Python wheels (pyo3/maturin) now built and published for Linux (x86_64, aarch64), macOS (x86_64, arm64), and Windows (x86_64) via `python-wheels.yml` on every release tag. (#14)
+
 ## [0.22.0] - 2026-03-31
 
 ### Added
