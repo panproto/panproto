@@ -40,7 +40,8 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --manifest-path crates/panproto-py/Cargo.toml --out dist
-          manylinux: auto
+          manylinux: manylinux_2_28
+          before-script-linux: yum install -y perl-IPC-Cmd
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v6
         with:
