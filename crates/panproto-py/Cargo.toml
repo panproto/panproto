@@ -20,7 +20,7 @@ panproto-grammars = { workspace = true }
 panproto-parse = { workspace = true }
 panproto-project = { workspace = true }
 panproto-git = { workspace = true }
-git2 = "0.20"
+git2 = { version = "0.20", features = ["vendored-libgit2", "vendored-openssl"] }
 pyo3 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
