@@ -140,7 +140,7 @@ fn emit_adds(
         steps.push(TheoryEndofunctor {
             name: Arc::from(format!("add_sort_{}", sort.name)),
             precondition: TheoryConstraint::Unconstrained,
-            transform: TheoryTransform::AddSort(sort),
+            transform: TheoryTransform::AddSort { sort, vertex_kind: None },
         });
     }
 
@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(result.steps.len(), 1);
         assert!(matches!(
             result.steps[0].transform,
-            TheoryTransform::AddSort(_)
+            TheoryTransform::AddSort { .. }
         ));
         validate_factorization(&result, &domain, &codomain).unwrap();
     }
@@ -415,10 +415,10 @@ mod tests {
         let result = factorize(&morph, &domain, &codomain).unwrap();
         // B must be added before C (since C depends on B)
         let b_idx = result.steps.iter().position(
-            |s| matches!(&s.transform, TheoryTransform::AddSort(sort) if &*sort.name == "B"),
+            |s| matches!(&s.transform, TheoryTransform::AddSort { sort, .. } if &*sort.name == "B"),
         );
         let c_idx = result.steps.iter().position(
-            |s| matches!(&s.transform, TheoryTransform::AddSort(sort) if &*sort.name == "C"),
+            |s| matches!(&s.transform, TheoryTransform::AddSort { sort, .. } if &*sort.name == "C"),
         );
         assert!(b_idx.is_some() && c_idx.is_some());
         assert!(b_idx.unwrap() < c_idx.unwrap(), "B must come before C");

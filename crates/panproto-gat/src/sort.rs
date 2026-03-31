@@ -214,6 +214,23 @@ pub enum ValueKind {
     Any,
 }
 
+impl ValueKind {
+    /// Returns the canonical string representation of this value kind.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Bool => "boolean",
+            Self::Int => "integer",
+            Self::Float => "number",
+            Self::Str => "string",
+            Self::Bytes => "bytes",
+            Self::Token => "token",
+            Self::Null => "null",
+            Self::Any => "any",
+        }
+    }
+}
+
 /// The kind of a sort, distinguishing structural sorts from value/coercion sorts.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SortKind {
@@ -304,6 +321,21 @@ impl Sort {
             name: name.into(),
             params: Vec::new(),
             kind,
+        }
+    }
+
+    /// Returns the canonical schema-level vertex kind for this sort.
+    ///
+    /// The vertex kind is derived from the `SortKind` via the Grothendieck
+    /// fibration: `Val(vk)` maps to the canonical value kind name,
+    /// `Structural` maps to the sort name itself.
+    #[must_use]
+    pub fn default_vertex_kind(&self) -> Arc<str> {
+        match &self.kind {
+            SortKind::Val(vk) => Arc::from(vk.as_str()),
+            SortKind::Structural
+            | SortKind::Coercion { .. }
+            | SortKind::Merger(_) => Arc::clone(&self.name),
         }
     }
 

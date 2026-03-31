@@ -49,7 +49,17 @@ pub enum TheoryTransform {
     /// Identity: T ↦ T
     Identity,
     /// Add a sort: T ↦ T + {sort}
-    AddSort(Sort),
+    ///
+    /// The optional `vertex_kind` specifies the schema-level vertex kind
+    /// for the Grothendieck fibration. When `None`, the vertex kind is
+    /// derived from the sort: `Val(vk)` → canonical value kind name,
+    /// `Structural` → sort name.
+    AddSort {
+        /// The sort to add.
+        sort: Sort,
+        /// Schema-level vertex kind override.
+        vertex_kind: Option<Arc<str>>,
+    },
     /// Drop a sort and all dependent ops/equations.
     DropSort(Arc<str>),
     /// Rename a sort.
@@ -102,6 +112,8 @@ pub enum TheoryTransform {
     AddSortWithDefault {
         /// The sort to add.
         sort: Sort,
+        /// Schema-level vertex kind override (see `AddSort`).
+        vertex_kind: Option<Arc<str>>,
         /// The default expression for existing data.
         default_expr: panproto_expr::Expr,
     },
@@ -308,10 +320,11 @@ impl TheoryTransform {
     pub fn apply(&self, theory: &Theory) -> Result<Theory, GatError> {
         match self {
             Self::Identity => Ok(theory.clone()),
-            Self::AddSort(sort)
+            Self::AddSort { sort, .. }
             | Self::AddSortWithDefault {
                 sort,
                 default_expr: _,
+                vertex_kind: _,
             } => {
                 let mut sorts = theory.sorts.clone();
                 sorts.push(sort.clone());
@@ -635,7 +648,7 @@ mod tests {
     #[test]
     fn transform_add_sort() {
         let t = graph_theory();
-        let result = TheoryTransform::AddSort(Sort::simple("Label"))
+        let result = TheoryTransform::AddSort { sort: Sort::simple("Label"), vertex_kind: None }
             .apply(&t)
             .unwrap();
         assert_eq!(result.sorts.len(), 3);
@@ -706,7 +719,7 @@ mod tests {
     fn transform_compose() {
         let t = graph_theory();
         let composed = TheoryTransform::Compose(
-            Box::new(TheoryTransform::AddSort(Sort::simple("Label"))),
+            Box::new(TheoryTransform::AddSort { sort: Sort::simple("Label"), vertex_kind: None }),
             Box::new(TheoryTransform::RenameSort {
                 old: Arc::from("Vertex"),
                 new: Arc::from("Node"),
@@ -724,7 +737,7 @@ mod tests {
         let f = TheoryEndofunctor {
             name: Arc::from("add_label"),
             precondition: TheoryConstraint::HasSort(Arc::from("Vertex")),
-            transform: TheoryTransform::AddSort(Sort::simple("Label")),
+            transform: TheoryTransform::AddSort { sort: Sort::simple("Label"), vertex_kind: None },
         };
         assert!(f.applicable_to(&t));
         let result = f.apply(&t).unwrap();
@@ -748,7 +761,7 @@ mod tests {
         let f1 = TheoryEndofunctor {
             name: Arc::from("add_label"),
             precondition: TheoryConstraint::Unconstrained,
-            transform: TheoryTransform::AddSort(Sort::simple("Label")),
+            transform: TheoryTransform::AddSort { sort: Sort::simple("Label"), vertex_kind: None },
         };
         let f2 = TheoryEndofunctor {
             name: Arc::from("rename_vertex"),

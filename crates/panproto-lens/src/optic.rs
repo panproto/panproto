@@ -97,7 +97,7 @@ pub fn classify_transform(transform: &TheoryTransform) -> OpticKind {
         TheoryTransform::DropSort(_)
         | TheoryTransform::DropOp(_)
         | TheoryTransform::DropEquation(_)
-        | TheoryTransform::AddSort(_)
+        | TheoryTransform::AddSort { .. }
         | TheoryTransform::AddOp(_)
         | TheoryTransform::AddEquation(_)
         | TheoryTransform::Pullback(_)
@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn classify_add_sort_is_lens() {
-        let t = TheoryTransform::AddSort(panproto_gat::Sort::simple("new_sort"));
+        let t = TheoryTransform::AddSort { sort: panproto_gat::Sort::simple("new_sort"), vertex_kind: None };
         assert_eq!(classify_transform(&t), OpticKind::Lens);
     }
 
