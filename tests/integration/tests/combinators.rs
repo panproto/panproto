@@ -329,3 +329,153 @@ fn scoped_rename_applies_to_sub_schema() {
     assert_eq!(post_edges.len(), 1);
     assert_eq!(post_edges[0].name.as_deref(), Some("words"));
 }
+
+// ---------------------------------------------------------------------------
+// Property-based tests
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::unwrap_used)]
+mod property {
+    use super::*;
+    use panproto_inst::value::FieldPresence;
+    use proptest::prelude::*;
+
+    /// Generate a flat schema (root + N leaf children) with prop edges,
+    /// a matching instance with random string values, and a protocol.
+    fn arb_schema_and_instance()
+    -> impl Strategy<Value = (Schema, WInstance, Protocol, Vec<String>)> {
+        (2..=5usize).prop_flat_map(|n_children| {
+            prop::collection::vec("[a-z]{1,8}".prop_map(String::from), n_children..=n_children)
+                .prop_map(move |values| {
+                    let field_names: Vec<String> =
+                        (0..n_children).map(|i| format!("field{i}")).collect();
+                    let mut edges = Vec::new();
+                    let vert_data: Vec<(String, String)> =
+                        std::iter::once(("root".to_owned(), "object".to_owned()))
+                            .chain(field_names.iter().map(|n| (n.clone(), "string".to_owned())))
+                            .collect();
+                    let vert_refs: Vec<(&str, &str)> = vert_data
+                        .iter()
+                        .map(|(a, b)| (a.as_str(), b.as_str()))
+                        .collect();
+                    for name in &field_names {
+                        edges.push(prop_edge("root", name, name));
+                    }
+                    let schema = make_schema("test", &vert_refs, &edges);
+
+                    let mut nodes = HashMap::new();
+                    nodes.insert(0, Node::new(0, "root"));
+                    let mut arcs = Vec::new();
+                    for (i, val) in values.iter().enumerate() {
+                        let nid = u32::try_from(i + 1).unwrap();
+                        let field = &field_names[i];
+                        let mut node = Node::new(nid, field.as_str());
+                        node.value = Some(FieldPresence::Present(Value::Str(val.clone())));
+                        nodes.insert(nid, node);
+                        arcs.push((
+                            0,
+                            nid,
+                            Edge {
+                                src: Name::from("root"),
+                                tgt: Name::from(field.as_str()),
+                                kind: Name::from("prop"),
+                                name: Some(Name::from(field.as_str())),
+                            },
+                        ));
+                    }
+                    let instance = WInstance::new(
+                        nodes,
+                        arcs,
+                        Vec::new(),
+                        0,
+                        Name::from("root"),
+                    );
+                    let protocol = make_protocol();
+                    (schema, instance, protocol, field_names)
+                })
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        /// Renaming any field satisfies GetPut and PutGet.
+        #[test]
+        fn rename_field_satisfies_laws_proptest(
+            (schema, instance, protocol, field_names) in arb_schema_and_instance(),
+            new_suffix in "[a-z]{1,4}",
+        ) {
+            // Pick the first field to rename.
+            let field = &field_names[0];
+            let new_name = format!("{field}_{new_suffix}");
+            let chain = combinators::rename_field("root", field.as_str(), field.as_str(), new_name.as_str());
+            let lens = chain.instantiate(&schema, &protocol).unwrap();
+            check_laws(&lens, &instance).unwrap();
+        }
+
+        /// Removing any single field satisfies GetPut and PutGet.
+        #[test]
+        fn remove_field_satisfies_laws_proptest(
+            (schema, instance, protocol, field_names) in arb_schema_and_instance(),
+        ) {
+            // Remove the last field (so root still has at least one child).
+            let field = field_names.last().unwrap();
+            let chain = combinators::remove_field(field.as_str());
+            let lens = chain.instantiate(&schema, &protocol).unwrap();
+            check_laws(&lens, &instance).unwrap();
+        }
+
+        /// A pipeline of rename + remove satisfies GetPut and PutGet.
+        #[test]
+        fn pipeline_satisfies_laws_proptest(
+            (schema, instance, protocol, field_names) in arb_schema_and_instance(),
+            new_suffix in "[a-z]{1,4}",
+        ) {
+            if field_names.len() < 2 {
+                return Ok(());
+            }
+            let first = &field_names[0];
+            let last = field_names.last().unwrap();
+            let new_name = format!("{first}_{new_suffix}");
+            let chain = combinators::pipeline(vec![
+                combinators::rename_field("root", first.as_str(), first.as_str(), new_name.as_str()),
+                combinators::remove_field(last.as_str()),
+            ]);
+            let lens = chain.instantiate(&schema, &protocol).unwrap();
+            check_laws(&lens, &instance).unwrap();
+        }
+
+        /// Rename is an isomorphism: complement is always empty.
+        #[test]
+        fn rename_field_complement_is_empty_proptest(
+            (schema, instance, protocol, field_names) in arb_schema_and_instance(),
+            new_suffix in "[a-z]{1,4}",
+        ) {
+            let field = &field_names[0];
+            let new_name = format!("{field}_{new_suffix}");
+            let chain = combinators::rename_field("root", field.as_str(), field.as_str(), new_name.as_str());
+            let lens = chain.instantiate(&schema, &protocol).unwrap();
+            let (_, complement) = get(&lens, &instance).unwrap();
+            prop_assert!(complement.dropped_nodes.is_empty());
+            prop_assert!(complement.dropped_arcs.is_empty());
+        }
+
+        /// Remove then add back with default: get preserves node count minus one,
+        /// and round-trip via complement restores the original.
+        #[test]
+        fn remove_get_put_roundtrip_proptest(
+            (schema, instance, protocol, field_names) in arb_schema_and_instance(),
+        ) {
+            let field = field_names.last().unwrap();
+            let chain = combinators::remove_field(field.as_str());
+            let lens = chain.instantiate(&schema, &protocol).unwrap();
+            let original_count = instance.node_count();
+
+            let (view, complement) = get(&lens, &instance).unwrap();
+            prop_assert_eq!(view.node_count(), original_count - 1);
+
+            let restored = put(&lens, &view, &complement).unwrap();
+            prop_assert_eq!(restored.node_count(), original_count);
+        }
+    }
+}
