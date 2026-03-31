@@ -68,6 +68,8 @@ export interface WasmGlueModule {
   protolens_lift: WasmExports['protolens_lift'];
   protolens_check_applicability: WasmExports['protolens_check_applicability'];
   protolens_fleet: WasmExports['protolens_fleet'];
+  protolens_pipeline: WasmExports['protolens_pipeline'];
+  auto_generate_protolens_with_hints: WasmExports['auto_generate_protolens_with_hints'];
   check_lens_laws: WasmExports['check_lens_laws'];
   check_get_put: WasmExports['check_get_put'];
   check_put_get: WasmExports['check_put_get'];
@@ -187,6 +189,8 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       protolens_lift: glue.protolens_lift,
       protolens_check_applicability: glue.protolens_check_applicability,
       protolens_fleet: glue.protolens_fleet,
+      protolens_pipeline: glue.protolens_pipeline,
+      auto_generate_protolens_with_hints: glue.auto_generate_protolens_with_hints,
       check_lens_laws: glue.check_lens_laws,
       check_get_put: glue.check_get_put,
       check_put_get: glue.check_put_get,

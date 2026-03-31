@@ -195,6 +195,16 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                 summary,
             }
         }
+        ComplementConstructor::Scoped { focus, inner } => {
+            let inner_spec = spec_from_constructor(inner, schema);
+            let kind = inner_spec.kind;
+            ComplementSpec {
+                kind,
+                forward_defaults: inner_spec.forward_defaults,
+                captured_data: inner_spec.captured_data,
+                summary: format!("Scoped at '{focus}': {}", inner_spec.summary),
+            }
+        }
     }
 }
 

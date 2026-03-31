@@ -37,6 +37,7 @@ pub fn complement_cost(complement: &ComplementConstructor) -> f64 {
             panproto_gat::CoercionClass::Opaque | _ => f64::INFINITY,
         },
         ComplementConstructor::Composite(children) => children.iter().map(complement_cost).sum(),
+        ComplementConstructor::Scoped { inner, .. } => complement_cost(inner),
     }
 }
 

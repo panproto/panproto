@@ -64,11 +64,11 @@ pub use edit_provenance::EditProvenance;
 pub use error::{LawViolation, LensError};
 pub use graph::LensGraph;
 pub use laws::{check_get_put, check_laws, check_put_get};
-pub use optic::{OpticKind, classify_transform};
+pub use optic::{OpticKind, classify_transform, refine_scoped_optic};
 pub use protolens::{
     ComplementConstructor, FleetResult, Protolens, ProtolensChain, SchemaConstraint,
-    apply_to_fleet, elementary, horizontal_compose as protolens_horizontal, lift_chain,
-    lift_protolens, vertical_compose as protolens_vertical,
+    apply_to_fleet, combinators, elementary, horizontal_compose as protolens_horizontal,
+    lift_chain, lift_protolens, vertical_compose as protolens_vertical,
 };
 pub use symbolic::{SymbolicStep, simplify_steps};
 pub use symmetric::{CoherenceViolation, SymmetricLens};

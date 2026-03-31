@@ -108,6 +108,19 @@ pub enum ComplementConstructor {
     },
     /// Composite complement from a chain.
     Composite(Vec<Self>),
+    /// Scoped complement: the inner complement is tracked per-element
+    /// when the focus vertex is reached via an array (item) edge.
+    ///
+    /// For prop edges (single focus), the inner complement is applied once.
+    /// For item edges (traversal), a list of inner complements is built,
+    /// one per array element. This is the dependent product in the slice
+    /// topos: `C(s) = Π_{i : elements(s)} C_inner(element_i)`.
+    Scoped {
+        /// The focus vertex name.
+        focus: Name,
+        /// The inner complement constructor.
+        inner: Box<Self>,
+    },
 }
 
 /// A protolens: a dependent function from schemas to lenses.
@@ -1078,11 +1091,257 @@ pub mod elementary {
             complement_constructor: ComplementConstructor::Empty,
         }
     }
+
+    /// `η : Id ⟹ RenameEdgeName(src, tgt, old, new)` — rename a JSON
+    /// property key (edge label) without changing the theory structure.
+    ///
+    /// This is a fiber-level natural isomorphism in the Grothendieck
+    /// fibration: the theory and schema graph structure are unchanged,
+    /// only the `name` attribute on the edge between `src_sort` and
+    /// `tgt_sort` is relabeled. Always classified as `Iso` (empty
+    /// complement, bijective relabeling).
+    #[must_use]
+    pub fn rename_edge_name(
+        src_sort: impl Into<Name>,
+        tgt_sort: impl Into<Name>,
+        old_name: impl Into<Name>,
+        new_name: impl Into<Name>,
+    ) -> Protolens {
+        let src_sort = src_sort.into();
+        let tgt_sort = tgt_sort.into();
+        let old_name = old_name.into();
+        let new_name = new_name.into();
+        let src_arc = name_arc_clone(&src_sort);
+        let tgt_arc = name_arc_clone(&tgt_sort);
+        let old_arc = name_arc_clone(&old_name);
+        let new_arc = name_arc_clone(&new_name);
+        Protolens {
+            name: Name::from(format!("rename_edge_{old_name}_{new_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::All(vec![
+                    TheoryConstraint::HasSort(Arc::clone(&src_arc)),
+                    TheoryConstraint::HasSort(Arc::clone(&tgt_arc)),
+                ]),
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("rename_edge_{old_name}_{new_name}")),
+                precondition: TheoryConstraint::All(vec![
+                    TheoryConstraint::HasSort(Arc::clone(&src_arc)),
+                    TheoryConstraint::HasSort(Arc::clone(&tgt_arc)),
+                ]),
+                transform: TheoryTransform::RenameEdgeName {
+                    src_sort: src_arc,
+                    tgt_sort: tgt_arc,
+                    old_name: old_arc,
+                    new_name: new_arc,
+                },
+            },
+            complement_constructor: ComplementConstructor::Empty,
+        }
+    }
+
+    /// `η : Id ⟹ Scope(focus, inner)` — apply a protolens within the
+    /// sub-schema rooted at the focus vertex.
+    ///
+    /// Categorically, this is the left Kan extension of the inner
+    /// protolens along the inclusion `ι : Sub(S, focus) ↪ S`.
+    ///
+    /// At the instance level, the optic class depends on the edge kind
+    /// connecting the parent to the focus vertex:
+    ///   - `prop` edge → Lens (apply once, single-element focus)
+    ///   - `item` edge → Traversal (apply per array element)
+    ///   - `variant` edge → Prism (apply if variant present)
+    ///
+    /// The complement is indexed by the focus: for traversals (item edges),
+    /// a list of per-element inner complements is built.
+    #[must_use]
+    pub fn scoped(focus: impl Into<Name>, inner: Protolens) -> Protolens {
+        let focus = focus.into();
+        let focus_arc = name_arc_clone(&focus);
+        let inner_name = inner.name;
+        let inner_transform = inner.target.transform;
+        let inner_complement = inner.complement_constructor;
+        Protolens {
+            name: Name::from(format!("scoped_{focus}_{inner_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::HasSort(Arc::clone(&focus_arc)),
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("scope_{focus}")),
+                precondition: TheoryConstraint::HasSort(Arc::clone(&focus_arc)),
+                transform: TheoryTransform::ScopedTransform {
+                    focus: focus_arc,
+                    inner: Box::new(inner_transform),
+                },
+            },
+            complement_constructor: ComplementConstructor::Scoped {
+                focus,
+                inner: Box::new(inner_complement),
+            },
+        }
+    }
 }
 
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
+/// Derived lens combinators composed from elementary protolens operations.
+///
+/// Each combinator constructs a [`ProtolensChain`] from elementary steps.
+/// Composition preserves lens laws by naturality: each step satisfies
+/// `GetPut`/`PutGet`, and sequential composition of lawful lenses is lawful.
+pub mod combinators {
+    use panproto_gat::Name;
+    use panproto_inst::value::Value;
+
+    use super::ProtolensChain;
+    use super::elementary;
+
+    /// Rename a field's JSON property key.
+    ///
+    /// This renames the edge label (the `name` attribute on the edge from
+    /// `parent` to `field`) which controls the JSON property key during
+    /// serialization. The vertex ID and kind are unchanged: the rename
+    /// operates purely at the fiber level of the Grothendieck fibration.
+    ///
+    /// Categorically, this is a natural isomorphism on the fiber category
+    /// over the base theory. The result is an `Iso` (lossless, empty complement).
+    ///
+    /// The `field` parameter is the vertex ID of the field being renamed
+    /// (i.e., the target of the edge from `parent`).
+    #[must_use]
+    pub fn rename_field(
+        parent: impl Into<Name>,
+        field: impl Into<Name>,
+        old_name: impl Into<Name>,
+        new_name: impl Into<Name>,
+    ) -> ProtolensChain {
+        let parent = parent.into();
+        let field = field.into();
+        let old_name = old_name.into();
+        let new_name = new_name.into();
+        ProtolensChain::new(vec![elementary::rename_edge_name(
+            parent, field, old_name, new_name,
+        )])
+    }
+
+    /// Remove a field (drop a sort and its incoming edges).
+    ///
+    /// The complement captures the dropped vertex data.
+    #[must_use]
+    pub fn remove_field(field: impl Into<Name>) -> ProtolensChain {
+        let field = field.into();
+        ProtolensChain::new(vec![elementary::drop_sort(field)])
+    }
+
+    /// Add a field with a default value.
+    ///
+    /// The complement records the default so that `put` can restore the
+    /// source instance without the added field.
+    #[must_use]
+    pub fn add_field(
+        parent: impl Into<Name>,
+        field_name: impl Into<Name>,
+        field_kind: impl Into<Name>,
+        default: Value,
+    ) -> ProtolensChain {
+        let parent = parent.into();
+        let field_name = field_name.into();
+        let field_kind = field_kind.into();
+        ProtolensChain::new(vec![
+            elementary::add_sort(field_name.clone(), field_kind, default),
+            elementary::add_op(field_name.clone(), parent, field_name.clone(), field_name),
+        ])
+    }
+
+    /// Hoist a nested field up one level, collapsing the intermediate vertex.
+    ///
+    /// Given a path `parent →(e₁) intermediate →(e₂) child`, this produces
+    /// `parent →(e') child` by adding a direct edge and dropping the
+    /// intermediate sort (which cascades removal of its incident edges).
+    ///
+    /// The complement captures the intermediate vertex data and any other
+    /// children of the intermediate that are not the hoisted child.
+    #[must_use]
+    pub fn hoist_field(
+        parent: impl Into<Name>,
+        intermediate: impl Into<Name>,
+        child: impl Into<Name>,
+    ) -> ProtolensChain {
+        let parent = parent.into();
+        let intermediate = intermediate.into();
+        let child = child.into();
+        ProtolensChain::new(vec![
+            // First add the direct edge from parent to child.
+            elementary::add_op(child.clone(), parent, child.clone(), child),
+            // Then drop the intermediate, which cascades its edges.
+            elementary::drop_sort(intermediate),
+        ])
+    }
+
+    /// Nest a direct child under a new intermediate vertex.
+    ///
+    /// Given `parent →(e) child`, produces `parent →(e₁) new →(e₂) child`
+    /// by inserting a new intermediate vertex. The original edge from parent
+    /// to child (identified by `edge_kind`) is removed and replaced with two
+    /// edges through the intermediate.
+    ///
+    /// This is the right adjoint of `hoist_field` in the category of schema
+    /// graph rewrites: `hoist ∘ nest ≅ id` (up to edge kind renaming).
+    #[must_use]
+    pub fn nest_field(
+        parent: impl Into<Name>,
+        child: impl Into<Name>,
+        new_intermediate: impl Into<Name>,
+        intermediate_kind: impl Into<Name>,
+        edge_kind: impl Into<Name>,
+    ) -> ProtolensChain {
+        let parent = parent.into();
+        let child = child.into();
+        let new_intermediate = new_intermediate.into();
+        let intermediate_kind = intermediate_kind.into();
+        let edge_kind = edge_kind.into();
+        ProtolensChain::new(vec![
+            // Add the new intermediate vertex.
+            elementary::add_sort(new_intermediate.clone(), intermediate_kind, Value::Null),
+            // Add edge from parent to new intermediate.
+            elementary::add_op(
+                new_intermediate.clone(),
+                parent,
+                new_intermediate.clone(),
+                new_intermediate.clone(),
+            ),
+            // Add edge from new intermediate to child.
+            elementary::add_op(child.clone(), new_intermediate, child.clone(), child),
+            // Drop the original direct edge from parent to child.
+            elementary::drop_op(edge_kind),
+        ])
+    }
+
+    /// Build a pipeline from a sequence of protolens chains.
+    ///
+    /// Flattens all steps into a single `ProtolensChain`. This is
+    /// vertical composition: the target schema of each chain feeds
+    /// into the source of the next.
+    #[must_use]
+    pub fn pipeline(chains: Vec<ProtolensChain>) -> ProtolensChain {
+        let steps = chains.into_iter().flat_map(|c| c.steps).collect();
+        ProtolensChain::new(steps)
+    }
+
+    /// Apply a protolens to each element of an array.
+    ///
+    /// Wraps the inner protolens in a `scoped` transform targeting the
+    /// given focus vertex (the array element's schema vertex). At the
+    /// instance level, this produces a traversal: the inner lens is
+    /// applied independently to each array element, with per-element
+    /// complement tracking.
+    #[must_use]
+    pub fn map_items(focus: impl Into<Name>, inner: super::Protolens) -> super::Protolens {
+        elementary::scoped(focus, inner)
+    }
+}
 
 /// Build a [`CompiledMigration`] between two schemas by comparing their
 /// structures.
@@ -1307,6 +1566,152 @@ fn apply_theory_transform_to_schema(
                     result = apply_rename_op_to_schema(&result, old, new);
                 }
             }
+            Ok(result)
+        }
+        TheoryTransform::RenameEdgeName {
+            src_sort,
+            tgt_sort,
+            old_name,
+            new_name,
+        } => {
+            // Find and rename the edge label between src_sort and tgt_sort vertices.
+            // Rebuild the schema with the renamed edge and fresh adjacency indices.
+            let mut new_edges = HashMap::new();
+            for (edge, kind) in &schema.edges {
+                let mut e = edge.clone();
+                if *e.src == **src_sort
+                    && *e.tgt == **tgt_sort
+                    && e.name.as_deref() == Some(&**old_name)
+                {
+                    e.name = Some(Name::from(&**new_name));
+                }
+                new_edges.insert(e, kind.clone());
+            }
+            // Rebuild adjacency indices from the new edge set.
+            let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+            let mut incoming: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+            let mut between: HashMap<(Name, Name), SmallVec<panproto_schema::Edge, 2>> =
+                HashMap::new();
+            for edge in new_edges.keys() {
+                outgoing
+                    .entry(edge.src.clone())
+                    .or_default()
+                    .push(edge.clone());
+                incoming
+                    .entry(edge.tgt.clone())
+                    .or_default()
+                    .push(edge.clone());
+                between
+                    .entry((edge.src.clone(), edge.tgt.clone()))
+                    .or_default()
+                    .push(edge.clone());
+            }
+            let mut new_schema = schema.clone();
+            new_schema.edges = new_edges;
+            new_schema.outgoing = outgoing;
+            new_schema.incoming = incoming;
+            new_schema.between = between;
+            Ok(new_schema)
+        }
+        TheoryTransform::ScopedTransform { focus, inner } => {
+            // Pushout construction: apply the inner transform to the sub-schema
+            // reachable from the focus vertex, then merge back into the full schema.
+            //
+            // Given inclusion ι : Sub(S, focus) ↪ S and transform η on Sub(S, focus),
+            // the result is the pushout S ∪_{Sub(S,focus)} η(Sub(S, focus)).
+
+            // 1. Find all vertices reachable from focus via outgoing edges (BFS).
+            let mut reachable: std::collections::HashSet<Name> = std::collections::HashSet::new();
+            let mut queue: std::collections::VecDeque<Name> = std::collections::VecDeque::new();
+            let focus_name = Name::from(&**focus);
+            if schema.vertices.contains_key(&focus_name) {
+                reachable.insert(focus_name.clone());
+                queue.push_back(focus_name);
+            }
+            while let Some(v) = queue.pop_front() {
+                for edge in schema.outgoing_edges(&v) {
+                    if reachable.insert(edge.tgt.clone()) {
+                        queue.push_back(edge.tgt.clone());
+                    }
+                }
+            }
+
+            // 2. Build the sub-schema from reachable vertices and edges.
+            //    Include only the vertices, edges, constraints, and defaults
+            //    within the reachable set to form a well-formed sub-schema.
+            let sub_vertices: HashMap<Name, Vertex> = schema
+                .vertices
+                .iter()
+                .filter(|(id, _)| reachable.contains(*id))
+                .map(|(id, v)| (id.clone(), v.clone()))
+                .collect();
+            let sub_edges: HashMap<panproto_schema::Edge, Name> = schema
+                .edges
+                .iter()
+                .filter(|(e, _)| reachable.contains(&e.src) && reachable.contains(&e.tgt))
+                .map(|(e, k)| (e.clone(), k.clone()))
+                .collect();
+            let sub_constraints: HashMap<Name, Vec<panproto_schema::Constraint>> = schema
+                .constraints
+                .iter()
+                .filter(|(id, _)| reachable.contains(*id))
+                .map(|(id, c)| (id.clone(), c.clone()))
+                .collect();
+            let sub_defaults: HashMap<Name, panproto_expr::Expr> = schema
+                .defaults
+                .iter()
+                .filter(|(id, _)| reachable.contains(*id))
+                .map(|(id, d)| (id.clone(), d.clone()))
+                .collect();
+            let mut sub_schema = schema.clone();
+            sub_schema.vertices = sub_vertices;
+            sub_schema.edges = sub_edges;
+            sub_schema.constraints = sub_constraints;
+            sub_schema.defaults = sub_defaults;
+
+            // 3. Apply inner transform to the sub-schema.
+            let transformed_sub = apply_theory_transform_to_schema(inner, &sub_schema, protocol)?;
+
+            // 4. Merge via pushout: start from the original schema, replace the
+            //    reachable sub-schema with its transformed version.
+            let mut result = schema.clone();
+            // Remove old reachable vertices, edges, constraints, and defaults.
+            result.vertices.retain(|id, _| !reachable.contains(id));
+            result
+                .edges
+                .retain(|e, _| !(reachable.contains(&e.src) && reachable.contains(&e.tgt)));
+            result.constraints.retain(|id, _| !reachable.contains(id));
+            result.defaults.retain(|id, _| !reachable.contains(id));
+            // Insert transformed sub-schema data.
+            result.vertices.extend(transformed_sub.vertices);
+            result.edges.extend(transformed_sub.edges);
+            result.constraints.extend(transformed_sub.constraints);
+            result.defaults.extend(transformed_sub.defaults);
+            // Cross-boundary edges (from outside → reachable or reachable → outside)
+            // are preserved since we only removed edges fully inside the reachable set.
+
+            // 5. Rebuild adjacency indices.
+            let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+            let mut incoming: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+            let mut between: HashMap<(Name, Name), SmallVec<panproto_schema::Edge, 2>> =
+                HashMap::new();
+            for edge in result.edges.keys() {
+                outgoing
+                    .entry(edge.src.clone())
+                    .or_default()
+                    .push(edge.clone());
+                incoming
+                    .entry(edge.tgt.clone())
+                    .or_default()
+                    .push(edge.clone());
+                between
+                    .entry((edge.src.clone(), edge.tgt.clone()))
+                    .or_default()
+                    .push(edge.clone());
+            }
+            result.outgoing = outgoing;
+            result.incoming = incoming;
+            result.between = between;
             Ok(result)
         }
         TheoryTransform::Compose(first, second) => {

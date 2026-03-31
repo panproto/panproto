@@ -353,6 +353,12 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
         TheoryTransform::Compose(_, _) => Err(LensError::ProtolensError(
             "unexpected Compose in factorization".into(),
         )),
+        TheoryTransform::RenameEdgeName { .. } => Err(LensError::ProtolensError(
+            "unexpected RenameEdgeName in factorization (user-constructed only)".into(),
+        )),
+        TheoryTransform::ScopedTransform { .. } => Err(LensError::ProtolensError(
+            "unexpected ScopedTransform in factorization (user-constructed only)".into(),
+        )),
     }
 }
 

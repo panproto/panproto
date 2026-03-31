@@ -484,6 +484,9 @@ export interface WasmExports {
   protolens_check_applicability(chain: number, schema: number): Uint8Array;
   protolens_fleet(chain: number, schema_handles: Uint32Array): Uint8Array;
   protolens_from_json(json: Uint8Array): number;
+  // Phase 11b: Pipeline combinators and morphism hints
+  protolens_pipeline(steps_bytes: Uint8Array): number;
+  auto_generate_protolens_with_hints(schema1: number, schema2: number, hints_bytes: Uint8Array): number;
   parse_expr(source: string): Uint8Array;
   eval_func_expr(expr_bytes: Uint8Array, env_bytes: Uint8Array): Uint8Array;
   execute_query(query_bytes: Uint8Array, instance_bytes: Uint8Array): Uint8Array;

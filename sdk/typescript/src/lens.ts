@@ -12,9 +12,9 @@
 import type { WasmModule, LawCheckResult, LiftResult, GetResult } from './types.js';
 import { WasmError } from './types.js';
 import { WasmHandle, createHandle } from './wasm.js';
-import { unpackFromWasm } from './msgpack.js';
+import { packToWasm, unpackFromWasm } from './msgpack.js';
 import type { BuiltSchema } from './schema.js';
-import type { ComplementSpec } from './protolens.js';
+import type { ComplementSpec, NestFieldStep, PipelineStep } from './protolens.js';
 
 // ---------------------------------------------------------------------------
 // ProtolensChainHandle — schema-independent lens family
@@ -243,9 +243,143 @@ export class ProtolensChainHandle implements Disposable {
     }
   }
 
+  /**
+   * Auto-generate a protolens chain with morphism hints.
+   *
+   * Hints are vertex correspondences that seed the morphism search,
+   * enabling alignment across schemas with different NSID namespaces.
+   *
+   * @param schema1 - The source schema
+   * @param schema2 - The target schema
+   * @param hints - Map of source vertex names to target vertex names
+   * @param wasm - The WASM module
+   * @returns A ProtolensChainHandle wrapping the generated chain
+   * @throws {@link WasmError} if no morphism is found even with hints
+   */
+  static autoGenerateWithHints(
+    schema1: BuiltSchema,
+    schema2: BuiltSchema,
+    hints: Record<string, string>,
+    wasm: WasmModule,
+  ): ProtolensChainHandle {
+    try {
+      const hintsBytes = packToWasm(hints);
+      const rawHandle = wasm.exports.auto_generate_protolens_with_hints(
+        schema1._handle.id,
+        schema2._handle.id,
+        hintsBytes,
+      );
+      return new ProtolensChainHandle(createHandle(rawHandle, wasm), wasm);
+    } catch (error) {
+      throw new WasmError(
+        `auto_generate_protolens_with_hints failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
   /** Release the underlying WASM resource. */
   [Symbol.dispose](): void {
     this.#handle[Symbol.dispose]();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PipelineBuilder — fluent API for constructing protolens chains
+// ---------------------------------------------------------------------------
+
+/**
+ * Fluent builder for constructing protolens chains from combinator steps.
+ *
+ * Each method appends a step to the pipeline. Call `build()` to compile
+ * the steps into a `ProtolensChainHandle` via the WASM boundary.
+ *
+ * ```ts
+ * const chain = new PipelineBuilder(wasm)
+ *   .renameField('post', 'text', 'body')
+ *   .addField('post', 'createdAt', 'string')
+ *   .build();
+ * ```
+ */
+export class PipelineBuilder {
+  readonly #steps: PipelineStep[] = [];
+  readonly #wasm: WasmModule;
+
+  constructor(wasm: WasmModule) {
+    this.#wasm = wasm;
+  }
+
+  /** Rename a field (vertex name + JSON property key). */
+  renameField(parent: string, oldName: string, newName: string): this {
+    this.#steps.push({ step_type: 'rename_field', parent, name: oldName, target: newName });
+    return this;
+  }
+
+  /** Remove a field (drop sort with edge cascade). */
+  removeField(field: string): this {
+    this.#steps.push({ step_type: 'remove_field', name: field });
+    return this;
+  }
+
+  /** Add a field with a default value. */
+  addField(parent: string, fieldName: string, fieldKind: string): this {
+    this.#steps.push({ step_type: 'add_field', parent, name: fieldName, kind: fieldKind });
+    return this;
+  }
+
+  /** Hoist a nested field up one level, collapsing the intermediate. */
+  hoistField(parent: string, intermediate: string, child: string): this {
+    this.#steps.push({ step_type: 'hoist_field', parent, intermediate, name: child });
+    return this;
+  }
+
+  /** Nest a field under a new intermediate vertex. */
+  nestField(parent: string, child: string, intermediate: string, kind: string, edgeKind?: string): this {
+    this.#steps.push({
+      step_type: 'nest_field', parent, name: child, intermediate, kind,
+      target: edgeKind ?? child,
+    } as NestFieldStep);
+    return this;
+  }
+
+  /** Rename an edge label (JSON property key) without changing sorts. */
+  renameEdgeName(srcSort: string, tgtSort: string, oldName: string, newName: string): this {
+    this.#steps.push({ step_type: 'rename_edge_name', src_sort: srcSort, tgt_sort: tgtSort, name: oldName, target: newName });
+    return this;
+  }
+
+  /** Apply an inner step to each element of an array (traversal). */
+  mapItems(focusVertex: string, inner: PipelineStep): this {
+    this.#steps.push({ step_type: 'map_items', name: focusVertex, inner });
+    return this;
+  }
+
+  /** Add a raw elementary step. */
+  step(step: PipelineStep): this {
+    this.#steps.push(step);
+    return this;
+  }
+
+  /**
+   * Build the pipeline into a ProtolensChainHandle.
+   *
+   * Serializes all steps via MessagePack and calls the WASM
+   * `protolens_pipeline` export.
+   *
+   * @returns A ProtolensChainHandle wrapping the built chain
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  build(): ProtolensChainHandle {
+    try {
+      const stepsBytes = packToWasm(this.#steps);
+      const rawHandle = this.#wasm.exports.protolens_pipeline(stepsBytes);
+      return new ProtolensChainHandle(createHandle(rawHandle, this.#wasm), this.#wasm);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_pipeline failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
   }
 }
 

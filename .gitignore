@@ -47,3 +47,6 @@ planning/
 
 # vite
 .vite/
+
+# Lean
+lean/.lake/

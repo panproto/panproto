@@ -1,0 +1,186 @@
+# Lens Combinators and Scoped Transforms {#sec-lens-combinators}
+
+Your API has 47 Lexicons, and six of them renamed `displayName` to `name`. Writing six separate migrations for the same one-line change is tedious and fragile: every copy is a place where a typo can hide. What you want is a single transform, declared once, that you can apply wherever it matches.
+
+Protolenses from @sec-protolenses give you reusability across schemas, but they operate on entire theories. What happens when you need to rename a field inside each element of an array, or hoist a nested property up one level? You need combinators that compose, and a way to scope a transform into a sub-schema.
+
+
+## The pipeline combinator {#sec-pipeline}
+
+A **pipeline** is sequential composition: apply step 1, then step 2, then step 3. The target schema of each step becomes the source schema of the next. Pipelines are the vertical composition of protolenses.
+
+In TypeScript:
+
+```{.typescript}
+import { PipelineBuilder } from '@panproto/core';
+
+const chain = new PipelineBuilder(wasm)
+  .renameField('post', 'text', 'body')
+  .removeField('deprecated_field')
+  .addField('post', 'createdAt', 'datetime')
+  .build();
+
+const lens = chain.instantiate(schema);
+const { view, complement } = lens.get(instance);
+```
+
+In Python:
+
+```{.python}
+import panproto
+
+chain = panproto.pipeline([
+    panproto.rename_field("post", "text", "text", "body"),
+    panproto.remove_field("deprecated_field"),
+    panproto.add_field("post", "createdAt", "datetime"),
+])
+
+lens = chain.instantiate(schema, protocol)
+view, complement = lens.get(instance)
+```
+
+Each combinator produces a `ProtolensChain` from elementary protolens steps. The `pipeline` function flattens multiple chains into one. Because each elementary step satisfies the lens laws (`GetPut` and `PutGet`), and sequential composition of lawful lenses is lawful, the pipeline as a whole is lawful.
+
+
+## Renaming a field {#sec-rename-field}
+
+Schema formats store two distinct names for every field. The **vertex ID** is the internal identifier in the schema graph (e.g., `post.text`). The **edge label** is the JSON property key that appears in serialized data (e.g., `"text"`). These live at different categorical levels: the vertex ID belongs to the schema graph, while the edge label is fiber data in the Grothendieck fibration over the schema.
+
+`renameField` changes the edge label without touching the vertex ID or the theory structure. It is a natural isomorphism on the fiber category: a bijective relabeling with no data loss. The complement is always empty.
+
+```{.typescript}
+// Rename the JSON key from "text" to "body" on the edge from "post" to "text"
+builder.renameField('post', 'text', 'body')
+```
+
+If you also need to rename the vertex kind (e.g., from `"string"` to `"text"`), compose with `rename_sort`:
+
+```{.typescript}
+builder
+  .step({ step_type: 'rename_sort', name: 'string', target: 'text' })
+  .renameField('post', 'text', 'body')
+```
+
+
+## Hoisting and nesting {#sec-hoist-nest}
+
+Hoisting collapses a two-step path into a direct connection. Given `post` $\to$ `metadata` $\to$ `author`, hoisting `author` through `metadata` produces `post` $\to$ `author`:
+
+```{.typescript}
+builder.hoistField('post', 'metadata', 'author')
+```
+
+The complement captures the intermediate `metadata` vertex and any of its other children. You can restore the nesting by `put`ting with the complement.
+
+Nesting is the reverse: inserting an intermediate vertex into a direct connection. This is the right adjoint of hoisting in the category of schema graph rewrites.
+
+```{.typescript}
+builder.nestField('post', 'author', 'metadata', 'object', 'author')
+```
+
+The last argument is the edge kind of the original `post` $\to$ `author` edge (needed to identify which edge to replace).
+
+
+## Scoped transforms: operating inside arrays {#sec-scoped-transforms}
+
+Arrays in panproto are not opaque values. When `parseJson` encounters a JSON array, it creates a tree-level structure: the array vertex connects to each element vertex via an `item` edge. Each element is a full sub-tree with its own schema anchoring.
+
+```
+transcript.words  (kind: "array")
+  |-- [item] --> word  (kind: "object")
+                  |-- [prop "word"]  --> word.word  (kind: "string")
+                  |-- [prop "start"] --> word.start (kind: "number")
+                  |-- [prop "end"]   --> word.end   (kind: "number")
+```
+
+To add a `confidence` field with default value 1.0 to every word element:
+
+```{.typescript}
+builder.mapItems('word', {
+  step_type: 'add_sort',
+  name: 'confidence',
+  kind: 'number',
+})
+```
+
+The `mapItems` combinator wraps an inner protolens in a `scoped` transform targeting the array element's schema vertex. At the theory level, this is the left Kan extension of the inner protolens along the inclusion of the sub-theory at the focus vertex [@riley2018; @vertechi2022].
+
+
+## The dependent optic framework {#sec-dependent-optics}
+
+Why does scoping require special treatment? A standard lens focuses on exactly one sub-part of a structure. An array has zero or more elements, so "focus on each element" is a **traversal**, not a lens.
+
+The standard optics hierarchy classifies transforms by their focus cardinality [@riley2018]:
+
+| Focus cardinality | Optic class | Example |
+|-------------------|-------------|---------|
+| exactly 1         | Lens        | Object property |
+| 0 or more         | Traversal   | Array elements |
+| 0 or 1            | Prism       | Union variant |
+
+panproto determines the optic class at instantiation time by inspecting the edge kind connecting the parent to the focus vertex. A `prop` edge (single child) produces a Lens. An `item` edge (array elements) produces a Traversal. A `variant` edge (union branch) produces a Prism. The inner transform's classification composes with the carrier optic via the standard composition table.
+
+For the complement, traversals require per-element tracking. When a scoped transform drops a field from each array element, the complement stores one inner complement per element: $C(s) = \prod_{i \in \text{elements}(s)} C_\text{inner}(e_i)$. This is the dependent product in the slice topos [@vertechi2022], and it ensures that `put` can restore each element independently.
+
+
+## Morphism hints {#sec-morphism-hints}
+
+The automatic lens generator (@sec-auto-lens) uses homomorphism search to align two schemas. When schemas have different NSID namespaces (e.g., `app.bsky.feed.post` vs `tv.ionosphere.talk`), the search cannot match vertices across namespaces because no vertex names overlap.
+
+Morphism hints let you seed the search with explicit correspondences:
+
+```{.typescript}
+const chain = ProtolensChainHandle.autoGenerateWithHints(
+  calendarSchema,
+  talkSchema,
+  {
+    'community.lexicon.calendar.event': 'tv.ionosphere.talk',
+    'community.lexicon.calendar.event.name': 'tv.ionosphere.talk.title',
+  },
+  wasm,
+);
+```
+
+```{.python}
+chain = panproto.ProtolensChain.auto_generate_with_hints(
+    calendar_schema, talk_schema, protocol,
+    hints={
+        "community.lexicon.calendar.event": "tv.ionosphere.talk",
+        "community.lexicon.calendar.event.name": "tv.ionosphere.talk.title",
+    },
+)
+```
+
+The hints are partial: you provide the correspondences you know, and the search extends them to a complete morphism. Internally, the hints populate `SearchOptions.initial`, which constrains the backtracking search to assignments consistent with your correspondences.
+
+
+## Complement tracking through scopes {#sec-scoped-complements}
+
+Consider dropping a field inside an array. Each element might have different data in the dropped field, so the complement must record per-element information:
+
+```{.typescript}
+const chain = new PipelineBuilder(wasm)
+  .mapItems('word', { step_type: 'drop_sort', name: 'confidence' })
+  .build();
+
+const lens = chain.instantiate(schema);
+const { view, complement } = lens.get(instance);
+
+// complement stores per-element data for the dropped field
+const restored = lens.put(view, complement);
+// restored has all confidence values back
+```
+
+The round-trip laws hold pointwise: for each array element $i$, $\texttt{put}_i(\texttt{get}_i(s_i), c_i) = s_i$. This is the content of the dependent optic framework: the lens laws are parameterized by the number and content of the array elements, not just by the schema structure.
+
+
+## What combinators cannot express {#sec-limitations}
+
+The compact transcript encoding from @sec-scoped-transforms (delta encoding, unit conversion, exploding arrays into parallel flat arrays) is procedural. These operations break the lens laws because they involve computational effects (arithmetic, array restructuring) that are not natural transformations on the presheaf topos. The right place for these is the expression language (`panproto-expr`), composed with `CoerceSort` or `ComputeField` field transforms (@sec-value-transforms), not the structural protolens algebra.
+
+The boundary is clean: combinators handle structural graph rewriting (add, drop, rename, scope); the expression engine handles value-level computation.
+
+
+## What comes next {#sec-combinators-bridge}
+
+These combinators are the building blocks that the version control engine chains automatically when you run `prot data migrate`. The next chapter shows how versioned schemas, data, and complements are stored together in a content-addressed DAG, making every migration reversible without manual complement management.
