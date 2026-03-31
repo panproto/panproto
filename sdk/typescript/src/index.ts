@@ -45,12 +45,21 @@ export { MigrationBuilder, CompiledMigration } from './migration.js';
 // Lens / Protolens
 export {
   LensHandle,
+  PipelineBuilder,
   ProtolensChainHandle,
   SymmetricLensHandle,
 } from './lens.js';
 
 // Protolens types
 export type {
+  PipelineStep,
+  RenameFieldStep,
+  RemoveFieldStep,
+  AddFieldStep,
+  HoistFieldStep,
+  NestFieldStep,
+  RenameEdgeNameStep,
+  MapItemsStep,
   SchemaTransform,
   ProtolensSpec,
   ProtolensChainSpec,
