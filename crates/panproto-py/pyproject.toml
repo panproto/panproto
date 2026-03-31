@@ -4,9 +4,9 @@ build-backend = "maturin"
 
 [project]
 name = "panproto"
-version = "0.14.0"
+version = "0.22.0"
 description = "Schema migration engine grounded in generalized algebraic theories"
-readme = "../../README.md"
+readme = "../../sdk/python/README.md"
 license = "MIT"
 requires-python = ">=3.13"
 authors = [
