@@ -48,7 +48,7 @@ miette = { version = "7.6.0", features = ["fancy"] }
 
 # Collections & allocation
 smallvec = { version = "2.0.0-alpha.12", features = ["serde"] }
-rustc-hash = "2.1.1"
+rustc-hash = "2.1.2"
 bumpalo = "3.20.2"
 
 # WASM
@@ -59,17 +59,17 @@ pyo3 = { version = "0.24", features = ["extension-module", "abi3-py313"] }
 pythonize = "0.24"
 
 # CLI
-clap = { version = "4.5.60", features = ["derive"] }
+clap = { version = "4.6.0", features = ["derive"] }
 
 # Testing
-proptest = "1.10.0"
+proptest = "1.11.0"
 
 # SIMD-accelerated parsing
-simd-json = "0.14"
+simd-json = "0.15"
 memchr = "2.7"
 
 # Project manifest
-toml = "0.8"
+toml = "1.1"
 globset = "0.4"
 
 # Hashing
@@ -79,7 +79,7 @@ blake3 = "1"
 divan = "0.1.21"
 
 # Tree-sitter parsing
-tree-sitter = "0.25"
+tree-sitter = "0.26"
 
 # Workspace crates
 panproto-gat = { version = "0.21.0", path = "crates/panproto-gat" }
