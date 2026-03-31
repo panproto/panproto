@@ -123,6 +123,40 @@ pub enum TheoryTransform {
     DropDirectedEquation(Arc<str>),
     /// Pullback along a theory morphism.
     Pullback(TheoryMorphism),
+    /// Rename an edge label (JSON property key) without changing sort/op structure.
+    ///
+    /// This is a fiber-level natural isomorphism in the Grothendieck fibration:
+    /// the theory is unchanged, but the schema-level edge metadata is relabeled.
+    /// Always classified as `Iso` (empty complement, bijective relabeling).
+    RenameEdgeName {
+        /// The source sort of the edge whose label to rename.
+        src_sort: Arc<str>,
+        /// The target sort of the edge.
+        tgt_sort: Arc<str>,
+        /// The old edge label (JSON property key).
+        old_name: Arc<str>,
+        /// The new edge label.
+        new_name: Arc<str>,
+    },
+    /// Apply a transform to the sub-theory reachable from a focus sort.
+    ///
+    /// Categorically, this is the left Kan extension along the inclusion
+    /// `ι : Sub(T, focus) ↪ T` of the sub-theory at the focus sort.
+    /// The inner transform is applied only to the sub-theory; the rest
+    /// of `T` is unchanged. The result is the pushout of `T` and
+    /// `inner(Sub(T, focus))` over `Sub(T, focus)`.
+    ///
+    /// At the instance level, the optic class depends on the edge kind
+    /// connecting the parent to the focus sort:
+    ///   - `prop` edge → Lens (apply once)
+    ///   - `item` edge → Traversal (apply per element)
+    ///   - `variant` edge → Prism (apply if present)
+    ScopedTransform {
+        /// The sort to focus on (root of the sub-theory).
+        focus: Arc<str>,
+        /// The inner transform applied within the focus.
+        inner: Box<Self>,
+    },
     /// Sequential composition: T ↦ G(F(T))
     Compose(Box<Self>, Box<Self>),
 }
@@ -296,6 +330,45 @@ fn apply_pullback(theory: &Theory, morphism: &TheoryMorphism) -> Theory {
         }
     }
     result
+}
+
+/// Compute the set of sort names reachable from `start` via operations.
+///
+/// Uses a BFS over the operation graph: a sort `s` is reachable if there
+/// exists an operation with `s` as an input or output sort and at least one
+/// of its other sorts is already reachable.
+fn reachable_sorts_from(theory: &Theory, start: &str) -> FxHashSet<Arc<str>> {
+    let mut reachable = FxHashSet::default();
+    reachable.insert(Arc::from(start));
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for op in &theory.ops {
+            let input_sorts: Vec<&Arc<str>> = op.inputs.iter().map(|(_, s)| s).collect();
+            let all_sorts: Vec<&Arc<str>> = input_sorts
+                .iter()
+                .copied()
+                .chain(std::iter::once(&op.output))
+                .collect();
+            let any_reachable = all_sorts.iter().any(|s| reachable.contains(*s));
+            if any_reachable {
+                for s in &all_sorts {
+                    if reachable.insert((*s).clone()) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    reachable
+}
+
+/// Collect all operation names referenced in a directed equation's terms.
+fn collect_ops_in_directed_eq(deq: &DirectedEquation) -> Vec<Arc<str>> {
+    let mut ops = Vec::new();
+    collect_ops_in_term(&deq.lhs, &mut ops);
+    collect_ops_in_term(&deq.rhs, &mut ops);
+    ops
 }
 
 /// Filter equations, keeping only those whose ops are all in the remaining ops list.
@@ -510,6 +583,96 @@ impl TheoryTransform {
                 ))
             }
             Self::Pullback(morphism) => Ok(apply_pullback(theory, morphism)),
+            Self::RenameEdgeName { .. } => {
+                // Fiber-level operation: the theory is unchanged.
+                // The actual relabeling happens at the schema level
+                // in apply_theory_transform_to_schema.
+                Ok(theory.clone())
+            }
+            Self::ScopedTransform { focus, inner } => {
+                // Extract the sub-theory reachable from the focus sort,
+                // apply the inner transform, and merge back.
+                if !theory.has_sort(focus) {
+                    return Err(GatError::FactorizationError(format!(
+                        "scoped transform focus sort '{focus}' not found in theory"
+                    )));
+                }
+                // Find sorts reachable from focus via operations.
+                let reachable = reachable_sorts_from(theory, focus);
+                // Build the sub-theory from reachable sorts.
+                let sub_sorts: Vec<_> = theory
+                    .sorts
+                    .iter()
+                    .filter(|s| reachable.contains(&s.name))
+                    .cloned()
+                    .collect();
+                let sub_ops: Vec<_> = theory
+                    .ops
+                    .iter()
+                    .filter(|op| {
+                        op.inputs.iter().all(|i| reachable.contains(&i.1))
+                            && reachable.contains(&op.output)
+                    })
+                    .cloned()
+                    .collect();
+                let sub_eqs: Vec<_> = filter_eqs_by_remaining_ops(&theory.eqs, &sub_ops);
+                let sub_directed_eqs: Vec<_> = theory
+                    .directed_eqs
+                    .iter()
+                    .filter(|de| {
+                        let ops_used = collect_ops_in_directed_eq(de);
+                        let sub_op_names: FxHashSet<Arc<str>> =
+                            sub_ops.iter().map(|o| Arc::clone(&o.name)).collect();
+                        ops_used.iter().all(|op| sub_op_names.contains(op))
+                    })
+                    .cloned()
+                    .collect();
+                let sub_theory = Theory::full(
+                    Arc::from(format!("{}_sub_{focus}", theory.name)),
+                    Vec::new(),
+                    sub_sorts,
+                    sub_ops,
+                    sub_eqs,
+                    sub_directed_eqs,
+                    Vec::new(),
+                );
+                // Apply inner transform to sub-theory.
+                let transformed_sub = inner.apply(&sub_theory)?;
+                // Merge: replace sub-theory sorts/ops with transformed versions,
+                // keep everything outside the focus unchanged.
+                let mut merged_sorts: Vec<_> = theory
+                    .sorts
+                    .iter()
+                    .filter(|s| !reachable.contains(&s.name))
+                    .cloned()
+                    .collect();
+                merged_sorts.extend(transformed_sub.sorts);
+                let sub_op_names: FxHashSet<Arc<str>> = theory
+                    .ops
+                    .iter()
+                    .filter(|op| {
+                        op.inputs.iter().all(|i| reachable.contains(&i.1))
+                            && reachable.contains(&op.output)
+                    })
+                    .map(|o| Arc::clone(&o.name))
+                    .collect();
+                let mut merged_ops: Vec<_> = theory
+                    .ops
+                    .iter()
+                    .filter(|o| !sub_op_names.contains(&o.name))
+                    .cloned()
+                    .collect();
+                merged_ops.extend(transformed_sub.ops);
+                Ok(Theory::full(
+                    Arc::clone(&theory.name),
+                    theory.extends.clone(),
+                    merged_sorts,
+                    merged_ops,
+                    theory.eqs.clone(),
+                    theory.directed_eqs.clone(),
+                    theory.policies.clone(),
+                ))
+            }
             Self::Compose(first, second) => {
                 let intermediate = first.apply(theory)?;
                 second.apply(&intermediate)

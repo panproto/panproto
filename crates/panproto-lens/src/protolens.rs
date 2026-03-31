@@ -1309,6 +1309,132 @@ fn apply_theory_transform_to_schema(
             }
             Ok(result)
         }
+        TheoryTransform::RenameEdgeName {
+            src_sort,
+            tgt_sort,
+            old_name,
+            new_name,
+        } => {
+            // Find and rename the edge label between src_sort and tgt_sort vertices.
+            // Rebuild the schema with the renamed edge and fresh adjacency indices.
+            let mut new_edges = HashMap::new();
+            for (edge, kind) in &schema.edges {
+                let mut e = edge.clone();
+                if *e.src == **src_sort
+                    && *e.tgt == **tgt_sort
+                    && e.name.as_deref() == Some(&**old_name)
+                {
+                    e.name = Some(Name::from(&**new_name));
+                }
+                new_edges.insert(e, kind.clone());
+            }
+            // Rebuild adjacency indices from the new edge set.
+            let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+            let mut incoming: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+            let mut between: HashMap<(Name, Name), SmallVec<panproto_schema::Edge, 2>> =
+                HashMap::new();
+            for edge in new_edges.keys() {
+                outgoing
+                    .entry(edge.src.clone())
+                    .or_default()
+                    .push(edge.clone());
+                incoming
+                    .entry(edge.tgt.clone())
+                    .or_default()
+                    .push(edge.clone());
+                between
+                    .entry((edge.src.clone(), edge.tgt.clone()))
+                    .or_default()
+                    .push(edge.clone());
+            }
+            let mut new_schema = schema.clone();
+            new_schema.edges = new_edges;
+            new_schema.outgoing = outgoing;
+            new_schema.incoming = incoming;
+            new_schema.between = between;
+            Ok(new_schema)
+        }
+        TheoryTransform::ScopedTransform { focus, inner } => {
+            // Pushout construction: apply the inner transform to the sub-schema
+            // reachable from the focus vertex, then merge back into the full schema.
+            //
+            // Given inclusion ι : Sub(S, focus) ↪ S and transform η on Sub(S, focus),
+            // the result is the pushout S ∪_{Sub(S,focus)} η(Sub(S, focus)).
+
+            // 1. Find all vertices reachable from focus via outgoing edges (BFS).
+            let mut reachable: std::collections::HashSet<Name> = std::collections::HashSet::new();
+            let mut queue: std::collections::VecDeque<Name> = std::collections::VecDeque::new();
+            let focus_name = Name::from(&**focus);
+            if schema.vertices.contains_key(&focus_name) {
+                reachable.insert(focus_name.clone());
+                queue.push_back(focus_name);
+            }
+            while let Some(v) = queue.pop_front() {
+                for edge in schema.outgoing_edges(&v) {
+                    if reachable.insert(edge.tgt.clone()) {
+                        queue.push_back(edge.tgt.clone());
+                    }
+                }
+            }
+
+            // 2. Build the sub-schema from reachable vertices and edges.
+            let sub_vertices: HashMap<Name, Vertex> = schema
+                .vertices
+                .iter()
+                .filter(|(id, _)| reachable.contains(*id))
+                .map(|(id, v)| (id.clone(), v.clone()))
+                .collect();
+            let sub_edges: HashMap<panproto_schema::Edge, Name> = schema
+                .edges
+                .iter()
+                .filter(|(e, _)| reachable.contains(&e.src) && reachable.contains(&e.tgt))
+                .map(|(e, k)| (e.clone(), k.clone()))
+                .collect();
+            let mut sub_schema = schema.clone();
+            sub_schema.vertices = sub_vertices;
+            sub_schema.edges = sub_edges;
+
+            // 3. Apply inner transform to the sub-schema.
+            let transformed_sub = apply_theory_transform_to_schema(inner, &sub_schema, protocol)?;
+
+            // 4. Merge: start from the original schema, replace reachable vertices/edges
+            //    with their transformed counterparts.
+            let mut result = schema.clone();
+            // Remove old reachable vertices and edges.
+            result.vertices.retain(|id, _| !reachable.contains(id));
+            result
+                .edges
+                .retain(|e, _| !(reachable.contains(&e.src) && reachable.contains(&e.tgt)));
+            // Insert transformed sub-schema vertices and edges.
+            result.vertices.extend(transformed_sub.vertices);
+            result.edges.extend(transformed_sub.edges);
+            // Preserve cross-boundary edges (edges from outside to reachable or vice versa).
+            // These are already in result.edges since we only removed edges fully inside reachable.
+
+            // 5. Rebuild adjacency indices.
+            let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+            let mut incoming: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+            let mut between: HashMap<(Name, Name), SmallVec<panproto_schema::Edge, 2>> =
+                HashMap::new();
+            for edge in result.edges.keys() {
+                outgoing
+                    .entry(edge.src.clone())
+                    .or_default()
+                    .push(edge.clone());
+                incoming
+                    .entry(edge.tgt.clone())
+                    .or_default()
+                    .push(edge.clone());
+                between
+                    .entry((edge.src.clone(), edge.tgt.clone()))
+                    .or_default()
+                    .push(edge.clone());
+            }
+            result.outgoing = outgoing;
+            result.incoming = incoming;
+            result.between = between;
+            Ok(result)
+        }
         TheoryTransform::Compose(first, second) => {
             let intermediate = apply_theory_transform_to_schema(first, schema, protocol)?;
             apply_theory_transform_to_schema(second, &intermediate, protocol)

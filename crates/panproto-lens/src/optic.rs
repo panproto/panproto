@@ -91,7 +91,8 @@ pub fn classify_transform(transform: &TheoryTransform) -> OpticKind {
         // Bijections: no data loss, complement is unit.
         TheoryTransform::Identity
         | TheoryTransform::RenameSort { .. }
-        | TheoryTransform::RenameOp { .. } => OpticKind::Iso,
+        | TheoryTransform::RenameOp { .. }
+        | TheoryTransform::RenameEdgeName { .. } => OpticKind::Iso,
 
         // Projections and extensions: complement captures dropped or default data.
         TheoryTransform::DropSort(_)
@@ -107,6 +108,14 @@ pub fn classify_transform(transform: &TheoryTransform) -> OpticKind {
         | TheoryTransform::AddDirectedEquation(_)
         | TheoryTransform::DropDirectedEquation(_) => OpticKind::Lens,
 
+        // Scoped transform: conservative static classification.
+        // The actual optic kind depends on the edge kind to the focus
+        // vertex, which is determined at instantiation time.
+        TheoryTransform::ScopedTransform { inner, .. } => {
+            let inner_kind = classify_transform(inner);
+            inner_kind.compose(OpticKind::Lens)
+        }
+
         // Composition: recursively classify and compose.
         TheoryTransform::Compose(a, b) => {
             let kind_a = classify_transform(a);
@@ -114,6 +123,29 @@ pub fn classify_transform(transform: &TheoryTransform) -> OpticKind {
             kind_a.compose(kind_b)
         }
     }
+}
+
+/// Refine the optic classification for a scoped transform given schema context.
+///
+/// At theory level, `ScopedTransform` is conservatively classified as
+/// `inner_kind ∘ Lens`. At instantiation time, the edge kind connecting the
+/// parent to the focus vertex determines the actual carrier optic:
+///
+/// - `"prop"` edge: single-element focus → inner kind unchanged (Lens carrier)
+/// - `"item"` / `"items"` edge: multi-element focus → Traversal carrier
+/// - `"variant"` edge: optional-element focus → Prism carrier
+///
+/// The result is `carrier.compose(inner_kind)` per the standard optics
+/// composition table.
+#[must_use]
+pub fn refine_scoped_optic(edge_kind: &str, inner_kind: OpticKind) -> OpticKind {
+    let carrier = match edge_kind {
+        "item" | "items" => OpticKind::Traversal,
+        "variant" => OpticKind::Prism,
+        // prop and all other edge kinds: single element, Lens carrier
+        _ => OpticKind::Lens,
+    };
+    carrier.compose(inner_kind)
 }
 
 /// Verify that the optic laws hold for a classified transform on a
