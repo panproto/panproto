@@ -1186,9 +1186,155 @@ pub mod elementary {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
+/// Derived lens combinators composed from elementary protolens operations.
+///
+/// Each combinator constructs a [`ProtolensChain`] from elementary steps.
+/// Composition preserves lens laws by naturality: each step satisfies
+/// `GetPut`/`PutGet`, and sequential composition of lawful lenses is lawful.
+pub mod combinators {
+    use panproto_gat::Name;
+    use panproto_inst::value::Value;
+
+    use super::ProtolensChain;
+    use super::elementary;
+
+    /// Rename a field: changes both the vertex name (sort rename) and the
+    /// JSON property key (edge label rename).
+    ///
+    /// Categorically, this is the composition of two natural isomorphisms:
+    /// sort rename (theory level) followed by edge label rename (fiber level).
+    /// The result is an `Iso` (lossless, empty complement).
+    #[must_use]
+    pub fn rename_field(
+        parent: impl Into<Name>,
+        old_name: impl Into<Name>,
+        new_name: impl Into<Name>,
+    ) -> ProtolensChain {
+        let parent = parent.into();
+        let old_name = old_name.into();
+        let new_name = new_name.into();
+        ProtolensChain::new(vec![
+            elementary::rename_sort(old_name.clone(), new_name.clone()),
+            elementary::rename_edge_name(parent, new_name.clone(), old_name, new_name),
+        ])
+    }
+
+    /// Remove a field (drop a sort and its incoming edges).
+    ///
+    /// The complement captures the dropped vertex data.
+    #[must_use]
+    pub fn remove_field(field: impl Into<Name>) -> ProtolensChain {
+        let field = field.into();
+        ProtolensChain::new(vec![elementary::drop_sort(field)])
+    }
+
+    /// Add a field with a default value.
+    ///
+    /// The complement records the default so that `put` can restore the
+    /// source instance without the added field.
+    #[must_use]
+    pub fn add_field(
+        parent: impl Into<Name>,
+        field_name: impl Into<Name>,
+        field_kind: impl Into<Name>,
+        default: Value,
+    ) -> ProtolensChain {
+        let parent = parent.into();
+        let field_name = field_name.into();
+        let field_kind = field_kind.into();
+        ProtolensChain::new(vec![
+            elementary::add_sort(field_name.clone(), field_kind, default),
+            elementary::add_op(field_name.clone(), parent, field_name.clone(), field_name),
+        ])
+    }
+
+    /// Hoist a nested field up one level, collapsing the intermediate vertex.
+    ///
+    /// Given a path `parent →(e₁) intermediate →(e₂) child`, this produces
+    /// `parent →(e') child` by adding a direct edge and dropping the
+    /// intermediate sort (which cascades removal of its incident edges).
+    ///
+    /// The complement captures the intermediate vertex data and any other
+    /// children of the intermediate that are not the hoisted child.
+    #[must_use]
+    pub fn hoist_field(
+        parent: impl Into<Name>,
+        intermediate: impl Into<Name>,
+        child: impl Into<Name>,
+    ) -> ProtolensChain {
+        let parent = parent.into();
+        let intermediate = intermediate.into();
+        let child = child.into();
+        ProtolensChain::new(vec![
+            // First add the direct edge from parent to child.
+            elementary::add_op(child.clone(), parent, child.clone(), child),
+            // Then drop the intermediate, which cascades its edges.
+            elementary::drop_sort(intermediate),
+        ])
+    }
+
+    /// Nest a direct child under a new intermediate vertex.
+    ///
+    /// Given `parent →(e) child`, produces `parent →(e₁) new →(e₂) child`
+    /// by inserting a new intermediate vertex.
+    ///
+    /// This is the adjoint of `hoist_field`.
+    #[must_use]
+    pub fn nest_field(
+        parent: impl Into<Name>,
+        child: impl Into<Name>,
+        new_intermediate: impl Into<Name>,
+        intermediate_kind: impl Into<Name>,
+    ) -> ProtolensChain {
+        let parent = parent.into();
+        let child = child.into();
+        let new_intermediate = new_intermediate.into();
+        let intermediate_kind = intermediate_kind.into();
+        ProtolensChain::new(vec![
+            // Add the new intermediate vertex.
+            elementary::add_sort(new_intermediate.clone(), intermediate_kind, Value::Null),
+            // Add edge from parent to new intermediate.
+            elementary::add_op(
+                new_intermediate.clone(),
+                parent,
+                new_intermediate.clone(),
+                new_intermediate.clone(),
+            ),
+            // Add edge from new intermediate to child.
+            elementary::add_op(
+                child.clone(),
+                new_intermediate,
+                child.clone(),
+                child.clone(),
+            ),
+            // Drop the direct edge from parent to child.
+            elementary::drop_op(child),
+        ])
+    }
+
+    /// Build a pipeline from a sequence of protolens chains.
+    ///
+    /// Flattens all steps into a single `ProtolensChain`. This is
+    /// vertical composition: the target schema of each chain feeds
+    /// into the source of the next.
+    #[must_use]
+    pub fn pipeline(chains: Vec<ProtolensChain>) -> ProtolensChain {
+        let steps = chains.into_iter().flat_map(|c| c.steps).collect();
+        ProtolensChain::new(steps)
+    }
+
+    /// Apply a protolens to each element of an array.
+    ///
+    /// Wraps the inner protolens in a `scoped` transform targeting the
+    /// given focus vertex (the array element's schema vertex). At the
+    /// instance level, this produces a traversal: the inner lens is
+    /// applied independently to each array element, with per-element
+    /// complement tracking.
+    #[must_use]
+    pub fn map_items(focus: impl Into<Name>, inner: super::Protolens) -> super::Protolens {
+        elementary::scoped(focus, inner)
+    }
+}
 
 /// Build a [`CompiledMigration`] between two schemas by comparing their
 /// structures.
