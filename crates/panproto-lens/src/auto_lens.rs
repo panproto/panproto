@@ -299,7 +299,10 @@ fn alignment_to_theory_morphism(
 /// rejected since they should not appear in a factorized sequence.
 fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens, LensError> {
     match &endofunctor.transform {
-        TheoryTransform::AddSort { sort, vertex_kind } | TheoryTransform::AddSortWithDefault { sort, vertex_kind, .. } => {
+        TheoryTransform::AddSort { sort, vertex_kind }
+        | TheoryTransform::AddSortWithDefault {
+            sort, vertex_kind, ..
+        } => {
             let vk = vertex_kind
                 .as_ref()
                 .map_or_else(|| sort.default_vertex_kind(), Arc::clone);
@@ -476,7 +479,10 @@ mod tests {
         let ef = TheoryEndofunctor {
             name: Arc::from("add_tags"),
             precondition: panproto_gat::TheoryConstraint::Unconstrained,
-            transform: TheoryTransform::AddSort { sort: Sort::simple("tags"), vertex_kind: None },
+            transform: TheoryTransform::AddSort {
+                sort: Sort::simple("tags"),
+                vertex_kind: None,
+            },
         };
         let p = endofunctor_to_protolens(&ef).unwrap();
         assert!(p.name.contains("add_sort"));

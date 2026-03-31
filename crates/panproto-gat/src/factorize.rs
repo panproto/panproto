@@ -140,7 +140,10 @@ fn emit_adds(
         steps.push(TheoryEndofunctor {
             name: Arc::from(format!("add_sort_{}", sort.name)),
             precondition: TheoryConstraint::Unconstrained,
-            transform: TheoryTransform::AddSort { sort, vertex_kind: None },
+            transform: TheoryTransform::AddSort {
+                sort,
+                vertex_kind: None,
+            },
         });
     }
 

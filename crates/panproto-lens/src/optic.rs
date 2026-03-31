@@ -350,7 +350,10 @@ mod tests {
 
     #[test]
     fn classify_add_sort_is_lens() {
-        let t = TheoryTransform::AddSort { sort: panproto_gat::Sort::simple("new_sort"), vertex_kind: None };
+        let t = TheoryTransform::AddSort {
+            sort: panproto_gat::Sort::simple("new_sort"),
+            vertex_kind: None,
+        };
         assert_eq!(classify_transform(&t), OpticKind::Lens);
     }
 

@@ -1242,7 +1242,11 @@ fn apply_theory_transform_to_schema(
             new_schema.vertices.insert(Name::from(&*sort.name), vertex);
             Ok(new_schema)
         }
-        TheoryTransform::AddSortWithDefault { sort, vertex_kind, default_expr } => {
+        TheoryTransform::AddSortWithDefault {
+            sort,
+            vertex_kind,
+            default_expr,
+        } => {
             let mut new_schema = schema.clone();
             let name = Name::from(&*sort.name);
             let kind = vertex_kind

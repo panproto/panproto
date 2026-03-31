@@ -648,9 +648,12 @@ mod tests {
     #[test]
     fn transform_add_sort() {
         let t = graph_theory();
-        let result = TheoryTransform::AddSort { sort: Sort::simple("Label"), vertex_kind: None }
-            .apply(&t)
-            .unwrap();
+        let result = TheoryTransform::AddSort {
+            sort: Sort::simple("Label"),
+            vertex_kind: None,
+        }
+        .apply(&t)
+        .unwrap();
         assert_eq!(result.sorts.len(), 3);
         assert!(result.has_sort("Label"));
     }
@@ -719,7 +722,10 @@ mod tests {
     fn transform_compose() {
         let t = graph_theory();
         let composed = TheoryTransform::Compose(
-            Box::new(TheoryTransform::AddSort { sort: Sort::simple("Label"), vertex_kind: None }),
+            Box::new(TheoryTransform::AddSort {
+                sort: Sort::simple("Label"),
+                vertex_kind: None,
+            }),
             Box::new(TheoryTransform::RenameSort {
                 old: Arc::from("Vertex"),
                 new: Arc::from("Node"),
@@ -737,7 +743,10 @@ mod tests {
         let f = TheoryEndofunctor {
             name: Arc::from("add_label"),
             precondition: TheoryConstraint::HasSort(Arc::from("Vertex")),
-            transform: TheoryTransform::AddSort { sort: Sort::simple("Label"), vertex_kind: None },
+            transform: TheoryTransform::AddSort {
+                sort: Sort::simple("Label"),
+                vertex_kind: None,
+            },
         };
         assert!(f.applicable_to(&t));
         let result = f.apply(&t).unwrap();
@@ -761,7 +770,10 @@ mod tests {
         let f1 = TheoryEndofunctor {
             name: Arc::from("add_label"),
             precondition: TheoryConstraint::Unconstrained,
-            transform: TheoryTransform::AddSort { sort: Sort::simple("Label"), vertex_kind: None },
+            transform: TheoryTransform::AddSort {
+                sort: Sort::simple("Label"),
+                vertex_kind: None,
+            },
         };
         let f2 = TheoryEndofunctor {
             name: Arc::from("rename_vertex"),

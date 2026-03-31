@@ -333,9 +333,9 @@ impl Sort {
     pub fn default_vertex_kind(&self) -> Arc<str> {
         match &self.kind {
             SortKind::Val(vk) => Arc::from(vk.as_str()),
-            SortKind::Structural
-            | SortKind::Coercion { .. }
-            | SortKind::Merger(_) => Arc::clone(&self.name),
+            SortKind::Structural | SortKind::Coercion { .. } | SortKind::Merger(_) => {
+                Arc::clone(&self.name)
+            }
         }
     }
 
