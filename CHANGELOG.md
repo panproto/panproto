@@ -4,6 +4,31 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-03-31
+
+### Added
+
+- **panproto-gat**: `RenameEdgeName` theory transform variant for fiber-level edge label renaming. Changes the JSON property key without modifying the theory structure. Classified as `Iso` (empty complement, bijective relabeling).
+- **panproto-gat**: `ScopedTransform` theory transform variant for applying transforms to sub-theories reachable from a focus sort. Implements the left Kan extension along the sub-theory inclusion (pushout construction). (#16)
+- **panproto-gat**: `reachable_sorts_from()` directed BFS for computing sub-theory reachability via operation edges.
+- **panproto-lens**: `elementary::rename_edge_name()` protolens constructor for fiber-level edge label renaming.
+- **panproto-lens**: `elementary::scoped()` protolens constructor for applying a protolens within a sub-schema at a focus vertex. Optic class depends on edge kind: `prop` → Lens, `item` → Traversal, `variant` → Prism.
+- **panproto-lens**: `ComplementConstructor::Scoped` variant for per-element complement tracking in array traversals (dependent product in the slice topos).
+- **panproto-lens**: `refine_scoped_optic()` for runtime optic classification based on edge kind.
+- **panproto-lens**: `combinators` module with derived field-level operations: `rename_field`, `remove_field`, `add_field`, `hoist_field`, `nest_field`, `pipeline`, `map_items`. Each composed from elementary protolens steps. (#15)
+- **panproto-wasm**: `protolens_pipeline` export for building protolens chains from arrays of step specs.
+- **panproto-wasm**: `auto_generate_protolens_with_hints` export for morphism-hint-seeded automatic lens generation.
+- **panproto-wasm**: Extended `ProtolensStepSpec` with `rename_edge_name`, `scoped`, `map_items`, `rename_field`, `remove_field`, `add_field`, `hoist_field`, `nest_field` step types.
+- **TypeScript SDK**: `PipelineBuilder` class with fluent API for constructing protolens chains from combinator steps. (#15)
+- **TypeScript SDK**: `ProtolensChainHandle.autoGenerateWithHints()` for cross-namespace lens generation with seeded vertex correspondences.
+- **TypeScript SDK**: `PipelineStep` union type with all combinator step shapes.
+- **Python SDK**: `ProtolensChain` class with `auto_generate`, `auto_generate_with_hints`, `instantiate`, `compose`, `fuse`, `to_json`, `from_json`.
+- **Python SDK**: Combinator functions: `rename_field`, `remove_field`, `add_field`, `hoist_field`, `pipeline`.
+- **Tutorial**: New chapter "Lens Combinators and Scoped Transforms" covering pipeline API, scoped transforms, morphism hints, and dependent optics.
+- **Dev Guide**: New chapter "Dependent Optics and Scoped Transforms" covering `RenameEdgeName`/`ScopedTransform` implementation, optic classification, complement algebra, and combinator decomposition.
+- **Integration tests**: 13 tests (8 deterministic + 5 property-based with 64 cases each) covering `rename_field`, `remove_field`, `pipeline`, `rename_edge_name`, `scoped` transforms, and lens law compliance.
+- **References**: Added Riley 2018, Vertechi 2022, Capucci et al. 2024, Clarke et al. 2024, Spivak 2012 to both tutorial and dev-guide bibliographies.
+
 ## [0.22.1] - 2026-03-31
 
 ### Fixed
