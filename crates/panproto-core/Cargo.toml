@@ -20,6 +20,8 @@ git = ["dep:panproto-git", "project"]
 llvm = ["dep:panproto-llvm"]
 # Enable LLVM JIT compilation of expressions.
 jit = ["dep:panproto-jit"]
+# Enable tree-sitter-based format-preserving parsing for all protocols.
+tree-sitter = ["panproto-io/tree-sitter"]
 
 [dependencies]
 panproto-gat = { workspace = true }
@@ -36,8 +38,8 @@ panproto-vcs = { workspace = true }
 panproto-parse = { workspace = true, optional = true }
 panproto-project = { workspace = true, optional = true }
 panproto-git = { workspace = true, optional = true }
-panproto-llvm = { version = "0.23.0", path = "../panproto-llvm", optional = true }
-panproto-jit = { version = "0.23.0", path = "../panproto-jit", optional = true }
+panproto-llvm = { version = "0.24.0", path = "../panproto-llvm", optional = true }
+panproto-jit = { version = "0.24.0", path = "../panproto-jit", optional = true }
 
 [lints]
 workspace = true

@@ -13,6 +13,9 @@ use panproto_schema::Schema;
 
 use crate::error::{EmitInstanceError, ParseInstanceError};
 
+#[cfg(feature = "tree-sitter")]
+use crate::cst_extract::CstComplement;
+
 /// Which instance representation a protocol natively uses.
 ///
 /// This is not an implementation choice — it follows directly from the
@@ -93,5 +96,40 @@ pub trait InstanceEmitter: Send + Sync {
         &self,
         schema: &Schema,
         instance: &FInstance,
+    ) -> Result<Vec<u8>, EmitInstanceError>;
+}
+
+/// Extended codec trait for format-preserving round-trips.
+///
+/// Codecs that implement this trait can capture formatting information
+/// during parsing (as a [`CstComplement`]) and restore it during emission,
+/// producing byte-identical output for unmodified data.
+///
+/// This trait is only available when the `tree-sitter` feature is enabled.
+#[cfg(feature = "tree-sitter")]
+pub trait FormatPreservingCodec: InstanceParser + InstanceEmitter {
+    /// Parse bytes into a WInstance, capturing the CST complement for
+    /// format-preserving emission.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseInstanceError`] if parsing or extraction fails.
+    fn parse_wtype_preserving(
+        &self,
+        schema: &Schema,
+        input: &[u8],
+    ) -> Result<(WInstance, CstComplement), ParseInstanceError>;
+
+    /// Emit bytes from a WInstance using the CST complement to preserve
+    /// original formatting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EmitInstanceError`] if emission fails.
+    fn emit_wtype_preserving(
+        &self,
+        schema: &Schema,
+        instance: &WInstance,
+        complement: &CstComplement,
     ) -> Result<Vec<u8>, EmitInstanceError>;
 }

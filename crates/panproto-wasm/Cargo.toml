@@ -21,6 +21,10 @@ serde_json = { workspace = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
 
+[features]
+default = []
+format-preserving = ["panproto-core/tree-sitter"]
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
 

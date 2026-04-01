@@ -21,6 +21,16 @@ use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
 /// to [`json_pathway::emit_json_bytes`]. The `root_vertex` field determines
 /// which schema vertex anchors the root of the instance tree; if `None`,
 /// the first root vertex in the schema is used.
+///
+/// # Deprecation
+///
+/// This codec discards formatting (whitespace, key ordering, indentation)
+/// during parsing. Enable the `tree-sitter` feature and use `UnifiedCodec::json`
+/// for format-preserving round-trips.
+#[deprecated(
+    since = "0.24.0",
+    note = "use UnifiedCodec::json (tree-sitter feature) for format-preserving round-trips"
+)]
 pub struct JsonCodec {
     protocol: String,
     native_repr: NativeRepr,

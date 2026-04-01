@@ -63,19 +63,35 @@ pub mod json_pathway;
 pub mod arena;
 
 /// Generic JSON-based codec reused by many protocols.
+///
+/// Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
+#[allow(deprecated)]
 pub mod json_codec;
 
 /// Zero-copy XML pathway for schema-guided instance parsing via `quick-xml`.
 pub mod xml_pathway;
 
 /// Generic XML-based codec reused by several protocols.
+///
+/// Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
+#[allow(deprecated)]
 pub mod xml_codec;
 
 /// Shared tabular pathway for line/field-delimited formats via `memchr`.
 pub mod tabular_pathway;
 
 /// Generic tabular codec for delimited text protocols.
+///
+/// Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
+#[allow(deprecated)]
 pub mod tabular_codec;
+
+/// CST-to-Instance extraction lens for format-preserving round-trips.
+pub mod cst_extract;
+
+/// Unified tree-sitter-based codec for all protocols.
+#[cfg(feature = "tree-sitter")]
+pub mod unified_codec;
 
 // ── Protocol category modules ──────────────────────────────────────────
 
