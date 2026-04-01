@@ -20,15 +20,15 @@ use serde::{Deserialize, Serialize};
 /// The kind of optic a protolens or protolens chain represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OpticKind {
-    /// Bijection -- no complement needed (complement is Unit).
+    /// Bijection: no complement needed (complement is Unit).
     Iso,
-    /// Projection -- complement captures dropped data.
+    /// Projection: complement captures dropped data.
     Lens,
-    /// Injection -- complement is a variant tag.
+    /// Injection: complement is a variant tag.
     Prism,
-    /// Lens composed with Prism -- complement is (variant tag, dropped data).
+    /// Lens composed with Prism: complement is (variant tag, dropped data).
     Affine,
-    /// Multi-focus -- complement tracks positions.
+    /// Multi-focus: complement tracks positions.
     Traversal,
 }
 

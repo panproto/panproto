@@ -1,7 +1,7 @@
 //! Complement type system for protolenses.
 //!
 //! Given a protolens η and schema S, compute the complement type
-//! `ComplementType(η, S)`. This is a dependent type — the complement
+//! `ComplementType(η, S)`. This is a dependent type: the complement
 //! varies with the schema the protolens is instantiated at.
 
 use panproto_gat::Name;
@@ -27,7 +27,7 @@ pub struct ComplementSpec {
 /// Classification of a complement's role.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ComplementKind {
-    /// No complement needed — isomorphism.
+    /// No complement needed (isomorphism).
     Empty,
     /// Data captured in complement (lossy forward).
     DataCaptured,
@@ -79,7 +79,7 @@ pub fn chain_complement_spec(
             kind: ComplementKind::Empty,
             forward_defaults: vec![],
             captured_data: vec![],
-            summary: "Identity transformation — no complement needed.".into(),
+            summary: "Identity transformation, no complement needed.".into(),
         };
     }
 
@@ -128,7 +128,7 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                         "Data for {count} vertices of kind '{sort}' will be captured in the complement.",
                     ),
                 }],
-                summary: format!("Drops sort '{sort}' — {count} vertices captured in complement.",),
+                summary: format!("Drops sort '{sort}': {count} vertices captured in complement.",),
             }
         }
         ComplementConstructor::DroppedOpData { op } => {
@@ -143,7 +143,7 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                         "{count} edges of kind '{op}' will be captured in the complement.",
                     ),
                 }],
-                summary: format!("Drops operation '{op}' — {count} edges captured."),
+                summary: format!("Drops operation '{op}': {count} edges captured."),
             }
         }
         ComplementConstructor::AddedElement {
@@ -161,7 +161,7 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                 suggested_default: default_value.clone(),
             }],
             captured_data: vec![],
-            summary: format!("Adds {element_kind} '{element_name}' — default required."),
+            summary: format!("Adds {element_kind} '{element_name}': default required."),
         },
         ComplementConstructor::NatTransKernel { nat_trans_name } => ComplementSpec {
             kind: ComplementKind::DataCaptured,
@@ -173,7 +173,7 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                     "Kernel of natural transformation '{nat_trans_name}' captured in complement.",
                 ),
             }],
-            summary: format!("Value conversion via '{nat_trans_name}' — kernel captured."),
+            summary: format!("Value conversion via '{nat_trans_name}': kernel captured."),
         },
         ComplementConstructor::CoercedSortData { sort, class } => {
             coerced_sort_spec(sort, *class, schema)
@@ -275,7 +275,7 @@ fn build_summary(
     captured: &[CapturedField],
 ) -> String {
     match kind {
-        ComplementKind::Empty => "Lossless transformation — no complement needed.".into(),
+        ComplementKind::Empty => "Lossless transformation, no complement needed.".into(),
         ComplementKind::DefaultsRequired => format!(
             "{} default(s) required: {}",
             defaults.len(),

@@ -88,6 +88,7 @@ panproto-schema = { version = "0.25.1", path = "crates/panproto-schema" }
 panproto-inst = { version = "0.25.1", path = "crates/panproto-inst" }
 panproto-mig = { version = "0.25.1", path = "crates/panproto-mig" }
 panproto-lens = { version = "0.25.1", path = "crates/panproto-lens" }
+panproto-lens-dsl = { version = "0.25.1", path = "crates/panproto-lens-dsl" }
 panproto-check = { version = "0.25.1", path = "crates/panproto-check" }
 panproto-protocols = { version = "0.25.1", path = "crates/panproto-protocols" }
 panproto-core = { version = "0.25.1", path = "crates/panproto-core" }

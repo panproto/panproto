@@ -1,7 +1,7 @@
 //! Protolenses: schema-parameterized families of lenses.
 //!
 //! A [`Lens`] is a concrete bidirectional transformation between two
-//! *specific* schemas — a pair (`get`, `put`) with complement satisfying
+//! *specific* schemas, a pair (`get`, `put`) with complement satisfying
 //! the `GetPut` and `PutGet` laws. A protolens is **not** a lens. It is
 //! a *dependent function* from schemas to lenses:
 //!
@@ -800,7 +800,7 @@ pub fn lift_chain(
 // Elementary protolens constructors
 // ---------------------------------------------------------------------------
 
-/// Built-in protolens constructors — the "atoms" from which all
+/// Built-in protolens constructors: the "atoms" from which all
 /// protolenses are composed.
 pub mod elementary {
     use panproto_gat::{
@@ -812,7 +812,7 @@ pub mod elementary {
 
     use super::{ComplementConstructor, Protolens, name_arc_clone};
 
-    /// `η : Id ⟹ AddSort(τ, d)` — for each `S`, `η_S` is a lens
+    /// `η : Id ⟹ AddSort(τ, d)`: for each `S`, `η_S` is a lens
     /// `S → S+{τ}` that adds a vertex kind with default.
     #[must_use]
     pub fn add_sort(
@@ -845,7 +845,7 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ DropSort(τ)` — for each `S` containing sort `τ`,
+    /// `η : Id ⟹ DropSort(τ)`: for each `S` containing sort `τ`,
     /// `η_S` is a lens `S → S \ {τ}`.
     #[must_use]
     pub fn drop_sort(sort_name: impl Into<Name>) -> Protolens {
@@ -867,7 +867,7 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ RenameSort(old, new)` — for each `S` containing sort
+    /// `η : Id ⟹ RenameSort(old, new)`: for each `S` containing sort
     /// `old`, `η_S` is a lossless lens `S → S[old↦new]`.
     #[must_use]
     pub fn rename_sort(old: impl Into<Name>, new: impl Into<Name>) -> Protolens {
@@ -894,7 +894,7 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ AddOp(op)` — adds an operation to the theory.
+    /// `η : Id ⟹ AddOp(op)`: adds an operation to the theory.
     #[must_use]
     pub fn add_op(
         op_name: impl Into<Name>,
@@ -931,7 +931,7 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ DropOp(op)` — drops an operation from the theory.
+    /// `η : Id ⟹ DropOp(op)`: drops an operation from the theory.
     #[must_use]
     pub fn drop_op(op_name: impl Into<Name>) -> Protolens {
         let op_name = op_name.into();
@@ -952,7 +952,7 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ RenameOp(old, new)` — renames an operation.
+    /// `η : Id ⟹ RenameOp(old, new)`: renames an operation.
     #[must_use]
     pub fn rename_op(old: impl Into<Name>, new: impl Into<Name>) -> Protolens {
         let old = old.into();
@@ -978,7 +978,7 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ AddEquation(eq)` — adds an equation (constraint).
+    /// `η : Id ⟹ AddEquation(eq)`: adds an equation (constraint).
     #[must_use]
     pub fn add_equation(eq: Equation) -> Protolens {
         let eq_name = Arc::clone(&eq.name);
@@ -998,7 +998,7 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ DropEquation(eq_name)` — drops an equation.
+    /// `η : Id ⟹ DropEquation(eq_name)`: drops an equation.
     #[must_use]
     pub fn drop_equation(eq_name: impl Into<Name>) -> Protolens {
         let eq_name = eq_name.into();
@@ -1092,7 +1092,7 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ RenameEdgeName(src, tgt, old, new)` — rename a JSON
+    /// `η : Id ⟹ RenameEdgeName(src, tgt, old, new)`: rename a JSON
     /// property key (edge label) without changing the theory structure.
     ///
     /// This is a fiber-level natural isomorphism in the Grothendieck
@@ -1142,7 +1142,7 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ Scope(focus, inner)` — apply a protolens within the
+    /// `η : Id ⟹ Scope(focus, inner)`: apply a protolens within the
     /// sub-schema rooted at the focus vertex.
     ///
     /// Categorically, this is the left Kan extension of the inner
@@ -1381,7 +1381,7 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
                     if src_v.kind == tgt_v.kind
                         && !vertex_remap.values().any(|v: &Name| v == *tgt_id)
                     {
-                        // Renamed vertex survives — add TARGET name to surviving_verts
+                        // Renamed vertex survives: add TARGET name to surviving_verts
                         // (wtype_restrict checks target_anchor against surviving_verts)
                         surviving_verts.insert((*tgt_id).clone());
                         vertex_remap.insert((*src_id).clone(), (*tgt_id).clone());
@@ -2281,7 +2281,7 @@ mod tests {
     #[test]
     fn check_applicability_returns_reasons() {
         let schema = three_node_schema();
-        // Build a protolens requiring HasSort("missing") — will fail
+        // Build a protolens requiring HasSort("missing"); will fail
         let p = super::Protolens {
             name: panproto_gat::Name::from("test"),
             source: panproto_gat::TheoryEndofunctor {

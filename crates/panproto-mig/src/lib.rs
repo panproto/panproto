@@ -51,7 +51,10 @@ pub use compose::compose;
 pub use coverage::{CoverageReport, PartialFailure, PartialReason, check_coverage};
 pub use error::{ComposeError, ExistenceError, InvertError, LiftError, MigError};
 pub use existence::{ExistenceReport, check_existence};
-pub use hom_search::{FoundMorphism, SearchOptions, find_best_morphism, find_morphisms};
+pub use hom_search::{
+    DomainConstraints, FoundMorphism, SearchOptions, find_best_morphism,
+    find_best_morphism_constrained, find_morphisms, find_morphisms_constrained,
+};
 pub use invert::invert;
 pub use lift::{lift_functor, lift_functor_pi, lift_wtype, lift_wtype_pi, lift_wtype_sigma};
 pub use migration::Migration;

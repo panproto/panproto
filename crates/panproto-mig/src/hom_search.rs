@@ -125,6 +125,12 @@ pub fn find_best_morphism(
 ///
 /// Like [`find_morphisms`], but applies domain restrictions from
 /// [`DomainConstraints`] during state initialization.
+///
+/// # Panics
+///
+/// Logs a warning via `eprintln!` if `opts.epic` or `opts.iso` is set
+/// while `constraints.excluded_sources` is non-empty, since surjectivity
+/// is ill-defined on a sub-schema induced by source exclusion.
 #[must_use]
 pub fn find_morphisms_constrained(
     src: &Schema,
@@ -132,6 +138,14 @@ pub fn find_morphisms_constrained(
     opts: &SearchOptions,
     constraints: &DomainConstraints,
 ) -> Vec<FoundMorphism> {
+    if (opts.epic || opts.iso) && !constraints.excluded_sources.is_empty() {
+        eprintln!(
+            "warning: epic/iso constraint combined with excluded_sources; \
+             surjectivity check applies to the full target schema but the \
+             source is a proper sub-schema, which may yield no results"
+        );
+    }
+
     let mut state = BacktrackState::new_constrained(src, tgt, opts, constraints);
     let mut results = Vec::new();
 
@@ -508,12 +522,24 @@ fn build_morphism(state: &BacktrackState<'_>) -> Option<FoundMorphism> {
 }
 
 /// Build a complete morphism with configurable quality weights.
+///
+/// Only considers edges in the induced sub-schema: edges where both
+/// endpoints are in `state.assignment`. Edges touching vertices that
+/// were excluded from the search (not in `state.domains`) are skipped.
+/// This correctly implements morphism construction on the sub-schema
+/// induced by the assigned vertex set.
 fn build_morphism_weighted(state: &BacktrackState<'_>, weights: [f64; 4]) -> Option<FoundMorphism> {
     let mut edge_map: HashMap<Edge, Edge> = HashMap::new();
 
     for src_edge in state.src.edges.keys() {
-        let tgt_src = state.assignment.get(&src_edge.src)?;
-        let tgt_tgt = state.assignment.get(&src_edge.tgt)?;
+        let Some(tgt_src) = state.assignment.get(&src_edge.src) else {
+            // Source endpoint not assigned (excluded from search).
+            // Skip: this edge is not in the induced sub-schema.
+            continue;
+        };
+        let Some(tgt_tgt) = state.assignment.get(&src_edge.tgt) else {
+            continue;
+        };
 
         // Find a compatible target edge (same kind between mapped vertices).
         // Prefer name-matching edges, fall back to any kind-matching edge.

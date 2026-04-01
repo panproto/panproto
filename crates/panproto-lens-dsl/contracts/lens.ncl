@@ -165,10 +165,38 @@ let ComposeSpec = {
 
 # -- Auto contracts --
 
+let PreferenceKind = std.contract.from_predicate (fun x =>
+  x == "same_edge_name" || x == "similar_name" || x == "same_kind"
+) in
+
+let PreferencePredicate = {
+  kind | PreferenceKind,
+  threshold | Number | optional,
+} in
+
+let ConstraintType = std.contract.from_predicate (fun x =>
+  x == "scope" || x == "exclude_targets" || x == "exclude_sources" || x == "prefer"
+) in
+
+let Constraint = {
+  type | ConstraintType,
+  under | String | optional,
+  targets | String | optional,
+  vertices | Array String | optional,
+  predicate | PreferencePredicate | optional,
+  weight | Number | optional,
+} in
+
+let HintSpec = {
+  anchors | { _ : String } | optional,
+  constraints | Array Constraint | optional,
+} in
+
 let AutoSpec = {
   quality_threshold | Number | optional,
   enable_overlap | Bool | optional,
   max_search_depth | Number | optional,
+  hints | HintSpec | optional,
 } in
 
 # -- Passthrough --
@@ -329,6 +357,43 @@ let add_equation = fun name lhs rhs => {
 # Drop an equation.
 let drop_equation = fun name => { drop_equation = name } in
 
+# -- Hint combinators --
+
+# Build an anchor constraint: source vertex maps to target vertex.
+let anchor = fun src tgt => { "%{src}" = tgt } in
+
+# Build a scope constraint: children of `under` map to children of `targets`.
+let scope = fun under targets => {
+  type = "scope",
+  under = under,
+  targets = targets,
+} in
+
+# Build an exclude_targets constraint.
+let exclude_targets = fun vertices => {
+  type = "exclude_targets",
+  vertices = vertices,
+} in
+
+# Build an exclude_sources constraint.
+let exclude_sources = fun vertices => {
+  type = "exclude_sources",
+  vertices = vertices,
+} in
+
+# Build a prefer constraint with a predicate and weight.
+let prefer_same_edge_name = fun weight => {
+  type = "prefer",
+  predicate = { kind = "same_edge_name" },
+  weight = weight,
+} in
+
+let prefer_similar_name = fun threshold weight => {
+  type = "prefer",
+  predicate = { kind = "similar_name", threshold = threshold },
+  weight = weight,
+} in
+
 # -- Template helpers --
 
 # Generate counter fields (integer fields with default 0).
@@ -365,6 +430,9 @@ let drop_feature = fun name => {
   Replacement,
   ComposeSpec,
   AutoSpec,
+  HintSpec,
+  Constraint,
+  PreferencePredicate,
   Coercion,
 
   # Coercion values
@@ -397,6 +465,14 @@ let drop_feature = fun name => {
   rename_op,
   add_equation,
   drop_equation,
+
+  # Hint combinators
+  anchor,
+  scope,
+  exclude_targets,
+  exclude_sources,
+  prefer_same_edge_name,
+  prefer_similar_name,
 
   # Template helpers
   counter_fields,

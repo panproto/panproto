@@ -9,7 +9,10 @@ use std::sync::Arc;
 
 use panproto_gat::{Name, Theory, TheoryEndofunctor, TheoryMorphism, TheoryTransform, factorize};
 use panproto_inst::value::Value;
-use panproto_mig::hom_search::{FoundMorphism, SearchOptions, find_best_morphism};
+use panproto_mig::hom_search::{
+    DomainConstraints, FoundMorphism, SearchOptions, find_best_morphism,
+    find_best_morphism_constrained,
+};
 use panproto_schema::{Protocol, Schema};
 
 use crate::Lens;
@@ -61,7 +64,7 @@ pub fn auto_generate(
     // Step 1: Find best morphism alignment
     let mut alignment = find_best_morphism(src, tgt, &config.search_opts);
 
-    // Step 1b: Overlap fallback — if direct morphism has low quality or
+    // Step 1b: Overlap fallback: if direct morphism has low quality or
     // fails, try overlap-based alignment when configured.
     if config.try_overlap {
         let should_try_overlap = alignment.as_ref().is_none_or(|a| a.quality < 0.5);
@@ -97,6 +100,82 @@ pub fn auto_generate(
     let mut lens = chain.instantiate(src, protocol)?;
 
     // Step 4: Derive field transforms from the protolens chain
+    let field_transforms = derive_field_transforms(&chain, src, tgt);
+    lens.compiled.field_transforms = field_transforms;
+
+    Ok(AutoLensResult {
+        chain,
+        lens,
+        alignment_quality: quality,
+    })
+}
+
+/// Auto-generate with hint-guided constraint propagation.
+///
+/// Runs the constrained morphism search using pre-derived anchors and
+/// domain constraints. Falls back to overlap alignment when configured
+/// and quality is below threshold.
+///
+/// # Parameters
+///
+/// - `anchors`: derived vertex name mappings (source → target), merged
+///   into `config.search_opts.initial`
+/// - `domain_constraints`: domain restrictions and scoring overrides
+/// - `quality_threshold`: minimum quality before trying overlap fallback
+///   (default: 0.5)
+///
+/// # Errors
+///
+/// Returns [`LensError::ProtolensError`] if no morphism is found.
+pub fn auto_generate_with_hints(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    config: &AutoLensConfig,
+    anchors: &HashMap<Name, Name>,
+    domain_constraints: &DomainConstraints,
+    quality_threshold: Option<f64>,
+) -> Result<AutoLensResult, LensError> {
+    let threshold = quality_threshold.unwrap_or(0.5);
+
+    let mut search_opts = config.search_opts.clone();
+    for (src_v, tgt_v) in anchors {
+        search_opts.initial.insert(src_v.clone(), tgt_v.clone());
+    }
+
+    // Step 1: Constrained morphism search
+    let mut alignment = find_best_morphism_constrained(src, tgt, &search_opts, domain_constraints);
+
+    // Step 1b: Overlap fallback
+    if config.try_overlap {
+        let should_try_overlap = alignment.as_ref().is_none_or(|a| a.quality < threshold);
+        if should_try_overlap {
+            let overlap = panproto_mig::discover_overlap(src, tgt);
+            if !overlap.vertex_pairs.is_empty() {
+                let mut constrained_opts = search_opts.clone();
+                for (src_id, tgt_id) in &overlap.vertex_pairs {
+                    constrained_opts
+                        .initial
+                        .insert(src_id.clone(), tgt_id.clone());
+                }
+                if let Some(oa) =
+                    find_best_morphism_constrained(src, tgt, &constrained_opts, domain_constraints)
+                {
+                    let is_better = alignment.as_ref().is_none_or(|a| oa.quality > a.quality);
+                    if is_better {
+                        alignment = Some(oa);
+                    }
+                }
+            }
+        }
+    }
+
+    let alignment = alignment
+        .ok_or_else(|| LensError::ProtolensError("no morphism found between schemas".into()))?;
+
+    let quality = alignment.quality;
+    let chain = protolens_from_alignment(&alignment, src, tgt)?;
+    let mut lens = chain.instantiate(src, protocol)?;
     let field_transforms = derive_field_transforms(&chain, src, tgt);
     lens.compiled.field_transforms = field_transforms;
 
@@ -145,7 +224,7 @@ pub fn protolens_from_alignment(
 ///
 /// For each elementary protolens step, determines which vertices are
 /// affected and generates the appropriate `FieldTransform` entries.
-/// This is protocol-agnostic — it works purely from the chain structure.
+/// This is protocol-agnostic; it works purely from the chain structure.
 fn derive_field_transforms(
     chain: &ProtolensChain,
     src: &Schema,

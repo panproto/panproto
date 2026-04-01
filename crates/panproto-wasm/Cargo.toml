@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 panproto-core = { workspace = true }
 panproto-expr = { workspace = true }
 panproto-expr-parser = { workspace = true }
+panproto-lens-dsl = { workspace = true }
 wasm-bindgen = { workspace = true }
 rmp-serde = { workspace = true }
 serde = { workspace = true }

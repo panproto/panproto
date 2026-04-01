@@ -531,6 +531,88 @@ pub struct AutoSpec {
     /// Maximum search depth for morphism discovery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_search_depth: Option<usize>,
+
+    /// Hints for guiding the morphism search: anchors, constraints,
+    /// and scoring preferences.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hints: Option<HintSpec>,
+}
+
+// ---------------------------------------------------------------------------
+// Hints
+// ---------------------------------------------------------------------------
+
+/// Hint specification for guided auto-lens generation.
+///
+/// Anchors pin specific source vertices to target vertices before search.
+/// Constraints restrict or bias the CSP solver's domain and scoring.
+/// A forward-chaining fixpoint loop derives additional anchors from the
+/// user-provided ones by propagating along unique edge-name matches.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HintSpec {
+    /// Ground facts: source vertex name maps to target vertex name.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub anchors: HashMap<String, String>,
+
+    /// Domain restrictions and scoring preferences.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<Constraint>,
+}
+
+/// A constraint that restricts or biases the morphism search.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Constraint {
+    /// Children of `under` in source must map to children of `targets`
+    /// in the target schema.
+    Scope {
+        /// Source vertex whose descendants are scoped.
+        under: String,
+        /// Target vertex whose descendants are the allowed range.
+        targets: String,
+    },
+
+    /// Exclude specific target vertices from all candidate domains.
+    ExcludeTargets {
+        /// Target vertex names to exclude.
+        vertices: Vec<String>,
+    },
+
+    /// Exclude specific source vertices from the search (treat as
+    /// "don't care"; they will not appear in the morphism).
+    ExcludeSources {
+        /// Source vertex names to exclude.
+        vertices: Vec<String>,
+    },
+
+    /// Soft preference: adjust quality scoring weights for the given
+    /// predicate. Weight is in \[0.0, 1.0\]; higher values bias the
+    /// score more strongly toward the predicate.
+    Prefer {
+        /// The scoring predicate to boost.
+        predicate: PreferencePredicate,
+        /// Weight for this predicate (higher = stronger preference).
+        weight: f64,
+    },
+}
+
+/// Predicate for soft preference constraints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PreferencePredicate {
+    /// Prefer mappings where edge names match between source and target.
+    SameEdgeName,
+
+    /// Prefer mappings where vertex names are similar (edit distance
+    /// below threshold, normalized to \[0.0, 1.0\]).
+    SimilarName {
+        /// Minimum normalized similarity (0.0 to 1.0).
+        threshold: f64,
+    },
+
+    /// Prefer mappings that preserve vertex kind. (Kinds must already
+    /// match for validity; this boosts the quality score.)
+    SameKind,
 }
 
 // ---------------------------------------------------------------------------

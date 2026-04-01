@@ -1,9 +1,9 @@
 //! Round-trip law verification for lenses.
 //!
 //! Two laws characterize well-behaved lenses:
-//! - **`GetPut`**: `put(s, get(s)) = s` — round-tripping with an unmodified
+//! - **`GetPut`**: `put(s, get(s)) = s`: round-tripping with an unmodified
 //!   view recovers the original source.
-//! - **`PutGet`**: `get(put(s, v)) = v` — what you put is what you get back.
+//! - **`PutGet`**: `get(put(s, v)) = v`: what you put is what you get back.
 
 use crate::Lens;
 use crate::asymmetric::{Complement, get, put};

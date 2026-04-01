@@ -7,6 +7,7 @@ use panproto_core::{
     schema::Schema,
     vcs::{self, Store as _},
 };
+use panproto_lens_dsl::{Constraint, PreferencePredicate};
 
 use super::helpers::{
     auto_lens_result_to_json, chain_to_json, infer_root_vertex, load_json, open_repo,
@@ -31,6 +32,7 @@ pub fn cmd_lens_generate(
     fuse: bool,
     requirements: bool,
     verbose: bool,
+    hints_path: Option<&Path>,
 ) -> Result<()> {
     let src_schema: Schema = load_json(old_path)?;
     let tgt_schema: Schema = load_json(new_path)?;
@@ -53,9 +55,88 @@ pub fn cmd_lens_generate(
         ..Default::default()
     };
 
-    let result = lens::auto_generate(&src_schema, &tgt_schema, &protocol, &config)
+    let result = if let Some(hp) = hints_path {
+        let hint_json = std::fs::read_to_string(hp)
+            .into_diagnostic()
+            .wrap_err("failed to read hints file")?;
+        let hint_spec: panproto_lens_dsl::HintSpec = serde_json::from_str(&hint_json)
+            .into_diagnostic()
+            .wrap_err("failed to parse hints file")?;
+
+        // Convert string anchors to Name anchors
+        let anchors: std::collections::HashMap<Name, Name> = hint_spec
+            .anchors
+            .iter()
+            .map(|(k, v)| (Name::from(k.as_str()), Name::from(v.as_str())))
+            .collect();
+
+        // Derive additional anchors via forward chaining
+        let derived = lens::hint::derive_anchors(&anchors, &src_schema, &tgt_schema);
+
+        // Build domain constraints from hint spec
+        let scope_constraints: Vec<(Name, Name)> = hint_spec
+            .constraints
+            .iter()
+            .filter_map(|c| match c {
+                panproto_lens_dsl::Constraint::Scope { under, targets } => {
+                    Some((Name::from(under.as_str()), Name::from(targets.as_str())))
+                }
+                _ => None,
+            })
+            .collect();
+
+        let excluded_targets: Vec<Name> = hint_spec
+            .constraints
+            .iter()
+            .filter_map(|c| match c {
+                panproto_lens_dsl::Constraint::ExcludeTargets { vertices } => {
+                    Some(vertices.iter().map(|v| Name::from(v.as_str())))
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        let excluded_sources: Vec<Name> = hint_spec
+            .constraints
+            .iter()
+            .filter_map(|c| match c {
+                panproto_lens_dsl::Constraint::ExcludeSources { vertices } => {
+                    Some(vertices.iter().map(|v| Name::from(v.as_str())))
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        // Build scoring weights from Prefer constraints
+        let scoring_weights = build_scoring_weights(&hint_spec.constraints);
+
+        let domain_constraints = lens::hint::build_domain_constraints(
+            &src_schema,
+            &tgt_schema,
+            &scope_constraints,
+            &excluded_targets,
+            &excluded_sources,
+            scoring_weights,
+        );
+
+        lens::auto_generate_with_hints(
+            &src_schema,
+            &tgt_schema,
+            &protocol,
+            &config,
+            &derived,
+            &domain_constraints,
+            None,
+        )
         .into_diagnostic()
-        .wrap_err("failed to generate lens between schemas")?;
+        .wrap_err("failed to generate lens with hints")?
+    } else {
+        lens::auto_generate(&src_schema, &tgt_schema, &protocol, &config)
+            .into_diagnostic()
+            .wrap_err("failed to generate lens between schemas")?
+    };
 
     // Handle output modes.
     if chain {
@@ -417,7 +498,7 @@ pub fn cmd_lens_compose(
         first_json.get("type").and_then(serde_json::Value::as_str) == Some("protolens_chain");
 
     if is_chain {
-        // Both are chain files — merge steps.
+        // Both are chain files; merge steps.
         let first_steps = first_json
             .get("steps")
             .and_then(serde_json::Value::as_array)
@@ -781,4 +862,49 @@ pub fn cmd_lens_lift(
     }
 
     Ok(())
+}
+
+/// Build scoring weight overrides from `Prefer` constraints.
+///
+/// Adjusts the default weights \[0.25, 0.25, 0.3, 0.2\] (name, edge,
+/// property, degree) based on user preferences. Returns `None` if no
+/// `Prefer` constraints are present.
+fn build_scoring_weights(constraints: &[Constraint]) -> Option<[f64; 4]> {
+    let prefers: Vec<_> = constraints
+        .iter()
+        .filter_map(|c| match c {
+            Constraint::Prefer { predicate, weight } => Some((predicate, *weight)),
+            _ => None,
+        })
+        .collect();
+
+    if prefers.is_empty() {
+        return None;
+    }
+
+    // Start with defaults and redistribute based on preferences
+    let mut weights = [0.25, 0.25, 0.3, 0.2];
+    for (predicate, weight) in &prefers {
+        match predicate {
+            PreferencePredicate::SameEdgeName => {
+                weights[1] = *weight;
+            }
+            PreferencePredicate::SimilarName { .. } => {
+                weights[0] = *weight;
+            }
+            PreferencePredicate::SameKind => {
+                weights[3] = *weight;
+            }
+        }
+    }
+
+    // Normalize to sum to 1.0
+    let sum: f64 = weights.iter().sum();
+    if sum > 0.0 {
+        for w in &mut weights {
+            *w /= sum;
+        }
+    }
+
+    Some(weights)
 }

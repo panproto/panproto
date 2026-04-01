@@ -4,8 +4,8 @@
 //!
 //! Every schema migration is a lens with a `get` direction (= restrict,
 //! projecting data forward) and a `put` direction (= restore from
-//! complement, bringing modifications back). The lens laws — `GetPut`
-//! and `PutGet` — guarantee round-trip fidelity.
+//! complement, bringing modifications back). The lens laws (`GetPut`
+//! and `PutGet`) guarantee round-trip fidelity.
 //!
 //! This crate provides:
 //!
@@ -41,6 +41,7 @@ pub mod edit_provenance;
 pub mod error;
 pub mod fibration;
 pub mod graph;
+pub mod hint;
 pub mod laws;
 pub mod optic;
 pub mod protolens;
@@ -49,7 +50,7 @@ pub mod symmetric;
 
 // Re-exports for convenience.
 pub use asymmetric::{Complement, get, put};
-pub use auto_lens::{AutoLensConfig, AutoLensResult, auto_generate};
+pub use auto_lens::{AutoLensConfig, AutoLensResult, auto_generate, auto_generate_with_hints};
 pub use complement_type::{
     CapturedField, ComplementKind, ComplementSpec, DefaultRequirement, chain_complement_spec,
     complement_spec_at,

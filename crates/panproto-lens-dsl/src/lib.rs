@@ -34,7 +34,7 @@ pub mod steps;
 use std::path::Path;
 
 pub use compile::CompiledLens;
-pub use document::LensDocument;
+pub use document::{Constraint, HintSpec, LensDocument, PreferencePredicate};
 pub use error::LensDslError;
 
 /// Load a lens document from a file.
