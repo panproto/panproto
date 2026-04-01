@@ -1,0 +1,224 @@
+# Declarative Lens Specifications {#sec-lens-dsl}
+
+The previous chapters built lenses programmatically: calling `remove_field`, `add_field`, `pipeline` from Rust, TypeScript, or Python. This works well when lens definitions live inside application code, but many real systems need lenses that are *loadable data*: stored alongside schemas, version-controlled, reviewed in pull requests, and composed from reusable fragments without recompiling anything.
+
+`panproto-lens-dsl` provides a declarative specification format for lenses. The primary authoring format is [Nickel](https://nickel-lang.org), a typed configuration language with record merge for composition, functions for parameterized templates, and contracts for validation. JSON and YAML are also supported for simpler cases.
+
+## The evaluation pipeline
+
+A lens specification goes through three stages:
+
+```
+.ncl / .json / .yaml   (human-authored)
+        |
+        v
+   LensDocument         (normalized record)
+        |
+        v
+ProtolensChain + FieldTransforms   (panproto algebra)
+```
+
+1. **Evaluation**: Nickel files are evaluated (contracts checked, merges resolved, functions applied). JSON and YAML are deserialized directly.
+2. **Deserialization**: The normalized record becomes a `LensDocument` with typed fields.
+3. **Compilation**: Each step, rule, or composition directive maps to panproto combinators, elementary protolenses, or field transforms.
+
+## Writing lenses in Nickel
+
+Import the bundled contract library, define your lens, and apply the `Lens` contract:
+
+```nickel
+let L = import "panproto/lens.ncl" in
+
+{
+  id = "dev.example.user.db-projection",
+  source = "dev.example.user",
+  target = "dev.example.user.view",
+  steps = [
+    L.remove "internalId",
+    L.rename "createdAt" "created_at",
+    L.add "displayName" "string" "",
+    L.add_computed "fullName" "string" ""
+      'concat firstName " " lastName',
+  ],
+} | L.Lens
+```
+
+Each combinator function (`L.remove`, `L.rename`, `L.add`, etc.) produces a step record with the correct key. The `| L.Lens` annotation validates the entire document at evaluation time, before Rust ever sees it.
+
+### Composition via record merge
+
+Nickel's `&` operator merges records field-by-field. Lens fragments compose naturally:
+
+```nickel
+let L = import "panproto/lens.ncl" in
+let base = import "base_transforms.ncl" in
+let auth = import "lib/auth_fields.ncl" in
+
+base & auth & {
+  id = "my.composed.v1",
+  source = "my.source",
+  target = "my.target",
+} | L.Lens
+```
+
+Where `base_transforms.ncl` might define:
+
+```nickel
+let L = import "panproto/lens.ncl" in
+{ steps = [L.remove "node", L.remove "rawData"] }
+```
+
+And `auth_fields.ncl`:
+
+```nickel
+let L = import "panproto/lens.ncl" in
+{ steps = [L.add "authToken" "string" "", L.add "sessionId" "string" ""] }
+```
+
+The merge concatenates the `steps` arrays, producing a single pipeline.
+
+### Parameterized templates
+
+Nickel functions turn recurring patterns into reusable templates:
+
+```nickel
+let L = import "panproto/lens.ncl" in
+
+# Extract DID and URL from an AT-URI field
+fun uri_field => [
+  L.remove uri_field,
+  L.add_computed (uri_field ++ "Did") "string" ""
+    ('head (split (replace %{uri_field} "at://" "") "/")'),
+  L.add_computed (uri_field ++ "Url") "string" ""
+    ('concat "https://" (head (split (replace %{uri_field} "at://" "") "/"))'),
+]
+```
+
+Apply it:
+
+```nickel
+let at_uri = import "lib/at_uri_projection.ncl" in
+{ steps = at_uri "node" @ at_uri "repo" @ [L.add "source" "string" "cospan"] }
+```
+
+## The step vocabulary
+
+Every step in a `steps` pipeline is a single-key object. The DSL covers the full panproto lens algebra:
+
+| Step | Maps to | Optic class |
+|------|---------|-------------|
+| `remove_field` | `combinators::remove_field` | Lens |
+| `rename_field` | `combinators::rename_field` | Iso |
+| `add_field` | `combinators::add_field` | Lens |
+| `apply_expr` | `FieldTransform::ApplyExpr` | (value-level) |
+| `compute_field` | `FieldTransform::ComputeField` | (value-level) |
+| `hoist_field` | `combinators::hoist_field` | Lens |
+| `nest_field` | `combinators::nest_field` | Lens |
+| `scoped` | `combinators::map_items` | Traversal |
+| `pullback` | `elementary::pullback` | (depends) |
+| `coerce_sort` | `TheoryTransform::CoerceSort` | (per class) |
+| `merge_sorts` | `TheoryTransform::MergeSorts` | Lens |
+| `add_sort` / `drop_sort` / `rename_sort` | `elementary::*` | (per operation) |
+| `add_op` / `drop_op` / `rename_op` | `elementary::*` | (per operation) |
+| `add_equation` / `drop_equation` | `elementary::*` | (per operation) |
+
+: Step types and their panproto algebra mappings. {#tbl-step-types}
+
+Expressions in `apply_expr`, `compute_field`, `coerce_sort`, and `merge_sorts` use the panproto expression language (@sec-querying).
+
+### Scoped transforms
+
+The `scoped` step applies an inner pipeline to each element of an array. The inner steps operate relative to the focus vertex:
+
+```json
+{
+  "scoped": {
+    "focus": "items",
+    "inner": [
+      { "rename_field": { "old": "val", "new": "value" } },
+      { "apply_expr": { "field": "value", "expr": "upper value" } }
+    ]
+  }
+}
+```
+
+This compiles to `combinators::map_items(focus, fused_inner)`, producing a traversal optic with per-element complement tracking.
+
+## Rule-based lenses
+
+For name-mapping transformations (common when bridging between schema dialects), the `rules` body variant provides a concise declarative syntax:
+
+```yaml
+id: org.commonmark.to.relationaltext.v1
+source: org.commonmark.facet
+target: org.relationaltext.facet
+invertible: false
+rules:
+  - match: { name: strong }
+    replace: { name: bold }
+  - match: { name: emphasis }
+    replace: { name: italic }
+  - match: { name: code-span }
+    replace: { name: code }
+  - match: { name: link }
+    replace:
+      name: link
+      rename_attrs: { uri: url }
+  - match: { name: embed }
+    replace: null
+passthrough: keep
+```
+
+Each rule with a name change compiles to a `rename_sort`. Attribute operations (`rename_attrs`, `drop_attrs`, `add_attrs`, `keep_attrs`, `map_attr_value`) compile to field-level steps. `replace: null` compiles to `drop_sort`. The `passthrough` field controls unmatched features: `keep` (default) preserves them, `drop` emits a `KeepFields` filter.
+
+## Composition of lens documents
+
+The `compose` body variant references other lens documents by ID:
+
+```json
+{
+  "id": "org.commonmark.to.html.v1",
+  "source": "org.commonmark.facet",
+  "target": "org.w3c.html.facet",
+  "compose": {
+    "mode": "vertical",
+    "lenses": [
+      { "ref": "org.commonmark.to.relationaltext.v1" },
+      { "ref": "org.relationaltext.to.html.v1" }
+    ]
+  }
+}
+```
+
+Vertical composition flattens all chains into a single pipeline (the target of each lens feeds into the source of the next). Horizontal composition fuses each chain into a single protolens via `fuse()`, then applies `horizontal_compose` to produce `eta * theta : F . F' => G . G'`.
+
+## Loading and compiling
+
+```rust
+use panproto_lens_dsl::{load, compile};
+
+// Load from any supported format
+let doc = load(Path::new("lenses/my_lens.ncl"))?;
+
+// Compile to ProtolensChain + FieldTransforms
+let compiled = compile(&doc, "record:body", &|_| None)?;
+
+// The chain is ready for instantiation at a specific schema
+let lens = compiled.chain.instantiate(&schema, &protocol)?;
+```
+
+The `body_vertex` parameter specifies the parent vertex under which fields are added and removed (e.g., `"record:body"` for ATProto schemas).
+
+## Extension metadata
+
+Protocol-specific metadata lives under a freeform `extensions` key, opaque to the core compiler:
+
+```yaml
+extensions:
+  db_projection:
+    table: repos
+    row_struct: RepoRow
+    conflict_keys: [did, name]
+```
+
+Downstream consumers extract what they need from extensions; the DSL compiler passes them through unchanged.

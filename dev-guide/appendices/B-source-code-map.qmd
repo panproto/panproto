@@ -110,6 +110,22 @@ Symmetric and asymmetric lenses with law checking.
 | `src/edit_provenance.rs` | `EditProvenance`: translation lineage tracking |
 | `src/error.rs` | `LensError` enum |
 
+## crates/panproto-lens-dsl --- Declarative lens DSL
+
+Compiles Nickel, JSON, and YAML lens specifications to `ProtolensChain` + `FieldTransform`.
+
+| File | Description |
+|---|---|
+| `contracts/lens.ncl` | Nickel contract library: `Lens`, `Step`, `Rule` contracts + combinator functions (bundled via `include_str!`) |
+| `src/lib.rs` | Public API: `load()`, `load_dir()`, `compile()`, `load_and_compile()`, `LoadDirResult` |
+| `src/document.rs` | Serde types: `LensDocument`, `Step` (19 variants), `Rule`, `ComposeSpec`, `AutoSpec`, coercion/passthrough enums |
+| `src/eval.rs` | Nickel evaluation via `nickel-lang` 2.0 (`eval_deep_for_export` + `to_serde`), JSON/YAML pass-through |
+| `src/steps.rs` | `compile_steps()`: maps steps to `combinators::*`, `elementary::*`, `FieldTransform`; includes `parse_term()` for equation terms |
+| `src/rules.rs` | `compile_rules()`: rule expansion, `passthrough` via `KeepFields`, `map_attr_value` via `attr_value_op_to_expr` |
+| `src/compose.rs` | `compile_compose()`: vertical (pipeline) and horizontal (fuse + `protolens_horizontal`) composition |
+| `src/compile.rs` | `CompiledLens` output type, unified `compile()` dispatcher |
+| `src/error.rs` | `LensDslError` with miette diagnostics |
+
 ## crates/panproto-check --- Breaking-change detection
 
 Diff, classify, and report schema changes.

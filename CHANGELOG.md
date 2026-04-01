@@ -4,6 +4,20 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-04-01
+
+### Added
+
+- **panproto-lens-dsl**: New crate providing a declarative, human-readable specification format for lenses, protolenses, and related optical constructs. Three surface syntaxes: Nickel (`.ncl`) as the primary authoring format with typed contracts, record merge composition, parameterized templates, and imports; JSON and YAML as simpler alternatives. The evaluation pipeline normalizes any surface syntax to a `LensDocument`, then compiles it to a `ProtolensChain` + `FieldTransform`s.
+- **panproto-lens-dsl**: Nickel contract library (`contracts/lens.ncl`) bundled via `include_str!` with contracts for all 19 step types, rule patterns, composition specs, and auto-generation config. Includes combinator functions (`remove`, `rename`, `add`, `add_computed`, `apply`, `compute`, `hoist`, `nest`, `map_items`, `pullback`, `coerce`, `merge`, and all elementary theory operations) plus template helpers (`counter_fields`, `string_fields`, `map_name`, `drop_feature`).
+- **panproto-lens-dsl**: Four body variants for lens documents: `steps` (sequential pipeline mapping to `combinators::*` and `elementary::*`), `rules` (pattern-match rewrite rules with attribute operations, passthrough filtering, and `map_attr_value` transforms), `compose` (vertical and horizontal composition of named lens references with correct natural transformation semantics), and `auto` (delegation to `auto_lens::auto_generate` with caller-visible `AutoSpec`).
+- **panproto-lens-dsl**: All 19 step types covering the full panproto lens algebra: `remove_field`, `rename_field`, `add_field`, `apply_expr`, `compute_field`, `hoist_field`, `nest_field`, `scoped` (recursive, with correct focus-relative body vertex), `pullback`, `coerce_sort`, `merge_sorts`, `add_sort`, `drop_sort`, `rename_sort`, `add_op`, `drop_op`, `rename_op`, `add_equation` (with proper `Term` parsing for `App` and `Var`), `drop_equation`.
+- **panproto-lens-dsl**: Horizontal composition correctly fuses each chain to a single `Protolens` via `fuse()` before applying `protolens_horizontal`, producing `eta * theta : F . F' => G . G'` per the natural transformation composition law.
+- **panproto-lens-dsl**: Rule compilation with `passthrough: drop` support via `FieldTransform::KeepFields`, per-rule `keep_attrs` collection, and `map_attr_value` compilation to `apply_expr` steps supporting add, subtract, multiply, prefix, suffix, negate, to-string, to-number, and to-boolean operators.
+- **panproto-lens-dsl**: `LoadDirResult` struct returning both successfully loaded documents and per-file errors (no silent error swallowing).
+- **Tutorial**: New chapter "Declarative Lens Specifications" covering Nickel-based lens authoring, composition via record merge, parameterized templates, rule-based rewrites, and the compilation pipeline.
+- **Dev Guide**: New chapter "Lens DSL Engine" covering the `panproto-lens-dsl` crate architecture, Nickel evaluation, step compilation, rule expansion, composition modes, and expression integration.
+
 ## [0.24.0] - 2026-04-01
 
 ### Added

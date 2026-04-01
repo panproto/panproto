@@ -1,0 +1,120 @@
+# Lens DSL Engine {#sec-lens-dsl-engine}
+
+The `panproto-lens-dsl` crate compiles declarative lens specifications (Nickel, JSON, or YAML) into the panproto lens algebra (`ProtolensChain` + `FieldTransform`). This chapter covers the crate's architecture, compilation logic, and integration points.
+
+## Crate structure
+
+```
+crates/panproto-lens-dsl/
+  contracts/lens.ncl    Nickel contract library (bundled via include_str!)
+  src/
+    lib.rs              Public API: load(), load_dir(), compile(), load_and_compile()
+    document.rs         Serde types: LensDocument, Step (19 variants), Rule, specs
+    eval.rs             Nickel/JSON/YAML evaluation to LensDocument
+    steps.rs            Step compilation to ProtolensChain + FieldTransforms
+    rules.rs            Rule expansion to steps, passthrough, keep_attrs
+    compose.rs          Vertical and horizontal composition
+    compile.rs          Unified dispatcher, CompiledLens output type
+    error.rs            LensDslError with miette diagnostics
+```
+
+## Dependencies
+
+| Crate | Role |
+|-------|------|
+| `nickel-lang` 2.0 | Nickel evaluator with `to_serde` deserialization |
+| `panproto-lens` | `combinators::*`, `elementary::*`, `ProtolensChain`, `Protolens` |
+| `panproto-inst` | `FieldTransform`, `Value` |
+| `panproto-expr` | `Expr` AST |
+| `panproto-expr-parser` | `tokenize()`, `parse()` for expression strings |
+| `panproto-gat` | `TheoryMorphism`, `TheoryTransform`, `Equation`, `Term`, `CoercionClass` |
+
+## Evaluation layer
+
+Three evaluation paths converge on `LensDocument`:
+
+**Nickel** (`.ncl`): The bundled contract library (`contracts/lens.ncl`) is written to a temp directory. Nickel's import resolver finds it via `import "panproto/lens.ncl"`. The evaluator runs `eval_deep_for_export`, which applies all contracts, resolves merges, evaluates functions, and normalizes. The result is deserialized via `to_serde::<LensDocument>()`.
+
+**JSON** (`.json`): Direct `serde_json::from_str`.
+
+**YAML** (`.yaml`, `.yml`): Direct `yaml_serde::from_str`.
+
+## Step compilation
+
+`compile_steps(steps, body_vertex)` partitions steps into schema-level (producing `Protolens` instances) and value-level (producing `FieldTransform` instances).
+
+### Schema-level dispatch
+
+Each schema-level step maps to a call to `panproto_lens::combinators` or `panproto_lens::elementary`:
+
+- `remove_field` and `rename_field` generate qualified vertex IDs (`{body_vertex}.{field}`) before calling the combinator.
+- `add_field` generates both an `add_sort` + `add_op` chain and, if `expr` is present, a `ComputeField` transform.
+- `hoist_field`, `nest_field` delegate directly.
+- `scoped` compiles inner steps recursively *with the focus vertex as body*, fuses the inner chain, and wraps via `map_items`.
+- `pullback` constructs a `TheoryMorphism` and delegates to `elementary::pullback`.
+
+### Theory-level operations
+
+`coerce_sort` and `merge_sorts` construct `Protolens` structs directly (these have no combinator shorthand):
+
+- **CoerceSort**: Source endofunctor = `(Id, HasSort(s))`, target = `(CoerceSort(..), HasSort(s))`. Complement = `CoercedSortData { sort, class }`. The precondition on both endofunctors requires the sort in the input schema; the transform changes its value kind.
+
+- **MergeSorts**: Source = `(Id, HasSort(a) & HasSort(b))`, target = `(MergeSorts(..), HasSort(a) & HasSort(b))`. Complement = `Composite(DroppedSortData(a), DroppedSortData(b))`. The migration engine at instantiation time captures both original sorts' data and adds the merged sort.
+
+### Value-level dispatch
+
+`apply_expr` and `compute_field` produce `FieldTransform::ApplyExpr` and `FieldTransform::ComputeField` respectively. Expression strings are parsed via `panproto_expr_parser::{tokenize, parse}`. Inverse expressions and coercion classes are optional.
+
+### Equation terms
+
+`add_equation` parses LHS and RHS strings into `panproto_gat::Term` via a recursive-descent parser supporting:
+
+- **Variable**: bare identifiers like `x`, `my_var`
+- **Application**: `op(arg1, arg2)` with recursive nesting and parenthesis matching
+
+## Rule compilation
+
+`compile_rules` expands each `Rule` into `Step`s, then delegates to `compile_steps`:
+
+| Rule construct | Expands to |
+|----------------|------------|
+| Name change (literal) | `rename_sort` |
+| Name change (template) | `compute_field` with `concat`/`int_to_str` expression |
+| `rename_attrs` | One `rename_field` per entry |
+| `drop_attrs` | One `remove_field` per entry |
+| `add_attrs` | One `add_field` per entry |
+| `map_attr_value` | One `apply_expr` per entry (via `attr_value_op_to_expr`) |
+| `replace: null` | `drop_sort` |
+
+After step compilation, two additional value-level operations are applied:
+
+1. **`keep_attrs`**: Collected from all rules and emitted as `FieldTransform::KeepFields`.
+2. **`passthrough: drop`**: Collects all non-dropped feature names and emits `FieldTransform::KeepFields` to filter unmatched features.
+
+## Composition
+
+### Vertical
+
+`combinators::pipeline(chains)` flattens all chains. Field transforms are concatenated in order (first lens's transforms, then second's).
+
+### Horizontal
+
+Each chain is first fused to a single `Protolens` via `fuse()`. Then `protolens_horizontal` is applied pairwise, producing the horizontal composition of natural transformations:
+
+$$\eta * \theta : F \circ F' \Longrightarrow G \circ G'$$
+
+where $\eta : F \Longrightarrow G$ and $\theta : F' \Longrightarrow G'$. The fused endofunctors compose via `TheoryEndofunctor::compose`. Field transforms from all parts are merged.
+
+## Nickel contract library
+
+The contract library (`contracts/lens.ncl`) provides:
+
+1. **Contracts**: `Lens`, `Step`, `Rule`, `Coercion`, `ComposeSpec`, `AutoSpec` for structural validation at Nickel evaluation time.
+2. **Combinator functions**: `remove`, `rename`, `add`, `add_computed`, `apply`, `compute`, `hoist`, `nest`, `map_items`, `pullback`, `coerce`, `merge`, and all elementary theory operations.
+3. **Template helpers**: `counter_fields`, `string_fields`, `map_name`, `drop_feature`.
+
+The `Step` contract uses an open record where all fields are optional. Nickel does not enforce single-key semantics (this would require a custom predicate); the Rust-side `#[serde(untagged)]` deserialization picks the first matching variant. The `Lens` contract similarly does not enforce exactly-one-body; the Rust compiler checks this at `compile()` time.
+
+## Error reporting
+
+`LensDslError` uses `thiserror` + `miette` with diagnostic codes. Nickel evaluation errors are formatted via `nickel_lang::Error::format` for source-span-annotated output. Expression parse errors include the step description and index.

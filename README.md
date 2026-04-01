@@ -34,6 +34,7 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 | [`panproto-inst`](crates/panproto-inst) | [W-type](https://ncatlab.org/nlab/show/W-type), set-valued functor, and graph instances with restrict/extend/Kan extension pipelines and value-level field transforms |
 | [`panproto-mig`](crates/panproto-mig) | Migration engine: existence checks, compilation, lift, compose, invert, coverage analysis |
 | [`panproto-lens`](crates/panproto-lens) | [Protolenses](https://ncatlab.org/nlab/show/natural+transformation): schema-parameterized lens families, optic classification, symbolic simplification, auto-generation |
+| [`panproto-lens-dsl`](crates/panproto-lens-dsl) | Declarative lens DSL: Nickel/JSON/YAML specifications compiled to protolens chains and field transforms |
 | [`panproto-check`](crates/panproto-check) | Breaking change detection via structural diffing and protocol-aware classification |
 | [`panproto-protocols`](crates/panproto-protocols) | 51 semantic protocol definitions composed from building-block theories |
 | [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs for semantic protocols (with `tree-sitter` feature: format-preserving round-trips via unified CST extraction lens) |
