@@ -1,0 +1,30 @@
+[package]
+name = "panproto-lens-dsl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Declarative lens DSL for panproto with Nickel, JSON, and YAML support"
+
+[dependencies]
+panproto-gat = { workspace = true }
+panproto-inst = { workspace = true }
+panproto-lens = { workspace = true }
+panproto-expr = { workspace = true }
+panproto-expr-parser = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+miette = { workspace = true }
+
+nickel-lang = "2.0.0"
+yaml_serde = "0.10"
+tempfile = "3"
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
