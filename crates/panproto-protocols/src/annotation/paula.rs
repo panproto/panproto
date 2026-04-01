@@ -5,29 +5,29 @@
 //! # Salt node and relation types modelled
 //!
 //! Node (vertex) kinds:
-//! - `corpus`          — SCorpus: top-level corpus container
-//! - `document`        — SDocument: individual document inside a corpus
-//! - `text`            — STextualDS: primary text data source
-//! - `token`           — SToken: basic tokenisation unit
-//! - `span`            — SSpan: ordered set of tokens sharing annotations
-//! - `struct-node`     — SStructure: hierarchical node (constituency, RST)
-//! - `timeline`        — STimeline: virtual timeline for multi-layer alignment
-//! - `media`           — SMedialDS: audio/video data source
-//! - `annotation`      — SAnnotation: key-value label on any node or edge
-//! - `meta-annotation` — SMetaAnnotation: corpus/document-level metadata
-//! - `annotation-layer`— grouping layer for annotations (ANNIS layers)
+//! - `corpus`: SCorpus, top-level corpus container
+//! - `document`: SDocument, individual document inside a corpus
+//! - `text`: STextualDS, primary text data source
+//! - `token`: SToken, basic tokenisation unit
+//! - `span`: SSpan, ordered set of tokens sharing annotations
+//! - `struct-node`: SStructure, hierarchical node (constituency, RST)
+//! - `timeline`: STimeline, virtual timeline for multi-layer alignment
+//! - `media`: SMedialDS, audio/video data source
+//! - `annotation`: SAnnotation, key-value label on any node or edge
+//! - `meta-annotation`: SMetaAnnotation, corpus/document-level metadata
+//! - `annotation-layer`: grouping layer for annotations (ANNIS layers)
 //!
 //! Edge (relation) kinds:
-//! - `textual-relation`  — STextualRelation: token → text with start/end offsets
-//! - `spanning-relation` — SSpanningRelation (spans edge): span → token
-//! - `dominance`         — SDominanceRelation: struct-node → token | struct-node
-//! - `points-to`         — SPointingRelation: anaphora, coref, discourse arcs
-//! - `order`             — SOrderRelation: sequential ordering of tokens/spans
-//! - `timeline-relation` — STimelineRelation: token/span → timeline
-//! - `medial-relation`   — SMedialRelation: token/span → media data source
-//! - `layer-of`          — layer → annotation membership
-//! - `annotates`         — annotation → annotated node
-//! - `prop` / `items`    — JSON schema structural edges
+//! - `textual-relation`: STextualRelation, token → text with start/end offsets
+//! - `spanning-relation`: SSpanningRelation (spans edge), span → token
+//! - `dominance`: SDominanceRelation, struct-node → token | struct-node
+//! - `points-to`: SPointingRelation, anaphora, coref, discourse arcs
+//! - `order`: SOrderRelation, sequential ordering of tokens/spans
+//! - `timeline-relation`: STimelineRelation, token/span → timeline
+//! - `medial-relation`: SMedialRelation, token/span → media data source
+//! - `layer-of`: layer → annotation membership
+//! - `annotates`: annotation → annotated node
+//! - `prop` / `items`: JSON schema structural edges
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;

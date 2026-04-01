@@ -162,7 +162,7 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
     }
 
-    // Persona ontologies — one ontology vertex per persona ontology; nested types are separate vertices.
+    // Persona ontologies: one ontology vertex per persona ontology; nested types are separate vertices.
     if let Some(ontologies) = json
         .get("personaOntologies")
         .and_then(serde_json::Value::as_array)
@@ -246,7 +246,7 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
     }
 
-    // World state — entities, events, locations, times, collections
+    // World state: entities, events, locations, times, collections
     if let Some(world) = json.get("world") {
         // Entities
         if let Some(entities) = world.get("entities").and_then(serde_json::Value::as_array) {
@@ -920,7 +920,7 @@ pub fn emit_fovea(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                 }
                 claim_relations.push(serde_json::Value::Object(obj));
             }
-            // Leaf / scalar kinds — not emitted as top-level arrays.
+            // Leaf / scalar kinds: not emitted as top-level arrays.
             "entity-type" | "event-type" | "role-type" | "relation-type" | "ontology-relation"
             | "bounding-box" | "string" | "boolean" | "float" => {}
             _ => {}

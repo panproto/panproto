@@ -37,6 +37,26 @@ pub struct SearchOptions {
     pub initial: HashMap<Name, Name>,
 }
 
+/// Additional domain restrictions and scoring overrides for the CSP solver.
+///
+/// Produced by hint propagation; consumed by [`find_morphisms_constrained`].
+#[derive(Clone, Debug, Default)]
+pub struct DomainConstraints {
+    /// For each source vertex, restrict its domain to these specific targets.
+    /// Vertices not in this map are unrestricted (beyond kind-compatibility).
+    pub restricted_domains: HashMap<Name, Vec<Name>>,
+
+    /// Target vertices to exclude from ALL domains.
+    pub excluded_targets: std::collections::HashSet<Name>,
+
+    /// Source vertices to exclude from the search entirely.
+    pub excluded_sources: std::collections::HashSet<Name>,
+
+    /// Override quality scoring component weights.
+    /// Order: \[name, edge, property, degree\]. Default: \[0.25, 0.25, 0.3, 0.2\].
+    pub scoring_weights: Option<[f64; 4]>,
+}
+
 /// A discovered schema morphism with a quality score.
 #[derive(Clone, Debug)]
 pub struct FoundMorphism {
@@ -101,6 +121,52 @@ pub fn find_best_morphism(
     results.into_iter().next()
 }
 
+/// Find all valid schema morphisms with additional domain constraints.
+///
+/// Like [`find_morphisms`], but applies domain restrictions from
+/// [`DomainConstraints`] during state initialization.
+#[must_use]
+pub fn find_morphisms_constrained(
+    src: &Schema,
+    tgt: &Schema,
+    opts: &SearchOptions,
+    constraints: &DomainConstraints,
+) -> Vec<FoundMorphism> {
+    let mut state = BacktrackState::new_constrained(src, tgt, opts, constraints);
+    let mut results = Vec::new();
+
+    let weights = constraints.scoring_weights.unwrap_or(DEFAULT_WEIGHTS);
+    backtrack_weighted(&mut state, 0, &mut results, opts, weights);
+
+    results.sort_by(|a, b| {
+        b.quality
+            .partial_cmp(&a.quality)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if opts.max_results > 0 {
+        results.truncate(opts.max_results);
+    }
+
+    results
+}
+
+/// Find the single best schema morphism with domain constraints.
+///
+/// Like [`find_best_morphism`], but applies [`DomainConstraints`].
+#[must_use]
+pub fn find_best_morphism_constrained(
+    src: &Schema,
+    tgt: &Schema,
+    opts: &SearchOptions,
+    constraints: &DomainConstraints,
+) -> Option<FoundMorphism> {
+    let mut search_opts = opts.clone();
+    search_opts.max_results = 0;
+    let results = find_morphisms_constrained(src, tgt, &search_opts, constraints);
+    results.into_iter().next()
+}
+
 // ---------------------------------------------------------------------------
 // Internal: backtracking state
 // ---------------------------------------------------------------------------
@@ -125,8 +191,20 @@ struct BacktrackState<'a> {
     used_targets: std::collections::HashSet<Name>,
 }
 
+/// Default quality scoring weights: [name, edge, property, degree].
+const DEFAULT_WEIGHTS: [f64; 4] = [0.25, 0.25, 0.3, 0.2];
+
 impl<'a> BacktrackState<'a> {
     fn new(src: &'a Schema, tgt: &'a Schema, opts: &SearchOptions) -> Self {
+        Self::new_constrained(src, tgt, opts, &DomainConstraints::default())
+    }
+
+    fn new_constrained(
+        src: &'a Schema,
+        tgt: &'a Schema,
+        opts: &SearchOptions,
+        constraints: &DomainConstraints,
+    ) -> Self {
         // Compute initial domains: for each source vertex, find all
         // target vertices with compatible kind.
         let mut domains: HashMap<Name, Vec<Name>> = HashMap::new();
@@ -178,6 +256,23 @@ impl<'a> BacktrackState<'a> {
                 |tgt_id| vec![tgt_id.clone()],
             );
             domains.insert(src_id.clone(), compatible);
+        }
+
+        // Apply domain constraints: excluded sources, excluded targets,
+        // and restricted domains.
+        for src_id in &constraints.excluded_sources {
+            domains.remove(src_id);
+        }
+        if !constraints.excluded_targets.is_empty() {
+            for domain in domains.values_mut() {
+                domain.retain(|t| !constraints.excluded_targets.contains(t));
+            }
+        }
+        for (src_id, restricted) in &constraints.restricted_domains {
+            if let Some(domain) = domains.get_mut(src_id) {
+                let allowed: std::collections::HashSet<&Name> = restricted.iter().collect();
+                domain.retain(|t| allowed.contains(t));
+            }
         }
 
         // MRV order: sort source vertices by domain size (smallest first)
@@ -270,6 +365,66 @@ fn backtrack(
     }
 }
 
+/// Recursive backtracking search with configurable quality weights.
+fn backtrack_weighted(
+    state: &mut BacktrackState<'_>,
+    depth: usize,
+    results: &mut Vec<FoundMorphism>,
+    opts: &SearchOptions,
+    weights: [f64; 4],
+) {
+    if opts.max_results > 0 && results.len() >= opts.max_results {
+        return;
+    }
+
+    if depth >= state.vertex_order.order.len() {
+        if opts.epic || opts.iso {
+            let assigned_targets: std::collections::HashSet<&Name> =
+                state.assignment.values().collect();
+            if assigned_targets.len() != state.tgt.vertices.len() {
+                return;
+            }
+        }
+
+        if let Some(morphism) = build_morphism_weighted(state, weights) {
+            results.push(morphism);
+        }
+        return;
+    }
+
+    let src_vertex = state.vertex_order.order[depth].clone();
+
+    if state.assignment.contains_key(&src_vertex) {
+        backtrack_weighted(state, depth + 1, results, opts, weights);
+        return;
+    }
+
+    let domain = state.domains.get(&src_vertex).cloned().unwrap_or_default();
+    for tgt_vertex in domain {
+        if (opts.monic || opts.iso) && state.used_targets.contains(&tgt_vertex) {
+            continue;
+        }
+
+        if !forward_check(state, &src_vertex, &tgt_vertex, depth) {
+            continue;
+        }
+
+        state
+            .assignment
+            .insert(src_vertex.clone(), tgt_vertex.clone());
+        state.used_targets.insert(tgt_vertex.clone());
+
+        backtrack_weighted(state, depth + 1, results, opts, weights);
+
+        state.assignment.remove(&src_vertex);
+        state.used_targets.remove(&tgt_vertex);
+
+        if opts.max_results > 0 && results.len() >= opts.max_results {
+            return;
+        }
+    }
+}
+
 /// Forward checking: verify that assigning `src_v → tgt_v` doesn't
 /// make any unassigned neighbor's domain empty.
 fn forward_check(state: &BacktrackState<'_>, src_v: &Name, tgt_v: &Name, depth: usize) -> bool {
@@ -278,12 +433,12 @@ fn forward_check(state: &BacktrackState<'_>, src_v: &Name, tgt_v: &Name, depth: 
     for src_edge in state.src.outgoing_edges(src_v) {
         let neighbor = &src_edge.tgt;
         if let Some(assigned_tgt) = state.assignment.get(neighbor) {
-            // Neighbor already assigned — check that a compatible edge exists
+            // Neighbor already assigned; check that a compatible edge exists
             if !has_compatible_edge(state.tgt, tgt_v, assigned_tgt, src_edge) {
                 return false;
             }
         } else {
-            // Neighbor unassigned — check that at least one domain value
+            // Neighbor unassigned; check that at least one domain value
             // has a compatible edge from tgt_v
             let neighbor_domain = state.domains.get(neighbor);
             if let Some(domain) = neighbor_domain {
@@ -332,7 +487,7 @@ fn forward_check(state: &BacktrackState<'_>, src_v: &Name, tgt_v: &Name, depth: 
 /// from `tgt_src` to `tgt_tgt`.
 ///
 /// An edge is compatible if it has the same kind. Names don't need to
-/// match — a morphism can map an edge to a different-named edge (this
+/// match; a morphism can map an edge to a different-named edge (this
 /// is what renaming IS). Name matching only affects quality scoring.
 fn has_compatible_edge(
     tgt_schema: &Schema,
@@ -349,6 +504,11 @@ fn has_compatible_edge(
 /// Build a complete morphism from the vertex assignment by deriving
 /// the edge map.
 fn build_morphism(state: &BacktrackState<'_>) -> Option<FoundMorphism> {
+    build_morphism_weighted(state, DEFAULT_WEIGHTS)
+}
+
+/// Build a complete morphism with configurable quality weights.
+fn build_morphism_weighted(state: &BacktrackState<'_>, weights: [f64; 4]) -> Option<FoundMorphism> {
     let mut edge_map: HashMap<Edge, Edge> = HashMap::new();
 
     for src_edge in state.src.edges.keys() {
@@ -366,7 +526,8 @@ fn build_morphism(state: &BacktrackState<'_>) -> Option<FoundMorphism> {
         edge_map.insert(src_edge.clone(), tgt_edge.clone());
     }
 
-    let quality = compute_quality(&state.assignment, &edge_map, state.src, state.tgt);
+    let quality =
+        compute_quality_weighted(&state.assignment, &edge_map, state.src, state.tgt, weights);
 
     Some(FoundMorphism {
         vertex_map: state.assignment.clone(),
@@ -381,14 +542,15 @@ fn build_morphism(state: &BacktrackState<'_>) -> Option<FoundMorphism> {
 /// 1. **Name similarity** (0.25): 1.0 - (avg edit distance / max name length)
 /// 2. **Edge name preservation** (0.25): fraction of edges with matching names
 /// 3. **Property-name Jaccard** (0.3): for each mapped vertex pair, Jaccard
-///    similarity of their outgoing edge names — rewards structural alignment
+///    similarity of their outgoing edge names, rewarding structural alignment
 /// 4. **Degree similarity** (0.2): penalizes mappings where vertex degrees
 ///    differ significantly
-fn compute_quality(
+fn compute_quality_weighted(
     vertex_map: &HashMap<Name, Name>,
     edge_map: &HashMap<Edge, Edge>,
     src: &Schema,
     tgt: &Schema,
+    weights: [f64; 4],
 ) -> f64 {
     if vertex_map.is_empty() {
         return 1.0;
@@ -483,7 +645,10 @@ fn compute_quality(
     };
 
     #[allow(clippy::suboptimal_flops)]
-    let score = 0.25 * name_score + 0.25 * edge_score + 0.3 * prop_score + 0.2 * degree_score;
+    let score = weights[0] * name_score
+        + weights[1] * edge_score
+        + weights[2] * prop_score
+        + weights[3] * degree_score;
     score
 }
 
@@ -604,7 +769,7 @@ mod tests {
             &[("root", "object"), ("root.x", "string")],
             &[("root", "root.x", "prop", "x")],
         );
-        // b has no string vertex — no valid mapping for root.x
+        // b has no string vertex, so no valid mapping for root.x
         let b = build_schema(
             &[("root", "object"), ("root.y", "integer")],
             &[("root", "root.y", "prop", "y")],
@@ -707,7 +872,7 @@ mod tests {
             &[("root", "object"), ("root.name", "string")],
             &[("root", "root.name", "prop", "name")],
         );
-        // Target has two string vertices — one with matching name
+        // Target has two string vertices, one with matching name
         let tgt = build_schema(
             &[
                 ("root", "object"),

@@ -2,7 +2,7 @@
 //!
 //! Given two schemas and a description of their shared elements (the
 //! [`SchemaOverlap`]), [`schema_pushout`] computes the categorical
-//! pushout — a merged schema together with morphisms embedding each
+//! pushout: a merged schema together with morphisms embedding each
 //! input into the result.
 
 use std::collections::HashMap;

@@ -85,7 +85,7 @@ fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
     }
 }
 
-/// Build a linear chain schema: root -> v1 -> v2 -> ... -> vN
+/// Builds a linear chain schema: root -> v1 -> v2 -> ... -> vN.
 fn chain_schema(n: usize) -> (Schema, Vec<Edge>) {
     let mut vert_strs: Vec<String> = vec!["root".to_owned()];
     let mut edges = Vec::new();

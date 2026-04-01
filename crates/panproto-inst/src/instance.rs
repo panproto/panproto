@@ -1,9 +1,9 @@
 //! Unified instance representation (attributed C-set).
 //!
 //! [`Instance`] is the unified enum wrapping all instance shapes:
-//! - [`WInstance`](crate::WInstance) — tree-shaped (W-type)
-//! - [`FInstance`](crate::FInstance) — relational (functor)
-//! - [`GInstance`](crate::GInstance) — graph-shaped (most general)
+//! - [`WInstance`](crate::WInstance): tree-shaped (W-type)
+//! - [`FInstance`](crate::FInstance): relational (functor)
+//! - [`GInstance`](crate::GInstance): graph-shaped (most general)
 //!
 //! All three are attributed C-sets over different shape categories.
 //! The unified type enables generic code that operates on any instance

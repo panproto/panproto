@@ -425,12 +425,12 @@ pub fn colimit_by_name(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theo
     // Use the theory's O(1) index for lookups instead of building separate HashSets.
     for sort in &t2.sorts {
         if t1.has_sort(&sort.name) {
-            // Present in both — must be identical or shared.
+            // Present in both; must be identical or shared.
             if shared.has_sort(&sort.name) {
                 // Shared sort: already included via t1, skip.
                 continue;
             }
-            // Both define it independently — check compatibility.
+            // Both define it independently; check compatibility.
             let t1_sort = t1
                 .find_sort(&sort.name)
                 .ok_or_else(|| GatError::SortConflict {

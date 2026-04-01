@@ -1,6 +1,6 @@
 //! # schema
 //!
-//! Command-line interface for panproto — schematic version control.
+//! Command-line interface for panproto: schematic version control.
 //!
 //! Provides subcommands for schema validation, migration checking,
 //! breaking change detection, record lifting, and git-like version
@@ -847,6 +847,9 @@ enum LensAction {
         /// Show complement requirements (defaults/data needed).
         #[arg(long)]
         requirements: bool,
+        /// Path to a JSON hints file for guided auto-lens generation.
+        #[arg(long)]
+        hints: Option<PathBuf>,
     },
     /// Apply a saved lens chain to data.
     Apply {
@@ -1429,6 +1432,7 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             defaults,
             fuse,
             requirements,
+            hints,
         } => cmd::lens::cmd_lens_generate(
             &old,
             &new,
@@ -1441,6 +1445,7 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             fuse,
             requirements,
             verbose,
+            hints.as_deref(),
         ),
         LensAction::Apply {
             chain,

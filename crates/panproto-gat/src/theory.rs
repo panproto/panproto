@@ -758,7 +758,7 @@ mod tests {
         assert_eq!(resolved.sorts.len(), 3);
     }
 
-    /// Test 3: `ThGAT` -- the theory of GATs describes itself.
+    /// Test 3: `ThGAT`, the theory of GATs, describes itself.
     ///
     /// `ThGAT` has sorts: `Sort`, `Op`, `Eq`, `Theory`.
     /// It has operations like `sort_name`, `op_name`, `op_output`, etc.

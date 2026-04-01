@@ -8,7 +8,7 @@
 //! - `type-description`: a named CAS type (e.g. `uima.tcas.Annotation`)
 //! - `feature-description`: a named feature on a type
 //! - `cas`: a CAS instance (holds sofas, indices, and feature structures)
-//! - `sofa`: Subject of Analysis — the artifact being annotated
+//! - `sofa`: Subject of Analysis, the artifact being annotated
 //! - `fs-index`: a feature-structure index (for efficient FS retrieval)
 //! - `annotation-base`: base annotation with sofa reference but no span
 //! - `annotation`: span annotation with `begin`/`end` offsets

@@ -149,7 +149,7 @@ mod tests {
             &[("a", "object"), ("a.x", "string")],
             &[("a", "a.x", "prop", "x")],
         );
-        // Right uses only `integer` vertices — incompatible kinds.
+        // Right uses only `integer` vertices, incompatible kinds.
         let right = build_schema(
             &[("b", "integer"), ("c", "integer")],
             &[("b", "c", "prop", "y")],

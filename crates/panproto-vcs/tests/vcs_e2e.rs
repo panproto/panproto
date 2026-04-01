@@ -54,8 +54,8 @@ fn blog_protocol() -> Protocol {
 // Schema builders
 // ===========================================================================
 
-/// v1: User(name, email), Post(title, body, author->User)
-/// 7 vertices, 5 edges
+/// v1: User(name, email), Post(title, body, author->User),
+/// 7 vertices, 5 edges.
 fn blog_v1() -> Schema {
     let proto = blog_protocol();
     SchemaBuilder::new(&proto)
@@ -87,8 +87,8 @@ fn blog_v1() -> Schema {
         .unwrap()
 }
 
-/// v2: v1 + Comment(text, post->Post, author->User)
-/// 10 vertices, 8 edges
+/// v2: v1 + Comment(text, post->Post, author->User),
+/// 10 vertices, 8 edges.
 fn blog_v2() -> Schema {
     let proto = blog_protocol();
     SchemaBuilder::new(&proto)
@@ -179,8 +179,8 @@ fn blog_v3() -> Schema {
         .unwrap()
 }
 
-/// v4: v3 + Tag(name:string), PostTag(post->Post, tag->Tag)
-/// 14 vertices, 12 edges
+/// v4: v3 + Tag(name:string), PostTag(post->Post, tag->Tag),
+/// 14 vertices, 12 edges.
 fn blog_v4() -> Schema {
     let proto = blog_protocol();
     SchemaBuilder::new(&proto)
@@ -288,7 +288,7 @@ fn blog_v2_with_edited_at() -> Schema {
         .unwrap()
 }
 
-/// v2 variant: Comment + Comment.likes:integer
+/// v2 variant: Comment + Comment.likes:integer.
 fn blog_v2_with_likes() -> Schema {
     let proto = blog_protocol();
     SchemaBuilder::new(&proto)
@@ -335,7 +335,7 @@ fn blog_v2_with_likes() -> Schema {
         .unwrap()
 }
 
-/// v1 variant: User.email as "email-address" kind instead of "string"
+/// v1 variant: User.email as "email-address" kind instead of "string".
 fn blog_v1_email_typed() -> Schema {
     let proto = blog_protocol();
     SchemaBuilder::new(&proto)
@@ -365,7 +365,7 @@ fn blog_v1_email_typed() -> Schema {
         .unwrap()
 }
 
-/// v1 variant: User without email vertex and its edge
+/// v1 variant: User without email vertex and its edge.
 fn blog_v1_no_email() -> Schema {
     let proto = blog_protocol();
     SchemaBuilder::new(&proto)
@@ -391,7 +391,7 @@ fn blog_v1_no_email() -> Schema {
         .unwrap()
 }
 
-/// v1 variant: v1 + Tag(name:string)
+/// v1 variant: v1 + Tag(name:string).
 fn blog_v1_with_tag() -> Schema {
     let proto = blog_protocol();
     SchemaBuilder::new(&proto)

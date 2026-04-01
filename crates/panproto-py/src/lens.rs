@@ -185,7 +185,7 @@ pub fn auto_generate_lens(
 }
 
 // ---------------------------------------------------------------------------
-// ProtolensChain — schema-independent lens family
+// ProtolensChain: schema-independent lens family
 // ---------------------------------------------------------------------------
 
 /// A schema-independent lens family (protolens chain).
@@ -250,6 +250,104 @@ impl PyProtolensChain {
             &config,
         )
         .map_err(|e| crate::error::LensError::new_err(format!("auto-generate failed: {e}")))?;
+        Ok(Self {
+            inner: Arc::new(result.chain),
+        })
+    }
+
+    /// Auto-generate with a full hint specification.
+    ///
+    /// The ``hints`` dict should have:
+    ///   - ``anchors``: ``dict[str, str]`` mapping source to target vertex names
+    ///   - ``constraints``: ``list[dict]`` with constraint objects
+    ///
+    /// Constraints are dicts with a ``type`` key:
+    ///   - ``{"type": "scope", "under": "...", "targets": "..."}``
+    ///   - ``{"type": "exclude_targets", "vertices": ["..."]}``
+    ///   - ``{"type": "exclude_sources", "vertices": ["..."]}``
+    #[staticmethod]
+    #[allow(clippy::needless_pass_by_value)]
+    fn auto_generate_with_hint_spec(
+        src_schema: &PySchema,
+        tgt_schema: &PySchema,
+        protocol: &PyProtocol,
+        hints: String,
+    ) -> PyResult<Self> {
+        use panproto_core::gat::Name;
+
+        let hint_spec: panproto_lens_dsl::HintSpec = serde_json::from_str(&hints)
+            .map_err(|e| crate::error::LensError::new_err(format!("invalid hints JSON: {e}")))?;
+
+        let anchors: std::collections::HashMap<Name, Name> = hint_spec
+            .anchors
+            .iter()
+            .map(|(k, v)| (Name::from(k.as_str()), Name::from(v.as_str())))
+            .collect();
+
+        let derived = lens::hint::derive_anchors(&anchors, &src_schema.inner, &tgt_schema.inner);
+
+        let scope_constraints: Vec<(Name, Name)> = hint_spec
+            .constraints
+            .iter()
+            .filter_map(|c| match c {
+                panproto_lens_dsl::Constraint::Scope { under, targets } => {
+                    Some((Name::from(under.as_str()), Name::from(targets.as_str())))
+                }
+                _ => None,
+            })
+            .collect();
+
+        let excluded_targets: Vec<Name> = hint_spec
+            .constraints
+            .iter()
+            .filter_map(|c| match c {
+                panproto_lens_dsl::Constraint::ExcludeTargets { vertices } => {
+                    Some(vertices.iter().map(|v| Name::from(v.as_str())))
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        let excluded_sources: Vec<Name> = hint_spec
+            .constraints
+            .iter()
+            .filter_map(|c| match c {
+                panproto_lens_dsl::Constraint::ExcludeSources { vertices } => {
+                    Some(vertices.iter().map(|v| Name::from(v.as_str())))
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        let domain_constraints = lens::hint::build_domain_constraints(
+            &src_schema.inner,
+            &tgt_schema.inner,
+            &scope_constraints,
+            &excluded_targets,
+            &excluded_sources,
+            None,
+        );
+
+        let config = AutoLensConfig {
+            try_overlap: true,
+            ..Default::default()
+        };
+
+        let result = lens::auto_generate_with_hints(
+            &src_schema.inner,
+            &tgt_schema.inner,
+            &protocol.inner,
+            &config,
+            &derived,
+            &domain_constraints,
+            None,
+        )
+        .map_err(|e| {
+            crate::error::LensError::new_err(format!("auto-generate with hints failed: {e}"))
+        })?;
+
         Ok(Self {
             inner: Arc::new(result.chain),
         })

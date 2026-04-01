@@ -8,7 +8,7 @@ use crate::Literal;
 
 /// An evaluation environment mapping variable names to values.
 ///
-/// Environments are immutable — extending creates a new environment
+/// Environments are immutable; extending creates a new environment
 /// that shadows the parent's bindings. This is implemented via clone
 /// since environments are typically small (lambda parameters, let bindings).
 #[derive(Debug, Clone, Default)]

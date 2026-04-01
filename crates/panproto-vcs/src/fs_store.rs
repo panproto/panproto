@@ -8,12 +8,12 @@
 //!
 //! ```text
 //! .panproto/
-//!   HEAD                           — JSON HeadState
-//!   objects/<hex[0..2]>/<hex[2..]>  — rmp-serde bytes of Object
-//!   refs/heads/main                — hex ObjectId (plain text)
-//!   refs/tags/v1.0                 — hex ObjectId
-//!   index.json                     — staged schema state
-//!   logs/                          — reflog entries (NDJSON)
+//!   HEAD                           JSON HeadState
+//!   objects/<hex[0..2]>/<hex[2..]>  rmp-serde bytes of Object
+//!   refs/heads/main                hex ObjectId (plain text)
+//!   refs/tags/v1.0                 hex ObjectId
+//!   index.json                     staged schema state
+//!   logs/                          reflog entries (NDJSON)
 //!     HEAD
 //!     refs/heads/main
 //! ```

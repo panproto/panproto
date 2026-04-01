@@ -108,7 +108,7 @@ pub fn parse_naf(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
     }
 
-    // Parse layers — two-pass approach.
+    // Parse layers: two-pass approach.
     //
     // Pass 1: register all layer vertices, element vertices, and external-ref
     // vertices along with their constraints, plus the "contains" edges within

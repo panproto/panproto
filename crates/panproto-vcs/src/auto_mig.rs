@@ -26,7 +26,7 @@ use crate::rename_detect;
 ///
 /// The derived migration uses identity mappings for all vertices and
 /// edges that survive between the old and new schemas. Resolvers and
-/// hyper-resolvers are left empty — if the migration requires contraction
+/// hyper-resolvers are left empty; if the migration requires contraction
 /// resolution, the user must supply an explicit migration file.
 ///
 /// # Algorithm
@@ -72,7 +72,7 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
             // Edge exists identically in new schema.
             edge_map.insert(edge.clone(), edge.clone());
         } else {
-            // Edge was removed from new but endpoints survive — look for
+            // Edge was removed from new but endpoints survive; look for
             // a matching edge with the same name between the same vertices.
             if let Some(matching) =
                 find_matching_edge(new, &edge.src, &edge.tgt, edge.name.as_deref())

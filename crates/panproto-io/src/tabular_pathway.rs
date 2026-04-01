@@ -160,7 +160,7 @@ pub fn parse_conllu(
         }
 
         if line.first() == Some(&b'#') {
-            // Comment line — extract metadata.
+            // Comment line: extract metadata.
             let comment = String::from_utf8_lossy(line);
             let trimmed = comment.trim_start_matches('#').trim();
             if let Some((key, val)) = trimmed.split_once('=') {

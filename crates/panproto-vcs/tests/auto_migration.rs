@@ -137,7 +137,7 @@ fn auto_migrate_rename_workflow() {
         &[("root", "root.text", "prop", "text")],
     );
 
-    // Schema v2: root -> root.body (string) — field renamed
+    // Schema v2: root -> root.body (string), field renamed
     let v2 = build_schema(
         &[("root", "object"), ("root.body", "string")],
         &[("root", "root.body", "prop", "body")],
@@ -173,7 +173,7 @@ fn auto_migrate_rename_workflow() {
     repo.add(&v1).unwrap();
     repo.commit("initial", "alice").unwrap();
 
-    // Stage v2 — the auto migration should handle the rename
+    // Stage v2; the auto migration should handle the rename
     let index = repo.add(&v2).unwrap();
     assert!(
         index.staged.is_some(),
@@ -433,7 +433,7 @@ fn rename_detect_in_vcs_context() {
     //  between root and the renamed vertex is removed+added, not renamed.
     //  Edge renames only apply between surviving vertex pairs.)
     // Since root survives but firstName/lastName do not, edge renames
-    // won't fire here — that is correct behavior.
+    // won't fire here; that is correct behavior.
     let _ = edge_renames;
 
     // Now test with an edge-only rename scenario: same vertices, different edge labels
@@ -476,7 +476,7 @@ fn full_pipeline_auto_morphism_to_lift() {
         HashMap::new(),
     );
 
-    // New schema: root -> root.body (string) — renamed field
+    // New schema: root -> root.body (string), renamed field
     let new_edge = make_edge("root", "root.body", "prop", "body");
     let new_schema = bare_schema(
         &[("root", "object"), ("root.body", "string")],

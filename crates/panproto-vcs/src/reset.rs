@@ -22,7 +22,7 @@ pub enum ResetMode {
 /// - **Soft**: Only moves the ref. Index and working schema are untouched.
 /// - **Mixed**: Moves the ref and clears the staging index.
 /// - **Hard**: Moves the ref, clears the index, and writes the target
-///   schema to the working schema file (not implemented at this layer —
+///   schema to the working schema file (not implemented at this layer;
 ///   the `repo.rs` porcelain handles the filesystem write).
 ///
 /// All modes append a reflog entry.

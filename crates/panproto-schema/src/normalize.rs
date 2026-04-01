@@ -109,7 +109,7 @@ fn collapse_edges(
                 name: edge.name.clone(),
             });
         } else {
-            // Not targeting a ref — keep as-is.
+            // Not targeting a ref; keep as-is.
             new_edges.push(edge.clone());
         }
     }

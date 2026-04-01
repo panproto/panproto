@@ -39,7 +39,7 @@ pub fn rebase(store: &mut dyn Store, onto: ObjectId, author: &str) -> Result<Obj
     let commits_to_replay: Vec<ObjectId> = path.into_iter().skip(1).collect();
 
     if commits_to_replay.is_empty() {
-        // Nothing to rebase — HEAD is already at or before onto.
+        // Nothing to rebase; HEAD is already at or before onto.
         return Ok(head_id);
     }
 

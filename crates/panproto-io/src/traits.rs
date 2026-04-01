@@ -18,7 +18,7 @@ use crate::cst_extract::CstComplement;
 
 /// Which instance representation a protocol natively uses.
 ///
-/// This is not an implementation choice — it follows directly from the
+/// This is not an implementation choice; it follows directly from the
 /// protocol's `instance_theory` field in its [`panproto_schema::Protocol`]
 /// definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

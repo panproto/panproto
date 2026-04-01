@@ -388,7 +388,7 @@ mod tests {
     fn missing_carrier_set_errors() {
         let theory = monoid_theory();
         let model = Model::new("Monoid");
-        // No carrier set added — should error.
+        // No carrier set added; should error.
         let result = check_model(&model, &theory);
         assert!(matches!(result, Err(GatError::ModelError(_))));
     }

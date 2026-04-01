@@ -2,7 +2,7 @@
 //!
 //! The GAT (Generalized Algebraic Theory) engine for panproto.
 //!
-//! This is Level 0 of the panproto architecture — the only component
+//! This is Level 0 of the panproto architecture, the only component
 //! implemented directly in Rust rather than as data. It provides:
 //!
 //! - **Sorts**: Types that may depend on terms of other sorts

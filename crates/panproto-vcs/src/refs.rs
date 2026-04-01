@@ -310,7 +310,7 @@ pub fn resolve_ref(store: &dyn Store, target: &str) -> Result<ObjectId, VcsError
         return Ok(id);
     }
 
-    // Try as a tag — peel annotated tags to find the underlying commit.
+    // Try as a tag; peel annotated tags to find the underlying commit.
     let tag_ref = format!("refs/tags/{target}");
     if let Some(id) = store.get_ref(&tag_ref)? {
         return Ok(peel_tag(store, id));

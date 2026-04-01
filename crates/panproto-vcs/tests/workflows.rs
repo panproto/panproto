@@ -892,7 +892,7 @@ fn edge_removal_one_side_is_clean() -> Result<(), Box<dyn std::error::Error>> {
     repo.commit("add d, keep edge", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    // Edge removal by one side is accepted — clean merge.
+    // Edge removal by one side is accepted; clean merge.
     assert!(result.conflicts.is_empty());
     // Merged schema should have a, b, c, d but no edge.
     assert!(result.merged_schema.vertices.contains_key("c"));
@@ -2423,7 +2423,7 @@ fn dag_compose_path_two_steps() -> Result<(), Box<dyn std::error::Error>> {
 /// c0: (root, name)
 /// c1: (root, name, email)
 /// c2: (root, name, email, role)
-/// c3: (root, name, role) — drops email
+/// c3: (root, name, role), drops email
 ///
 /// After composing c0->c3, the `vertex_map` should have root + name (email was
 /// added and then dropped; name survives throughout; role is new in c2).
@@ -2493,7 +2493,7 @@ fn dag_compose_path_three_steps() -> Result<(), Box<dyn std::error::Error>> {
         composed.vertex_map.get("root.name"),
         Some(&Name::from("root.name"))
     );
-    // root.email was added in c1 then dropped in c3 — since it was never in c0,
+    // root.email was added in c1 then dropped in c3; since it was never in c0,
     // it shouldn't appear in the composed migration's domain at all.
     assert!(!composed.vertex_map.contains_key("root.email"));
     // root.role was not in c0, so it shouldn't appear in the domain.

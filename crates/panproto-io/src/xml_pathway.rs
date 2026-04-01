@@ -156,7 +156,7 @@ pub fn parse_xml_bytes(
                     root_id = Some(node_id);
                     root_vertex = vertex_id;
                 }
-                // No push to element_stack — self-closing has no children.
+                // No push to element_stack; self-closing has no children.
             }
             Ok(Event::Text(ref e)) => {
                 let text = e.unescape().map_err(|err| ParseInstanceError::Parse {

@@ -14,11 +14,11 @@ use crate::cmd::helpers::format_timestamp;
 /// Format a commit using a custom format string.
 ///
 /// Supported placeholders:
-/// - `%H` — full hash
-/// - `%h` — short hash (7 chars)
-/// - `%s` — subject (commit message)
-/// - `%an` — author name
-/// - `%ad` — author date
+/// - `%H`: full hash
+/// - `%h`: short hash (7 chars)
+/// - `%s`: subject (commit message)
+/// - `%an`: author name
+/// - `%ad`: author date
 pub fn format_commit(commit: &CommitObject, fmt: &str) -> miette::Result<String> {
     let id =
         hash::hash_commit(commit).map_err(|e| miette::miette!("failed to hash commit: {e}"))?;

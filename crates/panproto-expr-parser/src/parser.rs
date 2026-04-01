@@ -547,7 +547,7 @@ enum PostfixOp {
 enum Qual {
     /// `x <- xs`
     Generator(Arc<str>, Expr),
-    /// predicate
+    /// Predicate.
     Guard(Expr),
 }
 
@@ -558,7 +558,7 @@ enum DoStmt {
     Bind(Arc<str>, Expr),
     /// `let x = e`
     Let(Arc<str>, Expr),
-    /// bare expression
+    /// Bare expression.
     Expr(Expr),
 }
 

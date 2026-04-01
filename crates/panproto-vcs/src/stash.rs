@@ -33,7 +33,7 @@ pub struct StashEntry {
 /// # Errors
 ///
 /// Returns an error if HEAD cannot be resolved or if there is nothing
-/// to stash (the `schema_id` must be provided by the caller — typically
+/// to stash (the `schema_id` must be provided by the caller, typically
 /// the index's staged schema).
 pub fn stash_push(
     store: &mut dyn Store,
@@ -110,7 +110,7 @@ pub fn stash_pop(store: &mut dyn Store) -> Result<ObjectId, VcsError> {
         // Restore previous stash.
         store.set_ref("refs/stash", reflog[1].new_id)?;
     } else {
-        // No more stashes — remove the ref.
+        // No more stashes; remove the ref.
         // Use set_ref to a sentinel then delete, or just delete.
         let _ = store.delete_ref("refs/stash");
     }

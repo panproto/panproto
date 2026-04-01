@@ -91,7 +91,7 @@ pub fn chase_functor(
                     continue;
                 }
 
-                // Pattern matched — check if the consequence already holds.
+                // Pattern matched; check if the consequence already holds.
                 let consequence_rows = result
                     .tables
                     .entry(dep.consequence_vertex.clone())
@@ -183,10 +183,10 @@ pub fn dependencies_from_theory(theory: &Theory, schema: &Schema) -> Vec<Embedde
 ///
 /// Handles three patterns:
 ///
-/// 1. `op(inner_op(var)) = var` — retraction/section: if `inner_op`
+/// 1. `op(inner_op(var)) = var`: retraction/section, where if `inner_op`
 ///    produced a value, op applied to it must recover the original.
 ///
-/// 2. `op(inner_op(var)) = other_op(var)` — commutativity: the
+/// 2. `op(inner_op(var)) = other_op(var)`: commutativity, where the
 ///    composition `op∘inner_op` must agree with `other_op`.
 ///
 /// 3. General case: records the equation as a dependency between
@@ -265,7 +265,7 @@ fn translate_equation(eq: &Equation, theory: &Theory, schema: &Schema) -> Vec<Em
             }
         }
         (None, None) => {
-            // Both sides are variables — trivial equation, no dependency
+            // Both sides are variables: trivial equation, no dependency
         }
     }
 
@@ -371,7 +371,7 @@ mod tests {
     fn chase_non_termination_error() {
         // A dependency that generates a new row each iteration:
         // every row in A with x=1 requires a row in A with x=2,
-        // and every row with x=2 requires x=1 — but we use a
+        // and every row with x=2 requires x=1, but we use a
         // self-referential dependency with distinct consequence
         // values that keep accumulating.
         //
@@ -390,7 +390,7 @@ mod tests {
         // With static consequence_values this won't diverge because
         // the same row won't be added twice. So we use a counter-based
         // trick: dependency adds to table B, another dep from B adds
-        // to C, another from C adds to B with *different* values — but
+        // to C, another from C adds to B with *different* values, but
         // that still converges.
         //
         // The realistic way to test this: use max_iterations = 0.

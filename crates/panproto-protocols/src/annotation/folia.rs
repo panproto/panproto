@@ -290,7 +290,7 @@ pub fn emit_folia(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
             obj.insert("spans".into(), serde_json::Value::Array(arr));
         }
 
-        // Emit dep-head edge (FoLiA <hd> role — the syntactic head).
+        // Emit dep-head edge (FoLiA <hd> role, the syntactic head).
         let hd_children = children_by_edge(schema, &root.id, "dep-head");
         if let Some((e, _)) = hd_children.first() {
             if let Some(n) = e.name.as_deref() {
@@ -298,7 +298,7 @@ pub fn emit_folia(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
             }
         }
 
-        // Emit dep-dependent edges (FoLiA <dep> role — the dependents).
+        // Emit dep-dependent edges (FoLiA <dep> role, the dependents).
         let dep_children = children_by_edge(schema, &root.id, "dep-dependent");
         if !dep_children.is_empty() {
             let arr: Vec<serde_json::Value> = dep_children

@@ -9,12 +9,12 @@
 //!
 //! Git sends commands on stdin, one per line:
 //!
-//! - `capabilities` — respond with supported capabilities
-//! - `list` — list refs on the remote
-//! - `list for-push` — list refs (for push context)
-//! - `fetch <sha> <ref>` — fetch objects for the given ref
-//! - `push <src>:<dst>` — push a local ref to the remote
-//! - (empty line) — end of batch
+//! - `capabilities`: respond with supported capabilities
+//! - `list`: list refs on the remote
+//! - `list for-push`: list refs (for push context)
+//! - `fetch <sha> <ref>`: fetch objects for the given ref
+//! - `push <src>:<dst>`: push a local ref to the remote
+//! - (empty line): end of batch
 //!
 //! ## Usage
 //!

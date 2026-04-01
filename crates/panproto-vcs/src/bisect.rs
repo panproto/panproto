@@ -46,7 +46,7 @@ pub fn bisect_start(
     let path = dag::find_path(store, good, bad)?;
 
     if path.len() <= 2 {
-        // good and bad are adjacent — bad is the answer.
+        // good and bad are adjacent; bad is the answer.
         let state = BisectState {
             path: path.clone(),
             lo: 0,

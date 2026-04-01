@@ -191,7 +191,7 @@ pub fn validate_schema_equations(
             }
         }
         Err(e) => {
-            // Limit exceeded or missing carrier — report as warning, not hard error.
+            // Limit exceeded or missing carrier: report as warning, not hard error.
             diag.equation_errors
                 .push(format!("equation check incomplete: {e}"));
         }

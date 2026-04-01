@@ -34,7 +34,7 @@ pub fn functor_pi(
     migration: &CompiledMigration,
     max_product_size: usize,
 ) -> Result<FInstance, RestrictError> {
-    // Step 1: Build fiber map — for each target vertex, collect source vertices
+    // Step 1: Build fiber map. For each target vertex, collect source vertices
     let mut fiber_map: HashMap<Name, Vec<Name>> = HashMap::new();
 
     // Collect all remap targets so we can distinguish target-only vertices

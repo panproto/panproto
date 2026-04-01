@@ -43,7 +43,7 @@ impl Default for CompositionResult {
 /// Find the merge base (lowest common ancestor) of two commits.
 ///
 /// Computes all ancestors of both commits, finds their intersection,
-/// then filters to the *lowest* (most recent) common ancestors — those
+/// then filters to the *lowest* (most recent) common ancestors, those
 /// that are not proper ancestors of any other common ancestor.
 ///
 /// If multiple LCAs exist (criss-cross merges), returns the one with
@@ -341,7 +341,7 @@ pub fn compose_path_with_coherence(
     // The direct migration is computed via auto_mig::derive_migration,
     // which uses the structural diff between the endpoint schemas. If
     // the composed and direct morphisms disagree on any sort mapping,
-    // this indicates composition drift — the intermediate steps are
+    // this indicates composition drift; the intermediate steps are
     // not coherent with what a single-step migration would produce.
     //
     // When the sort maps agree, we additionally construct a natural
@@ -846,8 +846,8 @@ mod tests {
     /// Build a linear 3-commit history with real schemas and migrations.
     ///
     /// c0: schema {a, b}
-    /// c1: schema {a, b, c} -- migration: identity on a,b
-    /// c2: schema {a, c, d} -- migration: identity on a,c; drops b, adds d
+    /// c1: schema {a, b, c}, migration: identity on a,b
+    /// c2: schema {a, c, d}, migration: identity on a,c; drops b, adds d
     fn build_migration_history() -> Result<(MemStore, Vec<ObjectId>), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
 

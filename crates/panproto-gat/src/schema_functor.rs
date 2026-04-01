@@ -9,7 +9,7 @@ use crate::op::Operation;
 use crate::sort::{CoercionClass, Sort, SortKind, SortParam, ValueKind};
 use crate::theory::Theory;
 
-/// A predicate on theories — the precondition for applying a transform.
+/// A predicate on theories: the precondition for applying a transform.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TheoryConstraint {
     /// Any theory satisfies this.

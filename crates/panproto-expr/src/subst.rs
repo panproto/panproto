@@ -123,10 +123,10 @@ pub fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
         }
         Expr::Lam(param, body) => {
             if &**param == name {
-                // param shadows the substitution target — no change
+                // param shadows the substitution target, no change
                 expr.clone()
             } else if free_vars(replacement).contains(param) {
-                // Would capture — alpha-rename the param first
+                // Would capture; alpha-rename the param first
                 let fresh = fresh_name(param, &free_vars(replacement));
                 let renamed_body = substitute(body, param, &Expr::Var(Arc::clone(&fresh)));
                 Expr::Lam(
@@ -169,7 +169,7 @@ pub fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
                 .map(|(pat, body)| {
                     let pvars = pattern_vars(pat);
                     if pvars.iter().any(|v| &**v == name) {
-                        // pattern binds the substitution target — no change in body
+                        // pattern binds the substitution target, no change in body
                         (pat.clone(), body.clone())
                     } else {
                         (pat.clone(), substitute(body, name, replacement))
@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn free_vars_simple() {
-        // λx. add(x, y) — y is free, x is bound
+        // λx. add(x, y): y is free, x is bound
         let expr = Expr::lam(
             "x",
             Expr::builtin(crate::BuiltinOp::Add, vec![Expr::var("x"), Expr::var("y")]),

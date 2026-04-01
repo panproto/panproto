@@ -1726,7 +1726,7 @@ fn cli_lift_bad_migration_fails() {
     let tmp = tempfile::tempdir().unwrap();
     write_protocol_schema(tmp.path(), "src.json", "atproto", &[("root", "string")]);
     write_protocol_schema(tmp.path(), "tgt.json", "atproto", &[("root", "string")]);
-    // Migration maps root to "nonexistent" — not present in target schema.
+    // Migration maps root to "nonexistent", not present in target schema.
     write_migration(tmp.path(), "mig.json", &[("root", "nonexistent")]);
 
     std::fs::write(tmp.path().join("record.json"), "\"test\"").unwrap();

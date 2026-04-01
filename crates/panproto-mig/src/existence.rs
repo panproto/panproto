@@ -26,7 +26,7 @@ pub struct ExistenceReport {
 /// Check existence conditions for a migration.
 ///
 /// The conditions checked are DERIVED from the schema and instance
-/// theory structure -- not a hardcoded list. The function inspects
+/// theory structure, not a hardcoded list. The function inspects
 /// the theory's sorts to decide which checks to apply.
 ///
 /// Always checks: vertex map validity, edge map validity, kind consistency.
@@ -406,7 +406,7 @@ fn check_reachability(src: &Schema, _tgt: &Schema, migration: &Migration) -> Vec
 
 /// Check that coproduct variants are preserved by the migration.
 ///
-/// Dropping a variant from a coproduct is a type error — existing
+/// Dropping a variant from a coproduct is a type error; existing
 /// data tagged with that variant becomes ill-typed.
 fn check_variant_preservation(
     src: &Schema,

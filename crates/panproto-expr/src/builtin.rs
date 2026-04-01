@@ -1,7 +1,7 @@
 //! Implementations of built-in operations.
 //!
 //! Each builtin is a pure function from `&[Literal]` to `Result<Literal, ExprError>`.
-//! Type checking is done at evaluation time — arguments must have the expected types.
+//! Type checking is done at evaluation time; arguments must have the expected types.
 
 use std::sync::Arc;
 
@@ -280,7 +280,7 @@ fn apply_string(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
 #[allow(clippy::cast_possible_wrap)]
 fn apply_list(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
     match op {
-        // Map, Filter, Fold, FlatMap require lambda evaluation — handled in eval.rs.
+        // Map, Filter, Fold, FlatMap require lambda evaluation; handled in eval.rs.
         BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap => {
             Err(ExprError::TypeError {
                 expected: "handled in evaluator".into(),

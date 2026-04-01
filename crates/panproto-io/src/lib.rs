@@ -13,7 +13,7 @@
 //!
 //! panproto's two-parameter architecture defines each protocol P as a pair
 //! of GATs: a schema theory `T_P^S` and an instance theory `T_P^I`. This crate
-//! provides the **instance presentations** — the functors mapping between
+//! provides the **instance presentations**: the functors mapping between
 //! concrete format syntax and models of `T_P^I`.
 //!
 //! Together with `panproto-protocols` (which provides schema presentations),
@@ -183,14 +183,14 @@ mod tests {
             "asn1",
             "bond",
             "msgpack_schema",
-            // Annotation — JSON-based (6)
+            // Annotation: JSON-based (6)
             "brat",
             "decomp",
             "ucca",
             "fovea",
             "bead",
             "web_annotation",
-            // Annotation — XML-based (9)
+            // Annotation: XML-based (9)
             "naf",
             "uima",
             "folia",
@@ -200,7 +200,7 @@ mod tests {
             "iso_space",
             "paula",
             "laf_graf",
-            // Annotation — tab/line (2) + other (2)
+            // Annotation: tab/line (2) + other (2)
             "conllu",
             "amr",
             "concrete",

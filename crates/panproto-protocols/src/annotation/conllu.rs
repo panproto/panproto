@@ -160,7 +160,7 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
             builder = builder.constraint(&token_vertex_id, "id-range", id_col);
 
             // Per CoNLL-U spec: empty nodes (decimal IDs) and multiword tokens
-            // do not carry LEMMA, UPOS, XPOS, or FEATS — only words do.
+            // do not carry LEMMA, UPOS, XPOS, or FEATS; only words do.
             let is_word = token_kind == "word";
 
             if is_word {
@@ -227,7 +227,7 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
                 ));
             }
 
-            // DEPS column — enhanced dependencies
+            // DEPS column: enhanced dependencies
             if deps_col != "_" {
                 deferred_enhanced.push((token_vertex_id.clone(), deps_col.to_string()));
             }
@@ -238,7 +238,7 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
         // Resolve basic dependency edges.
         for (dep_vertex, head_col, deprel_col) in &deferred_deps {
             if head_col == "0" {
-                // Root dependency — create a deprel vertex attached to sentence.
+                // Root dependency: create a deprel vertex attached to sentence.
                 let deprel_id = format!("{dep_vertex}.deprel");
                 builder = builder
                     .vertex(&deprel_id, "deprel", None)
@@ -481,7 +481,7 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
                 incoming_dep.or(root_dep).unwrap_or("_")
             };
 
-            // DEPS — enhanced dependencies.
+            // DEPS: enhanced dependencies.
             let deps: String = enhanced_map
                 .get(token_vertex.id.as_str())
                 .map_or_else(|| "_".to_string(), |v| v.join("|"));
@@ -543,7 +543,7 @@ fn split_sentences(input: &str) -> Vec<(Vec<String>, Vec<String>)> {
             }
         } else if trimmed.starts_with('#') {
             // If we already have token lines, this comment belongs to the next
-            // sentence — flush the current one first.
+            // sentence, so flush the current one first.
             if !current_lines.is_empty() {
                 sentences.push((
                     std::mem::take(&mut current_comments),
@@ -648,7 +648,7 @@ mod tests {
         assert!(p.find_edge_rule("upos").is_some());
         assert!(p.find_edge_rule("xpos").is_some());
         assert!(p.find_edge_rule("lemma-of").is_some());
-        // `token` vertex kind removed — must not appear.
+        // `token` vertex kind removed; must not appear.
         assert!(!p.obj_kinds.contains(&"token".to_string()));
         // `deprel` not in constraint_sorts (it is an obj_kind).
         assert!(!p.constraint_sorts.contains(&"deprel".to_string()));

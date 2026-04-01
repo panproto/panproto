@@ -112,7 +112,7 @@ fn deep_tree_schema(depth: usize) -> (Schema, Vec<Edge>) {
     (test_schema(&vert_refs, &edges), edges)
 }
 
-/// Build a wide tree schema: root with `width` children
+/// Builds a wide tree schema: root with `width` children.
 fn wide_tree_schema(width: usize) -> (Schema, Vec<Edge>) {
     let mut vert_strs: Vec<String> = vec!["root".to_owned()];
     let mut edges = Vec::new();
@@ -299,7 +299,7 @@ fn parse_json_nested_objects(bencher: Bencher, depth: usize) {
 }
 
 // ---------------------------------------------------------------------------
-// Benchmarks: wtype_restrict — deep tree
+// Benchmarks: wtype_restrict, deep tree
 // ---------------------------------------------------------------------------
 
 #[divan::bench(args = [10, 50, 100])]
@@ -317,7 +317,7 @@ fn wtype_restrict_deep_tree(bencher: Bencher, depth: usize) {
 }
 
 // ---------------------------------------------------------------------------
-// Benchmarks: wtype_restrict — wide tree
+// Benchmarks: wtype_restrict, wide tree
 // ---------------------------------------------------------------------------
 
 #[divan::bench(args = [10, 50])]
@@ -335,7 +335,7 @@ fn wtype_restrict_wide_tree(bencher: Bencher, width: usize) {
 }
 
 // ---------------------------------------------------------------------------
-// Benchmarks: wtype_restrict — with contraction
+// Benchmarks: wtype_restrict, with contraction
 // ---------------------------------------------------------------------------
 
 #[divan::bench(args = [10, 50])]
@@ -376,7 +376,7 @@ fn wtype_restrict_contraction(bencher: Bencher, depth: usize) {
 }
 
 // ---------------------------------------------------------------------------
-// Benchmarks: wtype_restrict — identity (existing, kept for comparison)
+// Benchmarks: wtype_restrict, identity (existing, kept for comparison)
 // ---------------------------------------------------------------------------
 
 #[divan::bench]

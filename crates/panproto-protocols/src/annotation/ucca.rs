@@ -7,7 +7,7 @@
 //!
 //! # Node vs. edge categories
 //!
-//! In UCCA, **edge labels** carry semantic category information — not nodes.
+//! In UCCA, **edge labels** carry semantic category information, not nodes.
 //! A node's functional role (Participant, Process, State, etc.) is determined
 //! by the category of its incoming edge from its parent. Nodes are therefore
 //! generic: `node` (non-terminal) or `terminal` (leaf corresponding to a
@@ -19,7 +19,7 @@
 //! - `contains`: structural containment (passage → layer, layer → node/terminal)
 //! - `edge`: primary directed edge between nodes, `name` carries the UCCA
 //!   category letter (A, P, S, H, D, C, E, N, R, L, F, G, Q, U, T)
-//! - `remote`: re-entrant (secondary) edge — same category vocabulary as `edge`
+//! - `remote`: re-entrant (secondary) edge, same category vocabulary as `edge`
 //! - `implicit`: edge to an implicit node (no surface realization)
 
 use std::collections::HashMap;
@@ -134,7 +134,7 @@ pub fn parse_ucca(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
 
             if let Some(attrs) = node_def.get("attrs").and_then(serde_json::Value::as_object) {
                 for (sort, value) in attrs {
-                    // Skip "category" — categories belong on edges, not nodes.
+                    // Skip "category"; categories belong on edges, not nodes.
                     if sort == "category" {
                         continue;
                     }

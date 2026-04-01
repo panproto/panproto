@@ -1,7 +1,7 @@
 //! Round-trip tests with real fixture data for all 50 protocols.
 //!
 //! Each test verifies the presentation functor's faithfulness:
-//! `parse(emit(parse(input))) ≅ parse(input)` — structural equality
+//! `parse(emit(parse(input))) ≅ parse(input)`, structural equality
 //! after a full round-trip through parse → emit → re-parse.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -40,7 +40,7 @@ fn tabular_schema(protocol_name: &str) -> panproto_schema::Schema {
         constraint_sorts: vec![],
         ..Protocol::default()
     };
-    // Tabular schemas need no vertices — FInstance is schema-independent.
+    // Tabular schemas need no vertices; FInstance is schema-independent.
     SchemaBuilder::new(&proto)
         .vertex("table", "table", None)
         .expect("table vertex")
@@ -318,7 +318,7 @@ json_wtype_roundtrip!(
 );
 
 // ═══════════════════════════════════════════════════════════════════════
-// Annotation — JSON-based (8)
+// Annotation: JSON-based (8)
 // ═══════════════════════════════════════════════════════════════════════
 
 json_wtype_roundtrip!(
@@ -363,7 +363,7 @@ json_wtype_roundtrip!(
 );
 
 // ═══════════════════════════════════════════════════════════════════════
-// Annotation — XML-based (9)
+// Annotation: XML-based (9)
 // ═══════════════════════════════════════════════════════════════════════
 
 xml_wtype_roundtrip!(
@@ -413,7 +413,7 @@ xml_wtype_roundtrip!(
 );
 
 // ═══════════════════════════════════════════════════════════════════════
-// Annotation — Tabular (2)
+// Annotation: Tabular (2)
 // ═══════════════════════════════════════════════════════════════════════
 
 #[test]

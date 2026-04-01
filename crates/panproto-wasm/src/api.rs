@@ -174,7 +174,7 @@ pub fn build_schema(proto: u32, ops: &[u8]) -> Result<u32, JsError> {
 ///
 /// Takes the raw JSON bytes of a lexicon file (e.g., `app.bsky.feed.post`
 /// or `pub.layers.annotation.annotationLayer`) and returns a schema handle.
-/// This is the generic entry point for any `ATProto`-compatible lexicon —
+/// This is the generic entry point for any `ATProto`-compatible lexicon;
 /// works for `Bluesky`, `RelationalText`, Layers, and any custom lexicon.
 ///
 /// # Errors
@@ -2026,6 +2026,109 @@ pub fn auto_generate_protolens_with_hints(
     ))))
 }
 
+/// Auto-generate a protolens chain with a full hint specification.
+///
+/// Accepts `MessagePack`-encoded [`panproto_lens_dsl::HintSpec`]:
+/// `{ anchors: { src: tgt, ... }, constraints: [...] }`.
+///
+/// Runs forward-chaining anchor derivation and constrained morphism search.
+///
+/// Returns a handle to the generated [`ProtolensChain`].
+#[wasm_bindgen]
+pub fn auto_generate_protolens_with_hint_spec(
+    schema1: u32,
+    schema2: u32,
+    hint_spec_bytes: &[u8],
+) -> Result<u32, JsError> {
+    let hint_spec: panproto_lens_dsl::HintSpec =
+        rmp_serde::from_slice(hint_spec_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let s1 = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let s2 = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let protocol =
+        lookup_builtin_protocol(&s1.protocol).unwrap_or_else(|| default_protocol(&s1.protocol));
+
+    // Convert string anchors to Name anchors
+    let anchors: std::collections::HashMap<gat::Name, gat::Name> = hint_spec
+        .anchors
+        .iter()
+        .map(|(k, v)| (gat::Name::from(k.as_str()), gat::Name::from(v.as_str())))
+        .collect();
+
+    // Derive additional anchors via forward chaining
+    let derived = lens::hint::derive_anchors(&anchors, &s1, &s2);
+
+    // Build domain constraints
+    let scope_constraints: Vec<(gat::Name, gat::Name)> = hint_spec
+        .constraints
+        .iter()
+        .filter_map(|c| match c {
+            panproto_lens_dsl::Constraint::Scope { under, targets } => Some((
+                gat::Name::from(under.as_str()),
+                gat::Name::from(targets.as_str()),
+            )),
+            _ => None,
+        })
+        .collect();
+
+    let excluded_targets: Vec<gat::Name> = hint_spec
+        .constraints
+        .iter()
+        .filter_map(|c| match c {
+            panproto_lens_dsl::Constraint::ExcludeTargets { vertices } => {
+                Some(vertices.iter().map(|v| gat::Name::from(v.as_str())))
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect();
+
+    let excluded_sources: Vec<gat::Name> = hint_spec
+        .constraints
+        .iter()
+        .filter_map(|c| match c {
+            panproto_lens_dsl::Constraint::ExcludeSources { vertices } => {
+                Some(vertices.iter().map(|v| gat::Name::from(v.as_str())))
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect();
+
+    let domain_constraints = lens::hint::build_domain_constraints(
+        &s1,
+        &s2,
+        &scope_constraints,
+        &excluded_targets,
+        &excluded_sources,
+        None,
+    );
+
+    let config = lens::auto_lens::AutoLensConfig {
+        try_overlap: true,
+        ..Default::default()
+    };
+
+    let result = lens::auto_lens::auto_generate_with_hints(
+        &s1,
+        &s2,
+        &protocol,
+        &config,
+        &derived,
+        &domain_constraints,
+        None,
+    )
+    .map_err(|e| WasmError::LensConstructionFailed {
+        reason: e.to_string(),
+    })?;
+
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
+        result.chain,
+    ))))
+}
+
 // ---------------------------------------------------------------------------
 // Phase 4: Full protocol registry
 // ---------------------------------------------------------------------------
@@ -2941,7 +3044,7 @@ pub fn free_handle(handle: u32) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 8: Enriched theories — expressions, schema enrichment, analysis
+// Phase 8: Enriched theories (expressions, schema enrichment, analysis)
 // ---------------------------------------------------------------------------
 
 /// Evaluate a GAT term with a variable environment and a theory.
@@ -3403,11 +3506,11 @@ pub fn migration_coverage(
 ///
 /// Analyzes the complement constructors in the chain to determine the
 /// overall optic classification:
-/// - `"iso"` — all steps are lossless (complement is empty)
-/// - `"lens"` — some steps have `AddedElement` complements (data is added)
-/// - `"prism"` — some steps have `DroppedSortData` or `DroppedOpData` (data is removed)
-/// - `"affine"` — mix of added and dropped data
-/// - `"traversal"` — composite complements spanning multiple elements
+/// - `"iso"`: all steps are lossless (complement is empty)
+/// - `"lens"`: some steps have `AddedElement` complements (data is added)
+/// - `"prism"`: some steps have `DroppedSortData` or `DroppedOpData` (data is removed)
+/// - `"affine"`: mix of added and dropped data
+/// - `"traversal"`: composite complements spanning multiple elements
 ///
 /// # Errors
 ///
@@ -3836,7 +3939,7 @@ fn extract_migration_ref(
         tgt_schema,
     } = r
     {
-        // Arc::deref + clone — still clones the Schema. For truly zero-cost
+        // Arc::deref + clone; still clones the Schema. For truly zero-cost
         // sharing, the downstream APIs would need to accept &Schema.
         Ok((compiled, (**src_schema).clone(), (**tgt_schema).clone()))
     } else {

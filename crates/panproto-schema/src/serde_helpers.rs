@@ -1,7 +1,7 @@
 //! Custom serde helpers for JSON-compatible serialization of complex map keys.
 //!
 //! `serde_json` cannot serialize `HashMap<K, V>` when `K` is a struct or
-//! tuple — it requires string keys for JSON objects. These modules serialize
+//! tuple; it requires string keys for JSON objects. These modules serialize
 //! such maps as `Vec<(K, V)>` arrays instead, which round-trip through both
 //! JSON and `MessagePack`.
 

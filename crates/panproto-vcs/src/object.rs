@@ -1,17 +1,17 @@
 //! Content-addressed objects stored in the VCS.
 //!
 //! The object store contains eleven kinds of objects:
-//! - [`Object::Schema`] — a schema snapshot
-//! - [`Object::Migration`] — a morphism between two schemas
-//! - [`Object::Commit`] — a point in the schema evolution DAG
-//! - [`Object::Tag`] — an annotated tag pointing to another object
-//! - [`Object::DataSet`] — a data snapshot conforming to a schema
-//! - [`Object::Complement`] — a complement from data migration
-//! - [`Object::Protocol`] — a protocol (metaschema) definition
-//! - [`Object::Expr`] — a standalone expression (coercion, merge, default)
-//! - [`Object::EditLog`] — an edit log for incremental migration
-//! - [`Object::Theory`] — a GAT theory definition
-//! - [`Object::TheoryMorphism`] — a structure-preserving map between theories
+//! - [`Object::Schema`]: a schema snapshot
+//! - [`Object::Migration`]: a morphism between two schemas
+//! - [`Object::Commit`]: a point in the schema evolution DAG
+//! - [`Object::Tag`]: an annotated tag pointing to another object
+//! - [`Object::DataSet`]: a data snapshot conforming to a schema
+//! - [`Object::Complement`]: a complement from data migration
+//! - [`Object::Protocol`]: a protocol (metaschema) definition
+//! - [`Object::Expr`]: a standalone expression (coercion, merge, default)
+//! - [`Object::EditLog`]: an edit log for incremental migration
+//! - [`Object::Theory`]: a GAT theory definition
+//! - [`Object::TheoryMorphism`]: a structure-preserving map between theories
 
 use std::collections::BTreeMap;
 
@@ -44,7 +44,7 @@ pub enum Object {
     /// An annotated tag pointing to another object.
     Tag(TagObject),
 
-    /// A data snapshot — instances conforming to a specific schema.
+    /// A data snapshot: instances conforming to a specific schema.
     DataSet(DataSetObject),
 
     /// A complement from data migration, for backward migration.

@@ -1,6 +1,6 @@
 //! Expression AST, pattern, and builtin operation types.
 //!
-//! The expression language is a pure functional language — lambda calculus
+//! The expression language is a pure functional language: lambda calculus
 //! with pattern matching, algebraic data types, and built-in operations on
 //! strings, numbers, records, and lists. Comparable to a pure subset of ML.
 
@@ -93,7 +93,7 @@ pub enum ExprType {
 /// Built-in operations, grouped by domain.
 ///
 /// Each operation has a fixed arity enforced at evaluation time.
-/// All operations are pure — no IO, no mutation, deterministic.
+/// All operations are pure: no IO, no mutation, deterministic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum BuiltinOp {
     // --- Arithmetic (7) ---

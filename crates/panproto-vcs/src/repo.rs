@@ -80,7 +80,7 @@ impl Repository {
         let (migration_id, auto_derived, validation, gat_diagnostics) =
             match store::resolve_head(&self.store)? {
                 None => {
-                    // First commit — no migration needed.
+                    // First commit: no migration needed.
                     (None, false, ValidationStatus::Valid, None)
                 }
                 Some(head_id) => {
@@ -240,7 +240,7 @@ impl Repository {
                 &format!("commit: {message}"),
             )?;
         } else {
-            // First commit — set the branch ref.
+            // First commit: set the branch ref.
             match self.store.get_head()? {
                 HeadState::Branch(name) => {
                     let ref_name = format!("refs/heads/{name}");
@@ -292,7 +292,7 @@ impl Repository {
                 // Force a merge commit even though we could fast-forward.
                 // Fall through to three-way merge logic below.
             } else {
-                // Theirs is ahead of ours — fast-forward.
+                // Theirs is ahead of ours; fast-forward.
                 advance_head(
                     &mut self.store,
                     ours_id,
@@ -584,8 +584,8 @@ impl Repository {
 
     /// Checkout a branch and migrate data files to match.
     ///
-    /// Resolves the target ref, switches HEAD, and — when the target
-    /// schema differs from the current schema — migrates every `.json`
+    /// Resolves the target ref, switches HEAD, and, when the target
+    /// schema differs from the current schema, migrates every `.json`
     /// file in `data_dir` forward through a lens.
     ///
     /// # Errors
@@ -624,8 +624,8 @@ impl Repository {
     /// Merge a branch into the current branch and migrate data files.
     ///
     /// Performs the schema merge via [`merge_with_options`](Self::merge_with_options),
-    /// then — if the merge produced a schema change and `data_dir`
-    /// exists — migrates every `.json` file in `data_dir` to the
+    /// then, if the merge produced a schema change and `data_dir`
+    /// exists, migrates every `.json` file in `data_dir` to the
     /// merged schema.
     ///
     /// # Errors

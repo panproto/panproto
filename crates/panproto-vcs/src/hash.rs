@@ -89,7 +89,7 @@ impl FromStr for ObjectId {
 }
 
 // ---------------------------------------------------------------------------
-// Canonical forms — private structs with deterministic field ordering.
+// Canonical forms: private structs with deterministic field ordering.
 // These exist only for hashing; they are never persisted directly.
 // ---------------------------------------------------------------------------
 
@@ -140,7 +140,7 @@ struct CanonicalCoercionSpec {
     class: panproto_gat::CoercionClass,
 }
 
-/// Canonical schema: `BTreeMap` fields, sorted `Vec`s, excludes precomputed indices.
+/// Canonical schema with `BTreeMap` fields, sorted `Vec`s, and no precomputed indices.
 #[derive(Serialize)]
 struct CanonicalSchema {
     protocol: String,
@@ -266,7 +266,7 @@ impl From<&Schema> for CanonicalSchema {
     }
 }
 
-/// Canonical migration: all `HashMap` fields become `BTreeMap`.
+/// Canonical migration where all `HashMap` fields become `BTreeMap`.
 #[derive(Serialize)]
 struct CanonicalMigration {
     src: ObjectId,
@@ -458,7 +458,7 @@ pub fn hash_theory(theory: &panproto_gat::Theory) -> Result<ObjectId, VcsError> 
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
-/// Canonical theory morphism: `HashMap` fields become `BTreeMap` for deterministic hashing.
+/// Canonical theory morphism where `HashMap` fields become `BTreeMap` for deterministic hashing.
 #[derive(Serialize)]
 struct CanonicalTheoryMorphism {
     name: String,

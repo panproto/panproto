@@ -1331,10 +1331,10 @@ fn merge_keyed_eq<K: Clone + Eq + std::hash::Hash, V: Clone + PartialEq>(
                 }
             }
             (Fate::Unchanged | Fate::Removed, Fate::Removed) | (Fate::Removed, Fate::Unchanged) => {
-                // Removed — don't include.
+                // Removed: don't include.
             }
             (Fate::Added, Fate::Added) => {
-                // Both added — check if identical.
+                // Both added: check if identical.
                 let ours_val = ours.get(key);
                 let theirs_val = theirs.get(key);
                 if ours_val == theirs_val {
@@ -1530,7 +1530,7 @@ fn merge_vertices(
     for vid in &diff_ours.added_vertices {
         let vid_name = Name::from(vid.as_str());
         if theirs_added.contains(vid.as_str()) {
-            // Both added — check if identical.
+            // Both added: check if identical.
             let ours_v = &ours.vertices[vid.as_str()];
             let theirs_v = &theirs.vertices[vid.as_str()];
             if ours_v == theirs_v {
@@ -1542,7 +1542,7 @@ fn merge_vertices(
                 let pullback_shared =
                     pullback_overlap.is_some_and(|po| po.shared_vertices.contains(vid.as_str()));
                 if pullback_shared {
-                    // Pullback confirms shared origin — deduplicate by
+                    // Pullback confirms shared origin: deduplicate by
                     // taking ours (arbitrary but deterministic choice).
                     result.insert(vid_name, ours_v.clone());
                 } else {
@@ -1684,19 +1684,19 @@ fn merge_constraints(
                 }
             }
             (Some(_), None) => {
-                // Only ours changed — take ours.
+                // Only ours changed: take ours.
                 if !ours_cs.is_empty() {
                     result.insert(vid.clone(), ours_cs);
                 }
             }
             (None, Some(_)) => {
-                // Only theirs changed — take theirs.
+                // Only theirs changed: take theirs.
                 if !theirs_cs.is_empty() {
                     result.insert(vid.clone(), theirs_cs);
                 }
             }
             (Some(od), Some(td)) => {
-                // Both changed — merge per-sort.
+                // Both changed: merge per-sort.
                 let merged_cs = merge_constraint_sorts(
                     &vid_str, &base_cs, &ours_cs, &theirs_cs, od, td, conflicts,
                 );
@@ -1839,7 +1839,7 @@ fn merge_constraint_sorts(
                     merged.push((*c).clone());
                 }
             }
-            // Unchanged on both sides, or impossible combos — retain base.
+            // Unchanged on both sides, or impossible combos: retain base.
             _ => {
                 if let Some(c) = base_by_sort.get(sort) {
                     merged.push((*c).clone());
@@ -2041,7 +2041,7 @@ fn merge_variants(
                     merged_flat.insert(key, v);
                 }
             }
-            // Unchanged on both sides, or impossible combos — retain base.
+            // Unchanged on both sides, or impossible combos: retain base.
             _ => {
                 if let Some(v) = base_flat.get(&key) {
                     merged_flat.insert(key, v);
@@ -2534,7 +2534,7 @@ fn merge_nsids(
                     result.insert(vid.clone(), v.clone());
                 }
             }
-            // Unchanged on both sides, or impossible combos — retain base.
+            // Unchanged on both sides, or impossible combos: retain base.
             _ => {
                 if let Some(v) = base.nsids.get(vid) {
                     result.insert(vid.clone(), v.clone());
@@ -2751,7 +2751,7 @@ mod tests {
             &result.conflicts[0],
             MergeConflict::BothModifiedVertex { .. }
         ));
-        // Base value retained — not ours.
+        // Base value retained, not ours.
         assert_eq!(result.merged_schema.vertices["a"].kind, "object");
     }
 
@@ -3161,7 +3161,7 @@ mod tests {
 
     #[test]
     fn pullback_overlap_empty_when_no_common_base() {
-        // Empty base — both sides add entirely new vertices.
+        // Empty base: both sides add entirely new vertices.
         let base = make_schema(&[], &[]);
         let ours = make_schema(&[("x", "string")], &[]);
         let theirs = make_schema(&[("y", "integer")], &[]);
@@ -3302,7 +3302,7 @@ mod tests {
 
         let result = three_way_merge(&base2, &ours2, &theirs2);
 
-        // Both added "d" with the same kind — should merge cleanly even
+        // Both added "d" with the same kind; should merge cleanly even
         // without pullback involvement.
         assert!(result.conflicts.is_empty());
         assert!(result.merged_schema.vertices.contains_key("d"));

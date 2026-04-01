@@ -756,7 +756,7 @@ mod tests {
             max_steps: 5,
             ..EvalConfig::default()
         };
-        // map([1,2,3,4,5,6,7,8,9,10], λx. add(x, 1)) — should exceed 5 steps
+        // map([1,2,3,4,5,6,7,8,9,10], λx. add(x, 1)); should exceed 5 steps
         let items: Vec<_> = (1..=10).map(|i| Expr::Lit(Literal::Int(i))).collect();
         let expr = Expr::builtin(
             BuiltinOp::Map,

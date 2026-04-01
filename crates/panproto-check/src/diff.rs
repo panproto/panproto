@@ -2,7 +2,7 @@
 //!
 //! [`diff`] compares an old and new schema, producing a [`SchemaDiff`]
 //! that records every added, removed, or modified element. The diff is
-//! purely structural -- it does not yet classify changes as breaking or
+//! purely structural; it does not yet classify changes as breaking or
 //! non-breaking (that is handled by [`crate::classify()`]).
 
 use std::collections::HashMap;

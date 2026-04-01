@@ -115,7 +115,7 @@ fn walk_blame(
                 message: commit.message.clone(),
             });
         } else {
-            // Element not present — the introducing commit is the
+            // Element not present: the introducing commit is the
             // one we saved in last_present.
             if let Some(entry) = last_present {
                 return Ok(entry);
@@ -130,7 +130,7 @@ fn walk_blame(
         if let Some(&parent) = commit.parents.first() {
             current_id = parent;
         } else {
-            // Root commit — the element was introduced here.
+            // Root commit: the element was introduced here.
             if let Some(entry) = last_present {
                 return Ok(entry);
             }

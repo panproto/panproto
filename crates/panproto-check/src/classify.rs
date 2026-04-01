@@ -248,7 +248,7 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         });
     }
 
-    // Constraint changes — only classify constraints whose sort is
+    // Constraint changes: only classify constraints whose sort is
     // recognized by the protocol. Unknown sorts are silently ignored
     // (they are not part of this protocol's contract).
     for (vid, cdiff) in &diff.modified_constraints {

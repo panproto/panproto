@@ -2,16 +2,16 @@
 //! protocol definition (ISO 24612).
 //!
 //! Uses Group A theory: constrained multigraph + W-type. LAF is explicitly a
-//! directed multigraph — multiple edges may exist between the same pair of
+//! directed multigraph: multiple edges may exist between the same pair of
 //! nodes, and a node may carry multiple annotations.
 //!
 //! Edge kinds:
-//! - `node-of`       — node → region (node is grounded in a region)
-//! - `region-anchor` — region → anchor (region bounded by anchors)
-//! - `edge-link`     — edge-vertex → node (source/target endpoints)
-//! - `annotates-node`  — annotation → node/edge-vertex (annotation targets)
-//! - `annotation-fs`   — annotation → feature-structure (associated FS)
-//! - `feature-of`    — feature → feature-structure (membership)
+//! - `node-of`: node → region (node is grounded in a region)
+//! - `region-anchor`: region → anchor (region bounded by anchors)
+//! - `edge-link`: edge-vertex → node (source/target endpoints)
+//! - `annotates-node`: annotation → node/edge-vertex (annotation targets)
+//! - `annotation-fs`: annotation → feature-structure (associated FS)
+//! - `feature-of`: feature → feature-structure (membership)
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
@@ -453,14 +453,14 @@ fn edge_rules() -> Vec<EdgeRule> {
             src_kinds: vec!["edge".into()],
             tgt_kinds: vec!["node".into()],
         },
-        // `annotates-node`: the annotation-to-target relationship — which
+        // `annotates-node`: the annotation-to-target relationship, which
         // node or edge-vertex this annotation describes.
         EdgeRule {
             edge_kind: "annotates-node".into(),
             src_kinds: vec!["annotation".into()],
             tgt_kinds: vec!["node".into(), "edge".into()],
         },
-        // `annotation-fs`: the annotation-to-feature-structure relationship —
+        // `annotation-fs`: the annotation-to-feature-structure relationship;
         // the feature structure that encodes the annotation's content.
         // Distinct from `annotates-node` per ISO 24612 §5.
         EdgeRule {

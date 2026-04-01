@@ -210,6 +210,7 @@ pub fn migrate_backward(
 /// A data set is stale when its `schema_id` differs from the commit's
 /// `schema_id`, meaning the data was written against an older schema
 /// version and needs migration.
+///
 /// # Errors
 ///
 /// Returns `VcsError` if any data object cannot be loaded from the store.

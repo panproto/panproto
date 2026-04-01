@@ -56,7 +56,7 @@ impl ScopeTag {
 
 /// A first-class identifier separating stable identity from display name.
 ///
-/// **Identity** is the `(scope, index)` pair — [`PartialEq`], [`Eq`],
+/// **Identity** is the `(scope, index)` pair: [`PartialEq`], [`Eq`],
 /// and [`Hash`] use only these two fields, making comparisons O(1)
 /// regardless of name length.
 ///
@@ -400,7 +400,7 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(key.clone(), "value");
 
-        // Rename the key — should still find the entry.
+        // Rename the key; should still find the entry.
         let renamed = key.renamed("renamed");
         assert_eq!(map.get(&renamed), Some(&"value"));
     }

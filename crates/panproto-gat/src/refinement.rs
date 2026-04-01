@@ -84,7 +84,7 @@ impl RefinedSort {
             }
         }
 
-        // Also, self must actually be *strictly* tighter — it must have at
+        // Also, self must actually be *strictly* tighter; it must have at
         // least one constraint that is tighter or an additional constraint.
         if self.constraints.len() == other.constraints.len()
             && self.constraints.iter().all(|sc| {

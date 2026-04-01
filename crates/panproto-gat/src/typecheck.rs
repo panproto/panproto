@@ -115,7 +115,7 @@ fn collect_constraints(term: &Term, theory: &Theory, ctx: &mut VarContext) -> Re
                     }
                 }
                 Term::App { .. } => {
-                    // Recurse into nested applications — the variable constraints
+                    // Recurse into nested applications; the variable constraints
                     // come from the inner operations' input signatures.
                     collect_constraints(arg, theory, ctx)?;
                 }

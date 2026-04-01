@@ -9,7 +9,7 @@ use std::sync::Arc;
 /// A literal value in the expression language.
 ///
 /// This is the result type of expression evaluation and the leaf node
-/// type for literal expressions. Kept minimal — just the primitives
+/// type for literal expressions. Kept minimal: just the primitives
 /// needed for schema transforms.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Literal {

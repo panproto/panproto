@@ -5,10 +5,10 @@
 //! that projects a W-type instance along a migration mapping.
 //!
 //! The pipeline fuses four concerns into one BFS traversal:
-//! 1. Anchor survival check — does this node's schema vertex survive?
-//! 2. Reachability — is this node reachable from the root?
-//! 3. Ancestor contraction — who is the nearest surviving ancestor?
-//! 4. Edge resolution — what edge connects the contracted arc?
+//! 1. Anchor survival check: does this node's schema vertex survive?
+//! 2. Reachability: is this node reachable from the root?
+//! 3. Ancestor contraction: who is the nearest surviving ancestor?
+//! 4. Edge resolution: what edge connects the contracted arc?
 //!
 //! Fan reconstruction (step 5) runs as a separate pass since it operates
 //! on the original fan list, not the BFS tree.
@@ -125,7 +125,7 @@ pub enum FieldTransform {
     /// to applying the inner transform directly.
     ///
     /// Categorically, this is the action of a path functor on the
-    /// endomorphism algebra of field transforms — it lifts a transform
+    /// endomorphism algebra of field transforms; it lifts a transform
     /// from a leaf to an inner node of the Value tree.
     PathTransform {
         /// Path to navigate (e.g., `vec!["attrs"]` for nested attrs objects).
@@ -175,7 +175,7 @@ pub enum FieldTransform {
         /// Round-trip classification of this transformation.
         coercion_class: panproto_gat::CoercionClass,
     },
-    /// Case analysis on node values — the coproduct eliminator for the
+    /// Case analysis on node values: the coproduct eliminator for the
     /// field transform algebra.
     ///
     /// Each branch is a (predicate, transforms) pair. Branches are evaluated
@@ -185,14 +185,14 @@ pub enum FieldTransform {
     /// the node passes through unchanged.
     ///
     /// This is the dependent function space lift of field transforms:
-    /// `Π(x : Value). FieldTransform` — a transform that depends on the
+    /// `Π(x : Value). FieldTransform`, a transform that depends on the
     /// runtime value of the node, not just its schema vertex. It composes
     /// naturally with all other transform variants (including nesting
     /// inside `PathTransform`).
     ///
     /// Use cases:
     /// - `matchAttrs`: "if `level == 1` then rename to `h1`, if `level == 2`
-    ///   then rename to `h2`" — each heading level is a branch.
+    ///   then rename to `h2`", where each heading level is a branch.
     /// - Conditional attribute injection: "if `list == 'ordered'` then add
     ///   `type: ol`, else add `type: ul`".
     Case {
@@ -607,7 +607,7 @@ pub fn resolve_edge(
     src_v: &str,
     tgt_v: &str,
 ) -> Result<Edge, RestrictError> {
-    // Check resolver — avoid allocation by scanning for matching key
+    // Check resolver: avoid allocation by scanning for matching key
     for ((k_src, k_tgt), edge) in resolver {
         if k_src == src_v && k_tgt == tgt_v {
             return Ok(edge.clone());
@@ -782,13 +782,13 @@ pub fn wtype_restrict(
                         panproto_expr::eval(pred, &env, &config),
                         Ok(panproto_expr::Literal::Bool(false))
                     ) {
-                        // Predicate is false — skip this node (treat as non-surviving)
+                        // Predicate is false; skip this node (treat as non-surviving)
                         queue.push_back((child_id, child_ancestor));
                         continue;
                     }
                 }
 
-                // This child survives — add it to results
+                // This child survives; add it to results
                 surviving_set.insert(child_id);
                 let mut new_node = child_node.clone();
                 if let Some(remapped) = migration.vertex_remap.get(&child_node.anchor) {
@@ -822,7 +822,7 @@ pub fn wtype_restrict(
         }
     }
 
-    // Step 5: Fan reconstruction (separate pass — operates on original fans)
+    // Step 5: Fan reconstruction (separate pass: operates on original fans)
     let fused_surviving = &surviving_set;
     let empty_ancestors = FxHashMap::default();
     let new_fans = reconstruct_fans(
@@ -984,7 +984,7 @@ fn apply_path_transform(node: &mut Node, path: &[String], inner: &FieldTransform
     let first = &path[0];
     if let Some(Value::Unknown(map)) = node.extra_fields.get_mut(first) {
         if path.len() == 1 {
-            // At the target — apply inner transform to this map.
+            // At the target; apply inner transform to this map.
             // PathTransform operates on nested extra_fields, not the
             // instance tree, so child_scalars is empty.
             let mut temp_node = Node::new(0, "");
@@ -992,7 +992,7 @@ fn apply_path_transform(node: &mut Node, path: &[String], inner: &FieldTransform
             apply_field_transforms(&mut temp_node, std::slice::from_ref(inner), &HashMap::new());
             *map = temp_node.extra_fields;
         } else {
-            // Recurse deeper — wrap the remaining path in a temporary node
+            // Recurse deeper; wrap the remaining path in a temporary node
             let rest = &path[1..];
             let mut temp_node = Node::new(0, "");
             temp_node.extra_fields = std::mem::take(map);
@@ -1275,7 +1275,7 @@ pub fn wtype_extend(
         if let Some(remapped) = migration.vertex_remap.get(&node.anchor) {
             new_node.anchor.clone_from(remapped);
         } else if !migration.surviving_verts.contains(&node.anchor) {
-            // Node's anchor has no remap and doesn't survive — skip it
+            // Node's anchor has no remap and doesn't survive; skip it
             continue;
         }
         // Apply field transforms (coercions) to the extended node.
@@ -1312,7 +1312,7 @@ pub fn wtype_extend(
                 new_arcs.push((parent, child, resolved));
             }
         } else {
-            // Edge not in surviving_edges or edge_remap — try to resolve
+            // Edge not in surviving_edges or edge_remap; try to resolve
             // from remapped anchors
             let parent_anchor = &new_nodes[&parent].anchor;
             let child_anchor = &new_nodes[&child].anchor;
@@ -2217,7 +2217,7 @@ mod tests {
             between: HashMap::new(),
         };
 
-        // No conditional_survival predicates — node should survive normally
+        // No conditional_survival predicates; node should survive normally
         let migration = CompiledMigration {
             surviving_verts: HashSet::from([Name::from("root"), Name::from("item")]),
             surviving_edges: HashSet::from([edge]),
