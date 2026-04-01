@@ -19,7 +19,7 @@ Programming language and data format parsing (previously handled by hand-written
 | [Cap'n Proto](https://capnproto.org/) | Simple graph | Flat | `.capnp` files |
 | ...and 46 more | | | |
 
-See the [protocol catalog](https://panproto.dev/tutorial/appendices/D-protocol-catalog.html) for the full list.
+See the [protocol catalog](https://panproto.dev/tutorial/appendices/C-protocol-catalog.html) for the full list.
 
 ## Building-Block Theories (27)
 
