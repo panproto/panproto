@@ -1,6 +1,12 @@
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = [
+    # paste is unmaintained (RUSTSEC-2024-0436) but is a transitive dep of
+    # nickel-lang-core used only at Nickel evaluation time (not in hot paths).
+    # No security impact; will be resolved when nickel-lang updates.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 allow = [
@@ -15,6 +21,9 @@ allow = [
     "Unicode-DFS-2016",
     "Zlib",
     "CDLA-Permissive-2.0",
+    # malachite crates are transitive deps of nickel-lang (arbitrary-precision
+    # arithmetic in the Nickel evaluator). Dynamically linked per Rust default.
+    "LGPL-3.0-only",
 ]
 
 [bans]
