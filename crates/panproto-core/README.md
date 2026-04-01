@@ -21,6 +21,12 @@ This crate provides a single entry point for consumers by re-exporting the publi
 | `io` | `panproto-io` | Instance-level parse/emit for all protocols |
 | `vcs` | `panproto-vcs` | Schematic version control engine |
 
+## Feature flags
+
+| Flag | Description |
+|------|-------------|
+| `tree-sitter` | Enables `panproto-io/tree-sitter` for format-preserving round-trips |
+
 ## Example
 
 ```rust,ignore

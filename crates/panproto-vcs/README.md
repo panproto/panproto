@@ -40,6 +40,10 @@ Schemas, data snapshots, complements, and protocol definitions are content-addre
 | `EditLogObject` | Content-addressed edit sequence for incremental migration |
 | `edit_mig::incremental_migrate` | Translate a sequence of edits through an edit lens |
 | `edit_mig::encode_edit_log` / `decode_edit_log` | MessagePack serialization for edit sequences |
+| `CstComplementObject` | Content-addressed storage for format complements |
+| `Object::CstComplement` | Object variant for CST complements in the store |
+| `pass_through_cst_complement` | Thread format complements through schema migrations |
+| `store_cst_complement` | Store a CST complement as a VCS object |
 | `store_expr` / `load_expr` | Content-addressed expression storage via `MessagePack` + blake3 |
 
 ## Modules

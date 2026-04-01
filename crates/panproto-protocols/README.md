@@ -5,7 +5,7 @@
 
 Built-in protocol definitions for panproto.
 
-Each of the 50 protocols is defined by a schema theory [GAT](https://ncatlab.org/nlab/show/generalized+algebraic+theory) and an instance theory GAT, composed via [colimit](https://ncatlab.org/nlab/show/colimit) from 27 reusable building-block theories organized in six groups. This crate includes parsers for each protocol's native schema format.
+Each of the 51 protocols is defined by a schema theory [GAT](https://ncatlab.org/nlab/show/generalized+algebraic+theory) and an instance theory GAT, composed via [colimit](https://ncatlab.org/nlab/show/colimit) from 27 reusable building-block theories organized in six groups. This crate includes parsers for each protocol's native schema format.
 
 Programming language and data format parsing (previously handled by hand-written protocol parsers for SQL, Protobuf, GraphQL, and others) is now handled by tree-sitter grammars in `panproto-parse`. The protocols that remain here are semantic protocols: annotation formats, domain-specific schemas, and formats that have no tree-sitter grammar.
 
@@ -19,7 +19,7 @@ Programming language and data format parsing (previously handled by hand-written
 | [Cap'n Proto](https://capnproto.org/) | Simple graph | Flat | `.capnp` files |
 | ...and 46 more | | | |
 
-See the [protocol catalog](https://panproto.dev/tutorial/appendices/D-protocol-catalog.html) for the full list.
+See the [protocol catalog](https://panproto.dev/tutorial/appendices/C-protocol-catalog.html) for the full list.
 
 ## Building-Block Theories (27)
 

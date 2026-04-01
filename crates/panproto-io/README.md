@@ -5,7 +5,7 @@
 
 Instance-level [presentation functors](https://ncatlab.org/nlab/show/functor) for panproto.
 
-This crate provides parse/emit operations connecting raw format bytes to panproto's instance models (`WInstance`, `FInstance`, `GInstance`), completing the functorial data migration pipeline. Together with `panproto-protocols` (schema presentations), `panproto-mig` (migration compilation), and `panproto-inst` (restriction/lifting), this enables end-to-end format-to-format migration with mathematical compositionality guarantees.
+This crate provides parse/emit operations connecting raw format bytes to panproto's instance models (`WInstance`, `FInstance`, `GInstance`), completing the functorial data migration pipeline. Together with `panproto-protocols` (schema presentations), `panproto-mig` (migration compilation), and `panproto-inst` (restriction/lifting), this enables end-to-end format-to-format migration with mathematical compositionality guarantees. Since v0.24.0, the `tree-sitter` feature enables format-preserving round-trips through a unified CST-based codec, preserving whitespace, comments, and formatting across JSON, XML, YAML, TOML, CSV, and TSV.
 
 ## API
 
@@ -22,6 +22,10 @@ This crate provides parse/emit operations connecting raw format bytes to panprot
 | `HtmlCodec` | HTML codec via `tl` |
 | `MarkdownCodec` | Markdown codec via `pulldown-cmark` |
 | `ConlluCodec` | CoNLL-U codec with sentence/token table extraction |
+| `FormatPreservingCodec` | Trait for format-preserving parse/emit (behind `tree-sitter` feature) |
+| `UnifiedCodec` | Tree-sitter-based codec for JSON, XML, YAML, TOML, CSV, TSV with format preservation |
+| `CstComplement` | CST complement capturing full lossless tree for format-preserving round-trips |
+| `FormatKind` | Enum dispatching across six data format grammars |
 | `ParseInstanceError` / `EmitInstanceError` | Error types |
 
 ## Example

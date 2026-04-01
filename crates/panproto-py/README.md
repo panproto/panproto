@@ -14,7 +14,9 @@ All panproto functionality exposed to Python, with zero serialization overhead:
 | **Check** | `SchemaDiff`, `CompatReport`, `diff_schemas()`, `diff_and_classify()` |
 | **Instance** | `Instance` (W-type) with `from_json()`, `to_json()`, `validate()` |
 | **I/O** | `IoRegistry` (76 codecs) with `parse()`, `emit()` |
-| **Lens** | `Lens`, `Complement`, `auto_generate_lens()`, `check_laws()`, `check_get_put()`, `check_put_get()` |
+| **Lens** | `Lens`, `Complement`, `auto_generate_lens()`, `auto_generate_with_hints()`, `ProtolensChain` with `fuse()`, `instantiate()`, `compose()`, `to_json()`, `from_json()`, `check_laws()`, `check_get_put()`, `check_put_get()` |
+| **Combinators** | `rename_field()`, `remove_field()`, `add_field()`, `hoist_field()`, `pipeline()` |
+| **Expression** | `eval_expr()`, `tokenize()`, `parse_expr()` |
 | **GAT** | `Theory`, `Model`, `create_theory()`, `colimit_theories()`, `check_morphism()`, `migrate_model()`, `free_model()`, `check_model()` |
 | **Expr** | `Expr`, `parse_expr()`, `pretty_print_expr()` |
 | **VCS** | `VcsRepository` with `add()`, `list_refs()` |

@@ -46,6 +46,18 @@ A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a conc
 | `LensGraph::preferred_path` | Find the minimum-cost conversion path between schemas |
 | `LensGraph::distance` | Shortest distance between two schemas in the lens graph |
 
+### Combinators
+
+| Item | Description |
+|------|-------------|
+| `combinators::rename_field` | Rename a field's JSON property key (Iso) |
+| `combinators::remove_field` | Drop a field (Lens) |
+| `combinators::add_field` | Add a field with default (Lens) |
+| `combinators::hoist_field` | Flatten nesting (Lens) |
+| `combinators::nest_field` | Add nesting (Lens) |
+| `combinators::pipeline` | Sequential composition of chains |
+| `combinators::map_items` | Scoped traversal on array elements |
+
 ### Lenses
 
 | Item | Description |
@@ -105,6 +117,8 @@ check_laws(&result.lens, &instance)?;
 let chain = result.chain;
 let lens_at_other_schema = chain.instantiate(&other_src, &other_tgt)?;
 ```
+
+For declarative lens specifications in Nickel, JSON, or YAML, see [`panproto-lens-dsl`](../panproto-lens-dsl).
 
 ## License
 
