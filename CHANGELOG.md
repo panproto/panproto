@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-04-01
+
+### Fixed
+
+- **panproto-inst**: `parse_json` array parsing now matches edge kind `"items"` (plural) in addition to `"item"` (singular). ATProto and OpenAPI protocols define their array items edge kind as `"items"`, which caused array elements to be silently dropped during parsing. (fixes [#20](https://github.com/panproto/panproto/issues/20))
+
 ## [0.25.0] - 2026-04-01
 
 ### Added
