@@ -174,13 +174,24 @@ const restored = lens.put(view, complement);
 The round-trip laws hold pointwise: for each array element $i$, $\texttt{put}_i(\texttt{get}_i(s_i), c_i) = s_i$. This is the content of the dependent optic framework: the lens laws are parameterized by the number and content of the array elements, not just by the schema structure.
 
 
-## What combinators cannot express {#sec-limitations}
+## Structural vs. value-level transforms {#sec-structural-vs-value}
 
-The compact transcript encoding from @sec-scoped-transforms (delta encoding, unit conversion, exploding arrays into parallel flat arrays) is procedural. These operations break the lens laws because they involve computational effects (arithmetic, array restructuring) that are not natural transformations on the presheaf topos. The right place for these is the expression language (`panproto-expr`), composed with `CoerceSort` or `ComputeField` field transforms (@sec-value-transforms), not the structural protolens algebra.
+Combinators operate on the **schema graph**: they add, drop, rename, and scope vertices and edges. When you need to transform **values** (unit conversion, string formatting, delta encoding, arithmetic), the expression language handles it.
 
-The boundary is clean: combinators handle structural graph rewriting (add, drop, rename, scope); the expression engine handles value-level computation.
+Consider the compact transcript encoding from the Whisper example: converting absolute timestamps to relative deltas, or changing units from seconds to milliseconds. These are value-level computations, not structural graph rewrites. You express them with `CoerceSort` (for invertible value transforms) or `ComputeField` (for derived fields), and they compose naturally with structural combinators in the same pipeline:
+
+```{.typescript}
+const chain = new PipelineBuilder(wasm)
+  .mapItems('word', { step_type: 'add_sort', name: 'confidence', kind: 'number' })
+  .step({ step_type: 'rename_sort', name: 'start', target: 'startMs' })
+  .build();
+```
+
+The structural combinators handle the graph shape; the expression engine (@sec-value-transforms) handles the values. Both compose within a single `ProtolensChain`, and the lens laws hold across the composed pipeline because each step is independently lawful.
+
+The one thing neither combinators nor expressions can do is restructure the instance tree in ways that violate the W-type recursion scheme (e.g., exploding an array of objects into parallel flat arrays). Those transforms require a custom migration function outside the protolens algebra.
 
 
 ## What comes next {#sec-combinators-bridge}
 
-These combinators are the building blocks that the version control engine chains automatically when you run `prot data migrate`. The next chapter shows how versioned schemas, data, and complements are stored together in a content-addressed DAG, making every migration reversible without manual complement management.
+These combinators are the building blocks that the version control engine chains automatically when you run `schema data migrate`. The next chapter shows how versioned schemas, data, and complements are stored together in a content-addressed DAG, making every migration reversible without manual complement management.
