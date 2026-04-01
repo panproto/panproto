@@ -45,6 +45,15 @@ tl = "0.7"
 # Markdown parsing (fast pull parser)
 pulldown-cmark = "0.12"
 
+# Tree-sitter-based unified parsing (optional, enables format-preserving round-trips)
+panproto-parse = { workspace = true, optional = true }
+panproto-grammars = { workspace = true, optional = true }
+tree-sitter = { workspace = true, optional = true }
+
+[features]
+default = []
+tree-sitter = ["dep:panproto-parse", "dep:panproto-grammars", "dep:tree-sitter", "panproto-parse/group-data", "panproto-parse/lang-tsv", "panproto-grammars/lang-tsv"]
+
 [dev-dependencies]
 divan = { workspace = true }
 proptest = { workspace = true }

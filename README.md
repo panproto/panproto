@@ -36,7 +36,7 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 | [`panproto-lens`](crates/panproto-lens) | [Protolenses](https://ncatlab.org/nlab/show/natural+transformation): schema-parameterized lens families, optic classification, symbolic simplification, auto-generation |
 | [`panproto-check`](crates/panproto-check) | Breaking change detection via structural diffing and protocol-aware classification |
 | [`panproto-protocols`](crates/panproto-protocols) | 51 semantic protocol definitions composed from building-block theories |
-| [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs for semantic protocols |
+| [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs for semantic protocols (with `tree-sitter` feature: format-preserving round-trips via unified CST extraction lens) |
 | [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge, theory tracking |
 | [`panproto-parse`](crates/panproto-parse) | Tree-sitter full-AST parsing for 248 languages with auto-derived GAT theories and interstitial text emission |
 | [`panproto-grammars`](crates/panproto-grammars) | Pre-compiled tree-sitter grammars for 248 languages (workspace-local, not published to crates.io) |
@@ -44,7 +44,7 @@ Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(
 | [`panproto-git`](crates/panproto-git) | Bidirectional git to panproto-vcs translation bridge (import/export with DAG preservation) |
 | [`panproto-llvm`](crates/panproto-llvm) | LLVM IR protocol definition, language AST lowering morphisms, and inkwell-based IR parsing |
 | [`panproto-jit`](crates/panproto-jit) | LLVM JIT compilation of panproto expressions via inkwell for accelerated data migration |
-| [`panproto-core`](crates/panproto-core) | Re-export facade (feature-gated: `full-parse`, `project`, `git`, `llvm`, `jit`) |
+| [`panproto-core`](crates/panproto-core) | Re-export facade (feature-gated: `full-parse`, `project`, `git`, `llvm`, `jit`, `tree-sitter`) |
 | [`panproto-wasm`](crates/panproto-wasm) | WASM bindings with handle-based slab allocator, MessagePack boundary, and protolens entry points |
 | [`panproto-py`](crates/panproto-py) | Native Python bindings via PyO3 with `pythonize` (serde to Python dicts) |
 | [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, data, lens, expr, enrich, parse, git bridge, and version control |

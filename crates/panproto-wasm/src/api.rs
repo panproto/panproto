@@ -1001,6 +1001,113 @@ pub fn emit_instance(
     Ok(result)
 }
 
+/// Parse an instance with format preservation, returning both the instance
+/// and a CST complement that can be used for format-preserving emission.
+///
+/// Returns `MessagePack`-encoded `(instance_bytes, complement_bytes)` tuple.
+/// The complement_bytes may be empty if the codec doesn't support format
+/// preservation.
+///
+/// Requires the `tree-sitter` feature on `panproto-io`.
+///
+/// # Errors
+///
+/// Returns `JsError` if parsing fails or handles are invalid.
+#[cfg(feature = "format-preserving")]
+#[wasm_bindgen]
+pub fn parse_instance_preserving(
+    registry: u32,
+    proto_name: &[u8],
+    schema_handle: u32,
+    input: &[u8],
+) -> Result<Vec<u8>, JsError> {
+    let name = std::str::from_utf8(proto_name).map_err(|e| WasmError::DeserializationFailed {
+        reason: format!("invalid protocol name: {e}"),
+    })?;
+
+    let schema = slab::with_resource(schema_handle, |r| Ok(slab::as_schema(r)?.clone()))?;
+
+    let result = slab::with_resource(registry, |r| {
+        let reg = slab::as_io_registry(r)?;
+        let (instance, complement) =
+            reg.parse_wtype_preserving(name, &schema, input)
+                .map_err(|e| WasmError::ParseFailed {
+                    reason: e.to_string(),
+                })?;
+
+        let instance_bytes =
+            rmp_serde::to_vec(&instance).map_err(|e| WasmError::SerializationFailed {
+                reason: e.to_string(),
+            })?;
+        let complement_bytes = complement
+            .map(|c| rmp_serde::to_vec(&c))
+            .transpose()
+            .map_err(|e| WasmError::SerializationFailed {
+                reason: e.to_string(),
+            })?
+            .unwrap_or_default();
+
+        rmp_serde::to_vec(&(instance_bytes, complement_bytes)).map_err(|e| {
+            WasmError::SerializationFailed {
+                reason: e.to_string(),
+            }
+        })
+    })?;
+
+    Ok(result)
+}
+
+/// Emit an instance with format preservation using a CST complement.
+///
+/// The `complement_bytes` should be the CST complement from
+/// `parse_instance_preserving`. If empty, falls back to canonical emission.
+///
+/// Requires the `tree-sitter` feature on `panproto-io`.
+///
+/// # Errors
+///
+/// Returns `JsError` if emission fails or handles are invalid.
+#[cfg(feature = "format-preserving")]
+#[wasm_bindgen]
+pub fn emit_instance_preserving(
+    registry: u32,
+    proto_name: &[u8],
+    schema_handle: u32,
+    instance_bytes: &[u8],
+    complement_bytes: &[u8],
+) -> Result<Vec<u8>, JsError> {
+    let name = std::str::from_utf8(proto_name).map_err(|e| WasmError::DeserializationFailed {
+        reason: format!("invalid protocol name: {e}"),
+    })?;
+
+    let schema = slab::with_resource(schema_handle, |r| Ok(slab::as_schema(r)?.clone()))?;
+
+    let instance: WInstance =
+        rmp_serde::from_slice(instance_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let complement: Option<io::cst_extract::CstComplement> = if complement_bytes.is_empty() {
+        None
+    } else {
+        Some(rmp_serde::from_slice(complement_bytes).map_err(|e| {
+            WasmError::DeserializationFailed {
+                reason: e.to_string(),
+            }
+        })?)
+    };
+
+    let result = slab::with_resource(registry, |r| {
+        let reg = slab::as_io_registry(r)?;
+        reg.emit_wtype_preserving(name, &schema, &instance, complement.as_ref())
+            .map_err(|e| WasmError::EmitFailed {
+                reason: e.to_string(),
+            })
+    })?;
+
+    Ok(result)
+}
+
 /// Validate a W-type instance against a schema.
 ///
 /// Returns `MessagePack`-encoded `Vec<String>` of validation error

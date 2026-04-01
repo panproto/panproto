@@ -4,6 +4,31 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-04-01
+
+### Added
+
+- **panproto-io**: Unified tree-sitter-based codec (`UnifiedCodec`) for format-preserving round-trips across all protocols. Parsing through tree-sitter CSTs preserves whitespace, key ordering, indentation, comments, and all other formatting: `emit(parse(bytes)) == bytes` for JSON, XML, YAML, TOML, CSV, and TSV formats. Gated behind the `tree-sitter` feature flag.
+- **panproto-io**: `CstComplement` type capturing the full CST Schema as the complement of the extraction lens. The CST complement is orthogonal to the semantic `Complement` from schema migrations; they compose as a product.
+- **panproto-io**: `FormatPreservingCodec` trait (behind `tree-sitter` feature) with `parse_wtype_preserving` and `emit_wtype_preserving` methods on `ProtocolCodec`.
+- **panproto-io**: CST-to-Instance extraction lens for JSON, XML, YAML, and tabular formats with format-specific injection (not shared across formats). Each format's injection correctly handles its CST node types.
+- **panproto-io**: `FormatKind` enum for dispatch across the six supported data format grammars.
+- **panproto-vcs**: `CstComplementObject` and `Object::CstComplement` variant for VCS storage of format complements.
+- **panproto-vcs**: `cst_complement_ids` field on `CommitObject` (backward-compatible via `#[serde(default)]`).
+- **panproto-vcs**: `pass_through_cst_complement` and `store_cst_complement` functions in `data_mig` for threading format complements through schema migrations.
+- **panproto-wasm**: `parse_instance_preserving` and `emit_instance_preserving` exports (behind `format-preserving` feature) for format-preserving operations through the WASM boundary.
+- **panproto-core**: `tree-sitter` feature flag that enables `panproto-io/tree-sitter`.
+- **panproto-parse**: Format round-trip tests for JSON, XML, YAML, and TOML verifying `emit(parse(source)) == source` via the `AstWalker` + `emit_from_schema` pipeline.
+
+### Changed
+
+- All 50 protocol registrations in `panproto-io` now dispatch to `UnifiedCodec` when the `tree-sitter` feature is enabled, falling back to legacy codecs otherwise.
+- `ProtocolCodec` trait gains format-preserving default methods (behind `tree-sitter` feature). `UnifiedCodec` overrides them to provide actual format preservation; legacy codecs return `None` complement.
+
+### Deprecated
+
+- **panproto-io**: `JsonCodec`, `XmlCodec`, and `TabularCodec` are deprecated in favor of `UnifiedCodec` (behind the `tree-sitter` feature). They discard formatting during parsing; the unified codec preserves it.
+
 ## [0.23.0] - 2026-03-31
 
 ### Added

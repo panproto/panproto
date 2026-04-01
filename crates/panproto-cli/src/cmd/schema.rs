@@ -1191,6 +1191,11 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
             println!("Sort map:  {}", morph.sort_map.len());
             println!("Op map:    {}", morph.op_map.len());
         }
+        vcs::Object::CstComplement(cst_comp) => {
+            println!("cst_complement {id}");
+            println!("Data ID:         {}", cst_comp.data_id);
+            println!("Complement size: {} bytes", cst_comp.cst_complement.len());
+        }
     }
     Ok(())
 }

@@ -523,4 +523,75 @@ mod tests {
             schema.vertices.len()
         );
     }
+
+    /// Helper: parse source with a grammar, walk to Schema, emit back, compare.
+    #[cfg(feature = "group-data")]
+    fn assert_roundtrip(grammar_name: &str, source: &[u8], file_path: &str) {
+        use crate::registry::AstParser;
+        let grammar = panproto_grammars::grammars()
+            .into_iter()
+            .find(|g| g.name == grammar_name)
+            .unwrap_or_else(|| panic!("grammar '{grammar_name}' not enabled"));
+
+        let config = crate::languages::walker_configs::walker_config_for(grammar_name);
+        let lang_parser = crate::languages::common::LanguageParser::from_language(
+            grammar_name,
+            grammar.extensions.to_vec(),
+            grammar.language,
+            grammar.node_types,
+            config,
+        )
+        .unwrap();
+
+        let schema = lang_parser.parse(source, file_path).unwrap();
+        let emitted = lang_parser.emit(&schema).unwrap();
+
+        assert_eq!(
+            std::str::from_utf8(source).unwrap(),
+            std::str::from_utf8(&emitted).unwrap(),
+            "round-trip failed for {grammar_name}: emitted bytes differ from source"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "group-data")]
+    fn roundtrip_json_simple() {
+        assert_roundtrip("json", br#"{"name": "test", "value": 42}"#, "test.json");
+    }
+
+    #[test]
+    #[cfg(feature = "group-data")]
+    fn roundtrip_json_formatted() {
+        let source =
+            b"{\n  \"name\": \"test\",\n  \"value\": 42,\n  \"nested\": {\n    \"a\": true\n  }\n}";
+        assert_roundtrip("json", source, "test.json");
+    }
+
+    #[test]
+    #[cfg(feature = "group-data")]
+    fn roundtrip_json_array() {
+        let source = b"[\n  1,\n  2,\n  3\n]";
+        assert_roundtrip("json", source, "test.json");
+    }
+
+    #[test]
+    #[cfg(feature = "group-data")]
+    fn roundtrip_xml_simple() {
+        let source = b"<root>\n  <child attr=\"val\">text</child>\n</root>";
+        assert_roundtrip("xml", source, "test.xml");
+    }
+
+    #[test]
+    #[cfg(feature = "group-data")]
+    fn roundtrip_yaml_simple() {
+        let source = b"name: test\nvalue: 42\nnested:\n  a: true\n";
+        assert_roundtrip("yaml", source, "test.yaml");
+    }
+
+    #[test]
+    #[cfg(feature = "group-data")]
+    fn roundtrip_toml_simple() {
+        let source = b"[package]\nname = \"test\"\nversion = \"0.1.0\"\n";
+        assert_roundtrip("toml", source, "test.toml");
+    }
 }

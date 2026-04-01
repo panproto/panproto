@@ -10,6 +10,17 @@ use crate::tabular_pathway;
 use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
 
 /// A generic codec for tab/comma-separated protocols.
+///
+/// # Deprecation
+///
+/// This codec discards formatting (line endings, comment lines, quoting
+/// style) during parsing. Enable the `tree-sitter` feature and use
+/// `UnifiedCodec::tsv` or `UnifiedCodec::csv` for format-preserving
+/// round-trips.
+#[deprecated(
+    since = "0.24.0",
+    note = "use UnifiedCodec::tsv/csv (tree-sitter feature) for format-preserving round-trips"
+)]
 pub struct TabularCodec {
     protocol: String,
     table_vertex: String,

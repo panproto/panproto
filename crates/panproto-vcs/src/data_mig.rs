@@ -9,7 +9,7 @@ use panproto_schema::{Protocol, Schema};
 
 use crate::error::VcsError;
 use crate::hash::ObjectId;
-use crate::object::{ComplementObject, DataSetObject, Object};
+use crate::object::{ComplementObject, CstComplementObject, DataSetObject, Object};
 use crate::store::Store;
 
 /// A data set that is stale relative to the current schema.
@@ -339,6 +339,62 @@ fn infer_root(schema: &Schema) -> String {
 #[must_use]
 pub fn protocol_for_schema(schema: &Schema) -> Protocol {
     default_protocol(&schema.protocol)
+}
+
+// ── CST complement pass-through ───────────────────────────────────────
+
+/// Pass a CST complement through a schema migration.
+///
+/// CST complements are orthogonal to schema migrations: they capture
+/// formatting information that is independent of schema structure.
+/// During forward migration, the complement is re-stored with its
+/// `data_id` updated to point to the new (migrated) data set.
+///
+/// # Errors
+///
+/// Returns `VcsError` if loading or storing fails.
+pub fn pass_through_cst_complement(
+    store: &mut dyn Store,
+    old_cst_complement_id: ObjectId,
+    new_data_id: ObjectId,
+) -> Result<ObjectId, VcsError> {
+    let old_comp = match store.get(&old_cst_complement_id)? {
+        Object::CstComplement(c) => c,
+        other => {
+            return Err(VcsError::TypeMismatch {
+                expected: "CstComplement".into(),
+                got: other.type_name().into(),
+            });
+        }
+    };
+
+    // Re-store with updated data_id
+    let new_comp = CstComplementObject {
+        data_id: new_data_id,
+        cst_complement: old_comp.cst_complement,
+    };
+    store.put(&Object::CstComplement(new_comp))
+}
+
+/// Store a CST complement alongside a data set in the VCS.
+///
+/// This is called during the initial ingest of data with format
+/// preservation enabled. The complement captures the full CST Schema
+/// for format-preserving emission later.
+///
+/// # Errors
+///
+/// Returns `VcsError` if serialization or storage fails.
+pub fn store_cst_complement(
+    store: &mut dyn Store,
+    data_id: ObjectId,
+    cst_complement_bytes: Vec<u8>,
+) -> Result<ObjectId, VcsError> {
+    let obj = CstComplementObject {
+        data_id,
+        cst_complement: cst_complement_bytes,
+    };
+    store.put(&Object::CstComplement(obj))
 }
 
 #[cfg(test)]

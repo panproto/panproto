@@ -14,6 +14,16 @@ use crate::xml_pathway;
 ///
 /// Delegates to [`xml_pathway::parse_xml_bytes`] and
 /// [`xml_pathway::emit_xml_bytes`].
+///
+/// # Deprecation
+///
+/// This codec discards formatting (whitespace, attribute ordering,
+/// comments) during parsing. Enable the `tree-sitter` feature and use
+/// `UnifiedCodec::xml` for format-preserving round-trips.
+#[deprecated(
+    since = "0.24.0",
+    note = "use UnifiedCodec::xml (tree-sitter feature) for format-preserving round-trips"
+)]
 pub struct XmlCodec {
     protocol: String,
 }

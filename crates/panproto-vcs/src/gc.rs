@@ -79,7 +79,8 @@ pub fn mark_reachable(
             | Object::Protocol(_)
             | Object::Expr(_)
             | Object::Theory(_)
-            | Object::TheoryMorphism(_) => {}
+            | Object::TheoryMorphism(_)
+            | Object::CstComplement(_) => {}
             Object::Tag(tag) => {
                 queue.push(tag.target);
             }

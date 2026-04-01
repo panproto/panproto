@@ -64,6 +64,13 @@ pub enum Object {
 
     /// A structure-preserving map between two theories.
     TheoryMorphism(Box<panproto_gat::TheoryMorphism>),
+
+    /// A CST complement for format-preserving round-trips.
+    ///
+    /// Stores the full tree-sitter CST Schema alongside a data set,
+    /// enabling byte-identical reconstruction of the original file
+    /// formatting after schema migration.
+    CstComplement(CstComplementObject),
 }
 
 impl Object {
@@ -82,6 +89,7 @@ impl Object {
             Self::EditLog(_) => "editlog",
             Self::Theory(_) => "theory",
             Self::TheoryMorphism(_) => "theory_morphism",
+            Self::CstComplement(_) => "cst_complement",
         }
     }
 }
@@ -131,6 +139,10 @@ pub struct CommitObject {
 
     /// Theory object IDs at this commit, keyed by theory name.
     pub theory_ids: BTreeMap<String, ObjectId>,
+
+    /// Object IDs of CST complements for format-preserving round-trips.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cst_complement_ids: Vec<ObjectId>,
 }
 
 impl CommitObject {
@@ -159,6 +171,7 @@ impl CommitObject {
             complement_ids: Vec::new(),
             edit_log_ids: Vec::new(),
             theory_ids: BTreeMap::new(),
+            cst_complement_ids: Vec::new(),
         }
     }
 }
@@ -178,6 +191,7 @@ pub struct CommitObjectBuilder {
     complement_ids: Vec<ObjectId>,
     edit_log_ids: Vec<ObjectId>,
     theory_ids: BTreeMap<String, ObjectId>,
+    cst_complement_ids: Vec<ObjectId>,
 }
 
 impl CommitObjectBuilder {
@@ -261,7 +275,15 @@ impl CommitObjectBuilder {
             complement_ids: self.complement_ids,
             edit_log_ids: self.edit_log_ids,
             theory_ids: self.theory_ids,
+            cst_complement_ids: self.cst_complement_ids,
         }
+    }
+
+    /// Set the CST complement IDs.
+    #[must_use]
+    pub fn cst_complement_ids(mut self, ids: Vec<ObjectId>) -> Self {
+        self.cst_complement_ids = ids;
+        self
     }
 }
 
@@ -285,6 +307,20 @@ pub struct ComplementObject {
     pub data_id: ObjectId,
     /// MessagePack-encoded Complement data.
     pub complement: Vec<u8>,
+}
+
+/// A CST complement for format-preserving round-trips.
+///
+/// Stores the tree-sitter CST Schema (which includes all formatting
+/// information as constraints) alongside a data set, enabling
+/// `emit_from_schema` to reconstruct the original file formatting
+/// after schema migration.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CstComplementObject {
+    /// The data set this CST complement was captured from.
+    pub data_id: ObjectId,
+    /// MessagePack-encoded `CstComplement` (from `panproto_io::cst_extract`).
+    pub cst_complement: Vec<u8>,
 }
 
 /// An edit log: a sequence of edits applied to a data set.

@@ -496,6 +496,24 @@ pub fn hash_theory_morphism(morphism: &panproto_gat::TheoryMorphism) -> Result<O
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
+/// Compute the content-addressed ID of a CST complement.
+///
+/// The CST complement is serialized as `MessagePack`, so hashing is
+/// straightforward: hash the payload bytes concatenated with the data ID.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_cst_complement(
+    cst_comp: &crate::object::CstComplementObject,
+) -> Result<ObjectId, VcsError> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"cst_complement:");
+    hasher.update(&cst_comp.data_id.0);
+    hasher.update(&cst_comp.cst_complement);
+    Ok(ObjectId(hasher.finalize().into()))
+}
+
 /// Compute the content-addressed ID of an edit log.
 ///
 /// Uses a canonical `BTreeMap` form to ensure deterministic hashing.
