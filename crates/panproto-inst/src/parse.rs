@@ -165,7 +165,7 @@ fn parse_array(
     let outgoing: Vec<Edge> = schema.outgoing_edges(vertex_id).to_vec();
     let item_edge = outgoing
         .iter()
-        .find(|e| e.kind == "item" || e.name.as_deref() == Some("item"));
+        .find(|e| e.kind == "item" || e.kind == "items" || e.name.as_deref() == Some("item"));
 
     if let Some(edge) = item_edge {
         for (i, item) in arr.iter().enumerate() {
@@ -352,8 +352,10 @@ fn base64_encode(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use panproto_schema::{Protocol, SchemaBuilder};
     use smallvec::smallvec;
 
     /// Build a minimal schema for testing.
@@ -501,5 +503,45 @@ mod tests {
         let json_val = json!({"text": "hello"});
         let result = parse_json(&schema, "nonexistent", &json_val);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_array_with_items_edge_kind() {
+        // Regression test for panproto/panproto#20:
+        // protocols define array edge kind as "items" (plural), but
+        // parse_array only matched "item" (singular).
+        let proto = Protocol {
+            name: "test".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into(), "string".into(), "array".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("root", "object", None::<&str>)
+            .unwrap()
+            .vertex("root.tags", "array", None::<&str>)
+            .unwrap()
+            .vertex("tag", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "root.tags", "prop", Some("tags"))
+            .unwrap()
+            .edge("root.tags", "tag", "items", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let json_val = json!({"tags": ["alpha", "beta", "gamma"]});
+        let inst = parse_json(&schema, "root", &json_val).unwrap();
+
+        let output = to_json(&schema, &inst);
+        assert!(output["tags"].is_array());
+        let tags = output["tags"].as_array().unwrap();
+        assert_eq!(tags.len(), 3, "array elements should not be dropped");
+        assert_eq!(tags[0], "alpha");
+        assert_eq!(tags[1], "beta");
+        assert_eq!(tags[2], "gamma");
     }
 }
