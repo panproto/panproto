@@ -4,6 +4,21 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-04-02
+
+### Added
+
+- **panproto-lens**: Hint-guided auto-lens generation via forward-chaining constraint propagation. Users declare vertex anchors, scope constraints, exclusions, and scoring preferences in a `HintSpec`. A fixpoint loop derives additional anchors by propagating along unique edge-name matches (with vertex kind preservation), then the CSP solver runs with domain restrictions and custom scoring weights.
+- **panproto-lens**: New `hint` module with `derive_anchors()` (forward-chaining anchor derivation), `build_domain_constraints()` (scope/exclusion/preference → CSP domain restrictions), `HintParts` struct, and `resolve_hints()` as the canonical entry point for all bindings.
+- **panproto-mig**: `DomainConstraints` struct for the CSP solver: `restricted_domains`, `excluded_targets`, `excluded_sources`, `scoring_weights`, and `name_similarity_threshold` (domain filter pruning candidates below a normalized edit-distance similarity threshold).
+- **panproto-mig**: `find_morphisms_constrained()` and `find_best_morphism_constrained()` that apply domain constraints during backtracking search with configurable quality scoring weights.
+- **panproto-lens-dsl**: `HintSpec`, `Constraint`, and `PreferencePredicate` types in `document.rs` with serde support. `HintSpec` accessor methods: `scoring_weights()`, `name_similarity_threshold()`, `scope_pairs()`, `excluded_target_names()`, `excluded_source_names()`.
+- **panproto-lens-dsl**: Nickel contracts (`HintSpec`, `Constraint`, `PreferencePredicate`) and combinator functions (`anchor`, `scope`, `exclude_targets`, `exclude_sources`, `prefer_same_edge_name`, `prefer_similar_name`) in `contracts/lens.ncl`.
+- **panproto-lens**: `auto_generate_with_hints()` pipeline integrating constrained morphism search with overlap fallback and configurable quality threshold.
+- **panproto-cli**: `--hints <path>` flag on `schema lens generate` accepting a JSON hints file.
+- **panproto-wasm**: `auto_generate_protolens_with_hint_spec()` accepting MessagePack-encoded `HintSpec`.
+- **panproto-py**: `PyProtolensChain.auto_generate_with_hint_spec()` accepting JSON-encoded hints.
+
 ## [0.25.1] - 2026-04-01
 
 ### Fixed
