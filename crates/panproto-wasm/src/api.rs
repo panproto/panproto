@@ -2050,61 +2050,15 @@ pub fn auto_generate_protolens_with_hint_spec(
     let protocol =
         lookup_builtin_protocol(&s1.protocol).unwrap_or_else(|| default_protocol(&s1.protocol));
 
-    // Convert string anchors to Name anchors
-    let anchors: std::collections::HashMap<gat::Name, gat::Name> = hint_spec
-        .anchors
-        .iter()
-        .map(|(k, v)| (gat::Name::from(k.as_str()), gat::Name::from(v.as_str())))
-        .collect();
-
-    // Derive additional anchors via forward chaining
-    let derived = lens::hint::derive_anchors(&anchors, &s1, &s2);
-
-    // Build domain constraints
-    let scope_constraints: Vec<(gat::Name, gat::Name)> = hint_spec
-        .constraints
-        .iter()
-        .filter_map(|c| match c {
-            panproto_lens_dsl::Constraint::Scope { under, targets } => Some((
-                gat::Name::from(under.as_str()),
-                gat::Name::from(targets.as_str()),
-            )),
-            _ => None,
-        })
-        .collect();
-
-    let excluded_targets: Vec<gat::Name> = hint_spec
-        .constraints
-        .iter()
-        .filter_map(|c| match c {
-            panproto_lens_dsl::Constraint::ExcludeTargets { vertices } => {
-                Some(vertices.iter().map(|v| gat::Name::from(v.as_str())))
-            }
-            _ => None,
-        })
-        .flatten()
-        .collect();
-
-    let excluded_sources: Vec<gat::Name> = hint_spec
-        .constraints
-        .iter()
-        .filter_map(|c| match c {
-            panproto_lens_dsl::Constraint::ExcludeSources { vertices } => {
-                Some(vertices.iter().map(|v| gat::Name::from(v.as_str())))
-            }
-            _ => None,
-        })
-        .flatten()
-        .collect();
-
-    let domain_constraints = lens::hint::build_domain_constraints(
-        &s1,
-        &s2,
-        &scope_constraints,
-        &excluded_targets,
-        &excluded_sources,
-        None,
-    );
+    let parts = lens::hint::HintParts {
+        anchors: hint_spec.anchors.clone(),
+        scope_pairs: hint_spec.scope_pairs(),
+        excluded_targets: hint_spec.excluded_target_names(),
+        excluded_sources: hint_spec.excluded_source_names(),
+        scoring_weights: hint_spec.scoring_weights(),
+        name_similarity_threshold: hint_spec.name_similarity_threshold(),
+    };
+    let (derived, domain_constraints) = lens::hint::resolve_hints(&parts, &s1, &s2);
 
     let config = lens::auto_lens::AutoLensConfig {
         try_overlap: true,

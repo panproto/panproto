@@ -212,6 +212,76 @@ pub fn build_domain_constraints(
     constraints
 }
 
+/// String-level hint parts, extracted from a `HintSpec` via its accessor
+/// methods. This avoids a circular dependency between `panproto-lens` and
+/// `panproto-lens-dsl`.
+pub struct HintParts {
+    /// Source → target vertex name anchors.
+    pub anchors: HashMap<String, String>,
+    /// Scope constraint pairs: `(source_root, target_root)`.
+    pub scope_pairs: Vec<(String, String)>,
+    /// Target vertex names to exclude from all domains.
+    pub excluded_targets: Vec<String>,
+    /// Source vertex names to exclude from the search.
+    pub excluded_sources: Vec<String>,
+    /// Override quality scoring component weights.
+    pub scoring_weights: Option<[f64; 4]>,
+    /// Minimum name similarity for domain pruning.
+    pub name_similarity_threshold: Option<f64>,
+}
+
+/// Resolve hint parts into derived anchors and domain constraints.
+///
+/// This is the canonical entry point for all bindings (CLI, WASM, Python).
+/// It runs forward-chaining anchor derivation, builds domain constraints
+/// from scope/exclusion/preference data, and returns both.
+///
+/// Construct `HintParts` from `HintSpec` using its accessor methods:
+/// `scoring_weights()`, `name_similarity_threshold()`, `scope_pairs()`,
+/// `excluded_target_names()`, `excluded_source_names()`.
+#[must_use]
+pub fn resolve_hints(
+    parts: &HintParts,
+    src: &Schema,
+    tgt: &Schema,
+) -> (HashMap<Name, Name>, DomainConstraints) {
+    let name_anchors: HashMap<Name, Name> = parts
+        .anchors
+        .iter()
+        .map(|(k, v)| (Name::from(k.as_str()), Name::from(v.as_str())))
+        .collect();
+
+    let derived = derive_anchors(&name_anchors, src, tgt);
+
+    let scope_name_pairs: Vec<(Name, Name)> = parts
+        .scope_pairs
+        .iter()
+        .map(|(u, t)| (Name::from(u.as_str()), Name::from(t.as_str())))
+        .collect();
+    let excl_tgt: Vec<Name> = parts
+        .excluded_targets
+        .iter()
+        .map(|v| Name::from(v.as_str()))
+        .collect();
+    let excl_src: Vec<Name> = parts
+        .excluded_sources
+        .iter()
+        .map(|v| Name::from(v.as_str()))
+        .collect();
+
+    let mut constraints = build_domain_constraints(
+        src,
+        tgt,
+        &scope_name_pairs,
+        &excl_tgt,
+        &excl_src,
+        parts.scoring_weights,
+    );
+    constraints.name_similarity_threshold = parts.name_similarity_threshold;
+
+    (derived, constraints)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {

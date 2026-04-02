@@ -55,6 +55,12 @@ pub struct DomainConstraints {
     /// Override quality scoring component weights.
     /// Order: \[name, edge, property, degree\]. Default: \[0.25, 0.25, 0.3, 0.2\].
     pub scoring_weights: Option<[f64; 4]>,
+
+    /// Minimum name similarity for domain candidates. If set, target
+    /// vertices whose normalized name similarity to a source vertex
+    /// falls below this threshold are pruned from that source vertex's
+    /// domain. Similarity is `1.0 - edit_distance / max_len`.
+    pub name_similarity_threshold: Option<f64>,
 }
 
 /// A discovered schema morphism with a quality score.
@@ -126,9 +132,9 @@ pub fn find_best_morphism(
 /// Like [`find_morphisms`], but applies domain restrictions from
 /// [`DomainConstraints`] during state initialization.
 ///
-/// # Panics
+/// # Warnings
 ///
-/// Logs a warning via `eprintln!` if `opts.epic` or `opts.iso` is set
+/// Prints a warning to stderr if `opts.epic` or `opts.iso` is set
 /// while `constraints.excluded_sources` is non-empty, since surjectivity
 /// is ill-defined on a sub-schema induced by source exclusion.
 #[must_use]
@@ -286,6 +292,22 @@ impl<'a> BacktrackState<'a> {
             if let Some(domain) = domains.get_mut(src_id) {
                 let allowed: std::collections::HashSet<&Name> = restricted.iter().collect();
                 domain.retain(|t| allowed.contains(t));
+            }
+        }
+        // Name similarity threshold: prune candidates whose normalized
+        // name similarity (1 - edit_distance/max_len) is below threshold.
+        if let Some(threshold) = constraints.name_similarity_threshold {
+            for (src_id, domain) in &mut domains {
+                if opts.initial.contains_key(src_id) {
+                    continue; // Don't filter pre-assigned vertices
+                }
+                domain.retain(|tgt_id| {
+                    let dist = edit_distance(src_id.as_str(), tgt_id.as_str());
+                    let max_len = src_id.len().max(tgt_id.len()).max(1);
+                    #[allow(clippy::cast_precision_loss)]
+                    let similarity = 1.0 - (dist as f64 / max_len as f64);
+                    similarity >= threshold
+                });
             }
         }
 

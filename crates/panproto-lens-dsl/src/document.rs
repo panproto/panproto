@@ -559,6 +559,103 @@ pub struct HintSpec {
     pub constraints: Vec<Constraint>,
 }
 
+impl HintSpec {
+    /// Extract scoring weight overrides from `Prefer` constraints.
+    ///
+    /// Adjusts the default weights \[0.25, 0.25, 0.3, 0.2\] (name, edge,
+    /// property, degree) based on preferences, then normalizes to sum to 1.0.
+    /// Returns `None` if no `Prefer` constraints are present.
+    #[must_use]
+    pub fn scoring_weights(&self) -> Option<[f64; 4]> {
+        let prefers: Vec<_> = self
+            .constraints
+            .iter()
+            .filter_map(|c| match c {
+                Constraint::Prefer { predicate, weight } => Some((predicate, *weight)),
+                _ => None,
+            })
+            .collect();
+
+        if prefers.is_empty() {
+            return None;
+        }
+
+        let mut weights = [0.25, 0.25, 0.3, 0.2];
+        for (predicate, weight) in &prefers {
+            match predicate {
+                PreferencePredicate::SameEdgeName => weights[1] = *weight,
+                PreferencePredicate::SimilarName { .. } => weights[0] = *weight,
+                PreferencePredicate::SameKind => weights[3] = *weight,
+            }
+        }
+
+        let sum: f64 = weights.iter().sum();
+        if sum > 0.0 {
+            for w in &mut weights {
+                *w /= sum;
+            }
+        }
+
+        Some(weights)
+    }
+
+    /// Extract the name similarity threshold from `SimilarName` preferences.
+    ///
+    /// If multiple `SimilarName` preferences exist, returns the maximum
+    /// threshold (most restrictive).
+    #[must_use]
+    pub fn name_similarity_threshold(&self) -> Option<f64> {
+        self.constraints
+            .iter()
+            .filter_map(|c| match c {
+                Constraint::Prefer {
+                    predicate: PreferencePredicate::SimilarName { threshold },
+                    ..
+                } => Some(*threshold),
+                _ => None,
+            })
+            .reduce(f64::max)
+    }
+
+    /// Extract scope constraint pairs as `(source_root, target_root)`.
+    #[must_use]
+    pub fn scope_pairs(&self) -> Vec<(String, String)> {
+        self.constraints
+            .iter()
+            .filter_map(|c| match c {
+                Constraint::Scope { under, targets } => Some((under.clone(), targets.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Collect all excluded target vertex names.
+    #[must_use]
+    pub fn excluded_target_names(&self) -> Vec<String> {
+        self.constraints
+            .iter()
+            .filter_map(|c| match c {
+                Constraint::ExcludeTargets { vertices } => Some(vertices.iter().cloned()),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// Collect all excluded source vertex names.
+    #[must_use]
+    pub fn excluded_source_names(&self) -> Vec<String> {
+        self.constraints
+            .iter()
+            .filter_map(|c| match c {
+                Constraint::ExcludeSources { vertices } => Some(vertices.iter().cloned()),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+}
+
 /// A constraint that restricts or biases the morphism search.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
