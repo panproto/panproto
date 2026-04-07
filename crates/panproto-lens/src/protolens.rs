@@ -239,6 +239,16 @@ impl Protolens {
         apply_theory_transform_to_schema(&self.target.transform, schema, protocol)
     }
 
+    /// Return the optic kind this protolens classifies as.
+    ///
+    /// Equivalent to [`crate::optic::classify_transform`] applied to
+    /// `self.target.transform`, but discoverable from the [`Protolens`]
+    /// type itself so callers don't need to reach into internal fields.
+    #[must_use]
+    pub fn optic_kind(&self) -> crate::optic::OpticKind {
+        crate::optic::classify_transform(&self.target.transform)
+    }
+
     /// Returns `true` if this protolens produces lossless lenses
     /// (empty complement).
     #[must_use]
@@ -510,6 +520,19 @@ impl ProtolensChain {
     #[must_use]
     pub const fn new(steps: Vec<Protolens>) -> Self {
         Self { steps }
+    }
+
+    /// Return the composed optic kind of all steps in this chain.
+    ///
+    /// Each step's optic kind is composed via [`crate::optic::OpticKind::compose`].
+    /// An empty chain returns [`crate::optic::OpticKind::Iso`] (the identity
+    /// of composition).
+    #[must_use]
+    pub fn composed_optic_kind(&self) -> crate::optic::OpticKind {
+        self.steps.iter().map(Protolens::optic_kind).fold(
+            crate::optic::OpticKind::Iso,
+            crate::optic::OpticKind::compose,
+        )
     }
 
     /// Check if the chain can be instantiated at the given schema.

@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-04-07
+
+### Added
+
+- **panproto-lens**: `Protolens::optic_kind()` and `ProtolensChain::composed_optic_kind()` convenience methods for ergonomic optic classification. Both delegate to existing machinery (`classify_transform` and `OpticKind::compose`) but live on the user-facing types so callers no longer need to reach into `protolens.target.transform` or hand-fold over chain steps. Resolves panproto/panproto#22.
+
 ## [0.27.0] - 2026-04-06
 
 ### Added
