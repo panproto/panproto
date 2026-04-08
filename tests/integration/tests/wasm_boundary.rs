@@ -121,6 +121,7 @@ fn complement_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         original_extra_fields: HashMap::new(),
         arc_edges: HashMap::new(),
         original_values: HashMap::new(),
+        synthesized_nodes: std::collections::HashSet::new(),
     };
 
     let bytes = rmp_serde::to_vec(&complement)?;
@@ -152,6 +153,7 @@ fn compiled_migration_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Erro
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     let bytes = rmp_serde::to_vec(&compiled)?;

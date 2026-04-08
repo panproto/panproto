@@ -50,6 +50,13 @@ pub struct Complement {
     /// Used by `put()` to restore the original leaf value.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub original_values: HashMap<u32, Option<panproto_inst::value::FieldPresence>>,
+    /// View node ids synthesized during forward eval by the nest-style
+    /// `expansion_path` mechanism. These nodes exist in the view (to
+    /// satisfy the target schema's multi-hop path) but have no
+    /// counterpart in the source instance. `put` must drop them when
+    /// reconstructing the source.
+    #[serde(default, skip_serializing_if = "std::collections::HashSet::is_empty")]
+    pub synthesized_nodes: std::collections::HashSet<u32>,
 }
 
 impl Complement {
@@ -66,6 +73,7 @@ impl Complement {
             original_extra_fields: HashMap::new(),
             arc_edges: HashMap::new(),
             original_values: HashMap::new(),
+            synthesized_nodes: std::collections::HashSet::new(),
         }
     }
 
@@ -116,6 +124,9 @@ impl Complement {
             original_values.entry(id).or_insert_with(|| val.clone());
         }
 
+        let mut synthesized_nodes = self.synthesized_nodes.clone();
+        synthesized_nodes.extend(other.synthesized_nodes.iter().copied());
+
         Self {
             dropped_nodes,
             dropped_arcs,
@@ -126,6 +137,7 @@ impl Complement {
             original_extra_fields,
             arc_edges,
             original_values,
+            synthesized_nodes,
         }
     }
 
@@ -140,6 +152,7 @@ impl Complement {
             && self.original_extra_fields.is_empty()
             && self.arc_edges.is_empty()
             && self.original_values.is_empty()
+            && self.synthesized_nodes.is_empty()
     }
 }
 
@@ -266,6 +279,18 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
 
     let source_fingerprint = schema_fingerprint(&lens.src_schema);
 
+    // Capture node ids that appear in the view but not in the source
+    // instance. These were synthesized by `wtype_restrict` to satisfy a
+    // nest-style `expansion_path` in the compiled migration (a direct
+    // source arc expanded into a multi-hop target path). `put` drops
+    // them when collapsing back to the source.
+    let synthesized_nodes: std::collections::HashSet<u32> = view
+        .nodes
+        .keys()
+        .copied()
+        .filter(|id| !instance.nodes.contains_key(id))
+        .collect();
+
     let complement = Complement {
         dropped_nodes,
         dropped_arcs,
@@ -276,6 +301,7 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         original_extra_fields,
         arc_edges,
         original_values,
+        synthesized_nodes,
     };
 
     Ok((view, complement))
@@ -307,11 +333,17 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         }
     }
 
-    // Start with all nodes from the view (un-remap anchors back to source)
+    // Start with all nodes from the view (un-remap anchors back to source).
+    // Skip nodes that were synthesized during forward eval by the
+    // nest-style `expansion_path` mechanism: they exist only in the view,
+    // not in the source, so collapsing them back means dropping them.
     let mut nodes = HashMap::new();
     let reverse_remap = build_reverse_remap(&lens.compiled.vertex_remap);
 
     for (&id, node) in &view.nodes {
+        if complement.synthesized_nodes.contains(&id) {
+            continue;
+        }
         let mut restored_node = node.clone();
         if let Some(original_anchor) = reverse_remap.get(&node.anchor) {
             restored_node.anchor.clone_from(original_anchor);

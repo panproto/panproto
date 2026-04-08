@@ -140,6 +140,7 @@ fn compute_field_survives_restrict() {
         hyper_resolver: HashMap::new(),
         field_transforms,
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     let result = wtype_restrict(&instance, &schema, &schema, &migration);
@@ -233,6 +234,7 @@ fn at_uri_decomposition_end_to_end() {
         hyper_resolver: HashMap::new(),
         field_transforms,
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     let restricted = wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict ok");
@@ -307,6 +309,7 @@ fn multiple_scalar_transforms_compose() {
         hyper_resolver: HashMap::new(),
         field_transforms,
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     let restricted = wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict ok");
@@ -341,6 +344,7 @@ fn scalar_child_identity_roundtrip() {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     let restricted = wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict ok");
@@ -459,6 +463,7 @@ mod property {
                 hyper_resolver: HashMap::new(),
                 field_transforms,
                 conditional_survival: HashMap::new(),
+                expansion_path: HashMap::new(),
             };
 
             let restricted = wtype_restrict(&instance, &schema, &schema, &migration)
@@ -489,6 +494,7 @@ mod property {
                 hyper_resolver: HashMap::new(),
                 field_transforms: HashMap::new(),
                 conditional_survival: HashMap::new(),
+                expansion_path: HashMap::new(),
             };
 
             let restricted = wtype_restrict(&instance, &schema, &schema, &migration)

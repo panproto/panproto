@@ -621,6 +621,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         (inst, compiled)
@@ -866,6 +867,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         // Instance: doc(0) -> annotation(1), doc(0) -> text(2)
@@ -955,6 +957,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         // Base instance (target schema): doc(0) -> text(1)

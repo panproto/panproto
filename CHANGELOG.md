@@ -4,6 +4,18 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.27.3] - 2026-04-08
+
+### Fixed
+
+- **panproto-inst**: `wtype_restrict` now synthesizes fresh intermediate view nodes when a nest-style migration turns a direct source arc into a multi-hop target path. Before this fix, forward eval (`asymmetric::get`) of a `combinators::nest_field` chain on an actual instance failed with `restrict error: no edge found between X and Y in target schema` because the restrict pipeline had no mechanism to insert a fresh node in the view and re-route the source's direct `parent → child` arc through it. The schema-level fix in 0.27.2 only covered the target schema's edge set, not the instance-level forward eval. Resolves panproto/panproto#24.
+
+### Changed
+
+- **panproto-inst**: `CompiledMigration` grew a new `expansion_path: HashMap<(Name, Name), Vec<Name>>` field (skipped in serialization when empty) recording multi-hop routes for source arcs whose direct counterpart no longer exists in the target. Populated by `compute_migration_between` via BFS through new-in-target vertices. Consumed by `wtype_restrict` to synthesize intermediate view nodes.
+- **panproto-lens**: `Complement` grew a new `synthesized_nodes: HashSet<u32>` field (skipped when empty) listing view node ids created during forward eval. `asymmetric::put` skips these nodes when reconstructing the source, so the round-trip `put(get(instance)) == instance` law holds for nest-style lenses.
+- **panproto-inst**: `CompiledMigration` now derives `Default`, so downstream code can construct it via `CompiledMigration::default()` instead of enumerating every field.
+
 ## [0.27.2] - 2026-04-08
 
 ### Fixed

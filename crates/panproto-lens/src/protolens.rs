@@ -1575,6 +1575,12 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
         }
     }
 
+    // Detect expansion paths: direct arcs `(A, B)` that existed in the
+    // source schema but are no longer present in the target, yet reachable
+    // via a multi-hop path through vertices newly introduced in the
+    // target. This is the forward-eval side of `combinators::nest_field`.
+    let expansion_path = compute_expansion_paths(src, tgt);
+
     CompiledMigration {
         surviving_verts: final_surviving,
         surviving_edges,
@@ -1584,7 +1590,133 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path,
     }
+}
+
+/// Detect `(src_parent, src_child)` pairs that had a direct arc in the
+/// source schema but only a multi-hop path in the target, and record the
+/// sequence of intermediate target anchor ids to insert during forward
+/// evaluation.
+///
+/// The algorithm:
+///
+/// 1. Collect vertex ids that exist in `tgt` but not `src` (the "new"
+///    intermediates introduced by nest-style transforms).
+/// 2. For every `(u, v)` pair such that `src` has an edge `u -> v` that
+///    no longer exists in `tgt`, BFS outward from `u` in `tgt`, walking
+///    only through new intermediates, until `v` is reached.
+/// 3. Record the intermediate path (endpoints excluded) in
+///    `expansion_path[(u, v)]`.
+fn compute_expansion_paths(src: &Schema, tgt: &Schema) -> HashMap<(Name, Name), Vec<Name>> {
+    let mut paths: HashMap<(Name, Name), Vec<Name>> = HashMap::new();
+
+    // Vertices added by the migration (present in tgt but not src).
+    // These are the only vertices we'll route through when synthesizing
+    // an expansion path; otherwise we'd pick up pre-existing paths that
+    // were never meant as nest intermediates.
+    let new_in_tgt: HashSet<Name> = tgt
+        .vertices
+        .keys()
+        .filter(|v| !src.vertices.contains_key(*v))
+        .cloned()
+        .collect();
+
+    if new_in_tgt.is_empty() {
+        return paths;
+    }
+
+    // Source vertex pairs that had a direct arc.
+    let mut src_pairs: HashSet<(Name, Name)> = HashSet::new();
+    for edge in src.edges.keys() {
+        src_pairs.insert((edge.src.clone(), edge.tgt.clone()));
+    }
+
+    // Target vertex pairs that still have a direct arc.
+    let mut tgt_pairs: HashSet<(Name, Name)> = HashSet::new();
+    for edge in tgt.edges.keys() {
+        tgt_pairs.insert((edge.src.clone(), edge.tgt.clone()));
+    }
+
+    for (src_v, tgt_v) in src_pairs {
+        // Only consider pairs that survived as vertices in tgt (otherwise
+        // the arc has nothing to expand into).
+        if !tgt.vertices.contains_key(&src_v) || !tgt.vertices.contains_key(&tgt_v) {
+            continue;
+        }
+        // If the direct arc still exists in tgt, no expansion is needed.
+        if tgt_pairs.contains(&(src_v.clone(), tgt_v.clone())) {
+            continue;
+        }
+        // BFS from `src_v` to `tgt_v` in tgt, restricted to interior hops
+        // through new-in-tgt intermediates.
+        if let Some(intermediates) = bfs_through_new(tgt, &src_v, &tgt_v, &new_in_tgt) {
+            paths.insert((src_v, tgt_v), intermediates);
+        }
+    }
+
+    paths
+}
+
+/// BFS in `tgt` from `start` to `end`, allowing interior hops only
+/// through vertices in `new_verts`. Returns the interior of the path
+/// (start and end excluded). Returns `None` if no such path exists or
+/// if the only path is a direct arc (in which case no expansion is
+/// needed and the caller handles it via `resolve_edge`).
+fn bfs_through_new(
+    tgt: &Schema,
+    start: &Name,
+    end: &Name,
+    new_verts: &HashSet<Name>,
+) -> Option<Vec<Name>> {
+    use std::collections::VecDeque;
+
+    let mut prev: HashMap<Name, Name> = HashMap::new();
+    let mut visited: HashSet<Name> = HashSet::new();
+    let mut queue: VecDeque<Name> = VecDeque::new();
+    visited.insert(start.clone());
+    queue.push_back(start.clone());
+
+    while let Some(v) = queue.pop_front() {
+        if v == *end {
+            // Reconstruct the interior by walking `prev` backwards.
+            let mut interior: Vec<Name> = Vec::new();
+            let mut cursor = v;
+            while let Some(p) = prev.get(&cursor) {
+                if *p == *start {
+                    break;
+                }
+                interior.push(p.clone());
+                cursor = p.clone();
+            }
+            interior.reverse();
+            return if interior.is_empty() {
+                // No interior: the only path is a direct arc, which
+                // resolve_edge already handles.
+                None
+            } else {
+                Some(interior)
+            };
+        }
+        if let Some(out_edges) = tgt.outgoing.get(&v) {
+            for edge in out_edges {
+                let next = &edge.tgt;
+                if visited.contains(next) {
+                    continue;
+                }
+                // The terminal step must land on `end`. Interior hops
+                // must go through vertices newly added in tgt.
+                let interior_ok = *next == *end || new_verts.contains(next);
+                if !interior_ok {
+                    continue;
+                }
+                visited.insert(next.clone());
+                prev.insert(next.clone(), v.clone());
+                queue.push_back(next.clone());
+            }
+        }
+    }
+    None
 }
 
 /// Apply a theory transform to a schema, producing a new schema.
@@ -2216,6 +2348,7 @@ fn identity_lens(schema: &Schema) -> Lens {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         },
         src_schema: schema.clone(),
         tgt_schema: schema.clone(),
@@ -2994,6 +3127,176 @@ mod tests {
         assert_eq!(
             prop_edge_count, 3,
             "expected 3 prop edges after nest_field (createdAt + 2 new), got {prop_edge_count}"
+        );
+    }
+
+    #[test]
+    fn nest_field_forward_eval_synthesizes_intermediate_node() {
+        // Regression for panproto/panproto#24: `asymmetric::get` must
+        // synthesize a fresh intermediate view node when a nest_field
+        // chain turns a direct source arc into a two-hop target path.
+        use crate::asymmetric;
+        use crate::tests::three_node_instance;
+
+        let schema = three_node_schema();
+        let instance = three_node_instance();
+        let protocol = test_protocol();
+        let chain = super::combinators::nest_field(
+            "post:body",
+            "post:body.text",
+            "post:body.profile", // new intermediate
+            "object",
+            "prop",
+            Some(GatName::from("text")),
+            "profile",
+            "text",
+        );
+        let lens = chain.instantiate(&schema, &protocol).unwrap();
+
+        // Expansion path should have been discovered during compilation.
+        assert!(
+            !lens.compiled.expansion_path.is_empty(),
+            "compiled migration should contain an expansion_path entry"
+        );
+        let key = (GatName::from("post:body"), GatName::from("post:body.text"));
+        let intermediates = lens
+            .compiled
+            .expansion_path
+            .get(&key)
+            .expect("expansion_path should cover the dropped direct arc");
+        assert_eq!(
+            intermediates,
+            &vec![GatName::from("post:body.profile")],
+            "expansion should route through the new intermediate"
+        );
+
+        // Forward eval: this is the exact call site that failed before the fix.
+        let (view, complement) = asymmetric::get(&lens, &instance)
+            .expect("forward eval should succeed on a nest_field chain");
+
+        // The view must contain a synthesized node anchored at the
+        // intermediate, plus both original surviving nodes.
+        let has_intermediate = view
+            .nodes
+            .values()
+            .any(|n| &*n.anchor == "post:body.profile");
+        assert!(
+            has_intermediate,
+            "view should contain a synthesized node anchored at post:body.profile, got {:?}",
+            view.nodes
+                .values()
+                .map(|n| n.anchor.clone())
+                .collect::<Vec<_>>()
+        );
+
+        // Synthesized node must be recorded in the complement so `put` drops it.
+        assert_eq!(
+            complement.synthesized_nodes.len(),
+            1,
+            "exactly one node should have been synthesized"
+        );
+        let synth_id = *complement.synthesized_nodes.iter().next().unwrap();
+        assert!(!instance.nodes.contains_key(&synth_id));
+
+        // The two-hop chain must exist: someone --(profile)--> synth, synth --(text)--> text_node.
+        let text_node_id = view
+            .nodes
+            .iter()
+            .find(|(_, n)| &*n.anchor == "post:body.text")
+            .map(|(id, _)| *id)
+            .expect("surviving text node");
+        let arc_to_text = view
+            .arcs
+            .iter()
+            .find(|(_, c, _)| *c == text_node_id)
+            .expect("arc pointing at text_node");
+        assert_eq!(
+            arc_to_text.0, synth_id,
+            "text should be downstream of synth"
+        );
+        assert_eq!(arc_to_text.2.name.as_deref(), Some("text"));
+
+        let arc_to_synth = view
+            .arcs
+            .iter()
+            .find(|(_, c, _)| *c == synth_id)
+            .expect("arc pointing at synth node");
+        assert_eq!(arc_to_synth.2.name.as_deref(), Some("profile"));
+
+        // Sibling createdAt edge must survive forward eval.
+        let has_createdat = view
+            .arcs
+            .iter()
+            .any(|(_, _, e)| e.name.as_deref() == Some("createdAt"));
+        assert!(
+            has_createdat,
+            "createdAt sibling arc should survive nest forward eval"
+        );
+    }
+
+    #[test]
+    fn nest_field_get_put_round_trip_recovers_source() {
+        // After `get` synthesizes the intermediate, `put` must collapse
+        // it back and reproduce the original flat source.
+        use crate::asymmetric;
+        use crate::tests::three_node_instance;
+
+        let schema = three_node_schema();
+        let instance = three_node_instance();
+        let protocol = test_protocol();
+        let chain = super::combinators::nest_field(
+            "post:body",
+            "post:body.text",
+            "post:body.profile",
+            "object",
+            "prop",
+            Some(GatName::from("text")),
+            "profile",
+            "text",
+        );
+        let lens = chain.instantiate(&schema, &protocol).unwrap();
+
+        let (view, complement) = asymmetric::get(&lens, &instance).unwrap();
+        let restored = asymmetric::put(&lens, &view, &complement).unwrap();
+
+        // The restored instance should have exactly the same node set and
+        // arc set as the source (up to node id equality, which is the
+        // expectation since put preserves ids for surviving nodes).
+        assert_eq!(
+            restored.nodes.len(),
+            instance.nodes.len(),
+            "restored instance should have the same number of nodes as source"
+        );
+        for id in instance.nodes.keys() {
+            assert!(
+                restored.nodes.contains_key(id),
+                "source node {id} should be restored"
+            );
+        }
+        // The synthesized intermediate must NOT appear in the restored instance.
+        assert!(
+            !restored
+                .nodes
+                .values()
+                .any(|n| &*n.anchor == "post:body.profile"),
+            "synthesized intermediate must be dropped by put"
+        );
+
+        // The original direct text arc must be back.
+        let has_direct_text_arc = restored.arcs.iter().any(|(p, c, e)| {
+            instance
+                .nodes
+                .get(p)
+                .is_some_and(|n| &*n.anchor == "post:body")
+                && instance
+                    .nodes
+                    .get(c)
+                    .is_some_and(|n| &*n.anchor == "post:body.text")
+                && e.name.as_deref() == Some("text")
+        });
+        assert!(
+            has_direct_text_arc,
+            "put should restore the original direct `text` arc"
         );
     }
 

@@ -149,6 +149,7 @@ fn simple_projection_throughput() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     // Warm up.
@@ -248,6 +249,7 @@ fn projection_with_drop_throughput() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     let iterations = 100_000;

@@ -197,6 +197,7 @@ fn identity_compiled(vertices: &[Name], edges: &[Edge]) -> CompiledMigration {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     }
 }
 
@@ -370,6 +371,7 @@ fn wtype_restrict_contraction(bencher: Bencher, depth: usize) {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     bencher.bench(|| wtype_restrict(&instance, &tgt_schema, &tgt_schema, &compiled));
@@ -412,6 +414,7 @@ fn wtype_restrict_identity(bencher: Bencher) {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     bencher.bench(|| wtype_restrict(&instance, &schema, &schema, &compiled));
@@ -447,6 +450,7 @@ fn functor_restrict_n_tables(bencher: Bencher, n: usize) {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     bencher.bench(|| functor_restrict(&inst, &compiled));
@@ -481,6 +485,7 @@ fn functor_extend_n_tables(bencher: Bencher, n: usize) {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     bencher.bench(|| functor_extend(&inst, &compiled));

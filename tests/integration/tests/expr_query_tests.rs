@@ -322,6 +322,7 @@ fn fiber_operations_integration() {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     // Source instance: doc(0) -> annotation(1), doc(0) -> annotation(2), doc(0) -> text(3)

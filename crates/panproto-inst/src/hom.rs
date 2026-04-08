@@ -326,6 +326,7 @@ pub fn eval_hom(
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     wtype_restrict(source_instance, source_schema, target_schema, &compiled)
@@ -602,6 +603,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let h = hom_schema(&source, &target);

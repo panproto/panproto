@@ -80,6 +80,7 @@ fn identity_lens(schema: &Schema) -> Lens {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         },
         src_schema: schema.clone(),
         tgt_schema: schema.clone(),

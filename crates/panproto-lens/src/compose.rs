@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use panproto_inst::CompiledMigration;
 use panproto_schema::Edge;
 
@@ -114,6 +115,17 @@ pub(crate) fn compose_compiled_migrations(
     let field_transforms = compose_field_transforms(m1, m2);
     let conditional_survival = compose_conditional_survival(m1, m2);
 
+    // Compose expansion paths: m1's paths apply first (mapped through
+    // m1.vertex_remap so keys land in m2's anchor space), then any m2
+    // entries for pairs m1 didn't already cover.
+    let mut expansion_path: HashMap<(Name, Name), Vec<Name>> = HashMap::new();
+    for ((src, tgt), mids) in &m1.expansion_path {
+        expansion_path.insert((src.clone(), tgt.clone()), mids.clone());
+    }
+    for (k, v) in &m2.expansion_path {
+        expansion_path.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+
     CompiledMigration {
         surviving_verts,
         surviving_edges,
@@ -123,6 +135,7 @@ pub(crate) fn compose_compiled_migrations(
         hyper_resolver,
         field_transforms,
         conditional_survival,
+        expansion_path,
     }
 }
 

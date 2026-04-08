@@ -106,6 +106,7 @@ pub fn compile(
         hyper_resolver,
         field_transforms,
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     })
 }
 

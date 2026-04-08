@@ -227,6 +227,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let result = lift_wtype(&compiled, &schema, &schema, &instance);
@@ -291,6 +292,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let result = lift_wtype(&compiled, &schema, &schema, &instance);
@@ -363,6 +365,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         // Migration m2: s2 -> s3 (rename body->post, body.text->post.text)
@@ -378,6 +381,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         // Composed m12: s1 -> s3 directly
@@ -401,6 +405,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         // Build instance on s1.
@@ -488,6 +493,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let result = lift_wtype_sigma(&id_migration, &schema, &instance).unwrap();
@@ -574,6 +580,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let result = lift_wtype(&compiled, &schema, &schema, &instance);

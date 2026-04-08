@@ -222,6 +222,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         }
     }
 
@@ -353,6 +354,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let via_trait = AcsetOps::restrict(&w, &src_schema, &tgt_schema, &migration)?;
@@ -387,6 +389,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let via_trait = AcsetOps::restrict(&g, &schema, &schema, &migration)?;
@@ -434,6 +437,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let result = AcsetOps::extend(&g, &schema, &migration)?;

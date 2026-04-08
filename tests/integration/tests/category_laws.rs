@@ -291,6 +291,7 @@ fn restrict_functor_contravariance() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     // Migration second: S2 -> S3 (keeps root)
@@ -303,6 +304,7 @@ fn restrict_functor_contravariance() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     // Composed migration: S1 -> S3 (keeps root only)
@@ -315,6 +317,7 @@ fn restrict_functor_contravariance() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     // Build instance conforming to S1.
@@ -390,6 +393,7 @@ fn migration_compose_identity_roundtrip() -> Result<(), Box<dyn std::error::Erro
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
     };
 
     // Build instance.
@@ -484,6 +488,7 @@ mod property {
                         hyper_resolver: HashMap::new(),
                         field_transforms: HashMap::new(),
                         conditional_survival: HashMap::new(),
+                        expansion_path: HashMap::new(),
                     };
 
                     (schema, instance, id_mig)
@@ -551,6 +556,7 @@ mod property {
                         hyper_resolver: HashMap::new(),
                         field_transforms: HashMap::new(),
                         conditional_survival: HashMap::new(),
+                        expansion_path: HashMap::new(),
                     };
 
                     // Migration S2 -> S3
@@ -563,6 +569,7 @@ mod property {
                         hyper_resolver: HashMap::new(),
                         field_transforms: HashMap::new(),
                         conditional_survival: HashMap::new(),
+                        expansion_path: HashMap::new(),
                     };
 
                     // Composed migration S1 -> S3
@@ -575,6 +582,7 @@ mod property {
                         hyper_resolver: HashMap::new(),
                         field_transforms: HashMap::new(),
                         conditional_survival: HashMap::new(),
+                        expansion_path: HashMap::new(),
                     };
 
                     // Instance conforming to S1.

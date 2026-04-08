@@ -32,7 +32,7 @@ use crate::value::Value;
 ///
 /// The full `CompiledMigration` lives in `panproto-mig`. This type provides
 /// the subset of fields that `wtype_restrict` and `functor_restrict` need.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CompiledMigration {
     /// Vertices that survive the migration.
     pub surviving_verts: HashSet<Name>,
@@ -69,6 +69,21 @@ pub struct CompiledMigration {
     /// value-dependent predicate (vertex set membership AND value predicate).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub conditional_survival: HashMap<Name, panproto_expr::Expr>,
+    /// Multi-hop expansion paths for nest-style migrations.
+    ///
+    /// When a direct edge `src --> tgt` existed in the source schema but
+    /// only a multi-hop path `src --> i1 --> i2 --> ... --> tgt` exists in
+    /// the target (as happens after `combinators::nest_field`), this map
+    /// records the sequence of intermediate target anchor ids to insert
+    /// when walking the source arc during `wtype_restrict`. The value is
+    /// the intermediate anchors only (endpoints excluded), ordered from
+    /// parent-adjacent to child-adjacent.
+    ///
+    /// Dual of the ancestor-contraction mechanism: contraction collapses
+    /// a path to a direct arc (hoist), expansion fans a direct arc out
+    /// into a path by materializing fresh view nodes (nest).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub expansion_path: HashMap<(Name, Name), Vec<Name>>,
 }
 
 /// A value-level transformation on a node's `extra_fields`.
@@ -709,6 +724,7 @@ pub fn reconstruct_fans(
 ///
 /// Returns `RestrictError` if edge resolution fails or the root
 /// is pruned during restriction.
+#[allow(clippy::too_many_lines)]
 pub fn wtype_restrict(
     instance: &WInstance,
     _src_schema: &Schema,
@@ -742,6 +758,16 @@ pub fn wtype_restrict(
     let mut new_nodes: HashMap<u32, Node> = HashMap::new();
     let mut new_arcs: Vec<(u32, u32, Edge)> = Vec::new();
     let mut surviving_set: FxHashSet<u32> = FxHashSet::default();
+
+    // Counter for synthesized intermediate node ids used by nest-style
+    // `expansion_path` handling. Starts above any id present in the
+    // source so we never collide with instance-owned node ids.
+    let mut next_synth_id: u32 = instance
+        .nodes
+        .keys()
+        .copied()
+        .max()
+        .map_or(0, |m| m.saturating_add(1));
 
     // Queue entries: (node_id, nearest_surviving_ancestor_id)
     let mut queue: VecDeque<(u32, Option<u32>)> = VecDeque::new();
@@ -803,16 +829,69 @@ pub fn wtype_restrict(
                 }
                 new_nodes.insert(child_id, new_node.clone());
 
-                // Build the arc from nearest surviving ancestor to this node
+                // Build the arc from nearest surviving ancestor to this node.
+                //
+                // Fast path: a direct edge exists in the target between the
+                // ancestor and this node.
+                //
+                // Expansion path: `resolve_edge` fails because a nest-style
+                // migration removed the direct arc and replaced it with a
+                // multi-hop path through newly introduced intermediates.
+                // The compiled migration's `expansion_path` records the
+                // intermediate anchor ids; we synthesize fresh view nodes
+                // for each of them and stitch the chain.
                 if let Some(anc_id) = child_ancestor {
-                    let anc_node = new_nodes.get(&anc_id).ok_or(RestrictError::RootPruned)?;
-                    let edge = resolve_edge(
-                        tgt_schema,
-                        &migration.resolver,
-                        &anc_node.anchor,
-                        &new_node.anchor,
-                    )?;
-                    new_arcs.push((anc_id, child_id, edge));
+                    let anc_anchor = new_nodes
+                        .get(&anc_id)
+                        .ok_or(RestrictError::RootPruned)?
+                        .anchor
+                        .clone();
+                    let child_anchor = new_node.anchor.clone();
+                    match resolve_edge(tgt_schema, &migration.resolver, &anc_anchor, &child_anchor)
+                    {
+                        Ok(edge) => {
+                            new_arcs.push((anc_id, child_id, edge));
+                        }
+                        Err(restrict_err) => {
+                            let intermediates = migration
+                                .expansion_path
+                                .get(&(anc_anchor.clone(), child_anchor.clone()));
+                            if let Some(intermediates) = intermediates {
+                                // Emit the expansion chain:
+                                //   anc_id --> synth_1 --> synth_2 --> ... --> child_id
+                                let mut prev_id = anc_id;
+                                let mut prev_anchor = anc_anchor;
+                                for intermediate_anchor in intermediates {
+                                    let synth_id = next_synth_id;
+                                    next_synth_id = next_synth_id.saturating_add(1);
+                                    let synth_node =
+                                        Node::new(synth_id, intermediate_anchor.clone());
+                                    new_nodes.insert(synth_id, synth_node);
+                                    surviving_set.insert(synth_id);
+                                    let edge = resolve_edge(
+                                        tgt_schema,
+                                        &migration.resolver,
+                                        &prev_anchor,
+                                        intermediate_anchor,
+                                    )?;
+                                    new_arcs.push((prev_id, synth_id, edge));
+                                    prev_id = synth_id;
+                                    prev_anchor = intermediate_anchor.clone();
+                                }
+                                // Final hop from the last intermediate to the
+                                // surviving child.
+                                let final_edge = resolve_edge(
+                                    tgt_schema,
+                                    &migration.resolver,
+                                    &prev_anchor,
+                                    &child_anchor,
+                                )?;
+                                new_arcs.push((prev_id, child_id, final_edge));
+                            } else {
+                                return Err(restrict_err);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1586,6 +1665,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
         let result = wtype_extend(&inst, &schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
@@ -1640,6 +1720,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
         let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
@@ -1691,6 +1772,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
         let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.arc_count(), 2);
@@ -1733,6 +1815,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
         let result = wtype_extend(&inst, &schema, &migration).unwrap();
         // Verify parent/children maps are correctly rebuilt
@@ -1856,6 +1939,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let src_schema = Schema {
@@ -2133,6 +2217,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
         migration.add_conditional_survival("item", predicate);
 
@@ -2227,6 +2312,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            expansion_path: HashMap::new(),
         };
 
         let result =
@@ -2807,6 +2893,7 @@ mod tests {
                     hyper_resolver: HashMap::new(),
                     field_transforms: HashMap::new(),
                     conditional_survival: HashMap::new(),
+                    expansion_path: HashMap::new(),
                 };
 
                 let result = wtype_restrict(&instance, &schema, &schema, &migration);
