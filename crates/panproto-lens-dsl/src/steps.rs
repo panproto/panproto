@@ -107,12 +107,34 @@ fn compile_one_step(
         }
 
         Step::NestField { nest_field } => {
+            // Empty `old_edge_name` maps to `None` (original edge unlabeled).
+            let old_edge_name = if nest_field.old_edge_name.is_empty() {
+                None
+            } else {
+                Some(Name::from(nest_field.old_edge_name.as_str()))
+            };
+            // Empty new-edge labels default to the intermediate/child
+            // vertex ids respectively, preserving the prior convention
+            // for callers that don't distinguish vertex id from edge label.
+            let parent_to_intermediate: &str = if nest_field.parent_to_intermediate.is_empty() {
+                &nest_field.intermediate
+            } else {
+                &nest_field.parent_to_intermediate
+            };
+            let intermediate_to_child: &str = if nest_field.intermediate_to_child.is_empty() {
+                &nest_field.child
+            } else {
+                &nest_field.intermediate_to_child
+            };
             chains.push(combinators::nest_field(
                 &*nest_field.parent,
                 &*nest_field.child,
                 &*nest_field.intermediate,
                 &*nest_field.intermediate_kind,
                 &*nest_field.edge_kind,
+                old_edge_name,
+                parent_to_intermediate,
+                intermediate_to_child,
             ));
         }
 

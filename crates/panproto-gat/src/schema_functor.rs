@@ -138,6 +138,41 @@ pub enum TheoryTransform {
         /// The new edge label.
         new_name: Arc<str>,
     },
+    /// Add a single edge with a specific `(src, tgt, name, kind)` tuple.
+    ///
+    /// This is a fiber-level operation: the theory is unchanged (edges of
+    /// an existing kind share a single theory op), only schema metadata is
+    /// extended. If the endpoint vertices are missing at schema-apply time
+    /// the operation silently no-ops, mirroring `AddOp`. Classified as `Lens`.
+    ///
+    /// Use this when you need to create an edge whose label (JSON property
+    /// key) differs from its kind: `elementary::add_op` forces label = kind,
+    /// while `AddEdge` lets the two differ.
+    AddEdge {
+        /// Source vertex id (not sort).
+        src_sort: Arc<str>,
+        /// Target vertex id (not sort).
+        tgt_sort: Arc<str>,
+        /// The edge label (JSON property key).
+        edge_name: Arc<str>,
+        /// The edge kind (e.g., `"prop"`, `"item"`).
+        edge_kind: Arc<str>,
+    },
+    /// Drop a single edge identified by its `(src, tgt, name)` triple.
+    ///
+    /// This is a fiber-level operation: the theory is unchanged, only the
+    /// targeted edge is removed from the schema. Unlike `DropOp`, which
+    /// removes every edge of a given kind, `DropEdge` targets a specific
+    /// edge instance by its label. Classified as `Lens` (the complement
+    /// captures the dropped edge's kind so `put` can restore it).
+    DropEdge {
+        /// Source vertex id.
+        src_sort: Arc<str>,
+        /// Target vertex id.
+        tgt_sort: Arc<str>,
+        /// The edge label to drop. `None` matches edges with no label.
+        edge_name: Option<Arc<str>>,
+    },
     /// Apply a transform to the sub-theory reachable from a focus sort.
     ///
     /// Categorically, this is the left Kan extension along the inclusion
@@ -580,10 +615,10 @@ impl TheoryTransform {
                 ))
             }
             Self::Pullback(morphism) => Ok(apply_pullback(theory, morphism)),
-            Self::RenameEdgeName { .. } => {
-                // Fiber-level operation: the theory is unchanged.
-                // The actual relabeling happens at the schema level
-                // in apply_theory_transform_to_schema.
+            Self::RenameEdgeName { .. } | Self::AddEdge { .. } | Self::DropEdge { .. } => {
+                // Fiber-level operations: the theory is unchanged.
+                // The actual schema mutation happens in
+                // apply_theory_transform_to_schema.
                 Ok(theory.clone())
             }
             Self::ScopedTransform { focus, inner } => {

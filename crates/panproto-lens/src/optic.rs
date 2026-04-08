@@ -100,6 +100,8 @@ pub fn classify_transform(transform: &TheoryTransform) -> OpticKind {
         | TheoryTransform::DropEquation(_)
         | TheoryTransform::AddSort { .. }
         | TheoryTransform::AddOp(_)
+        | TheoryTransform::AddEdge { .. }
+        | TheoryTransform::DropEdge { .. }
         | TheoryTransform::AddEquation(_)
         | TheoryTransform::Pullback(_)
         | TheoryTransform::CoerceSort { .. }

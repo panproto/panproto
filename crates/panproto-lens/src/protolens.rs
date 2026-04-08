@@ -85,6 +85,20 @@ pub enum ComplementConstructor {
         /// The operation whose data is captured.
         op: Name,
     },
+    /// Complement captures a single dropped edge (by `(src, tgt, name)` triple).
+    ///
+    /// Used by `elementary::drop_edge` to record enough information to
+    /// restore the specific edge in the `put` direction.
+    DroppedEdge {
+        /// Source vertex id of the dropped edge.
+        src: Name,
+        /// Target vertex id of the dropped edge.
+        tgt: Name,
+        /// Label of the dropped edge.
+        edge_name: Option<Name>,
+        /// Kind of the dropped edge (recorded so `put` can re-add it).
+        edge_kind: Name,
+    },
     /// Complement is the kernel of a natural transformation.
     NatTransKernel {
         /// Name of the natural transformation.
@@ -975,6 +989,104 @@ pub mod elementary {
         }
     }
 
+    /// `η : Id ⟹ AddEdge(src, tgt, name, kind)`: adds a single edge.
+    ///
+    /// Fiber-level operation: the underlying theory is unchanged (edges
+    /// sharing a kind share a single theory op), only schema metadata is
+    /// extended. Unlike [`add_op`], which forces the new edge's label to
+    /// equal its kind, `add_edge` lets the caller specify label and kind
+    /// independently, which is necessary for schemas with qualified
+    /// vertex ids where edge labels are short JSON keys.
+    #[must_use]
+    pub fn add_edge(
+        src_sort: impl Into<Name>,
+        tgt_sort: impl Into<Name>,
+        edge_name: impl Into<Name>,
+        edge_kind: impl Into<Name>,
+    ) -> Protolens {
+        let src_sort = src_sort.into();
+        let tgt_sort = tgt_sort.into();
+        let edge_name = edge_name.into();
+        let edge_kind = edge_kind.into();
+        let src_arc = name_arc_clone(&src_sort);
+        let tgt_arc = name_arc_clone(&tgt_sort);
+        let name_arc = name_arc_clone(&edge_name);
+        let kind_arc = name_arc_clone(&edge_kind);
+        Protolens {
+            name: Name::from(format!("add_edge_{src_sort}_{tgt_sort}_{edge_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("add_edge_{edge_name}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::AddEdge {
+                    src_sort: src_arc,
+                    tgt_sort: tgt_arc,
+                    edge_name: name_arc,
+                    edge_kind: kind_arc,
+                },
+            },
+            complement_constructor: ComplementConstructor::AddedElement {
+                element_name: edge_name,
+                element_kind: format!("{edge_kind}"),
+                default_value: None,
+            },
+        }
+    }
+
+    /// `η : Id ⟹ DropEdge(src, tgt, name)`: drops a single edge by
+    /// its `(src, tgt, name)` triple.
+    ///
+    /// Fiber-level operation: the underlying theory is unchanged. Unlike
+    /// [`drop_op`], which removes every edge of a given kind, `drop_edge`
+    /// targets a specific edge instance. The complement captures the
+    /// dropped edge's kind so `put` can restore it.
+    #[must_use]
+    pub fn drop_edge(
+        src_sort: impl Into<Name>,
+        tgt_sort: impl Into<Name>,
+        edge_name: Option<Name>,
+    ) -> Protolens {
+        let src_sort = src_sort.into();
+        let tgt_sort = tgt_sort.into();
+        let src_arc = name_arc_clone(&src_sort);
+        let tgt_arc = name_arc_clone(&tgt_sort);
+        let name_arc: Option<Arc<str>> = edge_name.as_ref().map(name_arc_clone);
+        let label_display = edge_name
+            .as_ref()
+            .map_or_else(|| "unnamed".to_string(), ToString::to_string);
+        Protolens {
+            name: Name::from(format!("drop_edge_{src_sort}_{tgt_sort}_{label_display}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("drop_edge_{label_display}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::DropEdge {
+                    src_sort: src_arc,
+                    tgt_sort: tgt_arc,
+                    edge_name: name_arc,
+                },
+            },
+            // The actual dropped edge's kind is filled in at instantiate
+            // time (via schema inspection) and stored on the Lens complement.
+            // For the `ComplementConstructor` we only record the targeting
+            // tuple; the kind is looked up in `apply_drop_edge_from_schema`.
+            complement_constructor: ComplementConstructor::DroppedEdge {
+                src: src_sort,
+                tgt: tgt_sort,
+                edge_name,
+                edge_kind: Name::from(""),
+            },
+        }
+    }
+
     /// `η : Id ⟹ RenameOp(old, new)`: renames an operation.
     #[must_use]
     pub fn rename_op(old: impl Into<Name>, new: impl Into<Name>) -> Protolens {
@@ -1305,40 +1417,70 @@ pub mod combinators {
 
     /// Nest a direct child under a new intermediate vertex.
     ///
-    /// Given `parent →(e) child`, produces `parent →(e₁) new →(e₂) child`
-    /// by inserting a new intermediate vertex. The original edge from parent
-    /// to child (identified by `edge_kind`) is removed and replaced with two
-    /// edges through the intermediate.
+    /// Given an existing edge `parent --(old_edge_name)--> child`, produces
+    /// `parent --(parent_to_intermediate)--> new_intermediate --(intermediate_to_child)--> child`
+    /// by inserting a new intermediate vertex and relocating the original
+    /// edge as two edges through the intermediate.
     ///
-    /// This is the right adjoint of `hoist_field` in the category of schema
-    /// graph rewrites: `hoist ∘ nest ≅ id` (up to edge kind renaming).
+    /// The new edges carry `edge_kind` as their kind (typically `"prop"`),
+    /// while their labels (JSON property keys) are taken from
+    /// `parent_to_intermediate` and `intermediate_to_child` respectively.
+    /// This lets the combinator work correctly on schemas where vertex ids
+    /// are path-qualified (e.g., `user.name`) and therefore distinct from
+    /// short edge labels (e.g., `"name"`).
+    ///
+    /// The original direct edge is identified by the
+    /// `(parent, child, old_edge_name)` triple and removed via
+    /// [`elementary::drop_edge`]. Pass `None` as `old_edge_name` if the
+    /// original edge had no label.
+    ///
+    /// # Historical note
+    ///
+    /// Prior to this signature, `nest_field` silently assumed that the
+    /// child vertex id equalled the edge label (so a single `Name` stood
+    /// in for both), and dropped the original edge by edge *kind* rather
+    /// than by name. Neither assumption holds for schemas built via
+    /// `SchemaBuilder::add_prop`, `ATProto` lexicons, or any protocol where
+    /// edge labels are short JSON keys and vertex ids are path-qualified.
+    /// See panproto/panproto#23.
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn nest_field(
         parent: impl Into<Name>,
         child: impl Into<Name>,
         new_intermediate: impl Into<Name>,
         intermediate_kind: impl Into<Name>,
         edge_kind: impl Into<Name>,
+        old_edge_name: Option<Name>,
+        parent_to_intermediate: impl Into<Name>,
+        intermediate_to_child: impl Into<Name>,
     ) -> ProtolensChain {
         let parent = parent.into();
         let child = child.into();
         let new_intermediate = new_intermediate.into();
         let intermediate_kind = intermediate_kind.into();
         let edge_kind = edge_kind.into();
+        let parent_to_intermediate = parent_to_intermediate.into();
+        let intermediate_to_child = intermediate_to_child.into();
         ProtolensChain::new(vec![
-            // Add the new intermediate vertex.
+            // 1. Add the new intermediate vertex.
             elementary::add_sort(new_intermediate.clone(), intermediate_kind, Value::Null),
-            // Add edge from parent to new intermediate.
-            elementary::add_op(
+            // 2. parent --(parent_to_intermediate, kind=edge_kind)--> new_intermediate
+            elementary::add_edge(
+                parent.clone(),
                 new_intermediate.clone(),
-                parent,
-                new_intermediate.clone(),
-                new_intermediate.clone(),
+                parent_to_intermediate,
+                edge_kind.clone(),
             ),
-            // Add edge from new intermediate to child.
-            elementary::add_op(child.clone(), new_intermediate, child.clone(), child),
-            // Drop the original direct edge from parent to child.
-            elementary::drop_op(edge_kind),
+            // 3. new_intermediate --(intermediate_to_child, kind=edge_kind)--> child
+            elementary::add_edge(
+                new_intermediate,
+                child.clone(),
+                intermediate_to_child,
+                edge_kind,
+            ),
+            // 4. Drop the original parent --(old_edge_name)--> child edge.
+            elementary::drop_edge(parent, child, old_edge_name),
         ])
     }
 
@@ -1636,6 +1778,24 @@ fn apply_theory_transform_to_schema(
             new_schema.between = between;
             Ok(new_schema)
         }
+        TheoryTransform::AddEdge {
+            src_sort,
+            tgt_sort,
+            edge_name,
+            edge_kind,
+        } => Ok(apply_add_edge_to_schema(
+            schema, src_sort, tgt_sort, edge_name, edge_kind,
+        )),
+        TheoryTransform::DropEdge {
+            src_sort,
+            tgt_sort,
+            edge_name,
+        } => Ok(apply_drop_edge_from_schema(
+            schema,
+            src_sort,
+            tgt_sort,
+            edge_name.as_ref(),
+        )),
         TheoryTransform::ScopedTransform { focus, inner } => {
             // Pushout construction: apply the inner transform to the sub-schema
             // reachable from the focus vertex, then merge back into the full schema.
@@ -1910,6 +2070,75 @@ fn apply_drop_op_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
     new_schema
 }
 
+/// Add a single edge identified by its `(src, tgt, name, kind)` tuple.
+///
+/// Mirrors the fiber-level semantics of `TheoryTransform::AddEdge`: the
+/// theory is unchanged, only the schema's edge set is extended. Silently
+/// no-ops if either endpoint vertex is missing, matching `AddOp`.
+fn apply_add_edge_to_schema(
+    schema: &Schema,
+    src_sort: &Arc<str>,
+    tgt_sort: &Arc<str>,
+    edge_name: &Arc<str>,
+    edge_kind: &Arc<str>,
+) -> Schema {
+    let mut new_schema = schema.clone();
+    let src = Name::from(&**src_sort);
+    let tgt = Name::from(&**tgt_sort);
+    if !new_schema.vertices.contains_key(&src) || !new_schema.vertices.contains_key(&tgt) {
+        return new_schema;
+    }
+    let edge = Edge {
+        src: src.clone(),
+        tgt: tgt.clone(),
+        kind: Name::from(&**edge_kind),
+        name: Some(Name::from(&**edge_name)),
+    };
+    new_schema
+        .edges
+        .insert(edge.clone(), Name::from(&**edge_kind));
+    new_schema
+        .outgoing
+        .entry(src.clone())
+        .or_default()
+        .push(edge.clone());
+    new_schema
+        .incoming
+        .entry(tgt.clone())
+        .or_default()
+        .push(edge.clone());
+    new_schema.between.entry((src, tgt)).or_default().push(edge);
+    new_schema
+}
+
+/// Drop a single edge identified by its `(src, tgt, name)` triple.
+///
+/// Unlike `apply_drop_op_from_schema`, which removes every edge of a given
+/// kind, this removes exactly one edge (or all edges with the matching
+/// triple, which should be at most one in a well-formed schema).
+fn apply_drop_edge_from_schema(
+    schema: &Schema,
+    src_sort: &Arc<str>,
+    tgt_sort: &Arc<str>,
+    edge_name: Option<&Arc<str>>,
+) -> Schema {
+    let mut new_schema = schema.clone();
+    let target_name: Option<&str> = edge_name.map(|a| &**a);
+    let new_edges: HashMap<Edge, Name> = new_schema
+        .edges
+        .iter()
+        .filter(|(e, _)| {
+            let matches =
+                *e.src == **src_sort && *e.tgt == **tgt_sort && e.name.as_deref() == target_name;
+            !matches
+        })
+        .map(|(e, k)| (e.clone(), k.clone()))
+        .collect();
+    new_schema.edges = new_edges;
+    rebuild_indices(&mut new_schema);
+    new_schema
+}
+
 /// Build an implicit theory from a schema (sorts = vertex kinds,
 /// ops = edge kinds).
 pub(crate) fn schema_to_implicit_theory(schema: &Schema) -> Theory {
@@ -1998,7 +2227,7 @@ fn identity_lens(schema: &Schema) -> Lens {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use panproto_inst::value::Value;
     use panproto_schema::Protocol;
@@ -2584,6 +2813,263 @@ mod tests {
             lifted.name.contains("rename_vertex_node"),
             "lifted name should include morphism name, got: {}",
             lifted.name
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Regression tests for panproto/panproto#23:
+    // `combinators::nest_field` against schemas with qualified vertex ids
+    // (where the vertex id, e.g. `post:body.text`, is distinct from the
+    // short edge label, e.g. `"text"`).
+    // -----------------------------------------------------------------
+
+    use panproto_gat::Name as GatName;
+    use panproto_schema::{Edge as SchemaEdge, Vertex};
+    use smallvec::{SmallVec, smallvec};
+
+    #[test]
+    fn elementary_drop_edge_targets_only_the_named_edge() {
+        // `three_node_schema` has two parallel prop edges from `post:body`:
+        // one labeled "text" and one labeled "createdAt". `drop_edge` with
+        // the "text" triple should remove exactly the text edge and leave
+        // createdAt in place.
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let p = elementary::drop_edge("post:body", "post:body.text", Some(GatName::from("text")));
+        let lens = p.instantiate(&schema, &protocol).unwrap();
+        let edges: Vec<_> = lens
+            .tgt_schema
+            .edges
+            .keys()
+            .map(|e| (e.src.clone(), e.tgt.clone(), e.name.clone()))
+            .collect();
+        // createdAt still present, text gone.
+        assert!(
+            edges.iter().any(|(_, t, n)| {
+                **t == *"post:body.createdAt" && n.as_deref() == Some("createdAt")
+            }),
+            "createdAt edge should survive drop_edge, got {edges:?}"
+        );
+        assert!(
+            !edges
+                .iter()
+                .any(|(_, t, n)| **t == *"post:body.text" && n.as_deref() == Some("text")),
+            "text edge should have been dropped, got {edges:?}"
+        );
+    }
+
+    #[test]
+    fn elementary_add_edge_separates_name_from_kind() {
+        // `add_edge` must let Edge.name differ from Edge.kind, unlike
+        // `add_op` which forces them equal. This exercises the core
+        // capability that made the nest_field fix possible.
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let p = elementary::add_edge(
+            "post:body",
+            "post:body.text",
+            "displayText", // edge label distinct from kind
+            "prop",        // edge kind
+        );
+        let lens = p.instantiate(&schema, &protocol).unwrap();
+        let new_edge = lens
+            .tgt_schema
+            .edges
+            .keys()
+            .find(|e| {
+                *e.src == *"post:body"
+                    && *e.tgt == *"post:body.text"
+                    && e.name.as_deref() == Some("displayText")
+            })
+            .expect("new edge should exist");
+        assert_eq!(&*new_edge.kind, "prop", "kind should be preserved as prop");
+        assert_eq!(
+            new_edge.name.as_deref(),
+            Some("displayText"),
+            "name should be the caller-supplied label"
+        );
+    }
+
+    #[test]
+    fn nest_field_handles_qualified_vertex_ids() {
+        // Regression for panproto/panproto#23. The original nest_field
+        // assumed child vertex id == edge name and dropped edges by kind.
+        // Here we use a qualified child id (`post:body.text`) with short
+        // edge label (`"text"`), which broke the old implementation.
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let chain = super::combinators::nest_field(
+            "post:body",                 // parent
+            "post:body.text",            // child (qualified id)
+            "post:body.profile",         // new intermediate
+            "object",                    // intermediate kind
+            "prop",                      // edge kind for the two new edges
+            Some(GatName::from("text")), // original edge label to drop
+            "profile",                   // parent → intermediate edge label
+            "text",                      // intermediate → child edge label
+        );
+        let lens = chain
+            .instantiate(&schema, &protocol)
+            .expect("nest_field should instantiate against qualified ids");
+
+        // Expected target schema edges:
+        //   post:body -(name=profile)-> post:body.profile
+        //   post:body.profile -(name=text)-> post:body.text
+        //   post:body -(name=createdAt)-> post:body.createdAt   (untouched)
+        let edges: Vec<_> = lens.tgt_schema.edges.keys().cloned().collect();
+
+        assert!(
+            edges.iter().any(|e| {
+                *e.src == *"post:body"
+                    && *e.tgt == *"post:body.profile"
+                    && e.name.as_deref() == Some("profile")
+                    && &*e.kind == "prop"
+            }),
+            "target schema should contain post:body -(profile)-> post:body.profile, got {edges:?}"
+        );
+        assert!(
+            edges.iter().any(|e| {
+                *e.src == *"post:body.profile"
+                    && *e.tgt == *"post:body.text"
+                    && e.name.as_deref() == Some("text")
+                    && &*e.kind == "prop"
+            }),
+            "target schema should contain post:body.profile -(text)-> post:body.text, got {edges:?}"
+        );
+        // The original direct edge must be gone.
+        assert!(
+            !edges.iter().any(|e| {
+                *e.src == *"post:body"
+                    && *e.tgt == *"post:body.text"
+                    && e.name.as_deref() == Some("text")
+            }),
+            "original post:body -(text)-> post:body.text edge should be removed, got {edges:?}"
+        );
+        // Sibling createdAt edge must survive (regression guard against
+        // the old drop-by-kind bug which would have nuked it).
+        assert!(
+            edges.iter().any(|e| {
+                *e.src == *"post:body"
+                    && *e.tgt == *"post:body.createdAt"
+                    && e.name.as_deref() == Some("createdAt")
+            }),
+            "sibling createdAt edge should survive nest_field, got {edges:?}"
+        );
+        // The new intermediate vertex should be present with kind=object.
+        let intermediate = lens
+            .tgt_schema
+            .vertices
+            .get(&GatName::from("post:body.profile"))
+            .expect("intermediate vertex should exist");
+        assert_eq!(&*intermediate.kind, "object");
+    }
+
+    #[test]
+    fn nest_field_preserves_sibling_prop_edges() {
+        // Under the old implementation, `drop_op("prop")` would have
+        // nuked every prop edge (including the sibling `createdAt`).
+        // This explicit test pins that regression.
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let chain = super::combinators::nest_field(
+            "post:body",
+            "post:body.text",
+            "post:body.wrapper",
+            "object",
+            "prop",
+            Some(GatName::from("text")),
+            "wrapper",
+            "text",
+        );
+        let lens = chain.instantiate(&schema, &protocol).unwrap();
+        let prop_edge_count = lens
+            .tgt_schema
+            .edges
+            .keys()
+            .filter(|e| &*e.kind == "prop")
+            .count();
+        // Original: 2 prop edges (text, createdAt).
+        // After nest: createdAt untouched, text replaced by two new prop edges.
+        // Expected total: 1 (createdAt) + 2 (new) = 3.
+        assert_eq!(
+            prop_edge_count, 3,
+            "expected 3 prop edges after nest_field (createdAt + 2 new), got {prop_edge_count}"
+        );
+    }
+
+    #[test]
+    fn drop_edge_schema_apply_rebuilds_indices() {
+        // Build a tiny 2-vertex schema with a single named edge and
+        // verify drop_edge rebuilds `outgoing`/`incoming`/`between`.
+        use std::collections::HashMap;
+        let mut vertices = HashMap::new();
+        vertices.insert(
+            GatName::from("a"),
+            Vertex {
+                id: "a".into(),
+                kind: "object".into(),
+                nsid: None,
+            },
+        );
+        vertices.insert(
+            GatName::from("b"),
+            Vertex {
+                id: "b".into(),
+                kind: "string".into(),
+                nsid: None,
+            },
+        );
+        let edge = SchemaEdge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("label".into()),
+        };
+        let mut edges = HashMap::new();
+        edges.insert(edge.clone(), GatName::from("prop"));
+        let mut outgoing = HashMap::new();
+        outgoing.insert(GatName::from("a"), smallvec![edge.clone()]);
+        let mut incoming = HashMap::new();
+        incoming.insert(GatName::from("b"), smallvec![edge.clone()]);
+        let mut between = HashMap::new();
+        between.insert((GatName::from("a"), GatName::from("b")), smallvec![edge]);
+        let schema = panproto_schema::Schema {
+            protocol: "test".into(),
+            vertices,
+            edges,
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing,
+            incoming,
+            between,
+        };
+
+        let protocol = test_protocol();
+        let p = elementary::drop_edge("a", "b", Some(GatName::from("label")));
+        let lens = p.instantiate(&schema, &protocol).unwrap();
+        assert_eq!(lens.tgt_schema.edges.len(), 0);
+        // rebuild_indices should have cleared out the adjacency maps.
+        let out = lens.tgt_schema.outgoing.get(&GatName::from("a"));
+        assert!(
+            out.is_none_or(SmallVec::is_empty),
+            "outgoing should be empty"
+        );
+        let inc = lens.tgt_schema.incoming.get(&GatName::from("b"));
+        assert!(
+            inc.is_none_or(SmallVec::is_empty),
+            "incoming should be empty"
         );
     }
 }

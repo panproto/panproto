@@ -54,7 +54,7 @@ A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a conc
 | `combinators::remove_field` | Drop a field (Lens) |
 | `combinators::add_field` | Add a field with default (Lens) |
 | `combinators::hoist_field` | Flatten nesting (Lens) |
-| `combinators::nest_field` | Add nesting (Lens) |
+| `combinators::nest_field` | Insert an intermediate vertex between parent and child, relocating the original edge as two edges through the new vertex. Accepts `old_edge_name` and independent `parent_to_intermediate` / `intermediate_to_child` labels so it works on schemas with qualified vertex ids (Lens) |
 | `combinators::pipeline` | Sequential composition of chains |
 | `combinators::map_items` | Scoped traversal on array elements |
 

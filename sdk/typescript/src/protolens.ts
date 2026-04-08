@@ -91,7 +91,14 @@ export interface NestFieldStep {
   readonly name: string;
   readonly intermediate: string;
   readonly kind: string;
+  /** Edge kind stamped on the two new edges (defaults to `"prop"`). */
   readonly target?: string;
+  /** Label of the original `parent → child` edge to drop. */
+  readonly old_edge_name?: string;
+  /** Label for the new `parent → intermediate` edge. */
+  readonly parent_to_intermediate?: string;
+  /** Label for the new `intermediate → child` edge. */
+  readonly intermediate_to_child?: string;
 }
 
 /** Rename an edge label (JSON property key) without changing sorts. */

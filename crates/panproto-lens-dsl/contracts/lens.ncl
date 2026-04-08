@@ -55,6 +55,9 @@ let NestSpec = {
   intermediate | String,
   intermediate_kind | String,
   edge_kind | String,
+  old_edge_name | String | default = "",
+  parent_to_intermediate | String | default = "",
+  intermediate_to_child | String | default = "",
 } in
 
 let PullbackSpec = {
@@ -270,6 +273,15 @@ let hoist = fun parent intermediate child => {
 } in
 
 # Nest a direct child under a new intermediate vertex.
+#
+# Positional args (shorthand): parent, child, intermediate, intermediate_kind, edge_kind.
+# Resulting graph: parent --(intermediate)--> intermediate --(child)--> child
+# with the original parent → child edge dropped.
+#
+# For schemas where the original edge's label differs from the child
+# vertex id (common when vertex ids are path-qualified), build the
+# NestSpec record directly and set `old_edge_name`, `parent_to_intermediate`,
+# and `intermediate_to_child` explicitly.
 let nest = fun parent child intermediate intermediate_kind edge_kind => {
   nest_field = {
     parent = parent,

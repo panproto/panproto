@@ -276,8 +276,20 @@ pub struct NestSpec {
     pub intermediate: String,
     /// Kind of the new intermediate vertex.
     pub intermediate_kind: String,
-    /// Edge kind to remove (the original direct edge from parent to child).
+    /// Edge kind stamped on the two new edges (typically `"prop"`).
     pub edge_kind: String,
+    /// Label of the original `parent → child` edge to drop. Empty
+    /// string means the original edge had no label.
+    #[serde(default)]
+    pub old_edge_name: String,
+    /// Label for the new `parent → intermediate` edge. Defaults to the
+    /// intermediate vertex id when empty.
+    #[serde(default)]
+    pub parent_to_intermediate: String,
+    /// Label for the new `intermediate → child` edge. Defaults to the
+    /// child vertex id when empty.
+    #[serde(default)]
+    pub intermediate_to_child: String,
 }
 
 /// Scoped-transform specification (recursive).

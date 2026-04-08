@@ -146,23 +146,17 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                 summary: format!("Drops operation '{op}': {count} edges captured."),
             }
         }
+        ComplementConstructor::DroppedEdge {
+            src,
+            tgt,
+            edge_name,
+            ..
+        } => dropped_edge_spec(src, tgt, edge_name.as_ref()),
         ComplementConstructor::AddedElement {
             element_name,
             element_kind,
             default_value,
-        } => ComplementSpec {
-            kind: ComplementKind::DefaultsRequired,
-            forward_defaults: vec![DefaultRequirement {
-                element_name: element_name.clone(),
-                element_kind: element_kind.clone(),
-                description: format!(
-                    "Default value needed for added {element_kind} '{element_name}'.",
-                ),
-                suggested_default: default_value.clone(),
-            }],
-            captured_data: vec![],
-            summary: format!("Adds {element_kind} '{element_name}': default required."),
-        },
+        } => added_element_spec(element_name, element_kind, default_value.as_ref()),
         ComplementConstructor::NatTransKernel { nat_trans_name } => ComplementSpec {
             kind: ComplementKind::DataCaptured,
             forward_defaults: vec![],
@@ -205,6 +199,42 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                 summary: format!("Scoped at '{focus}': {}", inner_spec.summary),
             }
         }
+    }
+}
+
+/// Build a `ComplementSpec` for an added element requiring a default.
+fn added_element_spec(
+    element_name: &Name,
+    element_kind: &str,
+    default_value: Option<&panproto_inst::value::Value>,
+) -> ComplementSpec {
+    ComplementSpec {
+        kind: ComplementKind::DefaultsRequired,
+        forward_defaults: vec![DefaultRequirement {
+            element_name: element_name.clone(),
+            element_kind: element_kind.to_string(),
+            description: format!("Default value needed for added {element_kind} '{element_name}'.",),
+            suggested_default: default_value.cloned(),
+        }],
+        captured_data: vec![],
+        summary: format!("Adds {element_kind} '{element_name}': default required."),
+    }
+}
+
+/// Build a `ComplementSpec` for a single dropped edge.
+fn dropped_edge_spec(src: &Name, tgt: &Name, edge_name: Option<&Name>) -> ComplementSpec {
+    let label = edge_name.map_or_else(|| "unnamed".to_string(), ToString::to_string);
+    ComplementSpec {
+        kind: ComplementKind::DataCaptured,
+        forward_defaults: vec![],
+        captured_data: vec![CapturedField {
+            element_name: Name::from(format!("{src}--{label}-->{tgt}")),
+            element_kind: "edge".into(),
+            description: format!(
+                "Single edge '{src} --({label})--> {tgt}' captured in complement."
+            ),
+        }],
+        summary: format!("Drops edge '{src} --({label})--> {tgt}': captured in complement."),
     }
 }
 

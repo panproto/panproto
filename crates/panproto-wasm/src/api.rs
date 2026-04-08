@@ -3682,6 +3682,16 @@ struct ProtolensStepSpec {
     /// Intermediate vertex for `hoist_field` / `nest_field`.
     #[serde(default)]
     intermediate: String,
+    /// Original edge label of the `parent → child` edge, for `nest_field`.
+    /// Empty string means the edge had no label.
+    #[serde(default)]
+    old_edge_name: String,
+    /// Label for the new `parent → intermediate` edge in `nest_field`.
+    #[serde(default)]
+    parent_to_intermediate: String,
+    /// Label for the new `intermediate → child` edge in `nest_field`.
+    #[serde(default)]
+    intermediate_to_child: String,
     /// Inner step spec for `scoped` / `map_items`.
     #[serde(default)]
     inner: Option<Box<Self>>,
@@ -3788,22 +3798,47 @@ fn build_chain_from_step_spec(spec: &ProtolensStepSpec) -> Result<lens::Protolen
             ));
         }
         "nest_field" => {
+            // intermediate_kind: kind of the new intermediate vertex.
+            let intermediate_kind = if spec.kind.is_empty() {
+                spec.intermediate.as_str()
+            } else {
+                spec.kind.as_str()
+            };
+            // edge_kind: kind stamped on the two new edges (default "prop").
+            let edge_kind = if spec.target.is_empty() {
+                "prop"
+            } else {
+                spec.target.as_str()
+            };
+            // old_edge_name: label of the original parent → child edge.
+            let old_edge_name = if spec.old_edge_name.is_empty() {
+                None
+            } else {
+                Some(Name::from(spec.old_edge_name.as_str()))
+            };
+            // Labels for the two new edges. Default to the intermediate
+            // and child vertex ids respectively, preserving the historical
+            // "label == vertex id" convention for callers that don't
+            // distinguish the two.
+            let parent_to_intermediate = if spec.parent_to_intermediate.is_empty() {
+                spec.intermediate.as_str()
+            } else {
+                spec.parent_to_intermediate.as_str()
+            };
+            let intermediate_to_child = if spec.intermediate_to_child.is_empty() {
+                spec.name.as_str()
+            } else {
+                spec.intermediate_to_child.as_str()
+            };
             return Ok(lens::combinators::nest_field(
                 Name::from(spec.parent.as_str()),
                 Name::from(spec.name.as_str()),
                 Name::from(spec.intermediate.as_str()),
-                Name::from(if spec.kind.is_empty() {
-                    spec.intermediate.as_str()
-                } else {
-                    spec.kind.as_str()
-                }),
-                // edge_kind: the kind of the original edge from parent to child.
-                // Use target if specified, otherwise default to the child name.
-                Name::from(if spec.target.is_empty() {
-                    spec.name.as_str()
-                } else {
-                    spec.target.as_str()
-                }),
+                Name::from(intermediate_kind),
+                Name::from(edge_kind),
+                old_edge_name,
+                Name::from(parent_to_intermediate),
+                Name::from(intermediate_to_child),
             ));
         }
         other => {

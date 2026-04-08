@@ -49,7 +49,7 @@ Each schema-level step maps to a call to `panproto_lens::combinators` or `panpro
 
 - `remove_field` and `rename_field` generate qualified vertex IDs (`{body_vertex}.{field}`) before calling the combinator.
 - `add_field` generates both an `add_sort` + `add_op` chain and, if `expr` is present, a `ComputeField` transform.
-- `hoist_field`, `nest_field` delegate directly.
+- `hoist_field` delegates directly. `nest_field` takes three optional spec fields, `old_edge_name`, `parent_to_intermediate`, and `intermediate_to_child`, letting callers specify edge labels independently from vertex ids; empty values fall back to the intermediate/child vertex ids for backward compatibility.
 - `scoped` compiles inner steps recursively *with the focus vertex as body*, fuses the inner chain, and wraps via `map_items`.
 - `pullback` constructs a `TheoryMorphism` and delegates to `elementary::pullback`.
 

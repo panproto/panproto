@@ -333,11 +333,37 @@ export class PipelineBuilder {
     return this;
   }
 
-  /** Nest a field under a new intermediate vertex. */
-  nestField(parent: string, child: string, intermediate: string, kind: string, edgeKind?: string): this {
+  /**
+   * Nest a field under a new intermediate vertex.
+   *
+   * Options let you specify the original edge's label (for schemas
+   * where vertex ids differ from short JSON keys, e.g. `user.name`
+   * under the label `"name"`), and the labels of the two new edges
+   * that replace it. Defaults preserve the historical
+   * "label == vertex id" convention.
+   */
+  nestField(
+    parent: string,
+    child: string,
+    intermediate: string,
+    kind: string,
+    options?: {
+      edgeKind?: string;
+      oldEdgeName?: string;
+      parentToIntermediate?: string;
+      intermediateToChild?: string;
+    },
+  ): this {
     this.#steps.push({
-      step_type: 'nest_field', parent, name: child, intermediate, kind,
-      target: edgeKind ?? child,
+      step_type: 'nest_field',
+      parent,
+      name: child,
+      intermediate,
+      kind,
+      target: options?.edgeKind ?? 'prop',
+      old_edge_name: options?.oldEdgeName,
+      parent_to_intermediate: options?.parentToIntermediate,
+      intermediate_to_child: options?.intermediateToChild,
     } as NestFieldStep);
     return this;
   }

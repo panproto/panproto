@@ -4,6 +4,19 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.27.2] - 2026-04-08
+
+### Fixed
+
+- **panproto-lens**: `combinators::nest_field` now works correctly on schemas where vertex ids are path-qualified (e.g., `user.name`) and differ from their short edge labels (e.g., `"name"`). The previous implementation silently produced chains that referenced nonexistent vertices and dropped edges by *kind* rather than by `(src, tgt, name)`, so passing `"prop"` as the edge kind would nuke every `prop` edge in the schema. Resolves panproto/panproto#23.
+
+### Changed
+
+- **panproto-lens**: `combinators::nest_field` signature changed (breaking, pre-1.0). It now takes three additional arguments: `old_edge_name: Option<Name>` (label of the `parent → child` edge to drop), `parent_to_intermediate: impl Into<Name>`, and `intermediate_to_child: impl Into<Name>` (labels for the two new edges). These let callers specify edge labels independently from vertex ids, which is required for schemas built via `SchemaBuilder::add_prop`, ATProto lexicons, or any protocol with qualified ids.
+- **panproto-lens**: New elementary primitives `elementary::add_edge(src, tgt, name, kind)` and `elementary::drop_edge(src, tgt, name)` for fiber-level edge manipulation. Unlike `add_op`/`drop_op`, these let `Edge.name` differ from `Edge.kind` and target a single edge by its `(src, tgt, name)` triple.
+- **panproto-gat**: New `TheoryTransform` variants `AddEdge { src_sort, tgt_sort, edge_name, edge_kind }` and `DropEdge { src_sort, tgt_sort, edge_name }`, both fiber-level (theory-level identity, schema-level effect) following the `RenameEdgeName` precedent.
+- **panproto-wasm**, **panproto-lens-dsl**, **@panproto/core**: `nest_field` step specs extended with optional `old_edge_name`, `parent_to_intermediate`, and `intermediate_to_child` fields. Empty values fall back to the old "label == vertex id" convention for callers that don't distinguish the two.
+
 ## [0.27.1] - 2026-04-07
 
 ### Added

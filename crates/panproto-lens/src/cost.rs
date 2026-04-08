@@ -24,7 +24,8 @@ pub fn complement_cost(complement: &ComplementConstructor) -> f64 {
     match complement {
         ComplementConstructor::Empty => 0.0,
         ComplementConstructor::DroppedSortData { .. }
-        | ComplementConstructor::DroppedOpData { .. } => 1.0,
+        | ComplementConstructor::DroppedOpData { .. }
+        | ComplementConstructor::DroppedEdge { .. } => 1.0,
         ComplementConstructor::NatTransKernel { .. } => 10.0,
         ComplementConstructor::AddedElement { .. } => 0.5,
         ComplementConstructor::CoercedSortData { class, .. } => match class {
