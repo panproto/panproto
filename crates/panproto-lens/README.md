@@ -2,121 +2,65 @@
 
 [![crates.io](https://img.shields.io/crates/v/panproto-lens.svg)](https://crates.io/crates/panproto-lens)
 [![docs.rs](https://docs.rs/panproto-lens/badge.svg)](https://docs.rs/panproto-lens)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Protolens-based bidirectional schema transformations for panproto.
+Bidirectional converters (lenses) for schema data, with reusable migration templates (protolenses).
 
-A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a concrete pair (`get`, `put`) between two *fixed* schemas, with complement tracking and round-trip laws (GetPut, PutGet; see [Diskin et al., 2011](https://doi.org/10.1016/j.tcs.2010.12.039)). A **protolens** is *not* a lens. It is a dependent function from schemas to lenses: for every schema S satisfying a precondition P(S), calling `instantiate(S)` produces a `Lens(F(S), G(S))` where F and G are theory endofunctors. A single protolens works on any compatible schema; a lens is bound to the exact schemas it was built for. `auto_generate` derives an entire protolens chain (and its instantiated lens) automatically from two schemas by factorizing the underlying theory morphism.
+## What it does
 
-## API
+A lens is a pair of functions: `get` converts data forward (old schema to new, dropping fields the new schema doesn't need), and `put` converts it back (new to old, recovering the dropped fields from a stored complement). The complement is what `get` set aside so that `put` can reconstruct the original without guessing. Two laws verify correctness: `GetPut` (put after get recovers the original) and `PutGet` (get after put gives back what you put in).
 
-### Protolenses
+A protolens generalizes this: instead of a lens fixed to two specific schemas, a protolens is a template that works for any schema satisfying a condition. When you call `instantiate` on a protolens with a concrete schema, you get back a `Lens` for that schema. This means a single protolens covers whole families of schema versions rather than one pair. `auto_generate` derives a protolens chain automatically from any two schemas by analyzing the structural difference.
 
-| Item | Description |
-|------|-------------|
-| `Protolens` | A dependent function from schemas to lenses: `Π(S : Schema \| P(S)). Lens(F(S), G(S))` |
-| `ProtolensChain` | Composable sequence of protolenses forming a reusable, schema-independent lens family |
-| `elementary::*` | Elementary protolens constructors (add/drop/rename sort, add/drop/rename op, add/drop equation, directed equation, pullback) |
-| `auto_generate` | Automatically generate a lens between two schemas by factorizing the underlying morphism |
-| `AutoLensConfig` | Configuration for auto-generation (strategy, max steps, etc.) |
-| `AutoLensResult` | Result of auto-generation: lens, protolens chain, and human-readable summary |
-| `ComplementConstructor` | Schema-parameterized complement factory: Empty, DroppedSortData, CoercedData, MergedSortData, DefaultedSort, Composite |
-| `ComplementSpec` | Dependent complement type evaluation for a protolens step |
-| `DefaultRequirement` | Specifies default values required when a protolens adds structure |
-| `CapturedField` | A field captured into the complement during a `get` step |
-| `complement_spec_at` | Compute the complement specification for a single protolens step at a given schema |
-| `chain_complement_spec` | Compute the composite complement specification for an entire protolens chain |
-| `diff_to_protolens` | Derive a protolens chain from a structural schema diff |
-| `diff_to_lens` | Derive a concrete lens from a structural schema diff |
-| `DiffSpec` | Configuration for diff-based protolens derivation |
-| `SchemaConstraint` | Direct schema-level precondition checking (vs lossy implicit theory extraction) |
-| `check_applicability` | Check applicability returning failure reasons (not just boolean) |
-| `ProtolensChain::fuse` | Compose all steps into a single protolens (avoids intermediate schemas) |
-| `ProtolensChain::to_json` / `from_json` | Serialize and deserialize chains for cross-project reuse |
-| `Protolens::to_json` / `from_json` | Serialize and deserialize individual protolenses |
-| `FleetResult` | Result of applying a chain to multiple schemas (applied + skipped with reasons) |
-| `apply_to_fleet` | Apply a chain to a fleet of schemas |
-| `lift_protolens` / `lift_chain` | Lift protolenses along theory morphisms for cross-protocol reuse |
-| `ComplementConstructor::AddedElement` | Complement variant for elements requiring defaults |
-| `OpticKind` | Optic classification: Iso, Lens, Prism, Affine, Traversal |
-| `classify_transform` | Classify a `TheoryTransform` into its optic kind |
-| `SymbolicStep` | Symbolic representation of protolens steps for algebraic simplification |
-| `simplify_steps` | Normalize a step sequence via inverse cancellation, rename fusion, and add-drop cancellation |
-| `complement_cost` / `chain_cost` | Lawvere metric cost computation for complement constructors and protolens chains |
-| `LensGraph` | Weighted lens graph with Floyd-Warshall shortest path computation |
-| `LensGraph::preferred_path` | Find the minimum-cost conversion path between schemas |
-| `LensGraph::distance` | Shortest distance between two schemas in the lens graph |
+Each lens (and each step in a protolens chain) is classified by its optic kind: `Iso` when both directions are lossless, `Lens` when the forward direction drops information, `Prism` when the forward direction can fail (optional fields), and `Traversal` when it applies to every element of a collection. This classification lets you reason about which migrations can be reversed and which cannot.
 
-### Combinators
-
-| Item | Description |
-|------|-------------|
-| `combinators::rename_field` | Rename a field's JSON property key (Iso) |
-| `combinators::remove_field` | Drop a field (Lens) |
-| `combinators::add_field` | Add a field with default (Lens) |
-| `combinators::hoist_field` | Flatten nesting (Lens) |
-| `combinators::nest_field` | Insert an intermediate vertex between parent and child, relocating the original edge as two edges through the new vertex. Accepts `old_edge_name` and independent `parent_to_intermediate` / `intermediate_to_child` labels so it works on schemas with qualified vertex ids (Lens) |
-| `combinators::pipeline` | Sequential composition of chains |
-| `combinators::map_items` | Scoped traversal on array elements |
-
-### Lenses
-
-| Item | Description |
-|------|-------------|
-| `Lens` | Asymmetric lens backed by a compiled migration, source schema, and target schema |
-| `get` | Forward direction: project an instance to a view, producing a complement |
-| `put` | Backward direction: restore source from a modified view and complement |
-| `Complement` | Data discarded by `get`, needed by `put` to reconstruct the source |
-| `compose` | Compose two lenses sequentially |
-
-### Symmetric lenses
-
-| Item | Description |
-|------|-------------|
-| `SymmetricLens` | Symmetric (bidirectional) lens pairing two protolens chains with shared complement |
-| `SymmetricLens::from_protolens_chains` | Build a symmetric lens from two protolens chains |
-| `SymmetricLens::auto_symmetric` | Automatically generate a symmetric lens between two schemas |
-
-### Edit lenses
-
-| Item | Description |
-|------|-------------|
-| `EditLens` | Incremental edit lens: translates individual `TreeEdit` values through a migration |
-| `EditLens::from_lens` | Construct from a state-based `Lens` and protocol |
-| `EditLens::initialize` | Populate initial complement from a whole-state `get` |
-| `EditLens::get_edit` | Translate a source edit to a view edit, updating complement |
-| `EditLens::put_edit` | Translate a view edit back to a source edit |
-| `EditPipeline` | Five-step incremental translation pipeline (anchor survival, reachability, contraction, edge resolution, fan reconstruction) |
-| `EditProvenance` | Translation lineage: source edit, rules applied, policy consulted, totality |
-| `check_edit_consistency` | Verify the Consistency law (incremental vs batch agreement) |
-| `check_complement_coherence` | Verify the Complement coherence law |
-| `EditLensError` | Error types for edit lens operations |
-
-### Verification
-
-| Item | Description |
-|------|-------------|
-| `check_laws` / `check_get_put` / `check_put_get` | Verify lens laws on a test instance |
-| `LensError` / `LawViolation` | Error types |
-
-## Example
+## Quick example
 
 ```rust,ignore
-use panproto_lens::{auto_generate, get, put, check_laws, ProtolensChain};
+use panproto_lens::{auto_generate, get, put, check_laws};
 
-// Auto-generate a lens between two schema versions
-let result = auto_generate(&src_schema, &tgt_schema)?;
+// Derive a lens from two schema versions automatically.
+let result = auto_generate(&v1_schema, &v2_schema)?;
+
+// Forward: project a v1 instance to a v2 view, keeping the complement.
 let (view, complement) = get(&result.lens, &instance)?;
 
-// Modify the view...
-let restored = put(&result.lens, &modified_view, &complement)?;
+// Backward: restore the v1 instance from the v2 view and complement.
+let restored = put(&result.lens, &view, &complement)?;
 
-// Verify round-trip laws
+// Verify both round-trip laws.
 check_laws(&result.lens, &instance)?;
 
-// Build a reusable protolens chain (schema-independent)
-let chain = result.chain;
-let lens_at_other_schema = chain.instantiate(&other_src, &other_tgt)?;
+// The protolens chain works across any compatible schema pair.
+let lens_v3 = result.chain.instantiate(&v3_src, &v3_tgt)?;
 ```
+
+## API overview
+
+| Export | What it does |
+|--------|-------------|
+| `Lens` | An asymmetric lens: source schema, target schema, compiled migration |
+| `get` | Forward direction: project an instance, returning `(view, complement)` |
+| `put` | Backward direction: restore source from a view and its complement |
+| `Complement` | The data `get` dropped, needed by `put` |
+| `compose` | Chain two lenses sequentially |
+| `Protolens` | A reusable lens template parameterized by schema |
+| `ProtolensChain` | A sequence of protolenses that composes as a single unit |
+| `auto_generate` | Derive a `ProtolensChain` and `Lens` from two schemas |
+| `combinators::rename_field` | Rename a field's property key (Iso) |
+| `combinators::remove_field` | Drop a field, capturing it in the complement (Lens) |
+| `combinators::add_field` | Add a field with a default value (Lens) |
+| `combinators::hoist_field` | Collapse one level of nesting (Lens) |
+| `combinators::nest_field` | Insert an intermediate vertex between parent and child (Lens) |
+| `combinators::map_items` | Apply a pipeline to each element of an array (Traversal) |
+| `SymmetricLens` | A bidirectional lens pairing two protolens chains with shared complement |
+| `EditLens` | Incremental lens: translate individual edits rather than full instances |
+| `OpticKind` | Classification: `Iso`, `Lens`, `Prism`, `Affine`, `Traversal` |
+| `classify_transform` | Classify a theory transform into its optic kind |
+| `simplify_steps` | Normalize a step sequence (cancel inverses, fuse renames) |
+| `check_laws` / `check_get_put` / `check_put_get` | Verify round-trip laws on a test instance |
+| `LensGraph` | Weighted graph of lenses with shortest-path queries |
+| `diff_to_protolens` | Derive a protolens chain from a structural schema diff |
 
 For declarative lens specifications in Nickel, JSON, or YAML, see [`panproto-lens-dsl`](../panproto-lens-dsl).
 

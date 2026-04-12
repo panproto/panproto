@@ -7,7 +7,8 @@ use std::path::Path;
 
 use panproto_vcs::{MemStore, Store};
 
-use crate::import::import_git_repo;
+use crate::export::export_to_git;
+use crate::import::{import_git_repo, import_git_repo_incremental};
 
 /// Create a temporary git repository with a single commit containing
 /// the given files.
@@ -152,4 +153,261 @@ fn import_multiple_commits() {
         }
         other => panic!("expected commit, got {}", other.type_name()),
     }
+}
+
+/// Build a git repo with `n` sequential commits on a single branch.
+fn create_linear_history(n: usize) -> (tempfile::TempDir, git2::Repository, Vec<git2::Oid>) {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = git2::Repository::init(dir.path()).unwrap();
+    let sig = git2::Signature::new("Dev", "dev@test.com", &git2::Time::new(1000, 0)).unwrap();
+    let file_path = dir.path().join("main.py");
+
+    let mut commit_oids = Vec::new();
+    let mut parent: Option<git2::Oid> = None;
+
+    for i in 0..n {
+        std::fs::write(&file_path, format!("x = {i}\n").as_bytes()).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("main.py")).unwrap();
+        index.write().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+
+        let parent_commit = parent.map(|p| repo.find_commit(p).unwrap());
+        let parents: Vec<&git2::Commit<'_>> = parent_commit.iter().collect();
+        let new_oid = repo
+            .commit(
+                Some("HEAD"),
+                &sig,
+                &sig,
+                &format!("commit {i}"),
+                &tree,
+                &parents,
+            )
+            .unwrap();
+        commit_oids.push(new_oid);
+        parent = Some(new_oid);
+    }
+
+    (dir, repo, commit_oids)
+}
+
+#[test]
+fn incremental_import_skips_known_ancestors() {
+    let (_dir, repo, commit_oids) = create_linear_history(3);
+
+    // First: import commits 0..=1 into a store.
+    let mut store = MemStore::new();
+    let first = import_git_repo(&repo, &mut store, &commit_oids[1].to_string()).unwrap();
+    assert_eq!(first.commit_count, 2);
+
+    // Build the known map from the first import's oid_map.
+    let known: rustc_hash::FxHashMap<git2::Oid, panproto_vcs::ObjectId> =
+        first.oid_map.iter().copied().collect();
+
+    // Now incrementally import up to commit 2. Only one new commit should
+    // be imported (commit 2), and its parent should be wired to the
+    // already-known panproto ID for commit 1.
+    let second =
+        import_git_repo_incremental(&repo, &mut store, &commit_oids[2].to_string(), &known)
+            .unwrap();
+
+    assert_eq!(second.commit_count, 1, "expected only one new commit");
+    assert_eq!(second.oid_map.len(), 1);
+    assert_eq!(second.oid_map[0].0, commit_oids[2]);
+
+    // The new HEAD commit should have the previously-imported commit 1 as
+    // its single panproto parent.
+    let head_obj = store.get(&second.head_id).unwrap();
+    match &head_obj {
+        panproto_vcs::Object::Commit(c) => {
+            assert_eq!(c.parents.len(), 1);
+            assert_eq!(c.parents[0], known[&commit_oids[1]]);
+        }
+        other => panic!("expected commit, got {}", other.type_name()),
+    }
+}
+
+#[test]
+fn incremental_import_noop_when_head_is_known() {
+    let (_dir, repo, commit_oids) = create_linear_history(2);
+
+    // First: import everything.
+    let mut store = MemStore::new();
+    let first = import_git_repo(&repo, &mut store, "HEAD").unwrap();
+    assert_eq!(first.commit_count, 2);
+
+    // Re-import with HEAD already known: should be a no-op, head_id preserved.
+    let known: rustc_hash::FxHashMap<git2::Oid, panproto_vcs::ObjectId> =
+        first.oid_map.iter().copied().collect();
+    let second = import_git_repo_incremental(&repo, &mut store, "HEAD", &known).unwrap();
+
+    assert_eq!(second.commit_count, 0);
+    assert_eq!(second.head_id, known[&commit_oids[1]]);
+    assert!(second.oid_map.is_empty());
+}
+
+#[test]
+fn incremental_import_sets_no_local_refs() {
+    // The import functions should be pure with respect to refs: only
+    // object insertion. Naming the imported tip is the caller's job.
+    let (_dir, repo, _oids) = create_linear_history(2);
+
+    let mut store = MemStore::new();
+    let result = import_git_repo(&repo, &mut store, "HEAD").unwrap();
+    assert!(result.head_id != panproto_vcs::ObjectId::ZERO);
+
+    // No refs should exist under refs/ after an import (regression test
+    // for the removed hardcoded "refs/heads/main" write).
+    let refs = store.list_refs("refs/").unwrap();
+    assert!(
+        refs.is_empty(),
+        "expected no refs after import, found: {refs:?}"
+    );
+}
+
+#[test]
+fn incremental_import_tolerates_stale_known_entries() {
+    // A `known` map entry whose git OID is not reachable from the head
+    // being imported should be silently ignored; revwalk.hide returns an
+    // error in that case and we swallow it so stale caches don't break
+    // subsequent imports.
+    let (_dir, repo, commit_oids) = create_linear_history(2);
+
+    // Build a known map containing a fabricated git OID that does not
+    // exist in the repo, plus the real first commit (which should still
+    // be honored as a skip target).
+    let fake_oid = git2::Oid::from_str("0123456789abcdef0123456789abcdef01234567").unwrap();
+    let mut first_store = MemStore::new();
+    let first = import_git_repo(&repo, &mut first_store, &commit_oids[0].to_string()).unwrap();
+    let first_panproto = first.oid_map[0].1;
+
+    let mut known: rustc_hash::FxHashMap<git2::Oid, panproto_vcs::ObjectId> =
+        rustc_hash::FxHashMap::default();
+    known.insert(fake_oid, panproto_vcs::ObjectId::ZERO);
+    known.insert(commit_oids[0], first_panproto);
+
+    // Importing the second commit with this mixed known map should
+    // succeed, yield exactly one new commit, and wire its parent to the
+    // real first_panproto id.
+    let mut store = first_store;
+    let result = import_git_repo_incremental(&repo, &mut store, "HEAD", &known).unwrap();
+    assert_eq!(result.commit_count, 1);
+    let head_obj = store.get(&result.head_id).unwrap();
+    match &head_obj {
+        panproto_vcs::Object::Commit(c) => {
+            assert_eq!(c.parents, vec![first_panproto]);
+        }
+        other => panic!("expected commit, got {}", other.type_name()),
+    }
+}
+
+/// Build a fresh git repository with no commits, for testing export.
+fn empty_git_repo() -> (tempfile::TempDir, git2::Repository) {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = git2::Repository::init(dir.path()).unwrap();
+    (dir, repo)
+}
+
+#[test]
+fn export_with_update_ref_none_leaves_head_unborn() {
+    // Import a single commit into a panproto store.
+    let (_src_dir, src_repo, _oids) = create_linear_history(1);
+    let mut store = MemStore::new();
+    let import_result = import_git_repo(&src_repo, &mut store, "HEAD").unwrap();
+
+    // Export into a fresh repo with update_ref = None. The commit object
+    // should exist, but HEAD should not yet have been born.
+    let (_dst_dir, dst_repo) = empty_git_repo();
+    let parent_map: rustc_hash::FxHashMap<panproto_vcs::ObjectId, git2::Oid> =
+        rustc_hash::FxHashMap::default();
+    let result =
+        export_to_git(&store, &dst_repo, import_result.head_id, &parent_map, None).unwrap();
+
+    // The created commit exists as an object.
+    assert!(dst_repo.find_commit(result.git_oid).is_ok());
+
+    // HEAD still points to the unborn initial branch. `revparse_single`
+    // on HEAD should fail because no commit has been attached to it.
+    assert!(
+        dst_repo.head().is_err(),
+        "HEAD should remain unborn when update_ref is None"
+    );
+}
+
+#[test]
+fn export_with_update_ref_some_moves_named_ref() {
+    let (_src_dir, src_repo, _oids) = create_linear_history(1);
+    let mut store = MemStore::new();
+    let import_result = import_git_repo(&src_repo, &mut store, "HEAD").unwrap();
+
+    // Export into a fresh repo with update_ref = Some("HEAD"). HEAD
+    // should now resolve to the new commit.
+    let (_dst_dir, dst_repo) = empty_git_repo();
+    let parent_map: rustc_hash::FxHashMap<panproto_vcs::ObjectId, git2::Oid> =
+        rustc_hash::FxHashMap::default();
+    let result = export_to_git(
+        &store,
+        &dst_repo,
+        import_result.head_id,
+        &parent_map,
+        Some("HEAD"),
+    )
+    .unwrap();
+
+    let head = dst_repo.head().unwrap();
+    let head_commit = head.peel_to_commit().unwrap();
+    assert_eq!(head_commit.id(), result.git_oid);
+}
+
+#[test]
+fn export_parent_map_links_exported_parent() {
+    // Import a 2-commit history so we have two panproto commit IDs with
+    // a real parent relationship.
+    let (_src_dir, src_repo, _oids) = create_linear_history(2);
+    let mut store = MemStore::new();
+    let import_result = import_git_repo(&src_repo, &mut store, "HEAD").unwrap();
+    let first_panproto = import_result.oid_map[0].1;
+    let second_panproto = import_result.oid_map[1].1;
+
+    // Export into a fresh repo: first commit with empty map, second
+    // commit with the first-commit mapping populated.
+    let (_dst_dir, dst_repo) = empty_git_repo();
+    let mut parent_map: rustc_hash::FxHashMap<panproto_vcs::ObjectId, git2::Oid> =
+        rustc_hash::FxHashMap::default();
+
+    let first_result = export_to_git(&store, &dst_repo, first_panproto, &parent_map, None).unwrap();
+    parent_map.insert(first_panproto, first_result.git_oid);
+
+    let second_result =
+        export_to_git(&store, &dst_repo, second_panproto, &parent_map, None).unwrap();
+
+    // The second git commit should have the first as its parent.
+    let second_git = dst_repo.find_commit(second_result.git_oid).unwrap();
+    assert_eq!(second_git.parent_count(), 1);
+    assert_eq!(second_git.parent(0).unwrap().id(), first_result.git_oid);
+}
+
+#[test]
+fn export_parent_map_empty_produces_root_commit() {
+    // A panproto commit with parents, exported with an empty parent_map,
+    // should produce a git commit with zero git parents (the panproto
+    // parents are "invisible" to the export because they aren't mapped).
+    let (_src_dir, src_repo, _oids) = create_linear_history(2);
+    let mut store = MemStore::new();
+    let import_result = import_git_repo(&src_repo, &mut store, "HEAD").unwrap();
+    let second_panproto = import_result.oid_map[1].1;
+
+    let (_dst_dir, dst_repo) = empty_git_repo();
+    let parent_map: rustc_hash::FxHashMap<panproto_vcs::ObjectId, git2::Oid> =
+        rustc_hash::FxHashMap::default();
+
+    let result = export_to_git(&store, &dst_repo, second_panproto, &parent_map, None).unwrap();
+
+    let git_commit = dst_repo.find_commit(result.git_oid).unwrap();
+    assert_eq!(
+        git_commit.parent_count(),
+        0,
+        "unmapped panproto parents should not produce git parents"
+    );
 }

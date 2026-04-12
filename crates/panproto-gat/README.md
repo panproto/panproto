@@ -2,73 +2,62 @@
 
 [![crates.io](https://img.shields.io/crates/v/panproto-gat.svg)](https://crates.io/crates/panproto-gat)
 [![docs.rs](https://docs.rs/panproto-gat/badge.svg)](https://docs.rs/panproto-gat)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-[Generalized Algebraic Theory](https://ncatlab.org/nlab/show/generalized+algebraic+theory) (GAT) engine for panproto.
+The math engine that defines what a valid schema language looks like.
 
-This is Level 0 of the panproto architecture: the only component implemented directly in Rust rather than as data. It provides the foundational type system for defining schema languages: sorts (including dependent sorts with parameters), operations, equations, and theories, along with [morphisms](https://ncatlab.org/nlab/show/morphism+of+theories) and [colimits](https://ncatlab.org/nlab/show/colimit) (pushouts) for composing them. Theory [endofunctors](https://ncatlab.org/nlab/show/endofunctor) and factorization support protolens construction by decomposing morphisms into elementary transformations.
+## What it does
 
-## API
+Every schema language (JSON Schema, OpenAPI, Protobuf, SQL DDL) has its own rules: which field types are allowed, how nesting works, what counts as a required vs. optional relationship. This crate lets you describe those rules formally as a "theory": a named set of sorts (the categories of thing that exist), operations (how those things relate), and equations (rules every instance must satisfy). Think of a theory as a type system for your schema language itself.
 
-| Item | Description |
-|------|-------------|
-| `Theory` | Named collection of sorts, operations, equations, directed equations, and conflict policies |
-| `resolve_theory` | Resolve a theory by name from a registry |
-| `Sort` / `SortParam` / `SortKind` | Type declarations with kind classification (Structural, Val, Coercion, Merger) |
-| `CoercionClass` | Diamond lattice classifying coercion round-trip properties: `Iso`, `Retraction`, `Projection`, `Opaque` |
-| `ValueKind` | Primitive value kinds: Bool, Int, Float, Str, Bytes, Token, Null, Any |
-| `Operation` | Term constructor with typed inputs and outputs |
-| `Equation` / `Term` | Judgemental equalities between terms |
-| `DirectedEquation` | Rewrite rules with `impl_term` (Expr) and optional `inverse` |
-| `ConflictPolicy` / `ConflictStrategy` | Conflict resolution: KeepLeft, KeepRight, Fail, Custom(Expr) |
-| `TheoryMorphism` | Structure-preserving map between theories |
-| `check_morphism` | Validate that a morphism is well-formed |
-| `colimit` | Compute pushouts of theories over explicit morphisms (returns `ColimitResult` with inclusion morphisms) |
-| `colimit_by_name` | Compute pushouts of theories by shared name (backward-compatible convenience) |
-| `Model` / `ModelValue` | Interpretations of theories in Set |
-| `migrate_model` | Transport a model along a morphism |
-| `Name` | Interned string identifier (`Arc<str>`) with fast pointer equality |
-| `Ident` | Stable identity separating display name from internal id |
-| `typecheck_term` | Infer the output sort of a term and verify all argument sorts match |
-| `typecheck_equation` | Verify both sides of an equation produce the same sort |
-| `typecheck_theory` | Type-check all equations in a theory |
-| `infer_var_sorts` | Infer variable sorts from an equation's operation application sites |
-| `check_model` | Verify a model satisfies all equations of its theory by enumerating assignments |
-| `check_model_with_options` | Model checking with configurable assignment limits (`CheckModelOptions`) |
-| `EquationViolation` | A single equation violation with assignment, LHS value, and RHS value |
-| `pullback` | Compute the [pullback](https://ncatlab.org/nlab/show/pullback) of two theories over a common codomain |
-| `PullbackResult` | Pullback theory with projection morphisms `proj1` and `proj2` |
-| `NaturalTransformation` | A [natural transformation](https://ncatlab.org/nlab/show/natural+transformation) between two theory morphisms with per-sort components |
-| `check_natural_transformation` | Validate naturality squares, component coverage, and domain/codomain agreement |
-| `vertical_compose` | Compose two natural transformations F=>G and G=>H into F=>H |
-| `horizontal_compose` | Compose natural transformations across morphism composition (whiskering) |
-| `free_model` | Construct the free (initial) model by enumerating closed terms up to a depth bound |
-| `FreeModelConfig` | Configuration: `max_depth` and `max_terms_per_sort` bounds |
-| `quotient` | Quotient a theory by identifying sorts and/or operations via union-find |
-| `TheoryEndofunctor` | [Theory endofunctor](https://ncatlab.org/nlab/show/endofunctor) with precondition and transform for protolens construction |
-| `TheoryTransform` | 16 variants: structural (add/remove/rename sort/op/equation, pullback, compose) and enriched (CoerceSort, MergeSorts, AddSortWithDefault, AddDirectedEquation, DropDirectedEquation) |
-| `TheoryConstraint` | Precondition predicates: HasSort, HasOp, HasEquation, HasDirectedEq, HasValSort, HasCoercion, HasMerger, HasPolicy, All, Any, Not |
-| `RefinedSort` / `RefinementConstraint` | Refinement types with subsort checking via interval containment |
-| `AlgStruct` / `StructField` | Algebraic struct types in theories |
-| `EqWitness` / `WitnessJustification` | Propositional equality proofs: Reflexivity, Axiom, Symmetry, Transitivity, Congruence, RuntimeChecked |
-| `factorize` | Decompose a `TheoryMorphism` into a sequence of elementary endofunctors |
-| `Factorization` | Result of factorization: ordered list of `TheoryEndofunctor` steps |
-| `validate_factorization` | Verify that a factorization correctly reproduces the original morphism |
-| `CompositionSpec` | Declarative recipe for composing theories via sequential colimits |
-| `CompositionStep` | `Base(name)` or `Colimit { left, right, shared_sorts, shared_ops }` |
-| `recompose` | Replay a `CompositionSpec` against a theory registry to reconstruct a composed theory |
-| `GatError` | Error type for GAT operations |
+Once you have theories for two schema languages, this crate can compute their colimit, which is the smallest theory that contains both. That is the foundation for cross-protocol translation: if you can describe OpenAPI and JSON Schema as theories, combining them tells you exactly which concepts they share and which are unique to each. Morphisms (structure-preserving maps between theories) then let you carry data, schemas, and migrations across that boundary without losing information.
 
-## Example
+The crate also provides endofunctor helpers for decomposing a morphism into a sequence of named, reusable steps. Those steps become the building blocks of protolenses: bidirectional schema transforms that can be composed, inverted, and version-controlled.
+
+## Quick example
 
 ```rust,ignore
-use panproto_gat::{Theory, Sort, Operation};
+use panproto_gat::{Theory, Sort, Operation, colimit};
 
-let mut theory = Theory::new("SimpleGraph");
-theory.add_sort(Sort::new("V"));
-theory.add_sort(Sort::new("E"));
-theory.add_op(Operation::new("src", vec!["E"], "V"));
-theory.add_op(Operation::new("tgt", vec!["E"], "V"));
+let mut graph = Theory::new("SimpleGraph");
+graph.add_sort(Sort::new("V"));
+graph.add_sort(Sort::new("E"));
+graph.add_op(Operation::new("src", vec!["E"], "V"));
+graph.add_op(Operation::new("tgt", vec!["E"], "V"));
+
+// Combine with a second theory; shared sorts are merged automatically.
+let result = colimit(&graph, &other_theory, &morphism)?;
 ```
+
+## API overview
+
+| Item | What it does |
+|------|-------------|
+| `Theory` | Named collection of sorts, operations, equations, and conflict policies |
+| `Sort` / `SortKind` | Type declarations; kinds classify sorts as structural, value, coercion, or merger |
+| `Operation` | Named function with typed inputs and a typed output |
+| `Equation` / `Term` | Equality rules that every model of the theory must satisfy |
+| `DirectedEquation` | Rewrite rule with an optional inverse (used for coercion round-trips) |
+| `TheoryMorphism` | Structure-preserving map from one theory to another |
+| `check_morphism` | Validate that a morphism respects all sorts, operations, and equations |
+| `colimit` | Combine two theories over explicit shared structure; returns inclusion morphisms |
+| `colimit_by_name` | Convenience form that identifies shared elements by name |
+| `pullback` | Compute the intersection of two theories over a common target |
+| `NaturalTransformation` | A family of per-sort maps between two morphisms (coherence certificate) |
+| `check_natural_transformation` | Verify naturality squares, coverage, and domain/codomain agreement |
+| `CoercionClass` | Four-point lattice classifying round-trip fidelity: `Iso`, `Retraction`, `Projection`, `Opaque` |
+| `Model` / `ModelValue` | Concrete interpretation of a theory (assigns sets to sorts, functions to operations) |
+| `migrate_model` | Transport a model along a morphism to a different theory |
+| `typecheck_term` | Infer and verify the output sort of a term |
+| `typecheck_theory` | Type-check all equations in a theory at once |
+| `free_model` | Build the smallest model by enumerating closed terms up to a depth bound |
+| `TheoryEndofunctor` | Single-step theory transform used as a building block for protolenses |
+| `TheoryTransform` | 16 named transform variants: add/remove/rename sort or op, coerce, merge, add default, and more |
+| `factorize` | Decompose a morphism into an ordered sequence of elementary endofunctors |
+| `CompositionSpec` | Declarative recipe for building a theory from a sequence of colimit steps |
+| `recompose` | Replay a `CompositionSpec` against a registry to reconstruct a composed theory |
+| `Name` | Interned identifier (`Arc<str>`) with fast pointer equality |
+| `GatError` | Error type for all GAT operations |
 
 ## License
 

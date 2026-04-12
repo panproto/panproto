@@ -18,6 +18,8 @@
 //! | GET | `getHead` | Get HEAD state |
 //! | POST | `negotiate` | Have/want negotiation for efficient transfer |
 //! | GET | `getRepoInfo` | Repository metadata |
+//! | GET | `listCommits` | Walk commit history from a ref |
+//! | GET | `diffCommits` | Schema diff between two commits |
 //!
 //! ## Push flow
 //!
@@ -39,5 +41,8 @@ pub mod client;
 /// Error types for XRPC operations.
 pub mod error;
 
-pub use client::{NegotiateResult, NodeClient, PullResult, PushResult, RepoInfo};
+pub use client::{
+    CommitEntry, CommitIdentity, DiffCommitsResult, FileDiff, ListCommitsResult, NegotiateResult,
+    NodeClient, PullResult, PushResult, RepoInfo,
+};
 pub use error::XrpcError;

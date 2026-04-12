@@ -4,9 +4,9 @@
 [![Python](https://img.shields.io/pypi/pyversions/panproto)](https://pypi.org/project/panproto/)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/panproto/panproto/blob/main/LICENSE)
 
-Native Python bindings for [panproto](https://panproto.dev), a schema migration engine grounded in generalized algebraic theories. Built with PyO3 for zero-overhead access to the Rust core.
+Native Python bindings for [panproto](https://panproto.dev). Define schemas, detect breaking changes, and automatically convert data between schema versions. Supports 51 schema languages (OpenAPI, ATProto, Protobuf, JSON Schema, and more) and can parse source code in 248 programming languages via tree-sitter.
 
-Requires Python 3.13+.
+Built with PyO3 for direct access to the Rust engine (no WASM, no subprocess). Requires Python 3.13+.
 
 ## Installation
 
@@ -19,10 +19,7 @@ pip install panproto
 ```python
 import panproto as pp
 
-# List all 76+ built-in protocols
-protocols = pp.list_builtin_protocols()
-
-# Build a schema using the fluent builder
+# Build two versions of a schema
 builder = pp.SchemaBuilder("atproto")
 builder.vertex("post", "record", nsid="app.bsky.feed.post")
 builder.vertex("post:body", "object")
@@ -32,97 +29,92 @@ builder.edge("post:body", "post:body.text", "prop", name="text")
 builder.constraint("post:body.text", "maxLength", "3000")
 old_schema = builder.build()
 
-# Auto-generate a lens between two schema versions
+# ... build new_schema similarly, with renamed fields ...
+
+# Check whether the change is breaking
+report = pp.diff_and_classify(old_schema, new_schema, protocol)
+print(report.compatible)        # True or False
+print(report.report_text())     # human-readable summary
+
+# Auto-generate a bidirectional converter
 lens = pp.auto_generate_lens(old_schema, new_schema, protocol)
 view, complement = lens.get(instance)
 restored = lens.put(view, complement)
 
-# Diff two schemas and classify changes
-diff = pp.diff_schemas(old_schema, new_schema)
-report = pp.diff_and_classify(old_schema, new_schema, protocol)
-
-# Build and compile migrations
-mig_builder = pp.MigrationBuilder()
-mig_builder.map_vertex("post:body.text", "post:body.content")
-migration = mig_builder.build()
-compiled = pp.compile_migration(old_schema, new_schema, migration)
-
-# Parse and emit data across protocols
+# Parse and emit data in any supported format
 io = pp.IoRegistry()
 schema = io.parse_schema("json-schema", json_schema_str)
 output = io.emit_schema("json-schema", schema)
 
-# GAT operations
-theory = pp.create_theory("MyTheory", sorts, operations, equations)
-colimit = pp.colimit_theories(theory_a, theory_b, shared)
-
-# Schematic version control
+# Version control
 repo = pp.VcsRepository.init("/path/to/repo")
 repo.add(schema)
-repo.commit("add post schema", "author")
+repo.commit("add post schema", "your-name")
+repo.branch("feature")
+repo.merge("feature", "your-name")
 ```
 
 ## API overview
 
 ### Schema and protocols
 
-| Function / Class | Description |
-|------------------|-------------|
-| `list_builtin_protocols()` | List all 76+ built-in protocol names |
-| `get_builtin_protocol(name)` | Get a protocol definition by name |
-| `define_protocol(...)` | Define a custom protocol |
-| `SchemaBuilder(protocol)` | Fluent schema construction (vertex, edge, constraint, hyper_edge) |
-| `Schema` | Immutable schema with vertex/edge/constraint access |
-| `Protocol` | Protocol definition with edge rules and feature flags |
-
-### Migration and lenses
-
-| Function / Class | Description |
-|------------------|-------------|
-| `auto_generate_lens(src, tgt, protocol)` | Auto-generate a bidirectional lens between schemas |
-| `Lens` | Lens with `get(instance)` and `put(view, complement)` |
-| `Complement` | Data discarded during `get`, needed by `put` |
-| `MigrationBuilder` | Build migrations with vertex/edge mappings |
-| `compile_migration(src, tgt, migration)` | Compile a migration for application |
-| `compose_migrations(m1, m2)` | Compose two migrations sequentially |
-| `check_existence(src, tgt, migration, protocol)` | Validate migration existence conditions |
+| Function / Class | What it does |
+|------------------|--------------|
+| `list_builtin_protocols()` | List all 76+ built-in protocol names. |
+| `get_builtin_protocol(name)` | Load a protocol definition by name. |
+| `define_protocol(...)` | Define a custom protocol. |
+| `SchemaBuilder(protocol)` | Build schemas with `vertex()`, `edge()`, `constraint()`, then `build()`. |
+| `Schema` | An immutable schema with vertex, edge, and constraint accessors. |
+| `Protocol` | A schema language definition with edge rules and feature flags. |
 
 ### Breaking change detection
 
-| Function / Class | Description |
-|------------------|-------------|
-| `diff_schemas(old, new)` | Structural diff between two schemas |
-| `diff_and_classify(old, new, protocol)` | Diff with breaking/non-breaking classification |
-| `SchemaDiff` | Diff result with added/removed/changed elements |
-| `CompatReport` | Compatibility report with breaking change details |
+| Function / Class | What it does |
+|------------------|--------------|
+| `diff_schemas(old, new)` | Compute a structural diff between two schemas. |
+| `diff_and_classify(old, new, protocol)` | Diff and classify changes as breaking or non-breaking. |
+| `SchemaDiff` | The diff result: added, removed, and changed elements. |
+| `CompatReport` | Compatibility report with details on each breaking change. |
 
-### Instance I/O
+### Migration and lenses
 
-| Function / Class | Description |
-|------------------|-------------|
-| `Instance` | W-type instance with `from_json`, `to_json`, `validate` |
-| `IoRegistry` | Parse/emit schemas and instances across all protocols |
+| Function / Class | What it does |
+|------------------|--------------|
+| `auto_generate_lens(src, tgt, protocol)` | Generate a bidirectional converter between two schemas. |
+| `Lens` | A converter with `get(instance)` (forward) and `put(view, complement)` (backward). |
+| `Complement` | The data dropped during forward conversion, needed for lossless backward conversion. |
+| `MigrationBuilder` | Build a migration by specifying vertex and edge mappings. |
+| `compile_migration(src, tgt, migration)` | Compile a migration for application. |
+| `compose_migrations(m1, m2)` | Chain two migrations into one. |
+| `check_existence(src, tgt, migration, protocol)` | Validate that a migration is well-formed. |
 
-### GAT engine
+### Data I/O
 
-| Function / Class | Description |
-|------------------|-------------|
-| `create_theory(name, sorts, ops, eqs)` | Create a GAT theory |
-| `Theory` | Theory with sort/operation/equation access |
-| `colimit_theories(t1, t2, shared)` | Compute theory pushout |
-| `check_morphism(morphism, domain, codomain)` | Verify a theory morphism |
-| `Model` | Model of a theory with carrier sets |
+| Function / Class | What it does |
+|------------------|--------------|
+| `Instance` | A data record with `from_json()`, `to_json()`, and `validate()`. |
+| `IoRegistry` | Parse and emit schemas and data in any of the 76+ supported formats. |
+
+### Theory engine
+
+| Function / Class | What it does |
+|------------------|--------------|
+| `create_theory(name, sorts, ops, eqs)` | Define a custom schema language theory. |
+| `Theory` | A theory with sort, operation, and equation accessors. |
+| `colimit_theories(t1, t2, shared)` | Combine two theories into one. |
+| `check_morphism(morphism, domain, codomain)` | Validate a structure-preserving map between theories. |
+| `Model` | A concrete model of a theory. |
 
 ### Version control
 
-| Function / Class | Description |
-|------------------|-------------|
-| `VcsRepository.init(path)` | Initialize a panproto repository |
-| `VcsRepository.open(path)` | Open an existing repository |
-| `repo.add(schema)` | Stage a schema |
-| `repo.commit(message, author)` | Create a commit |
-| `repo.branch(name)` | Create a branch |
-| `repo.merge(branch, author)` | Merge a branch |
+| Function / Class | What it does |
+|------------------|--------------|
+| `VcsRepository.init(path)` | Initialize a new panproto repository. |
+| `VcsRepository.open(path)` | Open an existing repository. |
+| `repo.add(schema)` | Stage a schema for commit. |
+| `repo.commit(message, author)` | Create a new commit. |
+| `repo.branch(name)` | Create a branch. |
+| `repo.merge(branch, author)` | Merge a branch into the current one. |
 
 ## Documentation
 

@@ -3,11 +3,9 @@
 [![npm](https://img.shields.io/npm/v/@panproto/core)](https://www.npmjs.com/package/@panproto/core)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-TypeScript SDK for panproto. Protocol-aware schema migration via [generalized algebraic theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory), with automatic lens generation via [protolenses](https://ncatlab.org/nlab/show/natural+transformation).
+TypeScript SDK for [panproto](https://panproto.dev). Define schemas, detect breaking changes, and automatically convert data between schema versions. Supports 51 schema languages (OpenAPI, ATProto, Protobuf, JSON Schema, and more) and can parse source code in 248 programming languages via tree-sitter.
 
-This package wraps the panproto WASM module, providing a typed, ergonomic API for defining protocols, building schemas, computing migrations, and applying protolens-based transformations from JavaScript and TypeScript.
-
-Requires Node.js >= 20.
+This package wraps the panproto WASM module, providing a typed API for JavaScript and TypeScript projects. It works in Node.js (>= 20) and in the browser.
 
 ## Installation
 
@@ -15,7 +13,7 @@ Requires Node.js >= 20.
 npm install @panproto/core
 ```
 
-## Usage
+## Quick start
 
 ```typescript
 import { Panproto } from '@panproto/core';
@@ -23,91 +21,99 @@ import { Panproto } from '@panproto/core';
 const panproto = await Panproto.init();
 const atproto = panproto.protocol('atproto');
 
-// Build schemas
-const oldSchema = atproto.schema()
+// Build two versions of a schema
+const v1 = atproto.schema()
   .vertex('post', 'record', { nsid: 'app.bsky.feed.post' })
   .vertex('post:body', 'object')
+  .vertex('post:body.text', 'string')
   .edge('post', 'post:body', 'record-schema')
+  .edge('post:body', 'post:body.text', 'prop', { name: 'text' })
   .build();
 
-const newSchema = atproto.schema()
+const v2 = atproto.schema()
   .vertex('post', 'record', { nsid: 'app.bsky.feed.post' })
   .vertex('post:body', 'object')
-  .vertex('post:body.title', 'string')
+  .vertex('post:body.content', 'string')
   .edge('post', 'post:body', 'record-schema')
-  .edge('post:body', 'post:body.title', 'prop', { name: 'title' })
+  .edge('post:body', 'post:body.content', 'prop', { name: 'content' })
   .build();
 
-// One-liner data conversion between schema versions
-const converted = panproto.convert(record, oldSchema, newSchema);
+// Convert a record from v1 to v2 in one line
+const converted = panproto.convert(record, v1, v2);
 
-// Auto-generate a lens with full control
-const lens = panproto.lens(oldSchema, newSchema);
+// Or get a reusable lens for batch conversion
+const lens = panproto.lens(v1, v2);
 const { view, complement } = lens.get(record);
 const restored = lens.put(modifiedView, complement);
-
-// Build a reusable protolens chain (schema-independent)
-const chain = panproto.protolensChain(oldSchema, newSchema);
-const result = chain.apply(record);
-
-// Factorize a theory morphism into elementary steps
-const factors = panproto.factorizeMorphism(morphism);
 ```
 
 ## API
 
-### Core
+### Core workflow
 
-| Export | Description |
-|--------|-------------|
-| `Panproto` | Main entry point; call `Panproto.init()` to load the WASM module |
-| `Panproto.convert()` | One-liner data conversion between two schemas via auto-generated protolens |
-| `Panproto.lens()` | Auto-generate a lens between two schemas |
-| `Panproto.protolensChain()` | Build a reusable, schema-independent protolens chain |
-| `Panproto.factorizeMorphism()` | Decompose a theory morphism into elementary endofunctors |
-| `Protocol` | Protocol handle with schema builder factory |
-| `SchemaBuilder` / `BuiltSchema` | Fluent schema construction |
-| `MigrationBuilder` / `CompiledMigration` | Migration construction, compilation, and application |
-| `Instance` | Instance wrapper with JSON conversion and validation |
-| `IoRegistry` | Protocol-aware parse/emit for all 76 formats |
-| `Repository` | Schematic version control (init, commit, branch, merge) |
+| Export | What it does |
+|--------|--------------|
+| `Panproto` | Main entry point. Call `Panproto.init()` to load the WASM module. |
+| `Panproto.convert()` | Convert a record from one schema version to another in one call. |
+| `Panproto.lens()` | Generate a bidirectional converter (lens) between two schemas. |
+| `Panproto.protolensChain()` | Build a reusable converter that works across many schema pairs. |
+| `Protocol` | A schema language definition (ATProto, OpenAPI, etc.). |
+| `SchemaBuilder` / `BuiltSchema` | Build schemas using the fluent builder API. |
 
-### Protolenses
+### Breaking change detection
 
-| Export | Description |
-|--------|-------------|
-| `LensHandle` | Lens with `get`, `put`, and `autoGenerate()` for automatic lens derivation |
-| `LensHandle.autoGenerate()` | Auto-generate a lens between two schemas |
-| `ProtolensChainHandle` | Reusable, schema-independent protolens chain with `apply` and `instantiate` |
-| `ProtolensChainHandle.fuse()` | Fuse chain into single step |
-| `ProtolensChainHandle.checkApplicability()` | Check applicability with reasons |
-| `ProtolensChainHandle.applyToFleet()` | Apply to multiple schemas |
-| `ProtolensChainHandle.lift()` | Lift along theory morphism |
-| `ProtolensChainHandle.fromJson()` | Deserialize from JSON |
-| `SymmetricLensHandle` | Symmetric (bidirectional) lens for two-way synchronization |
-| `DataSetHandle` | Handle to versioned data set with migrate/staleness methods |
-| `Panproto.dataSet()` | Store and track a data set |
-| `Panproto.migrateData()` | Migrate data between schemas |
+| Export | What it does |
+|--------|--------------|
+| `FullDiffReport` | Structural diff between two schemas: added/removed/changed fields. |
+| `CompatReport` | Classifies the diff as backward-compatible or breaking. |
+| `ValidationResult` | Validates a schema against its protocol's rules. |
 
-### Breaking change analysis
+### Migration
 
-| Export | Description |
-|--------|-------------|
-| `FullDiffReport` | Comprehensive structural diff between two schemas |
-| `CompatReport` | Protocol-aware classification into breaking/non-breaking |
-| `ValidationResult` | Schema validation against protocol rules |
+| Export | What it does |
+|--------|--------------|
+| `MigrationBuilder` | Build a migration mapping by specifying which fields map to which. |
+| `CompiledMigration` | A compiled migration, ready to apply to records. |
+| `LensHandle` | A lens with `get()` (forward conversion) and `put()` (backward conversion). |
+| `ProtolensChainHandle` | A reusable conversion pipeline. Supports `apply()`, `fuse()`, `applyToFleet()`. |
+| `SymmetricLensHandle` | Two-way sync between two schema versions. |
 
-### GAT engine
+### Data and I/O
 
-| Export | Description |
-|--------|-------------|
-| `TheoryHandle` / `TheoryBuilder` | Theory construction |
-| `createTheory` / `colimit` | Build and compose theories |
-| `checkMorphism` / `migrateModel` | Morphism validation and model transport |
+| Export | What it does |
+|--------|--------------|
+| `Instance` | Wraps a data record with JSON conversion and validation. |
+| `IoRegistry` | Parse and emit data in any of the 76+ supported formats. |
+| `DataSetHandle` | Track a data set and detect when it needs migration. |
 
-### Built-in protocol specs
+### Version control
+
+| Export | What it does |
+|--------|--------------|
+| `Repository` | Git-style version control for schemas (init, commit, branch, merge). |
+
+### Expression language
+
+| Export | What it does |
+|--------|--------------|
+| `ExprBuilder` | Build transform expressions programmatically. |
+| `parseExpr` / `evalExpr` | Parse and evaluate expressions from strings. |
+| `executeQuery` | Run queries against instance data. |
+
+### Theory engine
+
+| Export | What it does |
+|--------|--------------|
+| `TheoryHandle` / `TheoryBuilder` | Define custom schema language theories. |
+| `createTheory` / `colimit` | Build and combine theories. |
+| `checkMorphism` | Validate a structure-preserving map between theories. |
+| `factorizeMorphism` | Break a complex morphism into simple steps. |
+
+### Built-in protocols
 
 `ATPROTO_SPEC`, `SQL_SPEC`, `PROTOBUF_SPEC`, `GRAPHQL_SPEC`, `JSON_SCHEMA_SPEC`, `BUILTIN_PROTOCOLS`
+
+Use `getProtocolNames()` to list all available protocols, or `getBuiltinProtocol(name)` to load one by name.
 
 ### Error classes
 
@@ -115,7 +121,7 @@ const factors = panproto.factorizeMorphism(morphism);
 
 ## Documentation
 
-[panproto.dev](https://panproto.dev)
+Full documentation at [panproto.dev](https://panproto.dev).
 
 ## License
 

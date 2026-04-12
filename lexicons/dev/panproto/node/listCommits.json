@@ -1,0 +1,58 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.listCommits",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "ref": { "type": "string", "maxLength": 256 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commits", "count"],
+          "properties": {
+            "commits": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#commitEntry" }
+            },
+            "count": { "type": "integer" },
+            "start": { "type": "string", "maxLength": 64 }
+          }
+        }
+      }
+    },
+    "commitEntry": {
+      "type": "object",
+      "required": ["oid", "parents", "summary", "message", "author", "timestamp"],
+      "properties": {
+        "oid": { "type": "string", "maxLength": 64 },
+        "parents": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 64 }
+        },
+        "summary": { "type": "string", "maxLength": 512 },
+        "message": { "type": "string" },
+        "author": { "type": "ref", "ref": "#identity" },
+        "committer": { "type": "ref", "ref": "#identity" },
+        "timestamp": { "type": "integer" },
+        "treeOid": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 512 },
+        "email": { "type": "string", "maxLength": 512 }
+      }
+    }
+  }
+}

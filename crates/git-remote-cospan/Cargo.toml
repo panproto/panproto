@@ -18,12 +18,17 @@ path = "src/main.rs"
 [dependencies]
 panproto-vcs = { workspace = true }
 panproto-git = { workspace = true }
-panproto-xrpc = { version = "0.27.3", path = "../panproto-xrpc" }
+panproto-xrpc = { version = "0.28.0", path = "../panproto-xrpc" }
 
 git2 = "0.20"
 rustc-hash = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 miette = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+panproto-protocols = { workspace = true }
+panproto-schema = { workspace = true }
 
 [lints]
 workspace = true

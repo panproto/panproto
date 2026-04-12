@@ -3,6 +3,8 @@
 //! Implements the `dev.panproto.node.*` XRPC endpoints for push/pull/clone
 //! of panproto-vcs objects between local stores and remote nodes.
 
+use std::fmt::Write as _;
+
 use panproto_vcs::{HeadState, Object, ObjectId, Store};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -42,6 +44,102 @@ pub struct RepoInfo {
     pub default_branch: String,
     /// Number of commits.
     pub commit_count: u64,
+}
+
+/// Identity (author or committer) within a commit listing.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitIdentity {
+    /// Display name.
+    pub name: String,
+    /// Email address, if available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+/// A single commit entry returned by `listCommits`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitEntry {
+    /// Full hex object ID of this commit.
+    pub oid: String,
+    /// Parent commit OIDs.
+    pub parents: Vec<String>,
+    /// First line of the commit message.
+    pub summary: String,
+    /// Full commit message.
+    pub message: String,
+    /// Author identity.
+    pub author: CommitIdentity,
+    /// Committer identity (same as author in panproto's current model).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committer: Option<CommitIdentity>,
+    /// Unix timestamp in seconds.
+    pub timestamp: u64,
+    /// OID of the schema object at this commit (the "tree").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree_oid: Option<String>,
+}
+
+/// Response from `dev.panproto.node.listCommits`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListCommitsResult {
+    /// Commits in topological + time order (newest first).
+    pub commits: Vec<CommitEntry>,
+    /// Number of commits returned.
+    pub count: u64,
+    /// OID of the starting commit (the ref tip), if resolved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
+}
+
+/// A single file's diff entry returned by `diffCommits`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiff {
+    /// Path of the file in the new tree (or the only path if not renamed).
+    pub path: String,
+    /// Previous path, if the file was renamed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
+    /// Change status: `"added"`, `"removed"`, `"modified"`, `"renamed"`, etc.
+    pub status: String,
+    /// OID of the file blob in the old tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_oid: Option<String>,
+    /// OID of the file blob in the new tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_oid: Option<String>,
+    /// Lines added.
+    pub additions: u64,
+    /// Lines removed.
+    pub deletions: u64,
+    /// Whether this is a binary diff.
+    pub binary: bool,
+    /// Text diff hunks (populated once panproto tracks file blobs).
+    pub hunks: Vec<serde_json::Value>,
+    /// Panproto schema-level structural diff, if available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structural_diff: Option<serde_json::Value>,
+}
+
+/// Response from `dev.panproto.node.diffCommits`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffCommitsResult {
+    /// OID of the base (old) commit.
+    pub from: String,
+    /// OID of the head (new) commit.
+    pub to: String,
+    /// Per-file diff entries.
+    pub files: Vec<FileDiff>,
+    /// Total lines added across all files.
+    pub total_additions: u64,
+    /// Total lines removed across all files.
+    pub total_deletions: u64,
+    /// Number of files changed.
+    pub file_count: u64,
 }
 
 impl NodeClient {
@@ -236,6 +334,55 @@ impl NodeClient {
         let resp = check_response(resp, "getRepoInfo").await?;
         let info: RepoInfo = resp.json().await?;
         Ok(info)
+    }
+
+    /// List commits reachable from a ref (default: HEAD).
+    ///
+    /// Returns commits in topological + time order (newest first),
+    /// up to `limit` entries (default 50, max 500 on the server).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`XrpcError`] on network failure or parse error.
+    pub async fn list_commits(
+        &self,
+        git_ref: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<ListCommitsResult, XrpcError> {
+        let url = build_list_commits_url(&self.base_url, &self.did, &self.repo, git_ref, limit);
+        let resp = self.http.get(&url).send().await?;
+        let resp = check_response(resp, "listCommits").await?;
+        let result: ListCommitsResult = resp.json().await?;
+        Ok(result)
+    }
+
+    /// Compute the diff between two commits.
+    ///
+    /// `from` and `to` are full hex object IDs. `context_lines` controls
+    /// how many surrounding lines to include in text hunks (default 3 on
+    /// the server).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`XrpcError`] on network failure or parse error.
+    pub async fn diff_commits(
+        &self,
+        from: &str,
+        to: &str,
+        context_lines: Option<u32>,
+    ) -> Result<DiffCommitsResult, XrpcError> {
+        let url = build_diff_commits_url(
+            &self.base_url,
+            &self.did,
+            &self.repo,
+            from,
+            to,
+            context_lines,
+        );
+        let resp = self.http.get(&url).send().await?;
+        let resp = check_response(resp, "diffCommits").await?;
+        let result: DiffCommitsResult = resp.json().await?;
+        Ok(result)
     }
 
     // ── Write operations (auth required) ─────────────────────────────
@@ -499,6 +646,45 @@ fn count_ancestors<S: Store>(store: &S, start: &ObjectId) -> u64 {
     count
 }
 
+/// Build the URL for the `dev.panproto.node.listCommits` XRPC query.
+///
+/// Extracted as a pure helper so tests can verify query-parameter
+/// composition without having to spin up an HTTP client.
+fn build_list_commits_url(
+    base_url: &str,
+    did: &str,
+    repo: &str,
+    git_ref: Option<&str>,
+    limit: Option<u32>,
+) -> String {
+    let mut url = format!("{base_url}/xrpc/dev.panproto.node.listCommits?did={did}&repo={repo}");
+    if let Some(r) = git_ref {
+        let _ = write!(url, "&ref={r}");
+    }
+    if let Some(n) = limit {
+        let _ = write!(url, "&limit={n}");
+    }
+    url
+}
+
+/// Build the URL for the `dev.panproto.node.diffCommits` XRPC query.
+fn build_diff_commits_url(
+    base_url: &str,
+    did: &str,
+    repo: &str,
+    from: &str,
+    to: &str,
+    context_lines: Option<u32>,
+) -> String {
+    let mut url = format!(
+        "{base_url}/xrpc/dev.panproto.node.diffCommits?did={did}&repo={repo}&from={from}&to={to}"
+    );
+    if let Some(ctx) = context_lines {
+        let _ = write!(url, "&contextLines={ctx}");
+    }
+    url
+}
+
 /// Parse a hex string into an `ObjectId`.
 fn parse_object_id(hex: &str) -> Result<ObjectId, XrpcError> {
     let bytes =
@@ -552,4 +738,174 @@ async fn check_status_owned(
         body: "missing id field in putObject response".to_owned(),
     })?;
     parse_object_id(id_str)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_commits_result_camel_case_roundtrip() -> Result<(), serde_json::Error> {
+        let result = ListCommitsResult {
+            commits: vec![CommitEntry {
+                oid: "abc123".to_owned(),
+                parents: vec!["def456".to_owned()],
+                summary: "initial commit".to_owned(),
+                message: "initial commit\n\nwith body".to_owned(),
+                author: CommitIdentity {
+                    name: "Alice".to_owned(),
+                    email: Some("alice@example.com".to_owned()),
+                },
+                committer: None,
+                timestamp: 1_712_345_678,
+                tree_oid: Some("fff000".to_owned()),
+            }],
+            count: 1,
+            start: Some("abc123".to_owned()),
+        };
+        let json = serde_json::to_value(&result)?;
+        assert!(json["commits"][0]["treeOid"].is_string());
+        assert!(json["commits"][0]["tree_oid"].is_null());
+        let roundtrip: ListCommitsResult = serde_json::from_value(json)?;
+        assert_eq!(roundtrip.commits[0].oid, "abc123");
+        assert_eq!(roundtrip.commits[0].tree_oid.as_deref(), Some("fff000"));
+        Ok(())
+    }
+
+    #[test]
+    fn diff_commits_result_camel_case_roundtrip() -> Result<(), serde_json::Error> {
+        let result = DiffCommitsResult {
+            from: "aaa".to_owned(),
+            to: "bbb".to_owned(),
+            files: vec![FileDiff {
+                path: "schemas/core.json".to_owned(),
+                old_path: None,
+                status: "added".to_owned(),
+                old_oid: None,
+                new_oid: Some("ccc".to_owned()),
+                additions: 12,
+                deletions: 0,
+                binary: false,
+                hunks: vec![],
+                structural_diff: Some(serde_json::json!({"added_vertices": ["Foo"]})),
+            }],
+            total_additions: 12,
+            total_deletions: 0,
+            file_count: 1,
+        };
+        let json = serde_json::to_value(&result)?;
+        assert!(json["totalAdditions"].is_number());
+        assert!(json["total_additions"].is_null());
+        assert!(json["files"][0]["oldPath"].is_null());
+        assert!(json["files"][0]["structuralDiff"].is_object());
+        let roundtrip: DiffCommitsResult = serde_json::from_value(json)?;
+        assert_eq!(roundtrip.total_additions, 12);
+        assert_eq!(roundtrip.files[0].path, "schemas/core.json");
+        Ok(())
+    }
+
+    // ── URL builder tests ──────────────────────────────────────────────
+
+    #[test]
+    fn list_commits_url_minimal_required_params_only() {
+        let url = build_list_commits_url(
+            "https://node.example.com",
+            "did:plc:abc",
+            "myrepo",
+            None,
+            None,
+        );
+        assert_eq!(
+            url,
+            "https://node.example.com/xrpc/dev.panproto.node.listCommits?did=did:plc:abc&repo=myrepo"
+        );
+    }
+
+    #[test]
+    fn list_commits_url_with_ref_only() {
+        let url = build_list_commits_url(
+            "https://node.example.com",
+            "did:plc:abc",
+            "myrepo",
+            Some("refs/heads/main"),
+            None,
+        );
+        assert!(url.ends_with("&ref=refs/heads/main"));
+        assert!(!url.contains("&limit="));
+    }
+
+    #[test]
+    fn list_commits_url_with_limit_only() {
+        let url = build_list_commits_url(
+            "https://node.example.com",
+            "did:plc:abc",
+            "myrepo",
+            None,
+            Some(100),
+        );
+        assert!(url.ends_with("&limit=100"));
+        assert!(!url.contains("&ref="));
+    }
+
+    #[test]
+    fn list_commits_url_with_ref_and_limit() {
+        let url = build_list_commits_url(
+            "https://node.example.com",
+            "did:plc:abc",
+            "myrepo",
+            Some("feature"),
+            Some(25),
+        );
+        assert_eq!(
+            url,
+            "https://node.example.com/xrpc/dev.panproto.node.listCommits?did=did:plc:abc&repo=myrepo&ref=feature&limit=25"
+        );
+    }
+
+    #[test]
+    fn diff_commits_url_without_context_lines() {
+        let url = build_diff_commits_url(
+            "https://node.example.com",
+            "did:plc:abc",
+            "myrepo",
+            "deadbeef",
+            "cafef00d",
+            None,
+        );
+        assert_eq!(
+            url,
+            "https://node.example.com/xrpc/dev.panproto.node.diffCommits?did=did:plc:abc&repo=myrepo&from=deadbeef&to=cafef00d"
+        );
+    }
+
+    #[test]
+    fn diff_commits_url_with_context_lines() {
+        let url = build_diff_commits_url(
+            "https://node.example.com",
+            "did:plc:abc",
+            "myrepo",
+            "deadbeef",
+            "cafef00d",
+            Some(5),
+        );
+        assert!(url.ends_with("&contextLines=5"));
+    }
+
+    #[test]
+    fn list_commits_url_strips_trailing_slash_from_base() {
+        // NodeClient::new already trims trailing slashes from base_url,
+        // so the builder should receive a canonical base. This test
+        // exercises the documented precondition.
+        let url =
+            build_list_commits_url("https://node.example.com", "did:plc:abc", "r", None, None);
+        // Two slashes in a row would indicate a bug: it should be
+        // "https://node.example.com/xrpc/..." not ".com//xrpc...".
+        let Some(after_scheme) = url.strip_prefix("https://") else {
+            panic!("url should start with https://: {url}");
+        };
+        assert!(
+            !after_scheme.contains("//"),
+            "url should not contain consecutive slashes: {url}"
+        );
+    }
 }

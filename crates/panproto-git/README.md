@@ -1,42 +1,50 @@
 # panproto-git
 
-Bidirectional git to panproto-vcs translation bridge.
+[![crates.io](https://img.shields.io/crates/v/panproto-git.svg)](https://crates.io/crates/panproto-git)
+[![docs.rs](https://docs.rs/panproto-git/badge.svg)](https://docs.rs/panproto-git)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-## Overview
+Translates between git repositories and panproto's version control system.
 
-Enables `git push cospan main` by translating between git repositories and panproto-vcs stores. On import, git trees are parsed through `panproto-project` to produce structural schemas. On export, schemas are emitted back to source text via `panproto-parse` emitters.
+## What it does
 
-## Import (git to panproto)
+Git stores snapshots of file bytes; panproto-vcs stores snapshots of structured schemas. This crate is the bridge between the two. Import walks a git commit history in topological order (parents before children), reads each commit's file tree, parses every file through `panproto-project`, and writes the resulting schema into a panproto-vcs commit that carries the same author name, email, timestamp, message, and parent links as the original git commit. The entire DAG shape is preserved.
 
-1. Walk git commit DAG topologically (parents before children)
-2. For each commit: read all files from the git tree
-3. Parse each file through its language parser (via `panproto-project`)
-4. Assemble project-level schema (coproduct)
-5. Store schema and create panproto-vcs commit (preserving author, timestamp, message)
+Export goes the other direction: it reads a panproto-vcs commit, reconstructs source files from the stored schemas using the appropriate language emitters, and writes git tree and commit objects. This lets you round-trip a codebase through panproto and back to git without losing history.
 
-## Export (panproto to git)
+Incremental import avoids re-processing the full history on subsequent runs. It takes the panproto-vcs store as input and only walks git commits that are not already present, extending the panproto history from where it left off.
 
-1. Load project schema from panproto-vcs commit
-2. Reconstruct per-file source from interstitial text and leaf literal fragments
-3. Build nested git tree objects preserving directory hierarchy
-4. Create git commit with mapped parent pointers
+## Quick example
 
-## Functoriality
+```rust,ignore
+use panproto_git::{import_git_repo, import_git_repo_incremental, export_to_git};
+use panproto_vcs::FsStore;
 
-Import preserves DAG structure: parent pointers in panproto-vcs match the git DAG. Composition of imports matches import of composition: `import(a ; b) = import(a) ; import(b)`.
+// Full import of a git repository.
+let store = FsStore::open("my-panproto-store")?;
+let result = import_git_repo("path/to/git-repo", &store)?;
+println!("imported {} commits", result.commit_count);
 
-## Usage
+// Incremental import: only process commits added since last import.
+let result = import_git_repo_incremental("path/to/git-repo", &store)?;
+println!("imported {} new commits", result.commit_count);
 
-```rust
-use panproto_git::import_git_repo;
-use panproto_vcs::MemStore;
-
-let git_repo = git2::Repository::open("./my-project")?;
-let mut store = MemStore::new();
-let result = import_git_repo(&git_repo, &mut store, "HEAD")?;
-println!("Imported {} commits", result.commit_count);
+// Export panproto commits back to a git repository.
+let export = export_to_git(&store, "path/to/output-git-repo")?;
+println!("exported {} commits", export.commit_count);
 ```
+
+## API overview
+
+| Export | What it does |
+|--------|-------------|
+| `import_git_repo()` | Full import: walk all git commits and create panproto-vcs commits |
+| `import_git_repo_incremental()` | Incremental import: only process commits not already in the store |
+| `export_to_git()` | Export panproto-vcs commits to git tree and commit objects |
+| `ImportResult` | Result of an import: commit count, skipped count, any warnings |
+| `ExportResult` | Result of an export: commit count, output path |
+| `GitBridgeError` | Error variants: git2 errors, parse failures, VCS store errors |
 
 ## License
 
-MIT
+[MIT](../../LICENSE)

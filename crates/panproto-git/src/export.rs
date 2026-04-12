@@ -29,6 +29,12 @@ pub struct ExportResult {
 /// representation; source text reconstruction requires re-parsing with the
 /// appropriate language parser.
 ///
+/// `update_ref` controls whether an existing git ref is moved to point at the
+/// new commit. Pass `Some("HEAD")` to update the repository's current branch,
+/// `Some("refs/...")` to update a specific ref, or `None` to create the commit
+/// object without touching any ref (useful when walking a DAG and exporting
+/// many commits in sequence).
+///
 /// # Errors
 ///
 /// Returns [`GitBridgeError`] if VCS operations or git operations fail.
@@ -37,6 +43,7 @@ pub fn export_to_git<S: Store, H: std::hash::BuildHasher>(
     git_repo: &git2::Repository,
     commit_id: ObjectId,
     parent_map: &std::collections::HashMap<ObjectId, git2::Oid, H>,
+    update_ref: Option<&str>,
 ) -> Result<ExportResult, GitBridgeError> {
     // Load the commit.
     let commit_obj = panproto_store.get(&commit_id)?;
@@ -136,14 +143,7 @@ pub fn export_to_git<S: Store, H: std::hash::BuildHasher>(
     }
     let parent_refs: Vec<&git2::Commit<'_>> = parents.iter().collect();
 
-    let git_oid = git_repo.commit(
-        Some("HEAD"),
-        &sig,
-        &sig,
-        &commit.message,
-        &tree,
-        &parent_refs,
-    )?;
+    let git_oid = git_repo.commit(update_ref, &sig, &sig, &commit.message, &tree, &parent_refs)?;
 
     Ok(ExportResult {
         git_oid,

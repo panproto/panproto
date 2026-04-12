@@ -1,4 +1,14 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/brand/mark-light.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/brand/mark-dark.svg">
+  <img alt="panproto" src=".github/brand/mark-512.png" width="80">
+</picture>
+
 # panproto
+
+**Migrate data between any two schema versions, automatically.**
 
 [![CI](https://github.com/panproto/panproto/actions/workflows/ci.yml/badge.svg)](https://github.com/panproto/panproto/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/panproto-core.svg)](https://crates.io/crates/panproto-core)
@@ -7,49 +17,21 @@
 [![docs.rs](https://docs.rs/panproto-core/badge.svg)](https://docs.rs/panproto-core)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A universal schema migration engine built on [Generalized Algebraic Theories](https://ncatlab.org/nlab/show/generalized+algebraic+theory) (GATs), with automatic lens generation via [protolenses](https://ncatlab.org/nlab/show/natural+transformation).
+</div>
 
-panproto parses 248 programming languages and data formats via tree-sitter grammars, and provides 51 semantic protocol definitions ([ATProto Lexicons](https://atproto.com/specs/lexicon), [OpenAPI](https://www.openapis.org/), [Avro](https://avro.apache.org/), and others) that model each schema language as a common mathematical structure. Migrations are [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories), and correctness guarantees (existence conditions, [lens laws](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29), breaking-change detection) are derived from the algebra rather than hardcoded per format. Protolenses automatically derive schema-parameterized families of lenses, eliminating manual combinator wiring.
+panproto reads your schema (JSON Schema, OpenAPI, ATProto Lexicons, Protobuf, GraphQL, SQL DDL, Avro, or [45 others](crates/panproto-protocols)), figures out what changed, and generates the code to convert your data from the old shape to the new one. It can also parse source code in 248 programming languages (via tree-sitter) and treat the full AST as a schema, so the same diff/migrate/version-control workflow works on code structure, not just data formats. It version-controls your schemas the same way git version-controls your source code.
 
-## Key idea
+## What problem does this solve?
 
-A **protocol** is a pair of GATs: one describing the shape of schemas, one describing the shape of instances. Adding support for a new schema language means defining two new theories. No engine code changes required.
+Every time you change an API response, rename a database column, or update a config file format, you need migration code. Writing that code by hand is tedious and error-prone. panproto automates it:
 
-```
-Level 0  GAT engine (sorts, operations, equations, morphisms, colimits, endofunctors)
-Level 1  Theory specifications as data (ThATProtoSchema, ThWType, ThFunctor, …)
-Level 2  Concrete schemas as models of a schema theory
-Level 3  Concrete instances as models of schemas
-Level 4  Protolenses: dependent functions from schemas to lenses (Π(S). Lens(F(S), G(S)))
-```
+1. **Diff** two schema versions to see exactly what changed (fields added, removed, renamed, types widened).
+2. **Classify** whether the change is backward-compatible or breaking, using the rules of the specific schema language.
+3. **Generate** a bidirectional lens that can convert records from the old schema to the new one (and back, without losing data).
+4. **Version-control** your schemas with git-style commands (`commit`, `branch`, `merge`, `diff`) so your schema history is as clean as your code history.
+5. **Parse source code** in 248 languages (TypeScript, Python, Rust, Go, Java, C, and [242 more](crates/panproto-grammars)) into the same schema representation, so you can diff, migrate, and version-control code structure alongside data schemas.
 
-## Workspace
-
-| Crate | Description |
-|-------|-------------|
-| [`panproto-gat`](crates/panproto-gat) | GAT engine: sorts, operations, equations, directed equations, theory morphisms, colimits, endofunctors, refinement types, and equality witnesses |
-| [`panproto-expr`](crates/panproto-expr) | Pure functional expression language: lambda calculus with closures, pattern matching, ~50 builtins, step/depth limits |
-| [`panproto-expr-parser`](crates/panproto-expr-parser) | Haskell-style surface syntax parser (logos + chumsky) with Pratt precedence and pretty printer |
-| [`panproto-schema`](crates/panproto-schema) | Schema representation with protocol-aware builder and adjacency indices |
-| [`panproto-inst`](crates/panproto-inst) | [W-type](https://ncatlab.org/nlab/show/W-type), set-valued functor, and graph instances with restrict/extend/Kan extension pipelines and value-level field transforms |
-| [`panproto-mig`](crates/panproto-mig) | Migration engine: existence checks, compilation, lift, compose, invert, coverage analysis |
-| [`panproto-lens`](crates/panproto-lens) | [Protolenses](https://ncatlab.org/nlab/show/natural+transformation): schema-parameterized lens families, optic classification, symbolic simplification, auto-generation |
-| [`panproto-lens-dsl`](crates/panproto-lens-dsl) | Declarative lens DSL: Nickel/JSON/YAML specifications compiled to protolens chains and field transforms |
-| [`panproto-theory-dsl`](crates/panproto-theory-dsl) | Declarative theory DSL: Nickel/JSON/YAML specifications compiled to theories, morphisms, and protocols |
-| [`panproto-check`](crates/panproto-check) | Breaking change detection via structural diffing and protocol-aware classification |
-| [`panproto-protocols`](crates/panproto-protocols) | 51 semantic protocol definitions composed from building-block theories |
-| [`panproto-io`](crates/panproto-io) | Instance-level parse/emit codecs for semantic protocols (with `tree-sitter` feature: format-preserving round-trips via unified CST extraction lens) |
-| [`panproto-vcs`](crates/panproto-vcs) | Schematic version control: content-addressed store, commit DAG, pushout-based merge, theory tracking |
-| [`panproto-parse`](crates/panproto-parse) | Tree-sitter full-AST parsing for 248 languages with auto-derived GAT theories and interstitial text emission |
-| [`panproto-grammars`](crates/panproto-grammars) | Pre-compiled tree-sitter grammars for 248 languages (workspace-local, not published to crates.io) |
-| [`panproto-project`](crates/panproto-project) | Multi-file project assembly via schema coproduct with cross-file import resolution, project manifest (`panproto.toml`), and incremental parsing cache |
-| [`panproto-git`](crates/panproto-git) | Bidirectional git to panproto-vcs translation bridge (import/export with DAG preservation) |
-| [`panproto-llvm`](crates/panproto-llvm) | LLVM IR protocol definition, language AST lowering morphisms, and inkwell-based IR parsing |
-| [`panproto-jit`](crates/panproto-jit) | LLVM JIT compilation of panproto expressions via inkwell for accelerated data migration |
-| [`panproto-core`](crates/panproto-core) | Re-export facade (feature-gated: `full-parse`, `project`, `git`, `llvm`, `jit`, `tree-sitter`) |
-| [`panproto-wasm`](crates/panproto-wasm) | WASM bindings with handle-based slab allocator, MessagePack boundary, and protolens entry points |
-| [`panproto-py`](crates/panproto-py) | Native Python bindings via PyO3 with `pythonize` (serde to Python dicts) |
-| [`panproto-cli`](crates/panproto-cli) | CLI (`schema`): validate, check, diff, lift, data, lens, theory, expr, enrich, parse, git bridge, and version control |
+It works the same way regardless of whether your schema is an OpenAPI spec, an ATProto lexicon, a Protobuf definition, or a SQL table. panproto treats all of them as instances of a common structure.
 
 ## Installation
 
@@ -78,26 +60,6 @@ cargo install panproto-cli
 
 ## Quick start
 
-### Rust
-
-```rust
-use panproto_core::*;
-
-let proto = panproto_protocols::atproto::protocol();
-let schema = schema::SchemaBuilder::new(&proto)
-    .vertex("post", "record", Some("app.bsky.feed.post"))?
-    .vertex("post:body", "object", None)?
-    .vertex("post:body.text", "string", None)?
-    .edge("post", "post:body", "record-schema", None)?
-    .edge("post:body", "post:body.text", "prop", Some("text"))?
-    .constraint("post:body.text", "maxLength", "3000")
-    .build()?;
-
-// Auto-generate a lens between two schema versions
-let lens = panproto_lens::auto_generate(&src_schema, &tgt_schema)?;
-let (view, complement) = panproto_lens::get(&lens, &instance)?;
-```
-
 ### TypeScript
 
 ```typescript
@@ -106,6 +68,7 @@ import { Panproto } from '@panproto/core';
 const p = await Panproto.init();
 const proto = p.protocol('atproto');
 
+// Build a schema
 const schema = proto.schema()
   .vertex('post', 'record', { nsid: 'app.bsky.feed.post' })
   .vertex('post:body', 'object')
@@ -115,10 +78,10 @@ const schema = proto.schema()
   .constraint('post:body.text', 'maxLength', '3000')
   .build();
 
-// One-liner data conversion between schema versions
+// Convert a record between schema versions in one line
 const converted = p.convert(record, oldSchema, newSchema);
 
-// Or build a reusable protolens chain
+// Or build a reusable converter for batch processing
 const chain = p.protolensChain(oldSchema, newSchema);
 const result = chain.apply(record);
 ```
@@ -145,9 +108,29 @@ report = diff.classify(proto)
 print(report.compatible)       # True/False
 print(report.report_text())    # human-readable summary
 
-# Auto-generate a lens between two schema versions
+# Auto-generate a converter between two schema versions
 lens, quality = panproto.auto_generate_lens(old_schema, new_schema, proto)
 view, complement = lens.get(instance)
+```
+
+### Rust
+
+```rust
+use panproto_core::*;
+
+let proto = panproto_protocols::atproto::protocol();
+let schema = schema::SchemaBuilder::new(&proto)
+    .vertex("post", "record", Some("app.bsky.feed.post"))?
+    .vertex("post:body", "object", None)?
+    .vertex("post:body.text", "string", None)?
+    .edge("post", "post:body", "record-schema", None)?
+    .edge("post:body", "post:body.text", "prop", Some("text"))?
+    .constraint("post:body.text", "maxLength", "3000")
+    .build()?;
+
+// Auto-generate a lens between two schema versions
+let lens = panproto_lens::auto_generate(&src_schema, &tgt_schema)?;
+let (view, complement) = panproto_lens::get(&lens, &instance)?;
 ```
 
 ### CLI
@@ -178,18 +161,10 @@ schema lens apply lens.json record.json
 schema lens verify lens.json --instance test.json
 schema lens compose lens1.json lens2.json
 schema lens inspect chain.json
-schema lens check chain.json schemas/
-schema lens lift chain.json morphism.json
 
 # Data operations
 schema data convert --src-schema old.json --tgt-schema new.json record.json
 schema data migrate records/
-schema data sync records/
-schema data status records/
-
-# Record lifting
-schema lift --migration mig.json \
-  --src-schema old.json --tgt-schema new.json record.json
 
 # Full-AST parsing (248 languages)
 schema parse file src/main.ts
@@ -205,6 +180,52 @@ schema expr eval "2 + 3 * 4"
 schema expr parse "\\x -> x + 1"
 schema expr repl
 ```
+
+## Workspace
+
+| Crate | What it does |
+|-------|--------------|
+| [`panproto-gat`](crates/panproto-gat) | The math engine that everything else is built on. Defines sorts (types), operations, equations, and structure-preserving maps between theories. |
+| [`panproto-expr`](crates/panproto-expr) | A small functional language used for data transforms during migration: lambdas, pattern matching, ~50 built-in functions. |
+| [`panproto-expr-parser`](crates/panproto-expr-parser) | Parser for the expression language (Haskell-style syntax with operator precedence). |
+| [`panproto-schema`](crates/panproto-schema) | Represents schemas as graphs: vertices are types, edges are fields/relationships, constraints are validation rules. |
+| [`panproto-inst`](crates/panproto-inst) | Represents actual data (instances). Handles converting data between schema versions by walking the instance tree and remapping fields. |
+| [`panproto-mig`](crates/panproto-mig) | The migration engine. Checks whether a migration between two schemas is valid, compiles it, and applies it to data. |
+| [`panproto-lens`](crates/panproto-lens) | Bidirectional converters (lenses) that can transform data forward and backward between schema versions without losing information. |
+| [`panproto-lens-dsl`](crates/panproto-lens-dsl) | Write lens specifications declaratively in Nickel, JSON, or YAML instead of code. |
+| [`panproto-theory-dsl`](crates/panproto-theory-dsl) | Write theory (schema language) definitions declaratively in Nickel, JSON, or YAML. |
+| [`panproto-check`](crates/panproto-check) | Detects breaking changes between two schema versions: added/removed fields, type changes, constraint violations. |
+| [`panproto-protocols`](crates/panproto-protocols) | 51 built-in schema language definitions: ATProto, OpenAPI, JSON Schema, Protobuf, GraphQL, SQL DDL, Avro, and more. |
+| [`panproto-io`](crates/panproto-io) | Reads and writes instance data in each protocol's native format (JSON, XML, YAML, CSV, etc.) with optional format-preserving round-trips. |
+| [`panproto-vcs`](crates/panproto-vcs) | Git-style version control for schemas: commit, branch, merge, diff, log, blame, bisect. |
+| [`panproto-parse`](crates/panproto-parse) | Parses source code in 248 programming languages into schema graphs using tree-sitter grammars. |
+| [`panproto-grammars`](crates/panproto-grammars) | Pre-compiled tree-sitter grammars for 248 languages (build-time dependency, not published). |
+| [`panproto-project`](crates/panproto-project) | Assembles multi-file projects into a single schema, resolving cross-file imports. |
+| [`panproto-git`](crates/panproto-git) | Translates between git repositories and panproto's version control, so `git push` works with panproto repos. |
+| [`panproto-llvm`](crates/panproto-llvm) | Models LLVM IR as a schema language, enabling compilation-as-migration from language ASTs to IR. |
+| [`panproto-jit`](crates/panproto-jit) | Compiles panproto expressions to native machine code via LLVM for faster data migration. |
+| [`panproto-core`](crates/panproto-core) | Convenience re-export of all the above crates. Add one dependency instead of many. |
+| [`panproto-wasm`](crates/panproto-wasm) | WebAssembly build of the engine, used by the TypeScript SDK. |
+| [`panproto-py`](crates/panproto-py) | Native Python bindings via PyO3. |
+| [`panproto-xrpc`](crates/panproto-xrpc) | XRPC client for pushing/pulling schemas to panproto node servers. |
+| [`panproto-cli`](crates/panproto-cli) | The `schema` command-line tool. |
+| [`git-remote-cospan`](crates/git-remote-cospan) | Git remote helper that makes `git push cospan://` work. |
+
+## How it works
+
+panproto has a layered architecture. Each layer builds on the one below:
+
+**Layer 0: The algebra engine** (`panproto-gat`). This is the foundation. It implements a system for defining "theories": sets of types, operations on those types, and equations those operations must satisfy. Think of it as a type system for type systems. A theory defines what a valid schema looks like for a particular format.
+
+**Layer 1: Protocol definitions** (`panproto-protocols`). Each schema language (OpenAPI, ATProto, Protobuf, etc.) is described as a theory. For example, the OpenAPI theory says "a schema has vertices of kind `object`, `string`, `array`, etc., connected by edges of kind `prop`, `items`, `ref`, etc." Adding a new schema language means writing a new theory definition. No engine code changes.
+
+**Layer 2: Schemas** (`panproto-schema`). A concrete schema (like your `api.yaml` or `schema.json`) is an instance of a theory. panproto represents it as a labeled directed graph where vertices are types and edges are relationships.
+
+**Layer 3: Instances** (`panproto-inst`). Actual data records are instances of a schema. panproto can walk an instance tree, remap it to match a new schema, and serialize it back to JSON/XML/YAML/etc.
+
+**Layer 4: Lenses** (`panproto-lens`). A lens is a pair of functions: one that converts data forward (old schema to new) and one that converts it backward (new to old). panproto can generate these automatically from two schema versions, and the backward conversion preserves information through a "complement" (the data that the forward conversion dropped). Protolenses generalize this: a single protolens definition works on any schema matching a pattern, not just two fixed schemas.
+
+**Version control** (`panproto-vcs`). Schemas are version-controlled like source code. When you merge two branches, panproto computes the merge structurally (not by text diffing), which avoids the merge conflicts you'd get with a naive text-based approach.
 
 ## Building
 
@@ -222,40 +243,6 @@ cd sdk/typescript && pnpm install && pnpm build
 # Python SDK (native PyO3 bindings)
 maturin develop --manifest-path crates/panproto-py/Cargo.toml
 ```
-
-## Architecture
-
-panproto implements a four-level architecture rooted in category theory. The GAT engine (Level 0) is the only component implemented directly in Rust. Everything above it (protocols, schemas, instances) is data interpreted by the engine.
-
-[**W-type**](https://ncatlab.org/nlab/show/W-type) **instances** (tree-structured data like JSON/ATProto records) use a 5-step restrict pipeline: anchor surviving nodes, compute reachability from root, contract ancestors, resolve edges, and reconstruct fans.
-
-**[Set-valued functor](https://ncatlab.org/nlab/show/functor) instances** (relational data like SQL tables) use [precomposition](https://ncatlab.org/nlab/show/precomposition) (&#916;<sub>F</sub>) for restrict and [left Kan extension](https://ncatlab.org/nlab/show/Kan+extension) (&#931;<sub>F</sub>) for extend. Right Kan extension (&#928;<sub>F</sub>) computes products over fibers.
-
-**Protolenses** are the primary abstraction for bidirectional schema transformations. A [lens](https://ncatlab.org/nlab/show/lens+%28in+computer+science%29) is a concrete pair (`get`, `put`) between two fixed schemas. A protolens is *not* a lens — it is a [dependent function](https://ncatlab.org/nlab/show/dependent+product+type) from schemas to lenses: `Π(S : Schema | P(S)). Lens(F(S), G(S))`. A single protolens works on any schema satisfying its precondition; a lens is bound to the exact schemas it was built for. Elementary protolens constructors provide the atomic building blocks, while `auto_generate` derives an entire lens automatically from two schemas. `SymmetricLens` pairs two protolens chains for full bidirectional synchronization. Protolens chains can be serialized for cross-project reuse, applied to fleets of schemas in batch, and lifted across protocols via theory morphisms.
-
-**Schematic version control** (`panproto-vcs`) provides git-style operations (commit, branch, merge, rebase, cherry-pick, bisect, blame) operating on schema graphs rather than text. Merges are computed as categorical pushouts. There is no heuristic tie-breaking; the merge is commutative.
-
-**Data versioning** stores instance data, complements, and protocol definitions as content-addressed objects alongside schemas in the commit DAG. `schema data migrate` automatically generates lenses from the schema history and applies them to data files. Complements are persisted so backward migration never loses data. `schema checkout --migrate` and `schema merge --migrate` handle data migration as part of normal VCS operations.
-
-**Automatic migration discovery** finds schema morphisms via backtracking CSP with MRV heuristic, discovers overlaps between schemas, and computes schema-level pushouts for merging disparate formats.
-
-**Full-AST parsing** (`panproto-parse`) treats programs as schemas. Tree-sitter grammars are theory presentations: `node-types.json` is structurally isomorphic to a GAT. The theory extraction pipeline auto-derives sorts from node types and operations from field names. A single generic walker handles all 248 languages; interstitial text capture (keywords, punctuation, whitespace between named children) enables exact round-trip emission.
-
-**Multi-file assembly** (`panproto-project`) constructs the project-level schema as a categorical coproduct of per-file schemas, with path-prefixed vertex IDs and cross-file import edges from `ThImport`.
-
-**Git bridge** (`panproto-git`) translates between git repositories and panproto-vcs stores. Import walks the commit DAG topologically, parsing each tree through `panproto-project`. Export reconstructs source files from schema fragments and builds nested git trees. DAG structure is preserved functorially.
-
-**LLVM integration** spans two crates. `panproto-llvm` defines the LLVM IR protocol (31 vertex kinds, 56 instruction opcodes) and theory morphisms lowering language ASTs to LLVM IR (compilation as structure-preserving maps). `panproto-jit` compiles panproto expressions to native code via inkwell for accelerated data migration.
-
-## Safety guarantees
-
-panproto provides three layers of algebraic safety that go beyond structural schema validation:
-
-- **Type-checked migrations.** Auto-derived migrations are validated as well-formed [theory morphisms](https://ncatlab.org/nlab/show/morphism+of+theories) at the GAT level. Every `schema commit` runs GAT type-checking by default (disable with `--skip-verify`) to catch ill-typed vertex maps, arity mismatches, and unsound edge rewirings before they enter the commit DAG.
-
-- **Verified equations.** Schemas are checked against the axioms of their protocol theory. If a protocol declares equations (e.g., associativity of composition in a category theory), `schema verify` enumerates variable assignments over the schema's carrier sets and confirms that both sides of every equation evaluate to the same value.
-
-- **Pullback-enhanced merges.** The three-way merge algorithm uses categorical [pullbacks](https://ncatlab.org/nlab/show/pullback) to detect structural overlap between branches. When two branches modify sorts or operations that share a common image under their protocol morphisms, the merge identifies these shared elements precisely rather than relying on name matching alone, producing fewer false conflicts.
 
 ## Documentation
 

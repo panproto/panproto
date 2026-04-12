@@ -1,176 +1,83 @@
 # panproto-cli
 
 [![crates.io](https://img.shields.io/crates/v/panproto-cli.svg)](https://crates.io/crates/panproto-cli)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Command-line interface for panproto. The binary is called `schema`.
+The `schema` command-line tool for schematic version control.
 
-Provides subcommands for schema validation, migration checking, breaking change detection, record lifting, protolens-based data conversion, and schematic version control.
+## What it does
+
+`schema` is a git-style CLI for managing schemas and their migrations. You initialize a repository, add and commit schema changes, branch and merge schema histories, and diff any two points in time to see what changed and whether the change breaks existing clients.
+
+Beyond version control, `schema` includes tools for the full schema lifecycle: validate a schema file against a protocol, check whether a migration preserves all required structure, scaffold minimal test data from a protocol definition, and generate or verify lens specifications. Data operations let you convert records between formats and migrate instances forward or backward through schema history. The parse subcommands expose full-AST parsing of source files (248 languages) or entire project directories into panproto schemas. The git bridge imports an existing git repository's history into panproto and can export back. An expression REPL lets you interactively evaluate panproto expressions against live data.
+
+## Quick example
+
+```sh
+# Initialize a schema repository.
+schema init
+
+# Parse a TypeScript project into a panproto schema and commit it.
+schema parse project ./src --output schema.json
+schema add schema.json
+schema commit -m "initial schema from src/"
+
+# After changing the project, diff what changed.
+schema diff HEAD schema-v2.json
+
+# Check if the change breaks any existing clients.
+schema check --src schema-v1.json --tgt schema-v2.json --mapping migration.json
+
+# Generate a lens between two schema versions.
+schema lens generate --src schema-v1.json --tgt schema-v2.json
+
+# Import a git repo's full history into panproto.
+schema git import ./my-git-repo
+```
+
+## Command groups
+
+| Command | What it does |
+|---------|-------------|
+| `schema init` | Initialize a panproto repository |
+| `schema add` | Stage a schema for the next commit |
+| `schema commit` | Create a commit from staged changes |
+| `schema status` | Show staged changes and branch state |
+| `schema log` | Walk commit history |
+| `schema diff` | Diff two schemas or two commits |
+| `schema branch` | Create, list, or delete branches |
+| `schema merge` | Merge two branches |
+| `schema checkout` | Switch branches or restore a past schema |
+| `schema validate` | Validate a schema against a protocol |
+| `schema check` | Check existence conditions for a migration |
+| `schema scaffold` | Generate minimal test instances from a protocol |
+| `schema normalize` | Simplify a schema by merging equivalent elements |
+| `schema lens generate` | Auto-generate a protolens between two schemas |
+| `schema lens apply` | Apply a lens to an instance |
+| `schema lens verify` | Check get-put and put-get lens laws |
+| `schema lens compose` | Compose two lens files |
+| `schema data convert` | Convert an instance between formats |
+| `schema data migrate` | Migrate an instance forward or backward |
+| `schema parse file` | Parse a single source file to a schema |
+| `schema parse project` | Parse a directory tree to a unified schema |
+| `schema git import` | Import a git repository into panproto-vcs |
+| `schema git export` | Export panproto-vcs commits back to git |
+| `schema expr eval` | Evaluate a panproto expression |
+| `schema expr repl` | Start an interactive expression REPL |
+| `schema theory` | Compile and check GAT theory definitions |
 
 ## Installation
 
 ```sh
-# macOS (Homebrew)
-brew install panproto/tap/panproto-cli
+# Homebrew
+brew install panproto/tap/schema
 
-# Linux / macOS (shell installer)
-curl --proto '=https' -LsSf https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.sh | sh
+# Shell installer
+curl -fsSL https://get.panproto.dev | sh
 
-# Windows (PowerShell)
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.ps1 | iex"
-
-# From source (any platform with Rust)
+# Cargo
 cargo install panproto-cli
 ```
-
-## Usage
-
-```sh
-# Version control
-schema init                              # initialize repo, auto-detect packages
-schema add schema.json                   # stage a JSON schema
-schema add crates/panproto-gat/          # stage a directory (parsed via tree-sitter)
-schema commit -m "initial schema"
-schema commit -m "fix" --skip-verify     # bypass GAT equation checks
-schema status                            # per-file changes grouped by package
-schema log
-schema diff --staged
-schema diff --theory old.json new.json
-schema show HEAD
-
-# Branching and merging
-schema branch feature
-schema checkout feature
-schema merge main
-schema merge main --migrate records/     # merge and migrate data
-schema rebase main
-schema cherry-pick abc1234
-schema stash push
-schema stash pop
-
-# Schema tools
-schema validate --protocol atproto schema.json
-schema check --src old.json --tgt new.json --mapping mig.json
-schema typecheck --src old.json --tgt new.json --migration mig.json
-schema verify --protocol atproto schema.json
-schema scaffold --protocol atproto schema.json
-schema normalize --protocol atproto schema.json
-
-# Lens operations
-schema lens generate old.json new.json
-schema lens apply lens.json record.json
-schema lens verify lens.json --instance test.json
-schema lens compose lens1.json lens2.json
-schema lens inspect chain.json
-schema lens check chain.json schemas/
-schema lens lift chain.json morphism.json
-
-# Data operations
-schema data convert --src-schema old.json --tgt-schema new.json record.json
-schema data migrate records/
-schema data sync records/
-schema data status records/
-schema add schema.json --data records/   # stage data alongside schema
-
-# Record lifting
-schema lift --migration mig.json --src-schema src.json --tgt-schema tgt.json record.json
-
-# Full-AST parsing (248 languages)
-schema parse file src/main.ts
-schema parse project ./src
-schema parse emit src/main.ts
-
-# Git bridge
-schema git import /path/to/repo HEAD
-schema git export --repo . /path/to/dest
-
-# Expressions
-schema expr eval "2 + 3 * 4"
-schema expr parse "\\x -> x + 1"
-schema expr fmt "\\x->x+ 1"
-schema expr check "let x = 1 in x + 2"
-schema expr repl
-schema expr gat-eval term.json
-schema expr gat-check term.json
-
-# Enrichments
-schema enrich add-default --vertex post.title --expr '"untitled"'
-schema enrich add-coercion --from string --to integer --expr "str_to_int(x)"
-schema enrich list
-
-# History
-schema reflog
-schema bisect
-schema blame --vertex post.title
-schema reset --soft HEAD~1
-schema gc
-```
-
-## Subcommands
-
-| Command | Description |
-|---------|-------------|
-| `init` | Initialize a `.panproto/` repository (auto-generates `panproto.toml`) |
-| `add` | Stage a schema, file, or directory (`--data` to stage data files alongside) |
-| `commit` | Commit staged changes (`--skip-verify` to bypass GAT checks, `--amend` to rewrite) |
-| `status` | Show per-file changes grouped by package |
-| `log` | Walk commit history (`--oneline`, `--grep`, `--format`) |
-| `diff` | Diff two schemas or show staged changes (`--theory`, `--stat`, `--name-only`) |
-| `show` | Inspect a commit, schema, migration, theory, or theory morphism object |
-| `validate` | Validate a schema against a protocol |
-| `check` | Check existence conditions for a migration |
-| `typecheck` | Type-check a migration at the GAT level |
-| `verify` | Verify a schema satisfies its protocol theory's equations |
-| `scaffold` | Generate minimal test data via free model construction |
-| `normalize` | Simplify a schema by merging equivalent elements |
-| `branch` | Create, list, delete, or rename branches |
-| `tag` | Create, list, or delete tags (lightweight or annotated) |
-| `checkout` | Switch branch or detach HEAD (`--migrate` to migrate data) |
-| `merge` | Three-way schema merge via pushout (`--migrate`, `--no-ff`, `--squash`) |
-| `rebase` | Replay commits onto another branch |
-| `cherry-pick` | Apply a single commit's migration |
-| `reset` | Move HEAD / unstage / restore (`--soft`, `--mixed`, `--hard`) |
-| `stash` | Save/restore working state (`push`, `pop`, `list`, `drop`, `apply`, `show`, `clear`) |
-| `reflog` | Show ref mutation history |
-| `bisect` | Binary search for the commit that introduced a breaking change |
-| `blame` | Show which commit introduced a schema element |
-| `lift` | Apply a migration to a record |
-| `integrate` | Compute the pushout of two schemas |
-| `auto-migrate` | Automatically discover a migration between two schemas |
-| `gc` | Garbage collect unreachable objects |
-| `lens generate` | Auto-generate a lens between two schemas |
-| `lens apply` | Apply a saved lens or protolens chain to data |
-| `lens compose` | Compose two protolens chains |
-| `lens verify` | Verify lens laws (GetPut, PutGet) on test data |
-| `lens inspect` | Print human-readable summary of a protolens chain |
-| `lens check` | Check applicability of a chain against schemas |
-| `lens lift` | Lift a chain along a theory morphism |
-| `data convert` | One-step data conversion between schemas |
-| `data migrate` | Migrate data to match current schema version |
-| `data sync` | Sync data to target schema version via VCS |
-| `data status` | Report data staleness |
-| `parse file` | Parse a single source file into a structural schema |
-| `parse project` | Parse a directory into a unified project schema |
-| `parse emit` | Round-trip: parse then emit back to source |
-| `git import` | Import git history into panproto-vcs |
-| `git export` | Export panproto-vcs history to a git repository |
-| `expr eval` | Parse and evaluate an expression |
-| `expr parse` | Parse an expression and print its AST |
-| `expr fmt` | Pretty-print an expression in canonical form |
-| `expr check` | Validate expression syntax |
-| `expr repl` | Interactive expression REPL |
-| `expr gat-eval` | Evaluate a JSON-encoded GAT term |
-| `expr gat-check` | Type-check a JSON-encoded GAT term |
-| `enrich add-default` | Add a default value expression to a vertex |
-| `enrich add-coercion` | Add a coercion expression between vertex kinds |
-| `enrich add-merger` | Add a merger expression to a vertex |
-| `enrich add-policy` | Add a conflict policy to a vertex |
-| `enrich list` | List all enrichments on the HEAD schema |
-| `enrich remove` | Remove an enrichment by name |
-| `remote add/remove/list` | Manage remote repositories |
-| `push` | Push schemas to a remote repository |
-| `pull` | Pull schemas from a remote repository |
-| `fetch` | Fetch schemas from a remote repository |
-| `clone` | Clone a remote repository |
 
 ## License
 

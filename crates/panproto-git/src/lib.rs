@@ -42,4 +42,4 @@ mod tests;
 pub use error::GitBridgeError;
 pub use export::ExportResult;
 pub use export::export_to_git;
-pub use import::{ImportResult, import_git_repo};
+pub use import::{ImportResult, import_git_repo, import_git_repo_incremental};

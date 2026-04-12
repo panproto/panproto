@@ -53,9 +53,26 @@ impl FieldPresence {
 
 /// A concrete data value in an instance.
 ///
-/// Covers the common leaf types across protocols: booleans, integers,
-/// strings, bytes, CID links (for content-addressed protocols), blobs,
-/// tokens (enum variants), null, and extensibility via opaque/unknown.
+/// This is the ADT of *leaf-or-opaque* data carried by a W-type node.
+/// It mirrors the free term algebra of JSON-like values and forms a
+/// faithful round-trip target for any schema-unanchored data that
+/// parses into the instance (e.g. values landing in `extra_fields`).
+///
+/// Category-theoretically, the variants partition into:
+///
+/// - **Primitive atoms** ([`Self::Bool`], [`Self::Int`], [`Self::Float`],
+///   [`Self::Str`], [`Self::Bytes`], [`Self::CidLink`], [`Self::Blob`],
+///   [`Self::Token`], [`Self::Null`]) — generators of the ADT.
+/// - **Records** ([`Self::Opaque`], [`Self::Unknown`]) — finite products
+///   indexed by string field names (heterogeneous, unordered).
+/// - **Lists** ([`Self::List`]) — the free monoid / list object, an
+///   ordered collection with anonymous positions. This is the list
+///   constructor needed to faithfully embed JSON arrays and, more
+///   generally, any ordered-collection leaf value.
+///
+/// The `Unknown` and `List` variants together give the enum closure
+/// under the two fundamental JSON constructors (object and array) so
+/// that values with no schema anchor still round-trip losslessly.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     /// Boolean value.
@@ -90,8 +107,13 @@ pub enum Value {
         /// Opaque fields.
         fields: HashMap<String, Self>,
     },
-    /// An unknown value (unrecognized fields preserved for round-tripping).
+    /// An unknown record value: a finite product of name/value pairs.
+    /// Used for schema-unanchored objects that must round-trip.
     Unknown(HashMap<String, Self>),
+    /// An ordered list of values: the free-monoid list object over
+    /// `Value`. Used for schema-unanchored arrays and for transforms
+    /// that operate on ordered collections carried in `extra_fields`.
+    List(Vec<Self>),
 }
 
 impl Value {
@@ -110,6 +132,7 @@ impl Value {
             Self::Null => "null",
             Self::Opaque { .. } => "opaque",
             Self::Unknown(_) => "unknown",
+            Self::List(_) => "list",
         }
     }
 }
@@ -137,6 +160,49 @@ mod tests {
         assert_eq!(Value::Bool(true).type_name(), "bool");
         assert_eq!(Value::Str("hello".into()).type_name(), "str");
         assert_eq!(Value::Null.type_name(), "null");
+        assert_eq!(Value::List(Vec::new()).type_name(), "list");
+        assert_eq!(Value::Unknown(HashMap::new()).type_name(), "unknown");
+    }
+
+    #[test]
+    fn value_list_round_trip_via_serde() -> Result<(), serde_json::Error> {
+        // A Value::List of mixed primitives should survive a JSON round
+        // trip through its derived Serde impl.
+        let original = Value::List(vec![
+            Value::Int(1),
+            Value::Str("two".into()),
+            Value::Bool(true),
+        ]);
+        let json = serde_json::to_string(&original)?;
+        let restored: Value = serde_json::from_str(&json)?;
+        assert_eq!(original, restored);
+        Ok(())
+    }
+
+    #[test]
+    fn value_list_is_free_monoid_over_values() {
+        // Concatenation of two Value::List instances is itself a
+        // Value::List (monoid closure under +). Empty list is the
+        // identity element (neutrality on both sides).
+        let a = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        let b = Value::List(vec![Value::Int(3)]);
+        let empty = Value::List(Vec::new());
+
+        let concat = |xs: &Value, ys: &Value| match (xs, ys) {
+            (Value::List(x), Value::List(y)) => {
+                let mut out = x.clone();
+                out.extend(y.iter().cloned());
+                Value::List(out)
+            }
+            _ => panic!("expected lists"),
+        };
+
+        assert_eq!(
+            concat(&a, &b),
+            Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        );
+        assert_eq!(concat(&empty, &a), a, "left identity");
+        assert_eq!(concat(&a, &empty), a, "right identity");
     }
 
     #[test]

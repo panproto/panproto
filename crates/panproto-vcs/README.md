@@ -2,93 +2,66 @@
 
 [![crates.io](https://img.shields.io/crates/v/panproto-vcs.svg)](https://crates.io/crates/panproto-vcs)
 [![docs.rs](https://docs.rs/panproto-vcs/badge.svg)](https://docs.rs/panproto-vcs)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Schematic version control for panproto.
+Git-style version control for schemas, with structural merging and automatic data migration.
 
-Schemas, data snapshots, complements, and protocol definitions are content-addressed objects (blake3) stored in a commit DAG, with branches, three-way structural merge via categorical pushout, rename detection, data lifting through history, and automatic data migration. The CLI binary is `schema`.
+## What it does
 
-## API
+Every schema, migration, data snapshot, and commit is stored as a content-addressed object identified by its blake3 hash. Commits form a directed acyclic graph (DAG), the same structure git uses. You get branches, merging, rebasing, cherry-picking, bisecting, and blame, all operating on schemas rather than source files.
 
-| Item | Description |
-|------|-------------|
-| `Repository` | High-level porcelain: init, add, commit, merge, rebase, cherry-pick, reset, gc |
-| `FsStore` | Filesystem-backed object store (`.panproto/` directory) |
-| `MemStore` | In-memory store for tests and WASM |
-| `Store` | Trait abstracting over storage backends |
-| `ObjectId` | Blake3 content-address (32 bytes) |
-| `Object` | Enum: `Schema`, `Migration`, `Commit`, `Theory`, `TheoryMorphism`, `Expr`, and others |
-| `CommitObject` | A point in the schema evolution DAG (with `theory_ids` tracking stored theories) |
-| `CommitObjectBuilder` | Builder for `CommitObject` with sensible defaults |
-| `HeadState` | Branch or detached HEAD |
-| `ReflogEntry` | Audit trail entry for ref mutations |
-| `Index` | Staging area for the next commit |
-| `MergeResult` | Three-way merge output with typed conflict detection |
-| `BisectState` / `BisectStep` | Binary search for breaking commits |
-| `BlameEntry` | Which commit introduced a schema element |
-| `GcReport` | Garbage collection results |
-| `GatDiagnostics` | Type errors, equation violations, and migration warnings from GAT validation |
-| `CommitOptions` | Commit configuration including `skip_verify` to bypass GAT equation checks |
-| `DataSetObject` | Content-addressed data snapshot binding instances to a schema version |
-| `ComplementObject` | Persistent complement for backward data migration |
-| `data_mig::migrate_forward` | Migrate data forward through a migration, storing complement |
-| `data_mig::migrate_backward` | Restore data from a stored complement |
-| `data_mig::detect_staleness` | Check which data sets need migration |
-| `Repository::add_data` | Stage data files alongside schema changes |
-| `Repository::add_protocol` | Stage a protocol definition for versioning |
-| `Repository::checkout_with_data` | Switch branch and migrate data |
-| `Repository::merge_with_data` | Merge and migrate data |
-| `EditLogObject` | Content-addressed edit sequence for incremental migration |
-| `edit_mig::incremental_migrate` | Translate a sequence of edits through an edit lens |
-| `edit_mig::encode_edit_log` / `decode_edit_log` | MessagePack serialization for edit sequences |
-| `CstComplementObject` | Content-addressed storage for format complements |
-| `Object::CstComplement` | Object variant for CST complements in the store |
-| `pass_through_cst_complement` | Thread format complements through schema migrations |
-| `store_cst_complement` | Store a CST complement as a VCS object |
-| `store_expr` / `load_expr` | Content-addressed expression storage via `MessagePack` + blake3 |
+The key difference from git is how merges work. Git merges text by looking for the longest common substring. panproto-vcs merges schemas by comparing their graph structure: two branches that both added a field named `email` to a `User` vertex are recognized as adding the same thing, even if they were written independently. This structural comparison (implemented via categorical pushout) produces fewer false conflicts than text diffing.
 
-## Modules
+The VCS also versions data alongside schemas. When you commit a schema change that removes a field, the complement (the dropped field values) is stored so that a future backward migration can recover them. `migrate_forward` applies a migration to a data snapshot and stores the complement; `migrate_backward` restores the original data from the complement. This gives you lossless schema history, not just structural diffs.
 
-| Module | Description |
-|--------|-------------|
-| `hash` | Canonical serialization + blake3 content addressing |
-| `dag` | Merge base, path finding, log walk, compose path, `compose_path_with_coherence` |
-| `merge` | Three-way schema merge + conflict detection |
-| `refs` | Branches, tags, resolve_ref |
-| `auto_mig` | Derive Migration from SchemaDiff |
-| `rename_detect` | Structural similarity scoring for vertex/edge renames |
-| `rebase` | Replay commits onto a new base |
-| `cherry_pick` | Apply a single commit's migration |
-| `reset` | Soft/mixed/hard HEAD reset |
-| `stash` | Save/restore working state |
-| `bisect` | Binary search for breaking commit |
-| `blame` | Schema element attribution |
-| `gc` | Mark-sweep garbage collection |
-| `gat_validate` | GAT-level validation: type-checked migrations, theory equation verification, schema model checking, `schema_to_theory` extraction |
-| `repo` | Repository orchestration (porcelain) |
-
-## Safety
-
-The VCS pipeline integrates GAT-level validation at two points:
-
-- **On commit:** auto-derived migrations are validated as well-formed theory morphisms via `gat_validate::validate_migration`. The protocol theory's equations are type-checked via `gat_validate::validate_theory_equations`, and the schema model is verified against those equations via `gat_validate::validate_schema_equations`. Pass `skip_verify` in `CommitOptions` to bypass these checks.
-- **On merge:** pullback-enhanced overlap detection uses `panproto_gat::pullback` to identify structural overlap between the two branch heads and the merge base. This produces fewer false conflicts than name-based matching alone, because two sorts or operations that share a common image under their protocol morphisms are recognized as the same element regardless of local naming.
-
-The `compose_path_with_coherence` function composes a chain of migrations along a commit path and verifies that intermediate morphisms are coherent, returning both the composed migration and any coherence warnings.
-
-## Example
+## Quick example
 
 ```rust,ignore
-use panproto_vcs::Repository;
+use panproto_vcs::{Repository, refs};
 
-let mut repo = Repository::init(".").unwrap();
+let mut repo = Repository::init(std::path::Path::new(".")).unwrap();
 
-// Stage and commit a schema
-repo.add(&schema).unwrap();
-let id = repo.commit("initial schema", "alice").unwrap();
+// Stage a schema and commit it.
+repo.add(&v1_schema).unwrap();
+let commit_id = repo.commit("initial schema", "alice").unwrap();
 
-// Branch, evolve, merge
-panproto_vcs::refs::create_branch(repo.store_mut(), "feature", id).unwrap();
+// Create a branch, evolve the schema, and merge back.
+refs::create_branch(repo.store_mut(), "feature", commit_id).unwrap();
+repo.add(&v2_schema).unwrap();
+let feature_id = repo.commit("add email field", "alice").unwrap();
+repo.merge("main", feature_id).unwrap();
 ```
+
+## API overview
+
+| Export | What it does |
+|--------|-------------|
+| `Repository` | High-level API: `init`, `open`, `add`, `commit`, `merge`, `rebase`, `cherry_pick`, `reset`, `gc` |
+| `FsStore` | Filesystem-backed object store (`.panproto/` directory) |
+| `MemStore` | In-memory object store for tests and WASM contexts |
+| `Store` | Trait abstracting over storage backends |
+| `ObjectId` | Blake3 content address (32 bytes) |
+| `Object` | Enum covering all object types: `Schema`, `Migration`, `Commit`, `Theory`, `Expr`, and others |
+| `CommitObject` | A point in the schema evolution DAG |
+| `CommitObjectBuilder` | Builder for `CommitObject` with sensible defaults |
+| `DataSetObject` | A content-addressed data snapshot bound to a schema version |
+| `ComplementObject` | Stored complement for lossless backward migration |
+| `HeadState` | Branch name or detached HEAD (a bare `ObjectId`) |
+| `Index` | Staging area for the next commit |
+| `CommitOptions` | Commit configuration (includes `skip_verify` to bypass GAT validation) |
+| `VcsError` | Error type for all VCS operations |
+| `dag::log_walk` | Walk commits from HEAD toward roots |
+| `dag::merge_base` | Find the common ancestor of two commits |
+| `refs::create_branch` | Create a branch pointing at a commit |
+| `merge` | Three-way structural merge with typed conflict detection |
+| `rebase` | Replay commits onto a new base |
+| `cherry_pick` | Apply a single commit's migration to the current HEAD |
+| `bisect` | Binary search for the commit that introduced a breaking change |
+| `blame` | Determine which commit introduced a schema element |
+| `gc` | Mark-sweep garbage collection for unreachable objects |
+| `data_mig::migrate_forward` | Apply a migration to a data snapshot, storing the complement |
+| `data_mig::migrate_backward` | Restore data from a stored complement |
+| `data_mig::detect_staleness` | Check which data snapshots need migration |
 
 ## License
 

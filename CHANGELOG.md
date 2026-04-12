@@ -4,6 +4,37 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-04-12
+
+### Added
+
+- **panproto-xrpc**: `listCommits` and `diffCommits` XRPC query endpoints with typed response structs (`ListCommitsResult`, `DiffCommitsResult`, `CommitEntry`, `CommitIdentity`, `FileDiff`), camelCase wire format, and URL-builder tests. Resolves panproto/panproto#25.
+- **panproto-git**: `import_git_repo_incremental` for incremental git import. Accepts a `known: &HashMap<git2::Oid, ObjectId, H>` map to skip already-imported commits via `revwalk.hide`, making repeated imports proportional to new commits only. Resolves panproto/panproto#26.
+- **panproto-git**: `export_to_git` gains an `update_ref: Option<&str>` parameter. `None` creates the commit without moving any git ref (needed for batch DAG export).
+- **panproto-inst**: `Value::List(Vec<Value>)` variant added to the `Value` ADT, completing the free term algebra with the list polynomial summand. JSON arrays now round-trip faithfully through `json_value_to_value` / `value_to_json` instead of collapsing to `Value::Unknown` with stringly numeric keys. Resolves panproto/panproto#27.
+- **panproto-inst**: `is_list_vertex` generic detection rule replaces the hardcoded `vertex.kind == "array"` check in `node_to_json`. A vertex renders as a JSON array iff all its outgoing schema edges are anonymous (`name == None`), the free-schema characterization of ordered collections. Works for any protocol regardless of vertex-kind naming convention.
+- **panproto-inst**: `parse_array` now identifies the item edge generically (first anonymous outgoing edge) instead of hardcoding edge kinds `"item"` / `"items"`.
+- **git-remote-cospan**: Persistent per-remote `FsStore` cache under `$GIT_DIR/cospan-cache/<remote>/` with a plain-text marks file (`git-marks.txt`) for git-to-panproto OID mapping. Both `cmd_push` and `cmd_fetch` are now incremental across invocations.
+- **git-remote-cospan**: `RemoteClient` trait abstracting `NodeClient` for testability. `FakeRemoteClient` in tests enables end-to-end testing of `cmd_push`/`cmd_fetch` without HTTP.
+- **git-remote-cospan**: `topo_walk_from` iterative DFS post-order for topologically-correct commit export (replaces timestamp-ordered `log_walk` which could disconnect DAGs when git commits have non-monotonic author timestamps).
+- **git-remote-cospan**: Stale-marks filter in `fetch_export_stage` drops marks referencing git OIDs no longer present in the destination repo, preventing silent parent drops and DAG disconnection after `git gc`.
+
+### Changed
+
+- **panproto-git**: `import_git_repo` no longer sets `refs/heads/main` on the store. Callers are responsible for naming the imported tip.
+- **panproto-inst**: `apply_map_references` now operates on `Value::List` directly instead of the legacy `__array_len` sentinel encoding in `Value::Unknown`.
+- **panproto-inst**: `value_to_expr_literal` for `Value::List` silently drops non-string elements (matching the pre-existing `__array_len` path behavior) instead of Debug-formatting them.
+- **git-remote-cospan**: `cmd_push` and `cmd_fetch` are now generic over `C: RemoteClient`.
+- **git-remote-cospan**: `cmd_push` explicitly sets the local `dst` ref after import (no longer relies on the removed `refs/heads/main` hardcode in `import_git_repo`).
+- **panproto-cli**: `cmd_git_export` passes `Some("HEAD")` to `export_to_git` (preserving prior behavior).
+
+### Documentation
+
+- All 28 README files rewritten for accessibility: plain-English descriptions, intuitions before jargon, homogeneous structure across crates (title, one-liner, "What it does", "Quick example", "API overview", "License"), TypeScript-first quick start in the top-level README.
+- Top-level README: centered logo with theme-aware `<picture>` element, badge row, and jargon-free architecture walkthrough.
+- SDK READMEs (TypeScript, Python): updated to reflect current API surface, mention 248-language and 51-protocol coverage.
+- PyPI `description` field updated from "Schema migration engine grounded in generalized algebraic theories" to "Automatic schema migration and version control for 51 schema languages and 248 programming languages".
+
 ## [0.27.3] - 2026-04-08
 
 ### Fixed

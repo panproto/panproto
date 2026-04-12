@@ -1,0 +1,59 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.diffCommits",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "from", "to"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "from": { "type": "string", "maxLength": 64 },
+          "to": { "type": "string", "maxLength": 64 },
+          "contextLines": { "type": "integer", "minimum": 0, "maximum": 32 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["from", "to", "files", "totalAdditions", "totalDeletions", "fileCount"],
+          "properties": {
+            "from": { "type": "string", "maxLength": 64 },
+            "to": { "type": "string", "maxLength": 64 },
+            "files": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#fileDiff" }
+            },
+            "totalAdditions": { "type": "integer" },
+            "totalDeletions": { "type": "integer" },
+            "fileCount": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "fileDiff": {
+      "type": "object",
+      "required": ["path", "status", "additions", "deletions", "binary"],
+      "properties": {
+        "path": { "type": "string" },
+        "oldPath": { "type": "string" },
+        "status": {
+          "type": "string",
+          "knownValues": ["added", "removed", "modified", "renamed", "copied", "unchanged"]
+        },
+        "oldOid": { "type": "string", "maxLength": 64 },
+        "newOid": { "type": "string", "maxLength": 64 },
+        "additions": { "type": "integer" },
+        "deletions": { "type": "integer" },
+        "binary": { "type": "boolean" },
+        "hunks": {
+          "type": "array",
+          "items": { "type": "unknown" }
+        },
+        "structuralDiff": { "type": "unknown" }
+      }
+    }
+  }
+}

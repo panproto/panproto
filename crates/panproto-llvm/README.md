@@ -1,25 +1,51 @@
 # panproto-llvm
 
-LLVM IR protocol definition and lowering morphisms for panproto.
+[![crates.io](https://img.shields.io/crates/v/panproto-llvm.svg)](https://crates.io/crates/panproto-llvm)
+[![docs.rs](https://docs.rs/panproto-llvm/badge.svg)](https://docs.rs/panproto-llvm)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-## Overview
+Models LLVM IR as a panproto schema language, and treats compilation as a schema transformation.
 
-This crate provides:
+## What it does
 
-1. **LLVM IR protocol**: A GAT theory and protocol definition for representing LLVM IR modules as panproto schemas. 31 vertex kinds cover modules, functions, basic blocks, instructions, types, and values. 13 edge rules cover containment, data flow (SSA use-def chains), control flow (successors), and typing. 56 instruction opcodes are enumerated as constraint sorts.
+LLVM IR is the intermediate representation that compilers like clang and rustc lower source code into before generating machine code. This crate defines it as a first-class panproto protocol: 31 vertex kinds (modules, functions, basic blocks, the ~56 instruction opcodes) and edge kinds for control flow, data flow (SSA use-def chains), containment, and typing.
 
-2. **Lowering morphisms**: Theory morphisms from language AST protocols (TypeScript, Python, Rust) to LLVM IR. These express compilation as structure-preserving maps, enabling cross-level migration via functoriality: `restrict(lower) . restrict(mig) = restrict(lower . mig)`.
+The more interesting part is the lowering morphisms. A morphism in panproto is a structure-preserving map between two schema languages; think of it as declaring "every TypeScript function maps to an LLVM function, every branch maps to a conditional branch instruction, and so on." This crate provides those maps from the TypeScript, Python, and Rust AST protocols to LLVM IR. Because the maps preserve structure, schema migrations at the source level compose correctly with the lowering: you can migrate data schemas and have the compiled output stay consistent automatically.
 
-3. **inkwell backend** (feature-gated): LLVM IR parsing from `.ll` text files via `parse_llvm_ir()`. Walks the module's functions, basic blocks, instructions, parameters, and global variables into panproto vertices and edges.
+Parsing actual LLVM bitcode (`.ll` and `.bc` files) into panproto schemas is available behind the `inkwell-backend` feature flag, which requires LLVM installed locally. Without that flag, the protocol definition and lowering morphisms are still available at compile time.
 
-## Category theory
+## Quick example
 
-Lowering morphisms are theory morphisms in the GAT system. The complement of the lowering captures source-level information lost in IR (variable names, formatting, comments). LLVM optimization passes (DCE, inlining) are protolenses on the LLVM IR theory.
+```rust,ignore
+use panproto_llvm::{llvm_ir_protocol, all_lowering_morphisms};
 
-## Features
+// Get the LLVM IR protocol definition.
+let proto = llvm_ir_protocol();
+println!("vertex kinds: {}", proto.obj_kinds.len());
 
-- `inkwell-backend` (default): enables LLVM IR parsing via inkwell. Requires LLVM 20 installed.
+// Inspect available lowering morphisms (TypeScript -> LLVM, etc.).
+for m in all_lowering_morphisms() {
+    println!("lowers: {} -> llvm_ir", m.source_protocol);
+}
+
+// Parse actual LLVM IR (requires --features=inkwell-backend and LLVM installed).
+#[cfg(feature = "inkwell-backend")]
+{
+    use panproto_llvm::parse_llvm_ir;
+    let schema = parse_llvm_ir(std::path::Path::new("module.ll"))?;
+    println!("{} instructions", schema.vertices.len());
+}
+```
+
+## API overview
+
+| Export | What it does |
+|--------|-------------|
+| `llvm_ir_protocol()` | Returns the LLVM IR protocol definition (31 vertex kinds, 56 opcodes) |
+| `all_lowering_morphisms()` | Returns lowering morphisms from TypeScript, Python, Rust to LLVM IR |
+| `parse_llvm_ir()` | Parses a `.ll` or `.bc` file into a panproto schema (`inkwell-backend` feature) |
+| `LlvmError` | Error variants: parse failures, unsupported instruction kinds |
 
 ## License
 
-MIT
+[MIT](../../LICENSE)

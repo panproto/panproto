@@ -224,8 +224,8 @@ pub enum FieldTransform {
     /// For each field value:
     /// - If the value is a `Value::Str` matching a key in `rename_map`,
     ///   it is replaced with the mapped value (or removed if mapped to None).
-    /// - If the value is a `Value::Unknown` containing an `__array_len`
-    ///   sentinel (encoded array), each string element is checked.
+    /// - If the value is a `Value::List`, each string element is checked
+    ///   and the list is rebuilt with renames applied and drops removed.
     ///
     /// This handles parent reference arrays, cross-annotation links,
     /// and any other string fields that carry vertex identity.
@@ -1082,7 +1082,12 @@ fn apply_path_transform(node: &mut Node, path: &[String], inner: &FieldTransform
 }
 
 /// Apply a `MapReferences` transform to a node's field, handling both
-/// flat `Value::Str` and encoded arrays with `__array_len` sentinels.
+/// a scalar `Value::Str` reference and a `Value::List` of references.
+///
+/// This is the action of the rename map on string-typed leaves that
+/// denote vertex names. The transform is functorial: it commutes with
+/// the list constructor (renaming a list of references is the same as
+/// mapping the rename over the list).
 fn apply_map_references(
     node: &mut Node,
     field: &str,
@@ -1100,35 +1105,25 @@ fn apply_map_references(
                     }
                 }
             }
-            Value::Unknown(map) => {
-                // Encoded array: check for __array_len sentinel
-                if map.contains_key("__array_len") {
-                    let len = match map.get("__array_len") {
-                        Some(Value::Int(n)) => usize::try_from(*n).unwrap_or(0),
-                        _ => 0,
-                    };
-                    let mut new_entries = Vec::new();
-                    for i in 0..len {
-                        let key = i.to_string();
-                        if let Some(Value::Str(s)) = map.get(&key) {
-                            match rename_map.get(s.as_str()) {
-                                Some(Some(new_name)) => {
-                                    new_entries.push(Value::Str(new_name.clone()));
-                                }
-                                Some(None) => {} // drop
-                                None => new_entries.push(Value::Str(s.clone())),
+            Value::List(items) => {
+                // Rebuild the list with renames applied and entries
+                // mapped to None dropped. Non-string items pass through
+                // unchanged: `MapReferences` is specifically the action
+                // of the rename map on string leaves.
+                let mut new_items = Vec::with_capacity(items.len());
+                for item in items.iter() {
+                    match item {
+                        Value::Str(s) => match rename_map.get(s.as_str()) {
+                            Some(Some(new_name)) => {
+                                new_items.push(Value::Str(new_name.clone()));
                             }
-                        }
+                            Some(None) => {} // drop
+                            None => new_items.push(Value::Str(s.clone())),
+                        },
+                        other => new_items.push(other.clone()),
                     }
-                    // Rebuild the encoded array
-                    let mut new_map = HashMap::new();
-                    for (i, v) in new_entries.iter().enumerate() {
-                        new_map.insert(i.to_string(), v.clone());
-                    }
-                    let new_len = i64::try_from(new_entries.len()).unwrap_or(0);
-                    new_map.insert("__array_len".to_string(), Value::Int(new_len));
-                    *map = new_map;
                 }
+                *items = new_items;
             }
             _ => {}
         }
@@ -1232,6 +1227,17 @@ pub fn build_env_from_extra_fields(fields: &HashMap<String, Value>) -> panproto_
 }
 
 /// Convert an instance `Value` to a `panproto_expr::Literal` for expression evaluation.
+///
+/// `Value::List` is flattened to a comma-separated `Literal::Str`
+/// containing only the list's string elements, so that predicate
+/// builtins like `Contains` can test membership without needing a list
+/// literal in the expression language. Non-string elements are
+/// silently dropped from the joined form — `value_to_expr_literal`
+/// represents the projection `List Value → List Str ↪ Str`, which is
+/// the composition of the obvious forgetful map and the join. This
+/// matches the pre-existing (pre-`Value::List`) semantics of the
+/// encoded-array path, which also only contributed string leaves to
+/// the joined representation.
 #[must_use]
 pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
     match val {
@@ -1239,21 +1245,15 @@ pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
         Value::Int(i) => panproto_expr::Literal::Int(*i),
         Value::Float(f) => panproto_expr::Literal::Float(*f),
         Value::Str(s) => panproto_expr::Literal::Str(s.clone()),
-        Value::Unknown(map) => {
-            // Encoded arrays (with __array_len): serialize as comma-separated
-            // string so Contains can check membership.
-            if let Some(Value::Int(len)) = map.get("__array_len") {
-                let mut parts = Vec::new();
-                let count = usize::try_from(*len).unwrap_or(0);
-                for i in 0..count {
-                    if let Some(Value::Str(s)) = map.get(&i.to_string()) {
-                        parts.push(s.as_str());
-                    }
-                }
-                panproto_expr::Literal::Str(parts.join(","))
-            } else {
-                panproto_expr::Literal::Null
-            }
+        Value::List(items) => {
+            let parts: Vec<&str> = items
+                .iter()
+                .filter_map(|item| match item {
+                    Value::Str(s) => Some(s.as_str()),
+                    _ => None,
+                })
+                .collect();
+            panproto_expr::Literal::Str(parts.join(","))
         }
         _ => panproto_expr::Literal::Null,
     }
@@ -2061,15 +2061,16 @@ mod tests {
     }
 
     #[test]
-    fn map_references_filters_encoded_array() {
+    fn map_references_filters_list() {
         let mut node = Node::new(0, "v");
-        let mut arr = HashMap::new();
-        arr.insert("__array_len".to_string(), Value::Int(3));
-        arr.insert("0".to_string(), Value::Str("alpha".into()));
-        arr.insert("1".to_string(), Value::Str("beta".into()));
-        arr.insert("2".to_string(), Value::Str("gamma".into()));
-        node.extra_fields
-            .insert("parents".to_string(), Value::Unknown(arr));
+        node.extra_fields.insert(
+            "parents".to_string(),
+            Value::List(vec![
+                Value::Str("alpha".into()),
+                Value::Str("beta".into()),
+                Value::Str("gamma".into()),
+            ]),
+        );
 
         let mut rename_map = HashMap::new();
         rename_map.insert("alpha".to_string(), Some("alpha_v2".to_string()));
@@ -2082,24 +2083,25 @@ mod tests {
         apply_field_transforms(&mut node, &[transform], &HashMap::new());
 
         match node.extra_fields.get("parents") {
-            Some(Value::Unknown(map)) => {
-                assert_eq!(map.get("__array_len"), Some(&Value::Int(2)));
-                assert_eq!(map.get("0"), Some(&Value::Str("alpha_v2".into())));
-                assert_eq!(map.get("1"), Some(&Value::Str("gamma".into())));
+            Some(Value::List(items)) => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0], Value::Str("alpha_v2".into()));
+                assert_eq!(items[1], Value::Str("gamma".into()));
             }
-            other => panic!("expected Unknown map, got {other:?}"),
+            other => panic!("expected List, got {other:?}"),
         }
     }
 
     #[test]
     fn map_references_drops_removed_entries() {
         let mut node = Node::new(0, "v");
-        let mut arr = HashMap::new();
-        arr.insert("__array_len".to_string(), Value::Int(2));
-        arr.insert("0".to_string(), Value::Str("gone".into()));
-        arr.insert("1".to_string(), Value::Str("also_gone".into()));
-        node.extra_fields
-            .insert("refs".to_string(), Value::Unknown(arr));
+        node.extra_fields.insert(
+            "refs".to_string(),
+            Value::List(vec![
+                Value::Str("gone".into()),
+                Value::Str("also_gone".into()),
+            ]),
+        );
 
         let mut rename_map = HashMap::new();
         rename_map.insert("gone".to_string(), None);
@@ -2112,12 +2114,117 @@ mod tests {
         apply_field_transforms(&mut node, &[transform], &HashMap::new());
 
         match node.extra_fields.get("refs") {
-            Some(Value::Unknown(map)) => {
-                assert_eq!(map.get("__array_len"), Some(&Value::Int(0)));
-                assert!(!map.contains_key("0"));
-                assert!(!map.contains_key("1"));
+            Some(Value::List(items)) => {
+                assert!(items.is_empty(), "expected empty list, got {items:?}");
             }
-            other => panic!("expected Unknown map, got {other:?}"),
+            other => panic!("expected List, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn value_to_expr_literal_joins_string_list() {
+        // A list of strings becomes a comma-separated `Literal::Str`.
+        // This is what `Contains` substring predicates operate on.
+        let val = Value::List(vec![
+            Value::Str("a".into()),
+            Value::Str("b".into()),
+            Value::Str("c".into()),
+        ]);
+        match value_to_expr_literal(&val) {
+            panproto_expr::Literal::Str(s) => assert_eq!(s, "a,b,c"),
+            other => panic!("expected Literal::Str, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn value_to_expr_literal_drops_non_string_list_elements() {
+        // Non-string elements must be SILENTLY DROPPED from the joined
+        // form (not Debug-formatted, which would make `Contains(s, "42")`
+        // spuriously match on an `Int(42)` element). This preserves the
+        // pre-existing `__array_len` semantics, under which non-string
+        // entries simply didn't contribute to the joined string.
+        let val = Value::List(vec![
+            Value::Str("keep".into()),
+            Value::Int(42),
+            Value::Bool(true),
+            Value::Str("alsokeep".into()),
+            Value::Null,
+        ]);
+        match value_to_expr_literal(&val) {
+            panproto_expr::Literal::Str(s) => assert_eq!(
+                s, "keep,alsokeep",
+                "non-string list elements should be filtered out, not Debug-formatted"
+            ),
+            other => panic!("expected Literal::Str, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn value_to_expr_literal_empty_list_is_empty_string() {
+        let val = Value::List(Vec::new());
+        match value_to_expr_literal(&val) {
+            panproto_expr::Literal::Str(s) => assert!(s.is_empty()),
+            other => panic!("expected Literal::Str, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn value_to_expr_literal_non_collection_variants_pass_through() {
+        assert!(matches!(
+            value_to_expr_literal(&Value::Bool(true)),
+            panproto_expr::Literal::Bool(true)
+        ));
+        assert!(matches!(
+            value_to_expr_literal(&Value::Int(7)),
+            panproto_expr::Literal::Int(7)
+        ));
+        assert!(matches!(
+            value_to_expr_literal(&Value::Null),
+            panproto_expr::Literal::Null
+        ));
+        // Unknown (record) maps to Null because it has no natural
+        // coercion to a Literal without a projection.
+        assert!(matches!(
+            value_to_expr_literal(&Value::Unknown(HashMap::new())),
+            panproto_expr::Literal::Null
+        ));
+    }
+
+    #[test]
+    fn map_references_preserves_non_string_elements() {
+        // MapReferences is the action of the rename on *string leaves*;
+        // non-string elements in a list pass through unchanged. This
+        // pins the functoriality in the Kleisli category of the "rename
+        // or drop" partial map.
+        let mut node = Node::new(0, "v");
+        node.extra_fields.insert(
+            "mixed".to_string(),
+            Value::List(vec![
+                Value::Str("renameme".into()),
+                Value::Int(42),
+                Value::Bool(true),
+                Value::Str("dropme".into()),
+            ]),
+        );
+
+        let mut rename_map = HashMap::new();
+        rename_map.insert("renameme".to_string(), Some("renamed".to_string()));
+        rename_map.insert("dropme".to_string(), None);
+
+        let transform = FieldTransform::MapReferences {
+            field: "mixed".to_string(),
+            rename_map,
+        };
+        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+
+        match node.extra_fields.get("mixed") {
+            Some(Value::List(items)) => {
+                assert_eq!(items.len(), 3);
+                assert_eq!(items[0], Value::Str("renamed".into()));
+                assert_eq!(items[1], Value::Int(42));
+                assert_eq!(items[2], Value::Bool(true));
+            }
+            other => panic!("expected List, got {other:?}"),
         }
     }
 

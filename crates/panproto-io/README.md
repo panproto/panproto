@@ -2,56 +2,59 @@
 
 [![crates.io](https://img.shields.io/crates/v/panproto-io.svg)](https://crates.io/crates/panproto-io)
 [![docs.rs](https://docs.rs/panproto-io/badge.svg)](https://docs.rs/panproto-io)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Instance-level [presentation functors](https://ncatlab.org/nlab/show/functor) for panproto.
+Reads and writes data in each protocol's native format: 50 protocols, multiple codecs, with optional format-preserving round-trips via tree-sitter.
 
-This crate provides parse/emit operations connecting raw format bytes to panproto's instance models (`WInstance`, `FInstance`, `GInstance`), completing the functorial data migration pipeline. Together with `panproto-protocols` (schema presentations), `panproto-mig` (migration compilation), and `panproto-inst` (restriction/lifting), this enables end-to-end format-to-format migration with mathematical compositionality guarantees. Since v0.24.0, the `tree-sitter` feature enables format-preserving round-trips through a unified CST-based codec, preserving whitespace, comments, and formatting across JSON, XML, YAML, TOML, CSV, and TSV.
+## What it does
 
-## API
+Panproto's migration pipeline works on abstract instances: structured data detached from any particular file format. This crate is the bridge between raw bytes and those abstract instances. It parses JSON into an OpenAPI instance, CoNLL-U text into a dependency annotation instance, or an Avro binary into an Avro instance. After migration, it emits the result back to bytes in the target format.
 
-| Item | Description |
-|------|-------------|
-| `InstanceParser` | Trait for parsing raw bytes into instances |
-| `InstanceEmitter` | Trait for emitting instances to raw bytes |
-| `NativeRepr` | Which instance model a protocol uses (`WType`, `Functor`, `Either`) |
-| `ProtocolRegistry` | Runtime dispatch by protocol name |
-| `default_registry()` | Pre-built registry with all 76 protocol codecs |
-| `JsonCodec` | Generic JSON codec via `simd-json` |
-| `XmlCodec` | Generic zero-copy XML codec via `quick-xml` |
-| `TabularCodec` | Generic delimited-text codec via `memchr` |
-| `HtmlCodec` | HTML codec via `tl` |
-| `MarkdownCodec` | Markdown codec via `pulldown-cmark` |
-| `ConlluCodec` | CoNLL-U codec with sentence/token table extraction |
-| `FormatPreservingCodec` | Trait for format-preserving parse/emit (behind `tree-sitter` feature) |
-| `UnifiedCodec` | Tree-sitter-based codec for JSON, XML, YAML, TOML, CSV, TSV with format preservation |
-| `CstComplement` | CST complement capturing full lossless tree for format-preserving round-trips |
-| `FormatKind` | Enum dispatching across six data format grammars |
-| `ParseInstanceError` / `EmitInstanceError` | Error types |
+The `ProtocolRegistry` holds one parser and one emitter for each registered protocol. Calling `parse_wtype("openapi", &schema, &bytes)` dispatches to the right codec automatically. The `default_registry()` function returns a registry with all 50 protocols registered. Most codecs use SIMD-accelerated JSON parsing (via `simd-json`) or zero-copy XML parsing (via `quick-xml`) to keep parsing off the critical path.
 
-## Example
+With the `tree-sitter` feature enabled, the `UnifiedCodec` provides format-preserving round-trips for JSON, XML, YAML, TOML, CSV, and TSV: `emit(parse(bytes)) == bytes` exactly, including whitespace, comments, and original key ordering. This works by storing a CST complement alongside the abstract instance and using it during emission.
+
+## Quick example
 
 ```rust,ignore
 use panproto_io::default_registry;
 
 let registry = default_registry();
-let instance = registry.parse_wtype("html", &schema, &html_bytes)?;
-let emitted = registry.emit_wtype("html", &schema, &instance)?;
+
+// Parse an OpenAPI document into an abstract instance.
+let instance = registry.parse_wtype("openapi", &schema, &openapi_bytes)?;
+
+// Emit it back to bytes.
+let output = registry.emit_wtype("openapi", &schema, &instance)?;
 ```
 
-## Protocol coverage (76 codecs)
+## API overview
 
-| Category | Count | Pathway |
-|----------|-------|---------|
-| Annotation | 19 | JSON, XML, tabular |
-| Web/Document | 10 | JSON, XML, `tl` (HTML), `pulldown-cmark` (Markdown) |
-| Serialization | 8 | JSON (canonical encoding) |
-| Type System | 8 | JSON |
-| Data Schema | 7 | JSON, CSV, INI |
-| Database | 6 | JSON, TSV |
-| Domain | 6 | JSON, XML, delimited |
-| API | 5 | JSON |
-| Config | 4 | JSON |
-| Data Science | 3 | JSON |
+| Export | What it does |
+|--------|-------------|
+| `default_registry()` | Build a `ProtocolRegistry` with all 50 protocols registered |
+| `ProtocolRegistry` | Dispatches parse and emit by protocol name |
+| `InstanceParser` | Trait for parsing raw bytes into a `WInstance` or `FInstance` |
+| `InstanceEmitter` | Trait for emitting an instance back to raw bytes |
+| `NativeRepr` | Which instance model a protocol uses (`WType`, `Functor`, `Either`) |
+| `ParseInstanceError` | Error type for parse failures |
+| `EmitInstanceError` | Error type for emit failures |
+| `UnifiedCodec` | Format-preserving codec for JSON, XML, YAML, TOML, CSV, TSV (requires `tree-sitter` feature) |
+| `cst_extract` | CST-to-instance extraction lens for format-preserving round-trips |
+
+## Protocol coverage
+
+| Category | Protocols | Formats |
+|----------|-----------|---------|
+| Annotation | brat, decomp, ucca, fovea, bead, web_annotation, naf, uima, folia, tei, timeml, elan, iso_space, paula, laf_graf, conllu, amr, concrete, nif | JSON, XML, tabular |
+| Web / Document | atproto, docx, odf | JSON, XML |
+| Serialization | avro, flatbuffers, asn1, bond, msgpack_schema | JSON (canonical) |
+| Database | mongodb, dynamodb, cassandra, neo4j, redis | JSON |
+| Config | cloudformation, ansible, k8s_crd | JSON |
+| Data science | dataframe, parquet, arrow | JSON |
+| Domain | geojson, fhir, rss_atom, vcard_ical, swift_mt, edi_x12 | JSON, XML, delimited |
+| API | openapi, asyncapi, jsonapi, raml | JSON |
+| Data schema | cddl, bson | JSON |
 
 ## License
 

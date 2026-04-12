@@ -2,93 +2,41 @@
 
 [![crates.io](https://img.shields.io/crates/v/panproto-expr-parser.svg)](https://crates.io/crates/panproto-expr-parser)
 [![docs.rs](https://docs.rs/panproto-expr-parser/badge.svg)](https://docs.rs/panproto-expr-parser)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Haskell-style surface syntax parser for panproto expressions.
+Parses human-written expressions into the `panproto-expr` AST, and formats them back to text.
 
-Parses a human-readable functional language into `panproto_expr::Expr` AST nodes. The surface syntax supports lambda expressions, let/where bindings, if/then/else, case/of with pattern matching, list comprehensions, do-notation, record literals with punning, field access, graph edge traversal (`->`), and infix operators with correct precedence. A pretty printer converts AST nodes back to canonical surface syntax with minimal parentheses.
+## What it does
 
-## API
+`panproto-expr` represents expressions as an AST (`Expr` enum values). This crate is the bridge between that AST and a string you can actually type. It takes a string like `\x -> if x > 0 then x * 2 else 0` and produces the corresponding `Expr` tree, or takes an `Expr` tree and formats it back to a readable string.
 
-| Item | Description |
-|------|-------------|
-| `tokenize` | Logos-based lexer with GHC-style layout insertion (Indent/Dedent/Newline virtual tokens) |
-| `parse` | Chumsky 1.0 recursive-descent + Pratt precedence parser producing `Expr` |
-| `pretty_print` | Precedence-aware pretty printer with minimal parenthesization |
-| `Token` | 50+ token kinds: keywords, literals, operators, delimiters, layout tokens |
-| `Span` / `Spanned` | Source location tracking for error reporting |
-| `LexError` / `ParseError` | Structured error types with source spans |
+The surface syntax follows Haskell conventions: backslash-lambdas, `let`/`in`, `case`/`of` with pattern matching, `if`/`then`/`else`, list comprehensions, and record literals. A Pratt precedence climbing algorithm handles operator precedence correctly, so `1 + 2 * 3` parses as `1 + (2 * 3)` without requiring explicit parentheses. The pretty-printer is the inverse: it adds parentheses only where needed to preserve the original meaning, so `parse(tokenize(pretty_print(expr))) == expr` for all well-formed expressions.
 
-## Example
+The lexer uses `logos` for fast tokenization and inserts GHC-style layout tokens (`Indent`/`Dedent`) so indented blocks work without explicit braces. The parser uses `chumsky` 1.0.
+
+## Quick example
 
 ```rust,ignore
 use panproto_expr_parser::{tokenize, parse, pretty_print};
 
-// Parse a Haskell-style expression
-let tokens = tokenize(r#"\x -> x + 1"#).unwrap();
+let tokens = tokenize(r#"\x -> x * 2 + 1"#).unwrap();
 let expr = parse(&tokens).unwrap();
 
-// Pretty-print back to canonical form
+// Serialize back to canonical surface syntax.
 let source = pretty_print(&expr);
-assert_eq!(source, r#"\x -> x + 1"#);
+assert_eq!(source, r#"\x -> x * 2 + 1"#);
 ```
 
-## Surface syntax
+## API overview
 
-```haskell
--- Arithmetic and comparison
-1 + 2 * 3
-x == 0 && y > 10
-
--- Lambda and application
-\x y -> x + y
-map (\x -> x * 2) xs
-
--- Let bindings and where clauses
-let x = 1 in x + 2
-result where result = a + b
-
--- Conditionals and pattern matching
-if age > 18 then "adult" else "minor"
-case shape of
-  Circle r -> 3.125 * r * r
-  Rect w h -> w * h
-
--- Records with punning
-{ name = "alice", age = 30 }
-{ name, age }
-
--- Lists and comprehensions
-[1, 2, 3]
-[ x * 2 | x <- xs, x > 0 ]
-
--- Graph edge traversal
-doc -> layers -> annotations
-
--- Field access
-node.name
-record.field.subfield
-```
-
-## Operator precedence
-
-| Level | Operators | Associativity |
-|-------|-----------|---------------|
-| 1 | `&` (pipe) | left |
-| 3 | `\|\|` | left |
-| 4 | `&&` | left |
-| 5 | `== /= < <= > >=` | right |
-| 6 | `++` | right |
-| 7 | `+ -` | left |
-| 8 | `* / % mod div` | left |
-| 9 | unary `-`, `not` | prefix |
-
-## Design
-
-- **Logos** for fast regex-based tokenization with a second pass for GHC-style layout insertion.
-- **Chumsky 1.0** (alpha) for parser combinators with Pratt parsing for operator precedence.
-- **Round-trip**: `parse(tokenize(pretty_print(expr))) == expr` for all well-formed expressions.
-- **Desugaring**: list comprehensions, do-notation, where clauses, and multi-param lambdas are desugared during parsing into core `Expr` variants.
-- **Builtin resolution**: identifiers matching builtin names (e.g., `map`, `filter`, `fold`) are resolved to `Expr::Builtin` at application sites.
+| Item | What it does |
+|------|-------------|
+| `tokenize` | Lex a source string into a token stream; inserts layout tokens for indentation |
+| `parse` | Parse a token stream into a `panproto_expr::Expr` AST |
+| `pretty_print` | Format an `Expr` back to canonical surface syntax with minimal parentheses |
+| `Token` | 50+ token kinds: keywords, literals, operators, delimiters, and layout tokens |
+| `Span` / `Spanned` | Source location attached to tokens and parse errors |
+| `LexError` / `ParseError` | Structured error types with source spans for editor integration |
 
 ## License
 

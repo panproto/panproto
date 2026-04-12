@@ -150,6 +150,14 @@ fn parse_object(
 }
 
 /// Parse a JSON array into a node with item children.
+///
+/// The item edge is identified by the generic free-schema rule: a list
+/// vertex has a single anonymous outgoing edge (`name == None`), which
+/// is the item slot. This is protocol-agnostic and matches the rule in
+/// [`is_list_vertex`] used by `to_json`; the two must agree so that
+/// parse/serialize is a round-trip on list vertices regardless of which
+/// string the protocol uses to name the edge kind ("items", "line-of",
+/// "element", etc.).
 fn parse_array(
     schema: &Schema,
     vertex_id: &str,
@@ -161,11 +169,12 @@ fn parse_array(
     let node = Node::new(node_id, vertex_id);
     state.nodes.insert(node_id, node);
 
-    // Array items: look for outgoing "item" edges
     let outgoing: Vec<Edge> = schema.outgoing_edges(vertex_id).to_vec();
-    let item_edge = outgoing
-        .iter()
-        .find(|e| e.kind == "item" || e.kind == "items" || e.name.as_deref() == Some("item"));
+    // Prefer the first anonymous outgoing edge. In a well-formed list
+    // vertex there is exactly one, but if the schema happens to carry
+    // additional named edges we still pick the anonymous one as the
+    // item slot (named edges would be field projections, not items).
+    let item_edge = outgoing.iter().find(|e| e.name.is_none());
 
     if let Some(edge) = item_edge {
         for (i, item) in arr.iter().enumerate() {
@@ -200,6 +209,14 @@ fn json_to_field_presence(val: &serde_json::Value) -> FieldPresence {
 }
 
 /// Convert a `serde_json::Value` to our `Value` type.
+///
+/// JSON arrays map to [`Value::List`] and JSON objects map to
+/// [`Value::Unknown`]. The two branches are the categorical
+/// constructors for the free JSON-like term algebra, so
+/// `json_value_to_value` is a faithful embedding: every
+/// `serde_json::Value` has a unique preimage (up to the numeric
+/// `Int`/`Float` split dictated by the source) and survives a
+/// `value_to_json` round trip.
 fn json_value_to_value(val: &serde_json::Value) -> Value {
     match val {
         serde_json::Value::Null => Value::Null,
@@ -212,13 +229,7 @@ fn json_value_to_value(val: &serde_json::Value) -> Value {
             Value::Int,
         ),
         serde_json::Value::String(s) => Value::Str(s.clone()),
-        serde_json::Value::Array(arr) => {
-            let mut fields = HashMap::new();
-            for (i, item) in arr.iter().enumerate() {
-                fields.insert(i.to_string(), json_value_to_value(item));
-            }
-            Value::Unknown(fields)
-        }
+        serde_json::Value::Array(arr) => Value::List(arr.iter().map(json_value_to_value).collect()),
         serde_json::Value::Object(map) => {
             let fields: HashMap<String, Value> = map
                 .iter()
@@ -244,9 +255,6 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
         return serde_json::Value::Null;
     };
 
-    let vertex = schema.vertex(&node.anchor);
-    let is_array_like = vertex.is_some_and(|v| v.kind == "array");
-
     // Leaf node: return value directly
     if let Some(ref presence) = node.value {
         return match presence {
@@ -255,8 +263,16 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
         };
     }
 
-    // Array node
-    if is_array_like {
+    // List (ordered-collection) node. The check is purely structural:
+    // a vertex behaves as a list iff its outgoing edges in the schema
+    // are all anonymous (no field names). This is the free-schema
+    // characterization of the list type — a product of unlabeled "item
+    // slots" rather than a product of named projections. It is
+    // protocol-agnostic: it works for any schema that represents
+    // ordered collections via repeated unnamed edges, regardless of
+    // how the vertex kind is spelled ("array", "list", "sequence",
+    // "line-of", etc.).
+    if is_list_vertex(schema, &node.anchor) {
         let children = instance.children(node_id);
         let items: Vec<serde_json::Value> = children
             .iter()
@@ -298,6 +314,12 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
 }
 
 /// Convert a `Value` to a `serde_json::Value`.
+///
+/// This is the right inverse of [`json_value_to_value`] on the image
+/// of that map: if `v = json_value_to_value(j)`, then
+/// `value_to_json(&v)` returns `j` up to the `Int`/`Float` normalization
+/// performed on numeric literals. In particular, [`Value::List`]
+/// round-trips to a JSON array and [`Value::Unknown`] to a JSON object.
 fn value_to_json(val: &Value) -> serde_json::Value {
     match val {
         Value::Bool(b) => json!(b),
@@ -326,7 +348,28 @@ fn value_to_json(val: &Value) -> serde_json::Value {
                 .collect();
             serde_json::Value::Object(map)
         }
+        Value::List(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
     }
+}
+
+/// Decide whether a schema vertex should be rendered as a JSON list.
+///
+/// A vertex is a **list vertex** iff its outgoing edges in the schema
+/// are nonempty and all anonymous (i.e. every edge has `name == None`).
+/// Intuitively, a record sort has one projection per named field, while
+/// a list sort has a single anonymous "item" edge (possibly repeated in
+/// the instance). Anonymous edges therefore identify exactly the free
+/// list / free monoid constructor in the schema theory, independent of
+/// the protocol-specific spelling of the vertex kind.
+///
+/// This is the category-theoretically generic rule: it does not depend
+/// on string-matching the vertex kind (`"array"`, `"list"`,
+/// `"sequence"`, etc.) or on any particular protocol's edge-kind
+/// convention. Any schema that encodes ordered collections via repeated
+/// unnamed edges is covered.
+fn is_list_vertex(schema: &Schema, vertex_id: &str) -> bool {
+    let outgoing = schema.outgoing_edges(vertex_id);
+    !outgoing.is_empty() && outgoing.iter().all(|e| e.name.is_none())
 }
 
 /// Simple base64 encoding (no padding).
@@ -543,5 +586,187 @@ mod tests {
         assert_eq!(tags[0], "alpha");
         assert_eq!(tags[1], "beta");
         assert_eq!(tags[2], "gamma");
+    }
+
+    // ── Tests for issue #27: generic list detection + Value::List ──────
+
+    /// Build a minimal schema with an object vertex that carries a
+    /// list-vertex as a property, where the list-vertex is distinguished
+    /// only by having a single anonymous outgoing edge. The vertex kind
+    /// is deliberately NOT named `"array"` to prove the generic rule is
+    /// not relying on any particular protocol's kind string.
+    fn list_schema_with_kind(list_vertex_kind: &str) -> Schema {
+        let proto = Protocol {
+            name: "generic".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into(), "string".into(), list_vertex_kind.into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        SchemaBuilder::new(&proto)
+            .vertex("root", "object", None::<&str>)
+            .unwrap()
+            .vertex("root.items", list_vertex_kind, None::<&str>)
+            .unwrap()
+            .vertex("item", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "root.items", "prop", Some("items"))
+            .unwrap()
+            // Anonymous edge from list-vertex to element type:
+            // this is what marks the vertex as a list.
+            .edge("root.items", "item", "anonymous-edge-kind", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn to_json_emits_list_regardless_of_kind_string() {
+        // The generic rule is "all outgoing edges are anonymous," not
+        // "vertex.kind == array". Prove it by using a vertex kind
+        // that isn't `"array"`: `"sequence"`, `"list"`, `"bag"`, etc.
+        for kind in ["sequence", "list", "bag", "ordered-multi"] {
+            let schema = list_schema_with_kind(kind);
+            let input = json!({"items": ["alpha", "beta"]});
+            let inst = parse_json(&schema, "root", &input).unwrap();
+            let output = to_json(&schema, &inst);
+            assert!(
+                output["items"].is_array(),
+                "kind={kind}: expected JSON array, got {}",
+                output["items"]
+            );
+            assert_eq!(output["items"][0], "alpha", "kind={kind}");
+            assert_eq!(output["items"][1], "beta", "kind={kind}");
+        }
+    }
+
+    #[test]
+    fn is_list_vertex_detects_by_anonymous_edges() {
+        // All outgoing edges anonymous → list.
+        let list_schema = list_schema_with_kind("whatever");
+        assert!(
+            is_list_vertex(&list_schema, "root.items"),
+            "a vertex with only anonymous outgoing edges is a list vertex"
+        );
+
+        // Named outgoing edges → not a list (it's a record).
+        assert!(
+            !is_list_vertex(&list_schema, "root"),
+            "a vertex with named outgoing edges is a record vertex, not a list"
+        );
+
+        // No outgoing edges → not a list (it's a leaf).
+        assert!(
+            !is_list_vertex(&list_schema, "item"),
+            "a leaf vertex with no outgoing edges is not a list vertex"
+        );
+    }
+
+    #[test]
+    fn to_json_empty_list_vertex_renders_as_empty_json_array() {
+        // The empty list case: a list-vertex with zero children.
+        // Before the fix, a node with no arcs and no value would render
+        // as `{}` even for an array; now the schema-based rule kicks in
+        // before we count children and correctly picks `[]`.
+        let schema = list_schema_with_kind("collection");
+        let input = json!({"items": []});
+        let inst = parse_json(&schema, "root", &input).unwrap();
+        let output = to_json(&schema, &inst);
+        assert_eq!(output["items"], json!([]));
+    }
+
+    #[test]
+    fn json_value_to_value_preserves_array_as_list() {
+        // json_value_to_value is the embedding serde_json::Value ↪ Value;
+        // it must map arrays to Value::List (not Value::Unknown with
+        // stringly keys) or the embedding is not faithful.
+        let input = json!([1, "two", true, null]);
+        let v = json_value_to_value(&input);
+        match v {
+            Value::List(items) => {
+                assert_eq!(items.len(), 4);
+                assert_eq!(items[0], Value::Int(1));
+                assert_eq!(items[1], Value::Str("two".into()));
+                assert_eq!(items[2], Value::Bool(true));
+                assert_eq!(items[3], Value::Null);
+            }
+            other => panic!("expected Value::List, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn value_to_json_renders_list_as_json_array() {
+        let v = Value::List(vec![
+            Value::Int(1),
+            Value::Str("two".into()),
+            Value::Bool(true),
+            Value::Null,
+        ]);
+        let j = value_to_json(&v);
+        assert_eq!(j, json!([1, "two", true, null]));
+    }
+
+    #[test]
+    fn value_json_round_trip_is_faithful_for_arrays() {
+        // The composition value_to_json ∘ json_value_to_value should be
+        // the identity on the JSON subalgebra (up to the Int/Float
+        // numeric normalization). Exercise it on nested arrays and
+        // arrays-of-objects to confirm faithfulness.
+        let cases = vec![
+            json!([]),
+            json!(["en"]),
+            json!(["panproto", "atproto", "schemas"]),
+            json!([[1, 2], [3, 4]]),
+            json!([{"a": 1}, {"b": 2}]),
+            json!({"tags": ["x", "y"]}),
+            json!({"nested": {"tags": ["x", "y"]}}),
+        ];
+        for original in cases {
+            let roundtrip = value_to_json(&json_value_to_value(&original));
+            assert_eq!(
+                roundtrip, original,
+                "round trip should be faithful for {original}"
+            );
+        }
+    }
+
+    #[test]
+    fn to_json_extra_field_array_round_trips_via_value_list() {
+        // This is the exact regression for panproto/panproto#27:
+        // a field that lands in `extra_fields` (no matching schema edge)
+        // carries a JSON array, and the output must still be a JSON
+        // array. Previously it was emitted as `{"0": "en"}`.
+        let schema = test_schema();
+        let input = json!({
+            "text": "Hello",
+            "createdAt": "2024-01-15T12:00:00.000Z",
+            "langs": ["en"],
+            "tags": ["panproto", "atproto", "schemas"]
+        });
+
+        let inst = parse_json(&schema, "post:body", &input).unwrap();
+        let output = to_json(&schema, &inst);
+
+        // Schema-anchored fields survive as usual.
+        assert_eq!(output["text"], "Hello");
+        assert_eq!(output["createdAt"], "2024-01-15T12:00:00.000Z");
+
+        // Extra-field arrays must come out as JSON arrays, not objects
+        // with numeric string keys.
+        assert!(
+            output["langs"].is_array(),
+            "langs should be a JSON array, got {}",
+            output["langs"]
+        );
+        assert_eq!(output["langs"], json!(["en"]));
+
+        assert!(
+            output["tags"].is_array(),
+            "tags should be a JSON array, got {}",
+            output["tags"]
+        );
+        assert_eq!(output["tags"], json!(["panproto", "atproto", "schemas"]));
     }
 }

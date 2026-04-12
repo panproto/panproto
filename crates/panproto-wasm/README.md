@@ -1,66 +1,31 @@
 # panproto-wasm
 
 [![crates.io](https://img.shields.io/crates/v/panproto-wasm.svg)](https://crates.io/crates/panproto-wasm)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-[WASM](https://webassembly.org/) bindings for panproto.
+WebAssembly build of the panproto engine, used internally by the TypeScript SDK.
 
-This crate exposes the panproto API to JavaScript and TypeScript consumers via [`wasm-bindgen`](https://rustwasm.github.io/docs/wasm-bindgen/). It uses a handle-based API with [MessagePack](https://msgpack.org/) serialization for crossing the WASM boundary. Opaque `u32` handles reference resources stored in a thread-local slab allocator. Data crosses the boundary as MessagePack byte slices, never as JS objects.
+## What it does
 
-## Entry points
+This crate compiles the full panproto Rust engine to a `.wasm` binary that runs in browsers and Node.js. It is not intended for direct use; the TypeScript SDK (`@panproto/core`) wraps it with a TypeScript API. If you are building a TypeScript or JavaScript application, use the SDK instead.
 
-| Function | Description |
-|----------|-------------|
-| `define_protocol` | Register a protocol specification, returns a handle |
-| `build_schema` | Build a schema from a protocol handle and operations |
-| `check_existence` | Validate a migration mapping |
-| `compile_migration` | Compile a migration for fast application |
-| `lift_record` | Apply a compiled migration to a WInstance (msgpack) |
-| `lift_json` | Apply a compiled migration to a JSON record (JSON in, JSON out) |
-| `get_record` / `get_json` | Lens get: extract view + complement |
-| `put_record` / `put_json` | Lens put: restore from view + complement |
-| `compose_migrations` | Compose two compiled migrations |
-| `diff_schemas` / `diff_schemas_full` | Diff two schemas |
-| `classify_diff` | Classify a diff against a protocol |
-| `auto_generate_protolens` | Auto-generate a protolens between two schemas, returning lens + chain + summary |
-| `instantiate_protolens` | Instantiate a protolens chain at a specific pair of schemas |
-| `protolens_complement_spec` | Compute the complement specification for a protolens chain |
-| `protolens_from_diff` | Derive a protolens chain from a structural schema diff |
-| `protolens_compose` | Compose two protolens chains into one |
-| `protolens_chain_to_json` | Serialize a protolens chain to JSON for inspection or storage |
-| `factorize_morphism` | Decompose a theory morphism into elementary endofunctors |
-| `symmetric_lens_from_schemas` | Auto-generate a symmetric lens between two schemas |
-| `symmetric_lens_sync` | Synchronize data through a symmetric lens |
-| `apply_protolens_step` | Apply a single protolens step to a schema and instance |
-| `json_to_instance` / `json_to_instance_with_root` | Parse JSON into WInstance |
-| `instance_to_json` | Convert WInstance to JSON |
-| `protolens_fuse` | Fuse a protolens chain into a single protolens step |
-| `protolens_lift` | Lift a protolens chain along a theory morphism |
-| `protolens_check_applicability` | Check chain applicability with failure reasons |
-| `protolens_fleet` | Apply a protolens chain to multiple schemas |
-| `protolens_from_json` | Deserialize a protolens chain from JSON |
-| `store_dataset` | Store a data set bound to a schema |
-| `get_dataset` | Retrieve a stored data set |
-| `migrate_dataset_forward` | Migrate data forward between schemas |
-| `migrate_dataset_backward` | Migrate data backward using complement |
-| `check_dataset_staleness` | Check if data needs migration |
-| `store_protocol_definition` | Store a protocol definition |
-| `get_protocol_definition` | Retrieve a stored protocol |
-| `get_migration_complement` | Retrieve complement data |
-| `parse_expr` | Tokenize and parse Haskell-style expression source text, return MsgPack-encoded Expr |
-| `eval_func_expr` | Evaluate a MsgPack-encoded expression with environment bindings |
-| `execute_query` | Run a declarative query against an instance, return MsgPack-encoded results |
-| `fiber_at` | Compute the fiber (preimage) of a migration at a target anchor |
-| `fiber_decomposition_wasm` | Full fiber decomposition of a migration across all target anchors |
-| `poly_hom` | Construct the internal hom schema [S, T] for two schemas |
-| `preferred_conversion_path` | Find the minimum-cost conversion path in a lens graph |
-| `conversion_distance` | Shortest distance between two schemas in a lens graph |
-| `free_handle` | Release a resource handle |
+The boundary design uses opaque integer handles: every schema, migration, lens, instance, theory, and VCS repository you create is stored in a thread-local slab allocator and you receive a `u32` handle back. Data crosses the WASM boundary as MessagePack byte slices rather than JavaScript objects, which avoids the per-field serialization cost of `serde-wasm-bindgen` for structured data. Handles are freed explicitly with `free_handle()` when you are done.
 
-The `*_json` variants handle all WInstance conversion internally, avoiding msgpack round-trip issues at the JS/WASM boundary.
+There are 77 entry points covering the full panproto lifecycle: schema building, migration compilation and execution, breaking change detection, instance I/O across 77 format codecs, lens generation and law checking, protolens combinators, GAT theory operations, VCS commands (init, add, commit, branch, merge, log, blame), dataset versioning, expression parsing and evaluation, fiber decomposition, and preferred conversion path queries.
 
-## Usage
+## Quick example
 
-Typically consumed from JS/TS via the [`@panproto/core`](../../sdk/typescript) SDK, not directly.
+This crate is consumed by the TypeScript SDK. Use that instead:
+
+```sh
+npm install @panproto/core
+```
+
+If you need to load the WASM module directly (for example, in a custom runtime):
+
+```sh
+wasm-pack build --target bundler crates/panproto-wasm
+```
 
 ## License
 

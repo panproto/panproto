@@ -1,18 +1,45 @@
 # panproto-grammars
 
-Pre-compiled tree-sitter grammars for panproto. Bundles up to 248 languages,
-compiled from vendored C sources via `build.rs`.
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-This crate is `publish = false`: the vendored C sources weigh roughly 500MB,
-well beyond crates.io's 10MB package limit. Users get these grammars through
-`panproto-parse`, which depends on `panproto-grammars` when its `grammars`
-feature is enabled (the default). There is no reason to depend on this crate
-directly.
+Pre-compiled tree-sitter grammars for 248 programming languages, used by `panproto-parse`.
+
+## What it does
+
+This crate bundles tree-sitter grammar sources for up to 248 languages and compiles them from C at build time. Each `Grammar` value provides the tree-sitter `Language` object needed for parsing, the raw `node-types.json` bytes needed for theory extraction, and the file extensions the grammar handles.
+
+This crate is `publish = false` and is not on crates.io: the vendored C sources weigh roughly 500MB, well above crates.io's 10MB limit. You get these grammars through `panproto-parse`, which depends on this crate when its `grammars` feature is enabled (the default). There is no reason to depend on this crate directly.
+
+Each language is gated behind a `lang-{name}` feature flag. Group features enable sets of languages at once. The default group (`group-core`) includes Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust.
+
+## Quick example
+
+```rust,ignore
+// Iterate all enabled grammars and print their names.
+for grammar in panproto_grammars::grammars() {
+    println!("{}: {:?}", grammar.name, grammar.extensions);
+}
+
+// Look up a grammar by file extension.
+if let Some(lang) = panproto_grammars::extension_to_language("rs") {
+    assert_eq!(lang, "rust");
+}
+
+// Check whether a grammar is compiled in.
+assert!(panproto_grammars::has_grammar("python"));
+```
+
+## API overview
+
+| Export | What it does |
+|--------|-------------|
+| `grammars()` | Returns all `Grammar` values enabled by feature flags, sorted by name |
+| `has_grammar(name)` | Returns `true` if the named grammar is compiled in |
+| `extension_to_language(ext)` | Maps a file extension to its grammar name, or `None` if not recognized |
+| `grammar_count()` | Returns the number of enabled grammars |
+| `Grammar` | Struct holding `name`, `extensions`, `language` (`tree_sitter::Language`), and `node_types` bytes |
 
 ## Feature flags
-
-Each grammar is individually gated behind a `lang-{name}` feature.
-Group features enable sets of languages at once:
 
 | Feature | Languages |
 |---------|-----------|
@@ -26,27 +53,8 @@ Group features enable sets of languages at once:
 | `group-devops` | Dockerfile, Terraform, HCL, Nix, Bash, YAML, TOML, Make, CMake |
 | `group-mobile` | Swift, Kotlin, Dart, Java, Objective-C |
 | `group-all` | All 248 languages |
-
-## Usage
-
-```rust
-// Iterate all enabled grammars
-for grammar in panproto_grammars::grammars() {
-    println!("{}: {} extensions", grammar.name, grammar.extensions.len());
-}
-
-// Look up by extension
-if let Some(lang) = panproto_grammars::extension_to_language("rs") {
-    assert_eq!(lang, "rust");
-}
-```
-
-## Updating grammars
-
-Grammar sources live in `grammars/` at the workspace root, fetched by
-`tools/fetch-grammars.py` from the repos listed in `grammars.toml`.
-See `tools/README.md` for prerequisites and usage.
+| `lang-{name}` | Any individual language by name |
 
 ## License
 
-MIT
+[MIT](../../LICENSE)

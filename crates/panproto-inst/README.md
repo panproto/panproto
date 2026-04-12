@@ -2,68 +2,56 @@
 
 [![crates.io](https://img.shields.io/crates/v/panproto-inst.svg)](https://crates.io/crates/panproto-inst)
 [![docs.rs](https://docs.rs/panproto-inst/badge.svg)](https://docs.rs/panproto-inst)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Instance representation for panproto.
+Represents concrete data records and transforms them as schemas change.
 
-This crate provides three models for concrete data instances that conform to schemas defined via `panproto-schema`: tree-shaped [W-type](https://ncatlab.org/nlab/show/W-type) instances, relational [set-valued functor](https://ncatlab.org/nlab/show/functor) instances, and graph-shaped instances. All three are unified under the `Instance` enum. The crate also handles JSON serialization, validation, and the full adjoint triple of instance transformations (restrict, extend, and right Kan extension).
+## What it does
 
-## API
+Schemas describe structure; instances are the actual data that conforms to a schema. This crate provides three shapes of instance to match the three shapes of data you encounter in practice: tree-shaped records (JSON objects, XML documents), table-shaped records (SQL rows, CSV files), and graph-shaped records (property graphs, RDF). All three live under a single `Instance` enum so generic migration code does not need to special-case each shape.
 
-| Item | Description |
-|------|-------------|
-| `WInstance` | Tree-shaped (W-type) instance with nodes, arcs, and hyper-edge fans |
-| `FInstance` | Relational (set-valued functor) instance with tables and foreign keys |
-| `GInstance` | Graph-shaped instance with nodes and edges (cycles allowed, no root) |
-| `Instance` | Unified enum wrapping all three instance shapes |
-| `Node` | Metadata for a W-type instance node (anchor, value, position, annotations) |
-| `Value` / `FieldPresence` | Leaf values and field presence tracking |
-| `Fan` | Hyper-edge fan representation |
-| `parse_json` / `to_json` | Schema-guided JSON serialization round-trip |
-| `validate_wtype` | Axiom checking (I1–I7) for W-type instances |
-| `wtype_restrict` | 5-step restrict pipeline (&#916;<sub>F</sub>) for W-type instances |
-| `wtype_extend` | Left Kan extension (&#931;<sub>F</sub>) for W-type instances |
-| `wtype_pi` | Right Kan extension (&#928;<sub>F</sub>) for injective migrations |
-| `functor_restrict` / `functor_extend` | Precomposition and left Kan extension for functor instances |
-| `functor_pi` | Right Kan extension for functor instances |
-| `graph_restrict` | Restrict pipeline for graph-shaped instances |
-| `CompiledMigration` | Pre-computed migration data for fast per-record application |
-| `FieldTransform` | Value-level operation on node `extra_fields`: rename, drop, add, keep, apply expression, or compute from the full fiber (including child scalar values) |
-| `collect_scalar_child_values` | Dependent-sum projection: collect scalar values from a node's immediate child vertices |
-| `build_env_with_children` | Build expression environment from the full fiber over a vertex (extra_fields + child scalars) |
-| `InstanceQuery` / `execute` | Declarative query engine: anchor selection, predicate filtering, path navigation, projection, grouping, limits |
-| `Complement` / `DroppedNode` | Complement data from restriction for backward migration |
-| `SectionEnrichment` | Enrichment specification for section construction |
-| `fiber_at_anchor` / `fiber_decomposition` | Polynomial functor operations: preimage of a migration at target anchors |
-| `fiber_at_node` | Instance-aware fiber at a specific target node |
-| `restrict_with_complement` | Restriction with complement tracking |
-| `section` | Section construction (right inverse of projection) |
-| `hom_schema` / `curry_migration` / `eval_hom` | Internal hom schema construction, currying, and evaluation |
-| `group_by` / `join` | Instance partitioning and pullback operations |
-| `eval_with_instance` | Instance-aware expression evaluation with graph traversal builtins (Edge, Children, HasEdge, EdgeCount, Anchor) |
-| `CompiledMigration::add_field_rename` | Builder: rename a field key on a vertex's nodes |
-| `CompiledMigration::add_field_drop` | Builder: drop a field from a vertex's nodes |
-| `CompiledMigration::add_field_default` | Builder: add a field with a default value |
-| `CompiledMigration::add_field_keep` | Builder: retain only specified fields |
-| `CompiledMigration::add_field_expr` | Builder: apply an expression to a field's value |
-| `Provenance` / `ProvenanceMap` | Data lineage tracking: which source fields contributed to each target field |
-| `SourceField` / `TransformStep` | Provenance detail: source references and transform chain steps |
-| `compute_provenance` | Build a provenance map from source/target nodes and a vertex remapping |
-| `TreeEdit` | Edit monoid for W-type instances: identity, compose, apply |
-| `TableEdit` | Edit monoid for functor instances: InsertRow, DeleteRow, UpdateCell |
-| `ReachabilityIndex` | Incremental reachability tracking from root for edit lens pipeline |
-| `ContractionTracker` / `ContractionRecord` | Incremental ancestor contraction tracking |
-| `EditError` | Error types for edit application |
-| `InstError` / `ParseError` / `RestrictError` | Error types |
+The main operation on instances is the restrict/extend pipeline. When a schema changes and a compiled migration is available, `wtype_restrict` transforms a tree record from the old schema to the new one by following the migration map. `wtype_extend` (the left Kan extension) goes further and fills in new fields using default expressions from the migration. For cases where you need the inverse direction, `restrict_with_complement` saves the dropped data into a `Complement` value so the full original record can be reconstructed later. These operations are what the `schema data migrate` CLI command calls under the hood.
 
-## Example
+JSON serialization is schema-guided: `parse_json` uses the schema to resolve ambiguities (which union variant applies, whether a null means absent vs. explicitly null), and `to_json` uses the same schema to produce correctly structured output. Validation checks the seven structural axioms that every well-formed tree instance must satisfy.
+
+## Quick example
 
 ```rust,ignore
-use panproto_inst::{parse_json, to_json, validate_wtype};
+use panproto_inst::{parse_json, to_json, validate_wtype, wtype_restrict};
 
-let instance = parse_json(&schema, "root_vertex", &json_value)?;
+let instance = parse_json(&schema, "user", &json_value)?;
 let errors = validate_wtype(&schema, &instance);
-let round_tripped = to_json(&schema, &instance);
+assert!(errors.is_empty());
+
+let new_instance = wtype_restrict(&compiled_migration, &src_schema, &tgt_schema, &instance)?;
+let output = to_json(&tgt_schema, &new_instance);
 ```
+
+## API overview
+
+| Item | What it does |
+|------|-------------|
+| `WInstance` | Tree-shaped instance with nodes, arcs, and hyper-edge fans |
+| `FInstance` | Table-shaped instance with rows and foreign key references |
+| `GInstance` | Graph-shaped instance where cycles are allowed and there is no required root |
+| `Instance` | Enum wrapping all three instance shapes |
+| `Node` | Metadata for a tree node: anchor, value, position, and annotations |
+| `Value` / `FieldPresence` | Leaf values and field presence tracking (absent vs. explicit null) |
+| `parse_json` / `to_json` | Schema-guided JSON parse and format round-trip |
+| `validate_wtype` | Check the seven structural axioms for tree instances |
+| `wtype_restrict` | Transform a tree instance along a compiled migration |
+| `wtype_extend` | Fill in new fields using defaults (left Kan extension) |
+| `wtype_pi` | Conservative lift for injective migrations (right Kan extension) |
+| `functor_restrict` / `functor_extend` | Restrict and extend for table-shaped instances |
+| `graph_restrict` | Restrict for graph-shaped instances |
+| `restrict_with_complement` | Restriction that saves dropped data into a `Complement` for later recovery |
+| `FieldTransform` | Value-level operation during migration: rename, drop, add, keep, apply expression, or compute from child values |
+| `InstanceQuery` / `execute` | Declarative query engine: anchor selection, predicate filtering, path navigation, projection, grouping, limits |
+| `Complement` / `DroppedNode` | Saved dropped data for backward migration |
+| `Provenance` / `ProvenanceMap` | Data lineage tracking from source fields to target fields |
+| `TreeEdit` / `TableEdit` | Edit monoids for incremental instance updates |
+| `CompiledMigration` | Pre-computed migration data for fast per-record application |
+| `InstError` / `ParseError` / `RestrictError` | Error types |
 
 ## License
 
