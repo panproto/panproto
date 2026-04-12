@@ -1,0 +1,54 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.schema.editLensState",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Running state for an edit lens. Edit lenses translate deltas rather than states, and their internal state evolves with each edit applied. The sequence number orders updates for consistency.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["editLens", "sequenceNumber", "objectHash", "createdAt"],
+        "properties": {
+          "editLens": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the edit lens this state belongs to."
+          },
+          "sourceRecord": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the current source-side record."
+          },
+          "targetRecord": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the current target-side record."
+          },
+          "sequenceNumber": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Monotonically increasing edit count for ordering and conflict detection."
+          },
+          "parentState": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the previous editLensState record, forming an append-only chain."
+          },
+          "objectHash": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Content hash of the state blob."
+          },
+          "blob": {
+            "type": "blob",
+            "accept": ["application/x-msgpack"],
+            "maxSize": 1048576,
+            "description": "The edit lens internal state: accumulated context needed to translate future edits."
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

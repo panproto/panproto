@@ -1,0 +1,49 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.schema.complement",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Residual data from translating a specific record through an asymmetric lens. Stores the information the get direction stripped so that put can reconstruct the original source.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["lens", "sourceRecord", "objectHash", "createdAt"],
+        "properties": {
+          "lens": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the lens record that produced this complement."
+          },
+          "sourceRecord": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the original source record that was translated."
+          },
+          "targetRecord": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the translated target record, if it was persisted."
+          },
+          "sourceHash": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Content hash of the source record at translation time, for staleness detection."
+          },
+          "objectHash": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Content hash of the residual blob."
+          },
+          "blob": {
+            "type": "blob",
+            "accept": ["application/x-msgpack"],
+            "maxSize": 1048576,
+            "description": "The residual data: field values, sort data, or other content the lens set aside."
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

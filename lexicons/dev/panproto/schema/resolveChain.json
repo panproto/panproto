@@ -1,0 +1,77 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.schema.resolveChain",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Resolve a multi-hop translation chain between two schemas that have no direct lens. Searches for composable sequences of lenses through intermediate schemas, ranked by round-trip quality.",
+      "parameters": {
+        "type": "params",
+        "required": ["sourceSchema", "targetSchema"],
+        "properties": {
+          "sourceSchema": {
+            "type": "string",
+            "format": "at-uri"
+          },
+          "targetSchema": {
+            "type": "string",
+            "format": "at-uri"
+          },
+          "maxHops": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 3,
+            "description": "Maximum number of intermediate lenses."
+          },
+          "preferredRoundTripClass": {
+            "type": "string",
+            "knownValues": ["iso", "retraction", "projection", "opaque"],
+            "description": "Prefer chains whose composed round-trip class is at least this good."
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 25, "default": 5 },
+          "cursor": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["chains"],
+          "properties": {
+            "cursor": { "type": "string" },
+            "chains": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#chainView" }
+            }
+          }
+        }
+      }
+    },
+    "chainView": {
+      "type": "object",
+      "required": ["lenses", "composedRoundTripClass"],
+      "properties": {
+        "lenses": {
+          "type": "array",
+          "items": { "type": "string", "format": "at-uri" },
+          "description": "Ordered sequence of lens AT-URIs forming the chain."
+        },
+        "intermediateSchemas": {
+          "type": "array",
+          "items": { "type": "string", "format": "at-uri" },
+          "description": "Schemas at each intermediate hop."
+        },
+        "composedRoundTripClass": {
+          "type": "string",
+          "knownValues": ["iso", "retraction", "projection", "opaque"],
+          "description": "Worst-case round-trip class across the chain."
+        },
+        "allLawsVerified": {
+          "type": "boolean",
+          "description": "True only if every lens in the chain has verified laws."
+        }
+      }
+    }
+  }
+}

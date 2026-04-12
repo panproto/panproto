@@ -1,0 +1,54 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.schema.symmetricState",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Middle-schema instance mediating between two records related by a symmetric lens. Updated whenever either side changes to maintain coherence.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["symmetricLens", "objectHash", "createdAt"],
+        "properties": {
+          "symmetricLens": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the symmetric lens this state belongs to."
+          },
+          "leftRecord": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the current left-side record."
+          },
+          "rightRecord": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the current right-side record."
+          },
+          "leftHash": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Content hash of the left record at last sync."
+          },
+          "rightHash": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Content hash of the right record at last sync."
+          },
+          "objectHash": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Content hash of the middle-state blob."
+          },
+          "blob": {
+            "type": "blob",
+            "accept": ["application/x-msgpack"],
+            "maxSize": 1048576,
+            "description": "The middle-schema instance that mediates between left and right."
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

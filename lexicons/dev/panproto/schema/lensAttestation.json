@@ -1,0 +1,43 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.schema.lensAttestation",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A declaration of stance toward a lens by some party (identified by DID). Provides the minimal governance substrate: services can filter lenses by attestation, and users can see who has reviewed or deployed a given lens.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["lens", "stance", "createdAt"],
+        "properties": {
+          "lens": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the lens being attested."
+          },
+          "stance": {
+            "type": "string",
+            "knownValues": ["reviewed", "deployed", "endorsed", "contested", "deprecated"],
+            "description": "The attester's declared relationship to this lens."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2560,
+            "description": "Free-text explanation of the attestation."
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Optional scope qualifier, e.g. a service name or domain this attestation applies to."
+          },
+          "supersedes": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of a previous attestation this one replaces."
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

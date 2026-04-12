@@ -1,0 +1,82 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.translate.reconstruct",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Reconstruct a source record from a translated record and its complement. This is the put direction with round-trip verification: the procedure checks that the reconstruction matches the original source hash if one was recorded in the complement.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["lens", "translatedRecord", "complement"],
+          "properties": {
+            "lens": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the lens."
+            },
+            "translatedRecord": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the translated (target-side) record."
+            },
+            "complement": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the complement record."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["result", "roundTripVerified"],
+          "properties": {
+            "result": {
+              "type": "bytes",
+              "description": "The reconstructed source record as msgpack."
+            },
+            "resultHash": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "roundTripVerified": {
+              "type": "boolean",
+              "description": "True if the reconstruction matches the original sourceHash in the complement."
+            },
+            "diagnostics": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#diagnostic" },
+              "description": "Field-level diagnostics if round-trip verification failed."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "LensNotFound" },
+        { "name": "ComplementNotFound" },
+        { "name": "TranslatedRecordNotFound" },
+        { "name": "ComplementLensMismatch", "description": "The complement was not produced by this lens." }
+      ]
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["path", "kind"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "JSON-pointer to the field that diverged."
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": ["valueMismatch", "missingField", "extraField", "typeMismatch"]
+        },
+        "expected": { "type": "string", "maxLength": 1024 },
+        "actual": { "type": "string", "maxLength": 1024 }
+      }
+    }
+  }
+}

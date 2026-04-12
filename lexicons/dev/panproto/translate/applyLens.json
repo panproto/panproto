@@ -1,0 +1,81 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.translate.applyLens",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Apply an asymmetric lens to a source record. Returns the translated record and the complement (residual data stripped by the get direction). The complement can be persisted as a dev.panproto.schema.complement record for later reconstruction.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["lens", "source"],
+          "properties": {
+            "lens": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the lens to apply."
+            },
+            "source": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the source record to translate."
+            },
+            "direction": {
+              "type": "string",
+              "default": "get",
+              "knownValues": ["get", "put"],
+              "description": "Which direction to run the lens."
+            },
+            "complement": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of a complement record. Required when direction is 'put'."
+            },
+            "persistComplement": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true, persist the complement as a record and return its AT-URI."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["result", "complementBlob"],
+          "properties": {
+            "result": {
+              "type": "bytes",
+              "description": "The translated record as msgpack."
+            },
+            "complementBlob": {
+              "type": "bytes",
+              "description": "The complement (residual) as msgpack."
+            },
+            "complementUri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the persisted complement record, if persistComplement was true."
+            },
+            "resultHash": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "complementHash": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "LensNotFound" },
+        { "name": "SourceNotFound" },
+        { "name": "ComplementRequired", "description": "Direction is 'put' but no complement was provided." },
+        { "name": "TypeMismatch", "description": "Source record does not conform to the lens's source schema." }
+      ]
+    }
+  }
+}

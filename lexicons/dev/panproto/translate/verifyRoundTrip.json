@@ -1,0 +1,63 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.translate.verifyRoundTrip",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Check the GetPut and PutGet round-trip laws for a lens on a concrete record. GetPut: put(s, get(s)) = s. PutGet: get(put(s, v)) = v. Returns per-law results and field-level diagnostics on failure.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["lens", "sourceRecord"],
+          "properties": {
+            "lens": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the lens to verify."
+            },
+            "sourceRecord": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the source record to test."
+            },
+            "targetRecord": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of a target record to test PutGet with. If omitted, get(sourceRecord) is used."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["getPutHolds", "putGetHolds"],
+          "properties": {
+            "getPutHolds": { "type": "boolean" },
+            "putGetHolds": { "type": "boolean" },
+            "getPutDiagnostics": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "dev.panproto.translate.reconstruct#diagnostic" }
+            },
+            "putGetDiagnostics": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "dev.panproto.translate.reconstruct#diagnostic" }
+            },
+            "roundTripClass": {
+              "type": "string",
+              "knownValues": ["iso", "retraction", "projection", "opaque"],
+              "description": "Observed round-trip class for this record."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "LensNotFound" },
+        { "name": "SourceNotFound" },
+        { "name": "TypeMismatch" }
+      ]
+    }
+  }
+}

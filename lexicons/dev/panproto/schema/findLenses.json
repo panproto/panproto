@@ -1,0 +1,76 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.schema.findLenses",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Find lenses that translate between schemas. Given a source schema, returns all known lenses from that schema. If a target is also provided, returns only lenses between the pair.",
+      "parameters": {
+        "type": "params",
+        "required": ["sourceSchema"],
+        "properties": {
+          "sourceSchema": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the source schema."
+          },
+          "targetSchema": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the target schema. If omitted, all lenses from the source are returned."
+          },
+          "roundTripClass": {
+            "type": "string",
+            "knownValues": ["iso", "retraction", "projection", "opaque"],
+            "description": "Filter by round-trip class."
+          },
+          "authorDid": {
+            "type": "string",
+            "format": "did",
+            "description": "Filter by lens author."
+          },
+          "lawsVerified": {
+            "type": "boolean",
+            "description": "If true, only return lenses whose laws have been mechanically verified."
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 25 },
+          "cursor": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["lenses"],
+          "properties": {
+            "cursor": { "type": "string" },
+            "lenses": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#lensView" }
+            }
+          }
+        }
+      }
+    },
+    "lensView": {
+      "type": "object",
+      "required": ["uri", "sourceSchema", "targetSchema"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "sourceSchema": { "type": "string", "format": "at-uri" },
+        "targetSchema": { "type": "string", "format": "at-uri" },
+        "roundTripClass": {
+          "type": "string",
+          "knownValues": ["iso", "retraction", "projection", "opaque"]
+        },
+        "lawsVerified": { "type": "boolean" },
+        "authorDid": { "type": "string", "format": "did" },
+        "attestationCount": {
+          "type": "integer",
+          "description": "Number of attestations this lens has received."
+        },
+        "createdAt": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}

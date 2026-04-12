@@ -1,0 +1,76 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.translate.applyEdit",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Apply an edit through an edit lens. Takes a source-side edit and the current edit lens state, returns the translated target-side edit and the new state. The new state can be persisted as a dev.panproto.schema.editLensState record.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["editLens", "state", "edit"],
+          "properties": {
+            "editLens": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the edit lens."
+            },
+            "state": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the current editLensState record."
+            },
+            "edit": {
+              "type": "bytes",
+              "description": "The source-side edit as msgpack."
+            },
+            "direction": {
+              "type": "string",
+              "default": "forward",
+              "knownValues": ["forward", "backward"],
+              "description": "Direction of edit propagation."
+            },
+            "persistState": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true, persist the new state as a record and return its AT-URI."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["translatedEdit", "newStateBlob", "newSequenceNumber"],
+          "properties": {
+            "translatedEdit": {
+              "type": "bytes",
+              "description": "The translated edit for the target side as msgpack."
+            },
+            "newStateBlob": {
+              "type": "bytes",
+              "description": "The updated edit lens state as msgpack."
+            },
+            "newStateUri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the persisted state record, if persistState was true."
+            },
+            "newSequenceNumber": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "EditLensNotFound" },
+        { "name": "StateNotFound" },
+        { "name": "SequenceConflict", "description": "The state's sequence number doesn't match expected; concurrent edit detected." },
+        { "name": "EditTypeMismatch" }
+      ]
+    }
+  }
+}
