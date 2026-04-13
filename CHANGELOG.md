@@ -4,6 +4,35 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-04-13
+
+### Fixed
+
+- **panproto-mig**: Migration composition is now associative. Resolver, hyper-resolver, and expr-resolver composition correctly remaps keys through `m2.vertex_map` (G2 to G3 space) instead of the composed vertex map, and chases hyper-resolver values through m2's mappings.
+- **panproto-schema**: `SchemaMorphism::compose` now drops unmapped intermediate vertices (partial-map semantics) instead of silently keeping them, restoring associativity for three-morphism chains.
+- **panproto-gat**: Free model construction implements proper congruence closure. After equating terms via theory equations, the quotient now propagates equivalences through all operations (if `a ~ b` then `f(a) ~ f(b)`) using a reverse-index worklist algorithm, ensuring the free model is truly initial.
+- **panproto-gat**: Cyclic sort dependencies in `topological_sort_sorts` are now rejected with `GatError::CyclicSortDependency` instead of being silently appended in arbitrary order.
+- **panproto-gat**: Naturality check in `check_natural_transformation` now normalizes terms using both directed equations (rewrite rules) and undirected equations (applied bidirectionally), reducing spurious violations for theories with non-trivial equational axioms.
+- **panproto-gat**: `ScopedTransform::apply` now updates outer equations, directed equations, and policies after the inner transform modifies sorts or operations, preventing stale references to renamed or removed sorts.
+- **panproto-gat**: Pullback construction requires paired directed equations to have equal coercion classes (previously composed them, which is categorically meaningless). Projection morphisms are now validated after construction.
+- **panproto-inst**: `functor_pi` (right Kan extension) skips foreign key propagation through multi-fiber Cartesian products where row indices are invalidated by the product expansion.
+- **panproto-inst**: Conditional survival predicates in `wtype_restrict` are now precomputed for all nodes before the BFS traversal, making the restriction order-independent (functorial).
+- **panproto-mig**: Migration inversion uses strict lookups for resolver and hyper-resolver keys instead of fallbacks that could produce invalid inverse keys.
+- **panproto-lens**: Compiled migration composition no longer overapproximates the surviving vertex set (removed incorrect fallback check against un-remapped vertices).
+- **panproto-lens**: Expansion path composition now chains paths through intermediate schemas instead of taking a flat union.
+- **panproto-lens**: `instances_equivalent` now compares `parent_map` for structural consistency.
+- **panproto-lens**: Iso optic complement validation checks all data-loss fields (dropped nodes/arcs/fans, original extra fields, original values, synthesized nodes) instead of only dropped nodes and arcs.
+- **panproto-gat**: `TheoryMorphism::apply_to_term` documents that it only renames operations (not sort-parameterized structures), a limitation of the current untyped `Term` representation.
+- **panproto-lens**: Protolens `vertical_compose` documents that it computes a direct endpoint migration at instantiation time rather than composing through an intermediate schema.
+
+### Added
+
+- **panproto-gat**: `GatError::CyclicSortDependency` variant for reporting cyclic sort parameter dependencies.
+- **tests**: Category law integration tests for the Sigma-Delta adjunction unit law and functor identity restrict.
+- **tests**: Migration composition associativity tests with resolvers, identity law tests, and vertex-dropping tests.
+- **tests**: Schema morphism associativity and vertex-dropping tests.
+- **tests**: Free model congruence closure test (`f(a) ~ f(b)` when `a ~ b`) and cyclic sort rejection test.
+
 ## [0.29.0] - 2026-04-13
 
 ### Added
