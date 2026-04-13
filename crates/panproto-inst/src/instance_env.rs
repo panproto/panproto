@@ -2,9 +2,13 @@
 //!
 //! The standard `panproto_expr::eval` has no access to the instance graph.
 //! The graph traversal builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`,
-//! `Anchor`) require an instance context to resolve. This module provides
-//! [`eval_with_instance`], which intercepts those builtins and evaluates
-//! them against a [`WInstance`], then falls through to the standard
+//! `Anchor`) require an instance context to resolve. This module provides:
+//!
+//! - [`eval_with_instance`]: evaluates against a [`WInstance`] directly
+//! - [`eval_with_element_ops`]: evaluates against any [`ElementOps`]
+//!   implementor (polymorphic over all instance shapes)
+//!
+//! Both intercept graph builtins and fall through to the standard
 //! evaluator for everything else.
 
 use std::sync::Arc;
@@ -12,6 +16,7 @@ use std::sync::Arc;
 use panproto_expr::{BuiltinOp, EvalConfig, Expr, Literal};
 use panproto_gat::Name;
 
+use crate::element_ops::ElementOps;
 use crate::value::Value;
 use crate::wtype::WInstance;
 
@@ -48,6 +53,35 @@ pub fn eval_with_instance(
                 )?);
             }
             apply_graph_builtin(*op, &eval_args, instance, context_node_id)
+        }
+        _ => panproto_expr::eval(expr, env, config),
+    }
+}
+
+/// Evaluate an expression with graph builtins resolved via [`ElementOps`].
+///
+/// This is the polymorphic version of [`eval_with_instance`]: it works
+/// with any instance shape that implements [`ElementOps`]. Graph traversal
+/// builtins are delegated to `T::eval_graph_builtin`; all other expressions
+/// fall through to `panproto_expr::eval`.
+///
+/// # Errors
+///
+/// Returns `panproto_expr::ExprError` on evaluation failure.
+pub fn eval_with_element_ops<T: ElementOps>(
+    expr: &Expr,
+    env: &panproto_expr::Env,
+    config: &EvalConfig,
+    instance: &T,
+    context: Option<u32>,
+) -> Result<Literal, panproto_expr::ExprError> {
+    match expr {
+        Expr::Builtin(op, args) if is_graph_builtin(*op) => {
+            let mut eval_args = Vec::with_capacity(args.len());
+            for arg in args {
+                eval_args.push(eval_with_element_ops(arg, env, config, instance, context)?);
+            }
+            instance.eval_graph_builtin(*op, &eval_args, context)
         }
         _ => panproto_expr::eval(expr, env, config),
     }

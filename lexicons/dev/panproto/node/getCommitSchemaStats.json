@@ -1,0 +1,45 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.getCommitSchemaStats",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Returns per-commit schema statistics by reading imported schemas from the panproto-vcs store. Includes vertex/edge counts and breaking/non-breaking change counts relative to the parent commit.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "ref": { "type": "string", "maxLength": 256 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commits"],
+          "properties": {
+            "commits": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#commitSchemaStat" }
+            }
+          }
+        }
+      }
+    },
+    "commitSchemaStat": {
+      "type": "object",
+      "required": ["oid", "timestamp", "summary", "totalVertexCount", "totalEdgeCount", "breakingChangeCount", "nonBreakingChangeCount"],
+      "properties": {
+        "oid": { "type": "string", "maxLength": 64 },
+        "timestamp": { "type": "integer" },
+        "summary": { "type": "string", "maxLength": 512 },
+        "totalVertexCount": { "type": "integer" },
+        "totalEdgeCount": { "type": "integer" },
+        "breakingChangeCount": { "type": "integer" },
+        "nonBreakingChangeCount": { "type": "integer" }
+      }
+    }
+  }
+}

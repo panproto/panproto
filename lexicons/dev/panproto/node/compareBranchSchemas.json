@@ -1,0 +1,71 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.compareBranchSchemas",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Structural comparison between two refs. Diffs all changed files via panproto, aggregates breaking/non-breaking changes with human-readable labels.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "base", "head"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "base": { "type": "string", "maxLength": 256 },
+          "head": { "type": "string", "maxLength": 256 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["base", "head", "compatible", "verdict", "breakingCount", "nonBreakingCount", "addedVertices", "removedVertices", "addedEdges", "removedEdges", "breakingChanges", "nonBreakingChanges", "changedFiles", "baseVertexCount", "headVertexCount"],
+          "properties": {
+            "base": { "type": "ref", "ref": "#refInfo" },
+            "head": { "type": "ref", "ref": "#refInfo" },
+            "compatible": { "type": "boolean" },
+            "verdict": { "type": "string", "knownValues": ["compatible", "breaking"] },
+            "breakingCount": { "type": "integer" },
+            "nonBreakingCount": { "type": "integer" },
+            "addedVertices": { "type": "integer" },
+            "removedVertices": { "type": "integer" },
+            "addedEdges": { "type": "integer" },
+            "removedEdges": { "type": "integer" },
+            "breakingChanges": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#structuralChange" }
+            },
+            "nonBreakingChanges": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#structuralChange" }
+            },
+            "changedFiles": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "baseVertexCount": { "type": "integer" },
+            "headVertexCount": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "refInfo": {
+      "type": "object",
+      "required": ["ref", "oid"],
+      "properties": {
+        "ref": { "type": "string", "maxLength": 256 },
+        "oid": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "structuralChange": {
+      "type": "object",
+      "required": ["kind", "label"],
+      "properties": {
+        "kind": { "type": "string", "maxLength": 64 },
+        "label": { "type": "string" },
+        "vertexId": { "type": "string" },
+        "src": { "type": "string" },
+        "tgt": { "type": "string" }
+      }
+    }
+  }
+}

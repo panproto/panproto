@@ -16,14 +16,43 @@ A persistent cache lives under `$GIT_DIR/cospan-cache/<remote>/` so that subsequ
 # Clone a repository from a panproto node.
 git clone cospan://did:plc:abc123/my-schema-repo
 
-# Push changes to the node (installed alongside panproto-cli).
+# Push changes to the node.
 git push cospan main
 
 # Pull changes from the node.
 git pull cospan main
 ```
 
-The binary is installed automatically alongside `schema` (panproto-cli). You do not need to install it separately.
+## Installation
+
+Install via Homebrew:
+
+```sh
+brew install panproto/tap/git-remote-cospan
+```
+
+Or via the shell installer (macOS/Linux):
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/panproto/panproto/releases/latest/download/git-remote-cospan-installer.sh | sh
+```
+
+Or download binaries directly from [GitHub Releases](https://github.com/panproto/panproto/releases).
+
+Verify the installation:
+
+```sh
+git-remote-cospan --help
+```
+
+## Authentication
+
+Set the `COSPAN_TOKEN` environment variable to authenticate with the panproto node:
+
+```sh
+export COSPAN_TOKEN="your-token-here"
+git push cospan main
+```
 
 ## License
 

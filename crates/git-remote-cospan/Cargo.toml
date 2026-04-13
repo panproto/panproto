@@ -7,9 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# cargo-dist: exclude from distribution (installed alongside schema via panproto-cli)
 [package.metadata.dist]
-dist = false
+dist = true
 
 [[bin]]
 name = "git-remote-cospan"
@@ -18,7 +17,7 @@ path = "src/main.rs"
 [dependencies]
 panproto-vcs = { workspace = true }
 panproto-git = { workspace = true }
-panproto-xrpc = { version = "0.28.0", path = "../panproto-xrpc" }
+panproto-xrpc = { version = "0.29.0", path = "../panproto-xrpc" }
 
 git2 = "0.20"
 rustc-hash = { workspace = true }

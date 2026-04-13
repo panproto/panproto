@@ -4,6 +4,27 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-04-13
+
+### Added
+
+- **panproto-inst**: `ElementOps` trait abstracting the category of elements `∫F` (Grothendieck construction) for all three instance shapes. Provides fiber selection, relational pushforward, stalk projection, graph builtin evaluation, and attribute extraction as a uniform interface over `WInstance`, `GInstance`, and `FInstance`.
+- **panproto-inst**: `execute_elements<T: ElementOps>` generic query executor that works with any instance shape. Convenience wrappers: `execute_graph`, `execute_functor`, `execute_any` (dispatches via `Instance` enum).
+- **panproto-inst**: `eval_with_element_ops<T: ElementOps>` polymorphic expression evaluator that delegates graph traversal builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`, `Anchor`) to `ElementOps` implementations.
+- **panproto-inst**: `FInstance` element encoding via `encode_finstance_id`/`decode_finstance_id` (faithful bijection `(table_ordinal, row_index) ↔ u32`) enabling uniform `u32` element addressing across all instance shapes.
+- **panproto-inst**: `GInstance` stalk projection includes scalar values from outgoing edge targets (dependent-sum projection), matching the `WInstance` convention.
+- **panproto-inst**: `GInstance::pushforward` deduplicates results (set semantics), correctly handling cycles in graph-shaped instances.
+- **lexicons**: `compareBranchSchemas`, `getCommitSchemaStats`, `getDependencyGraph`, `getFileSchema`, `getImportStatus`, `getProjectSchema` XRPC query definitions for the cospan node schema inspection API.
+
+### Fixed
+
+- **panproto-inst**: `build_node_env` now constructs the full stalk projection (`extra_fields` + scalar child values via labeled edges + metadata) instead of only binding `extra_fields`. Predicates in `InstanceQuery` can now reference child node values connected by `prop` edges with `edge.name`. Resolves panproto/panproto#29.
+- **panproto-inst**: `QueryMatch.fields` now includes scalar child values in addition to `extra_fields`, so query results reflect the same observable data available to predicates.
+
+### Changed
+
+- **git-remote-cospan**: Enabled cargo-dist distribution (`dist = true`). The binary is now included in release artifacts, Homebrew formulas, and shell/PowerShell installers. Resolves panproto/panproto#28.
+
 ## [0.28.0] - 2026-04-12
 
 ### Added

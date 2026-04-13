@@ -1,0 +1,57 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.getDependencyGraph",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Returns cross-file dependency edges computed by panproto's ProjectBuilder coproduct schema. Files are nodes, shared schema edges between files are dependency edges.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "commit": { "type": "string", "maxLength": 64 },
+          "maxFiles": { "type": "integer", "minimum": 1, "maximum": 500 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commit", "nodes", "edges"],
+          "properties": {
+            "commit": { "type": "string", "maxLength": 64 },
+            "nodes": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#dependencyNode" }
+            },
+            "edges": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#dependencyEdge" }
+            }
+          }
+        }
+      }
+    },
+    "dependencyNode": {
+      "type": "object",
+      "required": ["id", "language", "vertexCount", "label"],
+      "properties": {
+        "id": { "type": "string" },
+        "language": { "type": "string", "maxLength": 128 },
+        "vertexCount": { "type": "integer" },
+        "label": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "dependencyEdge": {
+      "type": "object",
+      "required": ["src", "tgt", "kind", "label"],
+      "properties": {
+        "src": { "type": "string" },
+        "tgt": { "type": "string" },
+        "kind": { "type": "string", "maxLength": 128 },
+        "label": { "type": "string", "maxLength": 256 }
+      }
+    }
+  }
+}

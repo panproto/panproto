@@ -1,4 +1,4 @@
-//! Declarative query engine for W-type instances.
+//! Declarative query engine for instance presheaves.
 //!
 //! An [`InstanceQuery`] describes a query as a composite of:
 //! 1. Anchor selection (which vertex kind to match)
@@ -10,7 +10,8 @@
 //!
 //! Queries are schema-typed: the anchor must exist in the schema.
 //! Predicates are evaluated via `panproto_expr::eval` with each node's
-//! `extra_fields` bound as variables.
+//! full observable stalk bound as variables: both `extra_fields` and
+//! scalar values from child nodes reachable via labeled edges.
 
 use std::collections::HashMap;
 
@@ -18,18 +19,25 @@ use panproto_gat::Name;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
+use crate::element_ops::ElementOps;
+use crate::functor::FInstance;
+use crate::ginstance::GInstance;
+use crate::instance::Instance;
 use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
-use crate::wtype::{WInstance, build_env_from_extra_fields, value_to_expr_literal};
+use crate::wtype::{
+    WInstance, build_env_with_children, collect_scalar_child_values, value_to_expr_literal,
+};
 
-/// A declarative query over a [`WInstance`].
+/// A declarative query over any instance shape.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InstanceQuery {
     /// Select nodes with this anchor (vertex kind).
     pub anchor: Name,
 
     /// Optional predicate on node values/fields.
-    /// Evaluated in an environment with all `extra_fields` bound.
+    /// Evaluated in an environment with the full observable stalk:
+    /// `extra_fields`, scalar child values via labeled edges, and metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub predicate: Option<panproto_expr::Expr>,
 
@@ -127,15 +135,22 @@ pub fn execute(
     };
 
     // 5. Build results with optional projection.
+    //    The result fields include the full observable stalk: extra_fields
+    //    merged with scalar child values (extra_fields take precedence).
     let mut results: Vec<QueryMatch> = limited
         .into_iter()
         .filter_map(|id| {
             let node = instance.nodes.get(&id)?;
+            let scalars = collect_scalar_child_values(instance, id);
+            let mut combined = scalars;
+            for (key, val) in &node.extra_fields {
+                combined.insert(key.clone(), val.clone());
+            }
             Some(QueryMatch {
                 node_id: id,
                 anchor: node.anchor.clone(),
                 value: node.value.clone(),
-                fields: project_fields(&node.extra_fields, query.project.as_ref()),
+                fields: project_fields(&combined, query.project.as_ref()),
             })
         })
         .collect();
@@ -150,6 +165,133 @@ pub fn execute(
     }
 
     results
+}
+
+/// Execute a query against any instance shape via the category of elements.
+///
+/// This is the polymorphic query executor. The pipeline is:
+/// 1. Fiber selection: `F(anchor)` — all elements over the anchor vertex
+/// 2. Relational pushforward: compose `F(e)` for each edge in the path
+/// 3. Subobject selection: filter by predicate in the stalk environment
+/// 4. Limit
+/// 5. Projection: extract observable fields from each matched element
+/// 6. Group-by: sort results by a field value
+///
+/// The `schema` parameter is reserved for future schema-aware operations.
+#[must_use]
+pub fn execute_elements<T: ElementOps>(
+    query: &InstanceQuery,
+    instance: &T,
+    _schema: &panproto_schema::Schema,
+) -> Vec<QueryMatch> {
+    let eval_config = panproto_expr::EvalConfig::default();
+
+    // 1. Fiber selection.
+    let candidates = instance.fiber(&query.anchor);
+
+    // 2. Relational pushforward along path.
+    let navigated = if query.path.is_empty() {
+        candidates
+    } else {
+        query.path.iter().fold(candidates, |current, edge_kind| {
+            instance.pushforward(&current, edge_kind)
+        })
+    };
+
+    // 3. Subobject selection via predicate.
+    let filtered = if let Some(ref pred) = query.predicate {
+        navigated
+            .into_iter()
+            .filter(|&id| {
+                let env = instance.stalk(id);
+                matches!(
+                    crate::instance_env::eval_with_element_ops(
+                        pred,
+                        &env,
+                        &eval_config,
+                        instance,
+                        Some(id),
+                    ),
+                    Ok(panproto_expr::Literal::Bool(true))
+                )
+            })
+            .collect()
+    } else {
+        navigated
+    };
+
+    // 4. Limit.
+    let limited: Vec<u32> = if let Some(limit) = query.limit {
+        filtered.into_iter().take(limit).collect()
+    } else {
+        filtered
+    };
+
+    // 5. Projection.
+    let mut results: Vec<QueryMatch> = limited
+        .into_iter()
+        .filter_map(|id| {
+            let anchor = instance.sort(id)?;
+            let value = instance.element_value(id);
+            let all_fields = instance.attributes(id);
+            Some(QueryMatch {
+                node_id: id,
+                anchor,
+                value,
+                fields: project_fields(&all_fields, query.project.as_ref()),
+            })
+        })
+        .collect();
+
+    // 6. Group-by.
+    if let Some(ref group_key) = query.group_by {
+        results.sort_by(|a, b| {
+            let va = a.fields.get(group_key).map(value_sort_key);
+            let vb = b.fields.get(group_key).map(value_sort_key);
+            va.cmp(&vb)
+        });
+    }
+
+    results
+}
+
+/// Execute a query against a [`GInstance`].
+///
+/// Convenience wrapper over [`execute_elements`].
+#[must_use]
+pub fn execute_graph(
+    query: &InstanceQuery,
+    instance: &GInstance,
+    schema: &panproto_schema::Schema,
+) -> Vec<QueryMatch> {
+    execute_elements(query, instance, schema)
+}
+
+/// Execute a query against an [`FInstance`].
+///
+/// Convenience wrapper over [`execute_elements`].
+#[must_use]
+pub fn execute_functor(
+    query: &InstanceQuery,
+    instance: &FInstance,
+    schema: &panproto_schema::Schema,
+) -> Vec<QueryMatch> {
+    execute_elements(query, instance, schema)
+}
+
+/// Execute a query against a unified [`Instance`], dispatching to the
+/// appropriate shape-specific implementation.
+#[must_use]
+pub fn execute_any(
+    query: &InstanceQuery,
+    instance: &Instance,
+    schema: &panproto_schema::Schema,
+) -> Vec<QueryMatch> {
+    match instance {
+        Instance::WType(w) => execute_elements(query, w, schema),
+        Instance::Functor(f) => execute_elements(query, f, schema),
+        Instance::Graph(g) => execute_elements(query, g, schema),
+    }
 }
 
 /// Follow a path of edge kinds from a set of starting nodes.
@@ -172,13 +314,21 @@ fn navigate_path(instance: &WInstance, start_nodes: &[u32], path: &[Name]) -> Ve
     current
 }
 
-/// Build an expression evaluation environment from a node's fields.
+/// Build an expression evaluation environment from a node's observable stalk.
 ///
-/// Binds all `extra_fields` as variables, plus `_anchor`, `_id`,
-/// `_value`, and `_children_count` metadata fields.
+/// The stalk at element `x ∈ F(v)` is the fiber projection
+/// `π_stalk: ExtraFields(v) × Σ_e Fiber(target(e)) → Env` that combines:
+/// - `extra_fields`: local attribute values at the node
+/// - Scalar child values: the dependent-sum projection of immediate
+///   children's leaf values, keyed by edge name
+/// - Metadata: `_anchor`, `_id`, `_value`, `_children_count`
+///
+/// `extra_fields` take precedence over child scalars on key collision
+/// (left-biased coproduct injection).
 #[must_use]
 pub fn build_node_env(node: &Node, instance: &WInstance) -> panproto_expr::Env {
-    let mut env = build_env_from_extra_fields(&node.extra_fields);
+    let scalars = collect_scalar_child_values(instance, node.id);
+    let mut env = build_env_with_children(&node.extra_fields, &scalars);
     env = env.extend(
         std::sync::Arc::from("_anchor"),
         panproto_expr::Literal::Str(node.anchor.as_ref().into()),
@@ -463,6 +613,261 @@ mod tests {
         assert_eq!(
             categories_out,
             vec!["fruit", "fruit", "grain", "vegetable", "vegetable"]
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue #29: child-value predicate tests
+    // -----------------------------------------------------------------------
+
+    fn make_tree_instance_with_child_values() -> WInstance {
+        let mut nodes = HashMap::new();
+
+        // Parent "binding" node (no extra_fields)
+        nodes.insert(0, Node::new(0, "binding"));
+
+        // Child nodes with leaf values connected via labeled prop edges
+        nodes.insert(
+            1,
+            Node::new(1, "binding.var").with_value(FieldPresence::Present(Value::Str("x0".into()))),
+        );
+        nodes.insert(
+            2,
+            Node::new(2, "binding.type")
+                .with_value(FieldPresence::Present(Value::Str("noun".into()))),
+        );
+
+        // Second binding
+        nodes.insert(3, Node::new(3, "binding"));
+        nodes.insert(
+            4,
+            Node::new(4, "binding.var").with_value(FieldPresence::Present(Value::Str("x1".into()))),
+        );
+        nodes.insert(
+            5,
+            Node::new(5, "binding.type")
+                .with_value(FieldPresence::Present(Value::Str("verb".into()))),
+        );
+
+        let arcs = vec![
+            (
+                0,
+                1,
+                Edge {
+                    src: "binding".into(),
+                    tgt: "binding.var".into(),
+                    kind: "prop".into(),
+                    name: Some("var".into()),
+                },
+            ),
+            (
+                0,
+                2,
+                Edge {
+                    src: "binding".into(),
+                    tgt: "binding.type".into(),
+                    kind: "prop".into(),
+                    name: Some("type".into()),
+                },
+            ),
+            (
+                3,
+                4,
+                Edge {
+                    src: "binding".into(),
+                    tgt: "binding.var".into(),
+                    kind: "prop".into(),
+                    name: Some("var".into()),
+                },
+            ),
+            (
+                3,
+                5,
+                Edge {
+                    src: "binding".into(),
+                    tgt: "binding.type".into(),
+                    kind: "prop".into(),
+                    name: Some("type".into()),
+                },
+            ),
+        ];
+
+        WInstance::new(nodes, arcs, vec![], 0, Name::from("binding"))
+    }
+
+    fn make_binding_schema() -> panproto_schema::Schema {
+        let protocol = Protocol::default();
+        SchemaBuilder::new(&protocol)
+            .vertex("binding", "record", None)
+            .unwrap()
+            .vertex("binding.var", "string", None)
+            .unwrap()
+            .vertex("binding.type", "string", None)
+            .unwrap()
+            .edge("binding", "binding.var", "prop", Some("var"))
+            .unwrap()
+            .edge("binding", "binding.type", "prop", Some("type"))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn child_value_predicate_matches() {
+        let inst = make_tree_instance_with_child_values();
+        let schema = make_binding_schema();
+
+        // Query: find bindings where var == "x0"
+        let query = InstanceQuery {
+            anchor: Name::from("binding"),
+            predicate: Some(panproto_expr::Expr::Builtin(
+                panproto_expr::BuiltinOp::Eq,
+                vec![
+                    panproto_expr::Expr::Var("var".into()),
+                    panproto_expr::Expr::Lit(panproto_expr::Literal::Str("x0".into())),
+                ],
+            )),
+            ..Default::default()
+        };
+
+        let results = execute(&query, &inst, &schema);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].node_id, 0);
+    }
+
+    #[test]
+    fn child_values_appear_in_query_match_fields() {
+        let inst = make_tree_instance_with_child_values();
+        let schema = make_binding_schema();
+
+        let query = InstanceQuery {
+            anchor: Name::from("binding"),
+            ..Default::default()
+        };
+
+        let results = execute(&query, &inst, &schema);
+        assert_eq!(results.len(), 2);
+
+        // Each result should include the child scalar values
+        for result in &results {
+            assert!(result.fields.contains_key("var"));
+            assert!(result.fields.contains_key("type"));
+        }
+    }
+
+    #[test]
+    fn extra_fields_override_child_values_in_query() {
+        let mut nodes = HashMap::new();
+        let mut parent = Node::new(0, "thing");
+        parent
+            .extra_fields
+            .insert("name".into(), Value::Str("override".into()));
+        nodes.insert(0, parent);
+
+        nodes.insert(
+            1,
+            Node::new(1, "thing.name")
+                .with_value(FieldPresence::Present(Value::Str("original".into()))),
+        );
+
+        let arcs = vec![(
+            0,
+            1,
+            Edge {
+                src: "thing".into(),
+                tgt: "thing.name".into(),
+                kind: "prop".into(),
+                name: Some("name".into()),
+            },
+        )];
+
+        let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("thing"));
+
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("thing", "record", None)
+            .unwrap()
+            .vertex("thing.name", "string", None)
+            .unwrap()
+            .edge("thing", "thing.name", "prop", Some("name"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Predicate on "name" should see the extra_fields value
+        let query = InstanceQuery {
+            anchor: Name::from("thing"),
+            predicate: Some(panproto_expr::Expr::Builtin(
+                panproto_expr::BuiltinOp::Eq,
+                vec![
+                    panproto_expr::Expr::Var("name".into()),
+                    panproto_expr::Expr::Lit(panproto_expr::Literal::Str("override".into())),
+                ],
+            )),
+            ..Default::default()
+        };
+
+        let results = execute(&query, &inst, &schema);
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].fields.get("name"),
+            Some(&Value::Str("override".into()))
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // execute_any dispatch tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn execute_any_wtype_dispatch() {
+        let inst = make_test_instance();
+        let schema = make_test_schema();
+        let query = InstanceQuery {
+            anchor: Name::from("annotation"),
+            ..Default::default()
+        };
+
+        let via_direct = execute(&query, &inst, &schema);
+        let via_any = execute_any(&query, &Instance::WType(inst), &schema);
+        assert_eq!(via_direct.len(), via_any.len());
+    }
+
+    #[test]
+    fn execute_any_ginstance_dispatch() {
+        let g = GInstance::new()
+            .with_node(Node::new(0, "person"))
+            .with_node(Node::new(1, "person"))
+            .with_value(0, Value::Str("Alice".into()))
+            .with_value(1, Value::Str("Bob".into()));
+
+        let schema = make_test_schema();
+        let query = InstanceQuery {
+            anchor: Name::from("person"),
+            ..Default::default()
+        };
+
+        let results = execute_any(&query, &Instance::Graph(g), &schema);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn execute_any_finstance_dispatch() {
+        let mut row = HashMap::new();
+        row.insert("name".to_string(), Value::Str("Alice".into()));
+        let f = FInstance::new().with_table("users", vec![row]);
+
+        let schema = make_test_schema();
+        let query = InstanceQuery {
+            anchor: Name::from("users"),
+            ..Default::default()
+        };
+
+        let results = execute_any(&query, &Instance::Functor(f), &schema);
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].fields.get("name"),
+            Some(&Value::Str("Alice".into()))
         );
     }
 }

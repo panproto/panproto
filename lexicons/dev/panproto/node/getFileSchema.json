@@ -1,0 +1,62 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.getFileSchema",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Returns the schema graph for a single file, with human-readable vertex and edge labels. Reads from the panproto-vcs store or parses on demand.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "commit", "path"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "commit": { "type": "string", "maxLength": 64 },
+          "path": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["path", "commit", "vertexCount", "edgeCount", "vertices", "edges"],
+          "properties": {
+            "path": { "type": "string" },
+            "commit": { "type": "string", "maxLength": 64 },
+            "language": { "type": "string", "maxLength": 128 },
+            "vertexCount": { "type": "integer" },
+            "edgeCount": { "type": "integer" },
+            "vertices": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#schemaVertex" }
+            },
+            "edges": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#schemaEdge" }
+            }
+          }
+        }
+      }
+    },
+    "schemaVertex": {
+      "type": "object",
+      "required": ["id", "name", "kind", "humanLabel"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 512 },
+        "kind": { "type": "string", "maxLength": 128 },
+        "humanLabel": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "schemaEdge": {
+      "type": "object",
+      "required": ["src", "tgt", "kind", "humanLabel"],
+      "properties": {
+        "src": { "type": "string" },
+        "tgt": { "type": "string" },
+        "kind": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 256 },
+        "humanLabel": { "type": "string", "maxLength": 512 }
+      }
+    }
+  }
+}

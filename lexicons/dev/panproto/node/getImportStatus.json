@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.getImportStatus",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Reports whether the panproto-vcs schema import has completed for a repository. The frontend uses this to show a progress indicator while the background import runs after a push.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["status", "message", "ready"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": ["ready", "importing", "pending", "no_repo"]
+            },
+            "message": { "type": "string" },
+            "ready": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

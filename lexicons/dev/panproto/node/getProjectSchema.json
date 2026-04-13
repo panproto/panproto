@@ -1,0 +1,65 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.getProjectSchema",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Returns project-level schema statistics by reading the imported schema from the panproto-vcs store. Includes per-file vertex/edge counts, detected languages, and top-level named elements.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "commit": { "type": "string", "maxLength": 64 },
+          "maxFiles": { "type": "integer", "minimum": 1, "maximum": 1000 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commit", "protocol", "totalVertexCount", "totalEdgeCount", "fileCount", "parsedFileCount", "languages", "fileSchemas"],
+          "properties": {
+            "commit": { "type": "string", "maxLength": 64 },
+            "protocol": { "type": "string", "maxLength": 128 },
+            "totalVertexCount": { "type": "integer" },
+            "totalEdgeCount": { "type": "integer" },
+            "fileCount": { "type": "integer" },
+            "parsedFileCount": { "type": "integer" },
+            "languages": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#schemaLanguage" }
+            },
+            "fileSchemas": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#fileSchemaEntry" }
+            }
+          }
+        }
+      }
+    },
+    "schemaLanguage": {
+      "type": "object",
+      "required": ["name", "fileCount", "vertexCount"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 128 },
+        "fileCount": { "type": "integer" },
+        "vertexCount": { "type": "integer" }
+      }
+    },
+    "fileSchemaEntry": {
+      "type": "object",
+      "required": ["path", "language", "vertexCount", "edgeCount", "topNames"],
+      "properties": {
+        "path": { "type": "string" },
+        "language": { "type": "string", "maxLength": 128 },
+        "vertexCount": { "type": "integer" },
+        "edgeCount": { "type": "integer" },
+        "topNames": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 256 }
+        }
+      }
+    }
+  }
+}

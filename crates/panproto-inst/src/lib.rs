@@ -23,6 +23,8 @@ pub mod acset;
 pub mod contraction;
 /// Edit errors for tree and table edits.
 pub mod edit_error;
+/// Operations on the category of elements `∫F` (Grothendieck construction).
+pub mod element_ops;
 /// Error types for instance operations.
 pub mod error;
 /// Hyperedge fan representation.
@@ -47,7 +49,7 @@ pub mod pi;
 pub mod poly;
 /// W-type instance representation and the `wtype_restrict` pipeline.
 pub mod provenance;
-/// Declarative query engine for W-type instances.
+/// Declarative query engine for instance presheaves.
 pub mod query;
 /// Incremental reachability index for W-type instances.
 pub mod reachability;
@@ -65,13 +67,14 @@ pub mod wtype;
 pub use acset::AcsetOps;
 pub use contraction::{ContractionRecord, ContractionTracker};
 pub use edit_error::EditError;
+pub use element_ops::{ElementOps, decode_finstance_id, encode_finstance_id};
 pub use error::{InstError, ParseError, RestrictError, ValidationError};
 pub use fan::Fan;
 pub use functor::{FInstance, functor_extend, functor_restrict};
 pub use ginstance::{GInstance, graph_extend, graph_restrict};
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use instance::Instance;
-pub use instance_env::eval_with_instance;
+pub use instance_env::{eval_with_element_ops, eval_with_instance};
 pub use metadata::Node;
 pub use parse::{parse_json, to_json};
 pub use pi::{functor_pi, wtype_pi};
@@ -80,7 +83,10 @@ pub use poly::{
     fiber_decomposition, fiber_with_predicate, group_by, join, restrict_with_complement, section,
 };
 pub use provenance::{Provenance, ProvenanceMap, SourceField, TransformStep, compute_provenance};
-pub use query::{InstanceQuery, QueryMatch, build_node_env, execute as execute_query};
+pub use query::{
+    InstanceQuery, QueryMatch, build_node_env, execute as execute_query, execute_any,
+    execute_elements, execute_functor, execute_graph,
+};
 pub use reachability::ReachabilityIndex;
 pub use table_edit::TableEdit;
 pub use tree_edit::TreeEdit;
