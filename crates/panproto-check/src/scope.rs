@@ -105,8 +105,7 @@ fn nearest_named_scope(vertex_id: &str) -> &str {
         if !is_anonymous_segment(segments[i]) {
             // Return the prefix up to and including this segment.
             // Total length = sum of segment lengths + number of "::" separators * 2.
-            let char_len: usize =
-                segments[..=i].iter().map(|s| s.len()).sum::<usize>() + i * 2;
+            let char_len: usize = segments[..=i].iter().map(|s| s.len()).sum::<usize>() + i * 2;
             return &vertex_id[..char_len];
         }
     }
@@ -227,7 +226,9 @@ pub fn report_by_scope(
 
     for &scope_id in &sorted_scopes {
         let added = scope_added.get(scope_id).map_or(&[][..], |v| v.as_slice());
-        let removed = scope_removed.get(scope_id).map_or(&[][..], |v| v.as_slice());
+        let removed = scope_removed
+            .get(scope_id)
+            .map_or(&[][..], |v| v.as_slice());
         let anon_added = count_anonymous(added);
         let anon_removed = count_anonymous(removed);
 
@@ -264,12 +265,7 @@ pub fn report_by_scope(
 
         // Resolve line numbers from start-byte/end-byte constraints.
         let (start_line, end_line) = resolve_scope_lines(
-            scope_id,
-            &kind,
-            old_schema,
-            new_schema,
-            old_bytes,
-            new_bytes,
+            scope_id, &kind, old_schema, new_schema, old_bytes, new_bytes,
         );
 
         scopes.push(ScopeChange {
@@ -346,11 +342,7 @@ fn build_named_elements(
     // Collect from new schema.
     for (vid, vertex) in &new_schema.vertices {
         let id_str = vid.to_string();
-        let name = id_str
-            .rsplit("::")
-            .next()
-            .unwrap_or(&id_str)
-            .to_string();
+        let name = id_str.rsplit("::").next().unwrap_or(&id_str).to_string();
         if is_anonymous_segment(&name) {
             continue;
         }
@@ -370,8 +362,7 @@ fn build_named_elements(
         };
 
         let start_line = new_bytes.and_then(|bytes| {
-            start_byte_for_vertex(new_schema, &id_str)
-                .map(|off| byte_offset_to_line(off, bytes))
+            start_byte_for_vertex(new_schema, &id_str).map(|off| byte_offset_to_line(off, bytes))
         });
 
         elements.insert(
@@ -389,11 +380,7 @@ fn build_named_elements(
     // Add removed elements from old schema.
     for (vid, vertex) in &old_schema.vertices {
         let id_str = vid.to_string();
-        let name = id_str
-            .rsplit("::")
-            .next()
-            .unwrap_or(&id_str)
-            .to_string();
+        let name = id_str.rsplit("::").next().unwrap_or(&id_str).to_string();
         if is_anonymous_segment(&name) {
             continue;
         }
@@ -405,8 +392,7 @@ fn build_named_elements(
         }
 
         let start_line = old_bytes.and_then(|bytes| {
-            start_byte_for_vertex(old_schema, &id_str)
-                .map(|off| byte_offset_to_line(off, bytes))
+            start_byte_for_vertex(old_schema, &id_str).map(|off| byte_offset_to_line(off, bytes))
         });
 
         elements.insert(
@@ -508,10 +494,7 @@ mod tests {
             nearest_named_scope("file.rs::MyClass::method::$0::$1"),
             "file.rs::MyClass::method"
         );
-        assert_eq!(
-            nearest_named_scope("file.rs::MyClass"),
-            "file.rs::MyClass"
-        );
+        assert_eq!(nearest_named_scope("file.rs::MyClass"), "file.rs::MyClass");
         assert_eq!(nearest_named_scope("$0::$1"), "$0::$1");
     }
 
@@ -550,10 +533,7 @@ mod tests {
     #[test]
     fn added_scope_detected() {
         let old = test_schema(&[("file.rs", "source_file")]);
-        let new = test_schema(&[
-            ("file.rs", "source_file"),
-            ("file.rs::new_fn", "function"),
-        ]);
+        let new = test_schema(&[("file.rs", "source_file"), ("file.rs::new_fn", "function")]);
 
         let diff = SchemaDiff {
             added_vertices: vec!["file.rs::new_fn".to_string()],
@@ -567,10 +547,7 @@ mod tests {
 
     #[test]
     fn removed_scope_detected() {
-        let old = test_schema(&[
-            ("file.rs", "source_file"),
-            ("file.rs::old_fn", "function"),
-        ]);
+        let old = test_schema(&[("file.rs", "source_file"), ("file.rs::old_fn", "function")]);
         let new = test_schema(&[("file.rs", "source_file")]);
 
         let diff = SchemaDiff {
@@ -604,7 +581,11 @@ mod tests {
 
         let report = report_by_scope(&diff, &old, &new, None, None);
         // Named elements should include file.rs and fn_a but not $0 or $1
-        let names: Vec<&str> = report.named_elements.iter().map(|e| e.name.as_str()).collect();
+        let names: Vec<&str> = report
+            .named_elements
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
         assert!(names.contains(&"fn_a"));
         assert!(!names.contains(&"$0"));
         assert!(!names.contains(&"$1"));
