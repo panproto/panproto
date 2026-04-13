@@ -159,9 +159,9 @@ pub fn parse_xml_bytes(
                 // No push to element_stack; self-closing has no children.
             }
             Ok(Event::Text(ref e)) => {
-                let text = e.unescape().map_err(|err| ParseInstanceError::Parse {
+                let text = e.decode().map_err(|err| ParseInstanceError::Parse {
                     protocol: protocol.to_string(),
-                    message: format!("XML text unescape error: {err}"),
+                    message: format!("XML text decode error: {err}"),
                 })?;
                 if !text.trim().is_empty() {
                     if let Some(current) = element_stack.last() {

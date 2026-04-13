@@ -217,11 +217,12 @@ impl<'a> AstWalker<'a> {
                 .and_then(|p| {
                     // Find which field of the parent this node corresponds to.
                     for i in 0..p.child_count() {
-                        if let Some(child) = p.child(i) {
+                        let Ok(idx) = u32::try_from(i) else {
+                            continue;
+                        };
+                        if let Some(child) = p.child(idx) {
                             if child.id() == node.id() {
-                                return u32::try_from(i)
-                                    .ok()
-                                    .and_then(|idx| p.field_name_for_child(idx));
+                                return p.field_name_for_child(idx);
                             }
                         }
                     }
