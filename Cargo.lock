@@ -1659,6 +1659,7 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 name = "panproto-check"
 version = "0.29.1"
 dependencies = [
+ "memchr",
  "panproto-gat",
  "panproto-lens",
  "panproto-mig",

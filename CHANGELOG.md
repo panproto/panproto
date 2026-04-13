@@ -4,6 +4,18 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-04-13
+
+### Added
+
+- **panproto-check**: Scope-level diff reporting via `report_by_scope()`. Groups flat vertex/edge changes from `SchemaDiff` by their nearest named program element (function, class, type) using the scope hierarchy encoded in vertex IDs. Classifies each scope as `Added`, `Removed`, `SignatureChanged`, or `BodyModified`. Resolves line numbers from `start-byte`/`end-byte` constraints. Includes `report_scope_text()` and `report_scope_json()` renderers. Resolves panproto/panproto#31.
+- **lexicons**: `dev.panproto.node.getBlob` and `dev.panproto.node.listTree` XRPC query definitions for reading file content and listing tree entries from the git mirror.
+
+### Changed
+
+- **ci**: GitHub Actions bumped: `actions/checkout` v4→v6, `actions/setup-node` v4→v6, `actions/setup-python` v5→v6, `actions/download-artifact` v7→v8, `pnpm/action-setup` v4→v5.
+- **sdk/typescript**: Dev dependency updates: `oxlint`, `typescript`, `vite`, `vitest`.
+
 ## [0.29.1] - 2026-04-13
 
 ### Fixed
