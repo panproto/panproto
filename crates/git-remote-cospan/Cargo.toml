@@ -17,7 +17,7 @@ path = "src/main.rs"
 [dependencies]
 panproto-vcs = { workspace = true }
 panproto-git = { workspace = true }
-panproto-xrpc = { version = "0.29.0", path = "../panproto-xrpc" }
+panproto-xrpc = { workspace = true }
 
 git2 = { version = "0.20", features = ["vendored-libgit2", "vendored-openssl"] }
 rustc-hash = { workspace = true }
