@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::eq::{DirectedEquation, Equation, Term};
 use crate::error::GatError;
 use crate::morphism::TheoryMorphism;
 use crate::op::Operation;
 use crate::sort::{CoercionClass, Sort, SortKind, SortParam, ValueKind};
-use crate::theory::Theory;
+use crate::theory::{ConflictPolicy, Theory};
 
 /// A predicate on theories: the precondition for applying a transform.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -670,6 +670,20 @@ impl TheoryTransform {
                 );
                 // Apply inner transform to sub-theory.
                 let transformed_sub = inner.apply(&sub_theory)?;
+
+                // Build a rename map for sorts modified by the inner transform
+                // (must happen before we move transformed_sub.sorts).
+                let mut sort_rename: FxHashMap<Arc<str>, Arc<str>> = FxHashMap::default();
+                for orig_sort in &reachable {
+                    if !transformed_sub.sorts.iter().any(|s| s.name == *orig_sort) {
+                        if let Some(new_sort) =
+                            find_renamed_sort(orig_sort, &sub_theory.sorts, &transformed_sub.sorts)
+                        {
+                            sort_rename.insert(Arc::clone(orig_sort), new_sort);
+                        }
+                    }
+                }
+
                 // Merge: replace sub-theory sorts/ops with transformed versions,
                 // keep everything outside the focus unchanged.
                 let mut merged_sorts: Vec<_> = theory
@@ -695,14 +709,61 @@ impl TheoryTransform {
                     .cloned()
                     .collect();
                 merged_ops.extend(transformed_sub.ops);
+
+                let merged_sort_names: FxHashSet<Arc<str>> =
+                    merged_sorts.iter().map(|s| Arc::clone(&s.name)).collect();
+                let merged_op_names: FxHashSet<Arc<str>> =
+                    merged_ops.iter().map(|o| Arc::clone(&o.name)).collect();
+
+                // Update outer equations: apply sort renames and drop equations
+                // that reference sorts/ops no longer present.
+                let merged_eqs: Vec<_> = theory
+                    .eqs
+                    .iter()
+                    .filter_map(|eq| {
+                        let renamed_eq = rename_eq_sorts(eq, &sort_rename);
+                        let ops_used = collect_ops_in_eq(&renamed_eq);
+                        if ops_used.iter().all(|o| merged_op_names.contains(o)) {
+                            Some(renamed_eq)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                let merged_directed_eqs: Vec<_> = theory
+                    .directed_eqs
+                    .iter()
+                    .filter_map(|de| {
+                        let renamed_de = rename_directed_eq_sorts(de, &sort_rename);
+                        let ops_used = collect_ops_in_directed_eq(&renamed_de);
+                        if ops_used.iter().all(|o| merged_op_names.contains(o)) {
+                            Some(renamed_de)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                // Drop policies that reference removed sorts.
+                let merged_policies: Vec<_> = theory
+                    .policies
+                    .iter()
+                    .filter(|p| {
+                        let sorts_used = collect_sorts_in_policy(p);
+                        sorts_used.iter().all(|s| merged_sort_names.contains(s))
+                    })
+                    .cloned()
+                    .collect();
+
                 Ok(Theory::full(
                     Arc::clone(&theory.name),
                     theory.extends.clone(),
                     merged_sorts,
                     merged_ops,
-                    theory.eqs.clone(),
-                    theory.directed_eqs.clone(),
-                    theory.policies.clone(),
+                    merged_eqs,
+                    merged_directed_eqs,
+                    merged_policies,
                 ))
             }
             Self::Compose(first, second) => {
@@ -770,6 +831,52 @@ fn collect_ops_in_term(term: &Term, ops: &mut Vec<Arc<str>>) {
             }
         }
     }
+}
+
+/// Collect all operation names used in an equation (alias for consistency).
+fn collect_ops_in_eq(eq: &Equation) -> Vec<Arc<str>> {
+    collect_ops_in_equation(eq)
+}
+
+/// Detect if a sort was renamed by comparing before/after sort lists.
+/// Returns the new name if a positional match is found.
+fn find_renamed_sort(original_name: &str, before: &[Sort], after: &[Sort]) -> Option<Arc<str>> {
+    // Heuristic: if the before list had a sort at position i with
+    // name == original_name, and the after list has a sort at the
+    // same position with a different name, the sort was renamed.
+    for (i, s) in before.iter().enumerate() {
+        if s.name.as_ref() == original_name {
+            if let Some(after_sort) = after.get(i) {
+                if after_sort.name != s.name {
+                    return Some(Arc::clone(&after_sort.name));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Apply sort renames to an equation's terms.
+fn rename_eq_sorts(eq: &Equation, _sort_rename: &FxHashMap<Arc<str>, Arc<str>>) -> Equation {
+    // Equations reference operations, not sorts directly in Term.
+    // No renaming needed for the terms themselves; the operation
+    // names carry the sort information. We return the equation as-is.
+    eq.clone()
+}
+
+/// Apply sort renames to a directed equation's terms.
+fn rename_directed_eq_sorts(
+    de: &DirectedEquation,
+    _sort_rename: &FxHashMap<Arc<str>, Arc<str>>,
+) -> DirectedEquation {
+    // Same as rename_eq_sorts: terms reference ops, not sorts.
+    de.clone()
+}
+
+/// Collect sort names referenced in a conflict policy.
+const fn collect_sorts_in_policy(_policy: &ConflictPolicy) -> Vec<Arc<str>> {
+    // ConflictPolicy references value kinds, not sort names.
+    Vec::new()
 }
 
 #[cfg(test)]

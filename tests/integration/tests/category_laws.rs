@@ -740,3 +740,140 @@ mod property {
         }
     }
 }
+
+// =========================================================================
+// Adjunction law tests: Sigma -| Delta -| Pi
+// =========================================================================
+
+/// Unit of the Sigma -| Delta adjunction: restrict(extend(I, F), F) ~ I.
+///
+/// Given a migration F: S1 -> S2 and an instance I of S1,
+/// `extend` (left Kan extension) produces an S2 instance, and then
+/// `restrict` (precomposition) back to S1 should recover something
+/// equivalent to I.
+#[test]
+fn sigma_delta_unit_wtype() -> Result<(), Box<dyn std::error::Error>> {
+    let e_a = Edge {
+        src: "root".into(),
+        tgt: "child".into(),
+        kind: "prop".into(),
+        name: Some("a".into()),
+    };
+
+    let s1 = make_schema(
+        &[("root", "object"), ("child", "string")],
+        std::slice::from_ref(&e_a),
+    );
+
+    // Migration that renames "child" to "field" and "root" to "root"
+    let mig = CompiledMigration {
+        surviving_verts: ["root", "field"].into_iter().map(Name::from).collect(),
+        surviving_edges: std::collections::HashSet::new(),
+        vertex_remap: HashMap::from([
+            (Name::from("root"), Name::from("root")),
+            (Name::from("child"), Name::from("field")),
+        ]),
+        edge_remap: HashMap::from([(
+            e_a.clone(),
+            Edge {
+                src: "root".into(),
+                tgt: "field".into(),
+                kind: "prop".into(),
+                name: Some("a".into()),
+            },
+        )]),
+        resolver: HashMap::new(),
+        hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
+    };
+
+    // Build instance of S1.
+    let mut nodes = HashMap::new();
+    nodes.insert(0, Node::new(0, "root"));
+    nodes.insert(
+        1,
+        Node::new(1, "child").with_value(FieldPresence::Present(Value::Str("data".into()))),
+    );
+    let instance = WInstance::new(nodes, vec![(0, 1, e_a.clone())], vec![], 0, "root".into());
+
+    // extend: S1 -> S2
+    let extended = panproto_inst::wtype_extend(&instance, &s1, &mig)?;
+    assert!(
+        extended
+            .nodes
+            .values()
+            .any(|n| n.anchor.as_ref() == "field"),
+        "extended instance should have 'field' anchor"
+    );
+
+    // restrict: S2 -> S1 (reverse the remap)
+    let reverse_mig = CompiledMigration {
+        surviving_verts: ["root", "child"].into_iter().map(Name::from).collect(),
+        surviving_edges: std::iter::once(e_a).collect(),
+        vertex_remap: HashMap::from([
+            (Name::from("root"), Name::from("root")),
+            (Name::from("field"), Name::from("child")),
+        ]),
+        edge_remap: HashMap::new(),
+        resolver: HashMap::new(),
+        hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
+    };
+    let restricted = wtype_restrict(&extended, &s1, &s1, &reverse_mig)?;
+
+    // The round-trip should preserve node count and data.
+    assert_eq!(
+        restricted.node_count(),
+        instance.node_count(),
+        "Sigma-Delta unit: node count preserved"
+    );
+    for (&id, node) in &instance.nodes {
+        let r_node = restricted
+            .nodes
+            .get(&id)
+            .unwrap_or_else(|| panic!("node {id} missing after Sigma-Delta round-trip"));
+        assert_eq!(
+            node.anchor, r_node.anchor,
+            "Sigma-Delta unit: anchor preserved for node {id}"
+        );
+        assert_eq!(
+            node.value, r_node.value,
+            "Sigma-Delta unit: value preserved for node {id}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Identity restrict: restrict(id, I) == I for functor instances.
+#[test]
+fn functor_identity_restrict() -> Result<(), Box<dyn std::error::Error>> {
+    use panproto_inst::functor::FInstance;
+
+    let mut row = HashMap::new();
+    row.insert("name".to_string(), Value::Str("Alice".into()));
+
+    let inst = FInstance::new().with_table("users", vec![row.clone()]);
+
+    let id_mig = CompiledMigration {
+        surviving_verts: std::iter::once(Name::from("users")).collect(),
+        surviving_edges: std::collections::HashSet::new(),
+        vertex_remap: HashMap::new(),
+        edge_remap: HashMap::new(),
+        resolver: HashMap::new(),
+        hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
+        expansion_path: HashMap::new(),
+    };
+
+    let restricted = panproto_inst::functor_restrict(&inst, &id_mig)?;
+    assert_eq!(restricted.table_count(), 1);
+    assert_eq!(restricted.row_count("users"), 1);
+
+    Ok(())
+}

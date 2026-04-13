@@ -125,61 +125,59 @@ pub fn invert(
         }
     }
 
-    // Invert resolver: swap (src, tgt) -> edge to (inv_src, inv_tgt) -> inv_edge.
+    // Invert resolver: resolver keys are TARGET vertex names, so use
+    // inv_vertex_map (target -> source) directly. No fallbacks: the
+    // bijectivity checks above guarantee all vertices are mapped.
     let mut inv_resolver = HashMap::new();
     for ((src, tgt), edge) in &migration.resolver {
-        let inv_src = inv_vertex_map
-            .get(migration.vertex_map.get(src).unwrap_or(src))
-            .cloned()
-            .unwrap_or_else(|| {
-                migration
-                    .vertex_map
-                    .iter()
-                    .find(|(_, v)| *v == src)
-                    .map_or_else(|| src.clone(), |(k, _)| k.clone())
+        let Some(inv_src) = inv_vertex_map.get(src).cloned() else {
+            return Err(InvertError::NotBijective {
+                detail: format!("resolver key vertex {src} not in inverse vertex map"),
             });
-        let inv_tgt = inv_vertex_map
-            .get(migration.vertex_map.get(tgt).unwrap_or(tgt))
-            .cloned()
-            .unwrap_or_else(|| {
-                migration
-                    .vertex_map
-                    .iter()
-                    .find(|(_, v)| *v == tgt)
-                    .map_or_else(|| tgt.clone(), |(k, _)| k.clone())
+        };
+        let Some(inv_tgt) = inv_vertex_map.get(tgt).cloned() else {
+            return Err(InvertError::NotBijective {
+                detail: format!("resolver key vertex {tgt} not in inverse vertex map"),
             });
-        let inv_edge = inv_edge_map.get(edge).cloned().unwrap_or_else(|| Edge {
-            src: inv_src.clone(),
-            tgt: inv_tgt.clone(),
-            kind: edge.kind.clone(),
-            name: edge.name.clone(),
-        });
+        };
+        let Some(inv_edge) = inv_edge_map.get(edge).cloned() else {
+            return Err(InvertError::EdgeNotBijective {
+                detail: format!(
+                    "resolver edge {} -> {} ({}) not in inverse edge map",
+                    edge.src, edge.tgt, edge.kind
+                ),
+            });
+        };
         inv_resolver.insert((inv_src, inv_tgt), inv_edge);
     }
 
-    // Invert hyper_resolver: swap keys and values.
+    // Invert hyper_resolver: swap keys and values. Use strict lookups
+    // (no fallbacks) since bijectivity was already verified.
     let mut inv_hyper_resolver = HashMap::new();
     for ((he_id, labels), (tgt_he_id, label_remap)) in &migration.hyper_resolver {
-        let inv_he_id = inv_hyper_edge_map
-            .get(tgt_he_id)
-            .cloned()
-            .unwrap_or_else(|| tgt_he_id.clone());
+        let inv_he_id = inv_hyper_edge_map.get(tgt_he_id).cloned().ok_or_else(|| {
+            InvertError::HyperEdgeNotBijective {
+                detail: format!("hyper-resolver target {tgt_he_id} not in inverse hyper-edge map"),
+            }
+        })?;
         // Invert label_remap
         let inv_label_remap: HashMap<Name, Name> = label_remap
             .iter()
             .map(|(k, v)| (v.clone(), k.clone()))
             .collect();
-        // Remap labels through the forward mapping to get the target-side labels
-        let inv_labels: Vec<Name> = labels
-            .iter()
-            .map(|l| {
+        // Remap labels through the forward vertex_map.
+        let mut inv_labels = Vec::with_capacity(labels.len());
+        for l in labels {
+            let mapped =
                 migration
                     .vertex_map
                     .get(l)
                     .cloned()
-                    .unwrap_or_else(|| l.clone())
-            })
-            .collect();
+                    .ok_or_else(|| InvertError::NotBijective {
+                        detail: format!("hyper-resolver label vertex {l} not in vertex map"),
+                    })?;
+            inv_labels.push(mapped);
+        }
         inv_hyper_resolver.insert((inv_he_id, inv_labels), (he_id.clone(), inv_label_remap));
     }
 

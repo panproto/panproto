@@ -444,6 +444,12 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
 /// For each `ApplyExpr` or `ComputeField` with an inverse expression, evaluate
 /// the inverse on the node's current value to recover the pre-coercion value.
 /// Transforms without inverses are skipped (the view's value is kept as-is).
+///
+/// This is a fallback path used when the complement does not contain a
+/// snapshot of the original `extra_fields`. The primary `put` path restores
+/// from `complement.original_extra_fields`, which is always captured by
+/// `get`. This function is only reached for externally constructed
+/// complements or composed lenses where snapshots were not propagated.
 fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldTransform]) {
     use panproto_inst::FieldTransform;
 

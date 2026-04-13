@@ -125,11 +125,12 @@ pub fn check_natural_transformation(
         }
         let rhs = Term::app(g_op, rhs_args);
 
-        // Normalize both sides with respect to the codomain's directed equations
-        // (rewrite rules) before comparison. Two terms that are equal modulo the
-        // codomain's equational theory should not cause a spurious violation.
-        let lhs_norm = normalize(&lhs, &codomain.directed_eqs, 1000);
-        let rhs_norm = normalize(&rhs, &codomain.directed_eqs, 1000);
+        // Normalize both sides with respect to the codomain's full equational
+        // theory (directed equations plus undirected equations applied
+        // bidirectionally) before comparison.
+        let all_rules = full_rewrite_rules(codomain);
+        let lhs_norm = normalize(&lhs, &all_rules, 1000);
+        let rhs_norm = normalize(&rhs, &all_rules, 1000);
 
         if !alpha_equivalent(&lhs_norm, &rhs_norm) {
             return Err(GatError::NaturalityViolation {
@@ -141,6 +142,49 @@ pub fn check_natural_transformation(
     }
 
     Ok(())
+}
+
+/// Build a combined set of rewrite rules from a theory's directed equations
+/// and its undirected equations (applied bidirectionally).
+///
+/// Undirected equations `lhs = rhs` produce two rewrite rules: `lhs -> rhs`
+/// and `rhs -> lhs`. This is sound (both directions preserve the equational
+/// theory) but not complete (some equivalences require multi-step reasoning
+/// that innermost rewriting cannot reach). The naturality check normalizes
+/// both sides and compares, which catches the common cases.
+fn full_rewrite_rules(theory: &Theory) -> Vec<crate::eq::DirectedEquation> {
+    use crate::eq::DirectedEquation;
+    use crate::sort::CoercionClass;
+
+    let mut rules: Vec<DirectedEquation> = theory.directed_eqs.clone();
+
+    // Convert undirected equations to bidirectional rewrite rules.
+    for eq in &theory.eqs {
+        // Forward: lhs -> rhs
+        rules.push(DirectedEquation {
+            name: Arc::from(format!("{}_fwd", eq.name)),
+            lhs: eq.lhs.clone(),
+            rhs: eq.rhs.clone(),
+            impl_term: panproto_expr::Expr::Var("__id__".into()),
+            inverse: None,
+            source_kind: None,
+            target_kind: None,
+            coercion_class: CoercionClass::Iso,
+        });
+        // Backward: rhs -> lhs
+        rules.push(DirectedEquation {
+            name: Arc::from(format!("{}_bwd", eq.name)),
+            lhs: eq.rhs.clone(),
+            rhs: eq.lhs.clone(),
+            impl_term: panproto_expr::Expr::Var("__id__".into()),
+            inverse: None,
+            source_kind: None,
+            target_kind: None,
+            coercion_class: CoercionClass::Iso,
+        });
+    }
+
+    rules
 }
 
 /// Recursively validate that all operations used in a term exist in the codomain theory.

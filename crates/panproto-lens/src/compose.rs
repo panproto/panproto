@@ -64,7 +64,10 @@ pub(crate) fn compose_compiled_migrations(
     let mut surviving_verts = std::collections::HashSet::new();
     for v in &m1.surviving_verts {
         let remapped = m1.vertex_remap.get(v).unwrap_or(v);
-        if m2.surviving_verts.contains(remapped) || m2.surviving_verts.contains(v) {
+        // Only the remapped vertex should be checked against m2's surviving set.
+        // Checking the original vertex `v` against m2 is incorrect: `v` is in
+        // m1's source space, not m2's source space.
+        if m2.surviving_verts.contains(remapped) {
             surviving_verts.insert(v.clone());
         }
     }
@@ -73,7 +76,7 @@ pub(crate) fn compose_compiled_migrations(
     let mut surviving_edges = std::collections::HashSet::new();
     for e in &m1.surviving_edges {
         let remapped = m1.edge_remap.get(e).unwrap_or(e);
-        if m2.surviving_edges.contains(remapped) || m2.surviving_edges.contains(e) {
+        if m2.surviving_edges.contains(remapped) {
             surviving_edges.insert(e.clone());
         }
     }
@@ -115,13 +118,27 @@ pub(crate) fn compose_compiled_migrations(
     let field_transforms = compose_field_transforms(m1, m2);
     let conditional_survival = compose_conditional_survival(m1, m2);
 
-    // Compose expansion paths: m1's paths apply first (mapped through
-    // m1.vertex_remap so keys land in m2's anchor space), then any m2
-    // entries for pairs m1 didn't already cover.
+    // Compose expansion paths: m1's paths may need to be extended by m2's
+    // paths. If m1 expands (src, tgt) through intermediates, and m2 has
+    // a further expansion from the remapped tgt, chain them together.
     let mut expansion_path: HashMap<(Name, Name), Vec<Name>> = HashMap::new();
     for ((src, tgt), mids) in &m1.expansion_path {
-        expansion_path.insert((src.clone(), tgt.clone()), mids.clone());
+        let remapped_tgt = m1.vertex_remap.get(tgt).unwrap_or(tgt);
+        // Check if m2 extends from remapped_tgt to any further vertex.
+        let mut found_chain = false;
+        for ((m2_src, m2_tgt), m2_mids) in &m2.expansion_path {
+            if m2_src == remapped_tgt {
+                let mut combined = mids.clone();
+                combined.extend(m2_mids.iter().cloned());
+                expansion_path.insert((src.clone(), m2_tgt.clone()), combined);
+                found_chain = true;
+            }
+        }
+        if !found_chain {
+            expansion_path.insert((src.clone(), tgt.clone()), mids.clone());
+        }
     }
+    // Include m2 entries for pairs not covered by m1's composition.
     for (k, v) in &m2.expansion_path {
         expansion_path.entry(k.clone()).or_insert_with(|| v.clone());
     }

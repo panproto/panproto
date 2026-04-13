@@ -48,20 +48,18 @@ impl SchemaMorphism {
         for (src, mid) in &self.vertex_map {
             if let Some(tgt) = other.vertex_map.get(mid) {
                 vertex_map.insert(src.clone(), tgt.clone());
-            } else {
-                // If the intermediate vertex survives unchanged in `other`,
-                // keep the mapping to mid.
-                vertex_map.insert(src.clone(), mid.clone());
             }
+            // Partial-map semantics: if `mid` is not in `other`'s map,
+            // the vertex was dropped by `other` and should not appear
+            // in the composed morphism.
         }
 
         let mut edge_map = HashMap::new();
         for (src_e, mid_e) in &self.edge_map {
             if let Some(tgt_e) = other.edge_map.get(mid_e) {
                 edge_map.insert(src_e.clone(), tgt_e.clone());
-            } else {
-                edge_map.insert(src_e.clone(), mid_e.clone());
             }
+            // Edge dropped by `other`: omit from composed morphism.
         }
 
         let mut renames = self.renames.clone();
@@ -130,5 +128,72 @@ mod tests {
         assert_eq!(composed.renames.len(), 2);
         assert_eq!(composed.renames[0], r1);
         assert_eq!(composed.renames[1], r2);
+    }
+
+    #[test]
+    fn compose_drops_unmapped_vertices() {
+        // If m2 doesn't map a vertex, it should be dropped from composition.
+        let m1 = SchemaMorphism {
+            name: "m1".into(),
+            src_protocol: "a".into(),
+            tgt_protocol: "b".into(),
+            vertex_map: HashMap::from([
+                (Name::from("v1"), Name::from("v2")),
+                (Name::from("v3"), Name::from("v4")),
+            ]),
+            edge_map: HashMap::new(),
+            renames: vec![],
+        };
+        // m2 only maps v2, dropping v4.
+        let m2 = SchemaMorphism {
+            name: "m2".into(),
+            src_protocol: "b".into(),
+            tgt_protocol: "c".into(),
+            vertex_map: HashMap::from([(Name::from("v2"), Name::from("v5"))]),
+            edge_map: HashMap::new(),
+            renames: vec![],
+        };
+        let composed = m1.compose(&m2);
+        assert_eq!(composed.vertex_map.len(), 1);
+        assert_eq!(composed.vertex_map.get("v1").map(AsRef::as_ref), Some("v5"));
+        assert!(!composed.vertex_map.contains_key("v3"));
+    }
+
+    #[test]
+    fn compose_associativity() {
+        let m1 = SchemaMorphism {
+            name: "m1".into(),
+            src_protocol: "a".into(),
+            tgt_protocol: "b".into(),
+            vertex_map: HashMap::from([
+                (Name::from("v1"), Name::from("v2")),
+                (Name::from("v3"), Name::from("v4")),
+            ]),
+            edge_map: HashMap::new(),
+            renames: vec![],
+        };
+        let m2 = SchemaMorphism {
+            name: "m2".into(),
+            src_protocol: "b".into(),
+            tgt_protocol: "c".into(),
+            vertex_map: HashMap::from([
+                (Name::from("v2"), Name::from("v5")),
+                // v4 dropped by m2
+            ]),
+            edge_map: HashMap::new(),
+            renames: vec![],
+        };
+        let m3 = SchemaMorphism {
+            name: "m3".into(),
+            src_protocol: "c".into(),
+            tgt_protocol: "d".into(),
+            vertex_map: HashMap::from([(Name::from("v5"), Name::from("v6"))]),
+            edge_map: HashMap::new(),
+            renames: vec![],
+        };
+
+        let left = m1.compose(&m2).compose(&m3);
+        let right = m1.compose(&m2.compose(&m3));
+        assert_eq!(left.vertex_map, right.vertex_map);
     }
 }

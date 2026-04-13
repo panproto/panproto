@@ -69,7 +69,11 @@ pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<FreeModel
 /// Topologically sort the theory's sorts so that parameter sorts are
 /// ordered before the dependent sorts that reference them. Returns sort
 /// names in dependency order.
-fn topological_sort_sorts(theory: &Theory) -> Vec<Arc<str>> {
+///
+/// # Errors
+///
+/// Returns [`GatError::CyclicSortDependency`] if cyclic dependencies exist.
+fn topological_sort_sorts(theory: &Theory) -> Result<Vec<Arc<str>>, GatError> {
     let sort_names: FxHashSet<Arc<str>> =
         theory.sorts.iter().map(|s| Arc::clone(&s.name)).collect();
     let mut in_degree: FxHashMap<Arc<str>, usize> = FxHashMap::default();
@@ -111,14 +115,18 @@ fn topological_sort_sorts(theory: &Theory) -> Vec<Arc<str>> {
         }
     }
 
-    // Any remaining sorts (cyclic dependencies) appended at the end.
-    for sort in &theory.sorts {
-        if !result.contains(&sort.name) {
-            result.push(Arc::clone(&sort.name));
-        }
+    // Reject cyclic sort dependencies instead of silently appending.
+    if result.len() < theory.sorts.len() {
+        let cyclic: Vec<String> = theory
+            .sorts
+            .iter()
+            .filter(|s| !result.contains(&s.name))
+            .map(|s| s.name.to_string())
+            .collect();
+        return Err(GatError::CyclicSortDependency(cyclic));
     }
 
-    result
+    Ok(result)
 }
 
 /// Phase 1: Generate all closed terms up to `max_depth`, indexed by sort.
@@ -138,7 +146,7 @@ fn generate_terms(
     let mut terms_by_sort: FxHashMap<Arc<str>, Vec<Term>> = FxHashMap::default();
 
     // Initialize in topological order so parameter sorts are ready first.
-    let ordered_sorts = topological_sort_sorts(theory);
+    let ordered_sorts = topological_sort_sorts(theory)?;
     for sort_name in &ordered_sorts {
         terms_by_sort.insert(Arc::clone(sort_name), Vec::new());
     }
@@ -246,9 +254,11 @@ fn assign_global_indices(
 
 /// Phase 2: Quotient terms by equations using union-find with congruence closure.
 ///
-/// Runs equation merging in a fixpoint loop: after each pass over all equations,
-/// checks if any new merges occurred. Continues until no new merges happen,
-/// ensuring the quotient is the full congruence closure.
+/// Runs equation merging and congruence propagation in a fixpoint loop.
+/// Congruence closure ensures that if `t1 ~ t2`, then for every operation
+/// `f`, we also get `f(... t1 ...) ~ f(... t2 ...)` when both terms exist
+/// in the generated set. This is necessary for the free model to be truly
+/// initial (the quotient must be closed under all operation congruences).
 fn quotient_by_equations(
     theory: &Theory,
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
@@ -272,10 +282,16 @@ fn quotient_by_equations(
         })
         .collect();
 
+    // Build a congruence index: for each compound term f(a1, ..., an),
+    // record (op_name, [global_idx_of_a1, ..., global_idx_of_an]) -> global_idx.
+    // This allows efficient congruence closure propagation.
+    let congruence_entries = build_congruence_index(terms_by_sort, term_to_global);
+
     // Fixpoint loop: keep merging until no new merges occur.
     loop {
         let merges_before = uf.merge_count;
 
+        // Pass 1: equation substitution instances.
         for (eq, vars, var_sorts) in &eq_info {
             if vars.is_empty() {
                 merge_constant_eq(eq, terms_by_sort, term_to_global, &mut uf);
@@ -289,12 +305,94 @@ fn quotient_by_equations(
             merge_by_equation(eq, vars, vs, terms_by_sort, term_to_global, &mut uf);
         }
 
+        // Pass 2: congruence closure. If t1 ~ t2, then f(..., t1, ...) ~ f(..., t2, ...)
+        // for all operations f where both compound terms exist.
+        congruence_closure_pass(&congruence_entries, &mut uf);
+
         if uf.merge_count == merges_before {
             break;
         }
     }
 
     uf
+}
+
+/// Entry in the congruence index: a compound term with its operation name,
+/// subterm global indices, and its own global index.
+struct CongruenceEntry {
+    /// Global index of this term.
+    term_idx: usize,
+    /// Global indices of each subterm (argument).
+    arg_indices: Vec<usize>,
+}
+
+/// Build an index of all compound (non-nullary) generated terms, grouped by
+/// operation name and arity. This enables efficient congruence closure.
+fn build_congruence_index(
+    terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
+    term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
+) -> FxHashMap<Arc<str>, Vec<CongruenceEntry>> {
+    let mut index: FxHashMap<Arc<str>, Vec<CongruenceEntry>> = FxHashMap::default();
+
+    // Build a flat lookup: term -> global_idx for subterm resolution.
+    let mut term_lookup: FxHashMap<&Term, usize> = FxHashMap::default();
+    for (sort, terms) in terms_by_sort {
+        let indices = &term_to_global[sort];
+        for (i, term) in terms.iter().enumerate() {
+            term_lookup.insert(term, indices[i]);
+        }
+    }
+
+    for (sort, terms) in terms_by_sort {
+        let indices = &term_to_global[sort];
+        for (i, term) in terms.iter().enumerate() {
+            if let Term::App { op, args } = term {
+                if args.is_empty() {
+                    continue;
+                }
+                let arg_indices: Vec<usize> = args
+                    .iter()
+                    .filter_map(|arg| term_lookup.get(arg).copied())
+                    .collect();
+                // Only include if all subterms were found.
+                if arg_indices.len() == args.len() {
+                    index
+                        .entry(Arc::clone(op))
+                        .or_default()
+                        .push(CongruenceEntry {
+                            term_idx: indices[i],
+                            arg_indices,
+                        });
+                }
+            }
+        }
+    }
+
+    index
+}
+
+/// Propagate congruence: for terms sharing the same operation, if their
+/// argument tuples are pointwise equivalent under the union-find, merge them.
+fn congruence_closure_pass(
+    entries: &FxHashMap<Arc<str>, Vec<CongruenceEntry>>,
+    uf: &mut UnionFind,
+) {
+    for group in entries.values() {
+        if group.len() < 2 {
+            continue;
+        }
+        // Group entries by their canonical argument tuple.
+        let mut canonical_groups: FxHashMap<Vec<usize>, usize> = FxHashMap::default();
+        for entry in group {
+            let canonical_args: Vec<usize> =
+                entry.arg_indices.iter().map(|&i| uf.find(i)).collect();
+            if let Some(&representative) = canonical_groups.get(&canonical_args) {
+                uf.union(representative, entry.term_idx);
+            } else {
+                canonical_groups.insert(canonical_args, uf.find(entry.term_idx));
+            }
+        }
+    }
 }
 
 /// Phase 3: Build the Model from equivalence class representatives.
@@ -785,5 +883,61 @@ mod tests {
         let result = model.eval("unit", &[])?;
         assert!(matches!(result, ModelValue::Str(_)));
         Ok(())
+    }
+
+    #[test]
+    fn free_model_congruence_closure() -> Result<(), Box<dyn std::error::Error>> {
+        // Theory with a = b and f: S -> S.
+        // Congruence closure requires f(a) ~ f(b), even though no equation
+        // directly equates them. The equation a = b combined with the
+        // congruence rule for f must produce this.
+        let theory = Theory::new(
+            "Congruence",
+            vec![Sort::simple("S")],
+            vec![
+                Operation::nullary("a", "S"),
+                Operation::nullary("b", "S"),
+                Operation::unary("f", "x", "S", "S"),
+            ],
+            vec![Equation::new(
+                "a_eq_b",
+                Term::constant("a"),
+                Term::constant("b"),
+            )],
+        );
+        let config = FreeModelConfig {
+            max_depth: 1,
+            max_terms_per_sort: 100,
+        };
+        let model = free_model(&theory, &config)?.model;
+        // a ~ b, so f(a) ~ f(b). The carrier should have at most 2 elements:
+        // one equivalence class for {a, b} and one for {f(a), f(b)}.
+        assert_eq!(
+            model.sort_interp["S"].len(),
+            2,
+            "a ~ b and f(a) ~ f(b) by congruence: expect 2 classes"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn free_model_cyclic_sort_dependency_rejected() {
+        use crate::sort::SortParam;
+
+        // Sort A depends on B and B depends on A: cyclic.
+        let theory = Theory::new(
+            "Cyclic",
+            vec![
+                Sort::dependent("A", vec![SortParam::new("x", "B")]),
+                Sort::dependent("B", vec![SortParam::new("y", "A")]),
+            ],
+            vec![],
+            vec![],
+        );
+        let result = free_model(&theory, &FreeModelConfig::default());
+        assert!(
+            matches!(result, Err(GatError::CyclicSortDependency(_))),
+            "cyclic sort dependencies should be rejected"
+        );
     }
 }

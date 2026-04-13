@@ -80,6 +80,11 @@ pub(crate) fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
         }
     }
 
+    // Compare parent maps for structural consistency.
+    if a.parent_map != b.parent_map {
+        return false;
+    }
+
     // Compare arcs (order-independent): sort by (parent, child, edge) then compare.
     let mut arcs_a: Vec<_> = a.arcs.clone();
     let mut arcs_b: Vec<_> = b.arcs.clone();

@@ -254,6 +254,11 @@ pub enum GatError {
     #[error("factorization error: {0}")]
     FactorizationError(String),
 
+    // --- Free model errors ---
+    /// Cyclic sort dependencies detected in topological sort.
+    #[error("cyclic sort dependencies: {0:?}")]
+    CyclicSortDependency(Vec<String>),
+
     // --- Quotient errors ---
     /// Identified elements are incompatible for quotienting.
     #[error("cannot identify {name_a} and {name_b}: {detail}")]

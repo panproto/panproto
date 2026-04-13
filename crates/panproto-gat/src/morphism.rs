@@ -44,6 +44,14 @@ impl TheoryMorphism {
     }
 
     /// Apply this morphism to a term, renaming operations.
+    ///
+    /// **Limitation**: This only renames operation names in the term via
+    /// `op_map`. It does not rename sort annotations because the current
+    /// [`Term`] representation is untyped (`Var` / `App`). For theories
+    /// with dependent sorts, sort-level information is carried implicitly
+    /// through operation signatures, which `check_morphism` validates
+    /// separately. If `Term` is later extended with sort annotations,
+    /// this method must also apply `sort_map`.
     #[must_use]
     pub fn apply_to_term(&self, term: &Term) -> Term {
         term.rename_ops(&self.op_map)

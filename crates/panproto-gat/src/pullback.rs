@@ -250,7 +250,15 @@ fn pair_directed_eqs(
             let pb_lhs = de1.lhs.rename_ops(&pb_op_rename);
             let pb_rhs = de1.rhs.rename_ops(&pb_op_rename);
 
-            let coercion_class = de1.coercion_class.compose(de2.coercion_class);
+            // In a pullback, paired directed equations must agree on
+            // their coercion class. Composing them is categorically
+            // meaningless; we require equality instead.
+            let coercion_class = if de1.coercion_class == de2.coercion_class {
+                de1.coercion_class
+            } else {
+                // Incompatible coercion classes: skip this pair.
+                continue;
+            };
             let source_kind = if de1.source_kind == de2.source_kind {
                 de1.source_kind
             } else {
@@ -348,6 +356,11 @@ pub fn pullback(
         proj2_sort,
         proj2_ops,
     );
+
+    // Validate projection morphisms to ensure the pullback construction
+    // produced valid structure-preserving maps.
+    crate::morphism::check_morphism(&proj1, &pb_theory, t1)?;
+    crate::morphism::check_morphism(&proj2, &pb_theory, t2)?;
 
     Ok(PullbackResult {
         theory: pb_theory,

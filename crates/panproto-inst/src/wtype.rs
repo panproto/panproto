@@ -744,13 +744,40 @@ pub fn wtype_restrict(
         return Err(RestrictError::RootPruned);
     }
 
+    // Precompute conditional survival decisions for all nodes. This
+    // ensures the BFS result is order-independent (functorial), since
+    // conditional survival is evaluated against the original node values,
+    // not values that may have been modified by ancestor contraction.
+    let conditional_fail: FxHashSet<u32> = if migration.conditional_survival.is_empty() {
+        FxHashSet::default()
+    } else {
+        instance
+            .nodes
+            .iter()
+            .filter_map(|(&id, node)| {
+                let pred = migration.conditional_survival.get(&node.anchor)?;
+                let env = build_env_from_extra_fields(&node.extra_fields);
+                let config = panproto_expr::EvalConfig::default();
+                if matches!(
+                    panproto_expr::eval(pred, &env, &config),
+                    Ok(panproto_expr::Literal::Bool(false))
+                ) {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+
     // Fused BFS: traverse the tree from root, tracking the nearest
     // surviving ancestor for each node as we go.
     //
     // For each node in the BFS:
-    //   - If its anchor survives: it becomes part of the result.
-    //     Its nearest surviving ancestor is used to build an arc.
-    //     It becomes the "current surviving ancestor" for its subtree.
+    //   - If its anchor survives (and not in conditional_fail): it
+    //     becomes part of the result. Its nearest surviving ancestor
+    //     is used to build an arc. It becomes the "current surviving
+    //     ancestor" for its subtree.
     //   - If its anchor does not survive: skip it, but continue BFS
     //     into its children (they might survive). Pass along the
     //     current surviving ancestor unchanged.
@@ -799,21 +826,9 @@ pub fn wtype_restrict(
                 .vertex_remap
                 .get(&child_node.anchor)
                 .unwrap_or(&child_node.anchor);
-            if migration.surviving_verts.contains(target_anchor) {
-                // Check conditional survival predicate if one exists
-                if let Some(pred) = migration.conditional_survival.get(&child_node.anchor) {
-                    let env = build_env_from_extra_fields(&child_node.extra_fields);
-                    let config = panproto_expr::EvalConfig::default();
-                    if matches!(
-                        panproto_expr::eval(pred, &env, &config),
-                        Ok(panproto_expr::Literal::Bool(false))
-                    ) {
-                        // Predicate is false; skip this node (treat as non-surviving)
-                        queue.push_back((child_id, child_ancestor));
-                        continue;
-                    }
-                }
-
+            if migration.surviving_verts.contains(target_anchor)
+                && !conditional_fail.contains(&child_id)
+            {
                 // This child survives; add it to results
                 surviving_set.insert(child_id);
                 let mut new_node = child_node.clone();

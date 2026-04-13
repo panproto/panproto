@@ -219,19 +219,33 @@ pub fn check_optic_laws(
         });
     }
 
-    // For Iso: complement must be empty.
-    if kind == OpticKind::Iso
-        && (!complement.dropped_nodes.is_empty() || !complement.dropped_arcs.is_empty())
-    {
-        return Err(OpticLawViolation {
-            kind,
-            law: "Iso complement must be empty",
-            detail: format!(
-                "complement has {} dropped nodes, {} dropped arcs",
-                complement.dropped_nodes.len(),
-                complement.dropped_arcs.len()
-            ),
-        });
+    // For Iso: no data may be dropped, no transforms may apply, no nodes
+    // may be synthesized. Bookkeeping fields (original_parent, arc_edges,
+    // contraction_choices, source_fingerprint) are allowed because they are
+    // structural metadata captured by `get` for every lens, not data loss.
+    if kind == OpticKind::Iso {
+        let has_data_loss = !complement.dropped_nodes.is_empty()
+            || !complement.dropped_arcs.is_empty()
+            || !complement.dropped_fans.is_empty()
+            || !complement.original_extra_fields.is_empty()
+            || !complement.original_values.is_empty()
+            || !complement.synthesized_nodes.is_empty();
+        if has_data_loss {
+            return Err(OpticLawViolation {
+                kind,
+                law: "Iso complement must have no data loss",
+                detail: format!(
+                    "complement has {} dropped nodes, {} dropped arcs, {} dropped fans, \
+                     {} original extra fields, {} original values, {} synthesized nodes",
+                    complement.dropped_nodes.len(),
+                    complement.dropped_arcs.len(),
+                    complement.dropped_fans.len(),
+                    complement.original_extra_fields.len(),
+                    complement.original_values.len(),
+                    complement.synthesized_nodes.len(),
+                ),
+            });
+        }
     }
 
     Ok(())

@@ -479,6 +479,14 @@ impl SchemaConstraint {
 /// Currently infallible, but returns `Result` for future compatibility
 /// with static compatibility checks.
 pub fn vertical_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens, LensError> {
+    // Note: in this codebase, vertical composition computes the direct
+    // migration between eta.source(S) and theta.target(S) at
+    // instantiation time, rather than composing individual migrations
+    // through an intermediate schema. This means eta.target and
+    // theta.source do NOT need to match structurally (unlike standard
+    // natural transformation composition). Compatibility is verified
+    // implicitly when instantiate() calls compute_migration_between().
+
     let complement = ComplementConstructor::Composite(vec![
         eta.complement_constructor.clone(),
         theta.complement_constructor.clone(),

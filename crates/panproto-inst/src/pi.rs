@@ -109,14 +109,32 @@ pub fn functor_pi(
         new_tables.insert(tgt_vertex.to_string(), product_rows);
     }
 
-    // Step 5: Foreign keys for surviving edges
+    // Step 5: Foreign keys for surviving edges.
+    // When a fiber has multiple source tables (Cartesian product), the
+    // original FK row indices are invalid for the product table and must
+    // be skipped. Only single-element fibers preserve FK indices.
+    let multi_fiber_vertices: std::collections::HashSet<&Name> = fiber_map
+        .iter()
+        .filter(|(_, srcs)| srcs.len() > 1)
+        .map(|(tgt, _)| tgt)
+        .collect();
+
     let mut new_fks: HashMap<Edge, Vec<(usize, usize)>> = HashMap::new();
     for (edge, pairs) in &instance.foreign_keys {
         if let Some(new_edge) = migration.edge_remap.get(edge) {
+            // Skip FKs whose source or target vertex involved a multi-fiber product,
+            // since the row indices are no longer meaningful.
+            if multi_fiber_vertices.iter().any(|v| **v == *new_edge.src)
+                || multi_fiber_vertices.iter().any(|v| **v == *new_edge.tgt)
+            {
+                continue;
+            }
             if new_tables.contains_key(&*new_edge.src) && new_tables.contains_key(&*new_edge.tgt) {
                 new_fks.insert(new_edge.clone(), pairs.clone());
             }
         } else if migration.surviving_edges.contains(edge)
+            && !multi_fiber_vertices.iter().any(|v| **v == *edge.src)
+            && !multi_fiber_vertices.iter().any(|v| **v == *edge.tgt)
             && new_tables.contains_key(&*edge.src)
             && new_tables.contains_key(&*edge.tgt)
         {
