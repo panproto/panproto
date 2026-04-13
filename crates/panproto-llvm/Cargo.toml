@@ -15,7 +15,7 @@ inkwell-backend = ["dep:inkwell"]
 panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-protocols = { workspace = true }
-inkwell = { version = "0.8", features = ["llvm20-1"], optional = true }
+inkwell = { version = "0.9", features = ["llvm20-1"], optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
