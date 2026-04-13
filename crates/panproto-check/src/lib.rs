@@ -18,6 +18,7 @@ pub mod classify;
 pub mod diff;
 pub mod error;
 pub mod report;
+pub mod scope;
 
 pub use classify::{
     BreakingChange, CompatReport, NonBreakingChange, classify, classify_with_schemas,
@@ -25,3 +26,7 @@ pub use classify::{
 pub use diff::{ConstraintChange, ConstraintDiff, KindChange, SchemaDiff, diff};
 pub use error::CheckError;
 pub use report::{report_json, report_text};
+pub use scope::{
+    ElementStatus, NamedElement, ScopeChange, ScopeChangeKind, ScopeReport, report_by_scope,
+    report_scope_json, report_scope_text,
+};
