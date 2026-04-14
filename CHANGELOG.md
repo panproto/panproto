@@ -4,6 +4,32 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-04-14
+
+### Fixed
+
+- **sdk/typescript**: `@panproto/core` now actually ships the wasm-bindgen glue and `.wasm` binary in the published tarball. Previous releases (0.1.0 through 0.30.0) had a `dist/` that contained only the bundled TS entry and type declarations; `Panproto.init()` failed with `ERR_MODULE_NOT_FOUND` on every consumer. The SDK's `build` script now runs `wasm-pack build ../../crates/panproto-wasm --target web --release`, bundles the TS, then copies `panproto_wasm.js`, `panproto_wasm.d.ts`, `panproto_wasm_bg.wasm`, and `panproto_wasm_bg.wasm.d.ts` into `dist/` next to the entry. A `prepack` script runs the full build so `npm publish` can't regress. Resolves panproto/panproto#33.
+- **sdk/typescript**: `loadWasm` now works under Node.js. The `wasm-pack --target web` glue loads the binary via `fetch(file://…)`, which Node rejects; the loader now detects Node at runtime and preloads the `.wasm` bytes via `fs.readFile` + `fileURLToPath`, passing them to the init function. The browser/bundler fetch path is unchanged.
+- **ci**: `Semver Check` no longer fails on unrelated PRs. `panproto-jit` and `panproto-llvm` pull in `llvm-sys` through `inkwell` behind optional features; `cargo-semver-checks` runs rustdoc for every workspace member and the runner does not propagate `LLVM_SYS_*_PREFIX` to that nested invocation, which was breaking dependabot PRs. Both crates are thin FFI wrappers without a public API SDK consumers pin against, so they are excluded from semver checking.
+- **panproto-io**: Removed a stale `inject_tabular_cst` import from `unified_codec.rs` that triggered an unused-import warning under certain feature combinations.
+
+### Changed
+
+- **workspace**: Align the workspace with current gold-standard Rust architecture patterns.
+  - Split `crates/panproto-wasm/src/api.rs` (4,878 lines) into a facade `mod.rs` plus ten domain submodules (`schema`, `instance`, `lens`, `registry`, `gat`, `vcs`, `data`, `enriched`, `helpers`, `graph`). Internal helpers are `pub(super)`-scoped so sibling modules import them explicitly.
+  - Decompose long algorithmic functions into meaningful sub-routines: `colimit` into `build_rename_maps`/`merge_sorts`/`merge_ops`/`verify_cocone`; `TheoryTransform::apply` into per-variant helpers; the schema-level transform in `panproto-lens` into matching helpers plus `rebuild_adjacency`; `invert` into `validate_bijectivity`; `wtype_restrict` into `precompute_conditional_fail` and `connect_ancestor_to_child`; `parse_xml_bytes` into `ingest_xml_element` (also deduplicating Start/Empty element handling).
+  - Audit every `#[allow(clippy::unwrap_used)]` site: 74 are correctly `#[cfg(test)]`-gated; the one production site in `panproto-wasm` refactors to an infallible `<[_; 1]>::try_from(vec)` match. Production `unwrap_used` allows: 75 to 0.
+  - Remove 36 stale `#[allow(clippy::too_many_lines)]` attributes. The remaining suppressions document why the length is intrinsic (protocol format tables, chumsky recursive combinators, CLI command orchestration, three-way merge case analysis).
+- **ci**: Run doc tests separately via `cargo test --doc --workspace` since `nextest` does not execute them.
+- **ci**: New `feature-check` job using `cargo-hack` exercises the feature powerset over `panproto-core`, `panproto-io`, and `panproto-wasm`, catching feature-gated regressions that the default-features CI missed.
+- **ci**: The `ts` job now installs `wasm-pack`, runs `pnpm run build`, and smoke-tests `Panproto.init()` in pure Node on every PR. Regression guard for the packaging defect above.
+
+### Added
+
+- **workspace**: `rustfmt.toml` pinning `edition = "2024"`, `max_width = 100`, and `use_field_init_shorthand = true`.
+- **workspace**: `insta` as a workspace dev-dependency, with a proof-of-concept snapshot test in `panproto-check` pinning the JSON shape of `SchemaDiff`.
+- Workspace dependency bumps: `rustc-hash` 2.1.2, `clap` 4.6.0, `proptest` 1.11.0.
+
 ## [0.30.0] - 2026-04-13
 
 ### Added
