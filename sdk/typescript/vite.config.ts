@@ -14,7 +14,10 @@ export default defineConfig({
       fileName: (format) => format === 'es' ? 'index.js' : 'index.cjs',
     },
     rollupOptions: {
-      external: ['@msgpack/msgpack'],
+      // `node:*` imports are guarded by runtime environment detection in
+      // wasm.ts (IS_NODE). Keep them as-is so Node resolves built-ins;
+      // browsers never execute the gated code path.
+      external: ['@msgpack/msgpack', /^node:/],
     },
     target: 'es2022',
     sourcemap: true,

@@ -92,10 +92,14 @@ jobs:
 
   ts:
     name: TypeScript SDK
-    needs: wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install wasm-pack
       - uses: pnpm/action-setup@v6
         with:
           version: 9
@@ -103,8 +107,12 @@ jobs:
         with:
           node-version: 22
       - run: cd sdk/typescript && pnpm install --no-frozen-lockfile
+      - run: cd sdk/typescript && pnpm run build
       - run: cd sdk/typescript && pnpm test
       - run: cd sdk/typescript && pnpm exec tsc --noEmit
+      # Smoke-test that Panproto.init() works in pure Node.js (regression
+      # guard for GitHub issue #33: WASM not included / fetch file:// fails).
+      - run: cd sdk/typescript && node --input-type=module -e "import('./dist/index.js').then(async ({ Panproto }) => { const p = await Panproto.init(); console.log('Panproto.init() OK in Node ' + process.version); })"
 
   python:
     name: Python SDK (Native)
@@ -137,4 +145,11 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
+      # panproto-jit and panproto-llvm pull in llvm-sys through inkwell
+      # behind optional features; cargo-semver-checks runs rustdoc for every
+      # member and the runner doesn't set LLVM_SYS_*_PREFIX for that nested
+      # invocation. They're thin FFI wrappers, not public-API-promise crates
+      # for SDK consumers, so we exclude them from semver checking.
       - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          exclude: panproto-jit,panproto-llvm

@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 /**
  * WASM loading and handle management.
  *
@@ -13,6 +15,30 @@ import { WasmError } from './types.js';
 
 /** Default wasm-bindgen glue module URL (relative to package root). */
 const DEFAULT_GLUE_URL = new URL('./panproto_wasm.js', import.meta.url);
+
+/** True when running under Node.js (not a browser or bundler-built app). */
+const IS_NODE: boolean =
+  typeof process !== 'undefined'
+  && process.versions !== undefined
+  && typeof process.versions.node === 'string';
+
+/**
+ * In Node.js, pre-load the `.wasm` binary so we can pass bytes to the
+ * wasm-bindgen init function. The `--target web` glue otherwise tries to
+ * `fetch()` a `file://` URL, which Node rejects.
+ *
+ * Returns `undefined` when the glue's default `fetch` path is expected
+ * to work (browser, bundler, or when we can't resolve a sibling file).
+ */
+async function resolveWasmSource(glueUrl: URL | undefined): Promise<BufferSource | undefined> {
+  if (!IS_NODE || glueUrl === undefined || glueUrl.protocol !== 'file:') {
+    return undefined;
+  }
+  const { readFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const wasmUrl = new URL('./panproto_wasm_bg.wasm', glueUrl);
+  return readFile(fileURLToPath(wasmUrl));
+}
 
 /**
  * Shape of a pre-imported wasm-bindgen glue module.
@@ -131,6 +157,7 @@ export interface WasmGlueModule {
 export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<WasmModule> {
   try {
     let glue: WasmGlueModule;
+    let glueUrl: URL | undefined;
 
     if (input && typeof input === 'object' && 'default' in input && typeof input.default === 'function') {
       // Pre-imported glue module — used in bundler environments (Vite, webpack)
@@ -138,10 +165,19 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
     } else {
       // Dynamic import from URL
       const url = (input as string | URL | undefined) ?? DEFAULT_GLUE_URL;
+      glueUrl = url instanceof URL ? url : new URL(String(url));
       glue = await import(/* @vite-ignore */ String(url));
     }
 
-    const initOutput = await glue.default();
+    // The wasm-pack `--target web` glue resolves the .wasm binary via
+    // `fetch(new URL('panproto_wasm_bg.wasm', import.meta.url))`. Under
+    // Node.js, fetch() rejects `file://` URLs, so we pre-load the binary
+    // from disk and pass it to init() as bytes. In browsers (and bundlers
+    // that provide a pre-imported glue), the default fetch path works.
+    const wasmSource = await resolveWasmSource(glueUrl);
+    const initOutput = wasmSource === undefined
+      ? await glue.default()
+      : await glue.default(wasmSource);
 
     const exports: WasmExports = {
       define_protocol: glue.define_protocol,
