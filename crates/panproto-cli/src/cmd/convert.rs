@@ -5,7 +5,7 @@ use panproto_core::{inst, lens, schema::Schema};
 
 use super::helpers::{infer_root_vertex, load_json, parse_defaults, resolve_protocol};
 
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_convert(
     data_path: &Path,
     from_path: Option<&Path>,

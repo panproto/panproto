@@ -4,6 +4,11 @@
 //! large-scale linguistic judgment experiments with active learning. Uses
 //! Group A theory: constrained multigraph + W-type.
 
+// Annotation protocols describe format-rich schemas via long, sequential
+// schema-construction calls and JSON-key handler chains; decomposition
+// would fragment format-local context without simplifying logic.
+#![allow(clippy::too_many_lines)]
+
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
@@ -82,7 +87,6 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if the input cannot be parsed.
-#[allow(clippy::too_many_lines)]
 pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
@@ -453,7 +457,6 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
 /// # Errors
 ///
 /// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
-#[allow(clippy::too_many_lines)]
 pub fn emit_bead(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
     let mut lexicons = serde_json::Map::new();
     let mut templates = serde_json::Map::new();
@@ -903,7 +906,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
     fn parse_and_emit() {
         let json = serde_json::json!({
             "lexicons": {

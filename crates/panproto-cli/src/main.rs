@@ -6,6 +6,12 @@
 //! breaking change detection, record lifting, and git-like version
 //! control for schema evolution.
 
+// CLI command handlers chain sequential parse-validate-build-write steps
+// that run long by nature; the top-level `dispatch` fan-outs over every
+// subcommand. Decomposing either into per-step helpers would fragment
+// closely related side-effectful code without simplifying it.
+#![allow(clippy::too_many_lines)]
+
 mod cmd;
 mod format;
 
@@ -1087,7 +1093,6 @@ fn main() -> Result<()> {
 }
 
 /// Dispatch a parsed CLI command to the appropriate handler.
-#[allow(clippy::too_many_lines)]
 fn dispatch(command: Command, verbose: bool) -> Result<()> {
     match command {
         // Schema tools.
@@ -1234,7 +1239,6 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
 }
 
 /// Dispatch schema tool commands (validate, check, lift, auto-migrate, scaffold, etc.).
-#[allow(clippy::too_many_lines)]
 fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
     match command {
         Command::Validate { protocol, schema } => {

@@ -21,6 +21,7 @@ memchr = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 smallvec = { workspace = true }
+insta = { workspace = true }
 
 [lints]
 workspace = true

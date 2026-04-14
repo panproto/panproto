@@ -223,6 +223,15 @@ fn resolve_builtin(name: &str) -> Option<BuiltinOp> {
 // ── Expression parser ───────────────────────────────────────────────
 
 /// Top-level expression parser.
+///
+/// This is a single `chumsky::recursive` combinator defining the entire
+/// expression grammar: literals, variables, list literals/comprehensions,
+/// function application, the pratt operator table, lambdas, let, if/case,
+/// do-notation, and where-clauses. Extracting individual sub-parsers
+/// would require forwarding the recursive `expr` parser by reference
+/// with a verbose `impl Parser<…> + Clone` bound at each call site, which
+/// would hurt rather than help readability. The grammar is kept inline
+/// and the length lint is silenced locally.
 #[allow(clippy::too_many_lines)]
 fn expr_parser<'t, 'src: 't, I>()
 -> impl Parser<'t, I, Expr, extra::Err<Rich<'t, Token, SimpleSpan>>> + Clone

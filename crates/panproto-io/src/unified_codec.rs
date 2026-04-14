@@ -23,7 +23,7 @@ use panproto_schema::Schema;
 
 use crate::cst_extract::{
     CstComplement, FormatKind, extract_json_cst, extract_tabular_cst, extract_xml_cst,
-    extract_yaml_cst, inject_json_cst, inject_tabular_cst, inject_xml_cst, inject_yaml_cst,
+    extract_yaml_cst, inject_json_cst, inject_xml_cst, inject_yaml_cst,
 };
 use crate::error::{EmitInstanceError, ParseInstanceError};
 use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};

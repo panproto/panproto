@@ -187,6 +187,10 @@ pub enum NonBreakingChange {
 ///
 /// The classification depends on the protocol's constraint sorts and
 /// edge rules to determine the severity of each change.
+// Classification walks every `SchemaDiff` field (vertices, edges,
+// constraints, hyper-edges, variants, recursion points, NSIDs, orderings,
+// usage modes); each branch is a short local categorisation and does not
+// factor out into a useful helper on its own.
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {

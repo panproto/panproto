@@ -103,7 +103,6 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if parsing fails.
-#[allow(clippy::too_many_lines)]
 pub fn parse_folia(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
@@ -223,7 +222,6 @@ pub fn parse_folia(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if emission fails.
-#[allow(clippy::too_many_lines)]
 pub fn emit_folia(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
     let structural = &[
         "contains",

@@ -1,3 +1,12 @@
+// Three-way merge is an orchestration over every `SchemaDiff` field
+// (vertices, edges, constraints, hyper-edges, required edges, NSIDs,
+// variants, orderings, recursion points, usage modes, spans) crossed with
+// each conflict category (BothAdded, BothModified, DeleteModify, etc.).
+// The resulting case-analysis functions are naturally long because every
+// branch is load-bearing; splitting them into per-field helpers would
+// fragment closely related code without simplifying any individual branch.
+#![allow(clippy::too_many_lines)]
+
 //! Three-way schema merge with optional pushout verification.
 //!
 //! Given a base schema and two divergent schemas ("ours" and "theirs"),
@@ -863,7 +872,6 @@ fn compute_pullback_overlap(
 /// The merge is **commutative**: swapping ours and theirs produces an
 /// identical `merged_schema` (with `Side` labels swapped in conflicts).
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeResult {
     let diff_ours = diff::diff(base, ours);
     let diff_theirs = diff::diff(base, theirs);
@@ -1428,7 +1436,6 @@ struct MergeSchemas<'a> {
     theirs: &'a Schema,
 }
 
-#[allow(clippy::too_many_lines)]
 fn merge_vertices(
     schemas: &MergeSchemas<'_>,
     diff_ours: &SchemaDiff,
@@ -1711,7 +1718,6 @@ fn merge_constraints(
 }
 
 /// Merge constraints per-sort when both sides changed constraints on the same vertex.
-#[allow(clippy::too_many_lines)]
 fn merge_constraint_sorts(
     vid: &str,
     base_cs: &[Constraint],
@@ -1923,7 +1929,6 @@ fn merge_required(
     result
 }
 
-#[allow(clippy::too_many_lines)]
 fn merge_variants(
     base: &Schema,
     ours: &Schema,
@@ -2409,7 +2414,6 @@ fn merge_nominal(
     result
 }
 
-#[allow(clippy::too_many_lines)]
 fn merge_nsids(
     base: &Schema,
     ours: &Schema,

@@ -80,7 +80,6 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if parsing or schema construction fails.
-#[allow(clippy::too_many_lines)]
 pub fn parse_openapi(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);

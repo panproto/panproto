@@ -7,6 +7,11 @@
 //!
 //! Uses Group A theory: `register_constrained_multigraph_wtype`.
 
+// Annotation protocols describe format-rich schemas via long, sequential
+// schema-construction calls and JSON-key handler chains; decomposition
+// would fragment format-local context without simplifying logic.
+#![allow(clippy::too_many_lines)]
+
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
@@ -214,7 +219,6 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if the JSON structure cannot be parsed.
-#[allow(clippy::too_many_lines)]
 pub fn parse_decomp(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
@@ -317,7 +321,6 @@ fn parse_syntax_tokens(
 }
 
 /// Parse the `semantics` sub-object of a sentence (predicates, arguments, edges).
-#[allow(clippy::too_many_lines)]
 fn parse_semantics(
     mut builder: SchemaBuilder,
     sent_val: &serde_json::Value,
@@ -549,7 +552,6 @@ fn parse_subspace(
 /// # Errors
 ///
 /// Returns [`ProtocolError::Emit`] if the schema cannot be serialised.
-#[allow(clippy::too_many_lines)]
 pub fn emit_decomp(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
     let corpus = schema
         .vertices
@@ -1005,7 +1007,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
     fn parse_and_emit() {
         let json = minimal_json();
         let schema = parse_decomp(&json).expect("should parse");

@@ -7,6 +7,9 @@
 //! 4. Set-valued functor: two tables with FK -> restrict drops one table -> verify precomposition
 
 #![allow(clippy::implicit_hasher)]
+// Integration tests set up realistic, full-fidelity schemas and instances;
+// the setup blocks naturally exceed clippy's 100-line default.
+#![allow(clippy::too_many_lines)]
 
 use std::collections::{HashMap, HashSet};
 
@@ -174,7 +177,6 @@ fn test_3_node_validate_and_round_trip() {
 // Test 2: Recursive schema (threadViewPost):
 //         11-node instance -> restrict drops array+union -> 3 nodes survive
 // ---------------------------------------------------------------------------
-#[allow(clippy::too_many_lines)]
 fn thread_view_post_schema() -> (Schema, Schema) {
     // Source schema: threadViewPost with nested structure
     // Vertices: post, body, text, createdAt, replies(array), reply_item(union),
@@ -334,7 +336,6 @@ fn thread_view_post_schema() -> (Schema, Schema) {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
 #[allow(deprecated)]
 fn test_recursive_schema_restrict_drops_to_3_nodes() {
     let (src_schema, tgt_schema) = thread_view_post_schema();
@@ -522,7 +523,6 @@ fn test_recursive_schema_restrict_drops_to_3_nodes() {
 // Test 3: Fan instance: 4-ary hyperedge, drop 1 child -> valid 3-ary fan
 // ---------------------------------------------------------------------------
 #[test]
-#[allow(clippy::too_many_lines)]
 fn test_fan_reconstruction_4_to_3() {
     // Schema with a 4-ary hyperedge (like a SQL FK)
     let mut vertices = HashMap::new();

@@ -14,6 +14,11 @@
 //! `domain`, `age`, `range`, `scale`, `unit`, `value`, `ord`, `subevent`,
 //! `path`, `extent`, `li`, `polite`, `relation`.
 
+// Annotation protocols describe format-rich schemas via long, sequential
+// schema-construction calls and JSON-key handler chains; decomposition
+// would fragment format-local context without simplifying logic.
+#![allow(clippy::too_many_lines)]
+
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
@@ -229,7 +234,6 @@ pub fn emit_amr_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolErr
     Ok(serde_json::json!({ "types": types }))
 }
 
-#[allow(clippy::too_many_lines)]
 fn edge_rules() -> Vec<EdgeRule> {
     // Vertex kinds that can serve as concept/frame nodes (AMR concept nodes).
     let concept_kinds: Vec<String> = vec!["concept".into(), "frame".into()];

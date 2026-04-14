@@ -29,74 +29,12 @@ use crate::migration::Migration;
 /// - `EdgeNotBijective` if the edge map is not injective
 /// - `DroppedVertices` if target vertices are not in the image
 /// - `DroppedEdges` if target edges are not in the image
-#[allow(clippy::too_many_lines)]
 pub fn invert(
     migration: &Migration,
     _src: &Schema,
     tgt: &Schema,
 ) -> Result<Migration, InvertError> {
-    // Check vertex map bijectivity.
-    let mut seen_targets: FxHashSet<Name> = FxHashSet::default();
-    for tgt_v in migration.vertex_map.values() {
-        if !seen_targets.insert(tgt_v.clone()) {
-            return Err(InvertError::NotBijective {
-                detail: format!("target vertex {tgt_v} has multiple preimages"),
-            });
-        }
-    }
-
-    // Check surjectivity: every target vertex must be in the image.
-    let dropped: Vec<String> = tgt
-        .vertices
-        .keys()
-        .filter(|v| !seen_targets.contains(*v))
-        .map(std::string::ToString::to_string)
-        .collect();
-    if !dropped.is_empty() {
-        return Err(InvertError::DroppedVertices { dropped });
-    }
-
-    // Check edge map bijectivity.
-    let mut seen_edge_targets: FxHashSet<Edge> = FxHashSet::default();
-    for tgt_e in migration.edge_map.values() {
-        if !seen_edge_targets.insert(tgt_e.clone()) {
-            return Err(InvertError::EdgeNotBijective {
-                detail: format!(
-                    "target edge {} -> {} ({}) has multiple preimages",
-                    tgt_e.src, tgt_e.tgt, tgt_e.kind
-                ),
-            });
-        }
-    }
-
-    // Check edge surjectivity.
-    let has_unmapped_edges = tgt.edges.keys().any(|e| !seen_edge_targets.contains(e));
-    if has_unmapped_edges {
-        return Err(InvertError::DroppedEdges);
-    }
-
-    // Check hyper-edge map bijectivity (injectivity).
-    let mut seen_hyper_targets: FxHashSet<Name> = FxHashSet::default();
-    for tgt_he in migration.hyper_edge_map.values() {
-        if !seen_hyper_targets.insert(tgt_he.clone()) {
-            return Err(InvertError::HyperEdgeNotBijective {
-                detail: format!("target hyper-edge {tgt_he} has multiple preimages"),
-            });
-        }
-    }
-
-    // Check hyper-edge surjectivity: every target hyper-edge must be in the image.
-    let dropped_hyper: Vec<String> = tgt
-        .hyper_edges
-        .keys()
-        .filter(|he| !seen_hyper_targets.contains(*he))
-        .map(std::string::ToString::to_string)
-        .collect();
-    if !dropped_hyper.is_empty() {
-        return Err(InvertError::DroppedHyperEdges {
-            dropped: dropped_hyper,
-        });
-    }
+    validate_bijectivity(migration, tgt)?;
 
     // Build the inverse migration by swapping keys and values.
     let inv_vertex_map: HashMap<Name, Name> = migration
@@ -190,6 +128,68 @@ pub fn invert(
         hyper_resolver: inv_hyper_resolver,
         expr_resolvers: HashMap::new(),
     })
+}
+
+/// Verify that `migration`'s vertex, edge, and hyper-edge maps are all
+/// bijective (injective) and cover every element of `tgt` (surjective).
+///
+/// Bijectivity is a precondition of [`invert`]: without it, the inverse
+/// maps would be ill-defined (multi-valued on repeated targets) or
+/// partial (missing unmapped targets).
+fn validate_bijectivity(migration: &Migration, tgt: &Schema) -> Result<(), InvertError> {
+    let mut seen_targets: FxHashSet<Name> = FxHashSet::default();
+    for tgt_v in migration.vertex_map.values() {
+        if !seen_targets.insert(tgt_v.clone()) {
+            return Err(InvertError::NotBijective {
+                detail: format!("target vertex {tgt_v} has multiple preimages"),
+            });
+        }
+    }
+    let dropped: Vec<String> = tgt
+        .vertices
+        .keys()
+        .filter(|v| !seen_targets.contains(*v))
+        .map(std::string::ToString::to_string)
+        .collect();
+    if !dropped.is_empty() {
+        return Err(InvertError::DroppedVertices { dropped });
+    }
+
+    let mut seen_edge_targets: FxHashSet<Edge> = FxHashSet::default();
+    for tgt_e in migration.edge_map.values() {
+        if !seen_edge_targets.insert(tgt_e.clone()) {
+            return Err(InvertError::EdgeNotBijective {
+                detail: format!(
+                    "target edge {} -> {} ({}) has multiple preimages",
+                    tgt_e.src, tgt_e.tgt, tgt_e.kind
+                ),
+            });
+        }
+    }
+    if tgt.edges.keys().any(|e| !seen_edge_targets.contains(e)) {
+        return Err(InvertError::DroppedEdges);
+    }
+
+    let mut seen_hyper_targets: FxHashSet<Name> = FxHashSet::default();
+    for tgt_he in migration.hyper_edge_map.values() {
+        if !seen_hyper_targets.insert(tgt_he.clone()) {
+            return Err(InvertError::HyperEdgeNotBijective {
+                detail: format!("target hyper-edge {tgt_he} has multiple preimages"),
+            });
+        }
+    }
+    let dropped_hyper: Vec<String> = tgt
+        .hyper_edges
+        .keys()
+        .filter(|he| !seen_hyper_targets.contains(*he))
+        .map(std::string::ToString::to_string)
+        .collect();
+    if !dropped_hyper.is_empty() {
+        return Err(InvertError::DroppedHyperEdges {
+            dropped: dropped_hyper,
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]

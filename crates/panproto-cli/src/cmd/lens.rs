@@ -15,11 +15,7 @@ use super::helpers::{
 };
 
 /// Generate a lens between two schemas.
-#[allow(
-    clippy::too_many_arguments,
-    clippy::fn_params_excessive_bools,
-    clippy::too_many_lines
-)]
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 pub fn cmd_lens_generate(
     old_path: &Path,
     new_path: &Path,
@@ -430,7 +426,6 @@ pub fn cmd_lens_verify(
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
 pub fn cmd_lens_compose(
     first_path: &Path,
     second_path: &Path,

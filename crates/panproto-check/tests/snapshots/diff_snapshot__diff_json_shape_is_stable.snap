@@ -1,0 +1,60 @@
+---
+source: crates/panproto-check/tests/diff_snapshot.rs
+expression: diff
+---
+{
+  "added_vertices": [
+    "post.attachments"
+  ],
+  "removed_vertices": [
+    "post.legacy_field"
+  ],
+  "kind_changes": [
+    {
+      "vertex_id": "post.body",
+      "old_kind": "string",
+      "new_kind": "object"
+    }
+  ],
+  "added_edges": [
+    {
+      "src": "post",
+      "tgt": "post.attachments",
+      "kind": "prop",
+      "name": "attachments"
+    }
+  ],
+  "removed_edges": [],
+  "modified_constraints": {
+    "post.body.text": {
+      "added": [
+        {
+          "sort": "maxLength",
+          "value": "3000"
+        }
+      ],
+      "removed": [],
+      "changed": []
+    }
+  },
+  "added_hyper_edges": [],
+  "removed_hyper_edges": [],
+  "modified_hyper_edges": [],
+  "added_required": {},
+  "removed_required": {},
+  "added_nsids": {},
+  "removed_nsids": [],
+  "changed_nsids": [],
+  "added_variants": [],
+  "removed_variants": [],
+  "modified_variants": [],
+  "order_changes": [],
+  "added_recursion_points": [],
+  "removed_recursion_points": [],
+  "modified_recursion_points": [],
+  "usage_mode_changes": [],
+  "added_spans": [],
+  "removed_spans": [],
+  "modified_spans": [],
+  "nominal_changes": []
+}

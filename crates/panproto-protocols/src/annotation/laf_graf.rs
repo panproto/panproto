@@ -13,6 +13,11 @@
 //! - `annotation-fs`: annotation → feature-structure (associated FS)
 //! - `feature-of`: feature → feature-structure (membership)
 
+// Annotation protocols describe format-rich schemas via long, sequential
+// schema-construction calls and JSON-key handler chains; decomposition
+// would fragment format-local context without simplifying logic.
+#![allow(clippy::too_many_lines)]
+
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
@@ -70,7 +75,6 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if parsing fails.
-#[allow(clippy::too_many_lines)]
 pub fn parse_laf_graf(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
@@ -288,7 +292,6 @@ pub fn parse_laf_graf(json: &serde_json::Value) -> Result<Schema, ProtocolError>
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if emission fails.
-#[allow(clippy::too_many_lines)]
 pub fn emit_laf_graf(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
     // Only "feature-of" creates true nesting: feature-structure vertices are
     // always inlined and should not appear as independent top-level entries.

@@ -1732,133 +1732,65 @@ fn bfs_through_new(
 /// This is the bridge between GAT-level (Theory) and schema-level (Schema).
 /// The `protocol` parameter is threaded through for recursive calls but
 /// is not directly consulted by the current transform implementations.
-#[allow(clippy::too_many_lines, clippy::only_used_in_recursion)]
+#[allow(clippy::only_used_in_recursion)]
 fn apply_theory_transform_to_schema(
     transform: &TheoryTransform,
     schema: &Schema,
     protocol: &Protocol,
 ) -> Result<Schema, LensError> {
     match transform {
-        TheoryTransform::Identity => Ok(schema.clone()),
+        // Identity, directed equations, and equations leave the schema
+        // graph structure unchanged.
+        TheoryTransform::Identity
+        | TheoryTransform::AddDirectedEquation(_)
+        | TheoryTransform::DropDirectedEquation(_)
+        | TheoryTransform::AddEquation(_)
+        | TheoryTransform::DropEquation(_) => Ok(schema.clone()),
         TheoryTransform::CoerceSort {
             sort_name,
             coercion_expr,
             inverse_expr,
             coercion_class,
             ..
-        } => {
-            // Install the coercion expression in the schema's enrichment map.
-            let mut new_schema = schema.clone();
-            let name = Name::from(&**sort_name);
-            new_schema.coercions.insert(
-                (name.clone(), name),
-                panproto_schema::CoercionSpec {
-                    forward: coercion_expr.clone(),
-                    inverse: inverse_expr.clone(),
-                    class: *coercion_class,
-                },
-            );
-            Ok(new_schema)
-        }
+        } => Ok(apply_coerce_sort_to_schema(
+            schema,
+            sort_name,
+            coercion_expr,
+            inverse_expr.as_ref(),
+            *coercion_class,
+        )),
         TheoryTransform::MergeSorts {
             sort_a,
             sort_b,
             merged_name,
             merger_expr,
-        } => {
-            // Merge two sorts into one: remove the source sorts, add the merged sort,
-            // and install the merger expression.
-            let mut new_schema = apply_drop_sort_from_schema(schema, sort_a);
-            new_schema = apply_drop_sort_from_schema(&new_schema, sort_b);
-            let vertex = Vertex {
-                id: Name::from(&**merged_name),
-                kind: Name::from(&**merged_name),
-                nsid: None,
-            };
-            new_schema
-                .vertices
-                .insert(Name::from(&**merged_name), vertex);
-            new_schema
-                .mergers
-                .insert(Name::from(&**merged_name), merger_expr.clone());
-            Ok(new_schema)
-        }
-        TheoryTransform::AddDirectedEquation(_) | TheoryTransform::DropDirectedEquation(_) => {
-            // Directed equations modify the theory's rewrite rules but
-            // do not change the schema's vertex/edge graph structure.
-            Ok(schema.clone())
-        }
+        } => Ok(apply_merge_sorts_to_schema(
+            schema,
+            sort_a,
+            sort_b,
+            merged_name,
+            merger_expr,
+        )),
         TheoryTransform::RenameSort { old, new } => {
             Ok(apply_rename_sort_to_schema(schema, old, new))
         }
         TheoryTransform::RenameOp { old, new } => Ok(apply_rename_op_to_schema(schema, old, new)),
         TheoryTransform::DropSort(name) => Ok(apply_drop_sort_from_schema(schema, name)),
         TheoryTransform::AddSort { sort, vertex_kind } => {
-            let mut new_schema = schema.clone();
-            let kind = vertex_kind
-                .as_ref()
-                .map_or_else(|| sort.default_vertex_kind(), Arc::clone);
-            let vertex = Vertex {
-                id: Name::from(&*sort.name),
-                kind: Name::from(&*kind),
-                nsid: None,
-            };
-            new_schema.vertices.insert(Name::from(&*sort.name), vertex);
-            Ok(new_schema)
+            Ok(apply_add_sort(schema, sort, vertex_kind.as_ref(), None))
         }
         TheoryTransform::AddSortWithDefault {
             sort,
             vertex_kind,
             default_expr,
-        } => {
-            let mut new_schema = schema.clone();
-            let name = Name::from(&*sort.name);
-            let kind = vertex_kind
-                .as_ref()
-                .map_or_else(|| sort.default_vertex_kind(), Arc::clone);
-            let vertex = Vertex {
-                id: name.clone(),
-                kind: Name::from(&*kind),
-                nsid: None,
-            };
-            new_schema.vertices.insert(name.clone(), vertex);
-            // Install the default expression so the migration engine can
-            // compute values for this sort when lifting instances.
-            new_schema.defaults.insert(name, default_expr.clone());
-            Ok(new_schema)
-        }
+        } => Ok(apply_add_sort(
+            schema,
+            sort,
+            vertex_kind.as_ref(),
+            Some(default_expr),
+        )),
         TheoryTransform::DropOp(name) => Ok(apply_drop_op_from_schema(schema, name)),
-        TheoryTransform::AddOp(op) => {
-            // Adding an operation adds an edge to the schema. The operation's
-            // first input sort is the source vertex, and the output sort is
-            // the target vertex. If both endpoints exist, add the edge.
-            let mut new_schema = schema.clone();
-            if let Some((_, src_sort)) = op.inputs.first() {
-                let src = Name::from(&**src_sort);
-                let tgt = Name::from(&*op.output);
-                if new_schema.vertices.contains_key(&src) && new_schema.vertices.contains_key(&tgt)
-                {
-                    let edge = Edge {
-                        src: src.clone(),
-                        tgt: tgt.clone(),
-                        kind: Name::from(&*op.name),
-                        name: Some(Name::from(&*op.name)),
-                    };
-                    new_schema.edges.insert(edge.clone(), Name::from(&*op.name));
-                    new_schema
-                        .outgoing
-                        .entry(src)
-                        .or_default()
-                        .push(edge.clone());
-                    new_schema.incoming.entry(tgt).or_default().push(edge);
-                }
-            }
-            Ok(new_schema)
-        }
-        TheoryTransform::AddEquation(_) | TheoryTransform::DropEquation(_) => {
-            // Equations don't change schema structure, only constraints.
-            Ok(schema.clone())
-        }
+        TheoryTransform::AddOp(op) => Ok(apply_add_op(schema, op)),
         TheoryTransform::Pullback(morphism) => {
             let mut result = schema.clone();
             for (old, new) in &morphism.sort_map {
@@ -1878,46 +1810,9 @@ fn apply_theory_transform_to_schema(
             tgt_sort,
             old_name,
             new_name,
-        } => {
-            // Find and rename the edge label between src_sort and tgt_sort vertices.
-            // Rebuild the schema with the renamed edge and fresh adjacency indices.
-            let mut new_edges = HashMap::new();
-            for (edge, kind) in &schema.edges {
-                let mut e = edge.clone();
-                if *e.src == **src_sort
-                    && *e.tgt == **tgt_sort
-                    && e.name.as_deref() == Some(&**old_name)
-                {
-                    e.name = Some(Name::from(&**new_name));
-                }
-                new_edges.insert(e, kind.clone());
-            }
-            // Rebuild adjacency indices from the new edge set.
-            let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
-            let mut incoming: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
-            let mut between: HashMap<(Name, Name), SmallVec<panproto_schema::Edge, 2>> =
-                HashMap::new();
-            for edge in new_edges.keys() {
-                outgoing
-                    .entry(edge.src.clone())
-                    .or_default()
-                    .push(edge.clone());
-                incoming
-                    .entry(edge.tgt.clone())
-                    .or_default()
-                    .push(edge.clone());
-                between
-                    .entry((edge.src.clone(), edge.tgt.clone()))
-                    .or_default()
-                    .push(edge.clone());
-            }
-            let mut new_schema = schema.clone();
-            new_schema.edges = new_edges;
-            new_schema.outgoing = outgoing;
-            new_schema.incoming = incoming;
-            new_schema.between = between;
-            Ok(new_schema)
-        }
+        } => Ok(apply_rename_edge_name(
+            schema, src_sort, tgt_sort, old_name, new_name,
+        )),
         TheoryTransform::AddEdge {
             src_sort,
             tgt_sort,
@@ -1937,111 +1832,241 @@ fn apply_theory_transform_to_schema(
             edge_name.as_ref(),
         )),
         TheoryTransform::ScopedTransform { focus, inner } => {
-            // Pushout construction: apply the inner transform to the sub-schema
-            // reachable from the focus vertex, then merge back into the full schema.
-            //
-            // Given inclusion ι : Sub(S, focus) ↪ S and transform η on Sub(S, focus),
-            // the result is the pushout S ∪_{Sub(S,focus)} η(Sub(S, focus)).
-
-            // 1. Find all vertices reachable from focus via outgoing edges (BFS).
-            let mut reachable: std::collections::HashSet<Name> = std::collections::HashSet::new();
-            let mut queue: std::collections::VecDeque<Name> = std::collections::VecDeque::new();
-            let focus_name = Name::from(&**focus);
-            if schema.vertices.contains_key(&focus_name) {
-                reachable.insert(focus_name.clone());
-                queue.push_back(focus_name);
-            }
-            while let Some(v) = queue.pop_front() {
-                for edge in schema.outgoing_edges(&v) {
-                    if reachable.insert(edge.tgt.clone()) {
-                        queue.push_back(edge.tgt.clone());
-                    }
-                }
-            }
-
-            // 2. Build the sub-schema from reachable vertices and edges.
-            //    Include only the vertices, edges, constraints, and defaults
-            //    within the reachable set to form a well-formed sub-schema.
-            let sub_vertices: HashMap<Name, Vertex> = schema
-                .vertices
-                .iter()
-                .filter(|(id, _)| reachable.contains(*id))
-                .map(|(id, v)| (id.clone(), v.clone()))
-                .collect();
-            let sub_edges: HashMap<panproto_schema::Edge, Name> = schema
-                .edges
-                .iter()
-                .filter(|(e, _)| reachable.contains(&e.src) && reachable.contains(&e.tgt))
-                .map(|(e, k)| (e.clone(), k.clone()))
-                .collect();
-            let sub_constraints: HashMap<Name, Vec<panproto_schema::Constraint>> = schema
-                .constraints
-                .iter()
-                .filter(|(id, _)| reachable.contains(*id))
-                .map(|(id, c)| (id.clone(), c.clone()))
-                .collect();
-            let sub_defaults: HashMap<Name, panproto_expr::Expr> = schema
-                .defaults
-                .iter()
-                .filter(|(id, _)| reachable.contains(*id))
-                .map(|(id, d)| (id.clone(), d.clone()))
-                .collect();
-            let mut sub_schema = schema.clone();
-            sub_schema.vertices = sub_vertices;
-            sub_schema.edges = sub_edges;
-            sub_schema.constraints = sub_constraints;
-            sub_schema.defaults = sub_defaults;
-
-            // 3. Apply inner transform to the sub-schema.
-            let transformed_sub = apply_theory_transform_to_schema(inner, &sub_schema, protocol)?;
-
-            // 4. Merge via pushout: start from the original schema, replace the
-            //    reachable sub-schema with its transformed version.
-            let mut result = schema.clone();
-            // Remove old reachable vertices, edges, constraints, and defaults.
-            result.vertices.retain(|id, _| !reachable.contains(id));
-            result
-                .edges
-                .retain(|e, _| !(reachable.contains(&e.src) && reachable.contains(&e.tgt)));
-            result.constraints.retain(|id, _| !reachable.contains(id));
-            result.defaults.retain(|id, _| !reachable.contains(id));
-            // Insert transformed sub-schema data.
-            result.vertices.extend(transformed_sub.vertices);
-            result.edges.extend(transformed_sub.edges);
-            result.constraints.extend(transformed_sub.constraints);
-            result.defaults.extend(transformed_sub.defaults);
-            // Cross-boundary edges (from outside → reachable or reachable → outside)
-            // are preserved since we only removed edges fully inside the reachable set.
-
-            // 5. Rebuild adjacency indices.
-            let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
-            let mut incoming: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
-            let mut between: HashMap<(Name, Name), SmallVec<panproto_schema::Edge, 2>> =
-                HashMap::new();
-            for edge in result.edges.keys() {
-                outgoing
-                    .entry(edge.src.clone())
-                    .or_default()
-                    .push(edge.clone());
-                incoming
-                    .entry(edge.tgt.clone())
-                    .or_default()
-                    .push(edge.clone());
-                between
-                    .entry((edge.src.clone(), edge.tgt.clone()))
-                    .or_default()
-                    .push(edge.clone());
-            }
-            result.outgoing = outgoing;
-            result.incoming = incoming;
-            result.between = between;
-            Ok(result)
+            apply_scoped_schema_transform(schema, focus, inner, protocol)
         }
         TheoryTransform::Compose(first, second) => {
             let intermediate = apply_theory_transform_to_schema(first, schema, protocol)?;
             apply_theory_transform_to_schema(second, &intermediate, protocol)
         }
     }
+}
+
+/// Schema-level counterpart of
+/// [`crate::schema_functor::apply_scoped_transform`]:
+/// extract the sub-schema reachable from `focus`, apply `inner` to it,
+/// and pushout-merge the result back into the full schema. Cross-boundary
+/// edges are preserved; adjacency indices are rebuilt.
+#[allow(clippy::only_used_in_recursion)]
+fn apply_scoped_schema_transform(
+    schema: &Schema,
+    focus: &Arc<str>,
+    inner: &TheoryTransform,
+    protocol: &Protocol,
+) -> Result<Schema, LensError> {
+    // 1. Find all vertices reachable from focus via outgoing edges (BFS).
+    let mut reachable: std::collections::HashSet<Name> = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<Name> = std::collections::VecDeque::new();
+    let focus_name = Name::from(&**focus);
+    if schema.vertices.contains_key(&focus_name) {
+        reachable.insert(focus_name.clone());
+        queue.push_back(focus_name);
+    }
+    while let Some(v) = queue.pop_front() {
+        for edge in schema.outgoing_edges(&v) {
+            if reachable.insert(edge.tgt.clone()) {
+                queue.push_back(edge.tgt.clone());
+            }
+        }
+    }
+
+    // 2. Build the sub-schema from reachable vertices and edges.
+    let sub_vertices: HashMap<Name, Vertex> = schema
+        .vertices
+        .iter()
+        .filter(|(id, _)| reachable.contains(*id))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    let sub_edges: HashMap<panproto_schema::Edge, Name> = schema
+        .edges
+        .iter()
+        .filter(|(e, _)| reachable.contains(&e.src) && reachable.contains(&e.tgt))
+        .map(|(e, k)| (e.clone(), k.clone()))
+        .collect();
+    let sub_constraints: HashMap<Name, Vec<panproto_schema::Constraint>> = schema
+        .constraints
+        .iter()
+        .filter(|(id, _)| reachable.contains(*id))
+        .map(|(id, c)| (id.clone(), c.clone()))
+        .collect();
+    let sub_defaults: HashMap<Name, panproto_expr::Expr> = schema
+        .defaults
+        .iter()
+        .filter(|(id, _)| reachable.contains(*id))
+        .map(|(id, d)| (id.clone(), d.clone()))
+        .collect();
+    let mut sub_schema = schema.clone();
+    sub_schema.vertices = sub_vertices;
+    sub_schema.edges = sub_edges;
+    sub_schema.constraints = sub_constraints;
+    sub_schema.defaults = sub_defaults;
+
+    // 3. Apply inner transform to the sub-schema.
+    let transformed_sub = apply_theory_transform_to_schema(inner, &sub_schema, protocol)?;
+
+    // 4. Pushout: replace the reachable sub-schema with its transformed version,
+    //    preserving cross-boundary edges.
+    let mut result = schema.clone();
+    result.vertices.retain(|id, _| !reachable.contains(id));
+    result
+        .edges
+        .retain(|e, _| !(reachable.contains(&e.src) && reachable.contains(&e.tgt)));
+    result.constraints.retain(|id, _| !reachable.contains(id));
+    result.defaults.retain(|id, _| !reachable.contains(id));
+    result.vertices.extend(transformed_sub.vertices);
+    result.edges.extend(transformed_sub.edges);
+    result.constraints.extend(transformed_sub.constraints);
+    result.defaults.extend(transformed_sub.defaults);
+
+    // 5. Rebuild adjacency indices.
+    rebuild_adjacency(&mut result);
+    Ok(result)
+}
+
+/// Install a coercion spec keyed on `(sort, sort)` in the schema's
+/// enrichment map, leaving the vertex/edge graph unchanged.
+fn apply_coerce_sort_to_schema(
+    schema: &Schema,
+    sort_name: &Arc<str>,
+    coercion_expr: &panproto_expr::Expr,
+    inverse_expr: Option<&panproto_expr::Expr>,
+    coercion_class: panproto_gat::CoercionClass,
+) -> Schema {
+    let mut new_schema = schema.clone();
+    let name = Name::from(&**sort_name);
+    new_schema.coercions.insert(
+        (name.clone(), name),
+        panproto_schema::CoercionSpec {
+            forward: coercion_expr.clone(),
+            inverse: inverse_expr.cloned(),
+            class: coercion_class,
+        },
+    );
+    new_schema
+}
+
+/// Add a vertex for a new sort, optionally installing a default expression
+/// so the migration engine can compute initial values for lifted instances.
+fn apply_add_sort(
+    schema: &Schema,
+    sort: &panproto_gat::Sort,
+    vertex_kind: Option<&Arc<str>>,
+    default_expr: Option<&panproto_expr::Expr>,
+) -> Schema {
+    let mut new_schema = schema.clone();
+    let name = Name::from(&*sort.name);
+    let kind = vertex_kind.map_or_else(|| sort.default_vertex_kind(), Arc::clone);
+    let vertex = Vertex {
+        id: name.clone(),
+        kind: Name::from(&*kind),
+        nsid: None,
+    };
+    new_schema.vertices.insert(name.clone(), vertex);
+    if let Some(expr) = default_expr {
+        new_schema.defaults.insert(name, expr.clone());
+    }
+    new_schema
+}
+
+/// Rename a specific edge label (between two given sorts) throughout the
+/// schema, then rebuild adjacency indices against the new edge set.
+fn apply_rename_edge_name(
+    schema: &Schema,
+    src_sort: &Arc<str>,
+    tgt_sort: &Arc<str>,
+    old_name: &Arc<str>,
+    new_name: &Arc<str>,
+) -> Schema {
+    let mut new_edges = HashMap::new();
+    for (edge, kind) in &schema.edges {
+        let mut e = edge.clone();
+        if *e.src == **src_sort && *e.tgt == **tgt_sort && e.name.as_deref() == Some(&**old_name) {
+            e.name = Some(Name::from(&**new_name));
+        }
+        new_edges.insert(e, kind.clone());
+    }
+    let mut new_schema = schema.clone();
+    new_schema.edges = new_edges;
+    rebuild_adjacency(&mut new_schema);
+    new_schema
+}
+
+/// Interpret an Op addition as an edge addition: the op's first input
+/// sort is the edge source, its output sort is the edge target. Missing
+/// endpoints are silently ignored (the schema is unchanged).
+fn apply_add_op(schema: &Schema, op: &panproto_gat::Operation) -> Schema {
+    let mut new_schema = schema.clone();
+    let Some((_, src_sort)) = op.inputs.first() else {
+        return new_schema;
+    };
+    let src = Name::from(&**src_sort);
+    let tgt = Name::from(&*op.output);
+    if !new_schema.vertices.contains_key(&src) || !new_schema.vertices.contains_key(&tgt) {
+        return new_schema;
+    }
+    let edge = Edge {
+        src: src.clone(),
+        tgt: tgt.clone(),
+        kind: Name::from(&*op.name),
+        name: Some(Name::from(&*op.name)),
+    };
+    new_schema.edges.insert(edge.clone(), Name::from(&*op.name));
+    new_schema
+        .outgoing
+        .entry(src)
+        .or_default()
+        .push(edge.clone());
+    new_schema.incoming.entry(tgt).or_default().push(edge);
+    new_schema
+}
+
+/// Merge two sort-vertices into a single vertex with the supplied merger
+/// expression installed.
+fn apply_merge_sorts_to_schema(
+    schema: &Schema,
+    sort_a: &Arc<str>,
+    sort_b: &Arc<str>,
+    merged_name: &Arc<str>,
+    merger_expr: &panproto_expr::Expr,
+) -> Schema {
+    let mut new_schema = apply_drop_sort_from_schema(schema, sort_a);
+    new_schema = apply_drop_sort_from_schema(&new_schema, sort_b);
+    let vertex = Vertex {
+        id: Name::from(&**merged_name),
+        kind: Name::from(&**merged_name),
+        nsid: None,
+    };
+    new_schema
+        .vertices
+        .insert(Name::from(&**merged_name), vertex);
+    new_schema
+        .mergers
+        .insert(Name::from(&**merged_name), merger_expr.clone());
+    new_schema
+}
+
+/// Rebuild `outgoing`, `incoming`, and `between` adjacency indices from
+/// `schema.edges`.
+fn rebuild_adjacency(schema: &mut Schema) {
+    let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<panproto_schema::Edge, 2>> = HashMap::new();
+    for edge in schema.edges.keys() {
+        outgoing
+            .entry(edge.src.clone())
+            .or_default()
+            .push(edge.clone());
+        incoming
+            .entry(edge.tgt.clone())
+            .or_default()
+            .push(edge.clone());
+        between
+            .entry((edge.src.clone(), edge.tgt.clone()))
+            .or_default()
+            .push(edge.clone());
+    }
+    schema.outgoing = outgoing;
+    schema.incoming = incoming;
+    schema.between = between;
 }
 
 /// Rename a sort (vertex kind) within a schema.

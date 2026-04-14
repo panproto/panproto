@@ -2,6 +2,11 @@
 //!
 //! Uses Group A theory: constrained multigraph + W-type.
 
+// Annotation protocols describe format-rich schemas via long, sequential
+// schema-construction calls and JSON-key handler chains; decomposition
+// would fragment format-local context without simplifying logic.
+#![allow(clippy::too_many_lines)]
+
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
@@ -71,7 +76,6 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if parsing fails.
-#[allow(clippy::too_many_lines)]
 pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
@@ -275,7 +279,6 @@ pub fn parse_timeml(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if emission fails.
-#[allow(clippy::too_many_lines)]
 pub fn emit_timeml(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
     // All cross-reference edges point between independent top-level entries,
     // so no edge kind causes a vertex to be excluded from roots.

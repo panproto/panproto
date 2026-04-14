@@ -158,7 +158,6 @@ pub fn parse_tei(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     Ok(schema)
 }
 
-#[allow(clippy::too_many_lines)]
 fn parse_header(
     mut b: SchemaBuilder,
     header: &serde_json::Map<String, serde_json::Value>,
@@ -225,7 +224,6 @@ fn parse_text_body(
     Ok(b)
 }
 
-#[allow(clippy::too_many_lines)]
 fn parse_div(
     mut b: SchemaBuilder,
     div: &serde_json::Map<String, serde_json::Value>,
@@ -422,7 +420,6 @@ fn parse_app(
     Ok(b)
 }
 
-#[allow(clippy::too_many_lines)]
 fn parse_paragraph(
     mut b: SchemaBuilder,
     para: &serde_json::Map<String, serde_json::Value>,
@@ -464,7 +461,6 @@ fn parse_paragraph(
     Ok(b)
 }
 
-#[allow(clippy::too_many_lines)]
 fn parse_sentence(
     mut b: SchemaBuilder,
     sent: &serde_json::Map<String, serde_json::Value>,
@@ -708,7 +704,6 @@ fn emit_text_body(schema: &Schema, text_id: &str) -> Result<serde_json::Value, P
     Ok(serde_json::Value::Object(text_obj))
 }
 
-#[allow(clippy::too_many_lines)]
 fn emit_div(schema: &Schema, div_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut obj = emit_constrained_map(schema, div_id);
 
@@ -828,7 +823,6 @@ fn emit_app(schema: &Schema, app_id: &str) -> Result<serde_json::Value, Protocol
     Ok(serde_json::Value::Object(obj))
 }
 
-#[allow(clippy::too_many_lines)]
 fn emit_paragraph(schema: &Schema, p_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut obj = emit_constrained_map(schema, p_id);
 
@@ -859,7 +853,6 @@ fn emit_paragraph(schema: &Schema, p_id: &str) -> Result<serde_json::Value, Prot
     Ok(serde_json::Value::Object(obj))
 }
 
-#[allow(clippy::too_many_lines)]
 fn emit_sentence(schema: &Schema, s_id: &str) -> Result<serde_json::Value, ProtocolError> {
     let mut obj = emit_constrained_map(schema, s_id);
 
@@ -961,7 +954,6 @@ fn emit_constrained_obj(schema: &Schema, vertex_id: &str) -> serde_json::Value {
     serde_json::Value::Object(emit_constrained_map(schema, vertex_id))
 }
 
-#[allow(clippy::too_many_lines)]
 fn edge_rules() -> Vec<EdgeRule> {
     vec![
         EdgeRule {

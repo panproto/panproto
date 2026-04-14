@@ -96,90 +96,16 @@ impl ColimitResult {
 /// Returns [`GatError::EqConflict`] if T1 and T2 both declare an equation
 /// with the same name but different content and the equation is not identified
 /// via the morphisms.
-#[allow(clippy::too_many_lines)]
 pub fn colimit(
     t1: &Theory,
     t2: &Theory,
     i1: &TheoryMorphism,
     i2: &TheoryMorphism,
 ) -> Result<ColimitResult, GatError> {
-    // Build a renaming map for T2: for each sort/op s in the shared theory,
-    // map i2(s) → i1(s) so T2's names align with T1's naming convention.
-    let mut sort_rename: HashMap<Arc<str>, Arc<str>> = HashMap::new();
-    for (shared_sort, t1_sort) in &i1.sort_map {
-        if let Some(t2_sort) = i2.sort_map.get(shared_sort) {
-            sort_rename.insert(Arc::clone(t2_sort), Arc::clone(t1_sort));
-        }
-    }
+    let (sort_rename, op_rename) = build_rename_maps(i1, i2);
 
-    let mut op_rename: HashMap<Arc<str>, Arc<str>> = HashMap::new();
-    for (shared_op, t1_op) in &i1.op_map {
-        if let Some(t2_op) = i2.op_map.get(shared_op) {
-            op_rename.insert(Arc::clone(t2_op), Arc::clone(t1_op));
-        }
-    }
-
-    // Start with all sorts from T1.
-    let mut sorts = t1.sorts.clone();
-
-    for sort in &t2.sorts {
-        let effective_name = sort_rename
-            .get(&sort.name)
-            .cloned()
-            .unwrap_or_else(|| Arc::clone(&sort.name));
-        if t1.has_sort(&effective_name) {
-            // This sort is identified with a T1 sort via the morphisms; skip.
-            if sort_rename.contains_key(&sort.name) {
-                continue;
-            }
-            // Both define it independently; check compatibility.
-            let t1_sort = t1
-                .find_sort(&effective_name)
-                .ok_or_else(|| GatError::SortConflict {
-                    name: effective_name.to_string(),
-                })?;
-            if t1_sort.params != sort.params || t1_sort.kind != sort.kind {
-                return Err(GatError::SortConflict {
-                    name: effective_name.to_string(),
-                });
-            }
-            // Compatible duplicate; already included.
-        } else {
-            // Rename sort references in dependent sort params to use pushout names.
-            let renamed_sort = rename_sort_refs(sort, &sort_rename);
-            sorts.push(renamed_sort);
-        }
-    }
-
-    // Same for operations.
-    let mut ops = t1.ops.clone();
-
-    for op in &t2.ops {
-        let effective_name = op_rename
-            .get(&op.name)
-            .cloned()
-            .unwrap_or_else(|| Arc::clone(&op.name));
-        if t1.has_op(&effective_name) {
-            if op_rename.contains_key(&op.name) {
-                continue;
-            }
-            let t1_op = t1
-                .find_op(&effective_name)
-                .ok_or_else(|| GatError::OpConflict {
-                    name: effective_name.to_string(),
-                })?;
-            // Compare with renamed sort references for compatibility.
-            let renamed_op = rename_op_sort_refs(op, &sort_rename);
-            if t1_op.inputs != renamed_op.inputs || t1_op.output != renamed_op.output {
-                return Err(GatError::OpConflict {
-                    name: effective_name.to_string(),
-                });
-            }
-        } else {
-            // Rename sort references in operation signature to use pushout names.
-            ops.push(rename_op_sort_refs(op, &sort_rename));
-        }
-    }
+    let sorts = merge_sorts(t1, t2, &sort_rename)?;
+    let ops = merge_ops(t1, t2, &sort_rename, &op_rename)?;
 
     let eqs = merge_equations(t1, t2, &op_rename)?;
     let directed_eqs = merge_directed_equations(t1, t2, &op_rename)?;
@@ -197,7 +123,6 @@ pub fn colimit(
     );
 
     let j1 = build_inclusion(t1, &pushout_name, &HashMap::new(), &HashMap::new());
-
     let j2 = build_inclusion(t2, &pushout_name, &sort_rename, &op_rename);
 
     let result = ColimitResult {
@@ -206,8 +131,115 @@ pub fn colimit(
         inclusion2: j2,
     };
 
-    // Verify the cocone condition: j1 ∘ i1 = j2 ∘ i2 on all shared
-    // sorts and ops (the domain of i1 and i2).
+    verify_cocone(i1, i2, &result)?;
+    Ok(result)
+}
+
+/// A rename map keyed and valued by name (used both for sorts and ops).
+type RenameMap = HashMap<Arc<str>, Arc<str>>;
+
+/// Build T2 → T1 rename maps from the shared-theory morphisms.
+///
+/// For each sort (or op) `s` in the shared theory, we have `i1(s)` in T1
+/// and `i2(s)` in T2; the pushout picks T1's name, so we rename `i2(s)`
+/// to `i1(s)`.
+fn build_rename_maps(i1: &TheoryMorphism, i2: &TheoryMorphism) -> (RenameMap, RenameMap) {
+    let mut sort_rename = HashMap::new();
+    for (shared_sort, t1_sort) in &i1.sort_map {
+        if let Some(t2_sort) = i2.sort_map.get(shared_sort) {
+            sort_rename.insert(Arc::clone(t2_sort), Arc::clone(t1_sort));
+        }
+    }
+    let mut op_rename = HashMap::new();
+    for (shared_op, t1_op) in &i1.op_map {
+        if let Some(t2_op) = i2.op_map.get(shared_op) {
+            op_rename.insert(Arc::clone(t2_op), Arc::clone(t1_op));
+        }
+    }
+    (sort_rename, op_rename)
+}
+
+/// Merge T2's sorts into T1's, resolving identifications via `sort_rename`.
+///
+/// Returns [`GatError::SortConflict`] if two independently-declared sorts
+/// share a name but disagree on parameters or kind.
+fn merge_sorts(
+    t1: &Theory,
+    t2: &Theory,
+    sort_rename: &HashMap<Arc<str>, Arc<str>>,
+) -> Result<Vec<crate::sort::Sort>, GatError> {
+    let mut sorts = t1.sorts.clone();
+    for sort in &t2.sorts {
+        let effective_name = sort_rename
+            .get(&sort.name)
+            .cloned()
+            .unwrap_or_else(|| Arc::clone(&sort.name));
+        if t1.has_sort(&effective_name) {
+            if sort_rename.contains_key(&sort.name) {
+                continue;
+            }
+            let t1_sort = t1
+                .find_sort(&effective_name)
+                .ok_or_else(|| GatError::SortConflict {
+                    name: effective_name.to_string(),
+                })?;
+            if t1_sort.params != sort.params || t1_sort.kind != sort.kind {
+                return Err(GatError::SortConflict {
+                    name: effective_name.to_string(),
+                });
+            }
+        } else {
+            sorts.push(rename_sort_refs(sort, sort_rename));
+        }
+    }
+    Ok(sorts)
+}
+
+/// Merge T2's operations into T1's, renaming sort references via
+/// `sort_rename` and identifying operations via `op_rename`.
+///
+/// Returns [`GatError::OpConflict`] if two independently-declared
+/// operations share a name but disagree on signature.
+fn merge_ops(
+    t1: &Theory,
+    t2: &Theory,
+    sort_rename: &HashMap<Arc<str>, Arc<str>>,
+    op_rename: &HashMap<Arc<str>, Arc<str>>,
+) -> Result<Vec<crate::op::Operation>, GatError> {
+    let mut ops = t1.ops.clone();
+    for op in &t2.ops {
+        let effective_name = op_rename
+            .get(&op.name)
+            .cloned()
+            .unwrap_or_else(|| Arc::clone(&op.name));
+        if t1.has_op(&effective_name) {
+            if op_rename.contains_key(&op.name) {
+                continue;
+            }
+            let t1_op = t1
+                .find_op(&effective_name)
+                .ok_or_else(|| GatError::OpConflict {
+                    name: effective_name.to_string(),
+                })?;
+            let renamed_op = rename_op_sort_refs(op, sort_rename);
+            if t1_op.inputs != renamed_op.inputs || t1_op.output != renamed_op.output {
+                return Err(GatError::OpConflict {
+                    name: effective_name.to_string(),
+                });
+            }
+        } else {
+            ops.push(rename_op_sort_refs(op, sort_rename));
+        }
+    }
+    Ok(ops)
+}
+
+/// Verify the cocone condition `j1 ∘ i1 = j2 ∘ i2` on every shared sort and op.
+fn verify_cocone(
+    i1: &TheoryMorphism,
+    i2: &TheoryMorphism,
+    result: &ColimitResult,
+) -> Result<(), GatError> {
     let lhs = i1.compose(&result.inclusion1)?;
     let rhs = i2.compose(&result.inclusion2)?;
     for shared_sort in i1.sort_map.keys() {
@@ -238,8 +270,7 @@ pub fn colimit(
             });
         }
     }
-
-    Ok(result)
+    Ok(())
 }
 
 /// Merge equations from t2 into t1's equations, checking alpha-equivalence for conflicts.

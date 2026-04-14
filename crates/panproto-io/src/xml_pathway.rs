@@ -51,7 +51,6 @@ impl XmlParseState {
 ///
 /// Returns [`ParseInstanceError::Parse`] if the XML is malformed or
 /// doesn't match the schema structure.
-#[allow(clippy::too_many_lines)]
 pub fn parse_xml_bytes(
     schema: &Schema,
     input: &[u8],
@@ -69,94 +68,27 @@ pub fn parse_xml_bytes(
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
-                let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                let node_id = state.alloc_id();
-
-                // Determine the vertex kind: match tag against schema vertices.
-                let vertex_id = element_stack.last().map_or_else(
-                    || find_root_by_tag(schema, &tag).unwrap_or_else(|| tag.clone()),
-                    |parent| {
-                        find_child_vertex(schema, &parent.1, &tag)
-                            .unwrap_or_else(|| format!("{}:{}", parent.1, tag))
-                    },
+                let (node_id, vertex_id) = ingest_xml_element(
+                    e,
+                    schema,
+                    &mut state,
+                    &element_stack,
+                    &mut root_id,
+                    &mut root_vertex,
                 );
-
-                let _kind = schema
-                    .vertices
-                    .get(vertex_id.as_str())
-                    .map_or_else(|| tag.clone(), |v| v.kind.to_string());
-
-                let mut extra_fields = HashMap::new();
-
-                // Parse XML attributes as extra fields.
-                for attr in e.attributes().flatten() {
-                    let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                    let val = String::from_utf8_lossy(&attr.value).to_string();
-                    extra_fields.insert(key, Value::Str(val));
-                }
-
-                let node = Node {
-                    id: node_id,
-                    anchor: panproto_gat::Name::from(vertex_id.as_str()),
-                    value: None,
-                    discriminator: None,
-                    extra_fields,
-                    position: None,
-                    annotations: HashMap::new(),
-                };
-                state.nodes.insert(node_id, node);
-
-                // Create arc from parent to this node.
-                if let Some(parent) = element_stack.last() {
-                    let edge = find_schema_edge(schema, &parent.1, &vertex_id, &tag);
-                    state.arcs.push((parent.0, node_id, edge));
-                } else {
-                    root_id = Some(node_id);
-                    root_vertex.clone_from(&vertex_id);
-                }
-
                 element_stack.push((node_id, vertex_id));
             }
             Ok(Event::Empty(ref e)) => {
-                // Self-closing element: <foo attr="val"/>
-                // Same as Start + End with no children.
-                let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                let node_id = state.alloc_id();
-
-                let vertex_id = element_stack.last().map_or_else(
-                    || find_root_by_tag(schema, &tag).unwrap_or_else(|| tag.clone()),
-                    |parent| {
-                        find_child_vertex(schema, &parent.1, &tag)
-                            .unwrap_or_else(|| format!("{}:{}", parent.1, tag))
-                    },
+                // Self-closing element: emit the node (same as Start) but
+                // don't push onto the element stack since it has no children.
+                ingest_xml_element(
+                    e,
+                    schema,
+                    &mut state,
+                    &element_stack,
+                    &mut root_id,
+                    &mut root_vertex,
                 );
-
-                let mut extra_fields = HashMap::new();
-                for attr in e.attributes().flatten() {
-                    let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                    let val = String::from_utf8_lossy(&attr.value).to_string();
-                    extra_fields.insert(key, Value::Str(val));
-                }
-
-                let node = Node {
-                    id: node_id,
-                    anchor: panproto_gat::Name::from(vertex_id.as_str()),
-                    value: None,
-                    discriminator: None,
-                    extra_fields,
-                    position: None,
-                    annotations: HashMap::new(),
-                };
-                state.nodes.insert(node_id, node);
-
-                if let Some(parent) = element_stack.last() {
-                    let edge = find_schema_edge(schema, &parent.1, &vertex_id, &tag);
-                    state.arcs.push((parent.0, node_id, edge));
-                } else {
-                    root_id = Some(node_id);
-                    root_vertex = vertex_id;
-                }
-                // No push to element_stack; self-closing has no children.
             }
             Ok(Event::Text(ref e)) => {
                 let text = e.unescape().map_err(|err| ParseInstanceError::Parse {
@@ -285,6 +217,58 @@ pub fn emit_xml_bytes(
 }
 
 /// Find a child vertex reachable from `parent_vertex` via an edge matching `tag`.
+/// Ingest one XML element (either `Event::Start` or `Event::Empty`),
+/// creating a fresh `Node` in `state`, linking it to the current parent
+/// (if any), and returning `(node_id, vertex_id)` for the caller to
+/// push onto its element stack if needed.
+fn ingest_xml_element(
+    e: &quick_xml::events::BytesStart<'_>,
+    schema: &Schema,
+    state: &mut XmlParseState,
+    element_stack: &[(u32, String)],
+    root_id: &mut Option<u32>,
+    root_vertex: &mut String,
+) -> (u32, String) {
+    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+    let node_id = state.alloc_id();
+
+    let vertex_id = element_stack.last().map_or_else(
+        || find_root_by_tag(schema, &tag).unwrap_or_else(|| tag.clone()),
+        |parent| {
+            find_child_vertex(schema, &parent.1, &tag)
+                .unwrap_or_else(|| format!("{}:{}", parent.1, tag))
+        },
+    );
+
+    let mut extra_fields = HashMap::new();
+    for attr in e.attributes().flatten() {
+        let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+        let val = String::from_utf8_lossy(&attr.value).to_string();
+        extra_fields.insert(key, Value::Str(val));
+    }
+
+    let node = Node {
+        id: node_id,
+        anchor: panproto_gat::Name::from(vertex_id.as_str()),
+        value: None,
+        discriminator: None,
+        extra_fields,
+        position: None,
+        annotations: HashMap::new(),
+    };
+    state.nodes.insert(node_id, node);
+
+    if let Some(parent) = element_stack.last() {
+        let edge = find_schema_edge(schema, &parent.1, &vertex_id, &tag);
+        state.arcs.push((parent.0, node_id, edge));
+    } else {
+        *root_id = Some(node_id);
+        root_vertex.clone_from(&vertex_id);
+    }
+
+    (node_id, vertex_id)
+}
+
 fn find_child_vertex(schema: &Schema, parent_vertex: &str, tag: &str) -> Option<String> {
     let edges = schema.outgoing_edges(parent_vertex);
     // First try matching edge name.

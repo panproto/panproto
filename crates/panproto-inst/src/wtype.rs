@@ -724,7 +724,6 @@ pub fn reconstruct_fans(
 ///
 /// Returns `RestrictError` if edge resolution fails or the root
 /// is pruned during restriction.
-#[allow(clippy::too_many_lines)]
 pub fn wtype_restrict(
     instance: &WInstance,
     _src_schema: &Schema,
@@ -744,31 +743,7 @@ pub fn wtype_restrict(
         return Err(RestrictError::RootPruned);
     }
 
-    // Precompute conditional survival decisions for all nodes. This
-    // ensures the BFS result is order-independent (functorial), since
-    // conditional survival is evaluated against the original node values,
-    // not values that may have been modified by ancestor contraction.
-    let conditional_fail: FxHashSet<u32> = if migration.conditional_survival.is_empty() {
-        FxHashSet::default()
-    } else {
-        instance
-            .nodes
-            .iter()
-            .filter_map(|(&id, node)| {
-                let pred = migration.conditional_survival.get(&node.anchor)?;
-                let env = build_env_from_extra_fields(&node.extra_fields);
-                let config = panproto_expr::EvalConfig::default();
-                if matches!(
-                    panproto_expr::eval(pred, &env, &config),
-                    Ok(panproto_expr::Literal::Bool(false))
-                ) {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
-            .collect()
-    };
+    let conditional_fail = precompute_conditional_fail(instance, migration);
 
     // Fused BFS: traverse the tree from root, tracking the nearest
     // surviving ancestor for each node as we go.
@@ -856,57 +831,17 @@ pub fn wtype_restrict(
                 // intermediate anchor ids; we synthesize fresh view nodes
                 // for each of them and stitch the chain.
                 if let Some(anc_id) = child_ancestor {
-                    let anc_anchor = new_nodes
-                        .get(&anc_id)
-                        .ok_or(RestrictError::RootPruned)?
-                        .anchor
-                        .clone();
-                    let child_anchor = new_node.anchor.clone();
-                    match resolve_edge(tgt_schema, &migration.resolver, &anc_anchor, &child_anchor)
-                    {
-                        Ok(edge) => {
-                            new_arcs.push((anc_id, child_id, edge));
-                        }
-                        Err(restrict_err) => {
-                            let intermediates = migration
-                                .expansion_path
-                                .get(&(anc_anchor.clone(), child_anchor.clone()));
-                            if let Some(intermediates) = intermediates {
-                                // Emit the expansion chain:
-                                //   anc_id --> synth_1 --> synth_2 --> ... --> child_id
-                                let mut prev_id = anc_id;
-                                let mut prev_anchor = anc_anchor;
-                                for intermediate_anchor in intermediates {
-                                    let synth_id = next_synth_id;
-                                    next_synth_id = next_synth_id.saturating_add(1);
-                                    let synth_node =
-                                        Node::new(synth_id, intermediate_anchor.clone());
-                                    new_nodes.insert(synth_id, synth_node);
-                                    surviving_set.insert(synth_id);
-                                    let edge = resolve_edge(
-                                        tgt_schema,
-                                        &migration.resolver,
-                                        &prev_anchor,
-                                        intermediate_anchor,
-                                    )?;
-                                    new_arcs.push((prev_id, synth_id, edge));
-                                    prev_id = synth_id;
-                                    prev_anchor = intermediate_anchor.clone();
-                                }
-                                // Final hop from the last intermediate to the
-                                // surviving child.
-                                let final_edge = resolve_edge(
-                                    tgt_schema,
-                                    &migration.resolver,
-                                    &prev_anchor,
-                                    &child_anchor,
-                                )?;
-                                new_arcs.push((prev_id, child_id, final_edge));
-                            } else {
-                                return Err(restrict_err);
-                            }
-                        }
-                    }
+                    connect_ancestor_to_child(
+                        anc_id,
+                        child_id,
+                        &new_node.anchor,
+                        &mut new_nodes,
+                        &mut new_arcs,
+                        &mut surviving_set,
+                        &mut next_synth_id,
+                        migration,
+                        tgt_schema,
+                    )?;
                 }
             }
 
@@ -940,6 +875,96 @@ pub fn wtype_restrict(
         instance.root,
         new_schema_root,
     ))
+}
+
+/// Precompute the set of node ids whose conditional-survival predicate
+/// evaluates to `false` against their original extra fields.
+///
+/// This ensures the BFS result is order-independent (functorial): the
+/// predicate is evaluated against original values, not values that may
+/// have been modified by ancestor contraction during restrict.
+fn precompute_conditional_fail(
+    instance: &WInstance,
+    migration: &CompiledMigration,
+) -> FxHashSet<u32> {
+    if migration.conditional_survival.is_empty() {
+        return FxHashSet::default();
+    }
+    instance
+        .nodes
+        .iter()
+        .filter_map(|(&id, node)| {
+            let pred = migration.conditional_survival.get(&node.anchor)?;
+            let env = build_env_from_extra_fields(&node.extra_fields);
+            let config = panproto_expr::EvalConfig::default();
+            matches!(
+                panproto_expr::eval(pred, &env, &config),
+                Ok(panproto_expr::Literal::Bool(false))
+            )
+            .then_some(id)
+        })
+        .collect()
+}
+
+/// Emit arcs connecting a surviving ancestor to a surviving child during
+/// restrict, handling both the direct-edge fast path and the nest-style
+/// expansion path that introduces synthesized intermediate nodes.
+#[allow(clippy::too_many_arguments)]
+fn connect_ancestor_to_child(
+    anc_id: u32,
+    child_id: u32,
+    child_anchor: &Name,
+    new_nodes: &mut HashMap<u32, Node>,
+    new_arcs: &mut Vec<(u32, u32, Edge)>,
+    surviving_set: &mut FxHashSet<u32>,
+    next_synth_id: &mut u32,
+    migration: &CompiledMigration,
+    tgt_schema: &Schema,
+) -> Result<(), RestrictError> {
+    let anc_anchor = new_nodes
+        .get(&anc_id)
+        .ok_or(RestrictError::RootPruned)?
+        .anchor
+        .clone();
+    let child_anchor = child_anchor.clone();
+    match resolve_edge(tgt_schema, &migration.resolver, &anc_anchor, &child_anchor) {
+        Ok(edge) => {
+            new_arcs.push((anc_id, child_id, edge));
+            Ok(())
+        }
+        Err(restrict_err) => {
+            let Some(intermediates) = migration
+                .expansion_path
+                .get(&(anc_anchor.clone(), child_anchor.clone()))
+            else {
+                return Err(restrict_err);
+            };
+            // Emit the expansion chain:
+            //   anc_id --> synth_1 --> synth_2 --> ... --> child_id
+            let mut prev_id = anc_id;
+            let mut prev_anchor = anc_anchor;
+            for intermediate_anchor in intermediates {
+                let synth_id = *next_synth_id;
+                *next_synth_id = next_synth_id.saturating_add(1);
+                let synth_node = Node::new(synth_id, intermediate_anchor.clone());
+                new_nodes.insert(synth_id, synth_node);
+                surviving_set.insert(synth_id);
+                let edge = resolve_edge(
+                    tgt_schema,
+                    &migration.resolver,
+                    &prev_anchor,
+                    intermediate_anchor,
+                )?;
+                new_arcs.push((prev_id, synth_id, edge));
+                prev_id = synth_id;
+                prev_anchor = intermediate_anchor.clone();
+            }
+            let final_edge =
+                resolve_edge(tgt_schema, &migration.resolver, &prev_anchor, &child_anchor)?;
+            new_arcs.push((prev_id, child_id, final_edge));
+            Ok(())
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

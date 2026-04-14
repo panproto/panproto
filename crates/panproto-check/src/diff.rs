@@ -225,6 +225,8 @@ pub struct SpanChange {
 /// Compares every schema field: vertices, edges, constraints, hyper-edges,
 /// required edges, NSIDs, variants, orderings, recursion points, usage modes,
 /// spans, and nominal flags.
+// Structural diff walks every field of `Schema` in turn; each branch
+// contributes one field to `SchemaDiff` and is naturally co-located.
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {

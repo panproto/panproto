@@ -5,6 +5,11 @@
 //! constrained hypergraph schema theory (`colimit(ThHypergraph, ThConstraint)`)
 //! and a set-valued functor instance theory (`ThFunctor`).
 
+// Annotation protocols describe format-rich schemas via long, sequential
+// schema-construction calls and JSON-key handler chains; decomposition
+// would fragment format-local context without simplifying logic.
+#![allow(clippy::too_many_lines)]
+
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
@@ -70,7 +75,6 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if the input cannot be parsed.
-#[allow(clippy::too_many_lines)]
 pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
@@ -308,7 +312,6 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
 /// # Errors
 ///
 /// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
-#[allow(clippy::too_many_lines)]
 pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
     let mut output = String::new();
 

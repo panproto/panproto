@@ -415,13 +415,298 @@ fn filter_eqs_by_remaining_ops(eqs: &[Equation], ops: &[Operation]) -> Vec<Equat
         .collect()
 }
 
+/// Merge two sorts into one, renaming every reference in ops.
+///
+/// `sort_a` is kept (renamed to `merged_name`); `sort_b` is dropped.
+/// All op inputs/outputs that reference `sort_a` or `sort_b` are rewritten
+/// to `merged_name`.
+fn apply_merge_sorts(
+    theory: &Theory,
+    sort_a: &Arc<str>,
+    sort_b: &Arc<str>,
+    merged_name: &Arc<str>,
+) -> Theory {
+    let sorts: Vec<_> = theory
+        .sorts
+        .iter()
+        .filter_map(|s| {
+            if s.name == *sort_a {
+                Some(Sort {
+                    name: Arc::clone(merged_name),
+                    params: s.params.clone(),
+                    kind: s.kind.clone(),
+                })
+            } else if s.name == *sort_b {
+                None
+            } else {
+                Some(s.clone())
+            }
+        })
+        .collect();
+    let ops: Vec<_> = theory
+        .ops
+        .iter()
+        .map(|o| {
+            let inputs: Vec<_> = o
+                .inputs
+                .iter()
+                .map(|(n, s)| {
+                    let mapped = if s == sort_a || s == sort_b {
+                        Arc::clone(merged_name)
+                    } else {
+                        Arc::clone(s)
+                    };
+                    (Arc::clone(n), mapped)
+                })
+                .collect();
+            let output = if o.output == *sort_a || o.output == *sort_b {
+                Arc::clone(merged_name)
+            } else {
+                Arc::clone(&o.output)
+            };
+            Operation {
+                name: Arc::clone(&o.name),
+                inputs,
+                output,
+            }
+        })
+        .collect();
+    Theory::full(
+        Arc::clone(&theory.name),
+        theory.extends.clone(),
+        sorts,
+        ops,
+        theory.eqs.clone(),
+        theory.directed_eqs.clone(),
+        theory.policies.clone(),
+    )
+}
+
+/// Extract the sub-theory reachable from `focus`, apply `inner` to it,
+/// then merge the transformed sub-theory back into the outer theory.
+///
+/// Outer sorts/ops that reference renamed sub-theory sorts are rewritten;
+/// equations, directed equations, and policies that lost their sorts/ops
+/// are dropped.
+fn apply_scoped_transform(
+    theory: &Theory,
+    focus: &Arc<str>,
+    inner: &TheoryTransform,
+) -> Result<Theory, GatError> {
+    if !theory.has_sort(focus) {
+        return Err(GatError::FactorizationError(format!(
+            "scoped transform focus sort '{focus}' not found in theory"
+        )));
+    }
+    let reachable = reachable_sorts_from(theory, focus);
+    let sub_theory = build_sub_theory(theory, focus, &reachable);
+    let transformed_sub = inner.apply(&sub_theory)?;
+
+    // Build a rename map for sorts modified by the inner transform.
+    let mut sort_rename: FxHashMap<Arc<str>, Arc<str>> = FxHashMap::default();
+    for orig_sort in &reachable {
+        if !transformed_sub.sorts.iter().any(|s| s.name == *orig_sort) {
+            if let Some(new_sort) =
+                find_renamed_sort(orig_sort, &sub_theory.sorts, &transformed_sub.sorts)
+            {
+                sort_rename.insert(Arc::clone(orig_sort), new_sort);
+            }
+        }
+    }
+
+    let mut merged_sorts: Vec<_> = theory
+        .sorts
+        .iter()
+        .filter(|s| !reachable.contains(&s.name))
+        .cloned()
+        .collect();
+    merged_sorts.extend(transformed_sub.sorts);
+
+    let sub_op_names: FxHashSet<Arc<str>> = theory
+        .ops
+        .iter()
+        .filter(|op| {
+            op.inputs.iter().all(|i| reachable.contains(&i.1)) && reachable.contains(&op.output)
+        })
+        .map(|o| Arc::clone(&o.name))
+        .collect();
+    let mut merged_ops: Vec<_> = theory
+        .ops
+        .iter()
+        .filter(|o| !sub_op_names.contains(&o.name))
+        .cloned()
+        .collect();
+    merged_ops.extend(transformed_sub.ops);
+
+    let merged_sort_names: FxHashSet<Arc<str>> =
+        merged_sorts.iter().map(|s| Arc::clone(&s.name)).collect();
+    let merged_op_names: FxHashSet<Arc<str>> =
+        merged_ops.iter().map(|o| Arc::clone(&o.name)).collect();
+
+    let merged_eqs: Vec<_> = theory
+        .eqs
+        .iter()
+        .filter_map(|eq| {
+            let renamed_eq = rename_eq_sorts(eq, &sort_rename);
+            let ops_used = collect_ops_in_eq(&renamed_eq);
+            ops_used
+                .iter()
+                .all(|o| merged_op_names.contains(o))
+                .then_some(renamed_eq)
+        })
+        .collect();
+
+    let merged_directed_eqs: Vec<_> = theory
+        .directed_eqs
+        .iter()
+        .filter_map(|de| {
+            let renamed_de = rename_directed_eq_sorts(de, &sort_rename);
+            let ops_used = collect_ops_in_directed_eq(&renamed_de);
+            ops_used
+                .iter()
+                .all(|o| merged_op_names.contains(o))
+                .then_some(renamed_de)
+        })
+        .collect();
+
+    let merged_policies: Vec<_> = theory
+        .policies
+        .iter()
+        .filter(|p| {
+            let sorts_used = collect_sorts_in_policy(p);
+            sorts_used.iter().all(|s| merged_sort_names.contains(s))
+        })
+        .cloned()
+        .collect();
+
+    Ok(Theory::full(
+        Arc::clone(&theory.name),
+        theory.extends.clone(),
+        merged_sorts,
+        merged_ops,
+        merged_eqs,
+        merged_directed_eqs,
+        merged_policies,
+    ))
+}
+
+/// Drop a named equation from the theory.
+fn apply_drop_equation(theory: &Theory, name: &Arc<str>) -> Theory {
+    let eqs: Vec<_> = theory
+        .eqs
+        .iter()
+        .filter(|eq| eq.name != *name)
+        .cloned()
+        .collect();
+    Theory::full(
+        Arc::clone(&theory.name),
+        theory.extends.clone(),
+        theory.sorts.clone(),
+        theory.ops.clone(),
+        eqs,
+        theory.directed_eqs.clone(),
+        theory.policies.clone(),
+    )
+}
+
+/// Drop a named directed equation from the theory.
+fn apply_drop_directed_equation(theory: &Theory, name: &Arc<str>) -> Theory {
+    let directed_eqs: Vec<_> = theory
+        .directed_eqs
+        .iter()
+        .filter(|de| de.name != *name)
+        .cloned()
+        .collect();
+    Theory::full(
+        Arc::clone(&theory.name),
+        theory.extends.clone(),
+        theory.sorts.clone(),
+        theory.ops.clone(),
+        theory.eqs.clone(),
+        directed_eqs,
+        theory.policies.clone(),
+    )
+}
+
+/// Coerce a named sort to a different value kind, leaving its params
+/// and other sorts untouched.
+fn apply_coerce_sort(
+    theory: &Theory,
+    sort_name: &Arc<str>,
+    target_kind: crate::sort::ValueKind,
+) -> Theory {
+    let sorts: Vec<_> = theory
+        .sorts
+        .iter()
+        .map(|s| {
+            if s.name == *sort_name {
+                Sort {
+                    name: Arc::clone(&s.name),
+                    params: s.params.clone(),
+                    kind: SortKind::Val(target_kind),
+                }
+            } else {
+                s.clone()
+            }
+        })
+        .collect();
+    Theory::full(
+        Arc::clone(&theory.name),
+        theory.extends.clone(),
+        sorts,
+        theory.ops.clone(),
+        theory.eqs.clone(),
+        theory.directed_eqs.clone(),
+        theory.policies.clone(),
+    )
+}
+
+/// Build the sub-theory consisting of sorts, ops, equations, and directed
+/// equations reachable from `focus` (per `reachable`).
+fn build_sub_theory(theory: &Theory, focus: &Arc<str>, reachable: &FxHashSet<Arc<str>>) -> Theory {
+    let sub_sorts: Vec<_> = theory
+        .sorts
+        .iter()
+        .filter(|s| reachable.contains(&s.name))
+        .cloned()
+        .collect();
+    let sub_ops: Vec<_> = theory
+        .ops
+        .iter()
+        .filter(|op| {
+            op.inputs.iter().all(|i| reachable.contains(&i.1)) && reachable.contains(&op.output)
+        })
+        .cloned()
+        .collect();
+    let sub_eqs = filter_eqs_by_remaining_ops(&theory.eqs, &sub_ops);
+    let sub_op_names: FxHashSet<Arc<str>> = sub_ops.iter().map(|o| Arc::clone(&o.name)).collect();
+    let sub_directed_eqs: Vec<_> = theory
+        .directed_eqs
+        .iter()
+        .filter(|de| {
+            collect_ops_in_directed_eq(de)
+                .iter()
+                .all(|op| sub_op_names.contains(op))
+        })
+        .cloned()
+        .collect();
+    Theory::full(
+        Arc::from(format!("{}_sub_{focus}", theory.name)),
+        Vec::new(),
+        sub_sorts,
+        sub_ops,
+        sub_eqs,
+        sub_directed_eqs,
+        Vec::new(),
+    )
+}
+
 impl TheoryTransform {
     /// Apply this transform to a theory.
     ///
     /// # Errors
     ///
     /// Returns [`GatError::FactorizationError`] if the transform cannot be applied.
-    #[allow(clippy::too_many_lines)]
     pub fn apply(&self, theory: &Theory) -> Result<Theory, GatError> {
         match self {
             Self::Identity => Ok(theory.clone()),
@@ -473,117 +758,20 @@ impl TheoryTransform {
                     theory.policies.clone(),
                 ))
             }
-            Self::DropEquation(name) => {
-                let eqs: Vec<_> = theory
-                    .eqs
-                    .iter()
-                    .filter(|eq| eq.name != *name)
-                    .cloned()
-                    .collect();
-                Ok(Theory::full(
-                    Arc::clone(&theory.name),
-                    theory.extends.clone(),
-                    theory.sorts.clone(),
-                    theory.ops.clone(),
-                    eqs,
-                    theory.directed_eqs.clone(),
-                    theory.policies.clone(),
-                ))
-            }
+            Self::DropEquation(name) => Ok(apply_drop_equation(theory, name)),
             Self::CoerceSort {
                 sort_name,
                 target_kind,
                 coercion_expr: _,
                 inverse_expr: _,
                 coercion_class: _,
-            } => {
-                let sorts: Vec<_> = theory
-                    .sorts
-                    .iter()
-                    .map(|s| {
-                        if s.name == *sort_name {
-                            Sort {
-                                name: Arc::clone(&s.name),
-                                params: s.params.clone(),
-                                kind: SortKind::Val(*target_kind),
-                            }
-                        } else {
-                            s.clone()
-                        }
-                    })
-                    .collect();
-                Ok(Theory::full(
-                    Arc::clone(&theory.name),
-                    theory.extends.clone(),
-                    sorts,
-                    theory.ops.clone(),
-                    theory.eqs.clone(),
-                    theory.directed_eqs.clone(),
-                    theory.policies.clone(),
-                ))
-            }
+            } => Ok(apply_coerce_sort(theory, sort_name, *target_kind)),
             Self::MergeSorts {
                 sort_a,
                 sort_b,
                 merged_name,
                 merger_expr: _,
-            } => {
-                let sorts: Vec<_> = theory
-                    .sorts
-                    .iter()
-                    .filter_map(|s| {
-                        if s.name == *sort_a {
-                            Some(Sort {
-                                name: Arc::clone(merged_name),
-                                params: s.params.clone(),
-                                kind: s.kind.clone(),
-                            })
-                        } else if s.name == *sort_b {
-                            None
-                        } else {
-                            Some(s.clone())
-                        }
-                    })
-                    .collect();
-                // Rename references in ops
-                let ops: Vec<_> = theory
-                    .ops
-                    .iter()
-                    .map(|o| {
-                        let inputs: Vec<_> = o
-                            .inputs
-                            .iter()
-                            .map(|(n, s)| {
-                                let mapped = if s == sort_a || s == sort_b {
-                                    Arc::clone(merged_name)
-                                } else {
-                                    Arc::clone(s)
-                                };
-                                (Arc::clone(n), mapped)
-                            })
-                            .collect();
-                        let output = if o.output == *sort_a || o.output == *sort_b {
-                            Arc::clone(merged_name)
-                        } else {
-                            Arc::clone(&o.output)
-                        };
-                        Operation {
-                            name: Arc::clone(&o.name),
-                            inputs,
-                            output,
-                        }
-                    })
-                    .collect();
-                Ok(Theory::full(
-                    Arc::clone(&theory.name),
-                    theory.extends.clone(),
-                    sorts,
-                    ops,
-                    theory.eqs.clone(),
-                    theory.directed_eqs.clone(),
-                    theory.policies.clone(),
-                ))
-            }
+            } => Ok(apply_merge_sorts(theory, sort_a, sort_b, merged_name)),
             Self::AddDirectedEquation(de) => {
                 let mut directed_eqs = theory.directed_eqs.clone();
                 directed_eqs.push(de.clone());
@@ -597,23 +785,7 @@ impl TheoryTransform {
                     theory.policies.clone(),
                 ))
             }
-            Self::DropDirectedEquation(name) => {
-                let directed_eqs: Vec<_> = theory
-                    .directed_eqs
-                    .iter()
-                    .filter(|de| de.name != *name)
-                    .cloned()
-                    .collect();
-                Ok(Theory::full(
-                    Arc::clone(&theory.name),
-                    theory.extends.clone(),
-                    theory.sorts.clone(),
-                    theory.ops.clone(),
-                    theory.eqs.clone(),
-                    directed_eqs,
-                    theory.policies.clone(),
-                ))
-            }
+            Self::DropDirectedEquation(name) => Ok(apply_drop_directed_equation(theory, name)),
             Self::Pullback(morphism) => Ok(apply_pullback(theory, morphism)),
             Self::RenameEdgeName { .. } | Self::AddEdge { .. } | Self::DropEdge { .. } => {
                 // Fiber-level operations: the theory is unchanged.
@@ -621,151 +793,7 @@ impl TheoryTransform {
                 // apply_theory_transform_to_schema.
                 Ok(theory.clone())
             }
-            Self::ScopedTransform { focus, inner } => {
-                // Extract the sub-theory reachable from the focus sort,
-                // apply the inner transform, and merge back.
-                if !theory.has_sort(focus) {
-                    return Err(GatError::FactorizationError(format!(
-                        "scoped transform focus sort '{focus}' not found in theory"
-                    )));
-                }
-                // Find sorts reachable from focus via operations.
-                let reachable = reachable_sorts_from(theory, focus);
-                // Build the sub-theory from reachable sorts.
-                let sub_sorts: Vec<_> = theory
-                    .sorts
-                    .iter()
-                    .filter(|s| reachable.contains(&s.name))
-                    .cloned()
-                    .collect();
-                let sub_ops: Vec<_> = theory
-                    .ops
-                    .iter()
-                    .filter(|op| {
-                        op.inputs.iter().all(|i| reachable.contains(&i.1))
-                            && reachable.contains(&op.output)
-                    })
-                    .cloned()
-                    .collect();
-                let sub_eqs: Vec<_> = filter_eqs_by_remaining_ops(&theory.eqs, &sub_ops);
-                let sub_directed_eqs: Vec<_> = theory
-                    .directed_eqs
-                    .iter()
-                    .filter(|de| {
-                        let ops_used = collect_ops_in_directed_eq(de);
-                        let sub_op_names: FxHashSet<Arc<str>> =
-                            sub_ops.iter().map(|o| Arc::clone(&o.name)).collect();
-                        ops_used.iter().all(|op| sub_op_names.contains(op))
-                    })
-                    .cloned()
-                    .collect();
-                let sub_theory = Theory::full(
-                    Arc::from(format!("{}_sub_{focus}", theory.name)),
-                    Vec::new(),
-                    sub_sorts,
-                    sub_ops,
-                    sub_eqs,
-                    sub_directed_eqs,
-                    Vec::new(),
-                );
-                // Apply inner transform to sub-theory.
-                let transformed_sub = inner.apply(&sub_theory)?;
-
-                // Build a rename map for sorts modified by the inner transform
-                // (must happen before we move transformed_sub.sorts).
-                let mut sort_rename: FxHashMap<Arc<str>, Arc<str>> = FxHashMap::default();
-                for orig_sort in &reachable {
-                    if !transformed_sub.sorts.iter().any(|s| s.name == *orig_sort) {
-                        if let Some(new_sort) =
-                            find_renamed_sort(orig_sort, &sub_theory.sorts, &transformed_sub.sorts)
-                        {
-                            sort_rename.insert(Arc::clone(orig_sort), new_sort);
-                        }
-                    }
-                }
-
-                // Merge: replace sub-theory sorts/ops with transformed versions,
-                // keep everything outside the focus unchanged.
-                let mut merged_sorts: Vec<_> = theory
-                    .sorts
-                    .iter()
-                    .filter(|s| !reachable.contains(&s.name))
-                    .cloned()
-                    .collect();
-                merged_sorts.extend(transformed_sub.sorts);
-                let sub_op_names: FxHashSet<Arc<str>> = theory
-                    .ops
-                    .iter()
-                    .filter(|op| {
-                        op.inputs.iter().all(|i| reachable.contains(&i.1))
-                            && reachable.contains(&op.output)
-                    })
-                    .map(|o| Arc::clone(&o.name))
-                    .collect();
-                let mut merged_ops: Vec<_> = theory
-                    .ops
-                    .iter()
-                    .filter(|o| !sub_op_names.contains(&o.name))
-                    .cloned()
-                    .collect();
-                merged_ops.extend(transformed_sub.ops);
-
-                let merged_sort_names: FxHashSet<Arc<str>> =
-                    merged_sorts.iter().map(|s| Arc::clone(&s.name)).collect();
-                let merged_op_names: FxHashSet<Arc<str>> =
-                    merged_ops.iter().map(|o| Arc::clone(&o.name)).collect();
-
-                // Update outer equations: apply sort renames and drop equations
-                // that reference sorts/ops no longer present.
-                let merged_eqs: Vec<_> = theory
-                    .eqs
-                    .iter()
-                    .filter_map(|eq| {
-                        let renamed_eq = rename_eq_sorts(eq, &sort_rename);
-                        let ops_used = collect_ops_in_eq(&renamed_eq);
-                        if ops_used.iter().all(|o| merged_op_names.contains(o)) {
-                            Some(renamed_eq)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                let merged_directed_eqs: Vec<_> = theory
-                    .directed_eqs
-                    .iter()
-                    .filter_map(|de| {
-                        let renamed_de = rename_directed_eq_sorts(de, &sort_rename);
-                        let ops_used = collect_ops_in_directed_eq(&renamed_de);
-                        if ops_used.iter().all(|o| merged_op_names.contains(o)) {
-                            Some(renamed_de)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                // Drop policies that reference removed sorts.
-                let merged_policies: Vec<_> = theory
-                    .policies
-                    .iter()
-                    .filter(|p| {
-                        let sorts_used = collect_sorts_in_policy(p);
-                        sorts_used.iter().all(|s| merged_sort_names.contains(s))
-                    })
-                    .cloned()
-                    .collect();
-
-                Ok(Theory::full(
-                    Arc::clone(&theory.name),
-                    theory.extends.clone(),
-                    merged_sorts,
-                    merged_ops,
-                    merged_eqs,
-                    merged_directed_eqs,
-                    merged_policies,
-                ))
-            }
+            Self::ScopedTransform { focus, inner } => apply_scoped_transform(theory, focus, inner),
             Self::Compose(first, second) => {
                 let intermediate = first.apply(theory)?;
                 second.apply(&intermediate)

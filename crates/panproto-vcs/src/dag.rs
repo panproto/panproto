@@ -1066,7 +1066,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
     fn coherence_composition_drift_detected() -> Result<(), Box<dyn std::error::Error>> {
         // Build a 3-commit history where the composed migration disagrees
         // with the directly derived migration from source to target schema.

@@ -12,7 +12,6 @@
     clippy::match_same_arms,
     clippy::must_use_candidate,
     clippy::redundant_pub_crate,
-    clippy::too_many_lines,
     unreachable_pub
 )]
 mod generated {

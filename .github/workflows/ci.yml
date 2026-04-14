@@ -48,6 +48,17 @@ jobs:
           key: ${{ matrix.rust }}
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --workspace
+      - run: cargo test --doc --workspace
+
+  feature-check:
+    name: Feature Combinations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-hack
+      - run: cargo hack check --feature-powerset --no-dev-deps -p panproto-core -p panproto-io -p panproto-wasm
 
   wasm:
     name: WASM Build
