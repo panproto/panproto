@@ -69,6 +69,7 @@ fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         constraints: HashMap::new(),
         required: HashMap::new(),
         nsids: HashMap::new(),
+        entries: Vec::new(),
         outgoing,
         incoming,
         between,

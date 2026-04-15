@@ -68,6 +68,9 @@ pub fn parse_odf_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErro
             .and_then(serde_json::Value::as_str)
             .unwrap_or("document");
         builder = builder.vertex(name, kind, None)?;
+        if kind == "document" {
+            builder = builder.entry(name);
+        }
 
         if let Some(v) = def.get("style-family").and_then(serde_json::Value::as_str) {
             builder = builder.constraint(name, "style-family", v);

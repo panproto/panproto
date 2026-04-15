@@ -1814,6 +1814,7 @@ fn make_lift_schema(
         constraints: HashMap::new(),
         required: HashMap::new(),
         nsids: HashMap::new(),
+        entries: Vec::new(),
         variants: HashMap::new(),
         orderings: HashMap::new(),
         recursion_points: HashMap::new(),

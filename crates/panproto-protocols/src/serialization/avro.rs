@@ -89,6 +89,18 @@ pub fn parse_avsc(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
         }
     }
 
+    // Pass 3: Declare entry basepoints. An Avro record is an entry iff
+    // it is not the target of any `type-of` edge: top-level records
+    // that no field references. In practice, `.avsc` files typically
+    // have one top-level record per file, which this selects.
+    let referenced: std::collections::HashSet<&String> =
+        field_infos.iter().map(|info| &info.type_name).collect();
+    for id in &vertex_ids {
+        if !referenced.contains(id) {
+            builder = builder.entry(id);
+        }
+    }
+
     let schema = builder.build()?;
     Ok(schema)
 }

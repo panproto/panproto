@@ -85,6 +85,9 @@ pub fn parse_cddl(input: &str) -> Result<Schema, ProtocolError> {
             let rule_name = trimmed[..eq_idx].trim();
             let rhs = trimmed[eq_idx + 3..].trim();
 
+            // Every top-level CDDL rule is an entry basepoint: the
+            // rule name is a usable root for instances of this schema.
+            let declared_rule = rule_name.to_owned();
             if rhs.starts_with('{') {
                 // Map rule.
                 builder = builder.vertex(rule_name, "map", None)?;
@@ -116,6 +119,7 @@ pub fn parse_cddl(input: &str) -> Result<Schema, ProtocolError> {
                 builder = builder.vertex(rule_name, kind, None)?;
                 i += 1;
             }
+            builder = builder.entry(&declared_rule);
         } else {
             i += 1;
         }

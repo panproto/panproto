@@ -23,32 +23,11 @@ use crate::slab::{self, Resource};
 
 /// Infer a suitable root vertex from a schema for JSON parsing.
 ///
-/// Prefers vertices with no incoming edges; falls back to first `object`
-/// or `record` kind vertex.
+/// Consults the schema's declared entry vertices via
+/// [`schema::primary_entry`]. Falls back to `"root"` only if the schema
+/// has no vertices (pathological case).
 pub(super) fn infer_root_vertex(schema: &panproto_core::schema::Schema) -> String {
-    // First try: vertex with no incoming edges
-    for id in schema.vertices.keys() {
-        let has_incoming = schema
-            .incoming
-            .get(id)
-            .is_some_and(|edges| !edges.is_empty());
-        if !has_incoming {
-            return id.to_string();
-        }
-    }
-    // Fallback: first object or record vertex, then any vertex, then "root"
-    if let Some((id, _)) = schema
-        .vertices
-        .iter()
-        .find(|(_, v)| v.kind.as_ref() == "object" || v.kind.as_ref() == "record")
-    {
-        return id.to_string();
-    }
-    schema
-        .vertices
-        .keys()
-        .next()
-        .map_or_else(|| "root".to_owned(), ToString::to_string)
+    schema::primary_entry(schema).map_or_else(|| "root".to_owned(), ToString::to_string)
 }
 
 /// Result of a lens law check.
@@ -654,6 +633,7 @@ pub(super) fn build_minimal_schema(compiled: &CompiledMigration) -> panproto_cor
         constraints: HashMap::new(),
         required: HashMap::new(),
         nsids: HashMap::new(),
+        entries: Vec::new(),
         variants: HashMap::new(),
         orderings: HashMap::new(),
         recursion_points: HashMap::new(),

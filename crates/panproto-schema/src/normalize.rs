@@ -207,6 +207,9 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Nam
         .map(|(id, e)| (id.clone(), e.clone()))
         .collect();
 
+    // Preserve only entries that still exist after normalization.
+    let new_entries = surviving_entries(&schema.entries, &new_vertices);
+
     Schema {
         protocol: schema.protocol.clone(),
         vertices: new_vertices,
@@ -215,6 +218,7 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Nam
         constraints: new_constraints,
         required: new_required,
         nsids: new_nsids,
+        entries: new_entries,
         variants: schema.variants.clone(),
         orderings: schema.orderings.clone(),
         recursion_points: schema.recursion_points.clone(),
@@ -229,6 +233,18 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Nam
         incoming,
         between,
     }
+}
+
+/// Keep only entries whose vertex survived normalization.
+fn surviving_entries(
+    entries: &[Name],
+    new_vertices: &HashMap<Name, crate::schema::Vertex>,
+) -> Vec<Name> {
+    entries
+        .iter()
+        .filter(|e| new_vertices.contains_key(*e))
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]

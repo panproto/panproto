@@ -32,6 +32,6 @@ pub use normalize::normalize;
 pub use protocol::{EdgeRule, Protocol};
 pub use schema::{
     CoercionSpec, Constraint, Edge, HyperEdge, Ordering, RecursionPoint, Schema, Span, UsageMode,
-    Variant, Vertex,
+    Variant, Vertex, primary_entry,
 };
 pub use validate::validate;

@@ -65,6 +65,9 @@ pub fn parse_bson_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
     let mut counter: usize = 0;
 
     builder = walk_bson_schema(builder, json, "root", &mut counter)?;
+    // The conventional `root` vertex is the sole entry basepoint for a
+    // BSON schema document.
+    builder = builder.entry("root");
 
     let schema = builder.build()?;
     Ok(schema)

@@ -172,6 +172,22 @@ pub struct Schema {
     pub required: HashMap<Name, Vec<Edge>>,
     /// NSID mapping: vertex ID to NSID string.
     pub nsids: HashMap<Name, Name>,
+    /// Declared entry vertices.
+    ///
+    /// Semantically, this is the finite family of basepoints that makes
+    /// the schema a *pointed* schema: `E → Ob(C_S)` selecting the sorts
+    /// at which the W-algebra of instances may be rooted. Parsers set
+    /// this explicitly per their protocol's notion of a top-level
+    /// definition (a record, a top-level type, a path root, etc.);
+    /// consumers that need to choose an instance root consult it via
+    /// [`primary_entry`].
+    ///
+    /// Empty means the parser declined to supply a pointing; consumers
+    /// should then either fall back to a deterministic (but non-
+    /// canonical) selection or report an error. Order is preserved for
+    /// reproducibility; the set carries no duplicates.
+    #[serde(default)]
+    pub entries: Vec<Name>,
 
     /// Coproduct variants per union vertex ID.
     #[serde(default)]
@@ -263,4 +279,65 @@ impl Schema {
     pub fn edge_count(&self) -> usize {
         self.edges.len()
     }
+
+    /// Return the declared entry vertices.
+    ///
+    /// See [`Schema::entries`] for semantics. Use [`primary_entry`] for
+    /// callers that need a single root and want a deterministic
+    /// fallback when no entries are declared.
+    #[must_use]
+    pub fn entry_vertices(&self) -> &[Name] {
+        &self.entries
+    }
+}
+
+/// Choose a single entry vertex for a schema.
+///
+/// Returns the first declared entry if any. Otherwise falls back to a
+/// deterministic, protocol-agnostic choice: among vertex ids sorted
+/// lexicographically, the first vertex that is a source of at least
+/// one edge and a target of none (an edgeless "root" in the signature
+/// graph); failing that, the first vertex that has outgoing edges at
+/// all; failing that, the lexicographically first vertex; `None` only
+/// for an empty schema.
+///
+/// The fallback is explicitly *non-canonical*: it exists so that legacy
+/// schemas without declared entries remain usable, but new parsers
+/// should always supply at least one entry via
+/// [`SchemaBuilder::entry`](crate::SchemaBuilder::entry) so that the
+/// pointing is part of the schema's semantics rather than recovered by
+/// heuristic.
+#[must_use]
+pub fn primary_entry(schema: &Schema) -> Option<&Name> {
+    if let Some(first) = schema.entries.first() {
+        return Some(first);
+    }
+
+    let mut ids: Vec<&Name> = schema.vertices.keys().collect();
+    ids.sort();
+
+    let has_outgoing = |id: &Name| -> bool {
+        schema
+            .outgoing
+            .get(id)
+            .is_some_and(|edges| !edges.is_empty())
+    };
+    let has_incoming = |id: &Name| -> bool {
+        schema
+            .incoming
+            .get(id)
+            .is_some_and(|edges| !edges.is_empty())
+    };
+
+    if let Some(id) = ids
+        .iter()
+        .copied()
+        .find(|id| has_outgoing(id) && !has_incoming(id))
+    {
+        return Some(id);
+    }
+    if let Some(id) = ids.iter().copied().find(|id| has_outgoing(id)) {
+        return Some(id);
+    }
+    ids.into_iter().next()
 }

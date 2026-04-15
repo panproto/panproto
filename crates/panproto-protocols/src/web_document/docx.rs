@@ -74,6 +74,10 @@ pub fn parse_docx_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
             .and_then(serde_json::Value::as_str)
             .unwrap_or("document");
         builder = builder.vertex(name, kind, None)?;
+        // Every top-level DOCX element is a candidate entry basepoint.
+        if kind == "document" {
+            builder = builder.entry(name);
+        }
 
         for field in &["required", "style-type", "numbering-format"] {
             if let Some(val) = def.get(field).and_then(serde_json::Value::as_str) {

@@ -4,7 +4,7 @@
 
 use panproto_core::{
     inst::{self, WInstance},
-    io,
+    io, schema,
 };
 use wasm_bindgen::prelude::*;
 
@@ -362,24 +362,19 @@ pub fn json_to_instance_with_root(
             reason: e.to_string(),
         })?;
 
-    // Determine root vertex: explicit > schema.protocol > first object/record vertex
+    // Determine root vertex. Precedence:
+    //   1. explicit caller-supplied vertex if it exists in the schema;
+    //   2. `schema.protocol` (legacy convention — some builders use the
+    //      protocol name as the top-level vertex id);
+    //   3. the schema's declared primary entry (the pointed-schema
+    //      basepoint).
     let root: String = if !root_vertex.is_empty() && schema.has_vertex(root_vertex) {
         root_vertex.to_string()
     } else if schema.has_vertex(&schema.protocol) {
         schema.protocol.clone()
     } else {
-        // Find suitable root: prefer "object" kind (has prop edges), then "record"
-        schema
-            .vertices
-            .iter()
-            .find(|(_, v)| v.kind.as_ref() == "object")
-            .or_else(|| {
-                schema
-                    .vertices
-                    .iter()
-                    .find(|(_, v)| v.kind.as_ref() == "record")
-            })
-            .map(|(id, _)| id.to_string())
+        schema::primary_entry(&schema)
+            .map(ToString::to_string)
             .ok_or_else(|| WasmError::ParseFailed {
                 reason: "no suitable root vertex found in schema".to_string(),
             })?

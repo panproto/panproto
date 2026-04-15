@@ -813,37 +813,6 @@ fn edge_rules() -> Vec<EdgeRule> {
     ]
 }
 
-// ── SchemaBuilder helper ───────────────────────────────────────────────────
-
-/// Extension trait to query vertex existence on a [`SchemaBuilder`] without
-/// consuming it (used to guard edge insertions for forward-referenced vertices).
-trait BuilderExt {
-    fn has_vertex(&self, id: &str) -> bool;
-}
-
-impl BuilderExt for SchemaBuilder {
-    fn has_vertex(&self, id: &str) -> bool {
-        // SchemaBuilder does not expose direct field access; we rely on the
-        // fact that adding a duplicate vertex returns an error. Instead we
-        // track presence via a secondary check: attempt to produce a vertex
-        // and immediately see whether the error is DuplicateVertex.
-        // Unfortunately SchemaBuilder is consumed by each operation, so we
-        // cannot perform a non-consuming test. The bead parser therefore
-        // gates edge creation by checking the JSON structure first (the
-        // referenced vertex must have already been parsed in an earlier
-        // section). This method exists to make that intent legible and will
-        // always return true when called after a successful `builder.vertex()`
-        // for that id.
-        //
-        // Implementation: we use the `Schema` build path indirectly; since we
-        // cannot introspect a live builder without consuming it, we keep a
-        // parallel `vertex_set` inside `parse_bead` and pass `true` through
-        // here. The actual guard is in `parse_bead` itself.
-        let _ = id;
-        true
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {

@@ -132,6 +132,10 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
 
     let mut builder = SchemaBuilder::new(&proto);
 
+    // First pass: create a vertex for every top-level def. This
+    // provides stable targets for forward `ref` edges so refs never
+    // need to create placeholder vertices that collide with the real
+    // def on a later iteration.
     for (def_name, def_value) in defs {
         let def_type = def_value
             .get("type")
@@ -152,6 +156,32 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
         };
 
         builder = builder.vertex(&vertex_id, &kind, nsid)?;
+    }
+
+    // Second pass: parse type-specific structure and declare entries.
+    for (def_name, def_value) in defs {
+        let def_type = def_value
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("object");
+
+        let vertex_id = if def_name == "main" {
+            lexicon_id.to_string()
+        } else {
+            format!("{lexicon_id}#{def_name}")
+        };
+
+        // Declare the basepoint. In ATProto, every top-level record,
+        // query, procedure, or subscription is an intended entry sort:
+        // it is a valid root for instances of this lexicon. Sub-defs
+        // (`type: "object"`, `"array"`, `"union"`, etc.) are *not*
+        // entries — they are referenced from entries via `ref` edges.
+        match def_type {
+            "record" | "query" | "procedure" | "subscription" => {
+                builder = builder.entry(&vertex_id);
+            }
+            _ => {}
+        }
 
         // Parse type-specific structure.
         match def_type {
@@ -184,6 +214,45 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
 
     let schema = builder.build()?;
     Ok(schema)
+}
+
+/// Resolve a lexicon `ref` string (`"#frag"`, `"nsid"`, or `"nsid#frag"`)
+/// to the full vertex id used by the schema graph.
+fn resolve_ref_target(lexicon_id: &str, ref_target: &str) -> String {
+    if let Some(frag) = ref_target.strip_prefix('#') {
+        format!("{lexicon_id}#{frag}")
+    } else {
+        ref_target.to_owned()
+    }
+}
+
+/// Emit the structural morphism for a `ref` property: resolve the
+/// target, ensure a placeholder vertex exists for cross-lexicon
+/// targets, and add a `ref` edge `src_vertex_id --ref--> resolved`.
+///
+/// Keeps the signature of the schema graph complete: every semantic
+/// reference in the lexicon becomes an edge in `C_S`, so the referenced
+/// sub-def has an incoming arrow and is no longer an edgeless
+/// candidate for an entry vertex.
+fn add_ref_edge(
+    mut builder: SchemaBuilder,
+    src_vertex_id: &str,
+    lexicon_id: &str,
+    ref_target: &str,
+) -> Result<SchemaBuilder, ProtocolError> {
+    let resolved = resolve_ref_target(lexicon_id, ref_target);
+
+    // Ensure the target vertex exists. Cross-lexicon refs and forward
+    // refs to yet-unparsed defs need a placeholder; mirrors how
+    // `parse_union_def` handles unresolved variants. Using `"ref"` kind
+    // for placeholders marks them as opaque pointers rather than
+    // typed structures.
+    if !builder.has_vertex(&resolved) {
+        builder = builder.vertex(&resolved, "ref", None)?;
+    }
+
+    builder = builder.edge(src_vertex_id, &resolved, "ref", None)?;
+    Ok(builder)
 }
 
 /// Map a lexicon type string to our vertex kind.
@@ -275,11 +344,15 @@ fn parse_object_def(
                     builder = parse_union_def(builder, &prop_vertex_id, prop_def)?;
                 }
                 "ref" => {
-                    // Create a ref vertex and edge for the reference.
+                    // A ref property is a morphism to the referenced sort.
+                    // Record both the provenance constraint (literal
+                    // lexicon string) and the structural edge in the
+                    // signature graph.
                     if let Some(ref_target) =
                         prop_def.get("ref").and_then(serde_json::Value::as_str)
                     {
                         builder = builder.constraint(&prop_vertex_id, "ref", ref_target);
+                        builder = add_ref_edge(builder, &prop_vertex_id, lexicon_id, ref_target)?;
                     }
                 }
                 _ => {
@@ -316,6 +389,12 @@ fn parse_array_def(
             }
             "union" => {
                 builder = parse_union_def(builder, &items_id, items)?;
+            }
+            "ref" => {
+                if let Some(ref_target) = items.get("ref").and_then(serde_json::Value::as_str) {
+                    builder = builder.constraint(&items_id, "ref", ref_target);
+                    builder = add_ref_edge(builder, &items_id, lexicon_id, ref_target)?;
+                }
             }
             _ => {
                 builder = parse_constraints(builder, &items_id, items);
@@ -816,5 +895,73 @@ mod tests {
 
         let result = parse_lexicon(&lexicon);
         assert!(result.is_err());
+    }
+
+    /// Regression for panproto#35.
+    ///
+    /// A record with an optional `ref` property pointing to a sibling
+    /// sub-def must (a) declare the record as the schema's entry
+    /// basepoint and *not* the sub-def, and (b) carry a structural
+    /// `ref` edge from the property vertex to the sub-def vertex so
+    /// that the sub-def has an incoming arrow in the signature graph.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn ref_property_emits_entry_and_morphism() {
+        let lexicon = serde_json::json!({
+            "lexicon": 1,
+            "id": "app.bsky.feed.post",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "record": {
+                        "type": "object",
+                        "required": ["text", "createdAt"],
+                        "properties": {
+                            "text": {"type": "string"},
+                            "createdAt": {"type": "string"},
+                            "reply": {"type": "ref", "ref": "#replyRef"}
+                        }
+                    }
+                },
+                "replyRef": {
+                    "type": "object",
+                    "required": ["root", "parent"],
+                    "properties": {
+                        "root": {"type": "string"},
+                        "parent": {"type": "string"}
+                    }
+                }
+            }
+        });
+
+        let schema = parse_lexicon(&lexicon).expect("parse should succeed");
+
+        // Entries: the record is an entry; the sub-def is not.
+        let entries: Vec<&str> = schema.entry_vertices().iter().map(AsRef::as_ref).collect();
+        assert_eq!(entries, vec!["app.bsky.feed.post"]);
+
+        // primary_entry picks the record, not the orphaned sub-def.
+        assert_eq!(
+            panproto_schema::primary_entry(&schema).map(AsRef::as_ref),
+            Some("app.bsky.feed.post"),
+        );
+
+        // A ref edge exists from the reply prop vertex to the sub-def;
+        // the sub-def is no longer edgeless.
+        let reply_prop = "app.bsky.feed.post:body.reply";
+        let reply_ref_def = "app.bsky.feed.post#replyRef";
+        let has_ref_edge = schema
+            .edges
+            .keys()
+            .any(|e| &*e.src == reply_prop && &*e.tgt == reply_ref_def && &*e.kind == "ref");
+        assert!(
+            has_ref_edge,
+            "expected a ref edge {reply_prop} -> {reply_ref_def}, edges: {:?}",
+            schema.edges.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            !schema.incoming_edges(reply_ref_def).is_empty(),
+            "sub-def should have at least one incoming edge after ref-morphism fix"
+        );
     }
 }

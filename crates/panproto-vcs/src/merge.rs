@@ -1225,6 +1225,19 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
             .push(edge.clone());
     }
 
+    // Pushout of entries: union over base/ours/theirs, restricted to
+    // vertices that survived the merge. Order-stable by first
+    // appearance (base → ours → theirs).
+    let mut entries: Vec<Name> = Vec::new();
+    let mut entries_seen: std::collections::HashSet<Name> = std::collections::HashSet::new();
+    for side in [&base.entries, &ours.entries, &theirs.entries] {
+        for e in side {
+            if vertices.contains_key(e) && entries_seen.insert(e.clone()) {
+                entries.push(e.clone());
+            }
+        }
+    }
+
     let merged_schema = Schema {
         protocol: base.protocol.clone(),
         vertices,
@@ -1233,6 +1246,7 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         constraints,
         required,
         nsids,
+        entries,
         variants,
         orderings,
         recursion_points,
@@ -2618,6 +2632,7 @@ mod tests {
             constraints: HashMap::new(),
             required: HashMap::new(),
             nsids: HashMap::new(),
+            entries: Vec::new(),
             variants: HashMap::new(),
             orderings: HashMap::new(),
             recursion_points: HashMap::new(),

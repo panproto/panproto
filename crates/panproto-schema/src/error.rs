@@ -66,6 +66,10 @@ pub enum SchemaError {
     /// The schema has no vertices.
     #[error("schema has no vertices")]
     EmptySchema,
+
+    /// A declared entry vertex does not exist in the schema.
+    #[error("entry vertex not found: {0}")]
+    UnknownEntryVertex(String),
 }
 
 /// An error found during schema validation against a protocol.

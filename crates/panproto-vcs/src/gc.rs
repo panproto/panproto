@@ -208,6 +208,7 @@ mod tests {
             constraints: std::collections::HashMap::new(),
             required: std::collections::HashMap::new(),
             nsids: std::collections::HashMap::new(),
+            entries: Vec::new(),
             variants: std::collections::HashMap::new(),
             orderings: std::collections::HashMap::new(),
             recursion_points: std::collections::HashMap::new(),
