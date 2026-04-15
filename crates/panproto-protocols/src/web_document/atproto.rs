@@ -199,7 +199,7 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
                 builder = parse_array_def(builder, &vertex_id, def_value, lexicon_id)?;
             }
             "union" => {
-                builder = parse_union_def(builder, &vertex_id, def_value)?;
+                builder = parse_union_def(builder, &vertex_id, def_value, lexicon_id)?;
             }
             "query" | "procedure" | "subscription" => {
                 builder = parse_query_procedure_def(builder, &vertex_id, def_value, lexicon_id)?;
@@ -341,7 +341,7 @@ fn parse_object_def(
                     builder = parse_array_def(builder, &prop_vertex_id, prop_def, lexicon_id)?;
                 }
                 "union" => {
-                    builder = parse_union_def(builder, &prop_vertex_id, prop_def)?;
+                    builder = parse_union_def(builder, &prop_vertex_id, prop_def, lexicon_id)?;
                 }
                 "ref" => {
                     // A ref property is a morphism to the referenced sort.
@@ -388,7 +388,7 @@ fn parse_array_def(
                 builder = parse_object_def(builder, &items_id, items, lexicon_id)?;
             }
             "union" => {
-                builder = parse_union_def(builder, &items_id, items)?;
+                builder = parse_union_def(builder, &items_id, items, lexicon_id)?;
             }
             "ref" => {
                 if let Some(ref_target) = items.get("ref").and_then(serde_json::Value::as_str) {
@@ -405,19 +405,33 @@ fn parse_array_def(
 }
 
 /// Parse a union definition, creating variant edges.
+///
+/// A lexicon union is a coproduct `⊔_i T_i` where each `T_i` is the
+/// sort referenced by `refs[i]`. In the schema graph we realize the
+/// coproduct injections as pairs: a synthetic variant vertex carrying
+/// the discriminant, and a `ref` morphism from that vertex to the
+/// referenced sort. The variant edge remembers the lexicon discriminant
+/// string in its `name`, and the ref edge restores reachability from
+/// the union to the underlying sort so downstream machinery sees a
+/// connected signature.
 fn parse_union_def(
     mut builder: SchemaBuilder,
     union_id: &str,
     def: &serde_json::Value,
+    lexicon_id: &str,
 ) -> Result<SchemaBuilder, ProtocolError> {
     if let Some(refs) = def.get("refs").and_then(serde_json::Value::as_array) {
         for (i, ref_val) in refs.iter().enumerate() {
             if let Some(ref_str) = ref_val.as_str() {
                 let variant_id = format!("{union_id}:variant{i}");
-                // Union variants are modeled as object vertices when we cannot
-                // resolve cross-lexicon refs at parse time.
+                // The variant vertex is a stand-in for the coproduct
+                // injection. Kind `"object"` reflects that in the
+                // absence of resolution it exposes the same observables
+                // as an object; the `ref` edge below then ties it to
+                // the actual target sort.
                 builder = builder.vertex(&variant_id, "object", None)?;
                 builder = builder.edge(union_id, &variant_id, "variant", Some(ref_str))?;
+                builder = add_ref_edge(builder, &variant_id, lexicon_id, ref_str)?;
             }
         }
     }

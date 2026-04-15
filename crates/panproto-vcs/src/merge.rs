@@ -1225,18 +1225,7 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
             .push(edge.clone());
     }
 
-    // Pushout of entries: union over base/ours/theirs, restricted to
-    // vertices that survived the merge. Order-stable by first
-    // appearance (base → ours → theirs).
-    let mut entries: Vec<Name> = Vec::new();
-    let mut entries_seen: std::collections::HashSet<Name> = std::collections::HashSet::new();
-    for side in [&base.entries, &ours.entries, &theirs.entries] {
-        for e in side {
-            if vertices.contains_key(e) && entries_seen.insert(e.clone()) {
-                entries.push(e.clone());
-            }
-        }
-    }
+    let entries = three_way_merge_entries(base, ours, theirs, &vertices);
 
     let merged_schema = Schema {
         protocol: base.protocol.clone(),
@@ -1277,6 +1266,62 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         migration_from_theirs,
         pullback_overlap,
     }
+}
+
+/// Three-way merge on the pointed structure of a schema.
+///
+/// Entries form a subset of the vertex set on each side; the merge is
+/// the pushout of `base → ours` and `base → theirs` restricted to the
+/// entries subobject. Case analysis for each candidate vertex `E`
+/// appearing in at least one side:
+///
+/// * `E ∈ base`:
+///   * present in both ours and theirs → kept (both agreed);
+///   * present in only one → the other side removed it → the deletion
+///     propagates, so `E` is not in the merge;
+///   * present in neither → both sides removed → not in the merge.
+/// * `E ∉ base`:
+///   * present in ours or theirs → that side added it → kept;
+///   * otherwise vacuous.
+///
+/// After the set is determined, any `E` whose vertex did not survive
+/// the vertex merge is dropped (the pointing must land in the merged
+/// object). Order is stable: base entries first, then new entries
+/// from ours, then new entries unique to theirs.
+fn three_way_merge_entries(
+    base: &Schema,
+    ours: &Schema,
+    theirs: &Schema,
+    merged_vertices: &HashMap<Name, panproto_schema::Vertex>,
+) -> Vec<Name> {
+    let base_set: std::collections::HashSet<&Name> = base.entries.iter().collect();
+    let ours_set: std::collections::HashSet<&Name> = ours.entries.iter().collect();
+    let theirs_set: std::collections::HashSet<&Name> = theirs.entries.iter().collect();
+
+    let keep = |e: &Name| -> bool {
+        if !merged_vertices.contains_key(e) {
+            return false;
+        }
+        let in_base = base_set.contains(e);
+        let in_ours = ours_set.contains(e);
+        let in_theirs = theirs_set.contains(e);
+        if in_base {
+            in_ours && in_theirs
+        } else {
+            in_ours || in_theirs
+        }
+    };
+
+    let mut out: Vec<Name> = Vec::new();
+    let mut seen: std::collections::HashSet<Name> = std::collections::HashSet::new();
+    for side in [&base.entries, &ours.entries, &theirs.entries] {
+        for e in side {
+            if keep(e) && seen.insert(e.clone()) {
+                out.push(e.clone());
+            }
+        }
+    }
+    out
 }
 
 // ===========================================================================
@@ -3350,6 +3395,85 @@ mod tests {
             !overlap.shared_vertices.contains("b"),
             "removed vertex 'b' should not be in shared overlap"
         );
+    }
+
+    /// Build an empty schema with a preset `entries` list for the
+    /// entries-merge tests.
+    fn schema_with_entries(entries: &[&str]) -> Schema {
+        let mut s = make_schema(&[], &[]);
+        s.entries = entries.iter().map(|e| Name::from(*e)).collect();
+        s
+    }
+
+    #[test]
+    fn three_way_entries_kept_when_both_sides_keep() {
+        let base = schema_with_entries(&["A"]);
+        let ours = schema_with_entries(&["A"]);
+        let theirs = schema_with_entries(&["A"]);
+        let mut verts = HashMap::new();
+        verts.insert(
+            Name::from("A"),
+            Vertex {
+                id: Name::from("A"),
+                kind: Name::from("object"),
+                nsid: None,
+            },
+        );
+        let merged = three_way_merge_entries(&base, &ours, &theirs, &verts);
+        assert_eq!(merged, vec![Name::from("A")]);
+    }
+
+    #[test]
+    fn three_way_entries_one_side_deleting_propagates() {
+        // base = {A}, ours deleted A, theirs kept A. The merge should
+        // honor the deletion.
+        let base = schema_with_entries(&["A"]);
+        let ours = schema_with_entries(&[]);
+        let theirs = schema_with_entries(&["A"]);
+        let mut verts = HashMap::new();
+        verts.insert(
+            Name::from("A"),
+            Vertex {
+                id: Name::from("A"),
+                kind: Name::from("object"),
+                nsid: None,
+            },
+        );
+        let merged = three_way_merge_entries(&base, &ours, &theirs, &verts);
+        assert!(merged.is_empty(), "delete-on-one-side must propagate");
+    }
+
+    #[test]
+    fn three_way_entries_unilateral_addition_included() {
+        // base = {}, ours added A. theirs = {}. Merge should include A.
+        let base = schema_with_entries(&[]);
+        let ours = schema_with_entries(&["A"]);
+        let theirs = schema_with_entries(&[]);
+        let mut verts = HashMap::new();
+        verts.insert(
+            Name::from("A"),
+            Vertex {
+                id: Name::from("A"),
+                kind: Name::from("object"),
+                nsid: None,
+            },
+        );
+        let merged = three_way_merge_entries(&base, &ours, &theirs, &verts);
+        assert_eq!(merged, vec![Name::from("A")]);
+    }
+
+    #[test]
+    fn three_way_entries_drop_when_vertex_missing_from_merge() {
+        // Even if both sides kept A, if the merged vertex set doesn't
+        // contain A (e.g. it was removed at the vertex level), A must
+        // not be an entry of the merge — every basepoint must name a
+        // surviving vertex.
+        let base = schema_with_entries(&["A"]);
+        let ours = schema_with_entries(&["A"]);
+        let theirs = schema_with_entries(&["A"]);
+        let verts = HashMap::new();
+        let merged = three_way_merge_entries(&base, &ours, &theirs, &verts);
+        assert!(merged.is_empty());
     }
 
     #[test]

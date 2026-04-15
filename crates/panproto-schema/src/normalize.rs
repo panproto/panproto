@@ -37,7 +37,45 @@ pub fn normalize(schema: &Schema) -> Schema {
     }
 
     let (new_edges, used_refs) = collapse_edges(schema, &ref_targets);
-    rebuild_schema(schema, &new_edges, &used_refs)
+    // Re-point the basepoints before we rebuild the vertex set; the
+    // rebuilder then trusts that every surviving entry names a
+    // surviving vertex.
+    let new_entries = remap_entries(&schema.entries, &ref_targets, &used_refs)
+        .into_iter()
+        .filter(|e| !used_refs.contains(e))
+        .collect();
+    rebuild_schema(schema, &new_edges, &used_refs, new_entries)
+}
+
+/// Carry each entry through the ref-chain collapse.
+///
+/// Categorically, normalization acts on pointed schemas by composing
+/// the basepoint map with the ref-collapse morphism. Entries are
+/// rewritten exactly when their underlying vertex is consumed by the
+/// collapse (i.e. it appears in `used_refs`); otherwise the entry's
+/// vertex survives and the basepoint is unchanged. Cyclic chains
+/// (`resolve_ref_chain` returns `None`) drop the entry, preserving the
+/// invariant that every entry names a surviving vertex.
+fn remap_entries(
+    entries: &[Name],
+    ref_targets: &FxHashMap<Name, (Name, Edge)>,
+    used_refs: &FxHashSet<Name>,
+) -> Vec<Name> {
+    let mut remapped: Vec<Name> = Vec::with_capacity(entries.len());
+    let mut seen: FxHashSet<Name> = FxHashSet::default();
+    for e in entries {
+        let target = if used_refs.contains(e) {
+            resolve_ref_chain(e, ref_targets)
+        } else {
+            Some(e.clone())
+        };
+        if let Some(t) = target
+            && seen.insert(t.clone())
+        {
+            remapped.push(t);
+        }
+    }
+    remapped
 }
 
 /// Build a map from ref vertex IDs to their outgoing edge targets.
@@ -118,7 +156,12 @@ fn collapse_edges(
 }
 
 /// Rebuild the schema from the collapsed edges, removing consumed ref vertices.
-fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Name>) -> Schema {
+fn rebuild_schema(
+    schema: &Schema,
+    new_edges: &[Edge],
+    used_refs: &FxHashSet<Name>,
+    new_entries: Vec<Name>,
+) -> Schema {
     let new_vertices: HashMap<Name, Vertex> = schema
         .vertices
         .iter()
@@ -207,9 +250,6 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Nam
         .map(|(id, e)| (id.clone(), e.clone()))
         .collect();
 
-    // Preserve only entries that still exist after normalization.
-    let new_entries = surviving_entries(&schema.entries, &new_vertices);
-
     Schema {
         protocol: schema.protocol.clone(),
         vertices: new_vertices,
@@ -235,18 +275,6 @@ fn rebuild_schema(schema: &Schema, new_edges: &[Edge], used_refs: &FxHashSet<Nam
     }
 }
 
-/// Keep only entries whose vertex survived normalization.
-fn surviving_entries(
-    entries: &[Name],
-    new_vertices: &HashMap<Name, crate::schema::Vertex>,
-) -> Vec<Name> {
-    entries
-        .iter()
-        .filter(|e| new_vertices.contains_key(*e))
-        .cloned()
-        .collect()
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -269,6 +297,73 @@ mod tests {
             constraint_sorts: vec![],
             ..Protocol::default()
         }
+    }
+
+    #[test]
+    fn normalize_rewrites_entry_through_consumed_ref() {
+        // If a basepoint is a ref vertex that gets consumed by the
+        // chain collapse, normalization must re-point it at the
+        // ultimate non-ref target — the pointed-schema morphism
+        // composes with the collapse.
+        let proto = ref_protocol();
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("R", "ref", None)
+            .expect("R")
+            .vertex("A", "object", None)
+            .expect("A")
+            .vertex("B", "string", None)
+            .expect("B")
+            // A -> R -> nothing: R has no outgoing edges, so it's
+            // actually not consumed. Make R have an outgoing edge to B.
+            .edge("R", "B", "prop", None)
+            .expect("R->B")
+            .edge("A", "R", "prop", Some("x"))
+            .expect("A->R")
+            .entry("R")
+            .build()
+            .expect("build");
+
+        let normalized = normalize(&schema);
+
+        assert!(
+            !normalized.has_vertex("R"),
+            "consumed ref vertex must be removed"
+        );
+        assert_eq!(
+            normalized.entry_vertices().len(),
+            1,
+            "exactly one entry should survive the rewrite"
+        );
+        assert_eq!(
+            normalized.entry_vertices()[0].as_ref(),
+            "B",
+            "entry must be re-pointed to the non-ref chain target"
+        );
+    }
+
+    #[test]
+    fn normalize_preserves_untouched_entry() {
+        // An entry whose vertex is not a consumed ref must survive
+        // unchanged through normalize.
+        let proto = ref_protocol();
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("A", "object", None)
+            .expect("A")
+            .vertex("R", "ref", None)
+            .expect("R")
+            .vertex("B", "string", None)
+            .expect("B")
+            .edge("A", "R", "prop", Some("x"))
+            .expect("A->R")
+            .edge("R", "B", "prop", None)
+            .expect("R->B")
+            .entry("A")
+            .build()
+            .expect("build");
+
+        let normalized = normalize(&schema);
+        assert_eq!(normalized.entry_vertices().len(), 1);
+        assert_eq!(normalized.entry_vertices()[0].as_ref(), "A");
     }
 
     #[test]
