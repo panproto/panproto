@@ -4,6 +4,25 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-04-14
+
+### Changed
+
+- **panproto-parse**: Named-scope detection is now grammar-driven via tree-sitter `queries/tags.scm` instead of a hardcoded `SCOPE_INTRODUCING_KINDS` list. The tags query is the canonical primitive consumed by GitHub code navigation, Helix, and the `tree-sitter tags` CLI; adopting it makes scope detection uniformly correct across every supported grammar (Rust's `function_item`, Haskell's `function`, Elixir's macro definitions, etc.) without any per-language kind tables. Fixes panproto/panproto#34: `report_by_scope` now correctly labels Rust `fn` items (e.g. `BodyModified verify_push` on a commit that modifies the function body), where previously every change collapsed to the file root. The scope-ID format (`file::scope::$N`) is preserved; downstream consumers (`panproto-check::scope::report_by_scope`) require no changes.
+- **panproto-parse**: Removed `SCOPE_INTRODUCING_KINDS` constant and `AstWalker::extract_scope_name`. Removed `WalkerConfig.extra_scope_kinds` and `WalkerConfig.name_fields` fields (unused once the grammar drives detection). Removed `extra_scope_kinds` entries from all 10 per-language `walker_configs` (python, typescript, tsx, rust, java, go, swift, csharp, c, cpp); `extra_block_kinds` entries are retained.
+- **panproto-parse**: `AstWalker::new` now takes a `scope_detector: Option<&mut ScopeDetector>`; pass `None` to disable named-scope detection. `LanguageParser::from_language` takes a new `tags_query: Option<&'static str>` parameter wired from `Grammar::tags_query`.
+
+### Added
+
+- **panproto-parse**: `scope_detector` module wrapping `tree-sitter-tags` with a uniform `NamedScope { node_range, name_range, name, kind }` view. `ScopeKind` enumerates the standard tree-sitter tags vocabulary (`Function`, `Method`, `Class`, `Module`, `Interface`, `Type`, `Macro`) plus `Other(String)` for grammar-specific suffixes.
+- **panproto-parse**: Project-level tags-query override via `LanguageParser::set_tags_override(Option<String>)`, concatenated in front of the grammar's bundled query so overrides augment rather than replace the defaults. Integrates cleanly with a future `panproto.toml [parse.tags.<lang>]` declaration.
+- **panproto-parse**: `ParseError::ScopeQueryCompile` variant reports tags-query compilation failures (malformed S-expression, unknown capture name, regex syntax error in `#strip!` predicate) with the underlying `tree-sitter-tags` error message.
+- **panproto-grammars**: `Grammar::tags_query: Option<&'static str>` embeds each grammar's `queries/tags.scm` as a static string. When a grammar does not ship a tags query upstream, `tags_query` is `None` and scope detection falls back to file-level vertices only (no heuristic fallback).
+- **panproto-grammars**: Build script honours the nvim-treesitter `;inherits: lang1,lang2` directive and an implicit inheritance table (typescript→javascript, tsx→typescript,javascript, cpp→c, cuda→cpp,c, ispc→c, arduino→cpp,c) so child grammars inherit parent definitions automatically.
+- **tools/fetch-query-files.py**: New helper that shallow-clones each grammar's upstream repo and copies `queries/*.scm` into `grammars/<name>/queries/`. Companion to `fetch-grammars.py`; use `--skip-existing` to avoid re-fetching. 198 of 248 grammars ship `tags.scm`; the remaining 50 have no upstream queries and return `None`.
+- **panproto-parse**: Integration test `tests/issue_34_rust_scopes.rs` reproducing the exact scenario from issue #34 (push-auth-shaped Rust file with enum, struct, and two `fn` items) and asserting all four symbols appear as named scope vertices.
+- **Workspace**: `tree-sitter-tags = "0.25"` dependency.
+
 ## [0.30.1] - 2026-04-14
 
 ### Fixed

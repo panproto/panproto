@@ -675,7 +675,7 @@ checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
 name = "git-remote-cospan"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "git2",
  "miette",
@@ -1687,7 +1687,7 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "panproto-check"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "insta",
  "memchr",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-cli"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "assert_cmd",
  "blake3",
@@ -1734,7 +1734,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-core"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "panproto-check",
  "panproto-gat",
@@ -1754,7 +1754,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-expr"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "divan",
  "proptest",
@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-expr-parser"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "chumsky",
  "logos 0.16.1",
@@ -1776,7 +1776,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-gat"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "divan",
  "panproto-expr",
@@ -1789,7 +1789,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-git"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "git2",
  "miette",
@@ -1807,7 +1807,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "cc",
  "serde",
@@ -1818,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-inst"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "bumpalo",
  "divan",
@@ -1835,7 +1835,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-integration-tests"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "panproto-check",
  "panproto-core",
@@ -1857,7 +1857,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-io"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "bumpalo",
  "divan",
@@ -1884,7 +1884,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-jit"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "inkwell",
  "miette",
@@ -1894,7 +1894,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-lens"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "divan",
  "panproto-expr",
@@ -1912,7 +1912,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-lens-dsl"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "miette",
  "nickel-lang",
@@ -1931,7 +1931,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-llvm"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "inkwell",
  "miette",
@@ -1946,7 +1946,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-mig"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "divan",
  "panproto-expr",
@@ -1963,7 +1963,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-parse"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "memchr",
  "miette",
@@ -1978,11 +1978,12 @@ dependencies = [
  "smallvec 2.0.0-alpha.12",
  "thiserror",
  "tree-sitter",
+ "tree-sitter-tags",
 ]
 
 [[package]]
 name = "panproto-project"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "blake3",
  "globset",
@@ -2002,7 +2003,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-protocols"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "blake3",
  "panproto-gat",
@@ -2017,7 +2018,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-py"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "git2",
  "panproto-core",
@@ -2036,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-schema"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "panproto-expr",
  "panproto-gat",
@@ -2051,7 +2052,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-theory-dsl"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "miette",
  "nickel-lang",
@@ -2070,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-vcs"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "blake3",
  "panproto-check",
@@ -2092,7 +2093,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-wasm"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "panproto-core",
  "panproto-expr",
@@ -2108,7 +2109,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-xrpc"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "hex",
  "miette",
@@ -3475,6 +3476,19 @@ name = "tree-sitter-language"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-tags"
+version = "0.25.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d0f6406e002baae5cc53e41a12c8ae582a8dc8237a1fd3a5f3edf9fa06be7d0"
+dependencies = [
+ "memchr",
+ "regex",
+ "streaming-iterator",
+ "thiserror",
+ "tree-sitter",
+]
 
 [[package]]
 name = "try-lock"

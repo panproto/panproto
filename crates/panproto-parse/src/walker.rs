@@ -2,39 +2,33 @@
 //!
 //! Because theories are auto-derived from the grammar, the walker is fully generic:
 //! one implementation works for all languages. The node's `kind()` IS the panproto
-//! vertex kind; the field name IS the edge kind. Per-language customization is limited
-//! to formatting constraints and scope detection callbacks.
+//! vertex kind; the field name IS the edge kind.
+//!
+//! Named-scope detection (functions, classes, methods, modules, types) is driven
+//! by the grammar's `queries/tags.scm` file via [`ScopeDetector`], not by a
+//! hardcoded node-kind list. This makes scope detection uniformly correct across
+//! every tree-sitter grammar that ships a tags query. See the [`scope_detector`]
+//! module for the full rationale.
+//!
+//! [`scope_detector`]: crate::scope_detector
+//! [`ScopeDetector`]: crate::scope_detector::ScopeDetector
+
+use std::collections::BTreeMap;
 
 use panproto_schema::{Protocol, Schema, SchemaBuilder};
 use rustc_hash::FxHashSet;
 
 use crate::error::ParseError;
 use crate::id_scheme::IdGenerator;
+use crate::scope_detector::{NamedScope, ScopeDetector};
 use crate::theory_extract::ExtractedTheoryMeta;
 
-/// Nodes whose kind names suggest they introduce a named scope.
-///
-/// When the walker encounters one of these node kinds, it looks for a `name`
-/// or `identifier` child to use as the scope name in the ID generator.
-const SCOPE_INTRODUCING_KINDS: &[&str] = &[
-    "function_declaration",
-    "function_definition",
-    "method_declaration",
-    "method_definition",
-    "class_declaration",
-    "class_definition",
-    "interface_declaration",
-    "struct_item",
-    "enum_item",
-    "enum_declaration",
-    "impl_item",
-    "trait_item",
-    "module",
-    "namespace_definition",
-    "package_declaration",
-];
-
 /// Nodes whose kind names suggest they contain ordered statement sequences.
+///
+/// Unlike scope detection (which is grammar-driven via `tags.scm`), block
+/// grouping is a structural concern: we want sibling statements inside a
+/// block to get positional IDs (`$0`, `$1`, ...) so insertions don't
+/// cascade. Per-language [`WalkerConfig`] overrides extend this list.
 const BLOCK_KINDS: &[&str] = &[
     "block",
     "statement_block",
@@ -48,27 +42,29 @@ const BLOCK_KINDS: &[&str] = &[
 ];
 
 /// Configuration for the walker, allowing per-language customization.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct WalkerConfig {
-    /// Additional node kinds that introduce named scopes in this language.
-    pub extra_scope_kinds: Vec<String>,
     /// Additional node kinds that contain ordered statement sequences.
+    ///
+    /// Named-scope detection is handled by [`ScopeDetector`] from the
+    /// grammar's `tags.scm`; no per-language scope configuration is
+    /// required here.
+    ///
+    /// [`ScopeDetector`]: crate::scope_detector::ScopeDetector
     pub extra_block_kinds: Vec<String>,
-    /// Field names to use when looking for the "name" of a scope-introducing node.
-    /// Defaults to `["name", "identifier"]`.
-    pub name_fields: Vec<String>,
     /// Whether to capture comment nodes as constraints on the following sibling.
     pub capture_comments: bool,
     /// Whether to capture whitespace/formatting as constraints.
     pub capture_formatting: bool,
 }
 
-impl Default for WalkerConfig {
-    fn default() -> Self {
+impl WalkerConfig {
+    /// Construct a config with formatting and comment capture enabled (the
+    /// common default; [`WalkerConfig::default`] returns all-false).
+    #[must_use]
+    pub const fn standard() -> Self {
         Self {
-            extra_scope_kinds: Vec::new(),
             extra_block_kinds: Vec::new(),
-            name_fields: vec!["name".to_owned(), "identifier".to_owned()],
             capture_comments: true,
             capture_formatting: true,
         }
@@ -78,7 +74,11 @@ impl Default for WalkerConfig {
 /// Generic AST walker that converts a tree-sitter parse tree to a panproto [`Schema`].
 ///
 /// The walker uses the auto-derived theory to determine vertex and edge kinds directly
-/// from the tree-sitter AST, requiring no manual mapping table.
+/// from the tree-sitter AST, requiring no manual mapping table. Named-scope identity
+/// (the part of the vertex ID that survives insertions) is driven by [`ScopeDetector`]
+/// from the grammar's `tags.scm` query.
+///
+/// [`ScopeDetector`]: crate::scope_detector::ScopeDetector
 pub struct AstWalker<'a> {
     /// The source code bytes (needed for extracting text of leaf nodes).
     source: &'a [u8],
@@ -90,33 +90,44 @@ pub struct AstWalker<'a> {
     protocol: &'a Protocol,
     /// Per-language configuration.
     config: WalkerConfig,
-    /// Known scope-introducing kinds (merged from defaults + config).
-    scope_kinds: FxHashSet<String>,
     /// Known block kinds (merged from defaults + config).
     block_kinds: FxHashSet<String>,
+    /// Named scopes indexed by `(start_byte, end_byte)` for O(log n) lookup
+    /// during the tree walk. Derived from a [`ScopeDetector`] run over the
+    /// full source before the walk begins.
+    scope_map: BTreeMap<(usize, usize), NamedScope>,
 }
 
 impl<'a> AstWalker<'a> {
     /// Create a new walker for the given source, theory, and protocol.
+    ///
+    /// Runs an optional [`ScopeDetector`] over the source to build a
+    /// per-file scope map. Pass `None` to disable named-scope detection
+    /// (every non-root vertex gets a positional ID). Pass `Some(detector)`
+    /// whose [`has_query`] is `false` for the same effect; the detector
+    /// short-circuits to an empty scope list.
+    ///
+    /// [`ScopeDetector`]: crate::scope_detector::ScopeDetector
+    /// [`has_query`]: crate::scope_detector::ScopeDetector::has_query
     #[must_use]
     pub fn new(
         source: &'a [u8],
         theory_meta: &'a ExtractedTheoryMeta,
         protocol: &'a Protocol,
         config: WalkerConfig,
+        scope_detector: Option<&mut ScopeDetector>,
     ) -> Self {
-        let mut scope_kinds: FxHashSet<String> = SCOPE_INTRODUCING_KINDS
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect();
-        for kind in &config.extra_scope_kinds {
-            scope_kinds.insert(kind.clone());
-        }
-
         let mut block_kinds: FxHashSet<String> =
             BLOCK_KINDS.iter().map(|s| (*s).to_owned()).collect();
         for kind in &config.extra_block_kinds {
             block_kinds.insert(kind.clone());
+        }
+
+        let mut scope_map: BTreeMap<(usize, usize), NamedScope> = BTreeMap::new();
+        if let Some(det) = scope_detector {
+            for scope in det.scopes(source) {
+                scope_map.insert((scope.node_range.start, scope.node_range.end), scope);
+            }
         }
 
         Self {
@@ -124,8 +135,8 @@ impl<'a> AstWalker<'a> {
             theory_meta,
             protocol,
             config,
-            scope_kinds,
             block_kinds,
+            scope_map,
         }
     }
 
@@ -144,6 +155,11 @@ impl<'a> AstWalker<'a> {
         builder.build().map_err(|e| ParseError::SchemaConstruction {
             reason: e.to_string(),
         })
+    }
+
+    /// Look up a node's named-scope entry, if any.
+    fn scope_for(&self, node: tree_sitter::Node<'_>) -> Option<&NamedScope> {
+        self.scope_map.get(&(node.start_byte(), node.end_byte()))
     }
 
     /// Recursively walk a single node, emitting vertices and edges.
@@ -169,17 +185,18 @@ impl<'a> AstWalker<'a> {
                 || kind == "module"
                 || kind == "translation_unit");
 
+        let named_scope = if is_root_wrapper {
+            None
+        } else {
+            self.scope_for(node)
+        };
+
         // Determine vertex ID.
         let vertex_id = if is_root_wrapper {
             // Root wrappers get the file path as their ID.
             id_gen.current_prefix()
-        } else if self.scope_kinds.contains(kind) {
-            // Scope-introducing nodes use their name child for the ID.
-            let name = self.extract_scope_name(&node);
-            match name {
-                Some(n) => id_gen.named_id(&n),
-                None => id_gen.anonymous_id(),
-            }
+        } else if let Some(scope) = named_scope {
+            id_gen.named_id(&scope.name)
         } else {
             // All other nodes get positional IDs.
             id_gen.anonymous_id()
@@ -253,15 +270,10 @@ impl<'a> AstWalker<'a> {
         }
 
         // Enter scope if this is a scope-introducing node.
-        let entered_scope = if self.scope_kinds.contains(kind) && !is_root_wrapper {
-            match self.extract_scope_name(&node) {
-                Some(n) => id_gen.push_named_scope(&n),
-                None => {
-                    id_gen.push_anonymous_scope();
-                }
-            }
+        let entered_scope = if let Some(scope) = named_scope {
+            id_gen.push_named_scope(&scope.name);
             true
-        } else if self.block_kinds.contains(kind) {
+        } else if !is_root_wrapper && self.block_kinds.contains(kind) {
             id_gen.push_anonymous_scope();
             true
         } else {
@@ -340,18 +352,6 @@ impl<'a> AstWalker<'a> {
             }
         }
         builder
-    }
-
-    /// Extract the name of a scope-introducing node by looking for name/identifier children.
-    fn extract_scope_name(&self, node: &tree_sitter::Node<'_>) -> Option<String> {
-        for field_name in &self.config.name_fields {
-            if let Some(name_node) = node.child_by_field_name(field_name.as_bytes()) {
-                if let Ok(text) = name_node.utf8_text(self.source) {
-                    return Some(text.to_owned());
-                }
-            }
-        }
-        None
     }
 
     /// Emit formatting constraints for a node (indentation, position).
@@ -440,28 +440,37 @@ mod tests {
         }
     }
 
-    /// Helper to get a grammar Language by name from panproto-grammars.
+    /// Helper to get a grammar by name from panproto-grammars.
     #[cfg(feature = "grammars")]
-    fn get_language(name: &str) -> tree_sitter::Language {
+    fn get_grammar(name: &str) -> panproto_grammars::Grammar {
         panproto_grammars::grammars()
             .into_iter()
             .find(|g| g.name == name)
             .unwrap_or_else(|| panic!("grammar '{name}' not enabled in features"))
-            .language
     }
 
     #[test]
     #[cfg(feature = "grammars")]
     fn walk_simple_typescript() {
         let source = b"function greet(name: string): string { return name; }";
+        let grammar = get_grammar("typescript");
 
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&get_language("typescript")).unwrap();
+        parser.set_language(&grammar.language).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let protocol = make_test_protocol();
         let meta = make_test_meta();
-        let walker = AstWalker::new(source, &meta, &protocol, WalkerConfig::default());
+        let mut detector =
+            crate::scope_detector::ScopeDetector::new(&grammar.language, grammar.tags_query, None)
+                .unwrap();
+        let walker = AstWalker::new(
+            source,
+            &meta,
+            &protocol,
+            WalkerConfig::standard(),
+            Some(&mut detector),
+        );
 
         let schema = walker.walk(&tree, "test.ts").unwrap();
 
@@ -478,20 +487,47 @@ mod tests {
             schema.vertices.contains_key(&root_name),
             "missing root vertex"
         );
+
+        // When tags.scm is present, the function name should appear in a vertex ID.
+        if detector.has_query() {
+            let has_greet = schema
+                .vertices
+                .keys()
+                .any(|n| n.to_string().ends_with("::greet"));
+            assert!(
+                has_greet,
+                "expected a vertex ID ending in ::greet, got: {:?}",
+                schema
+                    .vertices
+                    .keys()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]
     #[cfg(feature = "grammars")]
     fn walk_simple_python() {
         let source = b"def add(a, b):\n    return a + b\n";
+        let grammar = get_grammar("python");
 
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&get_language("python")).unwrap();
+        parser.set_language(&grammar.language).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let protocol = make_test_protocol();
         let meta = make_test_meta();
-        let walker = AstWalker::new(source, &meta, &protocol, WalkerConfig::default());
+        let mut detector =
+            crate::scope_detector::ScopeDetector::new(&grammar.language, grammar.tags_query, None)
+                .unwrap();
+        let walker = AstWalker::new(
+            source,
+            &meta,
+            &protocol,
+            WalkerConfig::standard(),
+            Some(&mut detector),
+        );
 
         let schema = walker.walk(&tree, "test.py").unwrap();
 
@@ -500,20 +536,38 @@ mod tests {
             "expected multiple vertices, got {}",
             schema.vertices.len()
         );
+
+        if detector.has_query() {
+            let has_add = schema
+                .vertices
+                .keys()
+                .any(|n| n.to_string().ends_with("::add"));
+            assert!(has_add, "expected ::add vertex");
+        }
     }
 
     #[test]
     #[cfg(feature = "grammars")]
     fn walk_simple_rust() {
-        let source = b"fn main() { let x = 42; println!(\"{}\", x); }";
+        let source = b"fn verify_push() {}\nstruct Foo;\nimpl Foo { fn bar(&self) {} }\n";
+        let grammar = get_grammar("rust");
 
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&get_language("rust")).unwrap();
+        parser.set_language(&grammar.language).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let protocol = make_test_protocol();
         let meta = make_test_meta();
-        let walker = AstWalker::new(source, &meta, &protocol, WalkerConfig::default());
+        let mut detector =
+            crate::scope_detector::ScopeDetector::new(&grammar.language, grammar.tags_query, None)
+                .unwrap();
+        let walker = AstWalker::new(
+            source,
+            &meta,
+            &protocol,
+            WalkerConfig::standard(),
+            Some(&mut detector),
+        );
 
         let schema = walker.walk(&tree, "test.rs").unwrap();
 
@@ -522,6 +576,21 @@ mod tests {
             "expected multiple vertices, got {}",
             schema.vertices.len()
         );
+
+        if detector.has_query() {
+            let vertex_ids: Vec<String> = schema.vertices.keys().map(ToString::to_string).collect();
+
+            // Rust's function_item — the regression from issue #34 — must be
+            // detected as a named scope now.
+            assert!(
+                vertex_ids.iter().any(|id| id.ends_with("::verify_push")),
+                "expected ::verify_push named scope, got: {vertex_ids:?}"
+            );
+            assert!(
+                vertex_ids.iter().any(|id| id.ends_with("::Foo")),
+                "expected ::Foo named scope, got: {vertex_ids:?}"
+            );
+        }
     }
 
     /// Helper: parse source with a grammar, walk to Schema, emit back, compare.
@@ -539,6 +608,7 @@ mod tests {
             grammar.extensions.to_vec(),
             grammar.language,
             grammar.node_types,
+            grammar.tags_query,
             config,
         )
         .unwrap();

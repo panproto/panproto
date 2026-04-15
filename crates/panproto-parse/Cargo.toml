@@ -14,6 +14,7 @@ panproto-protocols = { workspace = true }
 panproto-grammars = { workspace = true, optional = true }
 
 tree-sitter = { workspace = true }
+tree-sitter-tags = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

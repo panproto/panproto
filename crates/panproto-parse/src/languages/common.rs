@@ -9,17 +9,21 @@
 //! 3. Language-specific [`WalkerConfig`](crate::walker::WalkerConfig) overrides
 //! 4. File extension mapping
 
+use std::sync::Mutex;
+
 use panproto_schema::{Protocol, Schema};
 
 use crate::error::ParseError;
 use crate::registry::AstParser;
+use crate::scope_detector::ScopeDetector;
 use crate::theory_extract::{ExtractedTheoryMeta, extract_theory_from_node_types};
 use crate::walker::{AstWalker, WalkerConfig};
 
 /// A generic language parser built from a tree-sitter grammar.
 ///
-/// This struct is the shared implementation behind all 10 language parsers.
-/// Each language constructs one with its specific grammar, node types, and config.
+/// This struct is the shared implementation behind all language parsers.
+/// Each language constructs one with its specific grammar, node types,
+/// tags query, and config.
 pub struct LanguageParser {
     /// The protocol name (e.g. `"typescript"`, `"python"`).
     protocol_name: String,
@@ -27,39 +31,84 @@ pub struct LanguageParser {
     extensions: Vec<&'static str>,
     /// The resolved tree-sitter language.
     language: tree_sitter::Language,
+    /// The grammar's bundled `tags.scm`, if any (for named-scope detection).
+    tags_query: Option<&'static str>,
+    /// Project-level tags-query override (concatenated in front of
+    /// `tags_query` when constructing the [`ScopeDetector`]).
+    project_tags_override: Option<String>,
     /// The auto-derived theory metadata.
     theory_meta: ExtractedTheoryMeta,
     /// The panproto protocol definition (used for `SchemaBuilder` validation).
     protocol: Protocol,
     /// Per-language walker configuration.
     walker_config: WalkerConfig,
+    /// A reusable [`ScopeDetector`] for this language.
+    ///
+    /// Held behind a `Mutex` because `parse()` on [`AstParser`] takes `&self`
+    /// but the detector's `TagsContext` (and internal `QueryCursor`) need
+    /// `&mut` access during a tags query run. A single parser instance is
+    /// typically used serially; contention here is rare.
+    scope_detector: Mutex<ScopeDetector>,
 }
 
 impl LanguageParser {
     /// Create a new language parser from a pre-constructed [`Language`](tree_sitter::Language).
     ///
+    /// `tags_query` is the grammar's `queries/tags.scm` content, usually
+    /// sourced from [`panproto_grammars::Grammar::tags_query`]; pass `None`
+    /// if the grammar does not ship one.
+    ///
     /// # Errors
     ///
-    /// Returns [`ParseError`] if theory extraction from `node_types_json` fails.
+    /// Returns [`ParseError`] if theory extraction from `node_types_json`
+    /// fails, or if the grammar's tags query fails to compile.
     pub fn from_language(
         protocol_name: &str,
         extensions: Vec<&'static str>,
         language: tree_sitter::Language,
         node_types_json: &[u8],
+        tags_query: Option<&'static str>,
         walker_config: WalkerConfig,
     ) -> Result<Self, ParseError> {
         let theory_name = format!("Th{}FullAST", capitalize_first(protocol_name));
         let theory_meta = extract_theory_from_node_types(&theory_name, node_types_json)?;
         let protocol = build_full_ast_protocol(protocol_name, &theory_name);
+        let scope_detector = ScopeDetector::new(&language, tags_query, None)?;
 
         Ok(Self {
             protocol_name: protocol_name.to_owned(),
             extensions,
             language,
+            tags_query,
+            project_tags_override: None,
             theory_meta,
             protocol,
             walker_config,
+            scope_detector: Mutex::new(scope_detector),
         })
+    }
+
+    /// Install a project-level tags-query override.
+    ///
+    /// The override string is concatenated in front of the grammar's
+    /// bundled `tags.scm` when the detector is rebuilt. Tree-sitter unions
+    /// all patterns, so overrides augment the defaults without replacing
+    /// them. Pass `None` to clear an existing override.
+    ///
+    /// Typical source: `panproto.toml`'s `[parse.tags.<lang>] path = "..."`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::ScopeQueryCompile`] if the combined query
+    /// fails to compile against this language.
+    pub fn set_tags_override(&mut self, override_query: Option<String>) -> Result<(), ParseError> {
+        let detector =
+            ScopeDetector::new(&self.language, self.tags_query, override_query.as_deref())?;
+        self.project_tags_override = override_query;
+        if let Ok(mut guard) = self.scope_detector.lock() {
+            *guard = detector;
+        }
+        Ok(())
     }
 }
 
@@ -82,12 +131,25 @@ impl AstParser for LanguageParser {
                 path: format!("{file_path}: parse returned None (timeout or cancellation)"),
             })?;
 
-        let walker = AstWalker::new(
-            source,
-            &self.theory_meta,
-            &self.protocol,
-            self.walker_config.clone(),
-        );
+        // Build the walker (which runs the tags query once via the
+        // detector) inside the guard scope, then drop the guard before
+        // walking the tree. The scope map is copied into the walker, so
+        // the detector lock is no longer needed past that point.
+        let walker = {
+            let mut detector_guard =
+                self.scope_detector
+                    .lock()
+                    .map_err(|_| ParseError::SchemaConstruction {
+                        reason: "scope-detector mutex poisoned".to_owned(),
+                    })?;
+            AstWalker::new(
+                source,
+                &self.theory_meta,
+                &self.protocol,
+                self.walker_config.clone(),
+                Some(&mut *detector_guard),
+            )
+        };
 
         walker.walk(&tree, file_path)
     }

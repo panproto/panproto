@@ -54,4 +54,16 @@ pub enum ParseError {
     /// A protocol error propagated from panproto-protocols.
     #[error(transparent)]
     Protocol(#[from] panproto_protocols::ProtocolError),
+
+    /// A tags-query failed to compile against a grammar.
+    ///
+    /// Raised when `tree-sitter-tags` rejects the grammar's `queries/tags.scm`
+    /// (or a project-level override) for structural reasons: malformed
+    /// S-expression, unknown capture name outside the tags-query vocabulary,
+    /// or regex syntax error in a `#strip!` predicate.
+    #[error("scope-detection query failed to compile: {reason}")]
+    ScopeQueryCompile {
+        /// Underlying compiler error message.
+        reason: String,
+    },
 }

@@ -142,6 +142,28 @@ def fetch_grammar(name: str, spec: dict, dry_run: bool = False) -> bool:
             for header in ts_dir.glob("*.h"):
                 shutil.copy2(header, dest_ts / header.name)
 
+        # Copy the grammar's queries/ directory (if present) into
+        # grammars/{lang}/queries/. We care primarily about tags.scm, which
+        # defines named-scope detection (@definition.function, @name, etc.),
+        # the canonical primitive consumed by GitHub code navigation, Helix,
+        # and the `tree-sitter tags` CLI. Copying the whole directory keeps
+        # highlights.scm and locals.scm available for future use.
+        queries_src = grammar_root / "queries"
+        if queries_src.is_dir():
+            dest_queries = dest.parent / "queries"
+            if dest_queries.exists():
+                shutil.rmtree(dest_queries)
+            dest_queries.mkdir(parents=True, exist_ok=True)
+            for item in queries_src.iterdir():
+                if item.is_file() and item.suffix == ".scm":
+                    shutil.copy2(item, dest_queries / item.name)
+                elif item.is_dir():
+                    # Some grammars nest queries under queries/<dialect>/;
+                    # copy one level deep and flatten .scm files we recognize.
+                    for sub in item.iterdir():
+                        if sub.is_file() and sub.suffix == ".scm":
+                            shutil.copy2(sub, dest_queries / sub.name)
+
         # Copy shared directories (common/, etc.) from repo root into the
         # grammar's src/ directory. This handles grammars like PHP where the
         # scanner includes headers from ../../common/ relative to the subdirectory.

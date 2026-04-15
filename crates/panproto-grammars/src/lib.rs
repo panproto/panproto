@@ -29,6 +29,17 @@ pub struct Grammar {
     pub language: tree_sitter::Language,
     /// Raw `node-types.json` bytes for theory extraction.
     pub node_types: &'static [u8],
+    /// The grammar's `queries/tags.scm` content, if vendored.
+    ///
+    /// This is the canonical tree-sitter primitive for named-scope detection
+    /// (GitHub code navigation, Helix, `tree-sitter tags`). Captures follow
+    /// the `@definition.{function,method,class,module,interface,type,macro}`
+    /// convention, each paired with `@name`. Consumers (e.g. `panproto-parse`
+    /// scope detection) should prefer this over hardcoded node-kind lists.
+    ///
+    /// `None` when the upstream grammar does not ship a tags query, or when
+    /// the grammar was not fetched with a tags-aware `fetch-grammars.py`.
+    pub tags_query: Option<&'static str>,
 }
 
 /// Return all grammars enabled by feature flags.
@@ -53,6 +64,7 @@ pub fn grammars() -> Vec<Grammar> {
                 extensions: e.extensions,
                 language,
                 node_types: e.node_types,
+                tags_query: e.tags_query,
             }
         })
         .collect()

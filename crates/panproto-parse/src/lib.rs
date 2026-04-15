@@ -39,6 +39,9 @@ pub mod id_scheme;
 /// Automated theory extraction from tree-sitter grammar metadata.
 pub mod theory_extract;
 
+/// Grammar-driven named-scope detection via tree-sitter `tags.scm` queries.
+pub mod scope_detector;
+
 /// Generic tree-sitter AST walker.
 pub mod walker;
 
@@ -51,5 +54,6 @@ pub mod registry;
 pub use error::ParseError;
 pub use id_scheme::IdGenerator;
 pub use registry::{AstParser, ParserRegistry};
+pub use scope_detector::{NamedScope, ScopeDetector, ScopeKind};
 pub use theory_extract::{ExtractedTheoryMeta, extract_theory_from_node_types};
 pub use walker::{AstWalker, WalkerConfig};

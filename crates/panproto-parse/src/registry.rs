@@ -74,6 +74,7 @@ impl ParserRegistry {
                 grammar.extensions.to_vec(),
                 grammar.language,
                 grammar.node_types,
+                grammar.tags_query,
                 config,
             ) {
                 Ok(p) => registry.register(Box::new(p)),
