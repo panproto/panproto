@@ -132,6 +132,7 @@ impl UnifiedCodec {
             grammar.extensions.to_vec(),
             grammar.language,
             grammar.node_types,
+            grammar.tags_query,
             config,
         )
         .unwrap_or_else(|e| panic!("failed to initialize grammar '{grammar_name}': {e}"));
