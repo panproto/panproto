@@ -1,0 +1,455 @@
+//! Domain-agnostic alias-dictionary alignment strategy.
+//!
+//! Maintains clusters of field-name synonyms that recur across protocols
+//! (e.g. `createdAt ≡ created ≡ timestamp`). Casing variants (`camelCase`,
+//! `snake_case`, kebab-case) are handled automatically via token
+//! normalization so the dictionary itself stays compact.
+//!
+//! Per the protocol-genericity principle, the built-in clusters mention
+//! **no** specific protocol. Protocol-specific cartridges may be merged
+//! in at load time by callers via [`AliasDict::extend`].
+
+use std::collections::HashMap;
+
+use panproto_schema::Schema;
+
+use super::{Anchor, StrategyTag, kinds_compatible};
+
+/// A cluster of mutually-aliased terms. All members of the same cluster
+/// are treated as interchangeable at alignment time.
+#[derive(Clone, Debug, Default)]
+pub struct AliasDict {
+    /// Canonical-form term → cluster id.
+    term_to_cluster: HashMap<String, usize>,
+    /// All clusters (each is the list of canonical terms it contains).
+    clusters: Vec<Vec<String>>,
+}
+
+impl AliasDict {
+    /// Construct an empty dictionary.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a synonym cluster. Each term is canonicalized (lowercased,
+    /// underscores/dashes stripped, camelCase flattened) before insertion.
+    pub fn add_cluster<I, S>(&mut self, cluster: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let canonical: Vec<String> = cluster
+            .into_iter()
+            .map(|s| canonical_form(s.as_ref()))
+            .filter(|s| !s.is_empty())
+            .collect();
+        if canonical.len() < 2 {
+            return;
+        }
+        let cluster_id = self.clusters.len();
+        for term in &canonical {
+            self.term_to_cluster
+                .entry(term.clone())
+                .or_insert(cluster_id);
+        }
+        self.clusters.push(canonical);
+    }
+
+    /// Merge additional clusters from another dictionary.
+    pub fn extend(&mut self, other: &Self) {
+        for cluster in &other.clusters {
+            self.add_cluster(cluster.iter().map(String::as_str));
+        }
+    }
+
+    /// Test whether two strings refer to aliased terms. Casing variants
+    /// and separator conventions are normalized out before lookup; this
+    /// function therefore also returns `true` for `camelCase`/`snake_case`
+    /// variants of the same word (`createdAt` vs `created_at`).
+    #[must_use]
+    pub fn are_aliases(&self, a: &str, b: &str) -> bool {
+        let ca = canonical_form(a);
+        let cb = canonical_form(b);
+        if ca == cb {
+            return true;
+        }
+        match (self.term_to_cluster.get(&ca), self.term_to_cluster.get(&cb)) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        }
+    }
+
+    /// Return the cluster containing `term`, if any.
+    #[must_use]
+    pub fn cluster_for(&self, term: &str) -> Option<&[String]> {
+        let canonical = canonical_form(term);
+        self.term_to_cluster
+            .get(&canonical)
+            .and_then(|id| self.clusters.get(*id).map(Vec::as_slice))
+    }
+
+    /// Number of registered clusters.
+    #[must_use]
+    pub fn cluster_count(&self) -> usize {
+        self.clusters.len()
+    }
+}
+
+/// Canonicalize `s` for dictionary lookup: lowercased, with
+/// underscores/dashes removed and camelCase boundaries flattened.
+/// `createdAt`, `created_at`, `CreatedAt`, and `created-at` all map to
+/// the same canonical form `createdat`.
+fn canonical_form(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.extend(ch.to_lowercase());
+        }
+    }
+    out
+}
+
+/// The built-in domain-agnostic alias dictionary.
+///
+/// Clusters are deliberately generic: no protocol-specific terms. Each
+/// cluster is a group of English-language field names that recur across
+/// every protocol panproto parses.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn default_alias_dict() -> AliasDict {
+    let mut dict = AliasDict::new();
+
+    // Temporal event timestamps. All flavors of "when did this thing
+    // happen" alias loosely so the CSP gets a candidate; the naturality
+    // check still has the final say. Keep distinct concepts (creation,
+    // update, sending, indexing) all in this cluster — Lenient/
+    // Exploratory rely on this to surface cross-event candidates such
+    // as post.createdAt ↔ message.sentAt.
+    dict.add_cluster([
+        "createdAt",
+        "created",
+        "creationTime",
+        "updatedAt",
+        "updated",
+        "modifiedAt",
+        "modified",
+        "lastModified",
+        "indexedAt",
+        "indexed",
+        "ingestedAt",
+        "processedAt",
+        "sentAt",
+        "sent",
+        "sendTime",
+        "postedAt",
+        "publishedAt",
+        "receivedAt",
+        "timestamp",
+        "ts",
+        "date",
+        "datetime",
+        "when",
+        "time",
+        "mtime",
+        "ctime",
+        "atime",
+    ]);
+
+    // Identity and references.
+    dict.add_cluster([
+        "id",
+        "identifier",
+        "key",
+        "uuid",
+        "guid",
+        "primary_key",
+        "pk",
+    ]);
+    dict.add_cluster([
+        "ref",
+        "reference",
+        "target",
+        "subject",
+        "object",
+        "referent",
+    ]);
+
+    // Content/body.
+    dict.add_cluster([
+        "text", "body", "content", "message", "data", "payload", "value",
+    ]);
+
+    // Naming.
+    dict.add_cluster([
+        "name",
+        "displayName",
+        "display_name",
+        "label",
+        "title",
+        "caption",
+        "heading",
+    ]);
+
+    // Description.
+    dict.add_cluster(["description", "summary", "about", "notes", "bio", "details"]);
+
+    // URI-ish.
+    dict.add_cluster([
+        "uri", "url", "link", "href", "location", "address", "endpoint",
+    ]);
+    dict.add_cluster(["hash", "digest", "checksum", "fingerprint", "cid"]);
+
+    // Quantity.
+    dict.add_cluster([
+        "count", "total", "num", "number", "n", "size", "length", "len",
+    ]);
+
+    // Status/state.
+    dict.add_cluster(["status", "state", "phase", "stage", "condition"]);
+
+    // Authorship.
+    dict.add_cluster(["author", "creator", "owner", "user", "actor", "by"]);
+
+    // Versioning.
+    dict.add_cluster(["version", "rev", "revision", "ver", "v"]);
+
+    // Tags/categories.
+    dict.add_cluster(["tags", "labels", "categories", "keywords", "topics"]);
+
+    // Boolean flags.
+    dict.add_cluster(["active", "enabled", "on"]);
+    dict.add_cluster(["deleted", "removed", "archived", "tombstoned"]);
+
+    // Ordering.
+    dict.add_cluster(["order", "rank", "position", "index", "seq", "sequence"]);
+
+    // Parent/child structure.
+    dict.add_cluster(["parent", "parentId", "parent_id", "ancestor", "up"]);
+    dict.add_cluster(["child", "children", "descendants", "items", "entries"]);
+
+    dict
+}
+
+/// Emit anchors for pairs whose outgoing-edge name sets overlap under
+/// the alias dictionary.
+///
+/// The child-name signature of a container vertex is the score key: if
+/// source vertex `s` has a prop-edge named `createdAt` and target `t`
+/// has a prop-edge named `sentAt`, and both names are in the temporal
+/// alias cluster, that counts as evidence that `s` and `t` may align.
+///
+/// For each source vertex, scores every kind-compatible target vertex by
+/// the fraction of its outgoing edge names that have an alias-matching
+/// counterpart in the target's outgoing edges. Returns all `(s, t)` pairs
+/// whose score (plus a small bonus when the vertex names themselves
+/// alias) clears `0.4`.
+#[must_use]
+pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor> {
+    let mut out = Vec::new();
+
+    for src_id in src.vertices.keys() {
+        let src_edge_names: Vec<&str> = src
+            .outgoing_edges(src_id)
+            .iter()
+            .filter_map(|e| e.name.as_deref())
+            .collect();
+
+        if src_edge_names.is_empty() {
+            // Pure leaf: we cannot score it by children. Fall back to
+            // name-level alias comparison against each candidate.
+            for tgt_id in tgt.vertices.keys() {
+                if !kinds_compatible(src, src_id, tgt, tgt_id) {
+                    continue;
+                }
+                if dict.are_aliases(src_id.as_str(), tgt_id.as_str())
+                    && src_id.as_str() != tgt_id.as_str()
+                {
+                    out.push(Anchor {
+                        src: src_id.clone(),
+                        tgt: tgt_id.clone(),
+                        confidence: 0.85,
+                        strategy: StrategyTag::Alias,
+                        explanation: format!(
+                            "alias match: {} ↔ {}",
+                            src_id.as_str(),
+                            tgt_id.as_str()
+                        ),
+                    });
+                }
+            }
+            continue;
+        }
+
+        for tgt_id in tgt.vertices.keys() {
+            if !kinds_compatible(src, src_id, tgt, tgt_id) {
+                continue;
+            }
+            let tgt_edge_names: Vec<&str> = tgt
+                .outgoing_edges(tgt_id)
+                .iter()
+                .filter_map(|e| e.name.as_deref())
+                .collect();
+            if tgt_edge_names.is_empty() {
+                continue;
+            }
+
+            let (score, matched) = alias_edge_overlap(&src_edge_names, &tgt_edge_names, dict);
+            if matched == 0 {
+                continue;
+            }
+            // Name-level bonus if the vertex names themselves alias.
+            let name_bonus = if dict.are_aliases(src_id.as_str(), tgt_id.as_str()) {
+                0.1
+            } else {
+                0.0
+            };
+            let confidence = (score + name_bonus).clamp(0.0, 1.0);
+            if confidence < 0.4 {
+                continue;
+            }
+            out.push(Anchor {
+                src: src_id.clone(),
+                tgt: tgt_id.clone(),
+                confidence,
+                strategy: StrategyTag::Alias,
+                explanation: format!(
+                    "alias-match on {matched} shared child field name(s): {} ↔ {}",
+                    src_id.as_str(),
+                    tgt_id.as_str()
+                ),
+            });
+        }
+    }
+
+    out
+}
+
+/// Jaccard-style overlap counting each source name as "matched" if some
+/// target name is its alias. Returns `(score, matched_count)`.
+fn alias_edge_overlap(src_names: &[&str], tgt_names: &[&str], dict: &AliasDict) -> (f64, usize) {
+    if src_names.is_empty() && tgt_names.is_empty() {
+        return (1.0, 0);
+    }
+    let mut matched = 0usize;
+    for s in src_names {
+        if tgt_names.iter().any(|t| dict.are_aliases(s, t)) {
+            matched += 1;
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let denom = (src_names.len().max(tgt_names.len())) as f64;
+    let score = if denom > 0.0 {
+        #[allow(clippy::cast_precision_loss)]
+        {
+            matched as f64 / denom
+        }
+    } else {
+        0.0
+    };
+    (score, matched)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::option_if_let_else)]
+mod tests {
+    use super::*;
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    fn test_protocol() -> Protocol {
+        Protocol {
+            name: "test".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        }
+    }
+
+    fn build_schema(vertices: &[(&str, &str)], edges: &[(&str, &str, &str, &str)]) -> Schema {
+        let proto = test_protocol();
+        let mut b = SchemaBuilder::new(&proto);
+        for (id, kind) in vertices {
+            b = b.vertex(id, kind, None::<&str>).unwrap();
+        }
+        for (src, tgt, kind, name) in edges {
+            b = b.edge(src, tgt, kind, Some(*name)).unwrap();
+        }
+        b.build().unwrap()
+    }
+
+    #[test]
+    fn canonical_form_normalizes_casings() {
+        assert_eq!(canonical_form("createdAt"), "createdat");
+        assert_eq!(canonical_form("created_at"), "createdat");
+        assert_eq!(canonical_form("CREATED-AT"), "createdat");
+        assert_eq!(canonical_form("Created At"), "createdat");
+    }
+
+    #[test]
+    fn are_aliases_handles_casing_without_cluster() {
+        let dict = AliasDict::new();
+        assert!(dict.are_aliases("createdAt", "created_at"));
+        assert!(dict.are_aliases("displayName", "DisplayName"));
+        assert!(!dict.are_aliases("createdAt", "sentAt"));
+    }
+
+    #[test]
+    fn default_dict_matches_temporal_aliases() {
+        let dict = default_alias_dict();
+        assert!(dict.are_aliases("createdAt", "sentAt"));
+        assert!(dict.are_aliases("createdAt", "timestamp"));
+        assert!(dict.are_aliases("indexedAt", "processedAt"));
+        assert!(!dict.are_aliases("createdAt", "text"));
+    }
+
+    #[test]
+    fn default_dict_matches_identity_aliases() {
+        let dict = default_alias_dict();
+        assert!(dict.are_aliases("id", "uuid"));
+        assert!(dict.are_aliases("ref", "target"));
+        assert!(dict.are_aliases("subject", "referent"));
+    }
+
+    #[test]
+    fn alias_anchors_link_temporally_named_leaves() {
+        // Two records whose children have alias-matching names: `createdAt`
+        // ↔ `sentAt` (temporal), `text` ↔ `body` (content).
+        let src = build_schema(
+            &[
+                ("root", "object"),
+                ("root.text", "string"),
+                ("root.createdAt", "string"),
+            ],
+            &[
+                ("root", "root.text", "prop", "text"),
+                ("root", "root.createdAt", "prop", "createdAt"),
+            ],
+        );
+        let tgt = build_schema(
+            &[
+                ("root", "object"),
+                ("root.body", "string"),
+                ("root.sentAt", "string"),
+            ],
+            &[
+                ("root", "root.body", "prop", "body"),
+                ("root", "root.sentAt", "prop", "sentAt"),
+            ],
+        );
+
+        let dict = default_alias_dict();
+        let anchors = alias_anchors(&src, &tgt, &dict);
+
+        // Root should align; its two children should each get an alias anchor too.
+        let root_anchor = anchors
+            .iter()
+            .find(|a| a.src.as_str() == "root" && a.tgt.as_str() == "root");
+        assert!(
+            root_anchor.is_some(),
+            "root↔root should anchor by shared alias-child-names"
+        );
+    }
+}

@@ -1,13 +1,24 @@
 use std::path::Path;
 
 use miette::{Context, IntoDiagnostic, Result};
+use panproto_core::lens::Stringency;
 use panproto_core::{
     gat::Name,
     inst, lens,
     schema::Schema,
     vcs::{self, Store as _},
 };
-use panproto_lens_dsl::HintSpec;
+use panproto_lens_dsl::{HintSpec, HintStringency};
+
+/// Convert a hint-DSL stringency tier into the engine's [`Stringency`].
+const fn hint_stringency_to_engine(s: HintStringency) -> Stringency {
+    match s {
+        HintStringency::Strict => Stringency::Strict,
+        HintStringency::Balanced => Stringency::Balanced,
+        HintStringency::Lenient => Stringency::Lenient,
+        HintStringency::Exploratory => Stringency::Exploratory,
+    }
+}
 
 use super::helpers::{
     auto_lens_result_to_json, chain_to_json, infer_root_vertex, load_json, open_repo,
@@ -29,6 +40,7 @@ pub fn cmd_lens_generate(
     requirements: bool,
     verbose: bool,
     hints_path: Option<&Path>,
+    stringency_arg: Option<Stringency>,
 ) -> Result<()> {
     let src_schema: Schema = load_json(old_path)?;
     let tgt_schema: Schema = load_json(new_path)?;
@@ -45,11 +57,14 @@ pub fn cmd_lens_generate(
         );
     }
 
-    let config = lens::AutoLensConfig {
+    let mut config = lens::AutoLensConfig {
         defaults: default_map,
         try_overlap,
         ..Default::default()
     };
+    if let Some(s) = stringency_arg {
+        config.stringency = s;
+    }
 
     let result = if let Some(hp) = hints_path {
         let hint_json = std::fs::read_to_string(hp)
@@ -58,6 +73,18 @@ pub fn cmd_lens_generate(
         let hint_spec: HintSpec = serde_json::from_str(&hint_json)
             .into_diagnostic()
             .wrap_err("failed to parse hints file")?;
+
+        // Hint-file stringency overrides the CLI flag only when the
+        // CLI did not pin one explicitly.
+        if stringency_arg.is_none() {
+            if let Some(s) = hint_spec.stringency {
+                config.stringency = hint_stringency_to_engine(s);
+            }
+        }
+        // Merge user-supplied alias clusters into the engine's dictionary.
+        for cluster in &hint_spec.alias_clusters {
+            config.alias_dict.add_cluster(cluster);
+        }
 
         let parts = lens::hint::HintParts {
             anchors: hint_spec.anchors.clone(),

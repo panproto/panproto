@@ -9,7 +9,24 @@ use std::sync::Arc;
 
 use pyo3::prelude::*;
 
-use panproto_core::lens::{self, AutoLensConfig, Complement, Lens};
+use panproto_core::lens::{self, AutoLensConfig, Complement, Lens, Stringency};
+
+/// Parse a Python-side stringency string into the engine [`Stringency`].
+///
+/// Accepts `"strict" | "balanced" | "lenient" | "exploratory"`
+/// (case-insensitive). `None` keeps the engine's default.
+fn parse_stringency(s: Option<&str>) -> PyResult<Option<Stringency>> {
+    match s.map(str::to_ascii_lowercase).as_deref() {
+        None => Ok(None),
+        Some("strict") => Ok(Some(Stringency::Strict)),
+        Some("balanced") => Ok(Some(Stringency::Balanced)),
+        Some("lenient") => Ok(Some(Stringency::Lenient)),
+        Some("exploratory") => Ok(Some(Stringency::Exploratory)),
+        Some(other) => Err(crate::error::LensError::new_err(format!(
+            "unknown stringency '{other}'; expected one of strict, balanced, lenient, exploratory"
+        ))),
+    }
+}
 
 use crate::convert;
 use crate::inst::PyInstance;
@@ -148,8 +165,10 @@ impl PyLens {
 
 /// Auto-generate a lens between two schemas.
 ///
-/// Uses hom-search to find the best morphism, factorizes it into
-/// elementary protolens steps, and instantiates the chain.
+/// Runs the alignment strategies enabled by ``stringency`` (alias
+/// dictionary, token similarity, etc.), seeds the CSP solver, and
+/// returns the best validated morphism along with its alignment
+/// quality score in ``[0.0, 1.0]``.
 ///
 /// Parameters
 /// ----------
@@ -159,18 +178,27 @@ impl PyLens {
 ///     Target schema.
 /// protocol : Protocol
 ///     Protocol for the schemas.
+/// stringency : str, optional
+///     One of ``"strict"``, ``"balanced"``, ``"lenient"``,
+///     ``"exploratory"`` (case-insensitive). Defaults to ``"balanced"``
+///     when unspecified.
 ///
 /// Returns
 /// -------
 /// tuple[Lens, float]
 ///     The generated lens and the alignment quality score (0.0 to 1.0).
 #[pyfunction]
+#[pyo3(signature = (src_schema, tgt_schema, protocol, stringency=None))]
 pub fn auto_generate_lens(
     src_schema: &PySchema,
     tgt_schema: &PySchema,
     protocol: &PyProtocol,
+    stringency: Option<&str>,
 ) -> PyResult<(PyLens, f64)> {
-    let config = AutoLensConfig::default();
+    let mut config = AutoLensConfig::default();
+    if let Some(s) = parse_stringency(stringency)? {
+        config.stringency = s;
+    }
     let result = lens::auto_generate(
         &src_schema.inner,
         &tgt_schema.inner,
@@ -202,12 +230,17 @@ pub struct PyProtolensChain {
 impl PyProtolensChain {
     /// Auto-generate a protolens chain between two schemas.
     #[staticmethod]
+    #[pyo3(signature = (src_schema, tgt_schema, protocol, stringency=None))]
     fn auto_generate(
         src_schema: &PySchema,
         tgt_schema: &PySchema,
         protocol: &PyProtocol,
+        stringency: Option<&str>,
     ) -> PyResult<Self> {
-        let config = AutoLensConfig::default();
+        let mut config = AutoLensConfig::default();
+        if let Some(s) = parse_stringency(stringency)? {
+            config.stringency = s;
+        }
         let result = lens::auto_generate(
             &src_schema.inner,
             &tgt_schema.inner,
@@ -222,12 +255,14 @@ impl PyProtolensChain {
 
     /// Auto-generate with morphism hints (vertex correspondences).
     #[staticmethod]
+    #[pyo3(signature = (src_schema, tgt_schema, protocol, hints, stringency=None))]
     #[allow(clippy::needless_pass_by_value)]
     fn auto_generate_with_hints(
         src_schema: &PySchema,
         tgt_schema: &PySchema,
         protocol: &PyProtocol,
         hints: std::collections::HashMap<String, String>,
+        stringency: Option<&str>,
     ) -> PyResult<Self> {
         use panproto_core::gat::Name;
 
@@ -235,7 +270,7 @@ impl PyProtolensChain {
         for (src, tgt) in &hints {
             initial.insert(Name::from(src.as_str()), Name::from(tgt.as_str()));
         }
-        let config = AutoLensConfig {
+        let mut config = AutoLensConfig {
             try_overlap: true,
             search_opts: panproto_core::mig::hom_search::SearchOptions {
                 initial,
@@ -243,6 +278,9 @@ impl PyProtolensChain {
             },
             ..Default::default()
         };
+        if let Some(s) = parse_stringency(stringency)? {
+            config.stringency = s;
+        }
         let result = lens::auto_generate(
             &src_schema.inner,
             &tgt_schema.inner,
@@ -287,10 +325,21 @@ impl PyProtolensChain {
         let (derived, domain_constraints) =
             lens::hint::resolve_hints(&parts, &src_schema.inner, &tgt_schema.inner);
 
-        let config = AutoLensConfig {
+        let mut config = AutoLensConfig {
             try_overlap: true,
             ..Default::default()
         };
+        if let Some(s) = hint_spec.stringency {
+            config.stringency = match s {
+                panproto_lens_dsl::HintStringency::Strict => Stringency::Strict,
+                panproto_lens_dsl::HintStringency::Balanced => Stringency::Balanced,
+                panproto_lens_dsl::HintStringency::Lenient => Stringency::Lenient,
+                panproto_lens_dsl::HintStringency::Exploratory => Stringency::Exploratory,
+            };
+        }
+        for cluster in &hint_spec.alias_clusters {
+            config.alias_dict.add_cluster(cluster);
+        }
 
         let result = lens::auto_generate_with_hints(
             &src_schema.inner,

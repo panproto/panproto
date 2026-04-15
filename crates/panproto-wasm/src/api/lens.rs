@@ -5,7 +5,7 @@
 use panproto_core::{
     gat::{self},
     inst::{self, WInstance},
-    lens::{self},
+    lens::{self, Stringency},
     mig::{self, Migration},
 };
 
@@ -19,11 +19,33 @@ use super::helpers::{
     build_chain_from_step_spec, default_protocol, extract_migration_owned, lookup_builtin_protocol,
 };
 
+/// Map a JS-side stringency string into the engine [`Stringency`].
+///
+/// Accepts `"strict" | "balanced" | "lenient" | "exploratory"`
+/// (case-insensitive) or empty/unset (returns the default).
+fn parse_stringency(raw: Option<&str>) -> Result<Option<Stringency>, JsError> {
+    let trimmed = raw.map(str::trim).filter(|s| !s.is_empty());
+    match trimmed.map(str::to_ascii_lowercase).as_deref() {
+        None => Ok(None),
+        Some("strict") => Ok(Some(Stringency::Strict)),
+        Some("balanced") => Ok(Some(Stringency::Balanced)),
+        Some("lenient") => Ok(Some(Stringency::Lenient)),
+        Some("exploratory") => Ok(Some(Stringency::Exploratory)),
+        Some(other) => Err(JsError::new(&format!(
+            "unknown stringency '{other}'; expected strict, balanced, lenient, or exploratory"
+        ))),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Phase 3: Lens & migration enhancements
 // ---------------------------------------------------------------------------
 
 /// Auto-generate a protolens chain between two schemas.
+///
+/// `stringency` selects which alignment strategies run (one of
+/// `"strict" | "balanced" | "lenient" | "exploratory"`; empty/unset
+/// uses the default).
 ///
 /// Returns a handle to the `ProtolensChain` resource.
 ///
@@ -32,7 +54,12 @@ use super::helpers::{
 /// Returns `JsError` if schema handles are invalid, no morphism is
 /// found, or protolens generation fails.
 #[wasm_bindgen]
-pub fn auto_generate_protolens(schema1: u32, schema2: u32) -> Result<u32, JsError> {
+#[allow(clippy::needless_pass_by_value)]
+pub fn auto_generate_protolens(
+    schema1: u32,
+    schema2: u32,
+    stringency: Option<String>,
+) -> Result<u32, JsError> {
     let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
 
@@ -40,7 +67,10 @@ pub fn auto_generate_protolens(schema1: u32, schema2: u32) -> Result<u32, JsErro
     let protocol =
         lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
 
-    let config = lens::AutoLensConfig::default();
+    let mut config = lens::AutoLensConfig::default();
+    if let Some(s) = parse_stringency(stringency.as_deref())? {
+        config.stringency = s;
+    }
     let result = lens::auto_generate(&src, &tgt, &protocol, &config).map_err(|e| {
         WasmError::LensConstructionFailed {
             reason: e.to_string(),
@@ -752,10 +782,12 @@ pub fn protolens_pipeline(steps_bytes: &[u8]) -> Result<u32, JsError> {
 ///
 /// Returns `JsError` if no morphism is found even with hints.
 #[wasm_bindgen]
+#[allow(clippy::needless_pass_by_value)]
 pub fn auto_generate_protolens_with_hints(
     schema1: u32,
     schema2: u32,
     hints_bytes: &[u8],
+    stringency: Option<String>,
 ) -> Result<u32, JsError> {
     let hints: std::collections::HashMap<String, String> = rmp_serde::from_slice(hints_bytes)
         .map_err(|e| WasmError::DeserializationFailed {
@@ -771,7 +803,7 @@ pub fn auto_generate_protolens_with_hints(
     for (src, tgt) in &hints {
         initial.insert(gat::Name::from(src.as_str()), gat::Name::from(tgt.as_str()));
     }
-    let config = lens::auto_lens::AutoLensConfig {
+    let mut config = lens::auto_lens::AutoLensConfig {
         try_overlap: true,
         search_opts: panproto_core::mig::hom_search::SearchOptions {
             initial,
@@ -779,6 +811,9 @@ pub fn auto_generate_protolens_with_hints(
         },
         ..Default::default()
     };
+    if let Some(s) = parse_stringency(stringency.as_deref())? {
+        config.stringency = s;
+    }
 
     let result = lens::auto_lens::auto_generate(&s1, &s2, &protocol, &config).map_err(|e| {
         WasmError::LensConstructionFailed {
@@ -825,10 +860,21 @@ pub fn auto_generate_protolens_with_hint_spec(
     };
     let (derived, domain_constraints) = lens::hint::resolve_hints(&parts, &s1, &s2);
 
-    let config = lens::auto_lens::AutoLensConfig {
+    let mut config = lens::auto_lens::AutoLensConfig {
         try_overlap: true,
         ..Default::default()
     };
+    if let Some(s) = hint_spec.stringency {
+        config.stringency = match s {
+            panproto_lens_dsl::HintStringency::Strict => Stringency::Strict,
+            panproto_lens_dsl::HintStringency::Balanced => Stringency::Balanced,
+            panproto_lens_dsl::HintStringency::Lenient => Stringency::Lenient,
+            panproto_lens_dsl::HintStringency::Exploratory => Stringency::Exploratory,
+        };
+    }
+    for cluster in &hint_spec.alias_clusters {
+        config.alias_dict.add_cluster(cluster);
+    }
 
     let result = lens::auto_lens::auto_generate_with_hints(
         &s1,

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use panproto_gat::{Name, Theory, TheoryEndofunctor, TheoryMorphism, TheoryTransform, factorize};
 use panproto_inst::value::Value;
+use panproto_mig::align::{self, AliasDict, Anchor, default_alias_dict};
 use panproto_mig::hom_search::{
     DomainConstraints, FoundMorphism, SearchOptions, find_best_morphism,
     find_best_morphism_constrained,
@@ -19,6 +20,75 @@ use crate::Lens;
 use crate::error::LensError;
 use crate::protolens::{Protolens, ProtolensChain, elementary};
 
+/// Stringency tier controlling which alignment strategies run and how
+/// permissively the CSP solver searches.
+///
+/// Higher tiers form a superset of lower-tier behaviors; nothing
+/// available at `Strict` is suppressed at `Exploratory`. Each tier
+/// preserves categorical soundness: the CSP still validates naturality
+/// for every emitted morphism.
+///
+/// * **`Strict`** — only kind-exact name equality is consulted; the
+///   solver enforces hard edge-name overlap pruning. Returns either a
+///   total theory morphism or no result.
+/// * **`Balanced`** — runs the alias dictionary and a tight
+///   token-similarity threshold on top of `Strict`'s priors; relaxes
+///   the edge-name pruning to a soft preference.
+/// * **`Lenient`** — opens the search to spans `A ←f− C −g→ B` over a
+///   maximal common subtheory `C`, loosens the token-similarity
+///   threshold, and engages structural matching.
+/// * **`Exploratory`** — additionally admits lossy retraction witnesses
+///   for sort coercion and language-model-proposed alignments
+///   (feature-gated). Candidates are still validated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stringency {
+    /// Hard kind-exact, edge-name-pruned CSP search; total morphism only.
+    Strict,
+    /// Adds alias dictionary and tight token-similarity priors.
+    #[default]
+    Balanced,
+    /// Adds span-search over maximal common subtheories and structural priors.
+    Lenient,
+    /// Adds lossy retraction witnesses and LM-proposed alignments.
+    Exploratory,
+}
+
+impl Stringency {
+    /// Whether token-similarity priors are consulted at this tier.
+    #[must_use]
+    pub const fn uses_token_similarity(self) -> bool {
+        !matches!(self, Self::Strict)
+    }
+
+    /// Whether the alias dictionary is consulted at this tier.
+    #[must_use]
+    pub const fn uses_alias_dict(self) -> bool {
+        !matches!(self, Self::Strict)
+    }
+
+    /// Token-similarity acceptance threshold at this tier. Lower values
+    /// admit weaker matches as anchor candidates; the CSP still validates.
+    #[must_use]
+    pub const fn token_similarity_threshold(self) -> f64 {
+        match self {
+            Self::Strict => 1.0,
+            Self::Balanced => 0.75,
+            Self::Lenient => 0.55,
+            Self::Exploratory => 0.40,
+        }
+    }
+
+    /// Whether the CSP should relax its hard edge-name overlap pruning
+    /// at this tier. When `true`, kind-compatible candidates are kept
+    /// even when they share no edge names with the source vertex; when
+    /// `false`, the pruner runs as in the `Strict` baseline.
+    #[must_use]
+    pub const fn relax_edge_name_pruning(self) -> bool {
+        !matches!(self, Self::Strict)
+    }
+}
+
 /// Result of automatic protolens generation.
 pub struct AutoLensResult {
     /// The protolens chain (schema-independent, reusable).
@@ -27,10 +97,13 @@ pub struct AutoLensResult {
     pub lens: Lens,
     /// Quality score of the morphism alignment (0.0 to 1.0).
     pub alignment_quality: f64,
+    /// Anchors that the alignment strategies seeded into the CSP
+    /// before the morphism search ran. Useful for explanations.
+    pub seed_anchors: Vec<Anchor>,
 }
 
 /// Configuration for automatic lens generation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AutoLensConfig {
     /// User-provided default values for new sorts.
     pub defaults: HashMap<Name, Value>,
@@ -38,18 +111,84 @@ pub struct AutoLensConfig {
     pub search_opts: SearchOptions,
     /// Whether to attempt overlap-based alignment when direct morphism fails.
     pub try_overlap: bool,
+    /// Stringency tier governing which alignment strategies run and how
+    /// permissively the CSP searches.
+    pub stringency: Stringency,
+    /// Alias dictionary consulted by the alias strategy. Defaults to the
+    /// built-in domain-agnostic dictionary; callers may extend it with
+    /// protocol-specific cartridges.
+    pub alias_dict: AliasDict,
+}
+
+impl Default for AutoLensConfig {
+    fn default() -> Self {
+        Self {
+            defaults: HashMap::new(),
+            search_opts: SearchOptions::default(),
+            try_overlap: false,
+            stringency: Stringency::default(),
+            alias_dict: default_alias_dict(),
+        }
+    }
+}
+
+/// Run the alignment strategies enabled by `config.stringency`, returning
+/// the raw anchor proposals. Strategies are listed in priority order;
+/// `resolve_anchors` later picks a single target per source vertex,
+/// preferring higher-confidence and higher-priority anchors.
+///
+/// User-supplied anchors (`config.search_opts.initial`) are not consulted
+/// here; callers merge them in on top of the strategy output.
+fn run_strategies(src: &Schema, tgt: &Schema, config: &AutoLensConfig) -> Vec<Anchor> {
+    let mut anchors = Vec::new();
+
+    // Exact name equality is consulted at every tier.
+    anchors.extend(align::exact_anchors(src, tgt));
+
+    if config.stringency.uses_alias_dict() {
+        anchors.extend(align::alias_anchors(src, tgt, &config.alias_dict));
+    }
+
+    if config.stringency.uses_token_similarity() {
+        let threshold = config.stringency.token_similarity_threshold();
+        anchors.extend(align::token_anchors(src, tgt, threshold));
+    }
+
+    anchors
+}
+
+/// Merge `additional` (source → target name pairs) into `opts.initial`
+/// without overwriting any existing entry.
+fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>) {
+    for (s, t) in additional {
+        opts.initial.entry(s.clone()).or_insert_with(|| t.clone());
+    }
+}
+
+/// Set `opts.relax_edge_name_pruning` according to `stringency`. The
+/// caller's explicit `true` is preserved if already set.
+const fn apply_stringency_search_opts(opts: &mut SearchOptions, stringency: Stringency) {
+    if stringency.relax_edge_name_pruning() {
+        opts.relax_edge_name_pruning = true;
+    }
 }
 
 /// Generate a protolens chain and concrete lens from two schemas.
 ///
 /// # Pipeline
 ///
-/// 1. Discover the best morphism alignment between `src` and `tgt`.
-/// 2. Convert the alignment to a GAT-level `TheoryMorphism`.
-/// 3. Factorize the morphism into elementary endofunctors.
-/// 4. Map each endofunctor to an elementary `Protolens`.
-/// 5. Compose into a `ProtolensChain`.
-/// 6. Instantiate the chain at `src` to produce a concrete `Lens`.
+/// 1. Run alignment strategies enabled by [`AutoLensConfig::stringency`]
+///    over `(src, tgt)`, producing candidate anchors.
+/// 2. Resolve anchors into a single seed map (higher-priority strategies
+///    win conflicts) and merge into [`SearchOptions::initial`].
+/// 3. Run the CSP-based morphism search; the CSP enforces naturality on
+///    every candidate seed, so heuristic priors cannot produce an invalid
+///    morphism.
+/// 4. If `config.try_overlap` is set and the result is missing or below
+///    the quality floor, retry with overlap-derived seeds.
+/// 5. Convert the alignment to a GAT-level `TheoryMorphism`, factorize
+///    into elementary endofunctors, map each to an elementary `Protolens`,
+///    compose into a `ProtolensChain`, and instantiate at `src`.
 ///
 /// # Errors
 ///
@@ -61,24 +200,63 @@ pub fn auto_generate(
     protocol: &Protocol,
     config: &AutoLensConfig,
 ) -> Result<AutoLensResult, LensError> {
-    // Step 1: Find best morphism alignment
-    let mut alignment = find_best_morphism(src, tgt, &config.search_opts);
+    let seed_anchors = run_strategies(src, tgt, config);
+    let resolved = align::resolve_anchors(&seed_anchors, config.search_opts.monic);
 
-    // Step 1b: Overlap fallback: if direct morphism has low quality or
-    // fails, try overlap-based alignment when configured.
+    let mut search_opts = config.search_opts.clone();
+    apply_stringency_search_opts(&mut search_opts, config.stringency);
+    merge_seed_anchors(&mut search_opts, &resolved);
+
+    let result = run_search(src, tgt, protocol, config, &search_opts, None)?;
+
+    Ok(AutoLensResult {
+        chain: result.chain,
+        lens: result.lens,
+        alignment_quality: result.alignment_quality,
+        seed_anchors,
+    })
+}
+
+struct SearchResult {
+    chain: ProtolensChain,
+    lens: Lens,
+    alignment_quality: f64,
+}
+
+/// Shared CSP-search/factorize/instantiate pipeline. `domain_constraints`
+/// is consulted only when `Some`; otherwise the unconstrained
+/// [`find_best_morphism`] is used.
+fn run_search(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    config: &AutoLensConfig,
+    search_opts: &SearchOptions,
+    domain_constraints: Option<&DomainConstraints>,
+) -> Result<SearchResult, LensError> {
+    let search = |opts: &SearchOptions| -> Option<FoundMorphism> {
+        domain_constraints.map_or_else(
+            || find_best_morphism(src, tgt, opts),
+            |dc| find_best_morphism_constrained(src, tgt, opts, dc),
+        )
+    };
+
+    let mut alignment = search(search_opts);
+
+    let quality_floor = 0.5;
     if config.try_overlap {
-        let should_try_overlap = alignment.as_ref().is_none_or(|a| a.quality < 0.5);
+        let should_try_overlap = alignment.as_ref().is_none_or(|a| a.quality < quality_floor);
         if should_try_overlap {
             let overlap = panproto_mig::discover_overlap(src, tgt);
             if !overlap.vertex_pairs.is_empty() {
-                // Use the overlap as initial hints for a constrained search
-                let mut constrained_opts = config.search_opts.clone();
+                let mut overlap_opts = search_opts.clone();
                 for (src_id, tgt_id) in &overlap.vertex_pairs {
-                    constrained_opts
+                    overlap_opts
                         .initial
-                        .insert(src_id.clone(), tgt_id.clone());
+                        .entry(src_id.clone())
+                        .or_insert_with(|| tgt_id.clone());
                 }
-                if let Some(oa) = find_best_morphism(src, tgt, &constrained_opts) {
+                if let Some(oa) = search(&overlap_opts) {
                     let is_better = alignment.as_ref().is_none_or(|a| oa.quality > a.quality);
                     if is_better {
                         alignment = Some(oa);
@@ -92,18 +270,12 @@ pub fn auto_generate(
         .ok_or_else(|| LensError::ProtolensError("no morphism found between schemas".into()))?;
 
     let quality = alignment.quality;
-
-    // Step 2: Build protolens chain from alignment
     let chain = protolens_from_alignment(&alignment, src, tgt)?;
-
-    // Step 3: Instantiate at source schema
     let mut lens = chain.instantiate(src, protocol)?;
-
-    // Step 4: Derive field transforms from the protolens chain
     let field_transforms = derive_field_transforms(&chain, src, tgt);
     lens.compiled.field_transforms = field_transforms;
 
-    Ok(AutoLensResult {
+    Ok(SearchResult {
         chain,
         lens,
         alignment_quality: quality,
@@ -112,17 +284,18 @@ pub fn auto_generate(
 
 /// Auto-generate with hint-guided constraint propagation.
 ///
-/// Runs the constrained morphism search using pre-derived anchors and
-/// domain constraints. Falls back to overlap alignment when configured
-/// and quality is below threshold.
+/// User-supplied `anchors` and `domain_constraints` are layered on top of
+/// the alignment strategies enabled by `config.stringency`. User anchors
+/// take precedence over heuristic anchors; the latter only fill in
+/// source vertices the user did not pin.
 ///
 /// # Parameters
 ///
-/// - `anchors`: derived vertex name mappings (source → target), merged
-///   into `config.search_opts.initial`
-/// - `domain_constraints`: domain restrictions and scoring overrides
+/// - `anchors`: user-supplied / hint-derived vertex name mappings
+///   (source → target). These pin assignments before the CSP runs.
+/// - `domain_constraints`: domain restrictions and scoring overrides.
 /// - `quality_threshold`: minimum quality before trying overlap fallback
-///   (default: 0.5)
+///   (default: 0.5).
 ///
 /// # Errors
 ///
@@ -136,53 +309,48 @@ pub fn auto_generate_with_hints(
     domain_constraints: &DomainConstraints,
     quality_threshold: Option<f64>,
 ) -> Result<AutoLensResult, LensError> {
-    let threshold = quality_threshold.unwrap_or(0.5);
+    let _ = quality_threshold; // overlap floor is fixed at 0.5 inside `run_search`
+
+    let strategy_anchors = run_strategies(src, tgt, config);
+    let resolved_strategy = align::resolve_anchors(&strategy_anchors, config.search_opts.monic);
 
     let mut search_opts = config.search_opts.clone();
+    apply_stringency_search_opts(&mut search_opts, config.stringency);
+    // User hints first (highest priority).
     for (src_v, tgt_v) in anchors {
         search_opts.initial.insert(src_v.clone(), tgt_v.clone());
     }
+    // Strategy anchors fill in the rest without overwriting.
+    merge_seed_anchors(&mut search_opts, &resolved_strategy);
 
-    // Step 1: Constrained morphism search
-    let mut alignment = find_best_morphism_constrained(src, tgt, &search_opts, domain_constraints);
+    let result = run_search(
+        src,
+        tgt,
+        protocol,
+        config,
+        &search_opts,
+        Some(domain_constraints),
+    )?;
 
-    // Step 1b: Overlap fallback
-    if config.try_overlap {
-        let should_try_overlap = alignment.as_ref().is_none_or(|a| a.quality < threshold);
-        if should_try_overlap {
-            let overlap = panproto_mig::discover_overlap(src, tgt);
-            if !overlap.vertex_pairs.is_empty() {
-                let mut constrained_opts = search_opts.clone();
-                for (src_id, tgt_id) in &overlap.vertex_pairs {
-                    constrained_opts
-                        .initial
-                        .insert(src_id.clone(), tgt_id.clone());
-                }
-                if let Some(oa) =
-                    find_best_morphism_constrained(src, tgt, &constrained_opts, domain_constraints)
-                {
-                    let is_better = alignment.as_ref().is_none_or(|a| oa.quality > a.quality);
-                    if is_better {
-                        alignment = Some(oa);
-                    }
-                }
-            }
-        }
+    // Combine user anchors (as `UserHint`-tagged anchors) with the
+    // strategy proposals so that downstream callers see the full set.
+    let mut combined = Vec::with_capacity(strategy_anchors.len() + anchors.len());
+    for (src_v, tgt_v) in anchors {
+        combined.push(Anchor {
+            src: src_v.clone(),
+            tgt: tgt_v.clone(),
+            confidence: 1.0,
+            strategy: align::StrategyTag::UserHint,
+            explanation: format!("user hint: {} ↔ {}", src_v.as_str(), tgt_v.as_str()),
+        });
     }
-
-    let alignment = alignment
-        .ok_or_else(|| LensError::ProtolensError("no morphism found between schemas".into()))?;
-
-    let quality = alignment.quality;
-    let chain = protolens_from_alignment(&alignment, src, tgt)?;
-    let mut lens = chain.instantiate(src, protocol)?;
-    let field_transforms = derive_field_transforms(&chain, src, tgt);
-    lens.compiled.field_transforms = field_transforms;
+    combined.extend(strategy_anchors);
 
     Ok(AutoLensResult {
-        chain,
-        lens,
-        alignment_quality: quality,
+        chain: result.chain,
+        lens: result.lens,
+        alignment_quality: result.alignment_quality,
+        seed_anchors: combined,
     })
 }
 
@@ -501,6 +669,105 @@ mod tests {
             .unwrap()
             .build()
             .unwrap()
+    }
+
+    fn schema_post_with_created(protocol: &Protocol) -> Schema {
+        SchemaBuilder::new(protocol)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.text", "string", None::<&str>)
+            .unwrap()
+            .vertex("post.createdAt", "string", None::<&str>)
+            .unwrap()
+            .edge("post", "post.text", "prop", Some("text"))
+            .unwrap()
+            .edge("post", "post.createdAt", "prop", Some("createdAt"))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    fn schema_message_with_sent(protocol: &Protocol) -> Schema {
+        SchemaBuilder::new(protocol)
+            .vertex("message", "record", None::<&str>)
+            .unwrap()
+            .vertex("message.body", "string", None::<&str>)
+            .unwrap()
+            .vertex("message.sentAt", "string", None::<&str>)
+            .unwrap()
+            .edge("message", "message.body", "prop", Some("body"))
+            .unwrap()
+            .edge("message", "message.sentAt", "prop", Some("sentAt"))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn balanced_finds_alias_aligned_morphism_when_strict_cannot() {
+        // Two record schemas with no shared vertex names and no shared
+        // child field names. Strict cannot pair them. Balanced uses the
+        // alias dictionary (text↔body, createdAt↔sentAt) to seed anchors,
+        // and the CSP validates a morphism on the resulting alignment.
+        let protocol = test_protocol();
+        let src = schema_post_with_created(&protocol);
+        let tgt = schema_message_with_sent(&protocol);
+
+        let strict = AutoLensConfig {
+            stringency: Stringency::Strict,
+            ..Default::default()
+        };
+        let strict_result = auto_generate(&src, &tgt, &protocol, &strict);
+
+        let balanced = AutoLensConfig {
+            stringency: Stringency::Balanced,
+            ..Default::default()
+        };
+        let balanced_result = auto_generate(&src, &tgt, &protocol, &balanced).unwrap();
+
+        // Strict cannot find a useful morphism. Balanced does.
+        assert!(
+            balanced_result.alignment_quality > 0.0,
+            "Balanced should find a non-trivial alignment"
+        );
+        // Confirm that Balanced's seed anchors include the alias-driven pairs.
+        let names: Vec<(String, String)> = balanced_result
+            .seed_anchors
+            .iter()
+            .map(|a| (a.src.as_str().to_owned(), a.tgt.as_str().to_owned()))
+            .collect();
+        assert!(
+            names.iter().any(|(s, t)| s == "post" && t == "message"),
+            "alias strategy should seed post ↔ message anchor; got {names:?}"
+        );
+
+        // Strict, lacking heuristics, gets either no alignment or a trivial one.
+        if let Ok(r) = strict_result {
+            assert!(
+                r.alignment_quality <= balanced_result.alignment_quality,
+                "Strict should not outperform Balanced on this case"
+            );
+        }
+    }
+
+    #[test]
+    fn stringency_thresholds_form_monotone_ladder() {
+        assert!(
+            Stringency::Strict.token_similarity_threshold()
+                >= Stringency::Balanced.token_similarity_threshold()
+        );
+        assert!(
+            Stringency::Balanced.token_similarity_threshold()
+                >= Stringency::Lenient.token_similarity_threshold()
+        );
+        assert!(
+            Stringency::Lenient.token_similarity_threshold()
+                >= Stringency::Exploratory.token_similarity_threshold()
+        );
+        assert!(!Stringency::Strict.uses_alias_dict());
+        assert!(Stringency::Balanced.uses_alias_dict());
+        assert!(Stringency::Lenient.uses_alias_dict());
+        assert!(Stringency::Exploratory.uses_alias_dict());
     }
 
     #[test]

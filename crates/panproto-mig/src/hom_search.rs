@@ -22,6 +22,7 @@ use panproto_schema::{Edge, Schema};
 
 /// Options controlling the homomorphism search.
 #[derive(Clone, Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SearchOptions {
     /// Require injective vertex map (no two source vertices map to
     /// the same target vertex).
@@ -35,6 +36,12 @@ pub struct SearchOptions {
     /// Pre-assigned vertex mappings. The search extends this partial
     /// morphism to a total one.
     pub initial: HashMap<Name, Name>,
+    /// When `true`, the CSP relaxes its hard edge-name overlap pruning
+    /// for object vertices with large candidate domains. Kind-compatible
+    /// targets are kept even when they share no outgoing edge name with
+    /// the source vertex. Naturality is still enforced during
+    /// backtracking.
+    pub relax_edge_name_pruning: bool,
 }
 
 /// Additional domain restrictions and scoring overrides for the CSP solver.
@@ -242,8 +249,12 @@ impl<'a> BacktrackState<'a> {
                     // Property-name domain pruning: for "object" vertices with
                     // large domains, restrict to targets sharing ≥1 edge name.
                     // This anchors alignment on shared structure (e.g., both
-                    // have byteStart/byteEnd children).
-                    if candidates.len() > 5 {
+                    // have byteStart/byteEnd children). Skipped when
+                    // `relax_edge_name_pruning` is set: callers who supplied
+                    // alias/token-similarity anchors don't want the CSP
+                    // pruning out kind-compatible candidates that the
+                    // strategies seeded.
+                    if candidates.len() > 5 && !opts.relax_edge_name_pruning {
                         let src_edge_names: std::collections::HashSet<&str> = src
                             .outgoing_edges(src_id)
                             .iter()

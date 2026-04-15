@@ -50,7 +50,9 @@ pub mod symmetric;
 
 // Re-exports for convenience.
 pub use asymmetric::{Complement, get, put};
-pub use auto_lens::{AutoLensConfig, AutoLensResult, auto_generate, auto_generate_with_hints};
+pub use auto_lens::{
+    AutoLensConfig, AutoLensResult, Stringency, auto_generate, auto_generate_with_hints,
+};
 pub use complement_type::{
     CapturedField, ComplementKind, ComplementSpec, DefaultRequirement, chain_complement_spec,
     complement_spec_at,

@@ -28,6 +28,7 @@
 // Allow concrete HashMap/HashSet in public API signatures per ENGINEERING.md spec.
 #![allow(clippy::implicit_hasher)]
 
+pub mod align;
 pub mod cascade;
 pub mod chase;
 pub mod compile;
@@ -59,3 +60,8 @@ pub use invert::invert;
 pub use lift::{lift_functor, lift_functor_pi, lift_wtype, lift_wtype_pi, lift_wtype_sigma};
 pub use migration::Migration;
 pub use overlap::discover_overlap;
+
+pub use align::{
+    AliasDict, Anchor, StrategyTag, alias_anchors, default_alias_dict, exact_anchors,
+    resolve_anchors, token_anchors, token_similarity,
+};

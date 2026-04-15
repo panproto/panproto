@@ -17,8 +17,34 @@ mod format;
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use miette::Result;
+use panproto_core::lens::Stringency;
+
+/// CLI-friendly mirror of [`Stringency`] for `clap` argument parsing.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "snake_case")]
+pub enum StringencyArg {
+    /// Kind-exact, edge-name-pruned CSP search; total morphism only.
+    Strict,
+    /// Adds alias dictionary and tight token-similarity priors (default).
+    Balanced,
+    /// Adds span-search and structural priors.
+    Lenient,
+    /// Adds lossy retraction witnesses and LM-proposed alignments.
+    Exploratory,
+}
+
+impl From<StringencyArg> for Stringency {
+    fn from(arg: StringencyArg) -> Self {
+        match arg {
+            StringencyArg::Strict => Self::Strict,
+            StringencyArg::Balanced => Self::Balanced,
+            StringencyArg::Lenient => Self::Lenient,
+            StringencyArg::Exploratory => Self::Exploratory,
+        }
+    }
+}
 
 /// The panproto command-line tool for schema migration and version control.
 #[derive(Parser, Debug)]
@@ -896,6 +922,14 @@ enum LensAction {
         /// Path to a JSON hints file for guided auto-lens generation.
         #[arg(long)]
         hints: Option<PathBuf>,
+        /// Stringency tier governing which alignment strategies run.
+        ///
+        /// `strict` — only kind-exact name equality.
+        /// `balanced` — alias dictionary + tight token similarity (default).
+        /// `lenient` — span-search and structural priors.
+        /// `exploratory` — lossy retraction witnesses and LM priors.
+        #[arg(long, value_name = "TIER")]
+        stringency: Option<StringencyArg>,
     },
     /// Apply a saved lens chain to data.
     Apply {
@@ -1494,6 +1528,7 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             fuse,
             requirements,
             hints,
+            stringency,
         } => cmd::lens::cmd_lens_generate(
             &old,
             &new,
@@ -1507,6 +1542,7 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             requirements,
             verbose,
             hints.as_deref(),
+            stringency.map(Stringency::from),
         ),
         LensAction::Apply {
             chain,

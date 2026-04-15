@@ -569,6 +569,36 @@ pub struct HintSpec {
     /// Domain restrictions and scoring preferences.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub constraints: Vec<Constraint>,
+
+    /// Stringency tier governing which alignment strategies run and how
+    /// permissively the CSP searches. When `None`, the consumer falls
+    /// back to its default (typically `balanced`).
+    ///
+    /// Encoded as one of `"strict" | "balanced" | "lenient" | "exploratory"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stringency: Option<HintStringency>,
+
+    /// Additional alias clusters to merge into the built-in dictionary.
+    /// Each cluster is a list of strings that should be treated as
+    /// interchangeable field-name synonyms.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alias_clusters: Vec<Vec<String>>,
+}
+
+/// Stringency tier expressed in the hint DSL. Mirrors the engine's
+/// `panproto_lens::Stringency` so hint files can pin a tier without
+/// depending on the lens crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HintStringency {
+    /// Kind-exact, edge-name-pruned CSP search; total morphism only.
+    Strict,
+    /// Adds alias dictionary and tight token-similarity priors.
+    Balanced,
+    /// Adds span-search and structural priors.
+    Lenient,
+    /// Adds lossy retraction witnesses and LM-proposed alignments.
+    Exploratory,
 }
 
 impl HintSpec {
