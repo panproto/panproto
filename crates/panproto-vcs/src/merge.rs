@@ -1288,11 +1288,12 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
 /// the vertex merge is dropped (the pointing must land in the merged
 /// object). Order is stable: base entries first, then new entries
 /// from ours, then new entries unique to theirs.
-fn three_way_merge_entries(
+#[must_use]
+pub fn three_way_merge_entries<S: std::hash::BuildHasher>(
     base: &Schema,
     ours: &Schema,
     theirs: &Schema,
-    merged_vertices: &HashMap<Name, panproto_schema::Vertex>,
+    merged_vertices: &std::collections::HashMap<Name, panproto_schema::Vertex, S>,
 ) -> Vec<Name> {
     let base_set: std::collections::HashSet<&Name> = base.entries.iter().collect();
     let ours_set: std::collections::HashSet<&Name> = ours.entries.iter().collect();

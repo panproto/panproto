@@ -911,6 +911,137 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// A `ref`-typed array item must emit a structural morphism from
+    /// the synthetic items vertex to the referenced sort, mirroring the
+    /// object-property case. Without this edge the referenced sub-def
+    /// is disconnected from every array that contains it.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn ref_array_item_emits_morphism() {
+        let lexicon = serde_json::json!({
+            "lexicon": 1,
+            "id": "com.example.list",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "record": {
+                        "type": "object",
+                        "properties": {
+                            "items": {
+                                "type": "array",
+                                "items": {"type": "ref", "ref": "#item"}
+                            }
+                        }
+                    }
+                },
+                "item": {
+                    "type": "object",
+                    "properties": {"label": {"type": "string"}}
+                }
+            }
+        });
+
+        let schema = parse_lexicon(&lexicon).expect("parse");
+        let items_vertex = "com.example.list:body.items:items";
+        let item_def = "com.example.list#item";
+        let has_edge = schema
+            .edges
+            .keys()
+            .any(|e| &*e.src == items_vertex && &*e.tgt == item_def && &*e.kind == "ref");
+        assert!(has_edge, "items vertex must have a ref morphism to #item");
+        assert!(!schema.incoming_edges(item_def).is_empty());
+    }
+
+    /// Each variant of a lexicon union must emit a `ref` edge to the
+    /// branch's target sort. The union-as-coproduct `⊔ᵢ Tᵢ` is
+    /// realized by injection-labelled variant vertices plus a
+    /// morphism from each variant to its branch.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn union_variants_emit_ref_morphisms() {
+        let lexicon = serde_json::json!({
+            "lexicon": 1,
+            "id": "com.example.msg",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "record": {
+                        "type": "object",
+                        "properties": {
+                            "payload": {
+                                "type": "union",
+                                "refs": ["#a", "#b"]
+                            }
+                        }
+                    }
+                },
+                "a": {"type": "object", "properties": {}},
+                "b": {"type": "object", "properties": {}}
+            }
+        });
+
+        let schema = parse_lexicon(&lexicon).expect("parse");
+        let union_vertex = "com.example.msg:body.payload";
+        let variant_a = format!("{union_vertex}:variant0");
+        let variant_b = format!("{union_vertex}:variant1");
+
+        let ref_edge_exists = |src: &str, tgt: &str| {
+            schema
+                .edges
+                .keys()
+                .any(|e| &*e.src == src && &*e.tgt == tgt && &*e.kind == "ref")
+        };
+
+        assert!(
+            ref_edge_exists(&variant_a, "com.example.msg#a"),
+            "variant0 must have a ref morphism to #a"
+        );
+        assert!(
+            ref_edge_exists(&variant_b, "com.example.msg#b"),
+            "variant1 must have a ref morphism to #b"
+        );
+        assert!(!schema.incoming_edges("com.example.msg#a").is_empty());
+        assert!(!schema.incoming_edges("com.example.msg#b").is_empty());
+    }
+
+    /// A cross-lexicon ref must create an opaque placeholder vertex
+    /// and point the morphism at it. The target becomes a legitimate
+    /// sort in the signature graph so downstream reachability analysis
+    /// can see the reference.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn cross_lexicon_ref_creates_placeholder() {
+        let lexicon = serde_json::json!({
+            "lexicon": 1,
+            "id": "com.example.post",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "record": {
+                        "type": "object",
+                        "properties": {
+                            "attach": {
+                                "type": "ref",
+                                "ref": "com.atproto.repo.strongRef"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let schema = parse_lexicon(&lexicon).expect("parse");
+        assert!(
+            schema.has_vertex("com.atproto.repo.strongRef"),
+            "placeholder vertex for cross-lexicon ref must exist"
+        );
+        let attach_vertex = "com.example.post:body.attach";
+        let has_edge = schema.edges.keys().any(|e| {
+            &*e.src == attach_vertex && &*e.tgt == "com.atproto.repo.strongRef" && &*e.kind == "ref"
+        });
+        assert!(has_edge, "cross-lexicon ref must emit a morphism");
+    }
+
     /// Regression for panproto#35.
     ///
     /// A record with an optional `ref` property pointing to a sibling
