@@ -4,6 +4,26 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-04-15
+
+### Fixed
+
+- **panproto-protocols (atproto)**: Canonical `app.bsky.feed.post` instances without a `reply` field now validate instead of erroneously failing with `MissingRequiredEdge` for `parent` and `root`. The atproto lexicon parser was leaving `#replyRef` (and sibling sub-defs) orphan in the signature graph because a `type: "ref"` property was recorded as a constraint only, with no edge to the referenced sort. Every downstream root-inference heuristic (`find_root_vertex`, `infer_root_vertex`, emit's `find_roots`) then deterministically selected the orphan sub-def as the instance root, after which the validator correctly reported `#replyRef`'s required children missing. The `ref` property now emits both the provenance constraint and a structural `ref` edge to the resolved target, so every semantic reference in the lexicon is a morphism in the signature graph. Resolves panproto/panproto#35.
+
+### Added
+
+- **panproto-schema**: Explicit pointed-schema structure. `Schema.entries: Vec<Name>` carries the finite family of basepoints (the sorts at which an instance may be rooted). `SchemaBuilder::entry()` declares entries; `build()` enforces well-pointedness (every entry must name a vertex). `primary_entry(&Schema)` returns the first declared entry or, as a documented non-canonical fallback, the deterministic choice among edgeless vertices. Colimit pushouts (`panproto-schema::colimit`) compute entries as the coproduct of pointed schemas; `normalize` composes the basepoint map with ref-chain collapse; `panproto-vcs::merge::three_way_merge_entries` implements a proper three-way merge on the entries subobject with delete-propagation and unilateral-addition semantics.
+- **panproto-schema**: `SchemaBuilder::has_vertex()` and `SchemaError::UnknownEntryVertex`.
+- **panproto-protocols**: `.entry()` wired for every atproto record/query/procedure/subscription; also openapi (paths), avro (unreferenced named types), cddl (every rule), bson ("root"), docx/odf (document elements). Remaining parsers fall back on `primary_entry`'s deterministic heuristic.
+- **panproto-protocols (atproto)**: Union variants now emit `variantᵢ --ref--> resolved(Tᵢ)` morphisms, closing the coproduct injections as structural edges. Array items of `type: "ref"` emit the same morphism. Cross-lexicon ref targets materialize as opaque placeholder vertices so the signature graph stays connected. `parse_lexicon` uses a two-pass scheme (declare every def vertex first, then parse structure) so forward references never collide with later real declarations.
+- **panproto-vcs**: `merge::three_way_merge_entries` is `pub` so downstream callers can exercise the pointed-merge logic independently of the full schema merge.
+- **tests**: `tests/integration/tests/issue_35_replyref.rs` (end-to-end regression) and `tests/integration/tests/entries_properties.rs` (13 proptest-driven invariant tests over 256 cases each: well-pointedness, entry-idempotence, `primary_entry` preference/purity/containment, ill-pointed rejection, normalize preservation, three-way merge delete/addition/universe/diagonal laws).
+
+### Changed
+
+- **panproto-wasm**: `api::helpers::infer_root_vertex` and `api::instance::json_to_instance_with_root` fallback now consult `schema::primary_entry` instead of reinventing the "no incoming edges + kind preference" heuristic. The fallback is deterministic across HashMap iteration orders.
+- **panproto-protocols (atproto)**: Dead `BuilderExt::has_vertex` shim in `annotation/bead.rs` removed in favour of the native `SchemaBuilder::has_vertex`.
+
 ## [0.31.0] - 2026-04-14
 
 ### Changed
