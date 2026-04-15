@@ -60,6 +60,7 @@ fn make_schema(protocol: &str, verts: &[(&str, &str)], edge_list: &[Edge]) -> Sc
         constraints: HashMap::new(),
         required: HashMap::new(),
         nsids: HashMap::new(),
+        entries: Vec::new(),
         variants: HashMap::new(),
         orderings: HashMap::new(),
         recursion_points: HashMap::new(),

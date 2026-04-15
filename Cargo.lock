@@ -1847,6 +1847,7 @@ dependencies = [
  "panproto-mig",
  "panproto-protocols",
  "panproto-schema",
+ "panproto-vcs",
  "proptest",
  "rmp-serde",
  "rustc-hash",

@@ -397,6 +397,8 @@ fn assemble_pushout(
     // Rebuild adjacency indices
     let idx = build_indices(&merged_edges);
 
+    let entries = merge_entries(left, right, right_rename);
+
     Schema {
         protocol: left.protocol.clone(),
         vertices: merged_vertices,
@@ -405,6 +407,7 @@ fn assemble_pushout(
         constraints: vk.constraints,
         required: vk.required,
         nsids: vk.nsids,
+        entries,
         variants: vk.variants,
         orderings,
         recursion_points,
@@ -419,6 +422,21 @@ fn assemble_pushout(
         incoming: idx.incoming,
         between: idx.between,
     }
+}
+
+/// Coproduct of the pointed schemas: union of `left.entries` and the
+/// renamed `right.entries`, preserving insertion order and
+/// deduplicating. This is the canonical pointing on the pushout.
+fn merge_entries(left: &Schema, right: &Schema, right_rename: &HashMap<Name, Name>) -> Vec<Name> {
+    let mut entries: Vec<Name> = left.entries.clone();
+    let mut seen: std::collections::HashSet<Name> = entries.iter().cloned().collect();
+    for rid in &right.entries {
+        let mid = resolve(right_rename, rid);
+        if seen.insert(mid.clone()) {
+            entries.push(mid);
+        }
+    }
+    entries
 }
 
 /// Precomputed adjacency indices for a schema.

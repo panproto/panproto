@@ -40,6 +40,8 @@ pub struct SchemaBuilder {
     mergers: HashMap<Name, Expr>,
     defaults: HashMap<Name, Expr>,
     policies: HashMap<Name, Expr>,
+    entries: Vec<Name>,
+    entries_seen: FxHashSet<Name>,
 }
 
 impl SchemaBuilder {
@@ -59,7 +61,36 @@ impl SchemaBuilder {
             mergers: HashMap::new(),
             defaults: HashMap::new(),
             policies: HashMap::new(),
+            entries: Vec::new(),
+            entries_seen: FxHashSet::default(),
         }
+    }
+
+    /// Declare an entry (basepoint) vertex.
+    ///
+    /// Entries are the sorts at which the W-algebra of instances may
+    /// be rooted; parsers call this for every top-level definition
+    /// recognized by their protocol (records, top-level named types,
+    /// path roots, etc.). The call is idempotent: declaring the same
+    /// vertex twice is a no-op and preserves the first insertion
+    /// position.
+    ///
+    /// Well-pointedness is checked at [`Self::build`]: an entry that
+    /// is not a vertex of the schema causes
+    /// [`SchemaError::UnknownEntryVertex`].
+    #[must_use]
+    pub fn entry(mut self, vertex: &str) -> Self {
+        let name = Name::from(vertex);
+        if self.entries_seen.insert(name.clone()) {
+            self.entries.push(name);
+        }
+        self
+    }
+
+    /// Return `true` if the given vertex id has already been added.
+    #[must_use]
+    pub fn has_vertex(&self, id: &str) -> bool {
+        self.vertices.contains_key(id)
     }
 
     /// Add a vertex to the schema.
@@ -283,6 +314,16 @@ impl SchemaBuilder {
             return Err(SchemaError::EmptySchema);
         }
 
+        // Well-pointedness: every declared entry must be a vertex of the
+        // schema.
+        if let Some(bad) = self
+            .entries
+            .iter()
+            .find(|e| !self.vertices.contains_key(*e))
+        {
+            return Err(SchemaError::UnknownEntryVertex(bad.to_string()));
+        }
+
         // Build edge map.
         let mut edge_map: HashMap<Edge, Name> = HashMap::with_capacity(self.edges.len());
         let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
@@ -316,6 +357,7 @@ impl SchemaBuilder {
             constraints: self.constraints,
             required: self.required,
             nsids: self.nsids,
+            entries: self.entries,
             variants: HashMap::new(),
             orderings: HashMap::new(),
             recursion_points: HashMap::new(),
@@ -470,6 +512,105 @@ mod tests {
         assert!(
             matches!(result, Err(SchemaError::EmptySchema)),
             "expected EmptySchema"
+        );
+    }
+
+    #[test]
+    fn entry_declared_at_build_time_is_preserved() {
+        let proto = atproto_protocol();
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("post", "record", Some("app.bsky.feed.post"))
+            .expect("vertex post")
+            .vertex("post:body", "object", None)
+            .expect("vertex body")
+            .edge("post", "post:body", "record-schema", None)
+            .expect("edge record-schema")
+            .entry("post")
+            .entry("post") // idempotent
+            .build()
+            .expect("build");
+
+        assert_eq!(schema.entry_vertices().len(), 1);
+        assert_eq!(
+            schema.entry_vertices()[0].as_ref(),
+            "post",
+            "the declared entry should survive build()"
+        );
+    }
+
+    #[test]
+    fn unknown_entry_rejected_at_build() {
+        let proto = atproto_protocol();
+        let result = SchemaBuilder::new(&proto)
+            .vertex("post", "record", None)
+            .expect("vertex")
+            .entry("no-such-vertex")
+            .build();
+
+        assert!(
+            matches!(result, Err(SchemaError::UnknownEntryVertex(_))),
+            "expected UnknownEntryVertex, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn primary_entry_prefers_declared_over_fallback() {
+        use crate::schema::primary_entry;
+        let proto = atproto_protocol();
+        // `z` is alphabetically last but declared as the entry;
+        // the deterministic fallback would pick `a` (sorted first with
+        // outgoing edges, no incoming).
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("z", "record", None)
+            .expect("z")
+            .vertex("z:body", "object", None)
+            .expect("z:body")
+            .edge("z", "z:body", "record-schema", None)
+            .expect("edge z")
+            .vertex("a", "record", None)
+            .expect("a")
+            .vertex("a:body", "object", None)
+            .expect("a:body")
+            .edge("a", "a:body", "record-schema", None)
+            .expect("edge a")
+            .entry("z")
+            .build()
+            .expect("build");
+
+        assert_eq!(
+            primary_entry(&schema).map(AsRef::as_ref),
+            Some("z"),
+            "declared entry must win over the deterministic fallback"
+        );
+    }
+
+    #[test]
+    fn primary_entry_fallback_is_deterministic() {
+        use crate::schema::primary_entry;
+        let proto = atproto_protocol();
+        // No entries declared; two plausible fallback candidates.
+        // The fallback must pick the alphabetically first vertex that
+        // has outgoing edges and no incoming edges.
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("b", "record", None)
+            .expect("b")
+            .vertex("b:body", "object", None)
+            .expect("b:body")
+            .edge("b", "b:body", "record-schema", None)
+            .expect("edge b")
+            .vertex("a", "record", None)
+            .expect("a")
+            .vertex("a:body", "object", None)
+            .expect("a:body")
+            .edge("a", "a:body", "record-schema", None)
+            .expect("edge a")
+            .build()
+            .expect("build");
+
+        assert_eq!(
+            primary_entry(&schema).map(AsRef::as_ref),
+            Some("a"),
+            "fallback should sort lexicographically"
         );
     }
 

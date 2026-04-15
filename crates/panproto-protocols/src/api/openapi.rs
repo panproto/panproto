@@ -99,11 +99,13 @@ pub fn parse_openapi(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
         }
     }
 
-    // Walk paths.
+    // Walk paths. Each path item is an entry basepoint: it is a root
+    // sort for instances of this API.
     if let Some(paths) = json.get("paths").and_then(serde_json::Value::as_object) {
         for (path_str, path_item) in paths {
             let path_id = format!("path:{path_str}");
             builder = builder.vertex(&path_id, "path", None)?;
+            builder = builder.entry(&path_id);
             builder = parse_path_item(builder, path_item, &path_id, &mut counter, &defs_map)?;
         }
     }
