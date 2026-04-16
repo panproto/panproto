@@ -49,4 +49,4 @@ planning/
 .vite/
 
 # Lean
-lean/.lake/
+lean/.lake/tmp/
