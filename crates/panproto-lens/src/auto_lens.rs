@@ -79,6 +79,23 @@ impl Stringency {
         matches!(self, Self::Lenient | Self::Exploratory)
     }
 
+    /// Whether the structural (degree + kind-signature) strategy runs
+    /// at this tier. Only Exploratory enables this fallback.
+    #[must_use]
+    pub const fn uses_structural(self) -> bool {
+        matches!(self, Self::Exploratory)
+    }
+
+    /// Minimum similarity floor for the structural strategy at this tier.
+    /// Irrelevant for tiers where structural is disabled.
+    #[must_use]
+    pub const fn structural_threshold(self) -> f64 {
+        match self {
+            Self::Exploratory => 0.40,
+            _ => 1.0,
+        }
+    }
+
     /// Whether the overlap-based fallback is turned on automatically
     /// at this tier when the caller hasn't pinned `try_overlap`.
     #[must_use]
@@ -191,6 +208,11 @@ fn run_strategies(src: &Schema, tgt: &Schema, config: &AutoLensConfig) -> Vec<An
     if config.stringency.uses_type_signature() {
         let threshold = config.stringency.type_signature_threshold();
         anchors.extend(align::type_signature_anchors(src, tgt, threshold));
+    }
+
+    if config.stringency.uses_structural() {
+        let threshold = config.stringency.structural_threshold();
+        anchors.extend(align::structural_anchors(src, tgt, threshold));
     }
 
     anchors
