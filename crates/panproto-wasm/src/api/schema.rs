@@ -376,7 +376,7 @@ pub fn get_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
         complement: complement_bytes,
     };
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -521,7 +521,7 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
         complement: complement_bytes,
     };
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

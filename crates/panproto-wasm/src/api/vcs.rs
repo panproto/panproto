@@ -52,7 +52,7 @@ pub fn vcs_add(repo: u32, schema: u32) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -146,7 +146,7 @@ pub fn vcs_log(repo: u32, count: u32) -> Result<Vec<u8>, JsError> {
         }
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -183,7 +183,7 @@ pub fn vcs_status(repo: u32) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -217,7 +217,7 @@ pub fn vcs_diff(repo: u32) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -256,7 +256,7 @@ pub fn vcs_branch(repo: u32, name: &[u8]) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -287,7 +287,7 @@ pub fn vcs_checkout(repo: u32, target: &[u8]) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -320,7 +320,7 @@ pub fn vcs_merge(repo: u32, branch: &[u8]) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -347,7 +347,7 @@ pub fn vcs_stash(repo: u32) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -374,7 +374,7 @@ pub fn vcs_stash_pop(repo: u32) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -417,7 +417,7 @@ pub fn vcs_blame(repo: u32, vertex: &[u8]) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

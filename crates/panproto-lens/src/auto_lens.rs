@@ -103,6 +103,19 @@ impl Stringency {
         matches!(self, Self::Lenient | Self::Exploratory)
     }
 
+    /// Whether the engine emits spans `A ←f− C −g→ B` rather than
+    /// identity-filled total morphisms at this tier.
+    ///
+    /// When enabled, source sorts/ops with no matched counterpart
+    /// surface as explicit `DropSort`/`DropOp` endofunctors in the
+    /// factorization, and target extensions surface as
+    /// `AddSort`/`AddOp`. The resulting lens is genuinely partial on
+    /// the source side — round-trip laws hold on `C`, not on `A`.
+    #[must_use]
+    pub const fn allow_spans(self) -> bool {
+        matches!(self, Self::Lenient | Self::Exploratory)
+    }
+
     /// Token-similarity acceptance threshold at this tier. Lower values
     /// admit weaker matches as anchor candidates; the CSP still validates.
     #[must_use]
@@ -234,6 +247,26 @@ const fn apply_stringency_search_opts(opts: &mut SearchOptions, stringency: Stri
     }
 }
 
+/// Identify source vertices with no kind-compatible target vertex.
+///
+/// Used at `Lenient`+ to pre-populate `DomainConstraints.excluded_sources`
+/// so the CSP can still find a morphism on the shared subschema `C`
+/// rather than failing outright when a source sort has no counterpart.
+fn sources_without_compatible_targets(src: &Schema, tgt: &Schema) -> Vec<Name> {
+    let tgt_kinds: std::collections::HashSet<&str> =
+        tgt.vertices.values().map(|v| v.kind.as_str()).collect();
+    src.vertices
+        .iter()
+        .filter_map(|(id, vertex)| {
+            if tgt_kinds.contains(vertex.kind.as_str()) {
+                None
+            } else {
+                Some(id.clone())
+            }
+        })
+        .collect()
+}
+
 /// Generate a protolens chain and concrete lens from two schemas.
 ///
 /// # Pipeline
@@ -276,7 +309,20 @@ pub fn auto_generate(
         effective.try_overlap = true;
     }
 
-    let result = run_search(src, tgt, protocol, &effective, &search_opts, None)?;
+    // Span search: at Lenient+, pre-exclude source vertices with no
+    // kind-compatible target. Excluded vertices surface as `DropSort`
+    // endofunctors in the factorized chain — the left leg of the span
+    // `A ←f− C −g→ B`.
+    let span_constraints = span_exclusions_at_lenient(src, tgt, config.stringency);
+
+    let result = run_search(
+        src,
+        tgt,
+        protocol,
+        &effective,
+        &search_opts,
+        span_constraints.as_ref(),
+    )?;
 
     Ok(AutoLensResult {
         chain: result.chain,
@@ -339,7 +385,8 @@ fn run_search(
         .ok_or_else(|| LensError::ProtolensError("no morphism found between schemas".into()))?;
 
     let quality = alignment.quality;
-    let chain = protolens_from_alignment(&alignment, src, tgt)?;
+    let chain =
+        protolens_from_alignment_mode(&alignment, src, tgt, config.stringency.allow_spans())?;
     let mut lens = chain.instantiate(src, protocol)?;
     let field_transforms = derive_field_transforms(&chain, src, tgt);
     lens.compiled.field_transforms = field_transforms;
@@ -443,16 +490,39 @@ pub fn protolens_from_alignment(
     src: &Schema,
     tgt: &Schema,
 ) -> Result<ProtolensChain, LensError> {
-    // Convert schema-level alignment to GAT-level theory morphism
+    protolens_from_alignment_mode(alignment, src, tgt, false)
+}
+
+/// Generate a protolens chain from an alignment with explicit span
+/// emission control.
+///
+/// When `emit_spans` is `true`, source sorts/ops that the alignment
+/// did not witness are left out of the theory morphism; [`factorize`]
+/// then emits `DropSort`/`DropOp` endofunctors for them, and
+/// `AddSort`/`AddOp` for the target extensions. This realizes the span
+/// `A ←f− C −g→ B` described in the plan.
+///
+/// When `emit_spans` is `false`, unmapped source sorts/ops are
+/// identity-filled and no drops are emitted; behaviour matches the
+/// classic total-morphism path.
+///
+/// # Errors
+///
+/// Returns [`LensError::ProtolensError`] if factorization fails or
+/// an endofunctor cannot be mapped to a protolens.
+pub fn protolens_from_alignment_mode(
+    alignment: &FoundMorphism,
+    src: &Schema,
+    tgt: &Schema,
+    emit_spans: bool,
+) -> Result<ProtolensChain, LensError> {
     let src_theory = schema_to_implicit_theory(src);
     let tgt_theory = schema_to_implicit_theory(tgt);
-    let morphism = alignment_to_theory_morphism(alignment, src, tgt);
+    let morphism = alignment_to_theory_morphism_mode(alignment, src, tgt, emit_spans);
 
-    // Factorize the morphism
     let factorization = factorize(&morphism, &src_theory, &tgt_theory)
         .map_err(|e| LensError::ProtolensError(format!("factorization failed: {e}")))?;
 
-    // Map each elementary endofunctor to a protolens
     let mut steps = Vec::new();
     for endofunctor in &factorization.steps {
         let protolens = endofunctor_to_protolens(endofunctor)?;
@@ -602,7 +672,41 @@ pub fn auto_generate_candidates(
     merge_seed_anchors(&mut search_opts, &resolved);
     search_opts.max_results = n;
 
-    candidates_from_search(src, tgt, protocol, &search_opts, None, &seed_anchors, n)
+    // Span search: at Lenient+ pre-exclude source vertices with no
+    // kind-compatible target so the CSP can still find a morphism on
+    // the shared subschema.
+    let span_constraints = span_exclusions_at_lenient(src, tgt, config.stringency);
+
+    candidates_from_search(
+        src,
+        tgt,
+        protocol,
+        &search_opts,
+        span_constraints.as_ref(),
+        &seed_anchors,
+        n,
+        config.stringency.allow_spans(),
+    )
+}
+
+/// Build `DomainConstraints` with auto-derived `excluded_sources` for
+/// span search. Returns `None` at tiers where spans are not allowed or
+/// when every source vertex has a compatible target.
+fn span_exclusions_at_lenient(
+    src: &Schema,
+    tgt: &Schema,
+    stringency: Stringency,
+) -> Option<DomainConstraints> {
+    if !stringency.allow_spans() {
+        return None;
+    }
+    let to_drop = sources_without_compatible_targets(src, tgt);
+    if to_drop.is_empty() {
+        return None;
+    }
+    let mut dc = DomainConstraints::default();
+    dc.excluded_sources.extend(to_drop);
+    Some(dc)
 }
 
 /// Candidate-API variant accepting caller-supplied anchors and domain
@@ -656,12 +760,14 @@ pub fn auto_generate_candidates_with_hints(
         Some(domain_constraints),
         &combined,
         n,
+        config.stringency.allow_spans(),
     )
 }
 
 /// Shared engine for multi-candidate generation. Runs the CSP, builds
 /// one candidate per returned morphism, scores them, and truncates to
 /// `n` entries sorted by composite score.
+#[allow(clippy::too_many_arguments)]
 fn candidates_from_search(
     src: &Schema,
     tgt: &Schema,
@@ -670,6 +776,7 @@ fn candidates_from_search(
     domain_constraints: Option<&DomainConstraints>,
     seed_anchors: &[Anchor],
     n: usize,
+    emit_spans: bool,
 ) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
     let morphisms = domain_constraints.map_or_else(
         || find_morphisms(src, tgt, search_opts),
@@ -684,7 +791,7 @@ fn candidates_from_search(
 
     let mut candidates = Vec::with_capacity(morphisms.len());
     for morphism in morphisms {
-        match candidate_from_morphism(src, tgt, protocol, &morphism, seed_anchors) {
+        match candidate_from_morphism(src, tgt, protocol, &morphism, seed_anchors, emit_spans) {
             Ok(cand) => candidates.push(cand),
             Err(_) => continue, // skip morphisms that cannot factorize
         }
@@ -719,8 +826,9 @@ fn candidate_from_morphism(
     protocol: &Protocol,
     morphism: &FoundMorphism,
     seed_anchors: &[Anchor],
+    emit_spans: bool,
 ) -> Result<crate::candidate::LensCandidate, LensError> {
-    let chain = protolens_from_alignment(morphism, src, tgt)?;
+    let chain = protolens_from_alignment_mode(morphism, src, tgt, emit_spans)?;
     let mut lens = chain.instantiate(src, protocol)?;
     lens.compiled.field_transforms = derive_field_transforms(&chain, src, tgt);
 
@@ -748,10 +856,36 @@ fn candidate_from_morphism(
 /// Builds the sort map from vertex kind mappings and the op map from
 /// edge kind mappings. Ensures all sorts and ops in the source theory
 /// are represented in the morphism (identity-mapping any unmapped ones).
+/// Build the theory morphism corresponding to `found` (total-morphism mode).
+#[cfg(test)]
 fn alignment_to_theory_morphism(
     found: &FoundMorphism,
     src: &Schema,
     tgt: &Schema,
+) -> TheoryMorphism {
+    alignment_to_theory_morphism_mode(found, src, tgt, false)
+}
+
+/// Build the theory morphism corresponding to `found`.
+///
+/// When `emit_spans` is `false`, the resulting morphism identity-fills
+/// any source sort or op that `found` did not witness — that is, the
+/// morphism claims to interpret every source sort by itself, and
+/// `factorize` will not emit any `DropSort` / `DropOp` endofunctors.
+///
+/// When `emit_spans` is `true`, identity-fill is skipped for sorts and
+/// ops that never appear in the morphism's vertex/edge maps. The
+/// resulting morphism is the left leg of a span `A ←f− C −g→ B` where
+/// `C` is the shared subtheory spanned by the matched vertices;
+/// `factorize` emits `DropSort(s)` for every source sort with no image
+/// in `C` and `DropOp(op)` for every source op likewise, and emits
+/// `AddSort`/`AddOp` for the right-leg extensions into `B`. This is
+/// the span-search behavior plan §3 describes.
+fn alignment_to_theory_morphism_mode(
+    found: &FoundMorphism,
+    src: &Schema,
+    tgt: &Schema,
+    emit_spans: bool,
 ) -> TheoryMorphism {
     // Build sort map from vertex kind mappings
     let mut sort_map: HashMap<Arc<str>, Arc<str>> = HashMap::new();
@@ -771,17 +905,20 @@ fn alignment_to_theory_morphism(
         op_map.entry(src_kind).or_insert(tgt_kind);
     }
 
-    // Ensure all sorts and ops in the source theory are mapped
-    let src_theory = crate::protolens::schema_to_implicit_theory(src);
-    for sort in &src_theory.sorts {
-        sort_map
-            .entry(Arc::clone(&sort.name))
-            .or_insert_with(|| Arc::clone(&sort.name));
-    }
-    for op in &src_theory.ops {
-        op_map
-            .entry(Arc::clone(&op.name))
-            .or_insert_with(|| Arc::clone(&op.name));
+    if !emit_spans {
+        // Identity-fill any source sort or op the alignment didn't
+        // witness. Preserves the classic total-morphism semantics.
+        let src_theory = crate::protolens::schema_to_implicit_theory(src);
+        for sort in &src_theory.sorts {
+            sort_map
+                .entry(Arc::clone(&sort.name))
+                .or_insert_with(|| Arc::clone(&sort.name));
+        }
+        for op in &src_theory.ops {
+            op_map
+                .entry(Arc::clone(&op.name))
+                .or_insert_with(|| Arc::clone(&op.name));
+        }
     }
 
     TheoryMorphism::new(
@@ -1095,6 +1232,76 @@ mod tests {
             res.is_err(),
             "expected no-morphism error between disjoint-kind schemas, got {res:?}"
         );
+    }
+
+    #[test]
+    fn lenient_span_search_drops_orphan_source_sorts() {
+        // Schemas that share `record` sort but differ on `boolean`:
+        // the source has an `r.flag` child of kind boolean with no
+        // counterpart in the target. Strict cannot find a morphism.
+        // Lenient auto-excludes the orphan source vertex and emits a
+        // DropSort for the `boolean` sort in the factorization.
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.flag", "boolean", None::<&str>)
+            .unwrap()
+            .edge("r", "r.flag", "prop", Some("flag"))
+            .unwrap()
+            .build()
+            .unwrap();
+        // Target lacks any boolean vertex.
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Strict: should produce no useful morphism OR a degenerate one
+        // — but crucially cannot emit a drop_sort for the orphan.
+        let strict = AutoLensConfig {
+            stringency: Stringency::Strict,
+            ..Default::default()
+        };
+        let strict_res = auto_generate(&src, &tgt, &protocol, &strict);
+
+        // Lenient: should succeed AND the chain should contain a
+        // drop_sort step for `integer`.
+        let lenient = AutoLensConfig {
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+        let lenient_res = auto_generate(&src, &tgt, &protocol, &lenient)
+            .unwrap_or_else(|e| panic!("Lenient should find a span: {e}"));
+
+        let has_boolean_drop = lenient_res.chain.steps.iter().any(|step| {
+            matches!(
+                &step.target.transform,
+                TheoryTransform::DropSort(name) if &**name == "boolean"
+            )
+        });
+        assert!(
+            has_boolean_drop,
+            "Lenient span should emit DropSort(boolean); chain: {:?}",
+            lenient_res
+                .chain
+                .steps
+                .iter()
+                .map(|s| s.name.to_string())
+                .collect::<Vec<_>>()
+        );
+
+        // Strict should either error or return a chain without the drop.
+        if let Ok(r) = strict_res {
+            assert!(
+                r.chain.steps.iter().all(|step| !matches!(
+                    &step.target.transform,
+                    TheoryTransform::DropSort(name) if &**name == "boolean"
+                )),
+                "Strict must not emit a drop step (drops require span search)"
+            );
+        }
     }
 
     #[test]
