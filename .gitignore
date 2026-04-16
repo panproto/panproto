@@ -50,3 +50,6 @@ planning/
 
 # Lean
 lean/.lake/tmp/
+
+# Scratch
+tmp/
