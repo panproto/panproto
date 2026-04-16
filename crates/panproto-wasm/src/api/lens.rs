@@ -41,6 +41,66 @@ fn parse_stringency(raw: Option<&str>) -> Result<Option<Stringency>, JsError> {
 // Phase 3: Lens & migration enhancements
 // ---------------------------------------------------------------------------
 
+/// Auto-generate up to `top_n` ranked candidate lenses with per-step
+/// explanations.
+///
+/// Returns `MessagePack`-encoded JSON array where each element has
+/// fields `quality`, `coverage`, `score`, `strategies_used`, and
+/// `steps`. Callers typically decode with `msgpack-lite` or a
+/// hand-rolled decoder on the JS side.
+///
+/// # Errors
+///
+/// Returns `JsError` if schema handles are invalid, no morphism is
+/// found, or serialization fails.
+#[wasm_bindgen]
+#[allow(clippy::needless_pass_by_value)]
+pub fn auto_generate_candidates(
+    schema1: u32,
+    schema2: u32,
+    top_n: u32,
+    stringency: Option<String>,
+) -> Result<Vec<u8>, JsError> {
+    let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let protocol =
+        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+
+    let mut config = lens::AutoLensConfig::default();
+    if let Some(s) = parse_stringency(stringency.as_deref())? {
+        config.stringency = s;
+    }
+    let candidates = lens::auto_generate_candidates(&src, &tgt, &protocol, &config, top_n as usize)
+        .map_err(|e| WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        })?;
+
+    let payload: Vec<serde_json::Value> = candidates
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "quality": c.quality,
+                "coverage": c.coverage,
+                "score": c.score(),
+                "strategies_used": c.strategies_used,
+                "steps": c.steps.iter().map(|s| serde_json::json!({
+                    "kind": s.kind,
+                    "explanation": s.explanation,
+                    "confidence": s.confidence,
+                    "strategy": s.strategy,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    rmp_serde::to_vec(&payload).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
 /// Auto-generate a protolens chain between two schemas.
 ///
 /// `stringency` selects which alignment strategies run (one of

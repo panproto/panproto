@@ -12,7 +12,7 @@ use panproto_inst::value::Value;
 use panproto_mig::align::{self, AliasDict, Anchor, default_alias_dict};
 use panproto_mig::hom_search::{
     DomainConstraints, FoundMorphism, SearchOptions, find_best_morphism,
-    find_best_morphism_constrained,
+    find_best_morphism_constrained, find_morphisms, find_morphisms_constrained,
 };
 use panproto_schema::{Protocol, Schema};
 
@@ -541,6 +541,186 @@ fn schema_to_implicit_theory(schema: &Schema) -> Theory {
     crate::protolens::schema_to_implicit_theory(schema)
 }
 
+/// Generate up to `top_n` ranked candidate lenses between `src` and `tgt`.
+///
+/// Runs the alignment strategies enabled by `config.stringency`,
+/// seeds the CSP solver, and returns the top-N morphisms sorted by
+/// the composite score `quality + 0.5 · coverage + 0.2 · avg_step_confidence`.
+///
+/// Every candidate is a fully-validated theory morphism: naturality is
+/// enforced during CSP backtracking, and each candidate's protolens
+/// chain is instantiated at the source schema so the user can run
+/// `get`/`put` immediately. The candidate's `steps` vector carries
+/// per-step explanations sourced from whichever alignment strategy
+/// motivated the rename/add/drop (see [`enrich_steps`]).
+///
+/// `top_n == 0` is treated as `top_n == 1`. The returned vector is
+/// non-empty on success; a [`LensError::ProtolensError`] is returned
+/// when no morphism exists.
+///
+/// # Errors
+///
+/// Returns [`LensError::ProtolensError`] when no morphism exists at
+/// the configured stringency tier.
+///
+/// [`enrich_steps`]: crate::candidate::enrich_steps
+pub fn auto_generate_candidates(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    config: &AutoLensConfig,
+    top_n: usize,
+) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
+    let n = top_n.max(1);
+    let seed_anchors = run_strategies(src, tgt, config);
+    let resolved = align::resolve_anchors(&seed_anchors, config.search_opts.monic);
+
+    let mut search_opts = config.search_opts.clone();
+    apply_stringency_search_opts(&mut search_opts, config.stringency);
+    merge_seed_anchors(&mut search_opts, &resolved);
+    search_opts.max_results = n;
+
+    candidates_from_search(src, tgt, protocol, &search_opts, None, &seed_anchors, n)
+}
+
+/// Candidate-API variant accepting caller-supplied anchors and domain
+/// constraints.
+///
+/// User anchors take precedence over strategy anchors; neither
+/// overrules the CSP's naturality check.
+///
+/// # Errors
+///
+/// Returns [`LensError::ProtolensError`] when no morphism exists under
+/// the combined constraints.
+pub fn auto_generate_candidates_with_hints(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    config: &AutoLensConfig,
+    anchors: &HashMap<Name, Name>,
+    domain_constraints: &DomainConstraints,
+    top_n: usize,
+) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
+    let n = top_n.max(1);
+    let strategy_anchors = run_strategies(src, tgt, config);
+    let resolved_strategy = align::resolve_anchors(&strategy_anchors, config.search_opts.monic);
+
+    let mut search_opts = config.search_opts.clone();
+    apply_stringency_search_opts(&mut search_opts, config.stringency);
+    for (src_v, tgt_v) in anchors {
+        search_opts.initial.insert(src_v.clone(), tgt_v.clone());
+    }
+    merge_seed_anchors(&mut search_opts, &resolved_strategy);
+    search_opts.max_results = n;
+
+    let mut combined = Vec::with_capacity(strategy_anchors.len() + anchors.len());
+    for (src_v, tgt_v) in anchors {
+        combined.push(Anchor {
+            src: src_v.clone(),
+            tgt: tgt_v.clone(),
+            confidence: 1.0,
+            strategy: align::StrategyTag::UserHint,
+            explanation: format!("user hint: {} ↔ {}", src_v.as_str(), tgt_v.as_str()),
+        });
+    }
+    combined.extend(strategy_anchors);
+
+    candidates_from_search(
+        src,
+        tgt,
+        protocol,
+        &search_opts,
+        Some(domain_constraints),
+        &combined,
+        n,
+    )
+}
+
+/// Shared engine for multi-candidate generation. Runs the CSP, builds
+/// one candidate per returned morphism, scores them, and truncates to
+/// `n` entries sorted by composite score.
+fn candidates_from_search(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    search_opts: &SearchOptions,
+    domain_constraints: Option<&DomainConstraints>,
+    seed_anchors: &[Anchor],
+    n: usize,
+) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
+    let morphisms = domain_constraints.map_or_else(
+        || find_morphisms(src, tgt, search_opts),
+        |dc| find_morphisms_constrained(src, tgt, search_opts, dc),
+    );
+
+    if morphisms.is_empty() {
+        return Err(LensError::ProtolensError(
+            "no morphism found between schemas".into(),
+        ));
+    }
+
+    let mut candidates = Vec::with_capacity(morphisms.len());
+    for morphism in morphisms {
+        match candidate_from_morphism(src, tgt, protocol, &morphism, seed_anchors) {
+            Ok(cand) => candidates.push(cand),
+            Err(_) => continue, // skip morphisms that cannot factorize
+        }
+        if candidates.len() >= n.saturating_mul(2) {
+            // Generate at most 2×n raw candidates before scoring; saves
+            // instantiation work on the long tail of low-quality results.
+            break;
+        }
+    }
+
+    if candidates.is_empty() {
+        return Err(LensError::ProtolensError(
+            "no morphism could be realized as a protolens".into(),
+        ));
+    }
+
+    candidates.sort_by(|a, b| {
+        b.score()
+            .partial_cmp(&a.score())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    candidates.truncate(n);
+    Ok(candidates)
+}
+
+/// Build a single candidate from one CSP result. Factorizes the
+/// morphism, instantiates its chain at `src`, and enriches the step
+/// list with explanations sourced from the seed anchors.
+fn candidate_from_morphism(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    morphism: &FoundMorphism,
+    seed_anchors: &[Anchor],
+) -> Result<crate::candidate::LensCandidate, LensError> {
+    let chain = protolens_from_alignment(morphism, src, tgt)?;
+    let mut lens = chain.instantiate(src, protocol)?;
+    lens.compiled.field_transforms = derive_field_transforms(&chain, src, tgt);
+
+    let coverage = crate::candidate::coverage_ratio(
+        src,
+        tgt,
+        crate::candidate::matched_count(&morphism.vertex_map),
+    );
+    let steps = crate::candidate::enrich_steps(&chain, seed_anchors);
+    let strategies_used = crate::candidate::strategies_used(seed_anchors);
+
+    Ok(crate::candidate::LensCandidate {
+        chain,
+        lens,
+        quality: morphism.quality,
+        coverage,
+        seed_anchors: seed_anchors.to_vec(),
+        steps,
+        strategies_used,
+    })
+}
+
 /// Convert a `FoundMorphism` to a `TheoryMorphism`.
 ///
 /// Builds the sort map from vertex kind mappings and the op map from
@@ -800,6 +980,99 @@ mod tests {
                 "Strict should not outperform Balanced on this case"
             );
         }
+    }
+
+    #[test]
+    fn auto_generate_candidates_returns_ranked_non_empty_list() {
+        let protocol = test_protocol();
+        let src = schema_post_with_created(&protocol);
+        let tgt = schema_message_with_sent(&protocol);
+        let config = AutoLensConfig {
+            stringency: Stringency::Balanced,
+            ..Default::default()
+        };
+        let candidates = auto_generate_candidates(&src, &tgt, &protocol, &config, 5)
+            .unwrap_or_else(|e| panic!("expected candidates: {e}"));
+        assert!(!candidates.is_empty(), "candidates must be non-empty");
+        // Scores must be non-increasing by composite score.
+        for pair in candidates.windows(2) {
+            assert!(
+                pair[0].score() >= pair[1].score(),
+                "candidates must be sorted by descending composite score"
+            );
+        }
+        // Every candidate carries steps enriched with explanations.
+        for cand in &candidates {
+            assert!(
+                cand.steps.iter().all(|s| !s.explanation.is_empty()),
+                "every step needs an explanation; got {:?}",
+                cand.steps
+            );
+        }
+    }
+
+    #[test]
+    fn auto_generate_candidates_reports_coverage_and_strategies() {
+        let protocol = test_protocol();
+        let src = schema_post_with_created(&protocol);
+        let tgt = schema_message_with_sent(&protocol);
+        let config = AutoLensConfig {
+            stringency: Stringency::Balanced,
+            ..Default::default()
+        };
+        let candidates = auto_generate_candidates(&src, &tgt, &protocol, &config, 1)
+            .unwrap_or_else(|e| panic!("candidates: {e}"));
+        let top = &candidates[0];
+        assert!(
+            top.coverage > 0.0 && top.coverage <= 1.0,
+            "coverage must be in (0, 1]: {}",
+            top.coverage
+        );
+        assert!(
+            !top.strategies_used.is_empty(),
+            "Balanced tier should engage at least one strategy"
+        );
+    }
+
+    #[test]
+    fn auto_generate_candidates_errors_when_no_morphism() {
+        use panproto_mig::hom_search::SearchOptions;
+        // Build two schemas with no kind-compatible vertices; the CSP
+        // returns no morphism and `auto_generate_candidates` should
+        // surface an error.
+        let protocol = Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["alpha".into(), "beta".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("x", "alpha", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("y", "beta", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let config = AutoLensConfig {
+            stringency: Stringency::Strict,
+            // Require monic to disallow the trivial empty morphism.
+            search_opts: SearchOptions {
+                monic: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let res = auto_generate_candidates(&src, &tgt, &protocol, &config, 1);
+        assert!(
+            res.is_err(),
+            "expected no-morphism error between disjoint-kind schemas, got {res:?}"
+        );
     }
 
     #[test]

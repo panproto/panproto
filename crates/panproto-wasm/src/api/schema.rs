@@ -198,7 +198,7 @@ pub fn schema_metadata(schema_handle: u32) -> Result<Vec<u8>, JsError> {
             edges,
         };
 
-        rmp_serde::to_vec(&meta).map_err(|e| WasmError::SerializationFailed {
+        rmp_serde::to_vec_named(&meta).map_err(|e| WasmError::SerializationFailed {
             reason: e.to_string(),
         })
     })

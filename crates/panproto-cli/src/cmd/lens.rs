@@ -41,6 +41,8 @@ pub fn cmd_lens_generate(
     verbose: bool,
     hints_path: Option<&Path>,
     stringency_arg: Option<Stringency>,
+    top_n: usize,
+    explain: bool,
 ) -> Result<()> {
     let src_schema: Schema = load_json(old_path)?;
     let tgt_schema: Schema = load_json(new_path)?;
@@ -139,6 +141,84 @@ pub fn cmd_lens_generate(
                 " (lossy)"
             };
             println!("    {}. {}{lossless}", i + 1, step.name);
+        }
+    }
+
+    // `--top-n N` or `--explain` activates the candidate API. The code
+    // above produced the top-1 lens via the classic entry point; this
+    // block additionally surfaces ranked alternatives and per-step
+    // explanations to stdout. Save/fuse/requirements still operate on
+    // the top-1 result above.
+    if top_n > 1 || explain {
+        let mut candidate_config = lens::AutoLensConfig {
+            defaults: parse_defaults(defaults)?,
+            try_overlap,
+            ..Default::default()
+        };
+        if let Some(s) = stringency_arg {
+            candidate_config.stringency = s;
+        }
+        let candidates = lens::auto_generate_candidates(
+            &src_schema,
+            &tgt_schema,
+            &protocol,
+            &candidate_config,
+            top_n,
+        )
+        .into_diagnostic()
+        .wrap_err("failed to generate candidate lenses")?;
+
+        if json || chain {
+            let entries: Vec<serde_json::Value> = candidates
+                .iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "quality": c.quality,
+                        "coverage": c.coverage,
+                        "score": c.score(),
+                        "strategies_used": c.strategies_used,
+                        "steps": c.steps.iter().map(|s| serde_json::json!({
+                            "kind": s.kind,
+                            "explanation": s.explanation,
+                            "confidence": s.confidence,
+                            "strategy": s.strategy,
+                        })).collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+            let wrapper = serde_json::json!({
+                "candidates": entries,
+                "count": candidates.len(),
+            });
+            let pretty = serde_json::to_string_pretty(&wrapper)
+                .into_diagnostic()
+                .wrap_err("failed to serialize candidate list")?;
+            println!("{pretty}");
+        } else {
+            println!("\nCandidates ({} total):", candidates.len());
+            for (idx, cand) in candidates.iter().enumerate() {
+                println!(
+                    "  #{} score={:.3} quality={:.3} coverage={:.3}",
+                    idx + 1,
+                    cand.score(),
+                    cand.quality,
+                    cand.coverage
+                );
+                if explain {
+                    for (si, step) in cand.steps.iter().enumerate() {
+                        let tag = step
+                            .strategy
+                            .map_or_else(|| "structural".to_owned(), |t| format!("{t:?}"));
+                        println!(
+                            "    {}. [{}] conf={:.2} — {}",
+                            si + 1,
+                            tag,
+                            step.confidence,
+                            step.explanation
+                        );
+                    }
+                }
+            }
         }
     }
 

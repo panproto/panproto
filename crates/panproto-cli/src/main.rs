@@ -930,6 +930,15 @@ enum LensAction {
         /// `exploratory` — lossy retraction witnesses and LM priors.
         #[arg(long, value_name = "TIER")]
         stringency: Option<StringencyArg>,
+        /// Emit up to N ranked candidate lenses instead of the single
+        /// best one. Output format switches to a JSON array when
+        /// combined with `--json` or `--chain`.
+        #[arg(long, value_name = "N", default_value_t = 1)]
+        top_n: usize,
+        /// Print per-step explanations (and confidences) for each
+        /// emitted candidate.
+        #[arg(long)]
+        explain: bool,
     },
     /// Apply a saved lens chain to data.
     Apply {
@@ -1529,6 +1538,8 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             requirements,
             hints,
             stringency,
+            top_n,
+            explain,
         } => cmd::lens::cmd_lens_generate(
             &old,
             &new,
@@ -1543,6 +1554,8 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             verbose,
             hints.as_deref(),
             stringency.map(Stringency::from),
+            top_n,
+            explain,
         ),
         LensAction::Apply {
             chain,

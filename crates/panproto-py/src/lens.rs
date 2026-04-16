@@ -493,12 +493,80 @@ pub fn pipeline(chains: Vec<PyRef<'_, PyProtolensChain>>) -> PyProtolensChain {
     }
 }
 
+/// Auto-generate up to ``top_n`` ranked candidate lenses with per-step
+/// explanations.
+///
+/// Each returned entry is a dict with fields ``quality``, ``coverage``,
+/// ``score``, ``strategies_used`` (list of strategy tag strings), and
+/// ``steps`` (list of ``{kind, explanation, confidence, strategy}``
+/// dicts). The returned list is sorted by descending composite score.
+///
+/// Parameters
+/// ----------
+/// `src_schema` : Schema
+/// `tgt_schema` : Schema
+/// protocol : Protocol
+/// `top_n` : int
+///     Maximum number of ranked candidates to return. Values < 1 are
+///     treated as 1.
+/// stringency : str, optional
+///     One of ``"strict" | "balanced" | "lenient" | "exploratory"``.
+#[pyfunction]
+#[pyo3(signature = (src_schema, tgt_schema, protocol, top_n=1, stringency=None))]
+pub fn auto_generate_lens_candidates(
+    py: Python<'_>,
+    src_schema: &PySchema,
+    tgt_schema: &PySchema,
+    protocol: &PyProtocol,
+    top_n: usize,
+    stringency: Option<&str>,
+) -> PyResult<PyObject> {
+    let mut config = AutoLensConfig::default();
+    if let Some(s) = parse_stringency(stringency)? {
+        config.stringency = s;
+    }
+    let candidates = lens::auto_generate_candidates(
+        &src_schema.inner,
+        &tgt_schema.inner,
+        &protocol.inner,
+        &config,
+        top_n,
+    )
+    .map_err(|e| {
+        crate::error::LensError::new_err(format!("auto-generate-candidates failed: {e}"))
+    })?;
+
+    convert::to_python(py, &candidates_to_json(&candidates))
+}
+
+/// Render the candidate list as JSON suitable for `to_python`.
+fn candidates_to_json(candidates: &[panproto_core::lens::LensCandidate]) -> Vec<serde_json::Value> {
+    candidates
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "quality": c.quality,
+                "coverage": c.coverage,
+                "score": c.score(),
+                "strategies_used": c.strategies_used,
+                "steps": c.steps.iter().map(|s| serde_json::json!({
+                    "kind": s.kind,
+                    "explanation": s.explanation,
+                    "confidence": s.confidence,
+                    "strategy": s.strategy,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect()
+}
+
 /// Register lens types and functions on the parent module.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_class::<PyLens>()?;
     parent.add_class::<PyComplement>()?;
     parent.add_class::<PyProtolensChain>()?;
     parent.add_function(wrap_pyfunction!(auto_generate_lens, parent)?)?;
+    parent.add_function(wrap_pyfunction!(auto_generate_lens_candidates, parent)?)?;
     parent.add_function(wrap_pyfunction!(rename_field, parent)?)?;
     parent.add_function(wrap_pyfunction!(remove_field, parent)?)?;
     parent.add_function(wrap_pyfunction!(add_field, parent)?)?;
