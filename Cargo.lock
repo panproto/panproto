@@ -1898,6 +1898,7 @@ name = "panproto-lens"
 version = "0.32.0"
 dependencies = [
  "divan",
+ "insta",
  "panproto-expr",
  "panproto-gat",
  "panproto-inst",

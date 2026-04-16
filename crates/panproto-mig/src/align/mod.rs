@@ -29,10 +29,14 @@ use panproto_schema::Schema;
 pub mod alias;
 pub mod exact;
 pub mod token_similarity;
+pub mod type_signature;
+pub mod wrap_unwrap;
 
 pub use alias::{AliasDict, alias_anchors, default_alias_dict};
 pub use exact::exact_anchors;
 pub use token_similarity::{token_anchors, token_similarity};
+pub use type_signature::type_signature_anchors;
+pub use wrap_unwrap::wrap_unwrap_anchors;
 
 /// Tag identifying which strategy produced an anchor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

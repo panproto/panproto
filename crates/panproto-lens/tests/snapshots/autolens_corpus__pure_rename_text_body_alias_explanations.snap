@@ -1,0 +1,6 @@
+---
+source: crates/panproto-lens/tests/autolens_corpus.rs
+assertion_line: 650
+expression: alias_expl
+---
+- "alias-match on 1 shared child field name(s): post ↔ post"

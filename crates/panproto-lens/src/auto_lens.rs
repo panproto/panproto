@@ -67,6 +67,25 @@ impl Stringency {
         !matches!(self, Self::Strict)
     }
 
+    /// Whether the wrap/unwrap idiom detector runs at this tier.
+    #[must_use]
+    pub const fn uses_wrap_unwrap(self) -> bool {
+        matches!(self, Self::Lenient | Self::Exploratory)
+    }
+
+    /// Whether the type-signature strategy runs at this tier.
+    #[must_use]
+    pub const fn uses_type_signature(self) -> bool {
+        matches!(self, Self::Lenient | Self::Exploratory)
+    }
+
+    /// Whether the overlap-based fallback is turned on automatically
+    /// at this tier when the caller hasn't pinned `try_overlap`.
+    #[must_use]
+    pub const fn default_try_overlap(self) -> bool {
+        matches!(self, Self::Lenient | Self::Exploratory)
+    }
+
     /// Token-similarity acceptance threshold at this tier. Lower values
     /// admit weaker matches as anchor candidates; the CSP still validates.
     #[must_use]
@@ -76,6 +95,17 @@ impl Stringency {
             Self::Balanced => 0.75,
             Self::Lenient => 0.55,
             Self::Exploratory => 0.40,
+        }
+    }
+
+    /// Minimum kind-signature overlap ratio for the type-signature
+    /// strategy to emit an anchor at this tier.
+    #[must_use]
+    pub const fn type_signature_threshold(self) -> f64 {
+        match self {
+            Self::Strict | Self::Balanced => 1.0,
+            Self::Lenient => 0.75,
+            Self::Exploratory => 0.50,
         }
     }
 
@@ -154,6 +184,15 @@ fn run_strategies(src: &Schema, tgt: &Schema, config: &AutoLensConfig) -> Vec<An
         anchors.extend(align::token_anchors(src, tgt, threshold));
     }
 
+    if config.stringency.uses_wrap_unwrap() {
+        anchors.extend(align::wrap_unwrap_anchors(src, tgt));
+    }
+
+    if config.stringency.uses_type_signature() {
+        let threshold = config.stringency.type_signature_threshold();
+        anchors.extend(align::type_signature_anchors(src, tgt, threshold));
+    }
+
     anchors
 }
 
@@ -207,7 +246,15 @@ pub fn auto_generate(
     apply_stringency_search_opts(&mut search_opts, config.stringency);
     merge_seed_anchors(&mut search_opts, &resolved);
 
-    let result = run_search(src, tgt, protocol, config, &search_opts, None)?;
+    // Lenient / Exploratory tiers always consult the overlap fallback
+    // (span-style retry with alias-derived seeds). Caller's explicit
+    // `try_overlap = true` is preserved at every tier.
+    let mut effective = config.clone();
+    if config.stringency.default_try_overlap() {
+        effective.try_overlap = true;
+    }
+
+    let result = run_search(src, tgt, protocol, &effective, &search_opts, None)?;
 
     Ok(AutoLensResult {
         chain: result.chain,
@@ -323,11 +370,16 @@ pub fn auto_generate_with_hints(
     // Strategy anchors fill in the rest without overwriting.
     merge_seed_anchors(&mut search_opts, &resolved_strategy);
 
+    let mut effective = config.clone();
+    if config.stringency.default_try_overlap() {
+        effective.try_overlap = true;
+    }
+
     let result = run_search(
         src,
         tgt,
         protocol,
-        config,
+        &effective,
         &search_opts,
         Some(domain_constraints),
     )?;
