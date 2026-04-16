@@ -948,7 +948,7 @@ pub fn parse_expr(source: &str) -> Result<Vec<u8>, JsError> {
             .join("; "),
     })?;
 
-    rmp_serde::to_vec(&expr).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&expr).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -992,7 +992,7 @@ pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, Js
             reason: e.to_string(),
         })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -1068,7 +1068,7 @@ pub fn execute_query(
         })
         .collect();
 
-    rmp_serde::to_vec(&results).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&results).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

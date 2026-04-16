@@ -31,6 +31,7 @@
 pub mod align;
 pub mod cascade;
 pub mod chase;
+pub mod coerce;
 pub mod compile;
 pub mod compose;
 pub mod coverage;
@@ -65,3 +66,5 @@ pub use align::{
     AliasDict, Anchor, StrategyTag, alias_anchors, default_alias_dict, exact_anchors,
     resolve_anchors, token_anchors, token_similarity,
 };
+
+pub use coerce::{SortLensWitness, WitnessLibrary, default_witness_library};

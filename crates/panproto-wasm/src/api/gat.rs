@@ -80,7 +80,7 @@ pub fn check_morphism(morphism: &[u8], domain: u32, codomain: u32) -> Result<Vec
         }
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -123,7 +123,7 @@ pub fn migrate_model(model: &[u8], morphism: &[u8]) -> Result<Vec<u8>, JsError> 
         }
     }
 
-    rmp_serde::to_vec(&reindexed).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&reindexed).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

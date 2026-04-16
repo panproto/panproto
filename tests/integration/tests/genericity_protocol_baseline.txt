@@ -60,6 +60,7 @@ crates/panproto-wasm/src/api/helpers.rs	mongodb
 crates/panproto-wasm/src/api/helpers.rs	nsid
 crates/panproto-wasm/src/api/helpers.rs	openapi
 crates/panproto-wasm/src/api/instance.rs	atproto
+crates/panproto-wasm/src/api/lens.rs	bsky
 crates/panproto-wasm/src/api/lens.rs	nsid
 crates/panproto-wasm/src/api/mod.rs	nsid
 crates/panproto-wasm/src/api/schema.rs	atproto

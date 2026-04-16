@@ -27,6 +27,7 @@ use panproto_gat::Name;
 use panproto_schema::Schema;
 
 pub mod alias;
+pub mod coerce;
 pub mod exact;
 pub mod structural;
 pub mod token_similarity;
@@ -34,6 +35,7 @@ pub mod type_signature;
 pub mod wrap_unwrap;
 
 pub use alias::{AliasDict, alias_anchors, default_alias_dict};
+pub use coerce::{CoerceAnchor, coerce_anchors};
 pub use exact::exact_anchors;
 pub use structural::structural_anchors;
 pub use token_similarity::{token_anchors, token_similarity};

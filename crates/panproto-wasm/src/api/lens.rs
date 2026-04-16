@@ -93,7 +93,7 @@ pub fn auto_generate_candidates(
         })
         .collect();
 
-    rmp_serde::to_vec(&payload).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&payload).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -176,7 +176,7 @@ pub fn check_lens_laws(migration: u32, instance_bytes: &[u8]) -> Result<Vec<u8>,
         }
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -215,7 +215,7 @@ pub fn check_get_put(migration: u32, instance_bytes: &[u8]) -> Result<Vec<u8>, J
         }
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -257,7 +257,7 @@ pub fn check_put_get(migration: u32, instance_bytes: &[u8]) -> Result<Vec<u8>, J
         }
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -292,7 +292,7 @@ pub fn invert_migration(mapping: &[u8], src: u32, tgt: u32) -> Result<Vec<u8>, J
             reason: e.to_string(),
         })?;
 
-    rmp_serde::to_vec(&inverse).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&inverse).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -390,7 +390,7 @@ pub fn protolens_complement_spec(chain: u32, schema: u32) -> Result<Vec<u8>, JsE
 
     let result = lens::chain_complement_spec(&chain_val, &schema_val, &protocol);
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -527,7 +527,7 @@ pub fn factorize_morphism(
         })
         .collect();
 
-    rmp_serde::to_vec(&steps).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&steps).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -613,7 +613,7 @@ pub fn symmetric_lens_sync(
         }
     })?;
 
-    rmp_serde::to_vec(&result_view).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result_view).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -661,6 +661,61 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
         src_schema: std::sync::Arc::new(lens_obj.src_schema),
         tgt_schema: std::sync::Arc::new(lens_obj.tgt_schema),
     }))
+}
+
+/// Compile a lens DSL document (JSON or YAML source) into a
+/// `ProtolensChain` resource.
+///
+/// `source_bytes` is UTF-8 DSL source in the specified `format`:
+/// `"json"` or `"yaml"`. Nickel (`"ncl"`) is not supported in the WASM
+/// binding because Nickel evaluation requires a filesystem for its
+/// contract imports; precompile Nickel → JSON on the host instead.
+///
+/// `body_vertex` is the parent vertex id under which field-level steps
+/// (e.g. `rename_field`, `add_field`) attach — typically the record's
+/// `:body` object, such as `"app.bsky.feed.post:body"`.
+///
+/// Returns a handle to the compiled `ProtolensChain`.
+///
+/// # Errors
+///
+/// Returns `JsError` if `format` is unknown, the source fails to parse,
+/// or compilation fails (e.g. references an unknown sort or has
+/// inconsistent step metadata).
+#[wasm_bindgen]
+pub fn compile_lens_document(
+    source_bytes: &[u8],
+    format: &str,
+    body_vertex: &str,
+) -> Result<u32, JsError> {
+    let source =
+        std::str::from_utf8(source_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("invalid UTF-8: {e}"),
+        })?;
+
+    let doc = match format {
+        "json" => panproto_lens_dsl::eval::eval_json(source),
+        "yaml" | "yml" => panproto_lens_dsl::eval::eval_yaml(source),
+        other => {
+            return Err(WasmError::DeserializationFailed {
+                reason: format!("unsupported lens DSL format '{other}'; expected 'json' or 'yaml'"),
+            }
+            .into());
+        }
+    }
+    .map_err(|e| WasmError::DeserializationFailed {
+        reason: e.to_string(),
+    })?;
+
+    let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None).map_err(|e| {
+        WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
+        compiled.chain,
+    ))))
 }
 
 /// Deserialize a protolens chain from JSON bytes.
@@ -740,7 +795,7 @@ pub fn protolens_check_applicability(chain: u32, schema: u32) -> Result<Vec<u8>,
         Ok(()) => serde_json::json!({ "applicable": true, "reasons": Vec::<String>::new() }),
         Err(reasons) => serde_json::json!({ "applicable": false, "reasons": reasons }),
     };
-    rmp_serde::to_vec(&response).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&response).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -776,7 +831,7 @@ pub fn protolens_fleet(chain: u32, schema_handles: &[u32]) -> Result<Vec<u8>, Js
         lookup_builtin_protocol(&first.protocol)
             .unwrap_or_else(|| default_protocol(&first.protocol))
     } else {
-        return rmp_serde::to_vec(&serde_json::json!({
+        return rmp_serde::to_vec_named(&serde_json::json!({
             "applied": Vec::<String>::new(),
             "skipped": Vec::<String>::new(),
         }))
@@ -797,7 +852,7 @@ pub fn protolens_fleet(chain: u32, schema_handles: &[u32]) -> Result<Vec<u8>, Js
         "skipped": skipped,
     });
 
-    rmp_serde::to_vec(&response).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&response).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

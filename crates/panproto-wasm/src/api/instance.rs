@@ -43,7 +43,7 @@ pub fn list_io_protocols(registry: u32) -> Result<Vec<u8>, JsError> {
         Ok(reg.protocol_names().map(str::to_owned).collect())
     })?;
 
-    rmp_serde::to_vec(&names).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&names).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -87,7 +87,7 @@ pub fn parse_instance(
                         .map_err(|e| WasmError::ParseFailed {
                             reason: e.to_string(),
                         })?;
-                rmp_serde::to_vec(&instance).map_err(|e| WasmError::SerializationFailed {
+                rmp_serde::to_vec_named(&instance).map_err(|e| WasmError::SerializationFailed {
                     reason: e.to_string(),
                 })
             }
@@ -97,7 +97,7 @@ pub fn parse_instance(
                         reason: e.to_string(),
                     }
                 })?;
-                rmp_serde::to_vec(&instance).map_err(|e| WasmError::SerializationFailed {
+                rmp_serde::to_vec_named(&instance).map_err(|e| WasmError::SerializationFailed {
                     reason: e.to_string(),
                 })
             }
@@ -199,18 +199,18 @@ pub fn parse_instance_preserving(
                 })?;
 
         let instance_bytes =
-            rmp_serde::to_vec(&instance).map_err(|e| WasmError::SerializationFailed {
+            rmp_serde::to_vec_named(&instance).map_err(|e| WasmError::SerializationFailed {
                 reason: e.to_string(),
             })?;
         let complement_bytes = complement
-            .map(|c| rmp_serde::to_vec(&c))
+            .map(|c| rmp_serde::to_vec_named(&c))
             .transpose()
             .map_err(|e| WasmError::SerializationFailed {
                 reason: e.to_string(),
             })?
             .unwrap_or_default();
 
-        rmp_serde::to_vec(&(instance_bytes, complement_bytes)).map_err(|e| {
+        rmp_serde::to_vec_named(&(instance_bytes, complement_bytes)).map_err(|e| {
             WasmError::SerializationFailed {
                 reason: e.to_string(),
             }
@@ -293,7 +293,7 @@ pub fn validate_instance(schema_handle: u32, instance_bytes: &[u8]) -> Result<Ve
         .map(|e| format!("{e:?}"))
         .collect();
 
-    rmp_serde::to_vec(&errors).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&errors).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -385,7 +385,7 @@ pub fn json_to_instance_with_root(
             reason: e.to_string(),
         })?;
 
-    rmp_serde::to_vec(&instance).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&instance).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

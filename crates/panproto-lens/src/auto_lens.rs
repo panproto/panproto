@@ -980,11 +980,22 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
         TheoryTransform::DropDirectedEquation(name) => {
             Ok(elementary::drop_directed_eq(Name::from(&**name)))
         }
-        TheoryTransform::CoerceSort { .. } | TheoryTransform::MergeSorts { .. } => {
-            Err(LensError::ProtolensError(
-                "coercion/merge transforms not yet supported as protolenses".into(),
-            ))
-        }
+        TheoryTransform::CoerceSort {
+            sort_name,
+            target_kind,
+            coercion_expr,
+            inverse_expr,
+            coercion_class,
+        } => Ok(elementary::sort_coerce(
+            Name::from(&**sort_name),
+            *target_kind,
+            coercion_expr.clone(),
+            inverse_expr.clone(),
+            *coercion_class,
+        )),
+        TheoryTransform::MergeSorts { .. } => Err(LensError::ProtolensError(
+            "merge transforms not yet supported as protolenses".into(),
+        )),
         TheoryTransform::Identity => Err(LensError::ProtolensError(
             "unexpected Identity in factorization".into(),
         )),

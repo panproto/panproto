@@ -1285,6 +1285,68 @@ pub mod elementary {
         }
     }
 
+    /// `η : Id ⟹ CoerceSort(S ↦ T, ℓ)`: apply a witness lens to every
+    /// value of sort `S`.
+    ///
+    /// For each schema `S'` containing sort `S`, `η_{S'}` is a lens
+    /// that runs the witness `ℓ = (forward, inverse)` pointwise over
+    /// values of sort `S`, producing an instance over `S'[S ↦ T]`.
+    ///
+    /// Categorically this is pushout-along-`SortLens`: the theory is
+    /// rewritten by substituting `S` with `T` everywhere, and the
+    /// instance-level change is witnessed by the Cambria-style lens
+    /// `ℓ`. Round-trip fidelity is classified by
+    /// [`CoercionClass`](panproto_gat::CoercionClass):
+    ///
+    /// - `Iso`: `ℓ.inverse(ℓ.forward(v)) = v` AND
+    ///   `ℓ.forward(ℓ.inverse(w)) = w`. Complement is empty.
+    /// - `Retraction`: `ℓ.inverse(ℓ.forward(v)) = v` but the other
+    ///   direction may not hold. Complement captures the residual so
+    ///   `put` can recover the original value.
+    /// - `Projection`: neither direction round-trips without external
+    ///   data; the forward image is a function of the source, but no
+    ///   inverse recovers the source. Complement stores the original
+    ///   value.
+    ///
+    /// The CSP / naturality check enforces that every op mentioning
+    /// `S` has an interpretation in the pushed-out theory that
+    /// commutes with `ℓ`; callers in `panproto-mig::coerce` perform
+    /// this check before emitting a `CoerceSort` endofunctor.
+    #[must_use]
+    pub fn sort_coerce(
+        sort_name: impl Into<Name>,
+        target_kind: panproto_gat::ValueKind,
+        coercion_expr: panproto_expr::Expr,
+        inverse_expr: Option<panproto_expr::Expr>,
+        coercion_class: panproto_gat::CoercionClass,
+    ) -> Protolens {
+        let sort_name = sort_name.into();
+        let arc = name_arc_clone(&sort_name);
+        Protolens {
+            name: Name::from(format!("sort_coerce_{sort_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::HasSort(Arc::clone(&arc)),
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("coerce_{sort_name}")),
+                precondition: TheoryConstraint::HasSort(Arc::clone(&arc)),
+                transform: TheoryTransform::CoerceSort {
+                    sort_name: Arc::clone(&arc),
+                    target_kind,
+                    coercion_expr,
+                    inverse_expr,
+                    coercion_class,
+                },
+            },
+            complement_constructor: ComplementConstructor::CoercedSortData {
+                sort: sort_name,
+                class: coercion_class,
+            },
+        }
+    }
+
     /// `η : Id ⟹ Scope(focus, inner)`: apply a protolens within the
     /// sub-schema rooted at the focus vertex.
     ///

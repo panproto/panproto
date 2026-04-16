@@ -90,6 +90,7 @@ export interface WasmGlueModule {
   symmetric_lens_sync: WasmExports['symmetric_lens_sync'];
   apply_protolens_step: WasmExports['apply_protolens_step'];
   protolens_from_json: WasmExports['protolens_from_json'];
+  compile_lens_document: WasmExports['compile_lens_document'];
   protolens_fuse: WasmExports['protolens_fuse'];
   protolens_lift: WasmExports['protolens_lift'];
   protolens_check_applicability: WasmExports['protolens_check_applicability'];
@@ -175,9 +176,12 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
     // from disk and pass it to init() as bytes. In browsers (and bundlers
     // that provide a pre-imported glue), the default fetch path works.
     const wasmSource = await resolveWasmSource(glueUrl);
+    // wasm-bindgen >= 0.2.100 deprecates positional args to init(); pass a
+    // single `{ module_or_path }` options object. Omit the field entirely to
+    // let the glue resolve the `.wasm` itself (browsers, bundlers).
     const initOutput = wasmSource === undefined
-      ? await glue.default()
-      : await glue.default(wasmSource);
+      ? await glue.default({})
+      : await glue.default({ module_or_path: wasmSource });
 
     const exports: WasmExports = {
       define_protocol: glue.define_protocol,
@@ -221,6 +225,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       symmetric_lens_sync: glue.symmetric_lens_sync,
       apply_protolens_step: glue.apply_protolens_step,
       protolens_from_json: glue.protolens_from_json,
+      compile_lens_document: glue.compile_lens_document,
       protolens_fuse: glue.protolens_fuse,
       protolens_lift: glue.protolens_lift,
       protolens_check_applicability: glue.protolens_check_applicability,

@@ -1,0 +1,48 @@
+[book]
+title = "panproto"
+authors = ["Aaron Steven White"]
+description = "Schematic version control, protocols as theories, and migrations as lenses"
+src = "src"
+language = "en"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/aaronstevenwhite/panproto"
+edit-url-template = "https://github.com/aaronstevenwhite/panproto/edit/main/book/{path}"
+site-url = "/book/"
+additional-css = ["./theme/cite.css"]
+additional-js = ["./theme/cite-group.js", "./theme/mermaid.min.js", "./theme/mermaid-init.js"]
+
+[output.html.search]
+enable = true
+limit-results = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
+expand = true
+heading-split-level = 3
+
+[output.html.fold]
+enable = true
+level = 1
+
+[preprocessor.bib]
+bibliography = "references.bib"
+render-bib = "cited"
+cached-bib = false
+order = "author"
+backend = "csl"
+csl-style = "chicago-author-date"
+citation-syntax = "pandoc"
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[preprocessor.katex]
+after = ["links"]

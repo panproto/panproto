@@ -213,6 +213,63 @@ export class Panproto implements Disposable {
   }
 
   /**
+   * Compile a lens DSL document (JSON or YAML) into a
+   * {@link ProtolensChainHandle}.
+   *
+   * The DSL is a declarative authoring format for protolens chains —
+   * sequences of rename/remove/add/hoist/nest/scoped steps, value-level
+   * expressions, and theory-level pullbacks. Compilation produces the
+   * same `ProtolensChain` as the underlying `panproto-lens-dsl` crate's
+   * Rust API.
+   *
+   * Nickel source is not supported directly (its contract imports need a
+   * filesystem); precompile Nickel → JSON on the host and pass that.
+   *
+   * @param source - The DSL document source: a JS object (serialized to
+   *                 JSON), a JSON/YAML string, or raw UTF-8 bytes
+   * @param bodyVertex - Parent vertex id for field-level steps, e.g.
+   *                     `'app.bsky.feed.post:body'`
+   * @param format - `'json'` (default for objects/JSON strings/bytes) or
+   *                 `'yaml'`
+   * @returns A `ProtolensChainHandle` holding the compiled chain
+   * @throws {@link import('./types.js').WasmError} if parsing or
+   *         compilation fails
+   *
+   * @example
+   * ```ts
+   * const chain = pp.compileLensDocument({
+   *   id: 'demo.rename',
+   *   source: 'v1', target: 'v2',
+   *   steps: [{ rename_field: { old: 'text', new: 'title' } }],
+   * }, 'app.bsky.feed.post:body');
+   * ```
+   */
+  compileLensDocument(
+    source: object | string | Uint8Array,
+    bodyVertex: string,
+    format: 'json' | 'yaml' = 'json',
+  ): ProtolensChainHandle {
+    let bytes: Uint8Array;
+    if (source instanceof Uint8Array) {
+      bytes = source;
+    } else if (typeof source === 'string') {
+      bytes = new TextEncoder().encode(source);
+    } else {
+      bytes = new TextEncoder().encode(JSON.stringify(source));
+    }
+
+    try {
+      const rawHandle = this.#wasm.exports.compile_lens_document(bytes, format, bodyVertex);
+      return new ProtolensChainHandle(createHandle(rawHandle, this.#wasm), this.#wasm);
+    } catch (error) {
+      throw new WasmError(
+        `compile_lens_document failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
    * Check existence conditions for a proposed migration.
    *
    * Verifies that the migration specification satisfies all

@@ -56,9 +56,10 @@ pub fn store_dataset(schema_handle: u32, data_json: &[u8]) -> Result<u32, JsErro
     }
 
     // Serialize instances as msgpack and compute a schema id
-    let data_bytes = rmp_serde::to_vec(&instances).map_err(|e| WasmError::SerializationFailed {
-        reason: format!("serialize instances: {e}"),
-    })?;
+    let data_bytes =
+        rmp_serde::to_vec_named(&instances).map_err(|e| WasmError::SerializationFailed {
+            reason: format!("serialize instances: {e}"),
+        })?;
 
     let schema_id = vcs::hash::hash_schema(&schema).map_err(|e| WasmError::VcsError {
         reason: format!("hash schema: {e}"),
@@ -91,7 +92,7 @@ pub fn get_dataset(dataset_handle: u32) -> Result<Vec<u8>, JsError> {
 
     // Convert each instance to JSON using a minimal schema lookup
     // Return the raw msgpack-encoded instances for interop
-    rmp_serde::to_vec(&instances).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&instances).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: format!("serialize: {e}"),
         }
@@ -162,7 +163,7 @@ pub fn migrate_dataset_forward(
 
     let new_ds = vcs::DataSetObject {
         schema_id: tgt_schema_id,
-        data: rmp_serde::to_vec(&migrated).map_err(|e| WasmError::SerializationFailed {
+        data: rmp_serde::to_vec_named(&migrated).map_err(|e| WasmError::SerializationFailed {
             reason: format!("serialize: {e}"),
         })?,
         record_count: migrated.len() as u64,
@@ -172,7 +173,7 @@ pub fn migrate_dataset_forward(
 
     // Serialize complements
     let complement_bytes =
-        rmp_serde::to_vec(&complements).map_err(|e| WasmError::SerializationFailed {
+        rmp_serde::to_vec_named(&complements).map_err(|e| WasmError::SerializationFailed {
             reason: format!("serialize complement: {e}"),
         })?;
 
@@ -189,7 +190,7 @@ pub fn migrate_dataset_forward(
         "complement_handle": complement_handle,
     });
 
-    rmp_serde::to_vec(&out).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&out).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -252,7 +253,7 @@ pub fn migrate_dataset_backward(
 
     let restored_ds = vcs::DataSetObject {
         schema_id: src_schema_id,
-        data: rmp_serde::to_vec(&restored).map_err(|e| WasmError::SerializationFailed {
+        data: rmp_serde::to_vec_named(&restored).map_err(|e| WasmError::SerializationFailed {
             reason: format!("serialize: {e}"),
         })?,
         record_count: restored.len() as u64,
@@ -286,7 +287,7 @@ pub fn check_dataset_staleness(
         "target_schema_id": target_schema_id.to_string(),
     });
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -319,7 +320,7 @@ pub fn store_protocol_definition(protocol_bytes: &[u8]) -> Result<u32, JsError> 
 pub fn get_protocol_definition(handle: u32) -> Result<Vec<u8>, JsError> {
     let protocol = slab::with_resource(handle, |r| Ok(slab::as_protocol(r)?.clone()))?;
 
-    rmp_serde::to_vec(&protocol).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&protocol).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -343,7 +344,7 @@ pub fn get_migration_complement(complement_bytes: &[u8]) -> Result<Vec<u8>, JsEr
             reason: format!("complement: {e}"),
         })?;
 
-    rmp_serde::to_vec(&complements).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&complements).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

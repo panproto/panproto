@@ -48,7 +48,7 @@ pub fn fiber_at(
     let name = panproto_core::gat::Name::from(target_anchor);
     let result = inst::fiber_at_anchor(&migration, &instance, &name);
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -89,7 +89,7 @@ pub fn fiber_decomposition_wasm(
         .map(|(name, ids)| (name.to_string(), ids))
         .collect();
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -129,7 +129,7 @@ pub fn poly_hom(
 
     let hom = inst::hom_schema(&source, &target);
 
-    rmp_serde::to_vec(&hom).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&hom).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -208,7 +208,7 @@ pub fn preferred_conversion_path(
         "steps": step_names,
     });
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

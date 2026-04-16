@@ -1,0 +1,41 @@
+/* Inline citations */
+a.cite {
+  text-decoration: none;
+  color: var(--links);
+}
+a.cite:hover {
+  text-decoration: underline;
+}
+
+/* Bibliography page */
+.bib-entry {
+  display: flex;
+  gap: 0.75em;
+  margin-bottom: 0.8em;
+  line-height: 1.5;
+}
+.bib-number {
+  flex-shrink: 0;
+  min-width: 2em;
+  text-align: right;
+  color: var(--sidebar-fg);
+  font-variant-numeric: tabular-nums;
+}
+.bib-content {
+  flex: 1;
+}
+.bib-content cite {
+  font-style: italic;
+}
+.bib-content a {
+  text-decoration: none;
+  color: var(--links);
+}
+.bib-content a:hover {
+  text-decoration: underline;
+}
+
+/* Hide the default mdbook-bib junk */
+.bib_div {
+  display: none;
+}
