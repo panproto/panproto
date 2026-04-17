@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-04-17
+
 ### Added
 
 - **panproto-lens**: `Stringency` axis (`Strict`, `Balanced`, `Lenient`, `Exploratory`) plumbed through `AutoLensConfig`, `HintSpec`, the CLI (`--stringency`), Python, WASM, and the TypeScript SDK. Each tier enables a superset of alignment strategies and coercion witnesses from the tier below; monotonicity is asserted by the corpus harness across all four tiers on every gold pair.
