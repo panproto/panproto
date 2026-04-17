@@ -1070,6 +1070,43 @@ mod tests {
     }
 
     #[test]
+    fn extend_with_colliding_witness_name_does_not_deduplicate() {
+        // Audit concern 8: the uniqueness invariant on witness names is
+        // opt-in via `witness_names_are_unique`. `extend` itself does
+        // NOT enforce uniqueness - it blindly registers every witness
+        // from `other`. A user who extends the default library with
+        // their own "int_to_str" will observe a post-extend library
+        // where `witness_by_name("int_to_str")` still returns the
+        // FIRST registered witness (deterministic iter order); the
+        // duplicate is reachable only via `lookup`.
+        //
+        // This test pins that behaviour so a future uniqueness-on-
+        // extend change is a deliberate breaking choice rather than a
+        // silent semantic shift.
+        let mut lib = default_witness_library();
+        let mut user = WitnessLibrary::new();
+        let mut custom = int_to_str_witness();
+        custom.description = "USER-OVERRIDE int_to_str".to_owned();
+        user.register(custom);
+        lib.extend(user);
+        // Uniqueness check must now FAIL, exhibiting the duplicate.
+        let err = lib
+            .witness_names_are_unique()
+            .expect_err("extend must not silently deduplicate colliding names");
+        assert_eq!(err, "int_to_str");
+        // `lookup` returns both, in registration order: default first,
+        // user second.
+        let candidates = lib.lookup(ValueKind::Int, ValueKind::Str);
+        assert_eq!(candidates.len(), 2);
+        assert!(
+            candidates[0]
+                .description
+                .starts_with("int → str via IntToStr")
+        );
+        assert!(candidates[1].description.starts_with("USER-OVERRIDE"));
+    }
+
+    #[test]
     fn extend_merges_in_deterministic_order() {
         // Build two libraries A and B with disjoint kind pairs whose
         // HashMap insertion order can vary run-to-run, then merge

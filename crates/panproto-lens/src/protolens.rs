@@ -2501,7 +2501,24 @@ pub(crate) fn rebuild_indices(schema: &mut Schema) {
     let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
-    for edge in schema.edges.keys() {
+    // `schema.edges` is a HashMap with a process-randomized hasher;
+    // iterating its keys directly would let the order inside each
+    // adjacency SmallVec drift across process runs, which in turn
+    // drifts downstream consumers that pick the "first compatible
+    // edge" (e.g. `build_morphism_weighted` in hom_search). Collect
+    // and sort by `(src, tgt, kind, name)` so the per-vertex adjacency
+    // order is a pure function of schema content.
+    let mut edges: Vec<&Edge> = schema.edges.keys().collect();
+    edges.sort_by(|a, b| {
+        a.src
+            .as_str()
+            .cmp(b.src.as_str())
+            .then_with(|| a.tgt.as_str().cmp(b.tgt.as_str()))
+            .then_with(|| a.kind.as_str().cmp(b.kind.as_str()))
+            .then_with(|| a.name.as_deref().cmp(&b.name.as_deref()))
+    });
+
+    for edge in edges {
         outgoing
             .entry(edge.src.clone())
             .or_default()

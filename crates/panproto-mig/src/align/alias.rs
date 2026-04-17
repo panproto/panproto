@@ -34,6 +34,29 @@ impl AliasDict {
 
     /// Add a synonym cluster. Each term is canonicalized (lowercased,
     /// underscores/dashes stripped, camelCase flattened) before insertion.
+    ///
+    /// The operation is a union-of-equivalence-classes: if any canonical
+    /// term in the new cluster is already bound to an existing cluster,
+    /// that cluster is extended in place with the fresh terms (and any
+    /// other pre-existing clusters touched by the new cluster are
+    /// merged into the first). This preserves the user's stated
+    /// invariant that every term in one `add_cluster` call is mutually
+    /// aliased, even when the call partially overlaps prior
+    /// registrations.
+    ///
+    /// Edge cases:
+    /// - Exact duplicate (every term already maps to the same existing
+    ///   cluster): no-op.
+    /// - Fully disjoint: allocate a new cluster.
+    /// - Partial overlap with one existing cluster: extend it.
+    /// - Partial overlap with multiple existing clusters: merge them
+    ///   into the lowest-indexed one.
+    ///
+    /// No empty slots are left in `self.clusters`; merged clusters have
+    /// their contents moved into the surviving cluster and the emptied
+    /// entry is left as an empty `Vec` (so cluster ids remain stable
+    /// for `term_to_cluster` lookups). `cluster_count()` counts only
+    /// non-empty clusters.
     pub fn add_cluster<I, S>(&mut self, cluster: I)
     where
         I: IntoIterator<Item = S>,
@@ -47,34 +70,80 @@ impl AliasDict {
         if canonical.len() < 2 {
             return;
         }
-        // Idempotency: if every term is already bound to an existing
-        // cluster, do not allocate a new cluster id and do not push a
-        // dead duplicate onto `self.clusters`. A caller that registers
-        // the same cluster twice — directly or via `extend` merging a
-        // dictionary with overlapping entries — must not bloat
-        // `cluster_count()` or the `clusters` vector.
-        //
-        // We consider the call a duplicate when *every* canonical term
-        // already maps to the *same* existing cluster id. Partial
-        // overlap (some terms fresh, some pre-existing under a
-        // different cluster) still allocates a new cluster id so the
-        // new terms get registered; pre-existing terms keep their
-        // prior binding thanks to `or_insert`.
-        if let Some(&existing) = self.term_to_cluster.get(&canonical[0]) {
-            if canonical
-                .iter()
-                .all(|t| self.term_to_cluster.get(t) == Some(&existing))
-            {
-                return;
+
+        // Collect the distinct existing cluster ids touched by `canonical`.
+        let mut touched: Vec<usize> = canonical
+            .iter()
+            .filter_map(|t| self.term_to_cluster.get(t).copied())
+            .collect();
+        touched.sort_unstable();
+        touched.dedup();
+
+        match touched.as_slice() {
+            // Fully disjoint: allocate.
+            [] => {
+                let cluster_id = self.clusters.len();
+                for term in &canonical {
+                    self.term_to_cluster.insert(term.clone(), cluster_id);
+                }
+                self.clusters.push(canonical);
+            }
+            // Exactly one touched cluster.
+            [only] => {
+                let survivor = *only;
+                // If every term already maps to that cluster, this is
+                // an exact duplicate. No-op.
+                if canonical
+                    .iter()
+                    .all(|t| self.term_to_cluster.get(t) == Some(&survivor))
+                {
+                    return;
+                }
+                // Extend the existing cluster with fresh terms. Keep
+                // pre-existing terms' bindings intact (they already
+                // point at `survivor`).
+                for term in &canonical {
+                    if !self.term_to_cluster.contains_key(term) {
+                        self.term_to_cluster.insert(term.clone(), survivor);
+                        self.clusters[survivor].push(term.clone());
+                    }
+                }
+            }
+            // Multiple touched clusters: merge them all into the
+            // lowest-indexed one, then add any fresh terms.
+            _ => {
+                let survivor = touched[0];
+                for &victim in &touched[1..] {
+                    let moved = std::mem::take(&mut self.clusters[victim]);
+                    for term in moved {
+                        // Re-point every victim-bound term at survivor.
+                        // `term_to_cluster` may already reflect the
+                        // victim id even for canonical duplicates; we
+                        // unconditionally re-insert to survivor.
+                        self.term_to_cluster.insert(term.clone(), survivor);
+                        if !self.clusters[survivor].contains(&term) {
+                            self.clusters[survivor].push(term);
+                        }
+                    }
+                }
+                // Any term in `canonical` that was previously bound to
+                // a victim is now bound to survivor; fresh terms are
+                // inserted and appended.
+                for term in &canonical {
+                    if !self.term_to_cluster.contains_key(term) {
+                        self.term_to_cluster.insert(term.clone(), survivor);
+                        self.clusters[survivor].push(term.clone());
+                    }
+                }
             }
         }
-        let cluster_id = self.clusters.len();
-        for term in &canonical {
-            self.term_to_cluster
-                .entry(term.clone())
-                .or_insert(cluster_id);
-        }
-        self.clusters.push(canonical);
+    }
+
+    /// Number of non-empty clusters. Emptied entries left behind by
+    /// merges in [`Self::add_cluster`] are not counted.
+    #[must_use]
+    pub fn cluster_count(&self) -> usize {
+        self.clusters.iter().filter(|c| !c.is_empty()).count()
     }
 
     /// Merge additional clusters from another dictionary.
@@ -113,12 +182,6 @@ impl AliasDict {
         self.term_to_cluster
             .get(&canonical)
             .and_then(|id| self.clusters.get(*id).map(Vec::as_slice))
-    }
-
-    /// Number of registered clusters.
-    #[must_use]
-    pub fn cluster_count(&self) -> usize {
-        self.clusters.len()
     }
 }
 
@@ -681,13 +744,112 @@ mod tests {
         // Disjoint cluster still allocates.
         dict.add_cluster(["baz", "qux"]);
         assert_eq!(dict.cluster_count(), 2);
-        // Partial overlap: "foo" already bound (to cluster 0); "new"
-        // is fresh. A new cluster is allocated so "new" gets
-        // registered; "foo" keeps its prior binding.
+        // Partial overlap: "foo" already bound (cluster 0); "new" is
+        // fresh. Audit pass 7 fixed the silent-split bug: the user's
+        // assertion "foo and new are aliases" now extends the existing
+        // cluster in place rather than allocating a dead-duplicate
+        // cluster that left `foo` and `new` mutually non-aliased.
         dict.add_cluster(["foo", "new"]);
-        assert_eq!(dict.cluster_count(), 3);
+        assert_eq!(
+            dict.cluster_count(),
+            2,
+            "partial overlap must extend an existing cluster, not allocate"
+        );
         assert!(dict.are_aliases("foo", "bar"));
-        assert!(!dict.are_aliases("foo", "new"));
+        assert!(
+            dict.are_aliases("foo", "new"),
+            "partial overlap must make fresh terms aliases of the existing cluster"
+        );
+        assert!(
+            dict.are_aliases("bar", "new"),
+            "transitivity must hold after in-place extension"
+        );
+    }
+
+    #[test]
+    fn add_cluster_partial_overlap_extends_in_place() {
+        // Regression (audit pass 7): `add_cluster(["a","b","c"])` against
+        // an existing cluster `{a,b}` previously created a second cluster
+        // whose `clusters[]` entry contained [a,b,c] but whose
+        // `term_to_cluster` still bound `a` and `b` to the original id.
+        // `are_aliases(a, c)` returned `false` — the user's stated
+        // equivalence "a ≡ b ≡ c" was silently split.
+        let mut dict = AliasDict::new();
+        dict.add_cluster(["a", "b"]);
+        dict.add_cluster(["a", "b", "c"]);
+        assert_eq!(dict.cluster_count(), 1);
+        assert!(dict.are_aliases("a", "c"));
+        assert!(dict.are_aliases("b", "c"));
+        // `cluster_for` must be consistent across every member.
+        let mut via_a: Vec<String> = dict.cluster_for("a").unwrap().to_vec();
+        via_a.sort();
+        let mut via_c: Vec<String> = dict.cluster_for("c").unwrap().to_vec();
+        via_c.sort();
+        assert_eq!(
+            via_a, via_c,
+            "cluster_for must be consistent for cluster members"
+        );
+        assert_eq!(via_a, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn add_cluster_merges_multiple_existing_clusters() {
+        // When a new cluster bridges two previously-disjoint clusters,
+        // the equivalence-class semantics demand that all of them fuse.
+        let mut dict = AliasDict::new();
+        dict.add_cluster(["a", "b"]);
+        dict.add_cluster(["c", "d"]);
+        assert_eq!(dict.cluster_count(), 2);
+        dict.add_cluster(["b", "c"]);
+        assert_eq!(
+            dict.cluster_count(),
+            1,
+            "bridging cluster must merge both pre-existing clusters"
+        );
+        for x in ["a", "b", "c", "d"] {
+            for y in ["a", "b", "c", "d"] {
+                if x != y {
+                    assert!(dict.are_aliases(x, y), "transitivity failed on {x} ↔ {y}");
+                }
+            }
+        }
+        // All four members observe the same merged cluster.
+        let mut via_a: Vec<String> = dict.cluster_for("a").unwrap().to_vec();
+        via_a.sort();
+        for x in ["b", "c", "d"] {
+            let mut via_x: Vec<String> = dict.cluster_for(x).unwrap().to_vec();
+            via_x.sort();
+            assert_eq!(via_a, via_x, "cluster_for must match for {x}");
+        }
+    }
+
+    #[test]
+    fn canonical_form_handles_multi_kilobyte_input() {
+        // `canonical_form` should allocate O(n) and run in O(n). Stress
+        // it with ~55 KB of input to confirm no unbounded growth.
+        let big: String = "abcDEF_123-".repeat(5_000);
+        let canon = canonical_form(&big);
+        // Of the 11 chars in the repeated unit, 9 are alphanumeric
+        // (a,b,c,D,E,F,1,2,3); '_' and '-' drop. 9 × 5000 = 45_000.
+        assert_eq!(canon.len(), 45_000);
+        assert!(canon.chars().all(|c| !c.is_uppercase()));
+    }
+
+    #[test]
+    fn alias_anchors_leaf_vs_leaf_emits_on_default_temporal_cluster() {
+        // Concern 9: when both sides are pure leaves (no outgoing edges)
+        // and the vertex names themselves alias under the default
+        // dictionary, `alias_anchors` emits a name-level anchor.
+        let src = build_schema(&[("created", "string")], &[]);
+        let tgt = build_schema(&[("createdAt", "string")], &[]);
+        let dict = default_alias_dict();
+        let anchors = alias_anchors(&src, &tgt, &dict);
+        assert!(
+            anchors
+                .iter()
+                .any(|a| a.src.as_str() == "created" && a.tgt.as_str() == "createdAt"),
+            "leaf-vs-leaf temporal aliases must emit an anchor; got {anchors:?}"
+        );
     }
 
     #[test]

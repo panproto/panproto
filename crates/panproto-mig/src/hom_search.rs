@@ -245,6 +245,12 @@ impl<'a> BacktrackState<'a> {
                         .filter(|(_, tv)| tv.kind == src_vertex.kind)
                         .map(|(tid, _)| tid.clone())
                         .collect();
+                    // `tgt.vertices` is a HashMap with a randomized hasher;
+                    // iterating it directly lets the candidate order drift
+                    // across runs, which in turn drifts the CSP
+                    // backtracking order and the composite-score tiebreak
+                    // between equally-qualified morphisms. Pin it by name.
+                    candidates.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
                     // Property-name domain pruning: for "object" vertices with
                     // large domains, restrict to targets sharing ≥1 edge name.
@@ -322,8 +328,14 @@ impl<'a> BacktrackState<'a> {
             }
         }
 
-        // MRV order: sort source vertices by domain size (smallest first)
+        // MRV order: sort source vertices by domain size (smallest first).
+        // `domains` is a HashMap, so collecting its keys gives a
+        // randomized order; `sort_by_key` is stable, so ties on
+        // `domain.len()` would otherwise retain that randomized order
+        // and drift the backtracking exploration across runs. Pre-sort
+        // by name to lock the tiebreak, then re-sort by domain length.
         let mut order: Vec<Name> = domains.keys().cloned().collect();
+        order.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         order.sort_by_key(|v| domains.get(v).map_or(0, Vec::len));
 
         let assignment: HashMap<Name, Name> = opts.initial.clone();

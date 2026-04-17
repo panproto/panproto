@@ -2219,16 +2219,26 @@ mod tests {
             stringency: Stringency::Balanced,
             ..Default::default()
         };
-        let a = auto_generate(&src, &tgt, &protocol, &config).unwrap();
-        let b = auto_generate(&src, &tgt, &protocol, &config).unwrap();
         let step_names = |r: &AutoLensResult| -> Vec<String> {
             r.chain.steps.iter().map(|s| s.name.to_string()).collect()
         };
-        assert_eq!(step_names(&a), step_names(&b), "step order drift");
-        assert!(
-            (a.alignment_quality - b.alignment_quality).abs() < 1e-12,
-            "quality drift"
-        );
+        // Run enough times that any HashMap-iteration-induced drift in
+        // the CSP domains, MRV tiebreak, adjacency-index order, or
+        // theory-morphism assembly would surface at least once.
+        let baseline = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+        let baseline_steps = step_names(&baseline);
+        for i in 0..100 {
+            let r = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+            assert_eq!(
+                step_names(&r),
+                baseline_steps,
+                "step order drift at iter {i}"
+            );
+            assert!(
+                (r.alignment_quality - baseline.alignment_quality).abs() < 1e-12,
+                "quality drift at iter {i}",
+            );
+        }
     }
 
     #[test]
