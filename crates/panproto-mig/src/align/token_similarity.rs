@@ -148,11 +148,18 @@ fn ngram_counts(s: &str, n: usize) -> HashMap<String, usize> {
             }
         })
         .collect();
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    // When normalization strips every character (e.g. `"!!!"`), the
+    // string carries no alphanumeric signal. Returning an empty gram
+    // multiset prevents two distinct punctuation-only strings from
+    // scoring 1.0 on each other via shared padding grams.
+    if normalized.is_empty() {
+        return counts;
+    }
     let padded: Vec<char> = std::iter::repeat_n(' ', n.saturating_sub(1))
         .chain(normalized.chars())
         .chain(std::iter::repeat_n(' ', n.saturating_sub(1)))
         .collect();
-    let mut counts: HashMap<String, usize> = HashMap::new();
     if n == 0 || padded.len() < n {
         return counts;
     }
@@ -325,6 +332,32 @@ mod tests {
         assert_eq!(char_ngram_cosine("", "", 2), 1.0);
         // empty vs nonempty.
         assert_eq!(char_ngram_cosine("", "abc", 2), 0.0);
+    }
+
+    #[test]
+    fn char_ngram_cosine_punctuation_only_strings_are_not_identical() {
+        // Regression: previously two distinct strings that normalize to
+        // empty (stripping non-alphanumeric characters) would share the
+        // same padding-only gram multiset and score 1.0. They must now
+        // score 0.0 because their gram bags are empty and the strings
+        // differ.
+        assert_eq!(char_ngram_cosine("!!!", "???", 2), 0.0);
+        assert_eq!(char_ngram_cosine("!@#$", "%^&*", 2), 0.0);
+        // Identical punctuation-only strings still compare equal via
+        // the a == b shortcut at the top of char_ngram_cosine.
+        assert_eq!(char_ngram_cosine("!!!", "!!!", 2), 1.0);
+    }
+
+    #[test]
+    fn token_similarity_punctuation_only_disjoint_is_zero() {
+        // Upstream of the fix above: token_similarity on disjoint
+        // punctuation-only inputs must no longer return 1.0 via the
+        // cosine branch.
+        let score = token_similarity("!!!", "???");
+        assert!(
+            score < 0.5,
+            "disjoint punctuation-only strings must not score 1.0: {score}"
+        );
     }
 
     #[test]

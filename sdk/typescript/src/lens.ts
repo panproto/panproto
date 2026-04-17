@@ -106,11 +106,27 @@ export class ProtolensChainHandle implements Disposable {
     wasm: WasmModule,
     stringency?: Stringency,
   ): CandidateResponse {
+    // wasm-bindgen coerces JS numbers to `u32` at the boundary, which
+    // silently wraps negatives (e.g. -1 → 4294967295) and rejects
+    // NaN / Infinity with an opaque TypeError. Clamp and reject up
+    // front so callers get a clear, deterministic error path; the
+    // Rust engine separately treats 0 as 1 on its own.
+    if (!Number.isFinite(topN)) {
+      throw new WasmError(
+        `auto_generate_candidates: topN must be finite, got ${String(topN)}`,
+      );
+    }
+    if (topN < 0) {
+      throw new WasmError(
+        `auto_generate_candidates: topN must be non-negative, got ${topN}`,
+      );
+    }
+    const safeTopN = Math.min(Math.floor(topN), 0xffff_ffff);
     try {
       const bytes = wasm.exports.auto_generate_candidates(
         schema1._handle.id,
         schema2._handle.id,
-        topN,
+        safeTopN,
         stringency,
       );
       return unpackFromWasm<CandidateResponse>(bytes);

@@ -108,8 +108,10 @@ report = diff.classify(proto)
 print(report.compatible)       # True/False
 print(report.report_text())    # human-readable summary
 
-# Auto-generate a converter between two schema versions
-lens, quality = panproto.auto_generate_lens(old_schema, new_schema, proto)
+# Auto-generate a converter between two schema versions.
+# The third element, `coerce_proposals`, is empty unless the call passes
+# `stringency="exploratory"`.
+lens, quality, coerce_proposals = panproto.auto_generate_lens(old_schema, new_schema, proto)
 view, complement = lens.get(instance)
 ```
 

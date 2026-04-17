@@ -150,6 +150,59 @@ describe('ProtolensChainHandle.autoGenerateCandidates', () => {
     // CoercionClass is PascalCase on the wire (matches Rust serde default).
     expect(response.coerce_proposals[0]?.witness_class).toBe('Retraction');
   });
+
+  it('rejects non-finite topN values with a clear error', () => {
+    const wasm = createMockWasm();
+    const s1 = createTestSchema(wasm, 'v1');
+    const s2 = createTestSchema(wasm, 'v2');
+
+    expect(() =>
+      ProtolensChainHandle.autoGenerateCandidates(s1, s2, Number.NaN, wasm),
+    ).toThrow(/finite/);
+    expect(() =>
+      ProtolensChainHandle.autoGenerateCandidates(s1, s2, Number.POSITIVE_INFINITY, wasm),
+    ).toThrow(/finite/);
+    expect(wasm.exports.auto_generate_candidates).not.toHaveBeenCalled();
+  });
+
+  it('rejects negative topN values with a clear error', () => {
+    const wasm = createMockWasm();
+    const s1 = createTestSchema(wasm, 'v1');
+    const s2 = createTestSchema(wasm, 'v2');
+
+    expect(() =>
+      ProtolensChainHandle.autoGenerateCandidates(s1, s2, -1, wasm),
+    ).toThrow(/non-negative/);
+    expect(wasm.exports.auto_generate_candidates).not.toHaveBeenCalled();
+  });
+
+  it('forwards topN=0 unchanged (the Rust engine treats it as 1)', () => {
+    const wasm = createMockWasm();
+    const s1 = createTestSchema(wasm, 'v1');
+    const s2 = createTestSchema(wasm, 'v2');
+
+    ProtolensChainHandle.autoGenerateCandidates(s1, s2, 0, wasm);
+    expect(wasm.exports.auto_generate_candidates).toHaveBeenCalledWith(
+      s1._handle.id,
+      s2._handle.id,
+      0,
+      undefined,
+    );
+  });
+
+  it('floors fractional topN values to an integer', () => {
+    const wasm = createMockWasm();
+    const s1 = createTestSchema(wasm, 'v1');
+    const s2 = createTestSchema(wasm, 'v2');
+
+    ProtolensChainHandle.autoGenerateCandidates(s1, s2, 3.7, wasm);
+    expect(wasm.exports.auto_generate_candidates).toHaveBeenCalledWith(
+      s1._handle.id,
+      s2._handle.id,
+      3,
+      undefined,
+    );
+  });
 });
 
 describe('ProtolensChainHandle.autoGenerateWithHintSpec', () => {

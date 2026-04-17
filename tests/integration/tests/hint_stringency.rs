@@ -102,3 +102,65 @@ fn hint_file_with_lenient_stringency_triggers_span_drop() {
             .collect::<Vec<_>>()
     );
 }
+
+/// When the CLI flag `--stringency strict` is passed alongside a hint
+/// file that says `"stringency": "lenient"`, the CLI flag must win:
+/// `Strict` forbids the lenient span drop, so we should fail to find
+/// a morphism rather than silently emitting `DropSort(boolean)`.
+///
+/// This mirrors the CLI plumbing in `crates/panproto-cli/src/cmd/lens.rs`:
+/// if `stringency_arg.is_some()`, the hint-file `stringency` is ignored.
+#[test]
+fn cli_stringency_flag_overrides_hint_file_stringency() {
+    let src = build(
+        &[("r", "record"), ("r.keep", "string"), ("r.flag", "boolean")],
+        &[
+            ("r", "r.keep", "prop", "keep"),
+            ("r", "r.flag", "prop", "flag"),
+        ],
+    );
+    let tgt = build(
+        &[("r", "record"), ("r.keep", "string")],
+        &[("r", "r.keep", "prop", "keep")],
+    );
+    let protocol = generic_protocol();
+
+    // Hint file says "lenient" but CLI flag says "strict".
+    let hint_json = r#"{ "anchors": {}, "constraints": [], "stringency": "lenient" }"#;
+    let hint_spec: HintSpec = serde_json::from_str(hint_json).expect("parse hint");
+
+    // Mimic the CLI: `stringency_arg.is_some()` => ignore hint stringency.
+    let cli_stringency = Some(Stringency::Strict);
+    let mut config = AutoLensConfig::default();
+    if let Some(s) = cli_stringency {
+        config.stringency = s;
+    } else if let Some(s) = hint_spec.stringency {
+        config.stringency = match s {
+            panproto_lens_dsl::HintStringency::Strict => Stringency::Strict,
+            panproto_lens_dsl::HintStringency::Balanced => Stringency::Balanced,
+            panproto_lens_dsl::HintStringency::Lenient => Stringency::Lenient,
+            panproto_lens_dsl::HintStringency::Exploratory => Stringency::Exploratory,
+        };
+    }
+    assert_eq!(
+        config.stringency,
+        Stringency::Strict,
+        "CLI flag must win over hint file stringency",
+    );
+
+    let parts = hint::HintParts {
+        anchors: hint_spec.anchors.clone(),
+        scope_pairs: hint_spec.scope_pairs(),
+        excluded_targets: hint_spec.excluded_target_names(),
+        excluded_sources: hint_spec.excluded_source_names(),
+        scoring_weights: hint_spec.scoring_weights(),
+        name_similarity_threshold: hint_spec.name_similarity_threshold(),
+    };
+    let (derived, domain) = hint::resolve_hints(&parts, &src, &tgt);
+
+    // With Strict, no span drop: should fail to find a morphism.
+    let err = auto_generate_with_hints(&src, &tgt, &protocol, &config, &derived, &domain, None)
+        .err()
+        .expect("Strict must fail where Lenient would succeed");
+    let _ = err; // non-empty is all we need.
+}

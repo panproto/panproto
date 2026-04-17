@@ -78,8 +78,22 @@ pub fn auto_generate_candidates(
     // Exploratory-tier coerce proposals are a property of the run, not
     // of any individual candidate; run a top-1 alignment at the same
     // config to surface them alongside the candidate list.
-    let coerce_proposals = match lens::auto_generate(&src, &tgt, &protocol, &config) {
-        Ok(result) => result
+    //
+    // Invariant: if `auto_generate_candidates` produced any candidate,
+    // `auto_generate` under the same config must also succeed (both
+    // consult the same CSP). If the second call errors while the first
+    // returned candidates, that's a bug in the engine, not a caller
+    // concern — surface it rather than silently swallowing it so
+    // callers see a consistent story.
+    let coerce_proposals = if candidates.is_empty() {
+        Vec::new()
+    } else {
+        let result = lens::auto_generate(&src, &tgt, &protocol, &config).map_err(|e| {
+            WasmError::LensConstructionFailed {
+                reason: format!("candidates were found but coerce-proposal alignment failed: {e}"),
+            }
+        })?;
+        result
             .coerce_proposals
             .iter()
             .map(|p| {
@@ -92,8 +106,7 @@ pub fn auto_generate_candidates(
                     "explanation": p.anchor.explanation,
                 })
             })
-            .collect::<Vec<_>>(),
-        Err(_) => Vec::new(),
+            .collect::<Vec<_>>()
     };
 
     let candidates_payload: Vec<serde_json::Value> = candidates
