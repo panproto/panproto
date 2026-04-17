@@ -38,4 +38,12 @@ Panproto-vcs's merge operates on schemas. When the same scenario arises, the dev
 
 The generalisation is that schema merges are closer to the actual operation the developer is performing than line merges are. Line merges are the limit of schema merges when the schema is "arbitrary bytes"; in every case where the content has more structure, operating at the structure's level produces a more actionable merge diagnostic.
 
+## Further reading
+
+@mimramdigiusto2013categorical is the nearest categorical treatment of merge for textual patches; its framework and the one in this chapter differ only in which category the pushout is computed in. @angiuli2014homotopical gives a homotopy-type-theoretic variant and is worth reading for a different perspective on what "merge" can mean. For the CRDT alternative to pushout-based merging, @shapiro2011crdt is the foundational paper; panproto does not adopt CRDTs wholesale but the trade-off with automatic-convergence approaches is worth understanding.
+
+For the general category-theoretic background on pushouts, the references from [Colimits and pushouts](../foundations/colimits.md) apply. For the specific form of schema merge used here, the implementation in [`panproto_vcs::merge`](https://docs.rs/panproto-vcs/latest/panproto_vcs/merge/) is its own reference.
+
+## Closing
+
 The next chapter, [Data versioning](./data-versioning.md), works through the counterpart on the data side: how panproto-vcs automatically infers a migration between two schema versions without an explicit migration declaration, and how the inferred migration interacts with the lift operations described above.

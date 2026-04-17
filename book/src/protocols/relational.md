@@ -36,6 +36,12 @@ Panproto's SQL support covers a subset suitable for schema migrations: `CREATE T
 
 The SQL parser registers a separate theory from the Cassandra one, since SQL and Cassandra disagree on which types are primitive (SQL has `DECIMAL`, Cassandra does not; Cassandra has `Counter`, SQL does not). Two schemas under the SQL theory can be migrated into each other directly; two schemas under different theories require a theory morphism between the protocols themselves, which is the subject of [Protocol colimits](../core/protocol-colimits.md).
 
+## Further reading
+
+@codd1970relational is the founding paper of the relational model, and is still the most readable single source on what makes a schema relational. @spivak2012functorial is the categorical reformulation that panproto's relational protocols follow directly, and @schultzspivakvasilakopoulouwisnesky2017algebraic extends the framework to accommodate the richer data types a working database needs. @wisnesky2013functional is the companion PhD thesis and the most direct precedent for panproto's engine; the CQL system that grew out of it is the closest existing tool to the relational side of panproto.
+
+For the specific protocols discussed in this chapter, @lakshmanmalik2010cassandra is the Cassandra system paper; @decandia2007dynamo is the Dynamo paper whose techniques Cassandra and several other NoSQL systems draw on. For SQL as a practical schema language, @kleppmann2017designing chapter 2 ("Data Models and Query Languages") is the most accessible treatment.
+
 ## Closing
 
 The next chapter turns to [FHIR as a document case study](./document.md). FHIR stresses the representation in a different direction from the relational protocols here: its schemas are deeply nested, heavily constrained, and versioned irregularly. Panproto handles it through the same mechanisms Parts II and III developed, but the specific translation choices are worth tracing in detail.

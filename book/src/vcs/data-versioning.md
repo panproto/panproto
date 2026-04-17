@@ -38,4 +38,12 @@ Auto-migration refuses in specific, reported cases. A field added without a defa
 
 In each case, the commit is held until the user responds. The response is either a migration declaration that covers the refused case, an edit to the staged schema that avoids the refusal (for example, adding a default value to the new field), or an edit to the source data that removes the obstruction (deleting the violating records manually). Panproto-vcs does not apply a partial migration; either the whole commit lifts cleanly or the commit does not land.
 
+## Further reading
+
+For the auto-migration machinery in the abstract, the references from [Theory morphisms and instance migration](../core/morphisms-and-migration.md) apply: @spivak2012functorial for the functorial-data-migration framework, @wisnesky2013functional for the implementation tradition. The diff-based approach panproto-vcs uses is complementary to the CRDT-based approach of @shapiro2011crdt; the trade-off is that panproto surfaces conflicts to the user rather than resolving them automatically, at the cost of requiring user attention at merge time.
+
+For the Cambria perspective specifically, @littvanhardenberghenry2020cambria is the foundational source; panproto adopts Cambria's complement-tracking approach in its lens machinery (see [Bidirectional lenses](../core/lenses.md)) but applies it differently in the data-versioning setting.
+
+## Closing
+
 The next chapter, [The git bridge](./git-bridge.md), covers the interop layer between panproto-vcs and git: how a panproto-vcs repository can be pushed to and pulled from an ordinary git remote, what is preserved on the round trip, and when the two representations diverge.

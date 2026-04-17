@@ -38,4 +38,12 @@ Schema-level merges. A three-way merge that succeeds as a pushout in the panprot
 
 The common mitigation is to encode the panproto-vcs merge as a pair of sequential commits in the exported git history: the left branch is merged first, producing an intermediate byte-level state; the right branch is merged against that intermediate state. This gives git a clean byte-level history even when the panproto-vcs merge operated at the schema level. The exporter does this automatically through a flag on [`panproto_git::export`](https://docs.rs/panproto-git/latest/panproto_git/).
 
+## Further reading
+
+For git's own extensibility mechanisms that the bridge uses, the [git-remote-helpers documentation](https://git-scm.com/docs/gitremote-helpers) is the authoritative reference. @chaconstraub2014pro covers git's object model at the depth the bridge depends on; understanding how git stores commits, trees, and blobs is a prerequisite for understanding what the bridge has to translate and what it cannot.
+
+For the deeper question of what can and cannot be preserved in a bidirectional translation between two version-control systems with different object models, the bidirectional-transformations literature ([Bidirectional lenses](../core/lenses.md)) applies. The git bridge is itself a lens in the categorical sense: a `get` (export to git) and a `put` (import from git) with round-trip laws documented in the chapter above.
+
+## Closing
+
 Part V ends with this chapter. Part VI turns to the operational layer: the [WebAssembly boundary](../sdks/wasm-boundary.md) through which every non-Rust client interacts with panproto, the [Rust SDK](../sdks/rust.md), the [TypeScript SDK](../sdks/typescript.md), the [Python SDK](../sdks/python.md), and the [CLI](../sdks/cli.md).

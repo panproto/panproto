@@ -48,6 +48,12 @@ The language the engine ended up with is specifically tuned for what remains aft
 
 The losses are real. A user whose pushforward computation genuinely needs a Turing-complete host language cannot express it in panproto-expr; such a user must instead write a Rust function, compile it through panproto's Rust SDK ([The Rust SDK](../sdks/rust.md)), and register it with the migration engine as a foreign function. A user who wants to configure their migration declaratively without writing evaluated expressions at all can use the [lens DSL](https://docs.rs/panproto-lens-dsl/latest/panproto_lens_dsl/) in Nickel or [JSON](https://json-schema.org/) form, which compiles through a separate pipeline.
 
+## Further reading
+
+For the totality argument in a broader context, @turner2004total is the foundational source — it argues at length that total languages are the right default for many domains panproto targets. For the lineage of small functional expression languages the `panproto-expr` surface borrows from, @landin1966next's ISWIM paper is the originating reference; @harper2016practical covers the whole area in a single modern textbook.
+
+For the alternatives surveyed in this chapter, each has a well-maintained specification at the URL given in prose (Starlark's is under the Bazel repository; Dhall's, Nickel's, and CUE's at their respective project homepages). The documentation for the [`panproto-lens-dsl`](https://docs.rs/panproto-lens-dsl/latest/panproto_lens_dsl/) crate shows where panproto does use Nickel in production (for declarative lens specifications) and where it does not (for the migration-level expression language).
+
 ## Closing
 
 Part IV opens with [Defining a protocol](../protocols/defining.md). It catalogues the specific protocols panproto supports (ATProto, Avro, a relational case, FHIR as a document case) and shows how each is expressed as an instance of the constructions developed in Part II.

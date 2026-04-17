@@ -36,6 +36,10 @@ Avro's "full compatibility" is a conjunction: both backward and forward compatib
 
 Avro's default-value semantics are stated at the field level. Panproto elevates them to the equation level: a field with a default value becomes an operation whose theory carries an equation saying *when the field is absent in an instance, the operation returns the default*. This equation is evaluated by [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/) at record-read time and is part of the schema's validator, not of the lift function alone.
 
+## Further reading
+
+@avrospec is the Apache Avro specification and is the authoritative reference for the rules discussed in this chapter. For the broader context of serialisation-format design trade-offs, @kleppmann2017designing chapter 4 ("Encoding and Evolution") compares Avro, Protobuf, and Thrift and gives the working-developer's view of the same schema-evolution rules. The relational-lens precursor of the migration pattern used here is @bohannonpiercevaughan2006relational, though the immediate theoretical backing of panproto's translation is [Theory morphisms and instance migration](../core/morphisms-and-migration.md).
+
 ## Closing
 
 The next chapter, [A relational case study](./relational.md), works through a different protocol family: relational database schemas, where the category-theoretic content is larger (the relational model is closer to Spivak's original categorical-database treatment) and the migration primitives are denser.

@@ -36,6 +36,10 @@ The WASM module compiles to about three megabytes after [`wasm-opt`](https://git
 
 The TypeScript SDK ([`@panproto/core`](https://www.npmjs.com/package/@panproto/core), covered in [the TypeScript SDK chapter](./typescript.md)) layers three things on the WASM boundary: ergonomic wrappers that hide handle manipulation behind ordinary JavaScript object lifetimes; MessagePack serialisation and deserialisation with type-safe bindings generated from the Rust types; and a fluent builder API for common operations (schema construction, migration composition) that would otherwise require many discrete WASM calls.
 
+## Further reading
+
+@haas2017bringing is the original paper introducing WebAssembly and the clearest source on what the platform guarantees and what it does not. @w3c2019wasm is the normative W3C specification. For the Rust-specific machinery the panproto-wasm crate uses, the [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/) documentation is authoritative; @wasmbindgen is the BibTeX entry for the project itself. For MessagePack's wire format, @messagepack is the specification.
+
 ## Closing
 
 The next chapter, [the Rust SDK](./rust.md), turns to the cross-language core: [`panproto-core`](https://docs.rs/panproto-core/latest/panproto_core/), the facade crate that re-exports every subsystem's public API and gates the optional ones behind Cargo features.

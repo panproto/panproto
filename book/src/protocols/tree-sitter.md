@@ -40,6 +40,12 @@ For languages whose semantic structure panproto needs to reason about (Rust, whe
 
 Panproto's Rust protocol has this shape today only partially: the sort structure is derived, but a small number of operations (name resolution for `use` declarations, basic type-environment construction) are added by hand. The expectation is that language-specific semantic protocols will be contributed over time; the derived-from-tree-sitter substrate gives every such contribution a working starting point.
 
+## Further reading
+
+@brunsfeld2018treesitter is the original presentation of tree-sitter and the best overview of its design goals. The incremental-parsing algorithm is in the lineage of @wagnergraham1998efficient, and the parsing-expression-grammar tradition it extends is documented in @ford2002packrat. The tree-sitter project's documentation at https://tree-sitter.github.io/tree-sitter/ covers the grammar authoring process and the `node-types.json` schema that panproto's derivation reads.
+
+For the broader category-theoretic framing of grammars as theories, the institutions framework of @goguenburstall1992institutions is the formal setting. Panproto's derivation does not depend on that framework explicitly — the translation is simple enough not to need it — but the underlying identification of a grammar with a specification of a theory is institutional.
+
 ## Closing
 
 Part IV ends with this chapter. Part V turns to [version control](../vcs/git-background.md) and applies Part II's constructions to a new category: schemas under a fixed protocol rather than protocols themselves.

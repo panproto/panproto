@@ -40,6 +40,10 @@ A contributor who wants to work on any of these crates has to opt in through fea
 
 A crate is promoted to stable when its acceptance criterion is met and a release includes the promotion as a changelog entry. Demotion back to experimental is possible but rare; it has not happened in the crates currently listed as experimental.
 
+## Further reading
+
+For the JIT compiler architecture, @appel1998modern is the standard pipeline treatment. The LLVM project's own documentation at https://llvm.org/docs/ covers the IR and the pass infrastructure panproto-llvm integrates with. For the XRPC protocol that panproto-xrpc implements, @atproto is the authoritative specification.
+
 ## Closing
 
 Part VII ends with this chapter. The appendices that follow contain a [notation reference](../appendices/notation-table.md), a [glossary](../appendices/glossary.md), and an [open-problems list](../appendices/open-problems.md) covering places where panproto's implementation or the book's mathematical account is ahead of the other.

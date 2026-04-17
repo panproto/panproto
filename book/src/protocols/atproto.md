@@ -40,6 +40,10 @@ A schema loaded from this lexicon is consumed by the ATProto parser registered i
 
 ATProto lexicons evolve. A field can be added, a constraint can be tightened or loosened, a union can gain or lose an alternative. Each such change is a theory morphism between the two lexicon versions' schemas, in the sense of [Theory morphisms and instance migration](../core/morphisms-and-migration.md). Panproto's migration engine handles Lexicon-to-Lexicon migrations through the same pipeline it uses for any protocol, with no ATProto-specific logic: the engine reads the difference between the two lexicon JSON documents, constructs the theory morphism, applies it through [the restrict/lift pipeline](../core/restrict-lift.md), and produces a migration whose lift function moves records from the old lexicon to the new one.
 
+## Further reading
+
+@atproto is the authoritative specification; the Lexicon spec specifically lives at https://atproto.com/specs/lexicon. The [Bluesky](https://bsky.app/) application is the largest current deployment of the protocol and a useful source of example lexicons. For the categorical tradition that the panproto representation sits in, the references from [Protocols as theories, schemas as instances](../core/schemas-as-instances.md) apply without modification; ATProto is not special at the mathematical level, just elaborate at the syntactic one.
+
 ## Closing
 
 The next chapter, [Apache Avro](./avro.md), works through a serialisation-format protocol whose schema evolution rules are well-specified, and maps those rules onto the migration primitives developed in Part II. The comparison with ATProto is instructive: Avro formalises what Lexicon leaves informal.

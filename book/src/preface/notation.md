@@ -30,7 +30,7 @@ Inline mathematics uses `$…$`. Displayed mathematics appears on its own line b
 
 Standard categorical symbols are used throughout: $\mathcal{C}, \mathcal{D}$ for categories, $f : A \to B$ for a morphism, $g \circ f$ for composition, $\mathrm{id}_A$ for the identity on $A$, $\mathcal{C}(A, B)$ for the hom-set from $A$ to $B$, $A \cong B$ for isomorphism. Panproto-specific conventions are collected in the [notation reference appendix](../appendices/notation-table.md).
 
-Commutative diagrams are rendered through KaTeX's `\begin{CD}…\end{CD}` environment for simple squares and triangles, through [mermaid](https://mermaid.js.org/) graphs for informal "picture of a category" sketches, and through committed SVG (exported from [quiver](https://q.uiver.app/)) for diagrams that require diagonals or pasting-diagram structure beyond what KaTeX supports.
+Commutative diagrams are rendered through KaTeX's `\begin{CD}…\end{CD}` environment for squares, triangles, and any structure expressible in that grammar. Diagrams that require diagonals or pasting structure beyond what `CD` supports appear as committed SVG exported from [quiver](https://q.uiver.app/).
 
 ## External links
 

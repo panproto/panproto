@@ -1,8 +1,18 @@
 # Totality and termination
 
-The language of [Syntax and semantics](./syntax-semantics.md) gains the properties panproto requires of it only when the evaluator enforces two resource limits: a **step limit** on the number of reduction steps any one evaluation may take, and a **depth limit** on the nesting of active calls. Together the two limits make every well-typed evaluation terminate, produce a unique outcome, and fit inside a serializable record that can be replayed across processes. This chapter explains the limits, the guarantees they buy, and the trade-offs they impose.
+The language of [Syntax and semantics](./syntax-semantics.md) is a small typed lambda calculus. That by itself is not enough for panproto's engine. A migration that embeds a user-written expression has to run against potentially millions of records; any expression that could possibly loop, or eat unbounded memory, or block on a slow builtin is unsafe to run at scale. The engine needs to know, before it starts a migration, that every evaluation of every expression in that migration will terminate within a known budget.
 
-The trade-offs against a Turing-complete language are left to the next chapter, [Why bounded pure evaluation](./design-choices.md); this chapter covers the formal guarantees the limits provide.
+This chapter is about how the evaluator guarantees that. The mechanism is two resource limits: a **step limit** on the number of reduction steps any one evaluation may take, and a **depth limit** on the nesting of active calls. Together the two limits make every well-typed evaluation terminate, produce a unique outcome, and fit inside a serializable record that can be replayed across processes.
+
+This chapter covers:
+
+- the two limits and how the evaluator enforces them
+- why the limits, combined with the language's lack of recursion, make the language total
+- the determinism and serialisability properties the evaluator achieves as a consequence
+- how the limits interact with the various term forms
+- the structured errors the evaluator returns when a limit is exceeded
+
+The next chapter, [Why bounded pure evaluation](./design-choices.md), situates these guarantees against the main alternatives (Starlark, Dhall, Nickel, CUE) and explains why panproto ended up with this combination rather than one of the nearby options.
 
 ## The two limits
 
@@ -14,17 +24,23 @@ The limits are the evaluator's only side-channel into the environment. The langu
 
 ## Why the limits make the language total
 
-A typed lambda calculus without fixed-point combinators and without general recursion is already total in the sense of @turner2004total: every well-typed term reduces to a value in a finite number of steps. [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/) has no `let rec`, no `fix`, and no self-reference in the term grammar, which rules out explicit infinite loops. The limits guard against implicit blow-ups that still fit within the typing discipline, such as an exponentially deep unfolding through repeated function application or a Church-encoded natural number applied to itself. Without the limits a developer could submit a term that was well-typed but that would consume memory or time far beyond what the engine is willing to spend. With the limits the evaluator always halts within the configured budget.
+A typed lambda calculus without fixed-point combinators and without general recursion is already total in the sense of @turner2004total: every well-typed term reduces to a value in a finite number of steps. [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/) has no `let rec`, no `fix`, and no self-reference in the term grammar. Explicit infinite loops are ruled out by construction.
+
+The limits guard against implicit blow-ups that still fit within the typing discipline. A Church-encoded natural number applied to itself can unfold to an exponentially deep term; a cleverly constructed beta reduction can produce a term whose size grows polynomially per step. Without the limits a developer could submit a term that was well-typed but that would consume memory or time far beyond what the engine is willing to spend. With the limits the evaluator always halts within the configured budget.
 
 The limits therefore do not make the language total; they bound the total language. A well-typed term that would naturally reduce to a value in ten steps evaluates to that value whenever the step limit is at least ten. A well-typed term that would reduce to a value only after ten billion steps never evaluates to that value in practice, regardless of the step limit, and the engine reports a `StepsExhausted` error that names the term at the outermost redex position when the budget was reached.
+
+A reader concerned about expressiveness might object here: a language without recursion cannot express many computations a developer will want. This is true and is the trade-off totality imposes. In practice, migration expressions are short — a handful of builtins composed over a few field accesses — and do not need recursion. Where a migration genuinely needs recursion, the developer writes a Rust function and registers it as a foreign builtin, which sits outside `panproto-expr`'s total fragment. Very few migrations we have seen in practice require this escape hatch.
 
 ## Deterministic and serializable
 
 Two further properties follow from the way the evaluator is written.
 
-The evaluator is **deterministic**: the same closed term evaluated under the same limits always produces the same outcome. No builtin has hidden randomness, no reduction step depends on a global state, and the left-to-right outermost-first reduction order gives every non-value term exactly one next step. Two machines running the same evaluation produce identical traces, up to the bit representation of the intermediate values.
+The evaluator is **deterministic**: the same closed term evaluated under the same limits always produces the same outcome. No builtin has hidden randomness, no reduction step depends on global state, and the left-to-right outermost-first reduction order gives every non-value term exactly one next step. Two machines running the same evaluation produce identical traces, up to the bit representation of the intermediate values.
 
 The evaluator is **serializable**: the state of an ongoing evaluation (the current term plus the configuration plus the counters plus the environment of bindings) is a [serde](https://serde.rs/)-encoded record that can be checkpointed, transmitted across a process boundary, and resumed. The serialization format is covered in the [`panproto_expr::eval::State`](https://docs.rs/panproto-expr/latest/panproto_expr/eval/struct.State.html) type. This property is what lets panproto's migration engine run expensive field transforms in parallel batches: an evaluation partway through a large list comprehension can be paused, serialised, and resumed elsewhere with the exact same semantics.
+
+Both properties matter in production. Determinism is what lets the engine cache intermediate results: a value computed by one migration run can be reused by a subsequent run of the same migration against the same input. Serialisability is what lets the engine distribute work across workers: a migration across a million records is split into chunks, each worker handles a chunk, and the intermediate states can be shipped between workers without breaking semantics.
 
 ## How the limits interact with the term forms
 
@@ -42,15 +58,12 @@ A `DepthExceeded` error reports the lambda or list comprehension whose entry wou
 
 Both errors are fully inspectable in Rust code through [`panproto_expr::error::EvalError`](https://docs.rs/panproto-expr/latest/panproto_expr/error/enum.EvalError.html). A caller that wants to retry with a larger budget may do so, and a caller that wants to surface the error to the user may format it with a pre-built diagnostic renderer.
 
+## Further reading
+
+@turner2004total is the foundational argument for total functional programming — the discipline of writing only programs whose termination is visible from the type system. The paper argues that in many domains (database queries, configuration, certified programming) total languages are strictly preferable to Turing-complete ones, for the reasons panproto's engine is an instance of. It is the single reading that most directly justifies the design choices of this chapter.
+
+For the recursion-scheme framework that `map`, `foldl`, and `foldr` are the simplest cases of, @meijer1991bananas is the foundational paper and @birddemoor1997algebra is the book-length treatment. A migration author whose expression keeps tripping the depth limit through implicit recursion will benefit from reading either source: both make the case that structured traversals expressed through a small set of combinators are almost always what the programmer actually wants, and that the recursion the depth limit blocks is usually recursion the programmer did not intend.
+
 ## Closing
 
 The next chapter ([Why bounded pure evaluation](./design-choices.md)) situates the language's totality guarantees against the main alternatives (Starlark, Dhall, Nickel, CUE), and explains why panproto's migration engine needs this particular combination of purity, totality, determinism, and serialisability rather than one of the nearby options.
-
-<!--
-STATUS: Totality chapter drafted.
-
-CITATIONS:
-  - Pierce 2002 "Types and Programming Languages" (pending).
-  - Turner 2004 "Total Functional Programming" on the totality
-    argument (pending).
--->

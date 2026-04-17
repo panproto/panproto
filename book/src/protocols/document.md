@@ -32,6 +32,10 @@ FHIRPath invariants (expressions attached to resources) form a rich constraint l
 
 Resource versioning is per-resource. Some resources (`Patient`, `Observation`) have evolved in backward-compatible ways across R4, R4B, R5, and R6; others have had breaking changes. Panproto represents each version's schema as a distinct schema under the FHIR protocol, and migrations between versions go through the standard pipeline. The engine does not itself determine which version pairs are backward-compatible; the developer marks this explicitly in the migration declaration.
 
+## Further reading
+
+@fhir is the authoritative specification of the FHIR standard, maintained by HL7; the published resource definitions, profile libraries, and validation machinery live under hl7.org/fhir. For the columnar-storage techniques that make deeply nested schemas like FHIR's practical to query at scale, @melnik2010dremel is the Dremel paper that underlies Apache Parquet; @parquet is the Parquet specification that applies those techniques in the open-source setting. For a working-developer's view of the design trade-offs in document schemas more broadly, @kleppmann2017designing chapter 2 covers document versus relational models in the context of real systems.
+
 ## Closing
 
 The next chapter, [Tree-sitter and full-AST parsing](./tree-sitter.md), closes Part IV with the auto-derivation mechanism: how panproto produces protocols from [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars for the 248 programming languages that do not have hand-written protocol definitions.
