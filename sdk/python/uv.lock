@@ -75,7 +75,7 @@ wheels = [
 
 [[package]]
 name = "panproto"
-version = "0.30.1"
+version = "0.33.0"
 source = { editable = "." }
 dependencies = [
     { name = "msgpack" },

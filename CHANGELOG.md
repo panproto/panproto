@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-04-17
+
 ### Changed
 
 - **panproto-git-remote** (renamed from `git-remote-cospan`): binary is now `git-remote-panproto`; `panproto://` is the canonical URL scheme and `PANPROTO_PUSH_TOKEN`/`PANPROTO_TOKEN` the canonical env vars. Legacy `cospan://` URLs and `COSPAN_*` env vars are still accepted as fallbacks. Per-remote cache now lives under `$GIT_DIR/panproto-cache/<remote>/`; the previous `cospan-cache/<remote>/` directory is still read when present so no re-import is forced on upgrade. Resolves panproto/panproto#38.
