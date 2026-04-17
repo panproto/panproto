@@ -44,10 +44,12 @@ fn parse_stringency(raw: Option<&str>) -> Result<Option<Stringency>, JsError> {
 /// Auto-generate up to `top_n` ranked candidate lenses with per-step
 /// explanations.
 ///
-/// Returns `MessagePack`-encoded JSON array where each element has
-/// fields `quality`, `coverage`, `score`, `strategies_used`, and
-/// `steps`. Callers typically decode with `msgpack-lite` or a
-/// hand-rolled decoder on the JS side.
+/// Returns `MessagePack`-encoded object with two fields:
+/// `candidates` (array of `{ quality, coverage, score, strategies_used,
+/// steps }`) and `coerce_proposals` (array of `{ src, tgt,
+/// witness_name, witness_class, confidence, explanation }` surfaced at
+/// the Exploratory tier). The TS SDK decodes this via the
+/// `CandidateResponse` type.
 ///
 /// # Errors
 ///
