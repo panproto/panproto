@@ -4,7 +4,7 @@
 //! `displayName` to a new value and calls `put`. The restored source
 //! must carry the edit back to `name` with the other three original
 //! fields intact. A prior put path clobbered the view's edit with the
-//! pre-get snapshot whenever the anchor had any field_transforms.
+//! pre-get snapshot whenever the anchor had any `field_transforms`.
 
 #![allow(
     clippy::unwrap_used,
