@@ -67,6 +67,15 @@ pub type WitnessSample = Literal;
 /// `EvalConfig`; callers wanting deeper semantic checks can repeat the
 /// test with a custom config.
 ///
+/// # Purity
+///
+/// The function evaluates `forward` and `inverse` purely for their
+/// returned values and discards any intermediate expressions. The
+/// panproto-expr evaluator is side-effect-free by construction, so no
+/// witness sample can mutate external state. Should a future builtin
+/// grow side effects, this checker would execute those effects once
+/// per sample — a semantics change that deserves a deliberate review.
+///
 /// # Errors
 ///
 /// Returns an error describing the first failing sample, or, for

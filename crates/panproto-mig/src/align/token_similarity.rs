@@ -619,6 +619,50 @@ mod tests {
     }
 
     #[test]
+    fn token_anchors_threshold_equal_one_emits_nothing() {
+        // Audit pass 9, concern 11: the gate inside `token_anchors` is
+        // `score >= threshold && score < 1.0`. A caller passing
+        // `threshold = 1.0` therefore asks for "strictly better than
+        // any heuristic would yield" — the exact-match case is handled
+        // by the `exact` strategy and intentionally excluded here, so
+        // no anchor should ever be emitted at this threshold. Pin the
+        // boundary so a future relaxation of the `< 1.0` clamp is a
+        // deliberate, test-visible change.
+        use panproto_schema::{Protocol, SchemaBuilder};
+        let proto = Protocol {
+            name: "t".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        // Identical names across sides would yield score 1.0; the
+        // strict `< 1.0` filter drops them. Near-identical names score
+        // below 1.0; the `>= 1.0` filter drops them too.
+        let s = SchemaBuilder::new(&proto)
+            .vertex("createdAt", "string", None::<&str>)
+            .unwrap()
+            .vertex("sentAt", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let t = SchemaBuilder::new(&proto)
+            .vertex("createdAt", "string", None::<&str>)
+            .unwrap()
+            .vertex("createdAtExt", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let anchors = token_anchors(&s, &t, 1.0);
+        assert!(
+            anchors.is_empty(),
+            "threshold = 1.0 must emit no anchors (exact matches are handled by the exact strategy): {anchors:?}"
+        );
+    }
+
+    #[test]
     fn token_similarity_unrelated_is_low() {
         let score = token_similarity("createdAt", "authorId");
         assert!(

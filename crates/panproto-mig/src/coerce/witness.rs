@@ -1216,6 +1216,59 @@ mod tests {
     }
 
     #[test]
+    fn bool_to_str_match_is_exhaustive_over_bool_carrier() {
+        // Audit pass 9, concern 4: `bool_to_str_witness` uses a `Match`
+        // with no wildcard. The `Bool` carrier has exactly two values
+        // (`true` / `false`) so the match is exhaustive by construction;
+        // no runtime value of the source carrier can escape it. The
+        // inverse, however, matches only the two canonical strings and
+        // intentionally fails on any other input. Pin both directions.
+        let w = bool_to_str_witness();
+        witness_satisfies_lens_laws(
+            &w,
+            &[Literal::Bool(true), Literal::Bool(false)],
+            &[
+                Literal::Str("true".to_owned()),
+                Literal::Str("false".to_owned()),
+            ],
+        )
+        .expect("bool_to_str forward is exhaustive on its bool carrier");
+        // Off-domain target strings must positively fail.
+        witness_forward_fails_on(&w, &Literal::Str("yes".to_owned()))
+            .expect("inverse must fail on non-canonical target string");
+        witness_forward_fails_on(&w, &Literal::Str("1".to_owned()))
+            .expect("inverse must fail on numeric-looking target string");
+    }
+
+    #[test]
+    fn str_to_bool_forward_rejects_non_canonical_strings() {
+        // Audit pass 9, concern 5: the forward direction of
+        // `str_to_bool_witness` is a `Match` with no wildcard over
+        // `{"true", "false"}`. Any other string must fail to evaluate.
+        let w = str_to_bool_witness();
+        // Canonical inputs round-trip.
+        witness_satisfies_lens_laws(
+            &w,
+            &[
+                Literal::Str("true".to_owned()),
+                Literal::Str("false".to_owned()),
+            ],
+            &[Literal::Bool(true), Literal::Bool(false)],
+        )
+        .expect("str_to_bool GetPut holds on the canonical sub-carrier");
+        // A handful of off-domain strings: none must round-trip and all
+        // surface as `GetPut` or evaluation errors.
+        for bad in ["", "TRUE", "1", "yes", "no", "truee", " true"] {
+            let err = witness_satisfies_lens_laws(&w, &[Literal::Str(bad.to_owned())], &[])
+                .expect_err("off-domain source string must not round-trip");
+            assert!(
+                err.contains("GetPut") || err.contains("forward"),
+                "off-domain sample {bad:?} should surface as a law violation; got: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn library_lookup_preserves_insertion_order() {
         // Two witnesses for the same kind pair must surface in the
         // order they were registered. This is load-bearing for

@@ -16,7 +16,12 @@ use panproto_core::lens::{self, AutoLensConfig, Complement, Lens, Stringency};
 /// Accepts `"strict" | "balanced" | "lenient" | "exploratory"`
 /// (case-insensitive). `None` keeps the engine's default.
 fn parse_stringency(s: Option<&str>) -> PyResult<Option<Stringency>> {
-    match s.map(str::to_ascii_lowercase).as_deref() {
+    // Trim surrounding whitespace and treat an empty string as unset so
+    // Python behaves the same as the WASM/TS side. Without this, values
+    // like `" strict "` or `""` would misparse as "unknown stringency",
+    // breaking cross-SDK parity for the same JSON payload.
+    let trimmed = s.map(str::trim).filter(|s| !s.is_empty());
+    match trimmed.map(str::to_ascii_lowercase).as_deref() {
         None => Ok(None),
         Some("strict") => Ok(Some(Stringency::Strict)),
         Some("balanced") => Ok(Some(Stringency::Balanced)),
@@ -616,6 +621,19 @@ mod tests {
         assert!(matches!(
             parse_stringency(Some("exploratory")).unwrap(),
             Some(Stringency::Exploratory)
+        ));
+    }
+
+    #[test]
+    fn parse_stringency_trims_whitespace_and_treats_empty_as_unset() {
+        // Matches WASM behavior; prevents cross-SDK parity drift when the
+        // same JSON payload flows through both bindings.
+        pyo3::prepare_freethreaded_python();
+        assert!(parse_stringency(Some("")).unwrap().is_none());
+        assert!(parse_stringency(Some("   ")).unwrap().is_none());
+        assert!(matches!(
+            parse_stringency(Some(" Strict ")).unwrap(),
+            Some(Stringency::Strict)
         ));
     }
 

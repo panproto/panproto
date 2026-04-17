@@ -959,4 +959,60 @@ mod tests {
             "root↔root should anchor by shared alias-child-names"
         );
     }
+
+    #[test]
+    fn canonical_form_strips_extended_ascii_and_diacritics() {
+        // Audit pass 9, concern 6: `canonical_form` uses
+        // `is_ascii_alphanumeric` so anything outside `[A-Za-z0-9]`,
+        // including Latin-1 letters with diacritics and combining
+        // marks, is stripped. Two names that differ only in their
+        // diacritics therefore collapse to the same canonical form.
+        // Pin the behaviour so a future widening to Unicode-aware
+        // folding has to update this test deliberately.
+        assert_eq!(canonical_form("Ä"), "");
+        assert_eq!(canonical_form("ÄÅÆ"), "");
+        assert_eq!(canonical_form("café"), "caf");
+        assert_eq!(canonical_form("cafe"), "cafe");
+        // The NFC `café` (precomposed) and NFD `cafe\u{0301}` both
+        // collapse to "caf" and "cafe" respectively once the non-ASCII
+        // bits are stripped; they are NOT rendered equivalent.
+        assert_ne!(
+            canonical_form("caf\u{00E9}"),
+            canonical_form("cafe\u{0301}")
+        );
+        // Diacritic-only distinctions collapse: `naïve` ↦ `nave`,
+        // `naive` ↦ `naive`, so they are NOT aliases.
+        assert_ne!(canonical_form("naïve"), canonical_form("naive"));
+    }
+
+    #[test]
+    fn alias_anchors_ignore_edge_kind_when_matching_names() {
+        // Audit pass 9, concern 7: `alias_edge_overlap` scores
+        // overlap on edge *names* and never consults the edge kind.
+        // A source with a `prop` edge named `id` and a target with
+        // (say) an `item` edge also named `id` therefore register as
+        // a match even though the edge kinds disagree. The CSP's
+        // naturality check is the ultimate guard; this test pins the
+        // fact that the alias anchor itself is kind-agnostic on the
+        // edge level (it does check vertex kinds via
+        // `kinds_compatible`).
+        let src = build_schema(
+            &[("r", "object"), ("r.id", "string")],
+            &[("r", "r.id", "prop", "id")],
+        );
+        // Use a different edge kind on the target side; the edge name
+        // is the same.
+        let tgt = build_schema(
+            &[("r", "object"), ("r.id", "string")],
+            &[("r", "r.id", "item", "id")],
+        );
+        let dict = default_alias_dict();
+        let anchors = alias_anchors(&src, &tgt, &dict);
+        assert!(
+            anchors
+                .iter()
+                .any(|a| a.src.as_str() == "r" && a.tgt.as_str() == "r"),
+            "alias_anchors scores on edge *names* regardless of edge kind: {anchors:?}"
+        );
+    }
 }
