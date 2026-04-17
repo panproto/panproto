@@ -98,11 +98,22 @@ pub struct Anchor {
 /// `SearchOptions::initial`.
 #[must_use]
 pub fn resolve_anchors(anchors: &[Anchor], monic: bool) -> HashMap<Name, Name> {
-    let mut ranked: Vec<&Anchor> = anchors.iter().collect();
+    // Drop malformed anchors with NaN confidence. `partial_cmp` on NaN
+    // returns `None`, and collapsing that to `Ordering::Equal` breaks
+    // strict-weak-ordering (transitivity fails): a NaN-confidence
+    // anchor would compare equal to every finite-confidence rival and
+    // could win the source slot purely on the strategy-priority
+    // tiebreaker. Filtering NaN out here is cheaper and more honest
+    // than trying to order it consistently; callers that observe this
+    // must produce finite scores.
+    let mut ranked: Vec<&Anchor> = anchors.iter().filter(|a| !a.confidence.is_nan()).collect();
     ranked.sort_by(|a, b| {
+        // `total_cmp` provides a strict-weak order on the remaining
+        // finite-and-infinite confidences so the sort is deterministic
+        // across runs even under pathological inputs (signed zeros,
+        // ±∞). NaN has already been filtered out above.
         b.confidence
-            .partial_cmp(&a.confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&a.confidence)
             .then_with(|| strategy_priority(b.strategy).cmp(&strategy_priority(a.strategy)))
             .then_with(|| a.src.as_str().cmp(b.src.as_str()))
     });
@@ -264,6 +275,78 @@ mod tests {
         );
         assert!(!resolved.contains_key(&Name::from("a")));
         assert!(!resolved.contains_key(&Name::from("c")));
+    }
+
+    #[test]
+    fn resolve_drops_nan_confidence_anchor() {
+        // A malformed anchor whose confidence is NaN must never win its
+        // source slot over a finite-confidence rival. Prior to the
+        // `partial_cmp → total_cmp` + NaN-filter fix, `partial_cmp`
+        // returned `None` for NaN and was collapsed to `Ordering::Equal`,
+        // so the strategy-priority tiebreaker could hand the slot to
+        // the NaN anchor purely because it had a higher-priority tag.
+        let anchors = vec![
+            anchor("a", "GOOD", 0.8, StrategyTag::Alias),
+            Anchor {
+                src: Name::from("a"),
+                tgt: Name::from("BAD"),
+                confidence: f64::NAN,
+                strategy: StrategyTag::UserHint,
+                explanation: "NaN confidence".into(),
+            },
+        ];
+        let resolved = resolve_anchors(&anchors, false);
+        assert_eq!(
+            resolved.get(&Name::from("a")).map(Name::as_str),
+            Some("GOOD"),
+            "NaN-confidence anchor must be dropped even when its strategy tag outranks"
+        );
+    }
+
+    #[test]
+    fn resolve_all_nan_anchors_yields_empty_map() {
+        let anchors = vec![
+            Anchor {
+                src: Name::from("a"),
+                tgt: Name::from("X"),
+                confidence: f64::NAN,
+                strategy: StrategyTag::Exact,
+                explanation: String::new(),
+            },
+            Anchor {
+                src: Name::from("b"),
+                tgt: Name::from("Y"),
+                confidence: f64::NAN,
+                strategy: StrategyTag::Exact,
+                explanation: String::new(),
+            },
+        ];
+        assert!(resolve_anchors(&anchors, false).is_empty());
+        assert!(resolve_anchors(&anchors, true).is_empty());
+    }
+
+    #[test]
+    fn resolve_handles_infinite_confidence_deterministically() {
+        // `+∞` is a finite-enough confidence to survive the NaN filter;
+        // it must beat every finite rival. `total_cmp` orders
+        // `+∞ > 1.0`, and `b.total_cmp(&a)` under descending sort ranks
+        // `+∞` first.
+        let anchors = vec![
+            anchor("a", "X", 0.9, StrategyTag::Exact),
+            Anchor {
+                src: Name::from("a"),
+                tgt: Name::from("INF"),
+                confidence: f64::INFINITY,
+                strategy: StrategyTag::Alias,
+                explanation: String::new(),
+            },
+        ];
+        let resolved = resolve_anchors(&anchors, false);
+        assert_eq!(
+            resolved.get(&Name::from("a")).map(Name::as_str),
+            Some("INF"),
+            "+∞ confidence beats finite confidence under total_cmp"
+        );
     }
 
     #[test]
