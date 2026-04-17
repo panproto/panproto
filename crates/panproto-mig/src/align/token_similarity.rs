@@ -661,6 +661,67 @@ mod tests {
     }
 
     #[test]
+    fn tokenize_handles_pathological_unicode_scalars() {
+        // Adversarial angle: tokenize must not panic on the
+        // Unicode replacement character, non-BMP scalars, or NUL
+        // bytes, and it must emit a stable result across repeated
+        // invocations (the function is pure, but the assertion pins
+        // that fact against future edits that might introduce
+        // HashMap-iteration or caching shortcuts).
+        //
+        // U+FFFD REPLACEMENT CHARACTER: neither alphabetic, digit,
+        // separator, uppercase, nor lowercase under Rust's char
+        // classification. It is therefore absorbed into the adjacent
+        // token without triggering a boundary (parallels the emoji
+        // pin in tokenize_preserves_non_letter_non_separator_runs).
+        let replacement = "\u{FFFD}";
+        assert_eq!(tokenize(replacement), vec![replacement]);
+        assert_eq!(tokenize(replacement), tokenize(replacement));
+        // Non-BMP scalar (Rust crab emoji, U+1F980). Same reasoning as
+        // above: it is neither a separator nor a letter nor a digit,
+        // so it forms a single-char token. Importantly, slicing / iter
+        // boundaries must not panic on 4-byte UTF-8.
+        let crab = "\u{1F980}";
+        assert_eq!(tokenize(crab), vec![crab]);
+        assert_eq!(tokenize(&format!("a{crab}b")), vec![format!("a{crab}b")]);
+        // NUL byte (U+0000). NUL is neither whitespace nor an ASCII
+        // letter/digit, so it is absorbed into the token without a
+        // boundary. It must not panic, and ngram-cosine must handle
+        // the resulting string without producing NaN.
+        let nul = "a\0b";
+        assert_eq!(tokenize(nul), vec!["a\u{0}b"]);
+        assert!(!char_ngram_cosine(nul, nul, 2).is_nan());
+        // Empty and whitespace-only are already covered; pin one more
+        // edge: a lone U+0085 (NEXT LINE, is_whitespace) must act as
+        // a separator.
+        assert_eq!(tokenize("a\u{0085}b"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn token_similarity_never_returns_nan_on_unicode_inputs() {
+        // Angle-2 guard: callers downstream (resolve_anchors) drop
+        // NaN confidence anchors, but any strategy function that can
+        // manufacture NaN from well-formed input would be a silent
+        // data-loss bug. Spot-check a handful of Unicode corner cases
+        // and assert the score is always finite in [0, 1].
+        for pair in [
+            ("\u{FFFD}", "\u{FFFD}"),
+            ("\u{1F980}", "\u{1F980}crab"),
+            ("a\0b", "ab"),
+            ("", "\u{FFFD}"),
+            ("caf\u{00E9}", "cafe\u{0301}"),
+        ] {
+            let s = token_similarity(pair.0, pair.1);
+            assert!(
+                s.is_finite() && (0.0..=1.0).contains(&s),
+                "token_similarity({:?}, {:?}) = {s} must be finite in [0,1]",
+                pair.0,
+                pair.1
+            );
+        }
+    }
+
+    #[test]
     fn token_similarity_unrelated_is_low() {
         let score = token_similarity("createdAt", "authorId");
         assert!(
