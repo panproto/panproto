@@ -96,11 +96,54 @@ impl RemoteClient for NodeClient {
     }
 }
 
+fn run_warm(revspec: &str) {
+    match cmd_warm(revspec) {
+        Ok(n) => {
+            eprintln!("git-remote-panproto: warm cache imported {n} new commit(s)");
+        }
+        Err(e) => {
+            eprintln!("git-remote-panproto: warm failed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_install_hooks() {
+    match cmd_install_hooks() {
+        Ok(path) => {
+            eprintln!(
+                "git-remote-panproto: installed post-commit hook at {}",
+                path.display()
+            );
+        }
+        Err(e) => {
+            eprintln!("git-remote-panproto: install-hooks failed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
+    // Standalone subcommands (not called by git).
+    match args.get(1).map(String::as_str) {
+        Some("warm") => {
+            run_warm(args.get(2).map_or("HEAD", String::as_str));
+            return;
+        }
+        Some("install-hooks") => {
+            run_install_hooks();
+            return;
+        }
+        _ => {}
+    }
+
     // Git calls: git-remote-panproto <remote-name> <url>
     if args.len() < 3 {
         eprintln!("usage: git-remote-panproto <remote> <url>");
+        eprintln!("       git-remote-panproto warm [<revspec>]");
+        eprintln!("       git-remote-panproto install-hooks");
         std::process::exit(1);
     }
 
@@ -146,18 +189,39 @@ fn main() {
     // translated into panproto objects. Stored under
     // `panproto-cache/<remote>/`; falls back to the legacy `cospan-cache/`
     // directory if one already exists, to avoid forcing a re-import.
-    let panproto_cache = Path::new(&git_dir)
-        .join("panproto-cache")
-        .join(remote_name);
+    let panproto_cache = Path::new(&git_dir).join("panproto-cache").join(remote_name);
     let legacy_cache = Path::new(&git_dir).join("cospan-cache").join(remote_name);
-    let cache_dir = if !panproto_cache.join(".panproto").is_dir()
-        && legacy_cache.join(".panproto").is_dir()
-    {
-        legacy_cache
-    } else {
-        panproto_cache
-    };
+    let cache_dir =
+        if !panproto_cache.join(".panproto").is_dir() && legacy_cache.join(".panproto").is_dir() {
+            legacy_cache
+        } else {
+            panproto_cache
+        };
 
+    // Shared warm cache populated at commit time (if the user has installed
+    // the post-commit hook via `git-remote-panproto install-hooks`). Lets us
+    // skip tree-sitter parse + coproduct for commits already imported into
+    // the warm store. Optional: if missing, push falls back to the cold path.
+    let warm_dir = warm_cache_dir(Path::new(&git_dir));
+
+    run_remote_helper(
+        &rt,
+        &client,
+        &local_git_repo,
+        &cache_dir,
+        warm_dir.as_deref(),
+    );
+}
+
+/// Remote-helper dispatch loop: read git's helper-protocol commands on
+/// stdin and reply on stdout until git closes the pipe.
+fn run_remote_helper(
+    rt: &tokio::runtime::Runtime,
+    client: &NodeClient,
+    local_git_repo: &git2::Repository,
+    cache_dir: &Path,
+    warm_dir: Option<&Path>,
+) {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut out = io::BufWriter::new(stdout.lock());
@@ -189,7 +253,7 @@ fn main() {
         }
 
         if line == "list" || line == "list for-push" {
-            match rt.block_on(cmd_list(&client)) {
+            match rt.block_on(cmd_list(client)) {
                 Ok(refs) => {
                     for (id, name) in &refs {
                         let _ = writeln!(out, "{id} {name}");
@@ -209,7 +273,7 @@ fn main() {
             // fetch <sha> <ref>
             let parts: Vec<&str> = rest.splitn(2, ' ').collect();
             if parts.len() == 2 {
-                match rt.block_on(cmd_fetch(&client, parts[1], &local_git_repo, &cache_dir)) {
+                match rt.block_on(cmd_fetch(client, parts[1], local_git_repo, cache_dir)) {
                     Ok(()) => {}
                     Err(e) => {
                         eprintln!("error fetching {}: {e}", parts[1]);
@@ -222,7 +286,7 @@ fn main() {
 
         if let Some(rest) = line.strip_prefix("push ") {
             let dst = push_refspec_dst(rest);
-            match rt.block_on(cmd_push(&client, rest, &local_git_repo, &cache_dir)) {
+            match rt.block_on(cmd_push(client, rest, local_git_repo, cache_dir, warm_dir)) {
                 Ok(()) => {
                     let _ = writeln!(out, "ok {dst}");
                 }
@@ -497,6 +561,7 @@ async fn cmd_push<C: RemoteClient>(
     refspec: &str,
     git_repo: &git2::Repository,
     cache_dir: &Path,
+    warm_dir: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Parse refspec: <src>:<dst>
     let parts: Vec<&str> = refspec.splitn(2, ':').collect();
@@ -508,7 +573,7 @@ async fn cmd_push<C: RemoteClient>(
 
     // Run the pure local stage: incremental import, marks update, ref
     // write on the local store.
-    let report = push_import_stage(&mut store, git_repo, cache_dir, src, dst)?;
+    let report = push_import_stage(&mut store, git_repo, cache_dir, src, dst, warm_dir)?;
     if report.new_commits > 0 {
         eprintln!(
             "git-remote-panproto: imported {} new commits ({} total)",
@@ -561,18 +626,41 @@ fn push_import_stage(
     cache_dir: &Path,
     src: &str,
     dst: &str,
+    warm_dir: Option<&Path>,
 ) -> Result<PushImportReport, Box<dyn std::error::Error>> {
     let marks_path = marks_path(cache_dir);
-    let known = load_marks(&marks_path);
+    let mut known = load_marks(&marks_path);
     let previously_known = known.len();
+
+    // If a warm cache is present, copy every object it has into the
+    // per-remote store (content-addressed `put` is a no-op if the object
+    // already exists) and merge its marks into `known` so that commits
+    // already imported by the post-commit hook are skipped by the revwalk.
+    let warm_marks_merged = if let Some(warm_dir) = warm_dir {
+        copy_warm_into(store, &mut known, warm_dir)?
+    } else {
+        0
+    };
 
     // Incrementally import: only git commits whose OID is not already in
     // `known` are walked, parsed, and stored as panproto objects.
     let import_result = panproto_git::import_git_repo_incremental(git_repo, store, src, &known)?;
 
-    // Persist the new mappings so the next push is also incremental.
-    if !import_result.oid_map.is_empty() {
-        append_marks(&marks_path, &import_result.oid_map)?;
+    // Persist the new mappings so the next push is also incremental. This
+    // includes entries we merged from the warm cache — they now belong to
+    // the per-remote marks file as well so future pushes stay fast even if
+    // the warm cache is later pruned.
+    let mut to_append = import_result.oid_map.clone();
+    if warm_marks_merged > 0 {
+        let existing = load_marks(&marks_path);
+        for (git_oid, panproto_id) in &known {
+            if !existing.contains_key(git_oid) {
+                to_append.push((*git_oid, *panproto_id));
+            }
+        }
+    }
+    if !to_append.is_empty() {
+        append_marks(&marks_path, &to_append)?;
     }
 
     // Update the local panproto ref to name the imported tip. `client.push`
@@ -585,8 +673,118 @@ fn push_import_stage(
     Ok(PushImportReport {
         head_id: import_result.head_id,
         new_commits: import_result.commit_count,
-        total_commits: previously_known + import_result.commit_count,
+        total_commits: previously_known + warm_marks_merged + import_result.commit_count,
     })
+}
+
+/// Shared warm-cache directory inside `git_dir`.
+fn warm_cache_dir(git_dir: &Path) -> Option<PathBuf> {
+    let p = git_dir.join("panproto-cache").join("warm");
+    if p.join(".panproto").is_dir() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+/// Copy every object from the warm store into `dst_store` and merge the
+/// warm marks file into `known`. Returns the number of marks newly
+/// contributed by the warm cache.
+///
+/// `put` on a content-addressed store is idempotent, so this is
+/// effectively `for id in warm.list_objects(): if !dst.has(id) {
+/// dst.put(warm.get(id)) }` — the body compiles down to a hash check
+/// per object in the steady state.
+fn copy_warm_into(
+    dst_store: &mut FsStore,
+    known: &mut FxHashMap<git2::Oid, ObjectId>,
+    warm_dir: &Path,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let warm_store = FsStore::open(warm_dir)?;
+    for id in warm_store.list_objects()? {
+        if !dst_store.has(&id) {
+            let obj = warm_store.get(&id)?;
+            dst_store.put(&obj)?;
+        }
+    }
+    let warm_marks = load_marks(&marks_path(warm_dir));
+    let mut added = 0;
+    for (git_oid, panproto_id) in warm_marks {
+        if known.insert(git_oid, panproto_id).is_none() {
+            added += 1;
+        }
+    }
+    Ok(added)
+}
+
+/// `warm` subcommand: walk `revspec` in the current git repo and import
+/// any new commits into the shared warm cache under
+/// `$GIT_DIR/panproto-cache/warm/`. Idempotent; intended to be called
+/// from a `post-commit` hook with `HEAD` as the revspec.
+fn cmd_warm(revspec: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    let git_dir = std::env::var("GIT_DIR").unwrap_or_else(|_| ".git".to_owned());
+    let git_repo = git2::Repository::open(&git_dir)?;
+    let warm_dir = Path::new(&git_dir).join("panproto-cache").join("warm");
+    let mut store = open_or_init_cache(&warm_dir)?;
+    let marks_path = marks_path(&warm_dir);
+    let known = load_marks(&marks_path);
+    let import_result =
+        panproto_git::import_git_repo_incremental(&git_repo, &mut store, revspec, &known)?;
+    if !import_result.oid_map.is_empty() {
+        append_marks(&marks_path, &import_result.oid_map)?;
+    }
+    Ok(import_result.commit_count)
+}
+
+/// Sentinel comment written into `post-commit` so re-running
+/// `install-hooks` is idempotent.
+const HOOK_SENTINEL: &str = "# BEGIN panproto-git-remote post-commit hook";
+const HOOK_END_SENTINEL: &str = "# END panproto-git-remote post-commit hook";
+
+/// `install-hooks` subcommand: write (or append) a `post-commit` hook
+/// that invokes `git-remote-panproto warm HEAD`. Returns the path of the
+/// installed hook.
+fn cmd_install_hooks() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let git_dir = std::env::var("GIT_DIR").unwrap_or_else(|_| ".git".to_owned());
+    let hooks_dir = Path::new(&git_dir).join("hooks");
+    std::fs::create_dir_all(&hooks_dir)?;
+    let hook_path = hooks_dir.join("post-commit");
+
+    let snippet = format!(
+        "{HOOK_SENTINEL}\n\
+         git-remote-panproto warm HEAD >/dev/null 2>&1 || true\n\
+         {HOOK_END_SENTINEL}\n"
+    );
+
+    let new_contents = if hook_path.exists() {
+        let existing = std::fs::read_to_string(&hook_path)?;
+        if existing.contains(HOOK_SENTINEL) {
+            // Already installed; no-op.
+            return Ok(hook_path);
+        }
+        if existing.starts_with("#!") {
+            // Append to existing script after the shebang line.
+            let mut lines = existing.splitn(2, '\n');
+            let shebang = lines.next().unwrap_or("#!/bin/sh");
+            let rest = lines.next().unwrap_or("");
+            format!("{shebang}\n{snippet}{rest}")
+        } else {
+            format!("{existing}\n{snippet}")
+        }
+    } else {
+        format!("#!/bin/sh\n{snippet}")
+    };
+
+    std::fs::write(&hook_path, new_contents)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&hook_path)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&hook_path, perms)?;
+    }
+
+    Ok(hook_path)
 }
 
 /// Extract the destination ref from a `push` refspec (`<src>:<dst>`).
@@ -597,9 +795,8 @@ fn push_import_stage(
 /// "Everything up-to-date" even when the push failed or no-oped.
 fn push_refspec_dst(refspec: &str) -> &str {
     refspec
-        .splitn(2, ':')
-        .nth(1)
-        .unwrap_or(refspec)
+        .split_once(':')
+        .map_or(refspec, |(_, dst)| dst)
         .trim_start_matches('+')
         .trim()
 }
@@ -934,8 +1131,15 @@ mod tests {
         let cache = cache_tmp.path().join("cache");
 
         let mut store = open_or_init_cache(&cache).unwrap();
-        let report =
-            push_import_stage(&mut store, &git_repo, &cache, "HEAD", "refs/heads/main").unwrap();
+        let report = push_import_stage(
+            &mut store,
+            &git_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/main",
+            None,
+        )
+        .unwrap();
 
         // All three commits should be imported on the first run.
         assert_eq!(report.new_commits, 3);
@@ -963,13 +1167,27 @@ mod tests {
         let cache = cache_tmp.path().join("cache");
 
         let mut store = open_or_init_cache(&cache).unwrap();
-        let first =
-            push_import_stage(&mut store, &git_repo, &cache, "HEAD", "refs/heads/main").unwrap();
+        let first = push_import_stage(
+            &mut store,
+            &git_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/main",
+            None,
+        )
+        .unwrap();
         assert_eq!(first.new_commits, 2);
 
         // Second run against unchanged history imports nothing.
-        let second =
-            push_import_stage(&mut store, &git_repo, &cache, "HEAD", "refs/heads/main").unwrap();
+        let second = push_import_stage(
+            &mut store,
+            &git_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/main",
+            None,
+        )
+        .unwrap();
         assert_eq!(second.new_commits, 0);
         assert_eq!(second.total_commits, 2, "total should still reflect both");
         assert_eq!(
@@ -986,8 +1204,15 @@ mod tests {
 
         // First push: two commits imported.
         let mut store = open_or_init_cache(&cache).unwrap();
-        let first =
-            push_import_stage(&mut store, &git_repo, &cache, "HEAD", "refs/heads/main").unwrap();
+        let first = push_import_stage(
+            &mut store,
+            &git_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/main",
+            None,
+        )
+        .unwrap();
         assert_eq!(first.new_commits, 2);
         drop(store);
 
@@ -996,8 +1221,15 @@ mod tests {
 
         // Second push: only the new commit should be imported.
         let mut store = open_or_init_cache(&cache).unwrap();
-        let second =
-            push_import_stage(&mut store, &git_repo, &cache, "HEAD", "refs/heads/main").unwrap();
+        let second = push_import_stage(
+            &mut store,
+            &git_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/main",
+            None,
+        )
+        .unwrap();
         assert_eq!(second.new_commits, 1, "expected just the new commit");
         assert_eq!(second.total_commits, 3);
 
@@ -1016,6 +1248,78 @@ mod tests {
     }
 
     #[test]
+    fn warm_cache_short_circuits_reparse_on_first_push() {
+        // Populate a warm cache by running `push_import_stage` directly
+        // into the warm dir (same code path as `cmd_warm`). Then point a
+        // fresh per-remote cache at it and push. The import loop should
+        // see zero new commits because every git OID is covered by warm
+        // marks, and the per-remote store should still end up holding
+        // every object so `client.push` has something to send.
+        let (_git_dir, git_repo, _oids) = linear_git_history(3);
+
+        // Warm-populate: emulate `cmd_warm HEAD`.
+        let warm_tmp = tempfile::tempdir().unwrap();
+        let warm = warm_tmp.path().join("warm");
+        let mut warm_store = open_or_init_cache(&warm).unwrap();
+        let warm_report = push_import_stage(
+            &mut warm_store,
+            &git_repo,
+            &warm,
+            "HEAD",
+            "refs/heads/main",
+            None,
+        )
+        .unwrap();
+        assert_eq!(warm_report.new_commits, 3);
+        let warm_object_count = warm_store.list_objects().unwrap().len();
+        assert!(warm_object_count > 0);
+        drop(warm_store);
+
+        // Fresh per-remote cache, but pass warm as the hint.
+        let cache_tmp = tempfile::tempdir().unwrap();
+        let cache = cache_tmp.path().join("cache");
+        let mut store = open_or_init_cache(&cache).unwrap();
+        let report = push_import_stage(
+            &mut store,
+            &git_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/main",
+            Some(&warm),
+        )
+        .unwrap();
+
+        // No new commits imported: everything was covered by warm marks.
+        assert_eq!(
+            report.new_commits, 0,
+            "warm cache should short-circuit reparse"
+        );
+        assert_eq!(
+            report.total_commits, 3,
+            "total should include the warm-contributed marks"
+        );
+
+        // Per-remote store still has every object (copied from warm) so
+        // that a subsequent client.push finds them via list_objects.
+        assert_eq!(
+            store.list_objects().unwrap().len(),
+            warm_object_count,
+            "every warm object should now live in the per-remote store"
+        );
+
+        // Local ref was set to the imported tip.
+        assert_eq!(
+            store.get_ref("refs/heads/main").unwrap(),
+            Some(report.head_id)
+        );
+
+        // Per-remote marks should now persist the warm entries so a
+        // later push stays incremental even if the warm cache is pruned.
+        let marks = load_marks(&marks_path(&cache));
+        assert_eq!(marks.len(), 3);
+    }
+
+    #[test]
     fn push_stage_uses_dst_ref_name_not_hardcoded_main() {
         // Regression: the old import path wrote refs/heads/main
         // unconditionally. The new stage writes whatever `dst` names.
@@ -1024,8 +1328,15 @@ mod tests {
         let cache = cache_tmp.path().join("cache");
 
         let mut store = open_or_init_cache(&cache).unwrap();
-        let report =
-            push_import_stage(&mut store, &git_repo, &cache, "HEAD", "refs/heads/feature").unwrap();
+        let report = push_import_stage(
+            &mut store,
+            &git_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/feature",
+            None,
+        )
+        .unwrap();
 
         assert_eq!(
             store.get_ref("refs/heads/feature").unwrap(),
@@ -1049,7 +1360,15 @@ mod tests {
 
         let mut store = open_or_init_cache(&cache).unwrap();
         // Use the push_import_stage to populate the store and local ref.
-        push_import_stage(&mut store, &src_repo, &cache, "HEAD", "refs/heads/main").unwrap();
+        push_import_stage(
+            &mut store,
+            &src_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/main",
+            None,
+        )
+        .unwrap();
 
         // Erase the marks file so fetch_export_stage starts from a clean
         // slate (mimicking a fresh clone: store has objects, marks are
@@ -1084,7 +1403,15 @@ mod tests {
         let cache = cache_tmp.path().join("cache");
 
         let mut store = open_or_init_cache(&cache).unwrap();
-        push_import_stage(&mut store, &src_repo, &cache, "HEAD", "refs/heads/main").unwrap();
+        push_import_stage(
+            &mut store,
+            &src_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/main",
+            None,
+        )
+        .unwrap();
         std::fs::remove_file(marks_path(&cache)).unwrap();
 
         let dst_tmp = tempfile::tempdir().unwrap();
@@ -1169,7 +1496,7 @@ mod tests {
         let cache = cache_tmp.path().join("cache");
 
         let mut store = open_or_init_cache(&cache).unwrap();
-        push_import_stage(&mut store, &repo, &cache, "HEAD", "refs/heads/main").unwrap();
+        push_import_stage(&mut store, &repo, &cache, "HEAD", "refs/heads/main", None).unwrap();
 
         // Now fetch into the same repo that we pushed from. Marks from
         // the push already cover both commits, so nothing new should
@@ -1192,7 +1519,15 @@ mod tests {
         let cache = cache_tmp.path().join("cache");
 
         let mut store = open_or_init_cache(&cache).unwrap();
-        push_import_stage(&mut store, &src_repo, &cache, "HEAD", "refs/heads/main").unwrap();
+        push_import_stage(
+            &mut store,
+            &src_repo,
+            &cache,
+            "HEAD",
+            "refs/heads/main",
+            None,
+        )
+        .unwrap();
         std::fs::remove_file(marks_path(&cache)).unwrap();
 
         let dst_tmp = tempfile::tempdir().unwrap();
@@ -1674,7 +2009,14 @@ mod tests {
         let cache = cache_tmp.path().join("cache");
 
         let fake = FakeRemoteClient::new();
-        run_async(cmd_push(&fake, "HEAD:refs/heads/main", &git_repo, &cache)).unwrap();
+        run_async(cmd_push(
+            &fake,
+            "HEAD:refs/heads/main",
+            &git_repo,
+            &cache,
+            None,
+        ))
+        .unwrap();
 
         // Expected call order: Push, GetRef, SetRef. No Pull.
         //
@@ -1726,6 +2068,7 @@ mod tests {
             "HEAD:refs/heads/feature",
             &git_repo,
             &cache,
+            None,
         ))
         .unwrap();
 
@@ -1761,7 +2104,14 @@ mod tests {
         let fake = FakeRemoteClient::new();
 
         // First push: single commit.
-        run_async(cmd_push(&fake, "HEAD:refs/heads/main", &git_repo, &cache)).unwrap();
+        run_async(cmd_push(
+            &fake,
+            "HEAD:refs/heads/main",
+            &git_repo,
+            &cache,
+            None,
+        ))
+        .unwrap();
         let first_new_target = match fake.calls().last() {
             Some(RemoteCall::SetRef {
                 new_target,
@@ -1776,7 +2126,14 @@ mod tests {
 
         // Extend git, push again.
         append_commit(&git_repo, git_dir.path(), 2);
-        run_async(cmd_push(&fake, "HEAD:refs/heads/main", &git_repo, &cache)).unwrap();
+        run_async(cmd_push(
+            &fake,
+            "HEAD:refs/heads/main",
+            &git_repo,
+            &cache,
+            None,
+        ))
+        .unwrap();
 
         // The final call should be SetRef advancing the head, with
         // commit_count = 2 (total history depth).
@@ -1816,6 +2173,7 @@ mod tests {
             "HEAD:refs/heads/main",
             &src_repo,
             &push_cache,
+            None,
         ))
         .unwrap();
 
@@ -1869,6 +2227,7 @@ mod tests {
             "HEAD:refs/heads/main",
             &src_repo,
             &push_cache,
+            None,
         ))
         .unwrap();
 
@@ -1931,6 +2290,7 @@ mod tests {
             "HEAD:refs/heads/main",
             &src_repo,
             &push_cache,
+            None,
         ))
         .unwrap();
 
