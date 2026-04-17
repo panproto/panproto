@@ -4,6 +4,10 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **book**: Expanded all 28 narrative chapters to roughly twice the prior word count, applying a calibration style derived from a close reading of *The Rust Programming Language* and Milewski's *Category Theory for Programmers*: Milewski-style openers with stakes and difficulty flags, Rust-Book middle-and-end discipline (running examples that grow across chapters, captioned numbered listings, titled-link forward references), anticipated reader objections, named-and-retired analogies, short opener / longer middle / short closer. Part I foundations and Part II core-constructions chapters carry a running address-record example ($S_0$, $S_1$, $S_2$) threaded through categories, functors, universal properties, colimits, GATs, the instance functor, the restrict/lift pipeline, lenses, protolenses, and protocol colimits. Every "Further reading" section audited against primary sources; corrections applied for Awodey / Riehl / Mac Lane / Leinster chapter numbers and the Foster 2007 TOPLAS attribution (previously mis-labelled as the Boomerang paper). No exercises or Challenges sections: the register is a monograph, not a textbook.
+
 ## [0.34.1] - 2026-04-17
 
 ### Fixed
