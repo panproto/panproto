@@ -475,6 +475,60 @@ mod tests {
     }
 
     #[test]
+    fn multiset_overlap_asymmetric_counts() {
+        // Pins the counts-based intersection semantics. Multiset A =
+        // {prop-string: 3, prop-integer: 1}, B = {prop-string: 2,
+        // prop-integer: 2}. Intersection = min(3,2) + min(1,2) = 3.
+        // |A| = 4, |B| = 4, denom = max = 4, ratio = 3/4 = 0.75.
+        let a = vec![
+            SignatureEntry {
+                edge_kind: "prop".into(),
+                leaf_kind: "string".into(),
+            },
+            SignatureEntry {
+                edge_kind: "prop".into(),
+                leaf_kind: "string".into(),
+            },
+            SignatureEntry {
+                edge_kind: "prop".into(),
+                leaf_kind: "string".into(),
+            },
+            SignatureEntry {
+                edge_kind: "prop".into(),
+                leaf_kind: "integer".into(),
+            },
+        ];
+        let b = vec![
+            SignatureEntry {
+                edge_kind: "prop".into(),
+                leaf_kind: "string".into(),
+            },
+            SignatureEntry {
+                edge_kind: "prop".into(),
+                leaf_kind: "string".into(),
+            },
+            SignatureEntry {
+                edge_kind: "prop".into(),
+                leaf_kind: "integer".into(),
+            },
+            SignatureEntry {
+                edge_kind: "prop".into(),
+                leaf_kind: "integer".into(),
+            },
+        ];
+        let (ratio, count) = multiset_overlap(&a, &b);
+        assert_eq!(count, 3);
+        assert!(
+            (ratio - 0.75).abs() < 1e-9,
+            "asymmetric multiset ratio should be 0.75, got {ratio}"
+        );
+        // Symmetric in argument order.
+        let (ratio_swapped, count_swapped) = multiset_overlap(&b, &a);
+        assert_eq!(count_swapped, 3);
+        assert!((ratio_swapped - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
     fn threshold_gates_emission() {
         // Source record with 4 children; target with 1 matching child + 3 different.
         let src = build_schema(

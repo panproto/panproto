@@ -1086,4 +1086,61 @@ mod tests {
         let err = parse_stringency(Some("loose")).expect_err("expected an error");
         let _ = err;
     }
+
+    /// Cross-language serde compatibility: the TS SDK serializes
+    /// `HintSpec` via `packToWasm` (msgpack with named fields), and the
+    /// Rust side deserializes via `rmp_serde::from_slice`. A silent
+    /// field-name or variant-name drift between the two would cause
+    /// `auto_generate_protolens_with_hint_spec` to either reject valid
+    /// specs or silently drop fields. Lock the Rust side by round-tripping
+    /// a fully populated `HintSpec`.
+    #[test]
+    fn hint_spec_msgpack_round_trip_preserves_every_field() {
+        use panproto_lens_dsl::{Constraint, HintSpec, HintStringency, PreferencePredicate};
+        use std::collections::HashMap;
+
+        let mut anchors = HashMap::new();
+        anchors.insert("src.a".to_owned(), "tgt.a".to_owned());
+
+        let original = HintSpec {
+            anchors,
+            constraints: vec![
+                Constraint::Scope {
+                    under: "src.a".to_owned(),
+                    targets: "tgt.a".to_owned(),
+                },
+                Constraint::ExcludeTargets {
+                    vertices: vec!["tgt.z".to_owned()],
+                },
+                Constraint::Prefer {
+                    predicate: PreferencePredicate::SimilarName { threshold: 0.75 },
+                    weight: 1.5,
+                },
+            ],
+            stringency: Some(HintStringency::Lenient),
+            alias_clusters: vec![
+                vec!["id".to_owned(), "identifier".to_owned()],
+                vec!["text".to_owned(), "body".to_owned()],
+            ],
+        };
+
+        // rmp_serde::to_vec_named matches `packToWasm`'s behavior of
+        // emitting named fields (maps). The TS side uses
+        // `@msgpack/msgpack.encode` which also emits named maps by
+        // default. Using `to_vec_named` here therefore models the wire
+        // format the SDK actually produces.
+        let bytes =
+            rmp_serde::to_vec_named(&original).expect("serialize HintSpec via msgpack-named");
+        let decoded: HintSpec =
+            rmp_serde::from_slice(&bytes).expect("deserialize HintSpec via msgpack");
+
+        assert_eq!(decoded.anchors, original.anchors);
+        assert_eq!(decoded.stringency, original.stringency);
+        assert_eq!(decoded.alias_clusters, original.alias_clusters);
+        assert_eq!(decoded.constraints.len(), original.constraints.len());
+        // Stringency is an untagged string enum on the Rust side and a
+        // union-of-string-literals on the TS side; the round trip must
+        // preserve the exact tier.
+        assert_eq!(decoded.stringency, Some(HintStringency::Lenient));
+    }
 }

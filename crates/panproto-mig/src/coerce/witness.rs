@@ -744,6 +744,29 @@ mod tests {
     }
 
     #[test]
+    fn int_to_float_precision_boundary_at_2_pow_53() {
+        // Pins the sharpness of the Retraction classification at the
+        // `|v| < 2^53` boundary. 2^53 itself still round-trips exactly
+        // through f64 (the mantissa is 53 bits, so 2^53 is representable
+        // with a trailing zero). 2^53 + 1 is NOT representable and
+        // rounds to 2^53, so the round-trip collapses to 2^53.
+        let w = int_to_float_witness();
+        let boundary: i64 = 1_i64 << 53;
+        // At the boundary: GetPut holds.
+        witness_satisfies_lens_laws(&w, &[Literal::Int(boundary)], &[])
+            .expect("int→float→int should round-trip at exactly 2^53");
+        // One past the boundary: GetPut fails because 2^53 + 1 rounds
+        // to 2^53 during IntToFloat, then FloatToInt recovers 2^53 ≠
+        // 2^53 + 1.
+        let err = witness_satisfies_lens_laws(&w, &[Literal::Int(boundary + 1)], &[])
+            .expect_err("int→float→int must NOT round-trip at 2^53 + 1");
+        assert!(
+            err.contains("GetPut"),
+            "precision-loss violation must be reported as GetPut: {err}"
+        );
+    }
+
+    #[test]
     fn int_to_float_fails_on_fractional_target() {
         let w = int_to_float_witness();
         witness_forward_fails_on(&w, &Literal::Float(1.5))

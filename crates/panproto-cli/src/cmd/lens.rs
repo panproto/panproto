@@ -10,6 +10,95 @@ use panproto_core::{
 };
 use panproto_lens_dsl::{HintSpec, HintStringency};
 
+/// Fold candidate / requirements sections into a JSON-mode root
+/// document so `--json` / `--chain` always emit exactly one JSON value.
+#[allow(clippy::too_many_arguments)]
+fn augment_json_root(
+    root: &mut serde_json::Value,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    protocol: &panproto_core::schema::Protocol,
+    result: &lens::AutoLensResult,
+    config: &lens::AutoLensConfig,
+    top_n: usize,
+    emit_candidates: bool,
+    requirements: bool,
+) -> Result<()> {
+    let obj = if let serde_json::Value::Object(o) = root {
+        o
+    } else {
+        // Fallback: wrap non-object JSON in a one-key document so we can
+        // still splice sections in. This should not happen in practice
+        // because both `chain_to_json` and `auto_lens_result_to_json`
+        // emit objects, but keeps the helper total.
+        let inner = std::mem::replace(root, serde_json::Value::Object(serde_json::Map::new()));
+        if let serde_json::Value::Object(o) = root {
+            o.insert("result".to_owned(), inner);
+            o
+        } else {
+            unreachable!("just set root to an Object");
+        }
+    };
+
+    if emit_candidates {
+        let candidates =
+            lens::auto_generate_candidates(src_schema, tgt_schema, protocol, config, top_n)
+                .into_diagnostic()
+                .wrap_err("failed to generate candidate lenses")?;
+        let entries: Vec<serde_json::Value> = candidates
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "quality": c.quality,
+                    "coverage": c.coverage,
+                    "score": c.score(),
+                    "strategies_used": c.strategies_used,
+                    "steps": c.steps.iter().map(|s| serde_json::json!({
+                        "kind": s.kind,
+                        "explanation": s.explanation,
+                        "confidence": s.confidence,
+                        "strategy": s.strategy,
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        let coerce_proposals: Vec<serde_json::Value> = result
+            .coerce_proposals
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "src": p.anchor.src.as_str(),
+                    "tgt": p.anchor.tgt.as_str(),
+                    "witness_name": p.witness_name,
+                    "witness_class": p.witness_class,
+                    "confidence": p.anchor.confidence,
+                    "explanation": p.anchor.explanation,
+                })
+            })
+            .collect();
+        obj.insert(
+            "candidates".to_owned(),
+            serde_json::json!({
+                "count": candidates.len(),
+                "entries": entries,
+                "coerce_proposals": coerce_proposals,
+            }),
+        );
+    }
+
+    if requirements {
+        let spec = lens::chain_complement_spec(&result.chain, src_schema, protocol);
+        obj.insert(
+            "requirements".to_owned(),
+            serde_json::to_value(&spec)
+                .into_diagnostic()
+                .wrap_err("failed to serialize complement spec")?,
+        );
+    }
+
+    Ok(())
+}
+
 /// Convert a hint-DSL stringency tier into the engine's [`Stringency`].
 const fn hint_stringency_to_engine(s: HintStringency) -> Stringency {
     match s {
@@ -116,16 +205,46 @@ pub fn cmd_lens_generate(
             .wrap_err("failed to generate lens between schemas")?
     };
 
+    // In JSON output modes (`--json` or `--chain`), optional sections
+    // (`--top-n`/`--explain` candidates and `--requirements`) must fold
+    // into a single JSON document — emitting multiple top-level JSON
+    // values back-to-back is not valid JSON and breaks downstream
+    // tooling (`jq`, `serde_json::from_reader`, etc.).
+    let emit_candidates = top_n > 1 || explain;
+    let json_mode = json || chain;
+
     // Handle output modes.
     if chain {
-        let chain_json = chain_to_json(&result.chain);
-        let pretty = serde_json::to_string_pretty(&chain_json)
+        let mut root = chain_to_json(&result.chain);
+        augment_json_root(
+            &mut root,
+            &src_schema,
+            &tgt_schema,
+            &protocol,
+            &result,
+            &config,
+            top_n,
+            emit_candidates,
+            requirements,
+        )?;
+        let pretty = serde_json::to_string_pretty(&root)
             .into_diagnostic()
             .wrap_err("failed to serialize protolens chain")?;
         println!("{pretty}");
     } else if json {
-        let lens_json = auto_lens_result_to_json(&result);
-        let pretty = serde_json::to_string_pretty(&lens_json)
+        let mut root = auto_lens_result_to_json(&result);
+        augment_json_root(
+            &mut root,
+            &src_schema,
+            &tgt_schema,
+            &protocol,
+            &result,
+            &config,
+            top_n,
+            emit_candidates,
+            requirements,
+        )?;
+        let pretty = serde_json::to_string_pretty(&root)
             .into_diagnostic()
             .wrap_err("failed to serialize lens")?;
         println!("{pretty}");
@@ -164,79 +283,34 @@ pub fn cmd_lens_generate(
     // block additionally surfaces ranked alternatives and per-step
     // explanations to stdout. Save/fuse/requirements still operate on
     // the top-1 result above.
-    if top_n > 1 || explain {
-        // Reuse the (already-merged) `config` from above so
-        // stringency, alias-dict cartridges, and defaults from the
-        // hints file all flow into the candidate path consistently.
+    if emit_candidates && !json_mode {
+        // Human-readable candidate summary. JSON/chain modes already
+        // folded candidates into the root document above.
         let candidates =
             lens::auto_generate_candidates(&src_schema, &tgt_schema, &protocol, &config, top_n)
                 .into_diagnostic()
                 .wrap_err("failed to generate candidate lenses")?;
-
-        if json || chain {
-            let entries: Vec<serde_json::Value> = candidates
-                .iter()
-                .map(|c| {
-                    serde_json::json!({
-                        "quality": c.quality,
-                        "coverage": c.coverage,
-                        "score": c.score(),
-                        "strategies_used": c.strategies_used,
-                        "steps": c.steps.iter().map(|s| serde_json::json!({
-                            "kind": s.kind,
-                            "explanation": s.explanation,
-                            "confidence": s.confidence,
-                            "strategy": s.strategy,
-                        })).collect::<Vec<_>>(),
-                    })
-                })
-                .collect();
-            let coerce_proposals: Vec<serde_json::Value> = result
-                .coerce_proposals
-                .iter()
-                .map(|p| {
-                    serde_json::json!({
-                        "src": p.anchor.src.as_str(),
-                        "tgt": p.anchor.tgt.as_str(),
-                        "witness_name": p.witness_name,
-                        "witness_class": p.witness_class,
-                        "confidence": p.anchor.confidence,
-                        "explanation": p.anchor.explanation,
-                    })
-                })
-                .collect();
-            let wrapper = serde_json::json!({
-                "candidates": entries,
-                "count": candidates.len(),
-                "coerce_proposals": coerce_proposals,
-            });
-            let pretty = serde_json::to_string_pretty(&wrapper)
-                .into_diagnostic()
-                .wrap_err("failed to serialize candidate list")?;
-            println!("{pretty}");
-        } else {
-            println!("\nCandidates ({} total):", candidates.len());
-            for (idx, cand) in candidates.iter().enumerate() {
-                println!(
-                    "  #{} score={:.3} quality={:.3} coverage={:.3}",
-                    idx + 1,
-                    cand.score(),
-                    cand.quality,
-                    cand.coverage
-                );
-                if explain {
-                    for (si, step) in cand.steps.iter().enumerate() {
-                        let tag = step
-                            .strategy
-                            .map_or_else(|| "structural".to_owned(), |t| format!("{t:?}"));
-                        println!(
-                            "    {}. [{}] conf={:.2} — {}",
-                            si + 1,
-                            tag,
-                            step.confidence,
-                            step.explanation
-                        );
-                    }
+        println!("\nCandidates ({} total):", candidates.len());
+        for (idx, cand) in candidates.iter().enumerate() {
+            println!(
+                "  #{} score={:.3} quality={:.3} coverage={:.3}",
+                idx + 1,
+                cand.score(),
+                cand.quality,
+                cand.coverage
+            );
+            if explain {
+                for (si, step) in cand.steps.iter().enumerate() {
+                    let tag = step
+                        .strategy
+                        .map_or_else(|| "structural".to_owned(), |t| format!("{t:?}"));
+                    println!(
+                        "    {}. [{}] conf={:.2} {}",
+                        si + 1,
+                        tag,
+                        step.confidence,
+                        step.explanation
+                    );
                 }
             }
         }
@@ -284,14 +358,10 @@ pub fn cmd_lens_generate(
     }
 
     // Show requirements if requested.
-    if requirements {
+    if requirements && !json_mode {
+        // JSON/chain modes already folded requirements into the root.
         let spec = lens::chain_complement_spec(&result.chain, &src_schema, &protocol);
-        if json || chain {
-            let spec_json = serde_json::to_string_pretty(&spec)
-                .into_diagnostic()
-                .wrap_err("failed to serialize complement spec")?;
-            println!("{spec_json}");
-        } else {
+        {
             println!("\nRequirements:");
             println!("  Kind: {:?}", spec.kind);
             println!("  Summary: {}", spec.summary);

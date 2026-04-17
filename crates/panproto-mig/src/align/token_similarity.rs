@@ -531,6 +531,36 @@ mod tests {
     }
 
     #[test]
+    fn tokenize_preserves_non_letter_non_separator_runs() {
+        // Pins current behaviour for characters that are neither letters,
+        // digits, nor any of the configured separators (`_`, `-`, `.`, `/`,
+        // whitespace). Emoji and other symbols do not trigger a token
+        // boundary, so they are absorbed into the adjacent token. This is
+        // consistent with the documented splitter rules but is not
+        // obvious from the docstring; this test pins it so a future
+        // refactor that changes splitting on symbols has to update the
+        // pin deliberately.
+        let toks = tokenize("\u{1F600}emoji");
+        assert_eq!(toks, vec!["\u{1F600}emoji"]);
+        let toks = tokenize("hello\u{1F600}world");
+        // camelCase boundary does not fire because neither `o` nor `\u{1F600}`
+        // is uppercase.
+        assert_eq!(toks, vec!["hello\u{1F600}world"]);
+    }
+
+    #[test]
+    fn tokenize_triple_underscore_is_empty() {
+        // Pins the documented adversarial case: a string consisting
+        // entirely of separator characters collapses to no tokens. The
+        // position-1 byte-index check in split_prefix_suffix (upstream
+        // helper) is unrelated; tokenize simply skips all separators and
+        // emits no buffer.
+        assert_eq!(tokenize("___"), Vec::<String>::new());
+        assert_eq!(tokenize("---"), Vec::<String>::new());
+        assert_eq!(tokenize(" / . _ - "), Vec::<String>::new());
+    }
+
+    #[test]
     fn token_similarity_unrelated_is_low() {
         let score = token_similarity("createdAt", "authorId");
         assert!(
