@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "panproto"
-version = "0.34.0"
+version = "0.34.1"
 description = "Automatic schema migration and version control for 51 schema languages and 248 programming languages"
 readme = "../../sdk/python/README.md"
 license = "MIT"

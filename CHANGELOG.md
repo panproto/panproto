@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.34.1] - 2026-04-17
+
+### Fixed
+
+- **panproto-lens**: `asymmetric::put` dropped user edits to the view when the forward lens had `field_transforms` on the affected anchor. The pre-`get` snapshot of `extra_fields` (captured to preserve data lost by non-invertible transforms) was restored wholesale over the view, which clobbered any edits the user made between `get` and `put` — including the renamed field in a `RenameField` chain. The snapshot is now layered under the view: surviving fields are taken from the view and propagated back through the inverse of each forward transform (`RenameField` moves the view value to the old key, `ApplyExpr`/`ComputeField` inverses evaluate against the view value, `AddField` keys are scrubbed), while fields the forward pass dropped with no inverse still come from the snapshot. Resolves panproto/panproto#40.
+
 ## [0.34.0] - 2026-04-17
 
 ### Changed
