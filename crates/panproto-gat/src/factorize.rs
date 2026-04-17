@@ -201,20 +201,27 @@ pub fn factorize(
 ) -> Result<Factorization, GatError> {
     let mut steps = Vec::new();
 
-    // Phase 1: Identify renames
-    let mut sort_renames: Vec<(Arc<str>, Arc<str>)> = Vec::new();
-    let mut op_renames: Vec<(Arc<str>, Arc<str>)> = Vec::new();
+    // Phase 1: Identify renames. `sort_map` / `op_map` are `HashMap`s
+    // with a process-randomized hasher; iterating them directly drifts
+    // the emitted rename-step order across runs, which is observable in
+    // the factorization's `steps` vector and therefore in every
+    // downstream protolens chain. Sort by the `(old, new)` pair so the
+    // ordering is a pure function of the morphism contents.
+    let mut sort_renames: Vec<(Arc<str>, Arc<str>)> = morphism
+        .sort_map
+        .iter()
+        .filter(|(old, new)| old != new && domain.has_sort(old) && codomain.has_sort(new))
+        .map(|(old, new)| (Arc::clone(old), Arc::clone(new)))
+        .collect();
+    sort_renames.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
-    for (old, new) in &morphism.sort_map {
-        if old != new && domain.has_sort(old) && codomain.has_sort(new) {
-            sort_renames.push((Arc::clone(old), Arc::clone(new)));
-        }
-    }
-    for (old, new) in &morphism.op_map {
-        if old != new && domain.has_op(old) && codomain.has_op(new) {
-            op_renames.push((Arc::clone(old), Arc::clone(new)));
-        }
-    }
+    let mut op_renames: Vec<(Arc<str>, Arc<str>)> = morphism
+        .op_map
+        .iter()
+        .filter(|(old, new)| old != new && domain.has_op(old) && codomain.has_op(new))
+        .map(|(old, new)| (Arc::clone(old), Arc::clone(new)))
+        .collect();
+    op_renames.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
     // Phase 2: Drops
     emit_drops(&mut steps, morphism, domain, codomain);

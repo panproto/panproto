@@ -589,8 +589,15 @@ pub fn auto_generate_with_hints(
 
     // Combine user anchors (as `UserHint`-tagged anchors) with the
     // strategy proposals so that downstream callers see the full set.
+    // `anchors` is a `HashMap` with a process-randomized hasher, so
+    // iterating it directly would place user-hint anchors in random
+    // positions inside `seed_anchors` across runs, which leaks through
+    // `AutoLensResult` to any consumer that pretty-prints or snapshots
+    // the anchor list. Sort by source vertex name before inserting.
     let mut combined = Vec::with_capacity(strategy_anchors.len() + anchors.len());
-    for (src_v, tgt_v) in anchors {
+    let mut user_pairs: Vec<(&Name, &Name)> = anchors.iter().collect();
+    user_pairs.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+    for (src_v, tgt_v) in user_pairs {
         combined.push(Anchor {
             src: src_v.clone(),
             tgt: tgt_v.clone(),
@@ -913,8 +920,12 @@ pub fn auto_generate_candidates_with_hints(
         }
     }
 
+    // See `auto_generate_with_hints` for the determinism rationale on
+    // sorting `anchors` before constructing user-hint entries.
     let mut combined = Vec::with_capacity(strategy_anchors.len() + anchors.len());
-    for (src_v, tgt_v) in anchors {
+    let mut user_pairs: Vec<(&Name, &Name)> = anchors.iter().collect();
+    user_pairs.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+    for (src_v, tgt_v) in user_pairs {
         combined.push(Anchor {
             src: src_v.clone(),
             tgt: tgt_v.clone(),

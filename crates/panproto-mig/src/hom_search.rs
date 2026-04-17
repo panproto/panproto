@@ -103,12 +103,12 @@ pub fn find_morphisms(src: &Schema, tgt: &Schema, opts: &SearchOptions) -> Vec<F
 
     backtrack(&mut state, 0, &mut results, opts);
 
-    // Sort by quality descending
-    results.sort_by(|a, b| {
-        b.quality
-            .partial_cmp(&a.quality)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Sort by quality descending. `total_cmp` is a total order on f64
+    // (it distinguishes +0 from -0 and handles NaN) so ties are never
+    // collapsed to `Equal` the way `partial_cmp().unwrap_or(Equal)`
+    // would; that collapse lets the sort retain the randomized arrival
+    // order of results when two morphisms share a quality.
+    results.sort_by(|a, b| b.quality.total_cmp(&a.quality));
 
     if opts.max_results > 0 {
         results.truncate(opts.max_results);
@@ -165,11 +165,8 @@ pub fn find_morphisms_constrained(
     let weights = constraints.scoring_weights.unwrap_or(DEFAULT_WEIGHTS);
     backtrack_weighted(&mut state, 0, &mut results, opts, weights);
 
-    results.sort_by(|a, b| {
-        b.quality
-            .partial_cmp(&a.quality)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // See `find_morphisms` for the rationale on `total_cmp`.
+    results.sort_by(|a, b| b.quality.total_cmp(&a.quality));
 
     if opts.max_results > 0 {
         results.truncate(opts.max_results);
@@ -627,10 +624,20 @@ fn compute_quality_weighted(
         return 1.0;
     }
 
+    // IEEE-754 f64 addition is not associative, so summing over a
+    // `HashMap` (randomized iteration order) would let the least
+    // significant bits of each component score drift across process
+    // instances. Two morphisms whose true scores differ only at the
+    // lsb would then swap sort order nondeterministically. Sort the
+    // vertex pairs once by source name so every reduction below runs
+    // in a canonical order.
+    let mut vm_pairs: Vec<(&Name, &Name)> = vertex_map.iter().collect();
+    vm_pairs.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+
     // 1. Name similarity component (weight 0.25)
     let name_score: f64 = {
         let mut total = 0.0;
-        for (src_id, tgt_id) in vertex_map {
+        for (src_id, tgt_id) in &vm_pairs {
             let dist = edit_distance(src_id.as_str(), tgt_id.as_str());
             let max_len = src_id.len().max(tgt_id.len()).max(1);
             #[allow(clippy::cast_precision_loss)]
@@ -662,7 +669,7 @@ fn compute_quality_weighted(
     let prop_score: f64 = {
         let mut total = 0.0;
         let mut count = 0;
-        for (src_id, tgt_id) in vertex_map {
+        for (src_id, tgt_id) in &vm_pairs {
             let src_names: std::collections::HashSet<&str> = src
                 .outgoing_edges(src_id)
                 .iter()
@@ -695,7 +702,7 @@ fn compute_quality_weighted(
     // 4. Degree similarity (weight 0.2)
     let degree_score: f64 = {
         let mut total = 0.0;
-        for (src_id, tgt_id) in vertex_map {
+        for (src_id, tgt_id) in &vm_pairs {
             let src_deg = src.outgoing_edges(src_id).len();
             let tgt_deg = tgt.outgoing_edges(tgt_id).len();
             let max_deg = src_deg.max(tgt_deg);

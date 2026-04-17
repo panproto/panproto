@@ -471,6 +471,53 @@ mod tests {
     }
 
     #[test]
+    fn degree_similarity_lopsided_is_very_low_but_nonzero() {
+        // Audit pass 8, concern 8: `degree_similarity(1, 1000)` returns
+        // `min/max = 1/1000 = 0.001`. Combined via the average with a
+        // kind-multiset that might perfectly match (jaccard 1.0), the
+        // final similarity still bottoms out well under any reasonable
+        // confidence floor. Pin the mapping so a later "clamp" becomes
+        // a deliberate change.
+        assert!((degree_similarity(1, 1000) - 0.001).abs() < 1e-9);
+        // Even in the most optimistic kind-overlap case, the combined
+        // similarity stays near 0.25 (half of degree_sim 0.001 plus
+        // half of kind_sim 1.0 → 0.5005).
+        let a = VertexProfile {
+            out_deg: 1,
+            in_deg: 1,
+            out_kinds: {
+                let mut m = HashMap::new();
+                m.insert("prop".to_owned(), 1);
+                m
+            },
+            in_kinds: {
+                let mut m = HashMap::new();
+                m.insert("prop".to_owned(), 1);
+                m
+            },
+        };
+        let b = VertexProfile {
+            out_deg: 1000,
+            in_deg: 1000,
+            out_kinds: {
+                let mut m = HashMap::new();
+                m.insert("prop".to_owned(), 1000);
+                m
+            },
+            in_kinds: {
+                let mut m = HashMap::new();
+                m.insert("prop".to_owned(), 1000);
+                m
+            },
+        };
+        let s = similarity(&a, &b);
+        // kind_sim == 1.0 (same key, multiset_jaccard uses min/max so
+        // 1/1000 on each side → 0.001); deg_sim == 0.001. Final
+        // = 0.5*0.001 + 0.5*0.001 = 0.001.
+        assert!(s < 0.05, "lopsided profiles must score near zero: {s}");
+    }
+
+    #[test]
     fn structural_anchors_skip_kind_mismatch() {
         let src = build(
             &[("a", "object"), ("a.x", "string")],

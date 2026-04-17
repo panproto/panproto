@@ -562,6 +562,30 @@ mod tests {
     }
 
     #[test]
+    fn alias_edge_overlap_duplicate_src_names_double_count() {
+        // Audit pass 8, concern 11: when the src side contains duplicate
+        // edge names (a schema malformation we treat defensively), each
+        // duplicate is tested independently via
+        // `tgt_names.iter().any(...)`, so duplicates double-count in
+        // `matched`. `matched` can therefore exceed the number of
+        // *distinct* matching names. Pin the behaviour so it is an
+        // observed property rather than an unintentional drift.
+        let dict = default_alias_dict();
+        // "text" and "body" both lie in the content cluster; duplicates
+        // on the src side each score as a match.
+        let (score, matched) = alias_edge_overlap(&["text", "text", "body"], &["body"], &dict);
+        assert_eq!(
+            matched, 3,
+            "duplicate src names count independently; matched = 3 not 2"
+        );
+        // denominator is max(|src|=3, |tgt|=1) = 3, so score = 3/3 = 1.0.
+        assert!(
+            (score - 1.0).abs() < 1e-9,
+            "duplicate-src double-counting can saturate the score: {score}"
+        );
+    }
+
+    #[test]
     fn alias_edge_overlap_empty_sides() {
         let dict = AliasDict::new();
         // Empty-empty: documented as 1.0 but matched=0.

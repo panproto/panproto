@@ -549,6 +549,38 @@ mod tests {
     }
 
     #[test]
+    fn tokenize_splits_on_tab_and_newline() {
+        // Audit pass 8, concern 7: the docstring lists `_ - . /` and
+        // whitespace as separators. Tab and newline satisfy
+        // `char::is_whitespace`, so they act as separators too. Pin the
+        // behaviour so a future narrowing of the whitespace rule (e.g.
+        // restricting to ASCII space only) has to update this test.
+        assert_eq!(tokenize("foo\tbar"), vec!["foo", "bar"]);
+        assert_eq!(tokenize("foo\nbar"), vec!["foo", "bar"]);
+        assert_eq!(tokenize("foo\r\nbar"), vec!["foo", "bar"]);
+        // Non-breaking space (U+00A0) also counts as whitespace.
+        assert_eq!(tokenize("foo\u{00A0}bar"), vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn char_ngram_cosine_single_char_inputs() {
+        // Audit pass 8, concern 5: after the pass-4 short-circuit when
+        // normalization is empty, a single surviving char still pads to
+        // n-1 spaces on each side. For n=2 on "a" that yields windows
+        // `" a"` and `"a "`. Two disjoint single-char inputs share no
+        // grams (padding grams touch different letters on the inside),
+        // so the cosine must be 0, not 1.
+        assert_eq!(char_ngram_cosine("a", "b", 2), 0.0);
+        // Identical single-char inputs use the a == b shortcut.
+        assert!((char_ngram_cosine("a", "a", 2) - 1.0).abs() < 1e-9);
+        // Two-of-same-char vs the char itself share the middle gram
+        // `"aa"` plus the edges; cosine should be strictly between 0
+        // and 1 (different bags, nonzero overlap).
+        let s = char_ngram_cosine("a", "aa", 2);
+        assert!(s > 0.0 && s < 1.0, "expected partial overlap: {s}");
+    }
+
+    #[test]
     fn tokenize_triple_underscore_is_empty() {
         // Pins the documented adversarial case: a string consisting
         // entirely of separator characters collapses to no tokens. The
