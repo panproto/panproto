@@ -26,13 +26,11 @@ Referential integrity is not enforced at schema-build time by FHIR itself; a ref
 
 ## Where the translation is imperfect
 
-Three places need noting.
-
 FHIR extensions are open-ended. Every resource in FHIR may carry extension fields whose shape is not declared in the base resource's specification. Panproto represents extensions as an opaque JSON-valued sort that preserves them across migrations without decomposition. A migration that needs to transform extension contents must do so through [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/)'s field-transform mechanism applied to the extension sort directly.
 
-FHIR invariants (FHIRPath expressions attached to resources) are a rich constraint language that panproto's equations cannot faithfully encode in full generality. Panproto handles the invariants that map cleanly onto [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/) (presence checks, cardinality constraints, simple relational comparisons) and flags the rest as unchecked. A schema under the FHIR protocol may pass panproto's validator while failing a complex FHIRPath invariant the specification requires; for production use, a FHIR-specific validator should run alongside panproto's.
+FHIRPath invariants (expressions attached to resources) form a rich constraint language that panproto's equations cannot faithfully encode in full generality. Panproto handles the invariants that map cleanly onto [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/) (presence checks, cardinality constraints, simple relational comparisons) and flags the rest as unchecked. A schema under the FHIR protocol may pass panproto's validator while failing a complex FHIRPath invariant the specification requires; for production use, a FHIR-specific validator should run alongside panproto's.
 
-FHIR resource versioning is per-resource. Some resources (`Patient`, `Observation`) have evolved in backward-compatible ways across R4, R4B, R5, and R6; others have had breaking changes. Panproto represents each version's schema as a distinct schema under the FHIR protocol, and migrations between versions go through the standard pipeline. The engine does not itself determine which version pairs are backward-compatible; the developer marks this explicitly in the migration declaration.
+Resource versioning is per-resource. Some resources (`Patient`, `Observation`) have evolved in backward-compatible ways across R4, R4B, R5, and R6; others have had breaking changes. Panproto represents each version's schema as a distinct schema under the FHIR protocol, and migrations between versions go through the standard pipeline. The engine does not itself determine which version pairs are backward-compatible; the developer marks this explicitly in the migration declaration.
 
 ## Closing
 

@@ -22,13 +22,13 @@ A schema under this protocol fixes the specific tables, columns, and primary-key
 
 ## Migrations across schema versions
 
-Adding a column to a table is a theory morphism that extends the source theory with a new operation from the table's sort to the column's type sort. The migration compiles through [the restrict/lift pipeline](../core/restrict-lift.md) as any other: a $\Sigma_f$-style pushforward supplies the column's default value (or `NULL`, if the column is declared nullable) for every existing row.
+Adding a column to a table extends the source theory with a new operation from the table's sort to the column's type sort. The migration compiles through [the restrict/lift pipeline](../core/restrict-lift.md) as any other: a $\Sigma_f$-style pushforward supplies the column's default value (or `NULL`, if the column is declared nullable) for every existing row.
 
 Dropping a column is the dual. The theory morphism removes the operation; the pushforward is a $\Delta_f$-pullback that forgets the column. Data loss is explicit: the dropped column's values are gone after the migration, and panproto's inversion stage reports the irreversibility when asked.
 
-Renaming a column is a theory morphism that maps the old operation name to the new. Unlike Avro, Cassandra does not support column aliases, so the rename is irreversible at the schema level; the migration remains trivial to apply but records no reverse path.
+A rename maps the old operation name to the new. Unlike Avro, Cassandra does not support column aliases, so the rename is irreversible at the schema level; the migration remains trivial to apply but records no reverse path.
 
-Adding a foreign-key constraint is a theory morphism that adds an equation to the target theory. The pushforward is empty on the data side (no rows change), but existence checking rejects any source instance that violates the new constraint. The rejection report identifies the specific rows whose foreign-key values do not resolve. The diagnostic is produced by [`panproto_mig::existence`](https://docs.rs/panproto-mig/latest/panproto_mig/existence/).
+Foreign-key constraints translate to equations in the target theory. The pushforward is empty on the data side (no rows change), but existence checking rejects any source instance that violates the new constraint. The rejection report identifies the specific rows whose foreign-key values do not resolve. The diagnostic is produced by [`panproto_mig::existence`](https://docs.rs/panproto-mig/latest/panproto_mig/existence/).
 
 ## A SQL subset
 

@@ -36,7 +36,7 @@ Acceptance criterion: cross-protocol-registry merge resolution, a stability guar
 
 Each of these subsystems lives in the workspace rather than in a separate repository so that it can evolve alongside the main panproto stack. A change to [`panproto-gat`](https://docs.rs/panproto-gat/latest/panproto_gat/)'s theory representation, for example, is propagated to [`panproto-llvm`](https://docs.rs/panproto-llvm/latest/panproto_llvm/) at the same time as to the other theory consumers, which avoids the drift that a separate-repository arrangement would produce.
 
-The cost is that a contributor who wants to work on any of these crates has to opt in through feature flags and be aware that their work is against a moving target. The benefit is that promising ideas can be tried out in tree, measured against the rest of the stack, and either promoted or abandoned without the friction of separate-repository maintenance.
+A contributor who wants to work on any of these crates has to opt in through feature flags and be aware that their work is against a moving target. In exchange, promising ideas can be tried out in tree, measured against the rest of the stack, and either promoted or abandoned without the friction of separate-repository maintenance.
 
 A crate is promoted to stable when its acceptance criterion is met and a release includes the promotion as a changelog entry. Demotion back to experimental is possible but rare; it has not happened in the crates currently listed as experimental.
 

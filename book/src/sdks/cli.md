@@ -2,7 +2,7 @@
 
 The `schema` command, built from [`panproto-cli`](https://docs.rs/panproto-cli/latest/panproto_cli/), is panproto's highest-level interface. It is a single binary that exposes panproto's operations as subcommands, with the same operations the SDKs of the previous chapters expose through language bindings. Most first-time users of panproto encounter it here rather than through a programmatic API.
 
-This chapter is a reference for the subcommand surface and the conventions the binary follows, organised by the workflow a user would follow rather than by alphabetical order of the commands.
+This chapter is a reference for the subcommand surface and the conventions the binary follows, organised by workflow rather than alphabetically.
 
 ## Installation
 

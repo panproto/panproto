@@ -34,7 +34,7 @@ The WASM module compiles to about three megabytes after [`wasm-opt`](https://git
 
 ## What the TypeScript SDK adds on top
 
-The TypeScript SDK ([`@panproto/core`](https://www.npmjs.com/package/@panproto/core), covered in [the TypeScript SDK chapter](./typescript.md)) layers three things on the WASM boundary. It provides ergonomic wrappers that hide the handle manipulation behind ordinary JavaScript object lifetimes. It provides the MessagePack serialisation and deserialisation described above, with type-safe bindings generated from the Rust types. And it provides a fluent builder API for common operations (schema construction, migration composition) that would otherwise require many discrete WASM calls.
+The TypeScript SDK ([`@panproto/core`](https://www.npmjs.com/package/@panproto/core), covered in [the TypeScript SDK chapter](./typescript.md)) layers three things on the WASM boundary: ergonomic wrappers that hide handle manipulation behind ordinary JavaScript object lifetimes; MessagePack serialisation and deserialisation with type-safe bindings generated from the Rust types; and a fluent builder API for common operations (schema construction, migration composition) that would otherwise require many discrete WASM calls.
 
 ## Closing
 

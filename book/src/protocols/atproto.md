@@ -18,17 +18,13 @@ A lexicon loaded into panproto therefore becomes a *schema* under this theory: t
 
 ## What the translation preserves
 
-Three things transfer cleanly.
-
 Record structure transfers by field-by-field match. Every field in the lexicon becomes an operation in the schema, with the same name and a corresponding target sort. The JSON form `{"type": "object", "properties": {"text": {"type": "string"}}}` produces an operation $\mathsf{text}$ from the containing record sort to $\mathsf{String}$.
 
-Scalar constraints transfer through equations. A `maxLength` constraint on a string field produces an equation that restricts the length of the string operation's value; a regex pattern produces an equation demanding the string match the pattern. Both equations are evaluated in [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/) against the field's value at instance-build time.
+Scalar constraints become equations. A `maxLength` constraint on a string field produces an equation that restricts the length of the string operation's value; a regex pattern produces an equation demanding the string match the pattern. Both equations are evaluated in [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/) against the field's value at instance-build time.
 
-Union types transfer through disjoint sums of sorts. A lexicon union over record types $R_1, \ldots, R_n$ produces a sum sort whose discriminator is the record-type identifier at each union occurrence.
+For union types, a lexicon union over record types $R_1, \ldots, R_n$ produces a sum sort whose discriminator is the record-type identifier at each union occurrence.
 
 ## Where the translation is imperfect
-
-Several aspects of Lexicon do not translate as cleanly.
 
 Cross-lexicon references through CIDs are not enforceable at schema-build time. A field whose value is the CID of a record in a different collection carries no schema-level guarantee that the referenced record actually exists; Lexicon treats CIDs as opaque strings with no referential-integrity constraint beyond optional format checks. Panproto faithfully mirrors this: the theory has a sort $\mathsf{Cid}$ with no cross-sort equations. A developer who wants referential integrity must impose it as a separate constraint checked at [migration time](../core/morphisms-and-migration.md) or at [version-control commit time](../vcs/objects-and-dag.md).
 

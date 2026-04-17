@@ -8,7 +8,7 @@ The material develops in three movements. The first formalises *diagrams* as fun
 
 A **diagram** in a category $\mathcal{C}$ is a functor $D : J \to \mathcal{C}$ from a small category $J$, called the **shape**, into $\mathcal{C}$. The shape category specifies how the diagram's objects are related; the functor $D$ chooses which objects and morphisms of $\mathcal{C}$ actually sit there.
 
-For a diagram with no constraints between its objects, the shape is a **discrete category** whose only morphisms are the identities. A two-object discrete shape with objects $\star_1, \star_2$ yields a diagram consisting of a choice of two objects $D(\star_1), D(\star_2)$ of $\mathcal{C}$ and nothing else. The coproducts of Chapter 3 are colimits over shapes of this form.
+For a diagram with no constraints between its objects, the shape is a **discrete category** whose only morphisms are the identities. A two-object discrete shape with objects $\star_1, \star_2$ yields a diagram consisting of a choice of two objects $D(\star_1), D(\star_2)$ of $\mathcal{C}$ and nothing else. The coproducts of the previous chapter are colimits over shapes of this form.
 
 For a diagram with arrows, the shape has morphisms and the functor $D$ chooses what those morphisms become in $\mathcal{C}$. The **span** shape, which we use most, has three objects $\star_0, \star_1, \star_2$ and two non-identity arrows
 $$\star_1 \xleftarrow{\phantom{i}} \star_0 \xrightarrow{\phantom{i}} \star_2$$
@@ -20,9 +20,9 @@ A **cocone under a diagram** $D : J \to \mathcal{C}$ with apex $X \in \mathrm{Ob
 $$\alpha_k \circ D(u) = \alpha_j$$
 commutes. The $\alpha_j$ are called the **leg** morphisms of the cocone.
 
-A **colimit of $D$** is a universal cocone: an apex $C$ with leg morphisms $\iota_j : D(j) \to C$ such that every other cocone with apex $Z$ and legs $\alpha_j : D(j) \to Z$ factors through $C$ by a unique morphism $u : C \to Z$ satisfying $u \circ \iota_j = \alpha_j$ for every $j$. The colimit, if it exists, is unique up to unique isomorphism (the argument is the one given for products and coproducts in Chapter 3, now applied to diagrams of arbitrary shape).
+A **colimit of $D$** is a universal cocone: an apex $C$ with leg morphisms $\iota_j : D(j) \to C$ such that every other cocone with apex $Z$ and legs $\alpha_j : D(j) \to Z$ factors through $C$ by a unique morphism $u : C \to Z$ satisfying $u \circ \iota_j = \alpha_j$ for every $j$. The colimit, if it exists, is unique up to unique isomorphism (the argument is the one given for products and coproducts in the [Universal properties chapter](./universal-properties.md), now applied to diagrams of arbitrary shape).
 
-The coproduct of two objects $A, B$ is the colimit of the two-object discrete diagram; the coproduct's injections $\iota_1 : A \to S$ and $\iota_2 : B \to S$ are the leg morphisms, and the universal factorisation $[g_1, g_2]$ is the unique morphism out of the apex.
+The coproduct of two objects $A, B$ is the colimit of the two-object discrete diagram: the coproduct's injections $\iota_1 : A \to S$ and $\iota_2 : B \to S$ are the leg morphisms, and the universal factorisation $[g_1, g_2]$ is the unique morphism out of the apex.
 
 ## Pushouts
 
@@ -54,7 +54,7 @@ The pushout is a construction to remember: it is how to *glue two objects along 
 
 ### Pushout of theories
 
-In the category whose objects are generalised algebraic theories (Chapter 5), the pushout glues two theories along a common sub-theory. Given a span of theories $T_1 \xleftarrow{f} T_0 \xrightarrow{g} T_2$, the pushout is a theory whose sorts and operations are the disjoint union of those of $T_1$ and $T_2$, with the sorts and operations in the image of $T_0$ identified along $f$ and $g$. The identification of theories as objects of a category admitting colimits of this kind goes back to @goguenburstall1992institutions; the panproto-specific construction is given in full in Chapter 5.
+In the category whose objects are generalised algebraic theories (see the chapter on [Algebraic and generalised algebraic theories](./gats.md)), the pushout glues two theories along a common sub-theory. Given a span of theories $T_1 \xleftarrow{f} T_0 \xrightarrow{g} T_2$, the pushout is a theory whose sorts and operations are the disjoint union of those of $T_1$ and $T_2$, with the sorts and operations in the image of $T_0$ identified along $f$ and $g$. The identification of theories as objects of a category admitting colimits of this kind goes back to @goguenburstall1992institutions; the panproto-specific construction is given there in full.
 
 ## Pushouts in panproto
 

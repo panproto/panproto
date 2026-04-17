@@ -8,7 +8,7 @@ This book presents a different way of arranging those tools. Its central claim i
 
 This book is written for developers comfortable reading code in at least one statically typed language, who have not previously had reason to pick up a category theory textbook. Every concept is introduced from first principles rather than by reference to a prerequisite course. A reader who follows the foundations chapters closely will be in a position to read papers on functorial data migration, bidirectional lenses, and generalised algebraic theories without further help.
 
-The book also has an academic audience in view. Researchers in formal methods, database theory, type theory, and programming languages will find panproto's particular design arranged against a body of literature they are likely to know better than the authors do. Where panproto's design follows published work, the book cites the published work directly; departures and known gaps are also named, the first with justifications, the second as invitations. The bibliography at the end of the book is a single alphabetical list, and every entry has been read before being cited.
+Researchers in formal methods, database theory, type theory, and programming languages will recognize the underlying literature: functorial semantics, bidirectional transformations, generalised algebraic theories. Citations point to the papers whose constructions panproto adopts, and departures from the published designs are flagged at the point they occur.
 
 ## How this book is organized
 
@@ -24,16 +24,8 @@ Part VI is operational: the [WebAssembly](https://webassembly.org/) boundary, th
 
 ## How to read this book
 
-Readers come with different backgrounds. Someone with prior category-theory experience can start at Part II and treat Part I as reference. A reader without that background should read the first two parts in order and then jump to the protocol, VCS, or SDK part matching whatever practical problem is at hand. Contributors to panproto's code should also read Part VII before the others. The book assumes no previous encounter with panproto itself; everything it uses is developed in its chapters.
+A reader with prior category-theory experience can start at Part II and treat Part I as reference. Without that background, the first two parts repay reading in order; the protocol, VCS, and SDK parts that follow can then be read in whatever order matches the practical problem at hand. Contributors to panproto's code should also read Part VII before the others. The book assumes no previous encounter with panproto; everything it uses is developed in its chapters.
 
-## What this book does not claim
+## What the software can do today
 
-Panproto is pre-release software. Several of its subsystems work well enough for the worked examples in the book and would not yet stand up to production use in isolation. We have tried to mark this honestly throughout. Feature-gated and still-shifting subsystems are catalogued in the chapter on experimental and feature-gated subsystems. The open-problems appendix lists the places where the software is ahead of the theory we have a citation for, and the places where the theory is ahead of the software. Reading one of the later chapters as a product announcement would be a mistake, and the chapters are written to prevent that reading.
-
-## Trust commitments
-
-Two commitments run through the book and are stated clearly here in one place. First, every claim about what panproto does is grounded in a specific file in the panproto repository, and the file is named in the chapter that makes the claim. The book does not repeat earlier documentation; the code has been read. Second, every claim about what someone else has already proved or argued is grounded in a specific paper or book, given as an inline citation and collected in the bibliography. Each entry in the bibliography is a work that has been read in full before being cited. Where no prior work on a topic is known, the book says so rather than implying the territory is unexplored.
-
-## Acknowledgments
-
-Panproto is joint work of Aaron Steven White and Blaine Cook, whose patience with the abstraction has shaped the design as much as anything in the chapters that follow. The machinery this book presents sits on top of decades of work in category theory, database theory, programming languages, and formal semantics, and the bibliography is the long version of our thanks to the authors of that work. All remaining errors and misjudgments are ours.
+Panproto is pre-release software. Several of its subsystems work well enough for the worked examples in the book and would not yet stand up to production use in isolation. Feature-gated and still-shifting subsystems are catalogued in the chapter on experimental and feature-gated subsystems. The open-problems appendix lists the places where the software is ahead of the theory we have a citation for, and the places where the theory is ahead of the software.

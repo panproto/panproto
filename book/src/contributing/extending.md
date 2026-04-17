@@ -16,7 +16,7 @@ The emitter is the inverse. It takes a schema and serialises it back to the prot
 
 The registry entry is a two-line call to the `register` function of [`panproto-protocols`](https://docs.rs/panproto-protocols/latest/panproto_protocols/), binding the theory, parser, and emitter under a string identifier. The identifier is usually the reverse-DNS name of the protocol's specification organisation, to avoid collisions with other protocols.
 
-Tests for a new protocol include a round-trip test (parse then emit produces the original bytes up to a declared equivalence), a theory-validation test (the theory itself is well-formed), and at least one integration test that constructs a schema under the protocol, runs a trivial migration, and verifies the result.
+A protocol is considered tested when three checks pass together: the theory validates as well-formed, parse-then-emit reproduces the original bytes up to a declared equivalence, and at least one integration test drives a schema through a trivial migration and inspects the result.
 
 ## A new lens combinator
 

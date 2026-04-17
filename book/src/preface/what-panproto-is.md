@@ -1,8 +1,6 @@
 # What panproto is
 
-This chapter frames panproto against the tools a working developer is likely to have used already. The framing is concrete. No category theory appears below the fold of this chapter; that work begins in [Categories](../foundations/categories.md).
-
-A simple scenario sets the stage. A small service stores user records as JSON and keeps the schema for those records in a file called `user.schema.json`, checked into the same repository as the code. The schema declares a `name` field and an `email` field, both required. After a few months, a new requirement arrives: users should have a display name that may differ from the account name. The schema grows a `displayName` field. Old records in the database do not have a `displayName`; new records do. A developer writes a small migration script that adds `displayName` values to the old records, and commits the script alongside the schema change.
+A small service stores user records as JSON and keeps the schema for those records in a file called `user.schema.json`, checked into the same repository as the code. The schema declares a `name` field and an `email` field, both required. After a few months, a new requirement arrives: users should have a display name that may differ from the account name. The schema grows a `displayName` field. Old records in the database do not have a `displayName`; new records do. A developer writes a small migration script that adds `displayName` values to the old records, and commits the script alongside the schema change.
 
 This is not unusual. Every non-trivial production system runs some version of the same sequence. The specifics vary between [ATProto](https://atproto.com/), [Apache Avro](https://avro.apache.org/), [FHIR](https://www.hl7.org/fhir/), Postgres DDL, and the two dozen other schema languages in wide use, but the shape is the same: a schema file is edited, a migration runs against existing data, and the system is now operating against a new schema.
 
@@ -26,12 +24,10 @@ None of these is exotic. Every one of them is a specific construction in categor
 
 ## What this book is not
 
-The book is not a category theory textbook. It introduces the mathematical machinery panproto rests on, but it does so by showing how the machinery applies to schemas, migrations, and version control. A reader who finishes the book has seen category theory at the level that is necessary to understand panproto's design. A reader who wants to go deeper into category theory itself should turn to the references that close each chapter; @maclane1998categories, @awodey2010category, and @lawvereschanuel2009conceptual are the three starting points.
+The book is not a category theory textbook. It introduces the mathematical machinery panproto rests on, but it does so by showing how that machinery applies to schemas, migrations, and version control. A reader who finishes the book has seen category theory at the level needed to understand panproto's design; for deeper reading, the references that close each chapter point the way, with @maclane1998categories, @awodey2010category, and @lawvereschanuel2009conceptual as three starting points.
 
-The book is also not a reference manual for panproto. Every chapter references specific parts of the Rust code (linked to [docs.rs](https://docs.rs/)), but the reference documentation is [the generated rustdoc](https://docs.rs/panproto-core/latest/panproto_core/). This book develops the mathematical and engineering design behind panproto's API; the API itself is documented alongside the code.
+Neither is it a reference manual. Specific parts of the Rust code are linked to [docs.rs](https://docs.rs/) where relevant, but the API documentation lives in [the generated rustdoc](https://docs.rs/panproto-core/latest/panproto_core/). The focus here is the mathematical and engineering design behind that API.
 
-The book is not, finally, a polemic against existing tools. Git works. Protobuf works. Flyway works. Each of these is excellent at the job it was designed for. Panproto is what arises when the job is enlarged to include the relationship between schemas and data, and the reader who finishes this book will have a picture of how the enlargement is carried out, not an argument for why the smaller tools are inadequate.
+Finally, nothing in the book is meant as a polemic against existing tools. [Git](https://git-scm.com/) works; [Protobuf](https://protobuf.dev/) works; Flyway works. Panproto is what arises when the job is enlarged to include the relationship between schemas and data, and the reader who finishes this book will have a picture of how that enlargement is carried out.
 
-## Closing
-
-The next chapter, [A note on notation](./notation.md), documents the typographic conventions the book uses. After that, [Categories](../foundations/categories.md) starts the mathematical development.
+The next chapter, [A note on notation](./notation.md), collects the typographic conventions the book uses; [Categories](../foundations/categories.md) then begins the mathematical development.

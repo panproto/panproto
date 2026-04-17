@@ -2,7 +2,7 @@
 
 The language of [Syntax and semantics](./syntax-semantics.md), bounded by the step and depth limits of [Totality and termination](./totality.md), is one choice among several small-DSL candidates panproto could have adopted. This chapter walks through the alternatives the design considered and the reasons the current shape was retained.
 
-The chapter is short and opinionated. It exists so that a developer who reads [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/) and wonders "why this rather than Starlark?" has a specific answer to point at. The short version: panproto needs a language that is pure, bounded, deterministic, serializable, and capable of pattern-matching over panproto's own schema-indexed types, and no existing candidate satisfies all five.
+A developer who reads [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/) and wonders "why this rather than Starlark?" has a specific answer to point at. Panproto needs a language that is pure, bounded, deterministic, serializable, and capable of pattern-matching over panproto's own schema-indexed types, and no existing candidate satisfies all five.
 
 ## The five requirements
 
@@ -44,13 +44,13 @@ The gap is that CUE is not a function language. Expressing a migration's pushfor
 
 ## What panproto-expr keeps and loses
 
-The language the engine ended up with is specifically tuned for what remains after the requirements have ruled out the alternatives. Step and depth limits bound it, replacing Turing-completeness with guaranteed termination. Serialisability across process boundaries demanded a strict eager reduction strategy rather than the laziness that Nickel (for instance) relies on. Giving the language native handling of panproto's own types meant accepting that it would not double as a general-purpose data-exchange format; [`Schema`](https://docs.rs/panproto-schema/latest/panproto_schema/schema/struct.Schema.html) and [`Instance`](https://docs.rs/panproto-inst/latest/panproto_inst/) are first-class opaque values.
+The language the engine ended up with is specifically tuned for what remains after the requirements have ruled out the alternatives. Step and depth limits bound it; this replaces Turing-completeness with guaranteed termination. Serialisability across process boundaries demanded a strict eager reduction strategy rather than the laziness that Nickel (for instance) relies on. Giving the language native handling of panproto's own types meant accepting that it would not double as a general-purpose data-exchange format; [`Schema`](https://docs.rs/panproto-schema/latest/panproto_schema/schema/struct.Schema.html) and [`Instance`](https://docs.rs/panproto-inst/latest/panproto_inst/) are first-class opaque values.
 
 The losses are real. A user whose pushforward computation genuinely needs a Turing-complete host language cannot express it in panproto-expr; such a user must instead write a Rust function, compile it through panproto's Rust SDK ([The Rust SDK](../sdks/rust.md)), and register it with the migration engine as a foreign function. A user who wants to configure their migration declaratively without writing evaluated expressions at all can use the [lens DSL](https://docs.rs/panproto-lens-dsl/latest/panproto_lens_dsl/) in Nickel or [JSON](https://json-schema.org/) form, which compiles through a separate pipeline.
 
 ## Closing
 
-Part III closes here. Part IV, which opens with [Defining a protocol](../protocols/defining.md), catalogues the specific protocols panproto supports (ATProto, Avro, a relational case, FHIR as a document case) and shows how each is expressed as an instance of the constructions developed in Part II.
+Part IV opens with [Defining a protocol](../protocols/defining.md). It catalogues the specific protocols panproto supports (ATProto, Avro, a relational case, FHIR as a document case) and shows how each is expressed as an instance of the constructions developed in Part II.
 
 <!--
 STATUS: Design choices chapter drafted.

@@ -38,6 +38,4 @@ Auto-migration refuses in specific, reported cases. A field added without a defa
 
 In each case, the commit is held until the user responds. The response is either a migration declaration that covers the refused case, an edit to the staged schema that avoids the refusal (for example, adding a default value to the new field), or an edit to the source data that removes the obstruction (deleting the violating records manually). Panproto-vcs does not apply a partial migration; either the whole commit lifts cleanly or the commit does not land.
 
-## Closing
-
 The next chapter, [The git bridge](./git-bridge.md), covers the interop layer between panproto-vcs and git: how a panproto-vcs repository can be pushed to and pulled from an ordinary git remote, what is preserved on the round trip, and when the two representations diverge.

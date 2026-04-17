@@ -2,7 +2,7 @@
 
 The language of [Syntax and semantics](./syntax-semantics.md) gains the properties panproto requires of it only when the evaluator enforces two resource limits: a **step limit** on the number of reduction steps any one evaluation may take, and a **depth limit** on the nesting of active calls. Together the two limits make every well-typed evaluation terminate, produce a unique outcome, and fit inside a serializable record that can be replayed across processes. This chapter explains the limits, the guarantees they buy, and the trade-offs they impose.
 
-The chapter is short. It states the two limits and what they do, walks through how they interact with the evaluator's reduction relation, and documents what a developer sees when a limit is exceeded. The trade-offs against a Turing-complete language are left to the next chapter, [Why bounded pure evaluation](./design-choices.md); the point of *this* chapter is the formal guarantees the limits provide.
+The trade-offs against a Turing-complete language are left to the next chapter, [Why bounded pure evaluation](./design-choices.md); this chapter covers the formal guarantees the limits provide.
 
 ## The two limits
 
@@ -10,7 +10,7 @@ Every evaluation in [`panproto_expr::eval`](https://docs.rs/panproto-expr/latest
 
 Both limits are configurable at the call site. Reasonable defaults (a step limit of $10^6$, a depth limit of 256) are set in [`panproto_expr::eval::Config`](https://docs.rs/panproto-expr/latest/panproto_expr/eval/struct.Config.html) and are what the migration engine uses when it evaluates a field transform on behalf of a user who has not specified otherwise. A production caller who anticipates larger input instances can raise either limit; a caller running user-supplied expressions in an untrusted context can lower them.
 
-The limits are the evaluator's only side-channel into the environment. The language itself has no I/O, no mutation, no network access, no filesystem access, no way to spawn threads, and no way to call back into Rust code outside the fixed set of builtins. Every evaluation is a pure, bounded function from the input closure to an outcome.
+The limits are the evaluator's only side-channel into the environment. The language itself is denied everything else: I/O, mutation, network or filesystem access, thread spawning, and any form of callback into Rust code outside the fixed set of builtins. Every evaluation is a pure, bounded function from the input closure to an outcome.
 
 ## Why the limits make the language total
 

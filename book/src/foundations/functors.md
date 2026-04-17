@@ -2,7 +2,7 @@
 
 This chapter introduces *functors* and *natural transformations*. A functor is the right notion of morphism *between* categories: a way to carry the objects and arrows of one category into another so that composition and identities are preserved. A natural transformation is then a morphism between two such carriers. Together they give us a setting in which to compare whole categories, and they are the setting every later construction in the book will inhabit.
 
-The chapter develops functors first, with the two laws every functor must satisfy and with worked examples from [Haskell](https://www.haskell.org/)'s standard library, from the category of sets, and from panproto's category of schemas. The second half develops natural transformations, the naturality square that every one of them commutes, and the functor category of two categories. We assume familiarity with Chapter 2.
+The chapter develops functors first, with the two laws every functor must satisfy and with worked examples from [Haskell](https://www.haskell.org/)'s standard library, from the category of sets, and from panproto's category of schemas. The second half develops natural transformations, the naturality square that every one of them commutes, and the functor category of two categories. We assume familiarity with the chapter on [Categories](./categories.md).
 
 ## Functors
 
@@ -73,7 +73,7 @@ For every category $\mathcal{C}$ there is a functor $\mathrm{Id}_\mathcal{C} : \
 
 In panproto, the assignment that sends each schema $S$ to the set of instances of $S$, and each migration $m : S \to S'$ to the function that lifts instances along $m$, is a functor from the category of panproto schemas to the category of sets. Its object part is implemented by `panproto_inst::Instance` parameterized by `panproto_schema::Schema`; its morphism part is the lift function in `crates/panproto-mig/src/lift.rs`.
 
-The composition axiom is what the migration engine's `compose.rs` guarantees at the type level: the instance obtained by lifting along $m_{23}$ and then along $m_{12}$ is the same instance that would be obtained by lifting along $m_{23} \circ m_{12}$ in one step. The identity axiom is what makes lifting along an identity migration a no-op on instances. Every later chapter of Part II uses this functor. Chapter 7 gives its construction in full.
+The composition axiom is what the migration engine's `compose.rs` guarantees at the type level: the instance obtained by lifting along $m_{23}$ and then along $m_{12}$ is the same instance that would be obtained by lifting along $m_{23} \circ m_{12}$ in one step. The identity axiom makes lifting along an identity migration a no-op on instances. Every later chapter of Part II uses this functor.
 
 ## Natural transformations
 
@@ -115,7 +115,7 @@ Haskell's theorems-for-free results, due to @wadler1989theorems and building on 
 
 ### Naturality in panproto
 
-In panproto, a lens between two schema-indexed families of instances is a natural transformation between two functors from the category of schemas to the category of sets. Chapter 9 develops lenses in detail; the relevant observation here is that the naturality square of Figure 2.2, in the panproto setting, becomes the round-trip law `get . set = identity` for a well-formed lens. The `panproto_lens::laws` module enforces the law at check time; the category-theoretic reading is that the law is naturality of the `get` component of the lens.
+In panproto, a lens between two schema-indexed families of instances is a natural transformation between two functors from the category of schemas to the category of sets. Lenses are developed in their own chapter later in Part II; for now the relevant observation is that the naturality square of Figure 2.2, in the panproto setting, becomes the round-trip law `get . set = identity` for a well-formed lens. The `panproto_lens::laws` module enforces the law at check time, and the category-theoretic reading is that the law is naturality of the `get` component of the lens.
 
 ## The functor category
 

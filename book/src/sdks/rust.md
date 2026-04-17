@@ -2,7 +2,7 @@
 
 The Rust SDK is a single crate, [`panproto-core`](https://docs.rs/panproto-core/latest/panproto_core/), that re-exports the subsystems a caller normally wants from one place. This chapter walks through the facade, the feature flags that gate the optional parts, and the idioms the crate recommends for common tasks.
 
-Readers familiar with panproto's architecture from Parts II and V will find this chapter short; it is a working guide to the Rust API, not a new concept.
+Readers familiar with panproto's architecture from Parts II and V will find this chapter short; it is a working guide to the Rust API.
 
 ## The facade
 

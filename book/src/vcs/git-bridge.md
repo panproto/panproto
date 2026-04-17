@@ -38,6 +38,4 @@ Schema-level merges. A three-way merge that succeeds as a pushout in the panprot
 
 The common mitigation is to encode the panproto-vcs merge as a pair of sequential commits in the exported git history: the left branch is merged first, producing an intermediate byte-level state; the right branch is merged against that intermediate state. This gives git a clean byte-level history even when the panproto-vcs merge operated at the schema level. The exporter does this automatically through a flag on [`panproto_git::export`](https://docs.rs/panproto-git/latest/panproto_git/).
 
-## Closing
-
 Part V ends with this chapter. Part VI turns to the operational layer: the [WebAssembly boundary](../sdks/wasm-boundary.md) through which every non-Rust client interacts with panproto, the [Rust SDK](../sdks/rust.md), the [TypeScript SDK](../sdks/typescript.md), the [Python SDK](../sdks/python.md), and the [CLI](../sdks/cli.md).

@@ -4,7 +4,7 @@ Every migration in panproto, as developed in [Theory morphisms and instance migr
 
 The language is a typed lambda calculus extended with records, lists, pattern matching, and around fifty builtin operations on strings, numbers, collections, and panproto schemas. It is pure, total, and serializable. The surface syntax is Haskell-flavoured: field access, record literals, list comprehensions, and composition all read like Haskell. A reader comfortable with the [Haskell presentations](../foundations/categories.md) of the foundations chapters is already fluent in most of what this chapter defines.
 
-The chapter proceeds in three passes. A grammar in [Backus–Naur form](https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form) comes first, with annotations for the constructs a reader may not recognise. An operational semantics follows, as a small-step reduction relation in the style of @plotkin1975call and @pierce2002types. The language's surface design belongs to the [ISWIM](https://en.wikipedia.org/wiki/ISWIM) family traced to @landin1966next; its type system belongs to the polymorphic lineage of @girard1972interpretation, via the principal-type-scheme theorem of @hindley1969principal and the Hindley-Milner fragment @milner1978theory and @damasmilner1982principal give a type-inference algorithm for. The chapter closes with a catalogue of the builtins and what each evaluates to.
+A grammar in [Backus–Naur form](https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form) comes first, with annotations for the constructs a reader may not recognise. An operational semantics follows, as a small-step reduction relation in the style of @plotkin1975call and @pierce2002types. The language's surface design belongs to the [ISWIM](https://en.wikipedia.org/wiki/ISWIM) family traced to @landin1966next; its type system belongs to the polymorphic lineage of @girard1972interpretation, via the principal-type-scheme theorem of @hindley1969principal and the Hindley-Milner fragment @milner1978theory and @damasmilner1982principal give a type-inference algorithm for. The chapter closes with a catalogue of the builtins and what each evaluates to.
 
 ## Grammar
 
@@ -27,9 +27,9 @@ e ::= x                            -- variable
 
 *Listing 5.1: The grammar of [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/). The surface syntax accepted by the parser in [`panproto-expr-parser`](https://docs.rs/panproto-expr-parser/latest/panproto_expr_parser/) adds syntactic sugar for common patterns, but every sugared form desugars into one of the term forms above.*
 
-The grammar is small and familiar. A variable is an identifier, a literal is a number (signed 64-bit integer or 64-bit float) or a UTF-8 string or a boolean, and a lambda abstraction `\x -> e` is the standard anonymous-function notation whose application substitutes the argument for the bound variable. Let bindings introduce named sub-expressions; record literals use field labels and are accessed by dotted-name syntax; list literals use square brackets with elements separated by commas. A list comprehension `[e1 | x <- e2]` reads "the list of `e1` for each `x` drawn from `e2`", and extends in the usual way to multiple generators and filters.
+The only term forms that warrant comment are the record and list notations and the pattern language. Record literals write field labels as `{ l = e }` and read them back with a dotted projection `e.l`. A list comprehension `[e1 | x <- e2]` denotes the list obtained by evaluating `e1` for each `x` drawn from `e2`, and extends to multiple generators and filters in the usual way. Numeric literals parse as signed 64-bit integers when they have no fractional part and as 64-bit floats otherwise; string literals are UTF-8.
 
-A pattern match deconstructs a value by cases. The pattern language supports variable patterns (which always match and bind), wildcard patterns (`_`, which match and do not bind), literal patterns (which match the corresponding value), record patterns (which match records with specified fields), and list patterns of the form `[x1, ..., xn]` or `x : xs` (which match lists of the corresponding shape). The pattern syntax is inherited from Haskell, restricted to the panproto types.
+Pattern matching inherits its syntax from Haskell, restricted to the panproto types: a pattern is a variable (matches anything and binds it), a wildcard `_` (matches anything without binding), a literal (matches the corresponding value), a record pattern (matches records with the named fields), or a list pattern of the form `[x1, ..., xn]` or `x : xs`.
 
 The grammar is the concrete syntax parsed by [`panproto_expr_parser`](https://docs.rs/panproto-expr-parser/latest/panproto_expr_parser/). The abstract-syntax representation, used everywhere else in the engine, is the [`Expr`](https://docs.rs/panproto-expr/latest/panproto_expr/expr/enum.Expr.html) enum in [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/).
 
@@ -47,7 +47,7 @@ T ::= Int | Float | String | Bool       -- base types
 
 *Listing 5.2: The type language. The two panproto-native types `Schema P` and `Instance P` are indexed by the protocol they belong to.*
 
-Type-checking is implemented in [`panproto_expr::typecheck`](https://docs.rs/panproto-expr/latest/panproto_expr/typecheck/). The rules follow a standard bidirectional-style elaboration in the Hindley-Milner lineage [@milner1978theory; @damasmilner1982principal]; checking modes propagate an expected type inward, while synthesis modes infer a type from the term's shape and push it outward. A comprehensive modern reference for the relevant typing and evaluation theory is @harper2016practical. Function types use standard rules of the simply typed lambda calculus; record types use row-polymorphism-free structural typing; list types are homogeneous. The panproto-native types are opaque inside the language (a program cannot inspect the internal structure of a `Schema` or an `Instance`) but are passed to builtins that know how to manipulate them.
+Type-checking is implemented in [`panproto_expr::typecheck`](https://docs.rs/panproto-expr/latest/panproto_expr/typecheck/). The rules follow a standard bidirectional-style elaboration in the Hindley-Milner lineage [@milner1978theory; @damasmilner1982principal]; checking modes propagate an expected type inward, while synthesis modes infer a type from the term's shape and push it outward. A comprehensive modern reference for the relevant typing and evaluation theory is @harper2016practical. Function types follow the standard rules of the simply typed lambda calculus. Records are structurally typed without row polymorphism, and lists are homogeneous. The panproto-native types are opaque inside the language (a program cannot inspect the internal structure of a `Schema` or an `Instance`) but are passed to builtins that know how to manipulate them.
 
 Every well-typed term has a principal type the checker produces. A term that fails to check carries an error message naming the subterm at fault; the error messages are produced by the diagnostics infrastructure in [`panproto_expr::error`](https://docs.rs/panproto-expr/latest/panproto_expr/error/).
 
@@ -63,21 +63,29 @@ Record projection:
 $$\{ \ldots, l = v, \ldots \}.l \;\longrightarrow\; v.$$
 Pattern-match reduction reduces to the body of the first clause whose pattern matches the scrutinee, with the pattern's bound variables substituted as described above.
 
-Reduction of a builtin applied to values is the builtin's specification: `add` on two integers is their sum, `concat` on two strings is their concatenation, `fieldAccess` on an instance and a field-name is the corresponding field value. Each builtin has a reduction rule in [`panproto_expr::builtin`](https://docs.rs/panproto-expr/latest/panproto_expr/builtin/).
+Reduction of a builtin applied to values is whatever the builtin's specification says: `add` on two integers returns their sum, and the same pattern applies to every other arithmetic, string, list, and instance-level operation. Each builtin has a reduction rule in [`panproto_expr::builtin`](https://docs.rs/panproto-expr/latest/panproto_expr/builtin/).
 
 Reduction is deterministic. The evaluation order is left-to-right and outermost-first, and every term has at most one reduction step available. Running the evaluator on a closed term produces a unique trace of reductions, which ends at either a value (success) or a bounded-resource failure (see the [Totality chapter](./totality.md)).
 
 ## Builtins
 
-The language ships around fifty builtins. They fall into four groups.
+The language ships around fifty builtins in four groups.
 
-**Arithmetic and comparison.** `add`, `sub`, `mul`, `div`, `mod`, `neg`, `abs`, `min`, `max`, `eq`, `lt`, `leq`, `gt`, `geq`. Each has the standard mathematical meaning on `Int` and `Float` operands. Division and modulus on integers follow the Rust standard-library convention (truncation toward zero).
+### Arithmetic and comparison
 
-**String operations.** `concat`, `length` (on strings), `toLower`, `toUpper`, `trim`, `split`, `replace`, `startsWith`, `endsWith`, `contains`, `format`. All are UTF-8-aware and treat strings as sequences of Unicode scalar values.
+`add`, `sub`, `mul`, `div`, `mod`, `neg`, `abs`, `min`, `max`, `eq`, `lt`, `leq`, `gt`, `geq`. Each has the standard mathematical meaning on `Int` and `Float` operands. Division and modulus on integers follow the Rust standard-library convention (truncation toward zero).
 
-**List operations.** `map`, `filter`, `foldl`, `foldr`, `length` (on lists), `head`, `tail`, `reverse`, `sort`, `zip`, `unzip`, `concat` (on lists), `take`, `drop`. The combinators have their standard Haskell meanings, with the partiality of `head` and `tail` on empty lists treated as bounded-resource failures rather than exceptions.
+### String operations
 
-**Panproto-native operations.** `instanceOf` (tests whether an instance is of a given schema), `getField`, `setField`, `listSchemasUnder` (enumerates the schemas under a protocol), `applyMigration` (applies a compiled migration to an instance), `renameField`, `requireField`. These are what migrations and field transforms use to manipulate panproto values; they are documented individually in [`panproto_expr::builtin`](https://docs.rs/panproto-expr/latest/panproto_expr/builtin/) and in the expression-language skill.
+`concat`, `length` (on strings), `toLower`, `toUpper`, `trim`, `split`, `replace`, `startsWith`, `endsWith`, `contains`, `format`. All are UTF-8-aware and treat strings as sequences of Unicode scalar values.
+
+### List operations
+
+`map`, `filter`, `foldl`, `foldr`, `length` (on lists), `head`, `tail`, `reverse`, `sort`, `zip`, `unzip`, `concat` (on lists), `take`, `drop`. The combinators have their standard Haskell meanings; the partiality of `head` and `tail` on empty lists is treated as a bounded-resource failure rather than an exception.
+
+### Panproto-native operations
+
+`instanceOf` (tests whether an instance is of a given schema), `getField`, `setField`, `listSchemasUnder` (enumerates the schemas under a protocol), `applyMigration` (applies a compiled migration to an instance), `renameField`, `requireField`. These are what migrations and field transforms use to manipulate panproto values; they are documented individually in [`panproto_expr::builtin`](https://docs.rs/panproto-expr/latest/panproto_expr/builtin/) and in the expression-language skill.
 
 Every builtin is total on well-typed inputs, modulo the bounded-resource failures covered in the next chapter. A builtin that would otherwise fail on bad input fails at the type-check stage with a diagnostic identifying the specific argument.
 

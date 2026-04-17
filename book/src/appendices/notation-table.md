@@ -59,7 +59,7 @@ A lookup for the non-standard symbols and typographic conventions used in the bo
 
 ## Typographic conventions
 
-Inline code and type names appear in monospace: `SchemaBuilder`, `panproto-mig`, `compile`. Italicised terms are definitions being introduced: *category*, *protolens*, *complement*. Bold terms are concept labels the reader may want to scan for: **Associativity**, **Identity**.
+Inline code and type names appear in monospace: `SchemaBuilder`, `panproto-mig`, `compile`. Italicised terms (*category*, *protolens*, *complement*) mark a definition being introduced on first appearance, and bold terms (**Associativity**, **Identity**) are concept labels the reader may want to scan for.
 
 Every first mention of an external tool or library is a hyperlink to its canonical home page: [Haskell](https://www.haskell.org/), [Rust](https://www.rust-lang.org/), [tree-sitter](https://tree-sitter.github.io/tree-sitter/). Every first mention of a panproto module, type, or function is a hyperlink to the corresponding [docs.rs](https://docs.rs/) page. Later mentions in the same chapter appear as plain prose.
 

@@ -50,6 +50,4 @@ The DAG of commits (connected by parent edges) mirrors git's structure exactly. 
 
 What differs is the DAG of *schemas*. Every commit references the schemas its working tree depends on, and every schema object references its protocol (and, for schemas produced by migration, the source schema the migration was applied from). The schema-DAG is therefore a parallel structure to the commit-DAG, with its own topological operations. A three-way merge, the subject of [the next chapter](./merge-as-pushout.md), operates on both DAGs simultaneously, with the commit-level merge choosing the common-ancestor commit and the schema-level merge computing the pushout in the category of schemas.
 
-## Closing
-
 The next chapter, [Merge as pushout](./merge-as-pushout.md), takes the three-way-merge algorithm apart and shows that it is a pushout in the category of schemas ([Colimits and pushouts](../foundations/colimits.md) is the mathematical reference). The chapter after that, [Data versioning](./data-versioning.md), works through how panproto-vcs automatically infers migrations from schema diffs and lifts instance data across version boundaries.

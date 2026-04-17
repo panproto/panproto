@@ -1,6 +1,6 @@
 # The TypeScript SDK
 
-The TypeScript SDK, published on npm as [`@panproto/core`](https://www.npmjs.com/package/@panproto/core), is the library [TypeScript](https://www.typescriptlang.org/) and JavaScript callers use to reach panproto. Under the hood it wraps the [WebAssembly](https://webassembly.org/) module developed in [the WASM boundary chapter](./wasm-boundary.md) in a typed, ergonomic API. This chapter walks through the wrapping.
+The TypeScript SDK, published on npm as [`@panproto/core`](https://www.npmjs.com/package/@panproto/core), is the library [TypeScript](https://www.typescriptlang.org/) and JavaScript callers use to reach panproto. It wraps the [WebAssembly](https://webassembly.org/) module developed in [the WASM boundary chapter](./wasm-boundary.md) in a typed, ergonomic API. This chapter walks through the wrapping.
 
 The source is in `sdk/typescript/` in the panproto repository and follows the pnpm-workspace conventions documented in the `ts-sdk` skill.
 
@@ -42,7 +42,7 @@ Every SDK class registers its handle with the registry on construction. When the
 
 ## The fluent builder
 
-Schema and migration construction from raw primitives would require many WASM round-trips (one per sort, one per operation, one per equation). The SDK offers a fluent builder for these construction cases that accumulates the full declaration in TypeScript and sends it to the module as a single MessagePack-encoded payload.
+Schema and migration construction from raw primitives would require many WASM round-trips (one per sort, one per operation, one per equation). The SDK has a fluent builder for these construction cases that accumulates the full declaration in TypeScript and sends it to the module as a single MessagePack-encoded payload.
 
 ```typescript
 const schema = await Schema.builder(protocol)

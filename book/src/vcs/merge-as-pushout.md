@@ -38,6 +38,4 @@ Panproto-vcs's merge operates on schemas. When the same scenario arises, the dev
 
 The generalisation is that schema merges are closer to the actual operation the developer is performing than line merges are. Line merges are the limit of schema merges when the schema is "arbitrary bytes"; in every case where the content has more structure, operating at the structure's level produces a more actionable merge diagnostic.
 
-## Closing
-
 The next chapter, [Data versioning](./data-versioning.md), works through the counterpart on the data side: how panproto-vcs automatically infers a migration between two schema versions without an explicit migration declaration, and how the inferred migration interacts with the lift operations described above.

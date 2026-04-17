@@ -1,6 +1,6 @@
 # A note on notation
 
-This chapter documents the conventions the book uses for citations, code, mathematics, cross-references, and figures. Readers comfortable with academic technical writing will find few surprises; the chapter exists so that a reader who is uncertain what a particular glyph or link type is meant to do can look it up here rather than in the chapter where the glyph first appears.
+The book uses a small set of conventions for citations, code, mathematics, cross-references, and figures. This chapter collects them in one place for reference.
 
 ## Citations
 
@@ -10,7 +10,7 @@ Every academic source the book names carries an inline citation in Chicago autho
 - `[@key]` produces a parenthetical citation ("(Mac Lane 1998)") and is used when the citation follows a claim.
 - `[-@key]` produces a year-only citation ("(1998)") and is used after a name already appears in the sentence.
 
-Multiple citations combine inside a single bracket: `[@key1; @key2]`. The complete bibliography appears at the end of the book, with full metadata and links. Every entry has been read before being cited.
+Multiple citations combine inside a single bracket: `[@key1; @key2]`. The complete bibliography appears at the end of the book, with full metadata and links.
 
 ## Cross-references
 
@@ -42,6 +42,4 @@ The book assumes the reader can program. It does not assume a specific language 
 
 A reader who wants a warm-up in category theory before the foundations chapters begin may skim the first few posts of Bartosz Milewski's [Category Theory for Programmers](https://bartoszmilewski.com/2014/10/28/category-theory-for-programmers-the-preface/), from which several of the book's pedagogical conventions are adapted.
 
-## Closing
-
-[What panproto is](./what-panproto-is.md), the next chapter, frames panproto against the tools a working developer is likely to have used already and is the chapter to read before [Categories](../foundations/categories.md).
+The next chapter, [What panproto is](./what-panproto-is.md), positions panproto against the tools a working developer has likely already used; [Categories](../foundations/categories.md) then opens the mathematical development.

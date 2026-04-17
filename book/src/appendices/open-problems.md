@@ -1,14 +1,14 @@
 # Open problems
 
-An honest list of questions where panproto's implementation and the book's mathematical account are not yet in full agreement, or where the authors do not know of prior work on a topic panproto addresses. Each entry names the question, the current state, and what would count as progress.
+A list of questions where panproto's implementation and the book's mathematical account are not yet in full agreement, or where we do not know of prior work on a topic panproto addresses. Each entry names the question, the current state, and what would count as progress.
 
-## Where the software is ahead of the theory
+## Where we don't know of prior work
 
 ### Protolenses as a first-class abstraction
 
 Panproto's protolens construction, developed in [Protolenses](../core/protolenses.md), is a schema-indexed lens family
 $$\mathcal{P} : \Pi(S : \mathrm{Schema}).\, \mathrm{Lens}(F(S), G(S))$$
-that admits auto-generation, symbolic simplification, and an explicit cost model. The authors are not aware of a published treatment of this exact construction. The closest analogues (profunctor optics, indexed lenses in the sense of Pacheco, Cunha, and Hu) differ in the indexing structure.
+that admits auto-generation, symbolic simplification, and an explicit cost model. We are not aware of a published treatment of this exact construction. The closest analogues (profunctor optics, indexed lenses in the sense of Pacheco, Cunha, and Hu) differ in the indexing structure.
 
 Progress would be a writeup placing protolenses in the optics literature, either as a known construction under another name or as a genuine novelty. A contribution from a reader familiar with recent optics work would be welcome.
 
@@ -32,9 +32,9 @@ The symmetric-lens laws of Hofmann, Pierce, and Wagner are known and well-charac
 
 Spivak's functorial data migration framework, which [Theory morphisms and instance migration](../core/morphisms-and-migration.md) cites, is presented primarily in the setting of Lawvere theories. Panproto generalises to GATs, which add dependent sorts. The two pushforward functors $\Sigma_f$ and $\Pi_f$ behave as expected on the dependent-sort-free fragment. On the full GAT fragment, the behaviour of $\Pi_f$ in particular becomes more subtle; the current implementation handles the cases we have encountered without a full-generality treatment.
 
-A full generalisation of Spivak's framework to GATs, possibly drawing on Fiore-Plotkin-Turi's algebraic theories with binding, would close the gap. The authors suspect this is a tractable research question and would welcome a contribution.
+A full generalisation of Spivak's framework to GATs, possibly drawing on Fiore-Plotkin-Turi's algebraic theories with binding, would close the gap. We suspect this is a tractable research question and would welcome a contribution.
 
-## Where prior work may exist and the authors do not know it
+## Where prior work may exist and we do not know it
 
 ### Schema-version merge as pushout
 
@@ -48,7 +48,7 @@ The identification of a tree-sitter grammar's `node-types.json` metadata with a 
 
 ## Operational open problems
 
-These are not theoretical gaps but operational limitations we hope to close with engineering work.
+These are operational limitations rather than theoretical gaps, and we hope to close them with engineering work.
 
 ### Stored-config remote management
 

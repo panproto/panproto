@@ -2,11 +2,11 @@
 
 This chapter introduces *algebraic theories* in the sense of Lawvere and *generalised algebraic theories* in the sense of Cartmell. A generalised algebraic theory, or GAT, is the language in which panproto writes down what a protocol is. A schema is a model of the GAT associated with its protocol; a migration is a morphism of models. The equations connecting schemas, migrations, and protocols to the mathematics of Part I are stated here and carried forward into every chapter of Part II.
 
-The chapter opens with ordinary algebraic theories in the style of Lawvere, whose data are sorts, operations, and equations. It then extends to generalised algebraic theories, which add dependent sorts and are the form panproto actually uses. The final sections define models and their morphisms and state the equations that tie panproto's implementation to the mathematical framework. The chapter builds on Chapters 2 through 4; categories, functors and natural transformations, and colimits are assumed.
+The chapter opens with ordinary algebraic theories in the style of Lawvere, whose data are sorts, operations, and equations. It then extends to generalised algebraic theories, which add dependent sorts and are the form panproto actually uses. The final sections define models and their morphisms and state the equations that tie panproto's implementation to the mathematical framework. The chapter builds on the foundations developed so far: categories, functors and natural transformations, and colimits are assumed.
 
 ## Algebraic theories
 
-An **algebraic theory** in the sense of @lawvere1963functorial specifies a kind of mathematical structure by listing its sorts, its operations, and the equations those operations satisfy. Groups, rings, and vector spaces are all given by algebraic theories; so is the theory of a single binary operation, the theory of a monoid, and the theory of a lattice.
+An **algebraic theory** in the sense of @lawvere1963functorial specifies a kind of mathematical structure by listing its sorts, its operations, and the equations those operations satisfy. Groups, rings, and vector spaces are all given by algebraic theories, as are simpler structures like monoids, semigroups, and lattices.
 
 The data of an algebraic theory $T$ are, concretely, a finite list of **sorts** $s_1, \ldots, s_n$ (names for the kinds of element the theory speaks about), a collection of **operation symbols** (each with a declared arity $(s_{i_1}, \ldots, s_{i_k}) \to s_j$ formally naming a $k$-ary operation from arguments of sorts $s_{i_1}, \ldots, s_{i_k}$ to a value of sort $s_j$), and a collection of **equations** between terms built from the operation symbols and variables (the axioms the theory imposes). The theory of groups has one sort, the carrier; the theory of a module over a ring has two, the ring and the abelian group.
 
@@ -46,13 +46,13 @@ A **schema** under a protocol $P$ is a model of the GAT corresponding to $P$. Th
 
 A **migration** from a schema $S_1$ to a schema $S_2$ (both under the same protocol $P$) is a morphism of models $S_1 \to S_2$ in $\mathrm{Mod}(P)$. The Rust representation is in `crates/panproto-mig/src/{migration,lift,compose}.rs`.
 
-The three chapters of Part II unpack this equation: Chapter 6 takes the protocol-as-GAT identification apart, Chapter 7 takes the migration-as-morphism-of-models identification apart, and Chapter 8 says what it means for the lift functor from morphisms of models to functions on instances to have the properties a migration engine needs.
+Part II unpacks this equation. One chapter takes the protocol-as-GAT identification apart, another takes the migration-as-morphism-of-models identification apart, and a third says what it means for the lift functor from morphisms of models to functions on instances to have the properties a migration engine needs.
 
 ### Why this definition and not another
 
 Many schema languages in wide use ([JSON Schema](https://json-schema.org/) [@jsonschema2020], [Avro](https://avro.apache.org/) [@avrospec], [Protobuf](https://protobuf.dev/) [@protobuf], [GraphQL](https://spec.graphql.org/) [@graphqlspec], [OpenAPI](https://spec.openapis.org/) [@openapi]) present themselves without a single overarching framework. Each has its own constructs, its own resolution rules for version changes, and its own notion of compatibility. Panproto's identification of a protocol with a generalised algebraic theory is a strong claim: the GAT formalism must be expressive enough to cover every protocol panproto supports and restrictive enough to admit the constructions Part II relies on (pushouts in the category of schemas, lifting of instances along morphisms, lenses between schema-indexed families).
 
-The claim is not obvious. Cartmell 1986 establishes the framework and shows that first-order signatures with equational axioms embed in it, but does not extend to the full variety of real-world schema languages. The broader algebraic-specification tradition that GATs sit inside is given book-length treatment in @sannella2012foundations. Chapter 12 of this book reports how each of panproto's supported protocols is represented as a GAT and names the places where the fit is exact and the places where panproto accepts looseness.
+The claim is not obvious. Cartmell 1986 establishes the framework and shows that first-order signatures with equational axioms embed in it, but does not extend to the full variety of real-world schema languages. The broader algebraic-specification tradition that GATs sit inside is given book-length treatment in @sannella2012foundations. A later chapter of this book reports how each of panproto's supported protocols is represented as a GAT and names the places where the fit is exact and the places where panproto accepts looseness.
 
 ## Closing
 
