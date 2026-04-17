@@ -4,15 +4,15 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
-
-- **book**: Expanded all 28 narrative chapters to roughly twice the prior word count, applying a calibration style derived from a close reading of *The Rust Programming Language* and Milewski's *Category Theory for Programmers*: Milewski-style openers with stakes and difficulty flags, Rust-Book middle-and-end discipline (running examples that grow across chapters, captioned numbered listings, titled-link forward references), anticipated reader objections, named-and-retired analogies, short opener / longer middle / short closer. Part I foundations and Part II core-constructions chapters carry a running address-record example ($S_0$, $S_1$, $S_2$) threaded through categories, functors, universal properties, colimits, GATs, the instance functor, the restrict/lift pipeline, lenses, protolenses, and protocol colimits. Every "Further reading" section audited against primary sources; corrections applied for Awodey / Riehl / Mac Lane / Leinster chapter numbers and the Foster 2007 TOPLAS attribution (previously mis-labelled as the Boomerang paper). No exercises or Challenges sections: the register is a monograph, not a textbook.
-
 ## [0.34.1] - 2026-04-17
 
 ### Fixed
 
 - **panproto-lens**: `asymmetric::put` dropped user edits to the view when the forward lens had `field_transforms` on the affected anchor. The pre-`get` snapshot of `extra_fields` (captured to preserve data lost by non-invertible transforms) was restored wholesale over the view, which clobbered any edits the user made between `get` and `put` — including the renamed field in a `RenameField` chain. The snapshot is now layered under the view: surviving fields are taken from the view and propagated back through the inverse of each forward transform (`RenameField` moves the view value to the old key, `ApplyExpr`/`ComputeField` inverses evaluate against the view value, `AddField` keys are scrubbed), while fields the forward pass dropped with no inverse still come from the snapshot. Resolves panproto/panproto#40.
+
+### Changed
+
+- **book**: Expanded all 28 narrative chapters to roughly twice the prior word count, applying a calibration style derived from a close reading of *The Rust Programming Language* and Milewski's *Category Theory for Programmers*: Milewski-style openers with stakes and difficulty flags, Rust-Book middle-and-end discipline (running examples that grow across chapters, captioned numbered listings, titled-link forward references), anticipated reader objections, named-and-retired analogies, short opener / longer middle / short closer. Part I foundations and Part II core-constructions chapters carry a running address-record example ($S_0$, $S_1$, $S_2$) threaded through categories, functors, universal properties, colimits, GATs, the instance functor, the restrict/lift pipeline, lenses, protolenses, and protocol colimits. Every "Further reading" section audited against primary sources; corrections applied for Awodey / Riehl / Mac Lane / Leinster chapter numbers and the Foster 2007 TOPLAS attribution (previously mis-labelled as the Boomerang paper). No exercises or Challenges sections: the register is a monograph, not a textbook.
 
 ## [0.34.0] - 2026-04-17
 
