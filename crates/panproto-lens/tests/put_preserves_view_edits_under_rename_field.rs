@@ -1,13 +1,10 @@
-//! Regression test for issue #40: `rename_field` lens scrambles field
-//! assignments during `put` (backward evaluation).
-//!
-//! Scenario: a flat user record whose fields live on the record node
-//! itself as `extra_fields` (no per-field schema vertices). The forward
-//! lens renames `name -> displayName`. The user edits the view's
+//! A flat user record's fields live on the record node itself as
+//! `extra_fields` (no per-field schema vertices). The forward lens
+//! renames `name -> displayName`. The user edits the view's
 //! `displayName` to a new value and calls `put`. The restored source
-//! should have the user's edit propagated back to `name`, with the
-//! other three original fields intact. Under v0.33.0/v0.34.0, the
-//! current put path clobbers the view's edit with the pre-get snapshot.
+//! must carry the edit back to `name` with the other three original
+//! fields intact. A prior put path clobbered the view's edit with the
+//! pre-get snapshot whenever the anchor had any field_transforms.
 
 #![allow(
     clippy::unwrap_used,
@@ -40,7 +37,7 @@ fn generic_protocol() -> Protocol {
 }
 
 #[test]
-fn issue_40_rename_field_put_preserves_edit_on_record_extra_fields() {
+fn put_preserves_view_edit_on_renamed_record_field() {
     use panproto_gat::Name;
     use panproto_inst::{CompiledMigration, FieldTransform};
     use std::collections::{HashMap, HashSet};
