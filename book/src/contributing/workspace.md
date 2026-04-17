@@ -16,7 +16,7 @@ The protocols-and-auxiliary layer is the widest. [`panproto-protocols`](https://
 
 The SDK bindings layer is what non-Rust callers touch. The WASM boundary is in [`panproto-wasm`](https://docs.rs/panproto-wasm/latest/panproto_wasm/), and the Python PyO3 native binding is in [`panproto-py`](https://docs.rs/panproto-py/latest/panproto_py/).
 
-The experimental layer is feature-gated and subject to change. It contains the git bridge in [`panproto-git`](https://docs.rs/panproto-git/latest/panproto_git/) (covered in [The git bridge](../vcs/git-bridge.md)), the LLVM IR protocol and lowering in [`panproto-llvm`](https://docs.rs/panproto-llvm/latest/panproto_llvm/), the expression JIT compiler in [`panproto-jit`](https://docs.rs/panproto-jit/latest/panproto_jit/), and the XRPC-based remote-repository client in [`panproto-xrpc`](https://docs.rs/panproto-xrpc/latest/panproto_xrpc/). The stand-alone [`git-remote-cospan`](https://docs.rs/git-remote-cospan/latest/git_remote_cospan/) binary is also in this layer.
+The experimental layer is feature-gated and subject to change. It contains the git bridge in [`panproto-git`](https://docs.rs/panproto-git/latest/panproto_git/) (covered in [The git bridge](../vcs/git-bridge.md)), the LLVM IR protocol and lowering in [`panproto-llvm`](https://docs.rs/panproto-llvm/latest/panproto_llvm/), the expression JIT compiler in [`panproto-jit`](https://docs.rs/panproto-jit/latest/panproto_jit/), and the XRPC-based remote-repository client in [`panproto-xrpc`](https://docs.rs/panproto-xrpc/latest/panproto_xrpc/). The stand-alone [`panproto-git-remote`](https://docs.rs/panproto-git-remote/latest/panproto_git_remote/) binary (installed as `git-remote-panproto`) is also in this layer.
 
 ## The dependency graph
 

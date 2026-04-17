@@ -674,22 +674,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
-name = "git-remote-cospan"
-version = "0.33.0"
-dependencies = [
- "git2",
- "miette",
- "panproto-git",
- "panproto-protocols",
- "panproto-schema",
- "panproto-vcs",
- "panproto-xrpc",
- "rustc-hash",
- "tempfile",
- "tokio",
-]
-
-[[package]]
 name = "git2"
 version = "0.20.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1803,6 +1787,22 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "panproto-git-remote"
+version = "0.33.0"
+dependencies = [
+ "git2",
+ "miette",
+ "panproto-git",
+ "panproto-protocols",
+ "panproto-schema",
+ "panproto-vcs",
+ "panproto-xrpc",
+ "rustc-hash",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

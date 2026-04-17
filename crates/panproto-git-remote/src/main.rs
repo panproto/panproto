@@ -1,9 +1,9 @@
 #![allow(clippy::future_not_send)]
-//! Git remote helper for `cospan://` URLs.
+//! Git remote helper for `panproto://` URLs.
 //!
-//! Git calls this binary as `git-remote-cospan` when encountering a remote URL
-//! starting with `cospan://`. Communication happens via stdin/stdout using the
-//! git remote-helper protocol.
+//! Git calls this binary as `git-remote-panproto` when encountering a remote URL
+//! starting with `panproto://` (or the legacy `cospan://` alias). Communication
+//! happens via stdin/stdout using the git remote-helper protocol.
 //!
 //! ## Protocol
 //!
@@ -19,9 +19,9 @@
 //! ## Usage
 //!
 //! ```sh
-//! git clone cospan://did:plc:abc123/my-repo
-//! git push cospan main
-//! git pull cospan main
+//! git clone panproto://did:plc:abc123/my-repo
+//! git push panproto main
+//! git pull panproto main
 //! ```
 
 use std::io::{self, BufRead, Write};
@@ -98,9 +98,9 @@ impl RemoteClient for NodeClient {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    // Git calls: git-remote-cospan <remote-name> <url>
+    // Git calls: git-remote-panproto <remote-name> <url>
     if args.len() < 3 {
-        eprintln!("usage: git-remote-cospan <remote> <url>");
+        eprintln!("usage: git-remote-panproto <remote> <url>");
         std::process::exit(1);
     }
 
@@ -114,8 +114,13 @@ fn main() {
         }
     };
 
-    // Apply auth token from environment.
-    let client = match std::env::var("COSPAN_TOKEN") {
+    // Apply auth token from environment. Prefer PANPROTO_PUSH_TOKEN /
+    // PANPROTO_TOKEN; fall back to the legacy COSPAN_* names.
+    let token = std::env::var("PANPROTO_PUSH_TOKEN")
+        .or_else(|_| std::env::var("PANPROTO_TOKEN"))
+        .or_else(|_| std::env::var("COSPAN_PUSH_TOKEN"))
+        .or_else(|_| std::env::var("COSPAN_TOKEN"));
+    let client = match token {
         Ok(token) => client.with_token(&token),
         Err(_) => client,
     };
@@ -138,8 +143,20 @@ fn main() {
     // Per-remote persistent cache. Holds a panproto-vcs FsStore with the
     // imported objects plus a git↔panproto marks file. Enables incremental
     // imports across pushes: on every `git push`, only new commits are
-    // translated into panproto objects.
-    let cache_dir = Path::new(&git_dir).join("cospan-cache").join(remote_name);
+    // translated into panproto objects. Stored under
+    // `panproto-cache/<remote>/`; falls back to the legacy `cospan-cache/`
+    // directory if one already exists, to avoid forcing a re-import.
+    let panproto_cache = Path::new(&git_dir)
+        .join("panproto-cache")
+        .join(remote_name);
+    let legacy_cache = Path::new(&git_dir).join("cospan-cache").join(remote_name);
+    let cache_dir = if !panproto_cache.join(".panproto").is_dir()
+        && legacy_cache.join(".panproto").is_dir()
+    {
+        legacy_cache
+    } else {
+        panproto_cache
+    };
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -210,7 +227,7 @@ fn main() {
                     let _ = writeln!(out, "ok {dst}");
                 }
                 Err(e) => {
-                    eprintln!("git-remote-cospan: push {dst} failed: {e}");
+                    eprintln!("git-remote-panproto: push {dst} failed: {e}");
                     let _ = writeln!(out, "error {dst} {e}");
                 }
             }
@@ -218,7 +235,7 @@ fn main() {
         }
 
         // Unknown command.
-        eprintln!("git-remote-cospan: unknown command: {line}");
+        eprintln!("git-remote-panproto: unknown command: {line}");
     }
 }
 
@@ -271,12 +288,12 @@ async fn cmd_fetch<C: RemoteClient>(
     let report = fetch_export_stage(&store, git_repo, cache_dir, ref_name)?;
     if report.commits_exported > 0 {
         eprintln!(
-            "git-remote-cospan: fetched {}/{} new commits for {ref_name}",
+            "git-remote-panproto: fetched {}/{} new commits for {ref_name}",
             report.commits_exported, report.commits_walked
         );
     }
     if let Some(oid) = report.tip_git_oid {
-        eprintln!("git-remote-cospan: {ref_name} tip = {oid}");
+        eprintln!("git-remote-panproto: {ref_name} tip = {oid}");
     }
 
     Ok(())
@@ -471,7 +488,7 @@ fn topo_walk_from<S: Store>(
 ///
 /// Reads the git commit for the source ref from the local git repo,
 /// incrementally imports any new commits into a persistent panproto cache
-/// (under `$GIT_DIR/cospan-cache/<remote>/`), and pushes the resulting
+/// (under `$GIT_DIR/panproto-cache/<remote>/`), and pushes the resulting
 /// objects to the remote node. The cache persists across invocations so
 /// that subsequent pushes only translate the commits that are actually new
 /// since the previous push.
@@ -494,7 +511,7 @@ async fn cmd_push<C: RemoteClient>(
     let report = push_import_stage(&mut store, git_repo, cache_dir, src, dst)?;
     if report.new_commits > 0 {
         eprintln!(
-            "git-remote-cospan: imported {} new commits ({} total)",
+            "git-remote-panproto: imported {} new commits ({} total)",
             report.new_commits, report.total_commits
         );
     }

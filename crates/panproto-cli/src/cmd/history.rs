@@ -315,21 +315,25 @@ use panproto_xrpc::NodeClient;
 
 pub fn cmd_remote(_action: RemoteAction) -> Result<()> {
     // Remote management (add/remove/list) stores URL mappings in .panproto/config.
-    // For Phase 0, remotes are specified directly via cospan:// URLs.
+    // For Phase 0, remotes are specified directly via panproto:// URLs.
     miette::bail!(
-        "remote add/remove/list not yet implemented. Use cospan:// URLs directly with push/pull."
+        "remote add/remove/list not yet implemented. Use panproto:// URLs directly with push/pull."
     )
 }
 
 pub fn cmd_push(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
     let url =
-        remote.ok_or_else(|| miette::miette!("remote URL required (e.g. cospan://did/repo)"))?;
+        remote.ok_or_else(|| miette::miette!("remote URL required (e.g. panproto://did/repo)"))?;
     let client = NodeClient::from_url(url)
         .into_diagnostic()
         .wrap_err("invalid remote URL")?;
 
-    // Apply auth from environment.
-    let client = match std::env::var("COSPAN_TOKEN") {
+    // Apply auth from environment. Prefer PANPROTO_* names; fall back to legacy COSPAN_*.
+    let token = std::env::var("PANPROTO_PUSH_TOKEN")
+        .or_else(|_| std::env::var("PANPROTO_TOKEN"))
+        .or_else(|_| std::env::var("COSPAN_PUSH_TOKEN"))
+        .or_else(|_| std::env::var("COSPAN_TOKEN"));
+    let client = match token {
         Ok(token) => client.with_token(&token),
         Err(_) => client,
     };
@@ -358,7 +362,7 @@ pub fn cmd_push(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
 
 pub fn cmd_pull(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
     let url =
-        remote.ok_or_else(|| miette::miette!("remote URL required (e.g. cospan://did/repo)"))?;
+        remote.ok_or_else(|| miette::miette!("remote URL required (e.g. panproto://did/repo)"))?;
     let client = NodeClient::from_url(url)
         .into_diagnostic()
         .wrap_err("invalid remote URL")?;

@@ -1,6 +1,6 @@
 # The git bridge
 
-Panproto-vcs repositories should interoperate with [git](https://git-scm.com/). A repository under active development may be pushed to a GitHub or GitLab remote that runs ordinary git, reviewed through git-aware tooling, and later pulled back into a panproto-vcs working copy without losing the schema-level history. This chapter covers the bridge that makes this possible: [`panproto-git`](https://docs.rs/panproto-git/latest/panproto_git/) for the bidirectional translation of repository state, and the [`git-remote-cospan`](https://docs.rs/git-remote-cospan/latest/git_remote_cospan/) helper that lets git itself speak to a panproto-vcs remote through the standard `git push` and `git fetch` commands.
+Panproto-vcs repositories should interoperate with [git](https://git-scm.com/). A repository under active development may be pushed to a GitHub or GitLab remote that runs ordinary git, reviewed through git-aware tooling, and later pulled back into a panproto-vcs working copy without losing the schema-level history. This chapter covers the bridge that makes this possible: [`panproto-git`](https://docs.rs/panproto-git/latest/panproto_git/) for the bidirectional translation of repository state, and the [`panproto-git-remote`](https://docs.rs/panproto-git-remote/latest/panproto_git_remote/) helper (installed as `git-remote-panproto`) that lets git itself speak to a panproto-vcs remote through the standard `git push` and `git fetch` commands.
 
 ## Two translations
 
@@ -18,11 +18,11 @@ The functor laws of [the Functors chapter](../foundations/functors.md) apply her
 
 ## The git remote helper
 
-[`git-remote-cospan`](https://docs.rs/git-remote-cospan/latest/git_remote_cospan/) is a git remote-helper binary. Git's remote-helper protocol lets third parties define new transports by shipping an executable named `git-remote-<scheme>` that speaks the helper protocol on its stdin and stdout. When the user runs `git push cospan::/path/to/panproto-vcs-repo main`, git invokes `git-remote-cospan` with the URL and the standard helper commands, and `git-remote-cospan` translates each command into the corresponding panproto-vcs operation through the crate's API.
+[`panproto-git-remote`](https://docs.rs/panproto-git-remote/latest/panproto_git_remote/) ships a git remote-helper binary called `git-remote-panproto`. Git's remote-helper protocol lets third parties define new transports by shipping an executable named `git-remote-<scheme>` that speaks the helper protocol on its stdin and stdout. When the user runs `git push panproto::/path/to/panproto-vcs-repo main`, git invokes `git-remote-panproto` with the URL and the standard helper commands, and `git-remote-panproto` translates each command into the corresponding panproto-vcs operation through the crate's API. The legacy `cospan::` scheme is still accepted as an alias.
 
-The result is that a panproto-vcs repository appears to git as an ordinary remote. `git push cospan::/path/to/repo main` sends the local `main` branch to the panproto-vcs repository, which runs the import translation on the branch's commits as they arrive. `git fetch cospan::/path/to/repo` retrieves panproto-vcs commits and makes them available as git refs, with the export translation running as commits cross the boundary.
+The result is that a panproto-vcs repository appears to git as an ordinary remote. `git push panproto::/path/to/repo main` sends the local `main` branch to the panproto-vcs repository, which runs the import translation on the branch's commits as they arrive. `git fetch panproto::/path/to/repo` retrieves panproto-vcs commits and makes them available as git refs, with the export translation running as commits cross the boundary.
 
-The helper binary is installed through `cargo install git-remote-cospan`. Once installed, git picks it up automatically for any URL of the form `cospan::...`.
+The helper binary is installed through `cargo install panproto-git-remote`. Once installed, git picks it up automatically for any URL of the form `panproto::...` (or `cospan::...`).
 
 ## What the bridge preserves
 

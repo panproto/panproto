@@ -876,16 +876,16 @@ fn cli_push_requires_url() {
 }
 
 #[test]
-fn cli_clone_requires_cospan_url() {
+fn cli_clone_requires_panproto_url() {
     let tmp = tempfile::tempdir().unwrap();
 
-    // clone with a non-cospan:// URL fails.
+    // clone with an unrecognized URL scheme fails; the error mentions panproto://.
     schema_cmd()
         .args(["clone", "https://example.com/repo"])
         .current_dir(tmp.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("cospan://"));
+        .stderr(predicate::str::contains("panproto://"));
 }
 
 // ===========================================================================

@@ -1,6 +1,6 @@
 [package]
-name = "git-remote-cospan"
-description = "Git remote helper for cospan:// URLs (enables git push/pull/clone via panproto)"
+name = "panproto-git-remote"
+description = "Git remote helper for panproto:// URLs (enables git push/pull/clone via panproto)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,7 @@ repository.workspace = true
 dist = true
 
 [[bin]]
-name = "git-remote-cospan"
+name = "git-remote-panproto"
 path = "src/main.rs"
 
 [dependencies]

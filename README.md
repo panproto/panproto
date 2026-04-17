@@ -211,7 +211,7 @@ schema expr repl
 | [`panproto-py`](crates/panproto-py) | Native Python bindings via PyO3. |
 | [`panproto-xrpc`](crates/panproto-xrpc) | XRPC client for pushing/pulling schemas to panproto node servers. |
 | [`panproto-cli`](crates/panproto-cli) | The `schema` command-line tool. |
-| [`git-remote-cospan`](crates/git-remote-cospan) | Git remote helper that makes `git push cospan://` work. |
+| [`panproto-git-remote`](crates/panproto-git-remote) | Git remote helper (`git-remote-panproto` binary) that makes `git push panproto://` work. |
 
 ## How it works
 
