@@ -768,8 +768,8 @@ mod tests {
 
     #[test]
     fn int_to_float_boundary_behaviour_at_i64_extremes() {
-        // Audit pass 8, concern 10: i64::MIN == -2^63 is itself a power
-        // of two, so its f64 encoding is exact (mantissa zero, exponent
+        // i64::MIN == -2^63 is itself a power of two, so its f64
+        // encoding is exact (mantissa zero, exponent
         // only), and FloatToInt recovers -2^63. `GetPut` holds.
         //
         // i64::MAX == 2^63 - 1 is NOT exactly representable in f64;
@@ -1217,8 +1217,8 @@ mod tests {
 
     #[test]
     fn bool_to_str_match_is_exhaustive_over_bool_carrier() {
-        // Audit pass 9, concern 4: `bool_to_str_witness` uses a `Match`
-        // with no wildcard. The `Bool` carrier has exactly two values
+        // `bool_to_str_witness` uses a `Match` with no wildcard. The
+        // `Bool` carrier has exactly two values
         // (`true` / `false`) so the match is exhaustive by construction;
         // no runtime value of the source carrier can escape it. The
         // inverse, however, matches only the two canonical strings and
@@ -1242,8 +1242,8 @@ mod tests {
 
     #[test]
     fn str_to_bool_forward_rejects_non_canonical_strings() {
-        // Audit pass 9, concern 5: the forward direction of
-        // `str_to_bool_witness` is a `Match` with no wildcard over
+        // The forward direction of `str_to_bool_witness` is a
+        // `Match` with no wildcard over
         // `{"true", "false"}`. Any other string must fail to evaluate.
         let w = str_to_bool_witness();
         // Canonical inputs round-trip.

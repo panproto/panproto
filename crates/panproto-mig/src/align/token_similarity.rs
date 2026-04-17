@@ -336,11 +336,10 @@ mod tests {
 
     #[test]
     fn char_ngram_cosine_punctuation_only_strings_are_not_identical() {
-        // Regression: previously two distinct strings that normalize to
-        // empty (stripping non-alphanumeric characters) would share the
-        // same padding-only gram multiset and score 1.0. They must now
-        // score 0.0 because their gram bags are empty and the strings
-        // differ.
+        // Two distinct strings that normalize to empty (stripping
+        // non-alphanumeric characters) have empty gram bags. They
+        // must score 0.0 (not 1.0 from sharing a padding-only gram
+        // multiset) because the strings differ.
         assert_eq!(char_ngram_cosine("!!!", "???", 2), 0.0);
         assert_eq!(char_ngram_cosine("!@#$", "%^&*", 2), 0.0);
         // Identical punctuation-only strings still compare equal via
@@ -550,11 +549,11 @@ mod tests {
 
     #[test]
     fn tokenize_splits_on_tab_and_newline() {
-        // Audit pass 8, concern 7: the docstring lists `_ - . /` and
-        // whitespace as separators. Tab and newline satisfy
-        // `char::is_whitespace`, so they act as separators too. Pin the
-        // behaviour so a future narrowing of the whitespace rule (e.g.
-        // restricting to ASCII space only) has to update this test.
+        // The docstring lists `_ - . /` and whitespace as separators.
+        // Tab and newline satisfy `char::is_whitespace`, so they act
+        // as separators too. Pin the behaviour so a future narrowing
+        // of the whitespace rule (e.g. restricting to ASCII space
+        // only) has to update this test.
         assert_eq!(tokenize("foo\tbar"), vec!["foo", "bar"]);
         assert_eq!(tokenize("foo\nbar"), vec!["foo", "bar"]);
         assert_eq!(tokenize("foo\r\nbar"), vec!["foo", "bar"]);
@@ -564,12 +563,11 @@ mod tests {
 
     #[test]
     fn char_ngram_cosine_single_char_inputs() {
-        // Audit pass 8, concern 5: after the pass-4 short-circuit when
-        // normalization is empty, a single surviving char still pads to
-        // n-1 spaces on each side. For n=2 on "a" that yields windows
-        // `" a"` and `"a "`. Two disjoint single-char inputs share no
-        // grams (padding grams touch different letters on the inside),
-        // so the cosine must be 0, not 1.
+        // When normalization is non-empty, a single surviving char
+        // still pads to n-1 spaces on each side. For n=2 on "a" that
+        // yields windows `" a"` and `"a "`. Two disjoint single-char
+        // inputs share no grams (padding grams touch different
+        // letters on the inside), so the cosine must be 0, not 1.
         assert_eq!(char_ngram_cosine("a", "b", 2), 0.0);
         // Identical single-char inputs use the a == b shortcut.
         assert!((char_ngram_cosine("a", "a", 2) - 1.0).abs() < 1e-9);
@@ -620,7 +618,7 @@ mod tests {
 
     #[test]
     fn token_anchors_threshold_equal_one_emits_nothing() {
-        // Audit pass 9, concern 11: the gate inside `token_anchors` is
+        // The gate inside `token_anchors` is
         // `score >= threshold && score < 1.0`. A caller passing
         // `threshold = 1.0` therefore asks for "strictly better than
         // any heuristic would yield" — the exact-match case is handled

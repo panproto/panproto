@@ -563,8 +563,8 @@ mod tests {
 
     #[test]
     fn alias_edge_overlap_duplicate_src_names_double_count() {
-        // Audit pass 8, concern 11: when the src side contains duplicate
-        // edge names (a schema malformation we treat defensively), each
+        // When the src side contains duplicate edge names (a schema
+        // malformation we treat defensively), each
         // duplicate is tested independently via
         // `tgt_names.iter().any(...)`, so duplicates double-count in
         // `matched`. `matched` can therefore exceed the number of
@@ -748,10 +748,10 @@ mod tests {
 
     #[test]
     fn add_cluster_is_idempotent_on_exact_duplicate() {
-        // Regression: previously, calling add_cluster with an identical
-        // already-registered cluster would push a dead duplicate onto
-        // `self.clusters`, inflating `cluster_count()` while
-        // `term_to_cluster` still pointed at the original id.
+        // Calling `add_cluster` with a cluster already fully
+        // contained in the registry must be idempotent: no new entry
+        // allocated in `self.clusters`, and `cluster_count()` stays
+        // unchanged.
         let mut dict = AliasDict::new();
         dict.add_cluster(["foo", "bar"]);
         assert_eq!(dict.cluster_count(), 1);
@@ -769,10 +769,9 @@ mod tests {
         dict.add_cluster(["baz", "qux"]);
         assert_eq!(dict.cluster_count(), 2);
         // Partial overlap: "foo" already bound (cluster 0); "new" is
-        // fresh. Audit pass 7 fixed the silent-split bug: the user's
-        // assertion "foo and new are aliases" now extends the existing
-        // cluster in place rather than allocating a dead-duplicate
-        // cluster that left `foo` and `new` mutually non-aliased.
+        // fresh. The user's assertion "foo and new are aliases"
+        // extends the existing cluster in place so `foo` and `new`
+        // are mutually aliased.
         dict.add_cluster(["foo", "new"]);
         assert_eq!(
             dict.cluster_count(),
@@ -792,12 +791,11 @@ mod tests {
 
     #[test]
     fn add_cluster_partial_overlap_extends_in_place() {
-        // Regression (audit pass 7): `add_cluster(["a","b","c"])` against
-        // an existing cluster `{a,b}` previously created a second cluster
-        // whose `clusters[]` entry contained [a,b,c] but whose
-        // `term_to_cluster` still bound `a` and `b` to the original id.
-        // `are_aliases(a, c)` returned `false` — the user's stated
-        // equivalence "a ≡ b ≡ c" was silently split.
+        // `add_cluster(["a","b","c"])` against an existing cluster
+        // `{a,b}` must extend the existing cluster in place so that
+        // `are_aliases(a, c) == true`. Pin the union-of-equivalence-
+        // classes semantics so a future rewrite cannot silently split
+        // the user's stated equivalence "a ≡ b ≡ c".
         let mut dict = AliasDict::new();
         dict.add_cluster(["a", "b"]);
         dict.add_cluster(["a", "b", "c"]);
@@ -962,13 +960,12 @@ mod tests {
 
     #[test]
     fn canonical_form_strips_extended_ascii_and_diacritics() {
-        // Audit pass 9, concern 6: `canonical_form` uses
-        // `is_ascii_alphanumeric` so anything outside `[A-Za-z0-9]`,
-        // including Latin-1 letters with diacritics and combining
-        // marks, is stripped. Two names that differ only in their
-        // diacritics therefore collapse to the same canonical form.
-        // Pin the behaviour so a future widening to Unicode-aware
-        // folding has to update this test deliberately.
+        // `canonical_form` uses `is_ascii_alphanumeric`, so anything
+        // outside `[A-Za-z0-9]` — including Latin-1 letters with
+        // diacritics and combining marks — is stripped. Two names
+        // that differ only in their diacritics collapse to the same
+        // canonical form. Pin the behaviour so a future widening to
+        // Unicode-aware folding has to update this test deliberately.
         assert_eq!(canonical_form("Ä"), "");
         assert_eq!(canonical_form("ÄÅÆ"), "");
         assert_eq!(canonical_form("café"), "caf");
@@ -987,8 +984,8 @@ mod tests {
 
     #[test]
     fn alias_anchors_ignore_edge_kind_when_matching_names() {
-        // Audit pass 9, concern 7: `alias_edge_overlap` scores
-        // overlap on edge *names* and never consults the edge kind.
+        // `alias_edge_overlap` scores overlap on edge *names* and
+        // never consults the edge kind.
         // A source with a `prop` edge named `id` and a target with
         // (say) an `item` edge also named `id` therefore register as
         // a match even though the edge kinds disagree. The CSP's

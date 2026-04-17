@@ -908,8 +908,7 @@ pub fn auto_generate_candidates_with_hints(
     // vertex, we must NOT add that source to `excluded_sources` even
     // when our kind-compatibility scan couldn't find a match. Without
     // this guard the CSP silently drops user-hinted sources, surfacing
-    // as a "CSP ignored my hint" bug (same pattern fixed in
-    // `auto_generate_with_hints`).
+    // as a "CSP ignored my hint" bug.
     let mut merged_domain = domain_constraints.clone();
     if let Some(span) = span_exclusions_at_lenient(src, tgt, config.stringency) {
         for src_v in span.excluded_sources {
@@ -1187,9 +1186,8 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
             vertex_kind,
             default_expr,
         } => {
-            // Previously this variant was collapsed into `AddSort`, which
-            // discarded `default_expr` — the zero-element of the pushout.
-            // Route it through the dedicated elementary so the expression
+            // Route the variant through the dedicated elementary so
+            // `default_expr` (the zero-element of the pushout)
             // survives to migration-time evaluation.
             let vk = vertex_kind
                 .as_ref()
@@ -1535,11 +1533,10 @@ mod tests {
 
     #[test]
     fn endofunctor_to_protolens_rejects_add_op_with_no_inputs() {
-        // Previously this path synthesized a `"unknown"` source sort,
-        // which silently produced an ill-formed elementary protolens.
-        // The fix converts the case to a real error surfaced by
-        // `endofunctor_to_protolens`. Pin the behaviour so a future
-        // refactor cannot reintroduce the sentinel.
+        // `AddOp` with zero inputs (a constant) has no source sort
+        // to anchor the edge at; `endofunctor_to_protolens` must
+        // surface this as an error rather than synthesize a sentinel
+        // source sort that would produce an ill-formed elementary.
         use panproto_gat::{Operation, TheoryEndofunctor, TheoryTransform};
         use std::sync::Arc;
 
@@ -1564,10 +1561,11 @@ mod tests {
 
     #[test]
     fn endofunctor_to_protolens_preserves_add_sort_default_expr() {
-        // `AddSortWithDefault` previously collapsed into `AddSort` and
-        // discarded `default_expr`. The fix routes it through a dedicated
-        // elementary; the resulting protolens's target transform must
-        // still be `AddSortWithDefault` carrying the original expression.
+        // `AddSortWithDefault` routes through a dedicated elementary
+        // so the resulting protolens's target transform is
+        // `AddSortWithDefault` carrying the original `default_expr`
+        // rather than collapsing to `AddSort` and losing the
+        // zero-element of the pushout.
         use panproto_expr::Expr;
         use panproto_gat::{Sort, TheoryEndofunctor, TheoryTransform};
         use std::sync::Arc;
@@ -1597,10 +1595,9 @@ mod tests {
 
     #[test]
     fn auto_generate_with_hints_rejects_nan_quality_threshold() {
-        // Supplying `NaN` used to be silently absorbed by
-        // `partial_cmp(...).unwrap_or(Equal)`; the fix rejects it at the
-        // entry point so callers can't accidentally disable the overlap
-        // fallback.
+        // A `NaN` quality threshold is rejected at the entry point
+        // so callers can't accidentally disable the overlap fallback
+        // via `partial_cmp(...).unwrap_or(Equal)` absorbing the NaN.
         let protocol = test_protocol();
         let src = schema_v1(&protocol);
         let tgt = schema_v2(&protocol);

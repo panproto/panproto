@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn degree_similarity_lopsided_is_very_low_but_nonzero() {
-        // Audit pass 8, concern 8: `degree_similarity(1, 1000)` returns
+        // `degree_similarity(1, 1000)` returns
         // `min/max = 1/1000 = 0.001`. Combined via the average with a
         // kind-multiset that might perfectly match (jaccard 1.0), the
         // final similarity still bottoms out well under any reasonable
