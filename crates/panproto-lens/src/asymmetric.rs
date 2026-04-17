@@ -348,16 +348,29 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         if let Some(original_anchor) = reverse_remap.get(&node.anchor) {
             restored_node.anchor.clone_from(original_anchor);
         }
-        // Restore original extra_fields: prefer complement snapshot, fall back to
-        // evaluating inverse expressions from the field_transforms.
+        // Restore original extra_fields.
+        //
+        // When a complement snapshot is present, start from the snapshot
+        // (so fields dropped by the forward pass and lossy computed
+        // fields are restored exactly), then propagate any view edits
+        // back through the inverse of each forward transform. This
+        // preserves user edits in the view (see panproto/panproto#40)
+        // while still honoring the snapshot as the source of truth for
+        // information that the forward pass threw away.
+        //
+        // When there is no snapshot (externally constructed complements
+        // or composed lenses that did not propagate one), fall back to
+        // applying inverse transforms to the view's fields directly.
+        let src_anchor = reverse_remap.get(&node.anchor).unwrap_or(&node.anchor);
+        let transforms = lens.compiled.field_transforms.get(src_anchor);
         if let Some(original_fields) = complement.original_extra_fields.get(&id) {
+            let view_fields = restored_node.extra_fields.clone();
             restored_node.extra_fields.clone_from(original_fields);
-        } else {
-            // No snapshot: try inverse expressions from field_transforms.
-            let src_anchor = reverse_remap.get(&node.anchor).unwrap_or(&node.anchor);
-            if let Some(transforms) = lens.compiled.field_transforms.get(src_anchor) {
-                apply_inverse_transforms(&mut restored_node, transforms);
+            if let Some(transforms) = transforms {
+                propagate_view_edits_through_inverse(&mut restored_node, &view_fields, transforms);
             }
+        } else if let Some(transforms) = transforms {
+            apply_inverse_transforms(&mut restored_node, transforms);
         }
         // Restore original node.value for __value__ coercions
         if let Some(original_val) = complement.original_values.get(&id) {
@@ -437,6 +450,91 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
     // schema_root is Name, which WInstance::new accepts via Into<Name>
 
     Ok(WInstance::new(nodes, arcs, fans, view.root, schema_root))
+}
+
+/// Propagate user edits from a view's `extra_fields` back into a node
+/// pre-populated from the complement snapshot.
+///
+/// The snapshot already contains the pre-transform values, so we only
+/// need to overwrite entries for which the view's (possibly edited)
+/// value differs. For each forward transform whose output key is still
+/// meaningful (`RenameField`, `ApplyExpr`, `ComputeField`), we read the
+/// view's value at the forward-target key and, when the transform has a
+/// usable inverse, write the inverted value to the corresponding
+/// source-side key. For `AddField` we simply drop the added key because
+/// the source never had it.
+///
+/// Transforms are processed in reverse of their forward order so that
+/// when multiple transforms chain (e.g. rename-then-compute) the later
+/// forward transform is undone first.
+fn propagate_view_edits_through_inverse(
+    node: &mut Node,
+    view_fields: &std::collections::HashMap<String, panproto_inst::value::Value>,
+    transforms: &[panproto_inst::FieldTransform],
+) {
+    use panproto_inst::FieldTransform;
+
+    // Mutable working copy so ApplyExpr lookups see prior rewrites.
+    let mut working: std::collections::HashMap<String, panproto_inst::value::Value> =
+        view_fields.clone();
+
+    for transform in transforms.iter().rev() {
+        match transform {
+            FieldTransform::RenameField { old_key, new_key } => {
+                if let Some(val) = working.remove(new_key) {
+                    node.extra_fields.insert(old_key.clone(), val.clone());
+                    working.insert(old_key.clone(), val);
+                }
+            }
+            FieldTransform::ApplyExpr {
+                key,
+                inverse: Some(inv_expr),
+                ..
+            } => {
+                if key == "__value__" {
+                    // Handled via complement.original_values elsewhere.
+                    continue;
+                }
+                if working.contains_key(key) {
+                    let env = panproto_inst::build_env_from_extra_fields(&working);
+                    let config = panproto_expr::EvalConfig::default();
+                    if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
+                        let inverted = panproto_inst::expr_literal_to_value(&result);
+                        node.extra_fields.insert(key.clone(), inverted.clone());
+                        working.insert(key.clone(), inverted);
+                    }
+                }
+            }
+            FieldTransform::ComputeField {
+                target_key,
+                inverse: Some(inv_expr),
+                ..
+            } if working.contains_key(target_key) => {
+                let env = panproto_inst::build_env_from_extra_fields(&working);
+                let config = panproto_expr::EvalConfig::default();
+                if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
+                    let inverted = panproto_inst::expr_literal_to_value(&result);
+                    node.extra_fields.insert(target_key.clone(), inverted);
+                }
+            }
+            FieldTransform::AddField { key, .. } => {
+                // Snapshot has no entry for the added key; make sure
+                // nothing else slipped it in.
+                node.extra_fields.remove(key);
+            }
+            FieldTransform::PathTransform { path, inner } if path.is_empty() => {
+                propagate_view_edits_through_inverse(
+                    node,
+                    view_fields,
+                    std::slice::from_ref(inner),
+                );
+            }
+            // DropField / KeepFields / Case / MapReferences / ComputeField
+            // without inverse / ApplyExpr without inverse: the snapshot
+            // is authoritative, nothing to propagate.
+            _ => {}
+        }
+    }
 }
 
 /// Apply inverse field transforms to a node, undoing the forward coercion.
