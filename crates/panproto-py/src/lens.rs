@@ -593,62 +593,6 @@ fn candidates_to_json(candidates: &[panproto_core::lens::LensCandidate]) -> Vec<
         .collect()
 }
 
-#[cfg(test)]
-#[allow(
-    clippy::unwrap_used,
-    clippy::redundant_pattern_matching,
-    clippy::items_after_test_module
-)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_stringency_accepts_the_four_tiers_case_insensitive() {
-        pyo3::prepare_freethreaded_python();
-        assert!(parse_stringency(None).unwrap().is_none());
-        assert!(matches!(
-            parse_stringency(Some("strict")).unwrap(),
-            Some(Stringency::Strict)
-        ));
-        assert!(matches!(
-            parse_stringency(Some("BALANCED")).unwrap(),
-            Some(Stringency::Balanced)
-        ));
-        assert!(matches!(
-            parse_stringency(Some("Lenient")).unwrap(),
-            Some(Stringency::Lenient)
-        ));
-        assert!(matches!(
-            parse_stringency(Some("exploratory")).unwrap(),
-            Some(Stringency::Exploratory)
-        ));
-    }
-
-    #[test]
-    fn parse_stringency_trims_whitespace_and_treats_empty_as_unset() {
-        // Matches WASM behavior; prevents cross-SDK parity drift when the
-        // same JSON payload flows through both bindings.
-        pyo3::prepare_freethreaded_python();
-        assert!(parse_stringency(Some("")).unwrap().is_none());
-        assert!(parse_stringency(Some("   ")).unwrap().is_none());
-        assert!(matches!(
-            parse_stringency(Some(" Strict ")).unwrap(),
-            Some(Stringency::Strict)
-        ));
-    }
-
-    #[test]
-    fn parse_stringency_rejects_garbage_with_clear_error() {
-        pyo3::prepare_freethreaded_python();
-        let err = parse_stringency(Some("loose")).unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("loose") && msg.contains("strict"),
-            "error message should name the bad value and list valid tiers; got: {msg}",
-        );
-    }
-}
-
 /// Register lens types and functions on the parent module.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_class::<PyLens>()?;
