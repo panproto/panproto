@@ -36,8 +36,10 @@ report = pp.diff_and_classify(old_schema, new_schema, protocol)
 print(report.compatible)        # True or False
 print(report.report_text())     # human-readable summary
 
-# Auto-generate a bidirectional converter
-lens = pp.auto_generate_lens(old_schema, new_schema, protocol)
+# Auto-generate a bidirectional converter.
+# Returns (lens, alignment_quality, coerce_proposals); the last is empty
+# unless `stringency="exploratory"` is passed.
+lens, quality, coerce_proposals = pp.auto_generate_lens(old_schema, new_schema, protocol)
 view, complement = lens.get(instance)
 restored = lens.put(view, complement)
 

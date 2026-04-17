@@ -29,6 +29,7 @@
 
 pub mod asymmetric;
 pub mod auto_lens;
+pub mod candidate;
 pub mod complement_type;
 pub mod compose;
 pub mod cost;
@@ -50,7 +51,11 @@ pub mod symmetric;
 
 // Re-exports for convenience.
 pub use asymmetric::{Complement, get, put};
-pub use auto_lens::{AutoLensConfig, AutoLensResult, auto_generate, auto_generate_with_hints};
+pub use auto_lens::{
+    AutoLensConfig, AutoLensResult, Stringency, auto_generate, auto_generate_candidates,
+    auto_generate_candidates_with_hints, auto_generate_with_hints,
+};
+pub use candidate::{CandidateStep, LensCandidate};
 pub use complement_type::{
     CapturedField, ComplementKind, ComplementSpec, DefaultRequirement, chain_complement_spec,
     complement_spec_at,

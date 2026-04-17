@@ -857,6 +857,23 @@ pub mod elementary {
 
     use super::{ComplementConstructor, Protolens, name_arc_clone};
 
+    /// Short, lowercase slug for a [`panproto_gat::ValueKind`] used to
+    /// disambiguate `sort_coerce` protolens names by target carrier.
+    /// Kept in sync with `panproto_mig::coerce::value_kind_label` but
+    /// intentionally private to avoid a cross-crate dependency.
+    const fn value_kind_slug(kind: panproto_gat::ValueKind) -> &'static str {
+        match kind {
+            panproto_gat::ValueKind::Bool => "bool",
+            panproto_gat::ValueKind::Int => "int",
+            panproto_gat::ValueKind::Float => "float",
+            panproto_gat::ValueKind::Str => "str",
+            panproto_gat::ValueKind::Bytes => "bytes",
+            panproto_gat::ValueKind::Token => "token",
+            panproto_gat::ValueKind::Null => "null",
+            panproto_gat::ValueKind::Any => "any",
+        }
+    }
+
     /// `η : Id ⟹ AddSort(τ, d)`: for each `S`, `η_S` is a lens
     /// `S → S+{τ}` that adds a vertex kind with default.
     #[must_use]
@@ -886,6 +903,49 @@ pub mod elementary {
                 element_name: sort_name,
                 element_kind: format!("{vertex_kind}"),
                 default_value: Some(default),
+            },
+        }
+    }
+
+    /// `η : Id ⟹ AddSortWithDefault(τ, d_expr)`: adds a vertex kind and
+    /// carries a symbolic default expression (evaluated downstream) so the
+    /// zero-element of the pushout is not lost.
+    ///
+    /// The theory-level payload retains the original `panproto_expr::Expr`;
+    /// this is the variant factorization emits when the source schema
+    /// does not witness the new sort but a default expression was attached
+    /// to it.
+    #[must_use]
+    pub fn add_sort_with_default(
+        sort_name: impl Into<Name>,
+        vertex_kind: impl Into<Name>,
+        default_expr: panproto_expr::Expr,
+    ) -> Protolens {
+        let sort_name = sort_name.into();
+        let vertex_kind = vertex_kind.into();
+        Protolens {
+            name: Name::from(format!("add_sort_with_default_{sort_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("add_{sort_name}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::AddSortWithDefault {
+                    sort: Sort::simple(name_arc_clone(&sort_name)),
+                    vertex_kind: Some(Arc::from(&*vertex_kind)),
+                    default_expr,
+                },
+            },
+            // Data-level default is evaluated from the expression at
+            // migration time; store `None` here to avoid a stale cached
+            // value ever diverging from the source-of-truth expression.
+            complement_constructor: ComplementConstructor::AddedElement {
+                element_name: sort_name,
+                element_kind: format!("{vertex_kind}"),
+                default_value: None,
             },
         }
     }
@@ -1282,6 +1342,83 @@ pub mod elementary {
                 },
             },
             complement_constructor: ComplementConstructor::Empty,
+        }
+    }
+
+    /// `η : Id ⟹ CoerceSort(S ↦ T, ℓ)`: apply a witness lens to every
+    /// value of sort `S`.
+    ///
+    /// For each schema `S'` containing sort `S`, `η_{S'}` is a lens
+    /// that runs the witness `ℓ = (forward, inverse)` pointwise over
+    /// values of sort `S`, producing an instance over `S'[S ↦ T]`.
+    ///
+    /// Categorically this is pushout-along-`SortLens`: the theory is
+    /// rewritten by substituting `S` with `T` everywhere, and the
+    /// instance-level change is witnessed by the Cambria-style lens
+    /// `ℓ`. Round-trip fidelity is classified by
+    /// [`CoercionClass`](panproto_gat::CoercionClass):
+    ///
+    /// - `Iso`: `ℓ.inverse(ℓ.forward(v)) = v` AND
+    ///   `ℓ.forward(ℓ.inverse(w)) = w`. Complement is empty.
+    /// - `Retraction`: `ℓ.inverse(ℓ.forward(v)) = v` but the other
+    ///   direction may not hold. Complement captures the residual so
+    ///   `put` can recover the original value.
+    /// - `Projection`: neither direction round-trips without external
+    ///   data; the forward image is a function of the source, but no
+    ///   inverse recovers the source. Complement stores the original
+    ///   value.
+    ///
+    /// The CSP / naturality check enforces that every op mentioning
+    /// `S` has an interpretation in the pushed-out theory that
+    /// commutes with `ℓ`; callers in `panproto-mig::coerce` perform
+    /// this check before emitting a `CoerceSort` endofunctor.
+    #[must_use]
+    pub fn sort_coerce(
+        sort_name: impl Into<Name>,
+        target_kind: panproto_gat::ValueKind,
+        coercion_expr: panproto_expr::Expr,
+        inverse_expr: Option<panproto_expr::Expr>,
+        coercion_class: panproto_gat::CoercionClass,
+    ) -> Protolens {
+        let sort_name = sort_name.into();
+        let arc = name_arc_clone(&sort_name);
+        // For Iso witnesses the lens is lossless in both directions,
+        // so the complement is empty. For every other class we need
+        // to retain the dropped carrier data (Retraction / Projection
+        // / Opaque) so `put` can recover the source value.
+        let complement_constructor = if matches!(coercion_class, panproto_gat::CoercionClass::Iso) {
+            ComplementConstructor::Empty
+        } else {
+            ComplementConstructor::CoercedSortData {
+                sort: sort_name.clone(),
+                class: coercion_class,
+            }
+        };
+        // Include the target kind in the protolens name so that two
+        // witnesses bridging the same source sort to different carriers
+        // (e.g. `n: int → str` vs `n: int → float`) yield distinct
+        // protolens identities. Without this tag, downstream consumers
+        // that key on `Protolens::name` would conflate the two.
+        let target_kind_label = value_kind_slug(target_kind);
+        Protolens {
+            name: Name::from(format!("sort_coerce_{sort_name}_to_{target_kind_label}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::HasSort(Arc::clone(&arc)),
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("coerce_{sort_name}_to_{target_kind_label}")),
+                precondition: TheoryConstraint::HasSort(Arc::clone(&arc)),
+                transform: TheoryTransform::CoerceSort {
+                    sort_name: Arc::clone(&arc),
+                    target_kind,
+                    coercion_expr,
+                    inverse_expr,
+                    coercion_class,
+                },
+            },
+            complement_constructor,
         }
     }
 
@@ -2307,17 +2444,35 @@ fn apply_drop_edge_from_schema(
 /// Build an implicit theory from a schema (sorts = vertex kinds,
 /// ops = edge kinds).
 pub(crate) fn schema_to_implicit_theory(schema: &Schema) -> Theory {
+    // `schema.vertices` / `schema.edges` are HashMaps with a process-
+    // randomized hasher: iterating them directly would let sort / op
+    // order drift across runs, and `factorize` iterates
+    // `theory.sorts` / `theory.ops` in order. Sort before folding so
+    // the resulting `Theory` is identical across process instances on
+    // equal input, which the factorization pipeline depends on for
+    // reproducible endofunctor sequences.
+    let mut vertex_ids: Vec<&Name> = schema.vertices.keys().collect();
+    vertex_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
     let mut sort_names: HashSet<&str> = HashSet::new();
     let mut sorts = Vec::new();
-    for vertex in schema.vertices.values() {
+    for vid in vertex_ids {
+        let vertex = &schema.vertices[vid];
         if sort_names.insert(&vertex.kind) {
             sorts.push(Sort::simple(name_arc_clone(&vertex.kind)));
         }
     }
 
+    let mut edges: Vec<&Edge> = schema.edges.keys().collect();
+    edges.sort_by(|a, b| {
+        a.src
+            .as_str()
+            .cmp(b.src.as_str())
+            .then_with(|| a.tgt.as_str().cmp(b.tgt.as_str()))
+            .then_with(|| a.kind.as_str().cmp(b.kind.as_str()))
+    });
     let mut op_names: HashSet<&str> = HashSet::new();
     let mut ops = Vec::new();
-    for edge in schema.edges.keys() {
+    for edge in edges {
         if op_names.insert(&edge.kind) {
             let src_kind = schema
                 .vertices
@@ -2346,7 +2501,24 @@ pub(crate) fn rebuild_indices(schema: &mut Schema) {
     let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
-    for edge in schema.edges.keys() {
+    // `schema.edges` is a HashMap with a process-randomized hasher;
+    // iterating its keys directly would let the order inside each
+    // adjacency SmallVec drift across process runs, which in turn
+    // drifts downstream consumers that pick the "first compatible
+    // edge" (e.g. `build_morphism_weighted` in hom_search). Collect
+    // and sort by `(src, tgt, kind, name)` so the per-vertex adjacency
+    // order is a pure function of schema content.
+    let mut edges: Vec<&Edge> = schema.edges.keys().collect();
+    edges.sort_by(|a, b| {
+        a.src
+            .as_str()
+            .cmp(b.src.as_str())
+            .then_with(|| a.tgt.as_str().cmp(b.tgt.as_str()))
+            .then_with(|| a.kind.as_str().cmp(b.kind.as_str()))
+            .then_with(|| a.name.as_deref().cmp(&b.name.as_deref()))
+    });
+
+    for edge in edges {
         outgoing
             .entry(edge.src.clone())
             .or_default()
@@ -2413,6 +2585,58 @@ mod tests {
             obj_kinds: vec!["object".into(), "string".into(), "array".into()],
             constraint_sorts: vec![],
             ..Protocol::default()
+        }
+    }
+
+    #[test]
+    fn schema_to_implicit_theory_deterministic_sort_op_order() {
+        // `Schema::vertices` / `Schema::edges` are HashMaps; iterating
+        // them directly would let sort / op order depend on hasher
+        // state. `factorize` iterates `theory.sorts` / `theory.ops`
+        // in order, so drift here would propagate to drift in the
+        // factorized endofunctor chain. Pin the order by content.
+        use panproto_schema::SchemaBuilder;
+        let protocol = Protocol {
+            name: "t".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["record".into(), "string".into(), "integer".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        // Build a schema with enough vertices/edges that HashMap
+        // iteration order is very likely to diverge from insertion.
+        let s = SchemaBuilder::new(&protocol)
+            .vertex("zzz", "record", None::<&str>)
+            .unwrap()
+            .vertex("aaa", "string", None::<&str>)
+            .unwrap()
+            .vertex("mmm", "integer", None::<&str>)
+            .unwrap()
+            .vertex("bbb", "string", None::<&str>)
+            .unwrap()
+            .edge("zzz", "aaa", "prop", Some("x"))
+            .unwrap()
+            .edge("zzz", "mmm", "field", Some("y"))
+            .unwrap()
+            .edge("zzz", "bbb", "attr", Some("z"))
+            .unwrap()
+            .build()
+            .unwrap();
+        // Repeat enough times that any hasher-driven reordering would
+        // show up at least once across runs.
+        let baseline = schema_to_implicit_theory(&s);
+        for _ in 0..16 {
+            let t = schema_to_implicit_theory(&s);
+            let baseline_sorts: Vec<String> =
+                baseline.sorts.iter().map(|x| x.name.to_string()).collect();
+            let t_sorts: Vec<String> = t.sorts.iter().map(|x| x.name.to_string()).collect();
+            assert_eq!(baseline_sorts, t_sorts, "sort order drift");
+            let baseline_ops: Vec<String> =
+                baseline.ops.iter().map(|x| x.name.to_string()).collect();
+            let t_ops: Vec<String> = t.ops.iter().map(|x| x.name.to_string()).collect();
+            assert_eq!(baseline_ops, t_ops, "op order drift");
         }
     }
 

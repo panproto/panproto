@@ -49,4 +49,8 @@ planning/
 .vite/
 
 # Lean
-lean/.lake/
+lean/.lake/tmp/
+
+# Scratch
+tmp/
+book/book/

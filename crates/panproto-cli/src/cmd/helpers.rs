@@ -94,10 +94,25 @@ pub fn auto_lens_result_to_json(result: &lens::AutoLensResult) -> serde_json::Va
             })
         })
         .collect();
+    let coerce_proposals: Vec<serde_json::Value> = result
+        .coerce_proposals
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "src": p.anchor.src.as_str(),
+                "tgt": p.anchor.tgt.as_str(),
+                "witness_name": p.witness_name,
+                "witness_class": p.witness_class,
+                "confidence": p.anchor.confidence,
+                "explanation": p.anchor.explanation,
+            })
+        })
+        .collect();
     serde_json::json!({
         "alignment_quality": result.alignment_quality,
         "steps": steps,
         "step_count": result.chain.steps.len(),
+        "coerce_proposals": coerce_proposals,
     })
 }
 

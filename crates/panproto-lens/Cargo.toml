@@ -23,6 +23,7 @@ rustc-hash = { workspace = true }
 divan = { workspace = true }
 proptest = { workspace = true }
 smallvec = { workspace = true }
+insta = { workspace = true }
 
 [[bench]]
 name = "lens_bench"

@@ -80,6 +80,7 @@ export interface WasmGlueModule {
   put_json: WasmExports['put_json'];
   instance_element_count: WasmExports['instance_element_count'];
   auto_generate_protolens: WasmExports['auto_generate_protolens'];
+  auto_generate_candidates: WasmExports['auto_generate_candidates'];
   instantiate_protolens: WasmExports['instantiate_protolens'];
   protolens_complement_spec: WasmExports['protolens_complement_spec'];
   protolens_from_diff: WasmExports['protolens_from_diff'];
@@ -90,12 +91,14 @@ export interface WasmGlueModule {
   symmetric_lens_sync: WasmExports['symmetric_lens_sync'];
   apply_protolens_step: WasmExports['apply_protolens_step'];
   protolens_from_json: WasmExports['protolens_from_json'];
+  compile_lens_document: WasmExports['compile_lens_document'];
   protolens_fuse: WasmExports['protolens_fuse'];
   protolens_lift: WasmExports['protolens_lift'];
   protolens_check_applicability: WasmExports['protolens_check_applicability'];
   protolens_fleet: WasmExports['protolens_fleet'];
   protolens_pipeline: WasmExports['protolens_pipeline'];
   auto_generate_protolens_with_hints: WasmExports['auto_generate_protolens_with_hints'];
+  auto_generate_protolens_with_hint_spec: WasmExports['auto_generate_protolens_with_hint_spec'];
   check_lens_laws: WasmExports['check_lens_laws'];
   check_get_put: WasmExports['check_get_put'];
   check_put_get: WasmExports['check_put_get'];
@@ -175,9 +178,12 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
     // from disk and pass it to init() as bytes. In browsers (and bundlers
     // that provide a pre-imported glue), the default fetch path works.
     const wasmSource = await resolveWasmSource(glueUrl);
+    // wasm-bindgen >= 0.2.100 deprecates positional args to init(); pass a
+    // single `{ module_or_path }` options object. Omit the field entirely to
+    // let the glue resolve the `.wasm` itself (browsers, bundlers).
     const initOutput = wasmSource === undefined
-      ? await glue.default()
-      : await glue.default(wasmSource);
+      ? await glue.default({})
+      : await glue.default({ module_or_path: wasmSource });
 
     const exports: WasmExports = {
       define_protocol: glue.define_protocol,
@@ -211,6 +217,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       put_json: glue.put_json,
       instance_element_count: glue.instance_element_count,
       auto_generate_protolens: glue.auto_generate_protolens,
+      auto_generate_candidates: glue.auto_generate_candidates,
       instantiate_protolens: glue.instantiate_protolens,
       protolens_complement_spec: glue.protolens_complement_spec,
       protolens_from_diff: glue.protolens_from_diff,
@@ -221,12 +228,14 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       symmetric_lens_sync: glue.symmetric_lens_sync,
       apply_protolens_step: glue.apply_protolens_step,
       protolens_from_json: glue.protolens_from_json,
+      compile_lens_document: glue.compile_lens_document,
       protolens_fuse: glue.protolens_fuse,
       protolens_lift: glue.protolens_lift,
       protolens_check_applicability: glue.protolens_check_applicability,
       protolens_fleet: glue.protolens_fleet,
       protolens_pipeline: glue.protolens_pipeline,
       auto_generate_protolens_with_hints: glue.auto_generate_protolens_with_hints,
+      auto_generate_protolens_with_hint_spec: glue.auto_generate_protolens_with_hint_spec,
       check_lens_laws: glue.check_lens_laws,
       check_get_put: glue.check_get_put,
       check_put_get: glue.check_put_get,

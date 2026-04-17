@@ -198,7 +198,7 @@ pub fn schema_metadata(schema_handle: u32) -> Result<Vec<u8>, JsError> {
             edges,
         };
 
-        rmp_serde::to_vec(&meta).map_err(|e| WasmError::SerializationFailed {
+        rmp_serde::to_vec_named(&meta).map_err(|e| WasmError::SerializationFailed {
             reason: e.to_string(),
         })
     })
@@ -222,7 +222,7 @@ pub fn check_existence(proto: u32, src: u32, tgt: u32, mapping: &[u8]) -> Vec<u8
             valid: false,
             errors: vec![mig::ExistenceError::WellFormedness { message: msg }],
         };
-        rmp_serde::to_vec(&report).unwrap_or_default()
+        rmp_serde::to_vec_named(&report).unwrap_or_default()
     })
 }
 
@@ -256,7 +256,7 @@ fn check_existence_inner(
         &theory_registry,
     );
 
-    rmp_serde::to_vec(&report).map_err(|e| format!("serialization failed: {e}"))
+    rmp_serde::to_vec_named(&report).map_err(|e| format!("serialization failed: {e}"))
 }
 
 /// Compile a migration for fast per-record application.
@@ -319,7 +319,7 @@ pub fn lift_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -364,7 +364,7 @@ pub fn get_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
         })
     })?;
 
-    let complement_bytes = rmp_serde::to_vec(&complement).map_err(|e| -> JsError {
+    let complement_bytes = rmp_serde::to_vec_named(&complement).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: format!("complement: {e}"),
         }
@@ -376,7 +376,7 @@ pub fn get_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
         complement: complement_bytes,
     };
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -419,7 +419,7 @@ pub fn put_record(migration: u32, view: &[u8], complement: &[u8]) -> Result<Vec<
         })
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -512,7 +512,7 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
 
     let view_json = inst::to_json(&tgt_schema, &view);
     let complement_bytes =
-        rmp_serde::to_vec(&complement).map_err(|e| WasmError::SerializationFailed {
+        rmp_serde::to_vec_named(&complement).map_err(|e| WasmError::SerializationFailed {
             reason: format!("complement: {e}"),
         })?;
 
@@ -521,7 +521,7 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
         complement: complement_bytes,
     };
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -635,7 +635,7 @@ pub fn compose_migrations(m1: u32, m2: u32) -> Result<u32, JsError> {
 #[wasm_bindgen]
 pub fn diff_schemas(s1: u32, s2: u32) -> Vec<u8> {
     diff_schemas_inner(s1, s2)
-        .unwrap_or_else(|_| rmp_serde::to_vec(&SchemaDiff::default()).unwrap_or_default())
+        .unwrap_or_else(|_| rmp_serde::to_vec_named(&SchemaDiff::default()).unwrap_or_default())
 }
 
 /// Inner implementation for `diff_schemas` that can return errors.
@@ -649,7 +649,7 @@ fn diff_schemas_inner(s1: u32, s2: u32) -> Result<Vec<u8>, String> {
 
     let diff = compute_diff(&schema1, &schema2);
 
-    rmp_serde::to_vec(&diff).map_err(|e| format!("serialization failed: {e}"))
+    rmp_serde::to_vec_named(&diff).map_err(|e| format!("serialization failed: {e}"))
 }
 
 /// Diff two schemas using the full `panproto-check` diff engine.
@@ -660,8 +660,9 @@ fn diff_schemas_inner(s1: u32, s2: u32) -> Result<Vec<u8>, String> {
 #[must_use]
 #[wasm_bindgen]
 pub fn diff_schemas_full(s1: u32, s2: u32) -> Vec<u8> {
-    diff_schemas_full_inner(s1, s2)
-        .unwrap_or_else(|_| rmp_serde::to_vec(&check::SchemaDiff::default()).unwrap_or_default())
+    diff_schemas_full_inner(s1, s2).unwrap_or_else(|_| {
+        rmp_serde::to_vec_named(&check::SchemaDiff::default()).unwrap_or_default()
+    })
 }
 
 /// Inner implementation for `diff_schemas_full`.
@@ -674,7 +675,7 @@ fn diff_schemas_full_inner(s1: u32, s2: u32) -> Result<Vec<u8>, String> {
     .map_err(|_| "invalid schema handle".to_string())?;
 
     let diff = check::diff(&schema1, &schema2);
-    rmp_serde::to_vec(&diff).map_err(|e| format!("serialization failed: {e}"))
+    rmp_serde::to_vec_named(&diff).map_err(|e| format!("serialization failed: {e}"))
 }
 
 /// Classify a schema diff against a protocol, producing a compatibility report.
@@ -691,7 +692,7 @@ pub fn classify_diff(proto: u32, diff_bytes: &[u8]) -> Vec<u8> {
             non_breaking: Vec::new(),
             compatible: true,
         };
-        rmp_serde::to_vec(&empty).unwrap_or_default()
+        rmp_serde::to_vec_named(&empty).unwrap_or_default()
     })
 }
 
@@ -704,7 +705,7 @@ fn classify_diff_inner(proto: u32, diff_bytes: &[u8]) -> Result<Vec<u8>, String>
         rmp_serde::from_slice(diff_bytes).map_err(|e| format!("deserialization failed: {e}"))?;
 
     let report = check::classify(&diff, &protocol);
-    rmp_serde::to_vec(&report).map_err(|e| format!("serialization failed: {e}"))
+    rmp_serde::to_vec_named(&report).map_err(|e| format!("serialization failed: {e}"))
 }
 
 /// Render a compatibility report as human-readable text.
@@ -781,7 +782,7 @@ pub fn validate_schema(schema_handle: u32, proto: u32) -> Result<Vec<u8>, JsErro
     let serializable: Vec<SerializableValidationError> =
         errors.into_iter().map(Into::into).collect();
 
-    rmp_serde::to_vec(&serializable).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&serializable).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

@@ -36,6 +36,112 @@ export interface MigrationHandle extends Handle {
 }
 
 // ---------------------------------------------------------------------------
+// Autolens: Stringency + HintSpec + Candidate surface
+// ---------------------------------------------------------------------------
+
+/**
+ * Tier that controls which alignment strategies run during autolens
+ * generation.
+ *
+ * - `strict` — only kind-exact name equality.
+ * - `balanced` — alias dictionary + tight token similarity (default).
+ * - `lenient` — adds span search over the shared subtheory + structural
+ *   priors; engine emits real `DropSort` / `AddSort` steps for sorts
+ *   with no counterpart in the other schema.
+ * - `exploratory` — adds sort-coercion witness bridges and further
+ *   loosens thresholds.
+ */
+export type Stringency = 'strict' | 'balanced' | 'lenient' | 'exploratory';
+
+/**
+ * Ranking classification of a sort-coercion witness.
+ *
+ * These values are serialized from `panproto_gat::CoercionClass`, which
+ * uses the default (PascalCase) serde representation rather than
+ * `rename_all = "snake_case"`. The wire format is therefore PascalCase
+ * and this type matches it exactly.
+ */
+export type CoercionClass = 'Iso' | 'Retraction' | 'Projection' | 'Opaque';
+
+/** Tag identifying which alignment strategy produced an anchor. */
+export type StrategyTag =
+  | 'user_hint'
+  | 'exact'
+  | 'alias'
+  | 'token_similarity'
+  | 'type_signature'
+  | 'wrap_unwrap'
+  | 'coerce'
+  | 'structural'
+  | 'llm';
+
+/**
+ * Constraint that restricts or biases the CSP morphism search. Matches
+ * the shape of `panproto_lens_dsl::Constraint` serde-tagged as `type`.
+ */
+export type HintConstraint =
+  | { readonly type: 'scope'; readonly under: string; readonly targets: string }
+  | { readonly type: 'exclude_targets'; readonly vertices: readonly string[] }
+  | { readonly type: 'exclude_sources'; readonly vertices: readonly string[] }
+  | {
+      readonly type: 'prefer';
+      readonly predicate:
+        | { readonly kind: 'same_edge_name' }
+        | { readonly kind: 'similar_name'; readonly threshold: number }
+        | { readonly kind: 'same_kind' };
+      readonly weight: number;
+    };
+
+/**
+ * A hint specification for guided auto-lens generation. Mirrors
+ * `panproto_lens_dsl::HintSpec`. `stringency` and `alias_clusters`
+ * override the engine's defaults when present.
+ */
+export interface HintSpec {
+  readonly anchors?: Readonly<Record<string, string>>;
+  readonly constraints?: readonly HintConstraint[];
+  readonly stringency?: Stringency;
+  readonly alias_clusters?: ReadonlyArray<readonly string[]>;
+}
+
+/** One step of a ranked candidate lens with its provenance. */
+export interface CandidateStep {
+  readonly kind: string;
+  readonly explanation: string;
+  readonly confidence: number;
+  readonly strategy: StrategyTag | null;
+}
+
+/** One ranked candidate lens. `chain` is a handle allocated server-side. */
+export interface LensCandidate {
+  readonly quality: number;
+  readonly coverage: number;
+  readonly score: number;
+  readonly strategies_used: readonly StrategyTag[];
+  readonly steps: readonly CandidateStep[];
+}
+
+/**
+ * One sort-coercion proposal surfaced at the Exploratory tier. The
+ * witness is identified by name so the caller can look it up in the
+ * sort-lens witness library if it needs the underlying expressions.
+ */
+export interface CoerceProposal {
+  readonly src: string;
+  readonly tgt: string;
+  readonly witness_name: string;
+  readonly witness_class: CoercionClass;
+  readonly confidence: number;
+  readonly explanation: string;
+}
+
+/** Decoded shape of `auto_generate_candidates`'s MessagePack payload. */
+export interface CandidateResponse {
+  readonly candidates: readonly LensCandidate[];
+  readonly coerce_proposals: readonly CoerceProposal[];
+}
+
+// ---------------------------------------------------------------------------
 // Protocol
 // ---------------------------------------------------------------------------
 
@@ -468,7 +574,17 @@ export interface WasmExports {
   get_protocol_definition(handle: number): Uint8Array;
   get_migration_complement(complement_bytes: Uint8Array): Uint8Array;
   // Phase 10: Protolens operations
-  auto_generate_protolens(schema1: number, schema2: number): number;
+  auto_generate_protolens(schema1: number, schema2: number, stringency?: string): number;
+  /**
+   * Auto-generate up to `top_n` ranked candidate lenses. The returned
+   * bytes are MessagePack-encoded `{ candidates: [...], coerce_proposals: [...] }`.
+   */
+  auto_generate_candidates(
+    schema1: number,
+    schema2: number,
+    top_n: number,
+    stringency?: string,
+  ): Uint8Array;
   instantiate_protolens(chain: number, schema: number): number;
   protolens_complement_spec(chain: number, schema: number): Uint8Array;
   protolens_from_diff(diff_bytes: Uint8Array, schema1: number, schema2: number): number;
@@ -484,9 +600,25 @@ export interface WasmExports {
   protolens_check_applicability(chain: number, schema: number): Uint8Array;
   protolens_fleet(chain: number, schema_handles: Uint32Array): Uint8Array;
   protolens_from_json(json: Uint8Array): number;
+  compile_lens_document(source: Uint8Array, format: string, body_vertex: string): number;
   // Phase 11b: Pipeline combinators and morphism hints
   protolens_pipeline(steps_bytes: Uint8Array): number;
-  auto_generate_protolens_with_hints(schema1: number, schema2: number, hints_bytes: Uint8Array): number;
+  auto_generate_protolens_with_hints(
+    schema1: number,
+    schema2: number,
+    hints_bytes: Uint8Array,
+    stringency?: string,
+  ): number;
+  /**
+   * Auto-generate a protolens chain driven by a full `HintSpec` document
+   * (MessagePack-encoded). `HintSpec.stringency` and `HintSpec.alias_clusters`
+   * override `AutoLensConfig.stringency` / the default alias dictionary.
+   */
+  auto_generate_protolens_with_hint_spec(
+    schema1: number,
+    schema2: number,
+    hint_spec_bytes: Uint8Array,
+  ): number;
   parse_expr(source: string): Uint8Array;
   eval_func_expr(expr_bytes: Uint8Array, env_bytes: Uint8Array): Uint8Array;
   execute_query(query_bytes: Uint8Array, instance_bytes: Uint8Array): Uint8Array;

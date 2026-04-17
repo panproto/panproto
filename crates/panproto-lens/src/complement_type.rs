@@ -13,6 +13,7 @@ use crate::protolens::{ComplementConstructor, Protolens, ProtolensChain};
 
 /// Static specification of what data a complement will contain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ComplementSpec {
     /// Overall classification.
     pub kind: ComplementKind,
@@ -26,6 +27,7 @@ pub struct ComplementSpec {
 
 /// Classification of a complement's role.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ComplementKind {
     /// No complement needed (isomorphism).
     Empty,
@@ -39,6 +41,7 @@ pub enum ComplementKind {
 
 /// A default value that must be supplied for the forward direction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DefaultRequirement {
     /// Name of the element needing a default.
     pub element_name: Name,
@@ -52,6 +55,7 @@ pub struct DefaultRequirement {
 
 /// A field captured in the complement during the forward direction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapturedField {
     /// Name of the captured element.
     pub element_name: Name,
@@ -125,10 +129,10 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                     element_name: sort.clone(),
                     element_kind: "sort".into(),
                     description: format!(
-                        "Data for {count} vertices of kind '{sort}' will be captured in the complement.",
+                        "Data for {count} vertices of kind '{sort}' will be captured in the complement."
                     ),
                 }],
-                summary: format!("Drops sort '{sort}': {count} vertices captured in complement.",),
+                summary: format!("Drops sort '{sort}': {count} vertices captured in complement."),
             }
         }
         ComplementConstructor::DroppedOpData { op } => {
@@ -213,7 +217,7 @@ fn added_element_spec(
         forward_defaults: vec![DefaultRequirement {
             element_name: element_name.clone(),
             element_kind: element_kind.to_string(),
-            description: format!("Default value needed for added {element_kind} '{element_name}'.",),
+            description: format!("Default value needed for added {element_kind} '{element_name}'."),
             suggested_default: default_value.cloned(),
         }],
         captured_data: vec![],
@@ -349,6 +353,71 @@ mod tests {
             obj_kinds: vec!["object".into(), "string".into(), "array".into()],
             constraint_sorts: vec![],
             ..Protocol::default()
+        }
+    }
+
+    /// Pin the JSON wire format. The TypeScript SDK declares this
+    /// shape in `sdk/typescript/src/protolens.ts` (`ComplementSpec`,
+    /// `ComplementKind`, `DefaultRequirement`, `CapturedField`): enum
+    /// variants in `snake_case` (`"empty" | "data_captured" |
+    /// "defaults_required" | "mixed"`), struct fields in `camelCase`
+    /// (`forwardDefaults`, `capturedData`, `elementName`,
+    /// `elementKind`, `suggestedDefault`). Without the
+    /// `#[serde(rename_all = ...)]` attributes Rust would emit
+    /// `"DataCaptured"` enum variants and `element_name` fields, and
+    /// every TS consumer reaching for those fields through the typed
+    /// API would see `undefined`.
+    #[test]
+    fn complement_spec_wire_format_matches_ts_sdk() {
+        use serde_json::{Value as JsonValue, json};
+        let spec = ComplementSpec {
+            kind: ComplementKind::DataCaptured,
+            forward_defaults: vec![DefaultRequirement {
+                element_name: Name::from("field_a"),
+                element_kind: "sort".to_owned(),
+                description: "needs a default".to_owned(),
+                suggested_default: None,
+            }],
+            captured_data: vec![CapturedField {
+                element_name: Name::from("field_b"),
+                element_kind: "op".to_owned(),
+                description: "captured".to_owned(),
+            }],
+            summary: "mixed".to_owned(),
+        };
+        let value: JsonValue = serde_json::to_value(&spec).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "kind": "data_captured",
+                "forwardDefaults": [{
+                    "elementName": "field_a",
+                    "elementKind": "sort",
+                    "description": "needs a default",
+                    "suggestedDefault": null,
+                }],
+                "capturedData": [{
+                    "elementName": "field_b",
+                    "elementKind": "op",
+                    "description": "captured",
+                }],
+                "summary": "mixed",
+            }),
+            "ComplementSpec wire format must match the TS SDK"
+        );
+        // All four ComplementKind variants must wire as snake_case
+        // to match the TS union type.
+        for (variant, wire) in [
+            (ComplementKind::Empty, "empty"),
+            (ComplementKind::DataCaptured, "data_captured"),
+            (ComplementKind::DefaultsRequired, "defaults_required"),
+            (ComplementKind::Mixed, "mixed"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(&variant).unwrap(),
+                JsonValue::String(wire.to_owned()),
+                "ComplementKind::{variant:?} must serialize as {wire:?}"
+            );
         }
     }
 

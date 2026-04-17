@@ -17,8 +17,34 @@ mod format;
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use miette::Result;
+use panproto_core::lens::Stringency;
+
+/// CLI-friendly mirror of [`Stringency`] for `clap` argument parsing.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "snake_case")]
+pub enum StringencyArg {
+    /// Kind-exact, edge-name-pruned CSP search; total morphism only.
+    Strict,
+    /// Adds alias dictionary and tight token-similarity priors (default).
+    Balanced,
+    /// Adds span-search and structural priors.
+    Lenient,
+    /// Adds lossy retraction witnesses and LM-proposed alignments.
+    Exploratory,
+}
+
+impl From<StringencyArg> for Stringency {
+    fn from(arg: StringencyArg) -> Self {
+        match arg {
+            StringencyArg::Strict => Self::Strict,
+            StringencyArg::Balanced => Self::Balanced,
+            StringencyArg::Lenient => Self::Lenient,
+            StringencyArg::Exploratory => Self::Exploratory,
+        }
+    }
+}
 
 /// The panproto command-line tool for schema migration and version control.
 #[derive(Parser, Debug)]
@@ -896,6 +922,26 @@ enum LensAction {
         /// Path to a JSON hints file for guided auto-lens generation.
         #[arg(long)]
         hints: Option<PathBuf>,
+        /// Stringency tier governing which alignment strategies run.
+        ///
+        /// Accepted case-insensitively for parity with the Python and
+        /// WASM bindings, both of which trim and lowercase their input.
+        ///
+        /// `strict` — only kind-exact name equality.
+        /// `balanced` — alias dictionary + tight token similarity (default).
+        /// `lenient` — span-search and structural priors.
+        /// `exploratory` — lossy retraction witnesses and LM priors.
+        #[arg(long, value_name = "TIER", ignore_case = true)]
+        stringency: Option<StringencyArg>,
+        /// Emit up to N ranked candidate lenses instead of the single
+        /// best one. Output format switches to a JSON array when
+        /// combined with `--json` or `--chain`.
+        #[arg(long, value_name = "N", default_value_t = 1)]
+        top_n: usize,
+        /// Print per-step explanations (and confidences) for each
+        /// emitted candidate.
+        #[arg(long)]
+        explain: bool,
     },
     /// Apply a saved lens chain to data.
     Apply {
@@ -1494,6 +1540,9 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             fuse,
             requirements,
             hints,
+            stringency,
+            top_n,
+            explain,
         } => cmd::lens::cmd_lens_generate(
             &old,
             &new,
@@ -1507,6 +1556,9 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             requirements,
             verbose,
             hints.as_deref(),
+            stringency.map(Stringency::from),
+            top_n,
+            explain,
         ),
         LensAction::Apply {
             chain,
@@ -1629,5 +1681,76 @@ fn dispatch_git_commands(action: GitAction, verbose: bool) -> Result<()> {
             cmd::git_bridge::cmd_git_import(&repo, &revspec, verbose)
         }
         GitAction::Export { repo, dest } => cmd::git_bridge::cmd_git_export(&repo, &dest, verbose),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::{Cli, Stringency, StringencyArg};
+    use clap::{Parser, ValueEnum};
+
+    /// `--stringency` is rendered by `clap` with `rename_all =
+    /// "snake_case"`, so the four accepted tokens must be exactly
+    /// `strict | balanced | lenient | exploratory`. Each must round-trip
+    /// to the matching `Stringency` engine variant.
+    #[test]
+    fn stringency_arg_accepts_each_tier_and_maps_to_engine() {
+        let cases = [
+            ("strict", Stringency::Strict),
+            ("balanced", Stringency::Balanced),
+            ("lenient", Stringency::Lenient),
+            ("exploratory", Stringency::Exploratory),
+        ];
+        for (token, expected) in cases {
+            // `ignore_case = false` here because the fallback lowercase
+            // token MUST parse without the case-insensitivity escape
+            // hatch — that path locks in the serde wire format.
+            let parsed = StringencyArg::from_str(token, false)
+                .unwrap_or_else(|e| panic!("clap rejected `{token}`: {e}"));
+            let engine: Stringency = parsed.into();
+            assert_eq!(engine, expected, "{token} should map to {expected:?}");
+        }
+    }
+
+    /// True parity check with Python/WASM: the CLI must accept every
+    /// tier case-insensitively so a user scripting all three SDKs with
+    /// the same literal `"Strict"` or `"STRICT"` sees consistent
+    /// behaviour. Earlier passes' unit test used `from_str(.., true)`,
+    /// which sidestepped the real clap integration (the attribute
+    /// `ignore_case` defaults to `false`). Drive the full parser here
+    /// so a future change that drops `ignore_case = true` on the
+    /// `#[arg]` attribute regresses this test instead of silently
+    /// re-introducing the case-sensitivity parity gap.
+    #[test]
+    fn cli_stringency_flag_is_case_insensitive_for_parity_with_py_and_wasm() {
+        for token in ["strict", "Strict", "STRICT", "StRiCt"] {
+            let parsed = Cli::try_parse_from([
+                "schema",
+                "lens",
+                "generate",
+                "a.json",
+                "b.json",
+                "--protocol",
+                "atproto",
+                "--stringency",
+                token,
+            ]);
+            assert!(
+                parsed.is_ok(),
+                "CLI must accept `--stringency {token}` case-insensitively for parity with Python/WASM; got {:?}",
+                parsed.as_ref().err().map(ToString::to_string),
+            );
+        }
+    }
+
+    #[test]
+    fn stringency_arg_rejects_unknown_tokens() {
+        for bad in ["loose", "", "balanced_plus"] {
+            assert!(
+                StringencyArg::from_str(bad, true).is_err(),
+                "clap should reject `{bad}`",
+            );
+        }
     }
 }

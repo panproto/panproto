@@ -170,7 +170,21 @@ export class MigrationBuilder {
         this.#src._handle.id,
         this.#tgt._handle.id,
       );
-      return unpackFromWasm<MigrationSpec>(resultBytes);
+      // Rust emits snake_case field names (`vertex_map`, `edge_map`,
+      // `resolver`) via serde + `to_vec_named`. The TS-facing
+      // `MigrationSpec` uses camelCase. Without this remap, the fields
+      // would be present on the object but unreachable through the
+      // typed API, and consumers would see `undefined` everywhere.
+      const raw = unpackFromWasm<{
+        vertex_map: Readonly<Record<string, string>>;
+        edge_map: readonly [Edge, Edge][];
+        resolver: readonly [[string, string], Edge][];
+      }>(resultBytes);
+      return {
+        vertexMap: raw.vertex_map,
+        edgeMap: raw.edge_map,
+        resolvers: raw.resolver,
+      };
     } catch (error) {
       throw new MigrationError(
         `Failed to invert migration: ${error instanceof Error ? error.message : String(error)}`,
@@ -348,6 +362,109 @@ export class CompiledMigration implements Disposable {
     } catch (error) {
       throw new WasmError(
         `put_record failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Forward transform a JSON-native record through the migration.
+   *
+   * Unlike {@link lift}, which operates on opaque `WInstance` bytes, this
+   * wrapper round-trips JSON at both ends: feed it a JS object (or JSON
+   * string), get a JS object back, shaped to the target schema.
+   *
+   * @param record - The input record as a JS object or JSON string
+   * @param rootVertex - The source-schema vertex the record is rooted at
+   *                     (e.g. `'app.bsky.feed.post:body'`)
+   * @returns The transformed record as a plain JS object
+   * @throws {@link WasmError} if parsing, lifting, or serialization fails
+   */
+  liftJson(record: unknown, rootVertex: string): unknown {
+    const jsonBytes = typeof record === 'string'
+      ? new TextEncoder().encode(record)
+      : new TextEncoder().encode(JSON.stringify(record));
+
+    try {
+      const outputBytes = this.#wasm.exports.lift_json(
+        this.#handle.id,
+        jsonBytes,
+        rootVertex,
+      );
+      return JSON.parse(new TextDecoder().decode(outputBytes));
+    } catch (error) {
+      throw new WasmError(
+        `lift_json failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Bidirectional get over JSON: projects a JSON record to a view + complement.
+   *
+   * The complement bytes stay opaque (they encode whatever data the forward
+   * projection discarded); pass them back to {@link putJson} to restore.
+   *
+   * @param record - The input record as a JS object or JSON string
+   * @param rootVertex - The source-schema vertex the record is rooted at
+   * @returns `{ view, complement }` — view is a JS object, complement is
+   *          opaque msgpack bytes
+   * @throws {@link WasmError} if parsing, get, or serialization fails
+   */
+  getJson(record: unknown, rootVertex: string): { view: unknown; complement: Uint8Array } {
+    const jsonBytes = typeof record === 'string'
+      ? new TextEncoder().encode(record)
+      : new TextEncoder().encode(JSON.stringify(record));
+
+    try {
+      const outputBytes = this.#wasm.exports.get_json(
+        this.#handle.id,
+        jsonBytes,
+        rootVertex,
+      );
+      const result = unpackFromWasm<{ view: unknown; complement: Uint8Array }>(outputBytes);
+      return {
+        view: result.view,
+        complement: result.complement instanceof Uint8Array
+          ? result.complement
+          : new Uint8Array(result.complement as ArrayBuffer),
+      };
+    } catch (error) {
+      throw new WasmError(
+        `get_json failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Bidirectional put over JSON: restore a full record from a modified view
+   * and the complement returned by a prior {@link getJson} call.
+   *
+   * @param view - The (possibly modified) view as a JS object or JSON string
+   * @param complement - The complement bytes from a prior `getJson` call
+   * @param rootVertex - The source-schema vertex the original record was
+   *                     rooted at
+   * @returns The restored full record as a JS object
+   * @throws {@link WasmError} if parsing, put, or serialization fails
+   */
+  putJson(view: unknown, complement: Uint8Array, rootVertex: string): unknown {
+    const viewBytes = typeof view === 'string'
+      ? new TextEncoder().encode(view)
+      : new TextEncoder().encode(JSON.stringify(view));
+
+    try {
+      const outputBytes = this.#wasm.exports.put_json(
+        this.#handle.id,
+        viewBytes,
+        complement,
+        rootVertex,
+      );
+      return JSON.parse(new TextDecoder().decode(outputBytes));
+    } catch (error) {
+      throw new WasmError(
+        `put_json failed: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },
       );
     }

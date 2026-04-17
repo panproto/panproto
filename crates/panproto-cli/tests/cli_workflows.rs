@@ -2101,3 +2101,126 @@ fn lift_api_preserves_value_types() {
         "dropped field should be absent, got: {output}"
     );
 }
+
+/// `lens generate --json --top-n N --requirements` must emit a single
+/// well-formed JSON document on stdout. A prior fifth-pass-audit version
+/// emitted up to three concatenated top-level JSON values (base lens,
+/// candidate list, requirements), which breaks `jq` and any strict JSON
+/// consumer. Parse stdout via `serde_json::from_str` to guarantee a
+/// single root value, and assert the composite sections landed inside
+/// it.
+#[test]
+fn cli_lens_generate_json_topn_requirements_single_document() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_protocol_schema(tmp.path(), "src.json", "atproto", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "tgt.json", "atproto", &[("root", "string")]);
+
+    let output = schema_cmd()
+        .args([
+            "lens",
+            "generate",
+            "src.json",
+            "tgt.json",
+            "--protocol",
+            "atproto",
+            "--json",
+            "--top-n",
+            "2",
+            "--requirements",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("stdout was not a single JSON document: {e}\n---\n{stdout}\n---")
+    });
+    assert!(parsed.is_object(), "root must be an object, got {parsed}");
+    assert!(
+        parsed.get("candidates").is_some(),
+        "root must carry a `candidates` section; got keys {:?}",
+        parsed.as_object().map(|o| o.keys().collect::<Vec<_>>()),
+    );
+    assert!(
+        parsed.get("requirements").is_some(),
+        "root must carry a `requirements` section; got keys {:?}",
+        parsed.as_object().map(|o| o.keys().collect::<Vec<_>>()),
+    );
+}
+
+/// `lens generate --json --fuse` must not emit two concatenated JSON
+/// documents. When the chain is empty (identical schemas), fuse errors
+/// cleanly before any JSON is printed; when non-empty, the fused
+/// payload folds into the single root document. This test covers the
+/// empty-chain error path: stdout must be empty, not a partial JSON.
+#[test]
+fn cli_lens_generate_json_fuse_empty_chain_does_not_leak_partial_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_protocol_schema(tmp.path(), "src.json", "atproto", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "tgt.json", "atproto", &[("root", "string")]);
+
+    let output = schema_cmd()
+        .args([
+            "lens",
+            "generate",
+            "src.json",
+            "tgt.json",
+            "--protocol",
+            "atproto",
+            "--json",
+            "--fuse",
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    // Empty chain => fuse errors, exit code non-zero, stdout empty.
+    // The important invariant: if stdout has any content, it parses as a
+    // single JSON document (no concatenated documents).
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    if !stdout.trim().is_empty() {
+        serde_json::from_str::<serde_json::Value>(&stdout).unwrap_or_else(|e| {
+            panic!("stdout must be empty or a single JSON document: {e}\n---\n{stdout}\n---")
+        });
+    }
+}
+
+/// `lens generate --chain --top-n N` must also emit a single JSON doc.
+/// The `--chain` branch picks a different root shape than `--json`, so
+/// guard that path separately.
+#[test]
+fn cli_lens_generate_chain_topn_single_document() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_protocol_schema(tmp.path(), "src.json", "atproto", &[("root", "string")]);
+    write_protocol_schema(tmp.path(), "tgt.json", "atproto", &[("root", "string")]);
+
+    let output = schema_cmd()
+        .args([
+            "lens",
+            "generate",
+            "src.json",
+            "tgt.json",
+            "--protocol",
+            "atproto",
+            "--chain",
+            "--top-n",
+            "3",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("stdout was not a single JSON document: {e}\n---\n{stdout}\n---")
+    });
+    assert!(
+        parsed.get("candidates").is_some(),
+        "chain-mode root with --top-n must embed `candidates`; got {parsed}"
+    );
+}

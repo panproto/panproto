@@ -67,7 +67,7 @@ pub fn eval_expr(
     let result = eval_term_recursive(&term, &env, &theory)
         .map_err(|e| WasmError::ExprEvalFailed { reason: e })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -130,7 +130,7 @@ pub fn check_expr(expr_bytes: &[u8]) -> Result<Vec<u8>, JsError> {
         },
     };
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -170,7 +170,7 @@ pub fn substitute_expr(
 
     let result = term.substitute(&subst);
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -472,7 +472,7 @@ pub fn migration_coverage(
         "tgt_vertices": tgt_schema.vertex_count(),
     });
 
-    rmp_serde::to_vec(&report).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&report).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

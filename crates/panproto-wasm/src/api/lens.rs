@@ -5,7 +5,7 @@
 use panproto_core::{
     gat::{self},
     inst::{self, WInstance},
-    lens::{self},
+    lens::{self, Stringency},
     mig::{self, Migration},
 };
 
@@ -19,11 +19,134 @@ use super::helpers::{
     build_chain_from_step_spec, default_protocol, extract_migration_owned, lookup_builtin_protocol,
 };
 
+/// Map a JS-side stringency string into the engine [`Stringency`].
+///
+/// Accepts `"strict" | "balanced" | "lenient" | "exploratory"`
+/// (case-insensitive) or empty/unset (returns the default).
+fn parse_stringency(raw: Option<&str>) -> Result<Option<Stringency>, JsError> {
+    let trimmed = raw.map(str::trim).filter(|s| !s.is_empty());
+    match trimmed.map(str::to_ascii_lowercase).as_deref() {
+        None => Ok(None),
+        Some("strict") => Ok(Some(Stringency::Strict)),
+        Some("balanced") => Ok(Some(Stringency::Balanced)),
+        Some("lenient") => Ok(Some(Stringency::Lenient)),
+        Some("exploratory") => Ok(Some(Stringency::Exploratory)),
+        Some(other) => Err(JsError::new(&format!(
+            "unknown stringency '{other}'; expected strict, balanced, lenient, or exploratory"
+        ))),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Phase 3: Lens & migration enhancements
 // ---------------------------------------------------------------------------
 
+/// Auto-generate up to `top_n` ranked candidate lenses with per-step
+/// explanations.
+///
+/// Returns `MessagePack`-encoded object with two fields:
+/// `candidates` (array of `{ quality, coverage, score, strategies_used,
+/// steps }`) and `coerce_proposals` (array of `{ src, tgt,
+/// witness_name, witness_class, confidence, explanation }` surfaced at
+/// the Exploratory tier). The TS SDK decodes this via the
+/// `CandidateResponse` type.
+///
+/// # Errors
+///
+/// Returns `JsError` if schema handles are invalid, no morphism is
+/// found, or serialization fails.
+#[wasm_bindgen]
+#[allow(clippy::needless_pass_by_value)]
+pub fn auto_generate_candidates(
+    schema1: u32,
+    schema2: u32,
+    top_n: u32,
+    stringency: Option<String>,
+) -> Result<Vec<u8>, JsError> {
+    let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let protocol =
+        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+
+    let mut config = lens::AutoLensConfig::default();
+    if let Some(s) = parse_stringency(stringency.as_deref())? {
+        config.stringency = s;
+    }
+    let candidates = lens::auto_generate_candidates(&src, &tgt, &protocol, &config, top_n as usize)
+        .map_err(|e| WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        })?;
+
+    // Exploratory-tier coerce proposals are a property of the run, not
+    // of any individual candidate; run a top-1 alignment at the same
+    // config to surface them alongside the candidate list.
+    //
+    // Invariant: if `auto_generate_candidates` produced any candidate,
+    // `auto_generate` under the same config must also succeed (both
+    // consult the same CSP). If the second call errors while the first
+    // returned candidates, that's a bug in the engine, not a caller
+    // concern — surface it rather than silently swallowing it so
+    // callers see a consistent story.
+    let coerce_proposals = if candidates.is_empty() {
+        Vec::new()
+    } else {
+        let result = lens::auto_generate(&src, &tgt, &protocol, &config).map_err(|e| {
+            WasmError::LensConstructionFailed {
+                reason: format!("candidates were found but coerce-proposal alignment failed: {e}"),
+            }
+        })?;
+        result
+            .coerce_proposals
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "src": p.anchor.src.as_str(),
+                    "tgt": p.anchor.tgt.as_str(),
+                    "witness_name": p.witness_name,
+                    "witness_class": p.witness_class,
+                    "confidence": p.anchor.confidence,
+                    "explanation": p.anchor.explanation,
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let candidates_payload: Vec<serde_json::Value> = candidates
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "quality": c.quality,
+                "coverage": c.coverage,
+                "score": c.score(),
+                "strategies_used": c.strategies_used,
+                "steps": c.steps.iter().map(|s| serde_json::json!({
+                    "kind": s.kind,
+                    "explanation": s.explanation,
+                    "confidence": s.confidence,
+                    "strategy": s.strategy,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    let wrapper = serde_json::json!({
+        "candidates": candidates_payload,
+        "coerce_proposals": coerce_proposals,
+    });
+
+    rmp_serde::to_vec_named(&wrapper).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
 /// Auto-generate a protolens chain between two schemas.
+///
+/// `stringency` selects which alignment strategies run (one of
+/// `"strict" | "balanced" | "lenient" | "exploratory"`; empty/unset
+/// uses the default).
 ///
 /// Returns a handle to the `ProtolensChain` resource.
 ///
@@ -32,7 +155,12 @@ use super::helpers::{
 /// Returns `JsError` if schema handles are invalid, no morphism is
 /// found, or protolens generation fails.
 #[wasm_bindgen]
-pub fn auto_generate_protolens(schema1: u32, schema2: u32) -> Result<u32, JsError> {
+#[allow(clippy::needless_pass_by_value)]
+pub fn auto_generate_protolens(
+    schema1: u32,
+    schema2: u32,
+    stringency: Option<String>,
+) -> Result<u32, JsError> {
     let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
 
@@ -40,7 +168,10 @@ pub fn auto_generate_protolens(schema1: u32, schema2: u32) -> Result<u32, JsErro
     let protocol =
         lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
 
-    let config = lens::AutoLensConfig::default();
+    let mut config = lens::AutoLensConfig::default();
+    if let Some(s) = parse_stringency(stringency.as_deref())? {
+        config.stringency = s;
+    }
     let result = lens::auto_generate(&src, &tgt, &protocol, &config).map_err(|e| {
         WasmError::LensConstructionFailed {
             reason: e.to_string(),
@@ -86,7 +217,7 @@ pub fn check_lens_laws(migration: u32, instance_bytes: &[u8]) -> Result<Vec<u8>,
         }
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -125,7 +256,7 @@ pub fn check_get_put(migration: u32, instance_bytes: &[u8]) -> Result<Vec<u8>, J
         }
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -167,7 +298,7 @@ pub fn check_put_get(migration: u32, instance_bytes: &[u8]) -> Result<Vec<u8>, J
         }
     })?;
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -202,7 +333,7 @@ pub fn invert_migration(mapping: &[u8], src: u32, tgt: u32) -> Result<Vec<u8>, J
             reason: e.to_string(),
         })?;
 
-    rmp_serde::to_vec(&inverse).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&inverse).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -300,7 +431,7 @@ pub fn protolens_complement_spec(chain: u32, schema: u32) -> Result<Vec<u8>, JsE
 
     let result = lens::chain_complement_spec(&chain_val, &schema_val, &protocol);
 
-    rmp_serde::to_vec(&result).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -437,7 +568,7 @@ pub fn factorize_morphism(
         })
         .collect();
 
-    rmp_serde::to_vec(&steps).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&steps).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -523,7 +654,7 @@ pub fn symmetric_lens_sync(
         }
     })?;
 
-    rmp_serde::to_vec(&result_view).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&result_view).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -571,6 +702,61 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
         src_schema: std::sync::Arc::new(lens_obj.src_schema),
         tgt_schema: std::sync::Arc::new(lens_obj.tgt_schema),
     }))
+}
+
+/// Compile a lens DSL document (JSON or YAML source) into a
+/// `ProtolensChain` resource.
+///
+/// `source_bytes` is UTF-8 DSL source in the specified `format`:
+/// `"json"` or `"yaml"`. Nickel (`"ncl"`) is not supported in the WASM
+/// binding because Nickel evaluation requires a filesystem for its
+/// contract imports; precompile Nickel → JSON on the host instead.
+///
+/// `body_vertex` is the parent vertex id under which field-level steps
+/// (e.g. `rename_field`, `add_field`) attach; typically the record's
+/// `:body` object, such as `"com.example.thing:body"`.
+///
+/// Returns a handle to the compiled `ProtolensChain`.
+///
+/// # Errors
+///
+/// Returns `JsError` if `format` is unknown, the source fails to parse,
+/// or compilation fails (e.g. references an unknown sort or has
+/// inconsistent step metadata).
+#[wasm_bindgen]
+pub fn compile_lens_document(
+    source_bytes: &[u8],
+    format: &str,
+    body_vertex: &str,
+) -> Result<u32, JsError> {
+    let source =
+        std::str::from_utf8(source_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("invalid UTF-8: {e}"),
+        })?;
+
+    let doc = match format {
+        "json" => panproto_lens_dsl::eval::eval_json(source),
+        "yaml" | "yml" => panproto_lens_dsl::eval::eval_yaml(source),
+        other => {
+            return Err(WasmError::DeserializationFailed {
+                reason: format!("unsupported lens DSL format '{other}'; expected 'json' or 'yaml'"),
+            }
+            .into());
+        }
+    }
+    .map_err(|e| WasmError::DeserializationFailed {
+        reason: e.to_string(),
+    })?;
+
+    let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None).map_err(|e| {
+        WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
+        compiled.chain,
+    ))))
 }
 
 /// Deserialize a protolens chain from JSON bytes.
@@ -650,7 +836,7 @@ pub fn protolens_check_applicability(chain: u32, schema: u32) -> Result<Vec<u8>,
         Ok(()) => serde_json::json!({ "applicable": true, "reasons": Vec::<String>::new() }),
         Err(reasons) => serde_json::json!({ "applicable": false, "reasons": reasons }),
     };
-    rmp_serde::to_vec(&response).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&response).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -686,7 +872,7 @@ pub fn protolens_fleet(chain: u32, schema_handles: &[u32]) -> Result<Vec<u8>, Js
         lookup_builtin_protocol(&first.protocol)
             .unwrap_or_else(|| default_protocol(&first.protocol))
     } else {
-        return rmp_serde::to_vec(&serde_json::json!({
+        return rmp_serde::to_vec_named(&serde_json::json!({
             "applied": Vec::<String>::new(),
             "skipped": Vec::<String>::new(),
         }))
@@ -707,7 +893,7 @@ pub fn protolens_fleet(chain: u32, schema_handles: &[u32]) -> Result<Vec<u8>, Js
         "skipped": skipped,
     });
 
-    rmp_serde::to_vec(&response).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&response).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }
@@ -752,10 +938,12 @@ pub fn protolens_pipeline(steps_bytes: &[u8]) -> Result<u32, JsError> {
 ///
 /// Returns `JsError` if no morphism is found even with hints.
 #[wasm_bindgen]
+#[allow(clippy::needless_pass_by_value)]
 pub fn auto_generate_protolens_with_hints(
     schema1: u32,
     schema2: u32,
     hints_bytes: &[u8],
+    stringency: Option<String>,
 ) -> Result<u32, JsError> {
     let hints: std::collections::HashMap<String, String> = rmp_serde::from_slice(hints_bytes)
         .map_err(|e| WasmError::DeserializationFailed {
@@ -771,7 +959,7 @@ pub fn auto_generate_protolens_with_hints(
     for (src, tgt) in &hints {
         initial.insert(gat::Name::from(src.as_str()), gat::Name::from(tgt.as_str()));
     }
-    let config = lens::auto_lens::AutoLensConfig {
+    let mut config = lens::auto_lens::AutoLensConfig {
         try_overlap: true,
         search_opts: panproto_core::mig::hom_search::SearchOptions {
             initial,
@@ -779,6 +967,9 @@ pub fn auto_generate_protolens_with_hints(
         },
         ..Default::default()
     };
+    if let Some(s) = parse_stringency(stringency.as_deref())? {
+        config.stringency = s;
+    }
 
     let result = lens::auto_lens::auto_generate(&s1, &s2, &protocol, &config).map_err(|e| {
         WasmError::LensConstructionFailed {
@@ -825,10 +1016,21 @@ pub fn auto_generate_protolens_with_hint_spec(
     };
     let (derived, domain_constraints) = lens::hint::resolve_hints(&parts, &s1, &s2);
 
-    let config = lens::auto_lens::AutoLensConfig {
+    let mut config = lens::auto_lens::AutoLensConfig {
         try_overlap: true,
         ..Default::default()
     };
+    if let Some(s) = hint_spec.stringency {
+        config.stringency = match s {
+            panproto_lens_dsl::HintStringency::Strict => Stringency::Strict,
+            panproto_lens_dsl::HintStringency::Balanced => Stringency::Balanced,
+            panproto_lens_dsl::HintStringency::Lenient => Stringency::Lenient,
+            panproto_lens_dsl::HintStringency::Exploratory => Stringency::Exploratory,
+        };
+    }
+    for cluster in &hint_spec.alias_clusters {
+        config.alias_dict.add_cluster(cluster);
+    }
 
     let result = lens::auto_lens::auto_generate_with_hints(
         &s1,
@@ -846,4 +1048,101 @@ pub fn auto_generate_protolens_with_hint_spec(
     Ok(slab::alloc(Resource::ProtolensChain(Box::new(
         result.chain,
     ))))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_stringency_accepts_tiers_case_insensitive() {
+        assert!(matches!(parse_stringency(None), Ok(None)));
+        assert!(matches!(parse_stringency(Some("")), Ok(None),));
+        assert!(matches!(
+            parse_stringency(Some("Strict")),
+            Ok(Some(Stringency::Strict)),
+        ));
+        assert!(matches!(
+            parse_stringency(Some("BALANCED")),
+            Ok(Some(Stringency::Balanced)),
+        ));
+        assert!(matches!(
+            parse_stringency(Some("lenient")),
+            Ok(Some(Stringency::Lenient)),
+        ));
+        assert!(matches!(
+            parse_stringency(Some("Exploratory")),
+            Ok(Some(Stringency::Exploratory)),
+        ));
+    }
+
+    // `parse_stringency` on the error path constructs a `JsError`, which
+    // wasm-bindgen's runtime cannot instantiate on non-wasm hosts. We
+    // therefore only exercise the error path under the wasm target; the
+    // happy paths above are host-neutral because `Ok(None)` / `Ok(Some)`
+    // don't touch wasm-bindgen runtime.
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn parse_stringency_rejects_unknown_value() {
+        let err = parse_stringency(Some("loose")).expect_err("expected an error");
+        let _ = err;
+    }
+
+    /// Cross-language serde compatibility: the TS SDK serializes
+    /// `HintSpec` via `packToWasm` (msgpack with named fields), and the
+    /// Rust side deserializes via `rmp_serde::from_slice`. A silent
+    /// field-name or variant-name drift between the two would cause
+    /// `auto_generate_protolens_with_hint_spec` to either reject valid
+    /// specs or silently drop fields. Lock the Rust side by round-tripping
+    /// a fully populated `HintSpec`.
+    #[test]
+    fn hint_spec_msgpack_round_trip_preserves_every_field() {
+        use panproto_lens_dsl::{Constraint, HintSpec, HintStringency, PreferencePredicate};
+        use std::collections::HashMap;
+
+        let mut anchors = HashMap::new();
+        anchors.insert("src.a".to_owned(), "tgt.a".to_owned());
+
+        let original = HintSpec {
+            anchors,
+            constraints: vec![
+                Constraint::Scope {
+                    under: "src.a".to_owned(),
+                    targets: "tgt.a".to_owned(),
+                },
+                Constraint::ExcludeTargets {
+                    vertices: vec!["tgt.z".to_owned()],
+                },
+                Constraint::Prefer {
+                    predicate: PreferencePredicate::SimilarName { threshold: 0.75 },
+                    weight: 1.5,
+                },
+            ],
+            stringency: Some(HintStringency::Lenient),
+            alias_clusters: vec![
+                vec!["id".to_owned(), "identifier".to_owned()],
+                vec!["text".to_owned(), "body".to_owned()],
+            ],
+        };
+
+        // rmp_serde::to_vec_named matches `packToWasm`'s behavior of
+        // emitting named fields (maps). The TS side uses
+        // `@msgpack/msgpack.encode` which also emits named maps by
+        // default. Using `to_vec_named` here therefore models the wire
+        // format the SDK actually produces.
+        let bytes =
+            rmp_serde::to_vec_named(&original).expect("serialize HintSpec via msgpack-named");
+        let decoded: HintSpec =
+            rmp_serde::from_slice(&bytes).expect("deserialize HintSpec via msgpack");
+
+        assert_eq!(decoded.anchors, original.anchors);
+        assert_eq!(decoded.stringency, original.stringency);
+        assert_eq!(decoded.alias_clusters, original.alias_clusters);
+        assert_eq!(decoded.constraints.len(), original.constraints.len());
+        // Stringency is an untagged string enum on the Rust side and a
+        // union-of-string-literals on the TS side; the round trip must
+        // preserve the exact tier.
+        assert_eq!(decoded.stringency, Some(HintStringency::Lenient));
+    }
 }

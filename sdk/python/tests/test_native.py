@@ -310,6 +310,52 @@ class TestMigration:
 
 
 # ---------------------------------------------------------------------------
+# auto_generate_lens stringency parity
+# ---------------------------------------------------------------------------
+
+
+class TestStringencyParsing:
+    """Stringency is accepted case-insensitively and trimmed of
+    surrounding whitespace; an empty string is treated as unset for
+    parity with the WASM/TypeScript bindings. Unknown tiers raise a
+    LensError naming the bad value and the valid tiers."""
+
+    @staticmethod
+    def _identity_schemas() -> tuple[object, object]:
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("t", "object")
+        s = b.build()
+        return s, s
+
+    @pytest.mark.parametrize("tier", ["strict", "Balanced", "LENIENT", "ExPlOrAtOrY"])
+    def test_accepts_every_tier_case_insensitive(self, tier: str) -> None:
+        src, tgt = self._identity_schemas()
+        proto = panproto.get_builtin_protocol("atproto")
+        panproto.auto_generate_lens(src, tgt, proto, stringency=tier)
+
+    @pytest.mark.parametrize("s", ["", "   ", "\t\n"])
+    def test_empty_or_whitespace_is_unset(self, s: str) -> None:
+        src, tgt = self._identity_schemas()
+        proto = panproto.get_builtin_protocol("atproto")
+        panproto.auto_generate_lens(src, tgt, proto, stringency=s)
+
+    def test_leading_trailing_whitespace_is_trimmed(self) -> None:
+        src, tgt = self._identity_schemas()
+        proto = panproto.get_builtin_protocol("atproto")
+        panproto.auto_generate_lens(src, tgt, proto, stringency=" Strict ")
+
+    def test_unknown_tier_raises_lens_error_with_message(self) -> None:
+        src, tgt = self._identity_schemas()
+        proto = panproto.get_builtin_protocol("atproto")
+        with pytest.raises(panproto.LensError) as excinfo:
+            panproto.auto_generate_lens(src, tgt, proto, stringency="loose")
+        msg = str(excinfo.value)
+        assert "loose" in msg
+        assert "strict" in msg
+
+
+# ---------------------------------------------------------------------------
 # IoRegistry
 # ---------------------------------------------------------------------------
 

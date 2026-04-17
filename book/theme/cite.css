@@ -1,0 +1,39 @@
+/* Inline citations (mdbook-bib CSL backend wraps citations in <a> elements). */
+a.cite,
+a[href*="bibliography.html#"] {
+  text-decoration: none;
+  color: var(--links);
+}
+a.cite:hover,
+a[href*="bibliography.html#"]:hover {
+  text-decoration: underline;
+}
+
+/* Bibliography page: one entry per line, hanging indent, spacing between entries. */
+.csl-entry {
+  margin-bottom: 0.9em;
+  padding-left: 2em;
+  text-indent: -2em;
+  line-height: 1.55;
+}
+
+/* Italicise work titles in bibliography entries, per Chicago author-date. */
+.csl-entry cite,
+.csl-entry i {
+  font-style: italic;
+}
+
+/* Hyperlinks inside bibliography entries: same styling as citation links. */
+.csl-entry a {
+  text-decoration: none;
+  color: var(--links);
+  word-break: break-word;
+}
+.csl-entry a:hover {
+  text-decoration: underline;
+}
+
+/* Hide any residual template-backend div; harmless if absent. */
+.bib_div {
+  display: none;
+}

@@ -19,7 +19,7 @@ use super::helpers::{builtin_protocol_names, lookup_builtin_protocol};
 #[wasm_bindgen]
 pub fn list_builtin_protocols() -> Vec<u8> {
     let names = builtin_protocol_names();
-    rmp_serde::to_vec(&names).unwrap_or_default()
+    rmp_serde::to_vec_named(&names).unwrap_or_default()
 }
 
 /// Get a built-in protocol specification by name.
@@ -40,7 +40,7 @@ pub fn get_builtin_protocol(name: &[u8]) -> Result<Vec<u8>, JsError> {
             reason: format!("unknown protocol: {name_str}"),
         })?;
 
-    rmp_serde::to_vec(&protocol).map_err(|e| -> JsError {
+    rmp_serde::to_vec_named(&protocol).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

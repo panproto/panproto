@@ -9,7 +9,29 @@ use std::sync::Arc;
 
 use pyo3::prelude::*;
 
-use panproto_core::lens::{self, AutoLensConfig, Complement, Lens};
+use panproto_core::lens::{self, AutoLensConfig, Complement, Lens, Stringency};
+
+/// Parse a Python-side stringency string into the engine [`Stringency`].
+///
+/// Accepts `"strict" | "balanced" | "lenient" | "exploratory"`
+/// (case-insensitive). `None` keeps the engine's default.
+fn parse_stringency(s: Option<&str>) -> PyResult<Option<Stringency>> {
+    // Trim surrounding whitespace and treat an empty string as unset so
+    // Python behaves the same as the WASM/TS side. Without this, values
+    // like `" strict "` or `""` would misparse as "unknown stringency",
+    // breaking cross-SDK parity for the same JSON payload.
+    let trimmed = s.map(str::trim).filter(|s| !s.is_empty());
+    match trimmed.map(str::to_ascii_lowercase).as_deref() {
+        None => Ok(None),
+        Some("strict") => Ok(Some(Stringency::Strict)),
+        Some("balanced") => Ok(Some(Stringency::Balanced)),
+        Some("lenient") => Ok(Some(Stringency::Lenient)),
+        Some("exploratory") => Ok(Some(Stringency::Exploratory)),
+        Some(other) => Err(crate::error::LensError::new_err(format!(
+            "unknown stringency '{other}'; expected one of strict, balanced, lenient, exploratory"
+        ))),
+    }
+}
 
 use crate::convert;
 use crate::inst::PyInstance;
@@ -148,8 +170,10 @@ impl PyLens {
 
 /// Auto-generate a lens between two schemas.
 ///
-/// Uses hom-search to find the best morphism, factorizes it into
-/// elementary protolens steps, and instantiates the chain.
+/// Runs the alignment strategies enabled by ``stringency`` (alias
+/// dictionary, token similarity, etc.), seeds the CSP solver, and
+/// returns the best validated morphism along with its alignment
+/// quality score in ``[0.0, 1.0]``.
 ///
 /// Parameters
 /// ----------
@@ -159,18 +183,33 @@ impl PyLens {
 ///     Target schema.
 /// protocol : Protocol
 ///     Protocol for the schemas.
+/// stringency : str, optional
+///     One of ``"strict"``, ``"balanced"``, ``"lenient"``,
+///     ``"exploratory"`` (case-insensitive). Defaults to ``"balanced"``
+///     when unspecified.
 ///
 /// Returns
 /// -------
-/// tuple[Lens, float]
-///     The generated lens and the alignment quality score (0.0 to 1.0).
+/// tuple[Lens, float, list[dict]]
+///     The generated lens, the alignment quality score (0.0 to 1.0),
+///     and the list of coerce proposals emitted at `"exploratory"`
+///     stringency. Each proposal dict has keys ``src``, ``tgt``,
+///     ``witness_name``, ``witness_class``, ``confidence``, and
+///     ``explanation``. The list is empty at every tier below
+///     `"exploratory"`.
 #[pyfunction]
+#[pyo3(signature = (src_schema, tgt_schema, protocol, stringency=None))]
 pub fn auto_generate_lens(
+    py: Python<'_>,
     src_schema: &PySchema,
     tgt_schema: &PySchema,
     protocol: &PyProtocol,
-) -> PyResult<(PyLens, f64)> {
-    let config = AutoLensConfig::default();
+    stringency: Option<&str>,
+) -> PyResult<(PyLens, f64, PyObject)> {
+    let mut config = AutoLensConfig::default();
+    if let Some(s) = parse_stringency(stringency)? {
+        config.stringency = s;
+    }
     let result = lens::auto_generate(
         &src_schema.inner,
         &tgt_schema.inner,
@@ -181,7 +220,29 @@ pub fn auto_generate_lens(
     let lens = PyLens {
         inner: Arc::new(result.lens),
     };
-    Ok((lens, result.alignment_quality))
+    let proposals_json = coerce_proposals_to_json(&result.coerce_proposals);
+    let proposals_py = convert::to_python(py, &proposals_json)?;
+    Ok((lens, result.alignment_quality, proposals_py))
+}
+
+/// Serialize coerce proposals as a JSON array for `to_python`.
+fn coerce_proposals_to_json(
+    proposals: &[panproto_core::mig::align::CoerceAnchor],
+) -> serde_json::Value {
+    let entries: Vec<serde_json::Value> = proposals
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "src": p.anchor.src.as_str(),
+                "tgt": p.anchor.tgt.as_str(),
+                "witness_name": p.witness_name,
+                "witness_class": p.witness_class,
+                "confidence": p.anchor.confidence,
+                "explanation": p.anchor.explanation,
+            })
+        })
+        .collect();
+    serde_json::Value::Array(entries)
 }
 
 // ---------------------------------------------------------------------------
@@ -202,12 +263,17 @@ pub struct PyProtolensChain {
 impl PyProtolensChain {
     /// Auto-generate a protolens chain between two schemas.
     #[staticmethod]
+    #[pyo3(signature = (src_schema, tgt_schema, protocol, stringency=None))]
     fn auto_generate(
         src_schema: &PySchema,
         tgt_schema: &PySchema,
         protocol: &PyProtocol,
+        stringency: Option<&str>,
     ) -> PyResult<Self> {
-        let config = AutoLensConfig::default();
+        let mut config = AutoLensConfig::default();
+        if let Some(s) = parse_stringency(stringency)? {
+            config.stringency = s;
+        }
         let result = lens::auto_generate(
             &src_schema.inner,
             &tgt_schema.inner,
@@ -222,12 +288,14 @@ impl PyProtolensChain {
 
     /// Auto-generate with morphism hints (vertex correspondences).
     #[staticmethod]
+    #[pyo3(signature = (src_schema, tgt_schema, protocol, hints, stringency=None))]
     #[allow(clippy::needless_pass_by_value)]
     fn auto_generate_with_hints(
         src_schema: &PySchema,
         tgt_schema: &PySchema,
         protocol: &PyProtocol,
         hints: std::collections::HashMap<String, String>,
+        stringency: Option<&str>,
     ) -> PyResult<Self> {
         use panproto_core::gat::Name;
 
@@ -235,7 +303,7 @@ impl PyProtolensChain {
         for (src, tgt) in &hints {
             initial.insert(Name::from(src.as_str()), Name::from(tgt.as_str()));
         }
-        let config = AutoLensConfig {
+        let mut config = AutoLensConfig {
             try_overlap: true,
             search_opts: panproto_core::mig::hom_search::SearchOptions {
                 initial,
@@ -243,6 +311,9 @@ impl PyProtolensChain {
             },
             ..Default::default()
         };
+        if let Some(s) = parse_stringency(stringency)? {
+            config.stringency = s;
+        }
         let result = lens::auto_generate(
             &src_schema.inner,
             &tgt_schema.inner,
@@ -287,10 +358,21 @@ impl PyProtolensChain {
         let (derived, domain_constraints) =
             lens::hint::resolve_hints(&parts, &src_schema.inner, &tgt_schema.inner);
 
-        let config = AutoLensConfig {
+        let mut config = AutoLensConfig {
             try_overlap: true,
             ..Default::default()
         };
+        if let Some(s) = hint_spec.stringency {
+            config.stringency = match s {
+                panproto_lens_dsl::HintStringency::Strict => Stringency::Strict,
+                panproto_lens_dsl::HintStringency::Balanced => Stringency::Balanced,
+                panproto_lens_dsl::HintStringency::Lenient => Stringency::Lenient,
+                panproto_lens_dsl::HintStringency::Exploratory => Stringency::Exploratory,
+            };
+        }
+        for cluster in &hint_spec.alias_clusters {
+            config.alias_dict.add_cluster(cluster);
+        }
 
         let result = lens::auto_generate_with_hints(
             &src_schema.inner,
@@ -444,12 +526,80 @@ pub fn pipeline(chains: Vec<PyRef<'_, PyProtolensChain>>) -> PyProtolensChain {
     }
 }
 
+/// Auto-generate up to ``top_n`` ranked candidate lenses with per-step
+/// explanations.
+///
+/// Each returned entry is a dict with fields ``quality``, ``coverage``,
+/// ``score``, ``strategies_used`` (list of strategy tag strings), and
+/// ``steps`` (list of ``{kind, explanation, confidence, strategy}``
+/// dicts). The returned list is sorted by descending composite score.
+///
+/// Parameters
+/// ----------
+/// `src_schema` : Schema
+/// `tgt_schema` : Schema
+/// protocol : Protocol
+/// `top_n` : int
+///     Maximum number of ranked candidates to return. Values < 1 are
+///     treated as 1.
+/// stringency : str, optional
+///     One of ``"strict" | "balanced" | "lenient" | "exploratory"``.
+#[pyfunction]
+#[pyo3(signature = (src_schema, tgt_schema, protocol, top_n=1, stringency=None))]
+pub fn auto_generate_lens_candidates(
+    py: Python<'_>,
+    src_schema: &PySchema,
+    tgt_schema: &PySchema,
+    protocol: &PyProtocol,
+    top_n: usize,
+    stringency: Option<&str>,
+) -> PyResult<PyObject> {
+    let mut config = AutoLensConfig::default();
+    if let Some(s) = parse_stringency(stringency)? {
+        config.stringency = s;
+    }
+    let candidates = lens::auto_generate_candidates(
+        &src_schema.inner,
+        &tgt_schema.inner,
+        &protocol.inner,
+        &config,
+        top_n,
+    )
+    .map_err(|e| {
+        crate::error::LensError::new_err(format!("auto-generate-candidates failed: {e}"))
+    })?;
+
+    convert::to_python(py, &candidates_to_json(&candidates))
+}
+
+/// Render the candidate list as JSON suitable for `to_python`.
+fn candidates_to_json(candidates: &[panproto_core::lens::LensCandidate]) -> Vec<serde_json::Value> {
+    candidates
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "quality": c.quality,
+                "coverage": c.coverage,
+                "score": c.score(),
+                "strategies_used": c.strategies_used,
+                "steps": c.steps.iter().map(|s| serde_json::json!({
+                    "kind": s.kind,
+                    "explanation": s.explanation,
+                    "confidence": s.confidence,
+                    "strategy": s.strategy,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect()
+}
+
 /// Register lens types and functions on the parent module.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_class::<PyLens>()?;
     parent.add_class::<PyComplement>()?;
     parent.add_class::<PyProtolensChain>()?;
     parent.add_function(wrap_pyfunction!(auto_generate_lens, parent)?)?;
+    parent.add_function(wrap_pyfunction!(auto_generate_lens_candidates, parent)?)?;
     parent.add_function(wrap_pyfunction!(rename_field, parent)?)?;
     parent.add_function(wrap_pyfunction!(remove_field, parent)?)?;
     parent.add_function(wrap_pyfunction!(add_field, parent)?)?;

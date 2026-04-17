@@ -1,6 +1,6 @@
 [package]
 name = "panproto-integration-tests"
-version = "0.32.0"
+version = "0.33.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -16,6 +16,7 @@ panproto-schema = { path = "../../crates/panproto-schema" }
 panproto-inst = { path = "../../crates/panproto-inst" }
 panproto-mig = { path = "../../crates/panproto-mig" }
 panproto-lens = { path = "../../crates/panproto-lens" }
+panproto-lens-dsl = { path = "../../crates/panproto-lens-dsl" }
 panproto-check = { path = "../../crates/panproto-check" }
 panproto-protocols = { path = "../../crates/panproto-protocols" }
 panproto-vcs = { path = "../../crates/panproto-vcs" }

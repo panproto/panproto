@@ -4,6 +4,38 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-04-17
+
+### Added
+
+- **panproto-lens**: `Stringency` axis (`Strict`, `Balanced`, `Lenient`, `Exploratory`) plumbed through `AutoLensConfig`, `HintSpec`, the CLI (`--stringency`), Python, WASM, and the TypeScript SDK. Each tier enables a superset of alignment strategies and coercion witnesses from the tier below; monotonicity is asserted by the corpus harness across all four tiers on every gold pair.
+- **panproto-lens / panproto-mig**: Candidate API. `auto_generate_candidates(src, tgt, protocol, config, hints, top_n)` returns a ranked `Vec<LensCandidate>` in place of the single-morphism `auto_generate`. Each candidate carries `quality`, `coverage`, per-step `confidence`, strategy provenance, and a human-readable `explanation`. Ranking uses `quality + 0.5 · coverage + 0.2 · avg_step_confidence` with deterministic tie-breaks.
+- **panproto-mig::align**: Six pluggable alignment strategies seeding the CSP with candidate anchors, each strategy in its own module with a `StrategyTag` priority:
+  - `exact` — name + kind equality (Strict+).
+  - `alias` — domain-agnostic English-language synonym clusters (`createdAt ≡ timestamp`, `uri ≡ url`, casing variants, etc.) with union-of-equivalence-classes semantics (Balanced+).
+  - `token_similarity` — camelCase/snake_case/kebab-case/acronym-aware tokenization + token Jaccard + character-bigram cosine, blended by a convex combination (Balanced+).
+  - `wrap_unwrap` — detects record flattening/nesting across a schema boundary, emitting the corresponding `HoistField`/`NestField` anchor plus a synthesized record-shape witness when appropriate (Lenient+).
+  - `type_signature` — multiset overlap on edge kind signatures; consults the sort-lens library to emit coerced anchors where a witness exists (Lenient+).
+  - `structural` — degree signatures + edge-kind Jaccard as a last-resort prior (Exploratory only).
+- **panproto-mig::coerce**: Sort coercion as a first-class categorical construction. `SortLensWitness` carries a directional lens between sort carriers with a verified `CoercionClass` (Iso, Retraction, Projection, or Opaque). The built-in `WitnessLibrary` ships 12 closed-form witnesses spanning all Int/Float/Str/Bool pairs, each with lens-law property tests. A decidable `naturality` checker validates every proposed coercion against the enclosing theory before a candidate enters the pool.
+- **panproto-lens**: `Protolens::SortCoerce` elementary variant + the `CoerceSort`/`MergeSorts` endofunctor variants in `panproto-gat`. The `endofunctor_to_protolens` dispatch realizes every coercion end-to-end through the lens engine; composition associativity and complement-coherence are preserved.
+- **panproto-lens**: Span search at `Lenient+`. `sources_without_compatible_targets` + `span_exclusions_at_lenient` produce a maximal common subtheory `C`, and `factorize` emits real `DropSort`/`AddSort` legs that compose through the existing lens category. At `Strict`/`Balanced` the engine continues to search total morphisms `A → B`.
+- **panproto-lens**: Cross-protocol autolens corpus harness under `tests/corpus/` with gold pairs spanning ATProto lexicons, SQL schemas, protobuf messages, GraphQL types, JSON-Schema documents, and tree-sitter-parsed source code. The harness runs every pair at every tier, asserts non-regression against pinned baselines, and snapshots explanations via `insta`.
+- **CLI**: `schema lens generate` gains `--stringency`, `--top-n N`, and `--explain`. The JSON output fuses candidates, coerce proposals, requirements, and fused chains into a single top-level document via `augment_json_root`. The `--stringency` flag is case-insensitive for parity with the Python and WASM bindings.
+- **panproto-py**: `auto_generate_lens(src, tgt, protocol, *, stringency=..., hints=None)` returns a `(PyLens, quality, coerce_proposals)` 3-tuple; `auto_generate_candidates(...)` returns the full candidate list with per-step dicts. `parse_stringency` trims whitespace and treats the empty string as unset.
+- **panproto-wasm**: `auto_generate_candidates(src_handle, tgt_handle, opts_json) -> Vec<u8>` returns a MessagePack-encoded `{ candidates, coerce_proposals }` wrapper; candidate fields in the wrapper use snake_case in parity with the TS type declarations.
+- **sdk/typescript**: `@panproto/core` exports `Stringency`, `HintSpec`, `CandidateResponse`, `LensCandidate`, `CandidateStep`, `CoerceProposal`, `CoercionClass`, and `StrategyTag`; `autoGenerateCandidates` and `autoGenerateWithHintSpec` wrap the WASM boundary with MessagePack. A real-WASM test suite (`sdk/typescript/tests/autolens-stringency.test.ts`) drives the end-to-end path.
+- **Genericity guardrail**: `tests/integration/tests/genericity.rs` asserts no protocol or programming-language name leaks into the generic `panproto-*` crates outside the protocols crate, with a pinned baseline ratchet.
+- **book**: Replaces the separate `tutorial/` and `dev-guide/` Quarto books with a unified mdbook under `book/`, covering foundations, core, protocols, SDKs, expression engine, VCS, and contributing. New `publish-book.yml` GitHub Actions workflow; `publish-tutorial.yml` and `publish-dev-guide.yml` removed.
+
+### Changed
+
+- **panproto-lens**: `ComplementSpec`, `DefaultRequirement`, and `CapturedField` now serialize with `#[serde(rename_all = "camelCase")]`, and `ComplementKind` with `#[serde(rename_all = "snake_case")]`, to match the field and variant naming already used by the TypeScript `ComplementSpec` contract. Previous releases emitted snake_case fields and PascalCase variants on the wire, making every TS consumer reaching for `forwardDefaults` / `capturedData` / `elementName` through the typed API observe `undefined`. A wire-format lock test (`complement_spec_wire_format_matches_ts_sdk`) pins all four variants and every field so the shape cannot silently regress. **Breaking**: any consumer that deserialized the old PascalCase/snake_case shape must update to the new shape.
+- **panproto-mig::align**: `resolve_anchors` filters NaN-confidence anchors before sorting and uses `total_cmp` on the survivors. Previous releases collapsed NaN to `Ordering::Equal` via `partial_cmp().unwrap_or(Equal)`, which broke strict-weak-ordering and let a malformed NaN-confidence `UserHint` win its slot over a finite-confidence `Alias` purely on the strategy-priority tiebreaker.
+- **panproto-gat**: `TheoryEndofunctor` variants `CoerceSort` and `MergeSorts` carry a structured `SortLensWitness` payload; `factorize` sorts `sort_renames` and `op_renames` deterministically before folding.
+- **panproto-mig::hom_search**: edge-name pruning is relaxed at `Balanced+` so alias- and token-suggested anchors can seed the CSP even when edge names disagree; naturality remains the ultimate gate.
+- **sdk/typescript**: `MigrationBuilder.invert` now remaps the Rust snake_case payload (`vertex_map`, `edge_map`, `resolver`) to the TypeScript `MigrationSpec` camelCase fields (`vertexMap`, `edgeMap`, `resolvers`). Consumers who reached for those fields through the typed API previously saw `undefined`.
+
 ## [0.32.0] - 2026-04-15
 
 ### Fixed

@@ -1,0 +1,55 @@
+name: Deploy Book
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "book/**"
+      - ".github/workflows/publish-book.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "book/**"
+      - ".github/workflows/publish-book.yml"
+
+env:
+  MDBOOK_VERSION: "0.5.2"
+  MDBOOK_MERMAID_VERSION: "0.17.0"
+  MDBOOK_KATEX_VERSION: "0.10.0-alpha"
+  MDBOOK_BIB_VERSION: "0.5.2"
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache mdbook binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: mdbook-${{ env.MDBOOK_VERSION }}-mermaid-${{ env.MDBOOK_MERMAID_VERSION }}-katex-${{ env.MDBOOK_KATEX_VERSION }}-bib-${{ env.MDBOOK_BIB_VERSION }}
+
+      - name: Install mdbook and preprocessors
+        run: |
+          test -x ~/.cargo/bin/mdbook           || cargo install mdbook           --version ${{ env.MDBOOK_VERSION }}        --locked
+          test -x ~/.cargo/bin/mdbook-mermaid   || cargo install mdbook-mermaid   --version ${{ env.MDBOOK_MERMAID_VERSION }} --locked
+          test -x ~/.cargo/bin/mdbook-katex     || cargo install mdbook-katex     --version ${{ env.MDBOOK_KATEX_VERSION }}   --locked
+          test -x ~/.cargo/bin/mdbook-bib       || cargo install mdbook-bib       --version ${{ env.MDBOOK_BIB_VERSION }}     --locked
+
+      - name: Build book
+        run: mdbook build book
+
+      - name: Deploy to panproto/book repo
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.BOOK_DEPLOY_KEY }}
+          external_repository: panproto/book
+          publish_branch: main
+          publish_dir: book/book

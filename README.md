@@ -108,8 +108,10 @@ report = diff.classify(proto)
 print(report.compatible)       # True/False
 print(report.report_text())    # human-readable summary
 
-# Auto-generate a converter between two schema versions
-lens, quality = panproto.auto_generate_lens(old_schema, new_schema, proto)
+# Auto-generate a converter between two schema versions.
+# The third element, `coerce_proposals`, is empty unless the call passes
+# `stringency="exploratory"`.
+lens, quality, coerce_proposals = panproto.auto_generate_lens(old_schema, new_schema, proto)
 view, complement = lens.get(instance)
 ```
 
@@ -246,8 +248,7 @@ maturin develop --manifest-path crates/panproto-py/Cargo.toml
 
 ## Documentation
 
-- [Tutorial](https://panproto.dev/tutorial/): 22-chapter guide from first schema to automatic migration
-- [Dev Guide](https://panproto.dev/dev-guide/): internals, algorithms, and architecture
+- [The panproto book](https://panproto.dev/book/): the complete reference, from the mathematical foundations (categories, GATs, colimits, lenses) through the Rust implementation, the expression language, the protocol catalogue, schematic version control, the SDKs, and a contributor guide.
 - [API Reference (docs.rs)](https://docs.rs/panproto-core)
 
 ## Acknowledgments

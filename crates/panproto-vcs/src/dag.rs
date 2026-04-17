@@ -88,8 +88,8 @@ pub fn merge_base(
 
     // 4. Deterministic pick: highest timestamp, then lexicographic ObjectId.
     Ok(lcas.into_iter().max_by(|x, y| {
-        let tx = get_commit(store, *x).map(|c| c.timestamp).unwrap_or(0);
-        let ty = get_commit(store, *y).map(|c| c.timestamp).unwrap_or(0);
+        let tx = get_commit(store, *x).map_or(0, |c| c.timestamp);
+        let ty = get_commit(store, *y).map_or(0, |c| c.timestamp);
         tx.cmp(&ty).then_with(|| x.cmp(y))
     }))
 }

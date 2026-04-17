@@ -1,0 +1,4 @@
+# Genericity guardrail baseline.
+# Programming-language identifier leakage, pinned to current tree.
+# Each line is `<relative-path>\t<term>`. The test fails if the set grows.
+# Regenerate by running with UPDATE_GENERICITY_BASELINE=1.

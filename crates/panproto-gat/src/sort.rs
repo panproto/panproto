@@ -574,4 +574,26 @@ mod tests {
             CoercionClass::Opaque,
         );
     }
+
+    #[test]
+    fn coercion_class_serde_wire_format_is_pascal_case() {
+        // `CoercionClass` uses the default serde representation (no
+        // `rename_all` attribute). The TypeScript `CoercionClass` and
+        // Python string decoders MUST match this exactly; if anyone ever
+        // adds `#[serde(rename_all = ...)]` to the enum, every SDK
+        // consumer would silently start seeing a different string and
+        // drop the field. This test locks the wire format.
+        let cases = [
+            (CoercionClass::Iso, "\"Iso\""),
+            (CoercionClass::Retraction, "\"Retraction\""),
+            (CoercionClass::Projection, "\"Projection\""),
+            (CoercionClass::Opaque, "\"Opaque\""),
+        ];
+        for (value, expected) in cases {
+            match serde_json::to_string(&value) {
+                Ok(s) => assert_eq!(s, expected, "unexpected wire format"),
+                Err(e) => panic!("serde failed to serialize a plain enum: {e}"),
+            }
+        }
+    }
 }

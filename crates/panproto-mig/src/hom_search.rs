@@ -22,6 +22,7 @@ use panproto_schema::{Edge, Schema};
 
 /// Options controlling the homomorphism search.
 #[derive(Clone, Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SearchOptions {
     /// Require injective vertex map (no two source vertices map to
     /// the same target vertex).
@@ -35,6 +36,12 @@ pub struct SearchOptions {
     /// Pre-assigned vertex mappings. The search extends this partial
     /// morphism to a total one.
     pub initial: HashMap<Name, Name>,
+    /// When `true`, the CSP relaxes its hard edge-name overlap pruning
+    /// for object vertices with large candidate domains. Kind-compatible
+    /// targets are kept even when they share no outgoing edge name with
+    /// the source vertex. Naturality is still enforced during
+    /// backtracking.
+    pub relax_edge_name_pruning: bool,
 }
 
 /// Additional domain restrictions and scoring overrides for the CSP solver.
@@ -96,12 +103,12 @@ pub fn find_morphisms(src: &Schema, tgt: &Schema, opts: &SearchOptions) -> Vec<F
 
     backtrack(&mut state, 0, &mut results, opts);
 
-    // Sort by quality descending
-    results.sort_by(|a, b| {
-        b.quality
-            .partial_cmp(&a.quality)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Sort by quality descending. `total_cmp` is a total order on f64
+    // (it distinguishes +0 from -0 and handles NaN) so ties are never
+    // collapsed to `Equal` the way `partial_cmp().unwrap_or(Equal)`
+    // would; that collapse lets the sort retain the randomized arrival
+    // order of results when two morphisms share a quality.
+    results.sort_by(|a, b| b.quality.total_cmp(&a.quality));
 
     if opts.max_results > 0 {
         results.truncate(opts.max_results);
@@ -158,11 +165,8 @@ pub fn find_morphisms_constrained(
     let weights = constraints.scoring_weights.unwrap_or(DEFAULT_WEIGHTS);
     backtrack_weighted(&mut state, 0, &mut results, opts, weights);
 
-    results.sort_by(|a, b| {
-        b.quality
-            .partial_cmp(&a.quality)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // See `find_morphisms` for the rationale on `total_cmp`.
+    results.sort_by(|a, b| b.quality.total_cmp(&a.quality));
 
     if opts.max_results > 0 {
         results.truncate(opts.max_results);
@@ -238,12 +242,22 @@ impl<'a> BacktrackState<'a> {
                         .filter(|(_, tv)| tv.kind == src_vertex.kind)
                         .map(|(tid, _)| tid.clone())
                         .collect();
+                    // `tgt.vertices` is a HashMap with a randomized hasher;
+                    // iterating it directly lets the candidate order drift
+                    // across runs, which in turn drifts the CSP
+                    // backtracking order and the composite-score tiebreak
+                    // between equally-qualified morphisms. Pin it by name.
+                    candidates.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
                     // Property-name domain pruning: for "object" vertices with
                     // large domains, restrict to targets sharing ≥1 edge name.
                     // This anchors alignment on shared structure (e.g., both
-                    // have byteStart/byteEnd children).
-                    if candidates.len() > 5 {
+                    // have byteStart/byteEnd children). Skipped when
+                    // `relax_edge_name_pruning` is set: callers who supplied
+                    // alias/token-similarity anchors don't want the CSP
+                    // pruning out kind-compatible candidates that the
+                    // strategies seeded.
+                    if candidates.len() > 5 && !opts.relax_edge_name_pruning {
                         let src_edge_names: std::collections::HashSet<&str> = src
                             .outgoing_edges(src_id)
                             .iter()
@@ -311,8 +325,14 @@ impl<'a> BacktrackState<'a> {
             }
         }
 
-        // MRV order: sort source vertices by domain size (smallest first)
+        // MRV order: sort source vertices by domain size (smallest first).
+        // `domains` is a HashMap, so collecting its keys gives a
+        // randomized order; `sort_by_key` is stable, so ties on
+        // `domain.len()` would otherwise retain that randomized order
+        // and drift the backtracking exploration across runs. Pre-sort
+        // by name to lock the tiebreak, then re-sort by domain length.
         let mut order: Vec<Name> = domains.keys().cloned().collect();
+        order.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         order.sort_by_key(|v| domains.get(v).map_or(0, Vec::len));
 
         let assignment: HashMap<Name, Name> = opts.initial.clone();
@@ -604,10 +624,20 @@ fn compute_quality_weighted(
         return 1.0;
     }
 
+    // IEEE-754 f64 addition is not associative, so summing over a
+    // `HashMap` (randomized iteration order) would let the least
+    // significant bits of each component score drift across process
+    // instances. Two morphisms whose true scores differ only at the
+    // lsb would then swap sort order nondeterministically. Sort the
+    // vertex pairs once by source name so every reduction below runs
+    // in a canonical order.
+    let mut vm_pairs: Vec<(&Name, &Name)> = vertex_map.iter().collect();
+    vm_pairs.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+
     // 1. Name similarity component (weight 0.25)
     let name_score: f64 = {
         let mut total = 0.0;
-        for (src_id, tgt_id) in vertex_map {
+        for (src_id, tgt_id) in &vm_pairs {
             let dist = edit_distance(src_id.as_str(), tgt_id.as_str());
             let max_len = src_id.len().max(tgt_id.len()).max(1);
             #[allow(clippy::cast_precision_loss)]
@@ -639,7 +669,7 @@ fn compute_quality_weighted(
     let prop_score: f64 = {
         let mut total = 0.0;
         let mut count = 0;
-        for (src_id, tgt_id) in vertex_map {
+        for (src_id, tgt_id) in &vm_pairs {
             let src_names: std::collections::HashSet<&str> = src
                 .outgoing_edges(src_id)
                 .iter()
@@ -672,7 +702,7 @@ fn compute_quality_weighted(
     // 4. Degree similarity (weight 0.2)
     let degree_score: f64 = {
         let mut total = 0.0;
-        for (src_id, tgt_id) in vertex_map {
+        for (src_id, tgt_id) in &vm_pairs {
             let src_deg = src.outgoing_edges(src_id).len();
             let tgt_deg = tgt.outgoing_edges(tgt_id).len();
             let max_deg = src_deg.max(tgt_deg);
@@ -1020,5 +1050,148 @@ mod tests {
             m.vertex_map.get("root.name").map(Name::as_str),
             Some("root.name")
         );
+    }
+
+    #[test]
+    fn relax_edge_name_pruning_rescues_valid_target_with_disjoint_edge_names() {
+        // Build a source "root" object with >5 candidate targets, all
+        // kind-compatible but sharing zero edge-name overlap with the
+        // source's outgoing edges. With the pruner on (relax=false)
+        // the pruner suppresses them all because none share an edge
+        // name. With relax=true the candidates survive and a morphism
+        // is found.
+        let src = build_schema(
+            &[
+                ("s_root", "object"),
+                ("s_a", "string"),
+                ("s_b", "string"),
+                ("s_c", "string"),
+                ("s_d", "string"),
+                ("s_e", "string"),
+                ("s_f", "string"),
+            ],
+            &[
+                ("s_root", "s_a", "prop", "src_alpha"),
+                ("s_root", "s_b", "prop", "src_beta"),
+                ("s_root", "s_c", "prop", "src_gamma"),
+                ("s_root", "s_d", "prop", "src_delta"),
+                ("s_root", "s_e", "prop", "src_epsilon"),
+                ("s_root", "s_f", "prop", "src_zeta"),
+            ],
+        );
+        // Target objects (>5) each with a disjoint set of edge names:
+        // no overlap with the source's `src_*` names.
+        let tgt = build_schema(
+            &[
+                ("t_root_a", "object"),
+                ("t_root_b", "object"),
+                ("t_root_c", "object"),
+                ("t_root_d", "object"),
+                ("t_root_e", "object"),
+                ("t_root_f", "object"),
+                ("t_leaf_a", "string"),
+                ("t_leaf_b", "string"),
+                ("t_leaf_c", "string"),
+                ("t_leaf_d", "string"),
+                ("t_leaf_e", "string"),
+                ("t_leaf_f", "string"),
+            ],
+            &[
+                ("t_root_a", "t_leaf_a", "prop", "tgt_one"),
+                ("t_root_b", "t_leaf_b", "prop", "tgt_two"),
+                ("t_root_c", "t_leaf_c", "prop", "tgt_three"),
+                ("t_root_d", "t_leaf_d", "prop", "tgt_four"),
+                ("t_root_e", "t_leaf_e", "prop", "tgt_five"),
+                ("t_root_f", "t_leaf_f", "prop", "tgt_six"),
+            ],
+        );
+
+        // Strict-style pruner ON: no morphism honors all source edges,
+        // so the CSP cannot extend to a total assignment via pruned
+        // object domains. Best-found (if any) is low quality.
+        let strict_opts = SearchOptions::default();
+        let strict = find_best_morphism(&src, &tgt, &strict_opts);
+
+        // Relaxed: kind-compatible targets are preserved even with no
+        // edge-name overlap; the CSP can now explore them.
+        let relaxed_opts = SearchOptions {
+            relax_edge_name_pruning: true,
+            ..Default::default()
+        };
+        let relaxed = find_best_morphism(&src, &tgt, &relaxed_opts);
+
+        assert!(
+            relaxed.is_some(),
+            "relaxed pruning should find a morphism between kind-compatible schemas"
+        );
+        if let (Some(s), Some(r)) = (strict.as_ref(), relaxed.as_ref()) {
+            assert!(
+                r.vertex_map.len() >= s.vertex_map.len(),
+                "relaxed pruning should match at least as many vertices"
+            );
+        }
+    }
+
+    #[test]
+    fn relax_edge_name_pruning_composes_with_excluded_sources() {
+        // When `relax_edge_name_pruning` is on AND `excluded_sources`
+        // names some source vertices, the CSP must (a) keep
+        // kind-compatible candidates that would otherwise be pruned
+        // for lack of edge-name overlap, AND (b) still drop the named
+        // source vertices from every domain.
+        let src = build_schema(
+            &[
+                ("s_root", "object"),
+                ("s_a", "string"),
+                ("s_b", "string"),
+                ("s_c", "string"),
+                ("s_d", "string"),
+                ("s_e", "string"),
+                ("s_f", "string"),
+                ("s_excluded", "string"),
+            ],
+            &[
+                ("s_root", "s_a", "prop", "src_alpha"),
+                ("s_root", "s_b", "prop", "src_beta"),
+                ("s_root", "s_c", "prop", "src_gamma"),
+                ("s_root", "s_d", "prop", "src_delta"),
+                ("s_root", "s_e", "prop", "src_epsilon"),
+                ("s_root", "s_f", "prop", "src_zeta"),
+                ("s_root", "s_excluded", "prop", "src_excluded"),
+            ],
+        );
+        let tgt = build_schema(
+            &[
+                ("t_root_a", "object"),
+                ("t_root_b", "object"),
+                ("t_root_c", "object"),
+                ("t_root_d", "object"),
+                ("t_root_e", "object"),
+                ("t_root_f", "object"),
+                ("t_leaf_a", "string"),
+                ("t_leaf_b", "string"),
+            ],
+            &[
+                ("t_root_a", "t_leaf_a", "prop", "tgt_one"),
+                ("t_root_b", "t_leaf_b", "prop", "tgt_two"),
+            ],
+        );
+        let opts = SearchOptions {
+            relax_edge_name_pruning: true,
+            ..Default::default()
+        };
+        let mut constraints = DomainConstraints::default();
+        constraints
+            .excluded_sources
+            .insert(Name::from("s_excluded"));
+        let results = find_morphisms_constrained(&src, &tgt, &opts, &constraints);
+        // Relaxation must not reintroduce the excluded source.
+        for r in &results {
+            assert!(
+                !r.vertex_map.contains_key(&Name::from("s_excluded")),
+                "excluded_sources must win over relax_edge_name_pruning; \
+                 vertex_map leaked excluded source"
+            );
+        }
     }
 }

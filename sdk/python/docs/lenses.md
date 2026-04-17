@@ -24,9 +24,12 @@ Given source and target schemas, panproto finds the best morphism alignment, fac
 ```python
 import panproto
 
-lens, quality = panproto.auto_generate_lens(src_schema, tgt_schema, protocol)
-print(quality)   # alignment quality score, 0.0 to 1.0
+lens, quality, coerce_proposals = panproto.auto_generate_lens(src_schema, tgt_schema, protocol)
+print(quality)            # alignment quality score, 0.0 to 1.0
+print(coerce_proposals)   # empty below the `exploratory` stringency tier
 ```
+
+Pass `stringency="exploratory"` to surface sort-coercion proposals (each a dict with `src`, `tgt`, `witness_name`, `witness_class`, `confidence`, `explanation`). The default tier is `balanced`, which returns an empty `coerce_proposals` list.
 
 ## Get and put
 
