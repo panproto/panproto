@@ -73,6 +73,12 @@ describe('schema_metadata', () => {
       expect(typeof e.tgt).toBe('string');
       expect(typeof e.kind).toBe('string');
     }
+    // At least one `prop` edge must carry its JSON property name: this
+    // is the `EdgeMeta.name` field whose encoding is independent of the
+    // `src/tgt/kind` trio, and was the one most likely to be silently
+    // dropped by a tuple-encoded `SchemaMeta`.
+    const propEdge = schema.edges.find((e) => e.kind === 'prop');
+    expect(propEdge?.name).toBe('text');
   });
 });
 
@@ -149,7 +155,7 @@ describe('CompiledMigration JSON wrappers', () => {
 // ---------------------------------------------------------------------------
 
 describe('CompiledMigration.get', () => {
-  it('returns { view, complement } by named fields for WInstance input', () => {
+  const buildIdentity = () => {
     const atp = pp.protocol('atproto');
     const schema = atp
       .schema()
@@ -165,10 +171,107 @@ describe('CompiledMigration.get', () => {
       .map('r:body', 'r:body')
       .map('r:body.x', 'r:body.x')
       .compile();
+    return { schema, mig };
+  };
+
+  it('returns { view, complement } by named fields for WInstance input', () => {
+    const { schema, mig } = buildIdentity();
     const inst = pp.parseJson(schema, JSON.stringify({ x: 'hi' }));
     const result = mig.get(inst);
     expect(result.view).toBeDefined();
     expect(result.complement).toBeInstanceOf(Uint8Array);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// invert_migration — fixed site: api/lens.rs (Migration, snake_case in Rust)
+// The TS wrapper must remap snake_case wire fields to camelCase
+// `MigrationSpec`; otherwise consumers see `undefined` when they reach for
+// `.vertexMap` / `.edgeMap`.
+// ---------------------------------------------------------------------------
+
+describe('MigrationBuilder.invert', () => {
+  it('returns a MigrationSpec with camelCase field names populated', () => {
+    const atp = pp.protocol('atproto');
+    const schema = atp
+      .schema()
+      .vertex('r', 'record', { nsid: 'local.regression.invert' })
+      .vertex('r:body', 'object')
+      .vertex('r:body.x', 'string')
+      .edge('r', 'r:body', 'record-schema')
+      .edge('r:body', 'r:body.x', 'prop', { name: 'x' })
+      .build();
+
+    // Edges must be mapped too; the inverter rejects migrations that
+    // drop any edge (inversion would be non-bijective).
+    const edges = schema.edges;
+    const recordSchema = edges.find((e) => e.kind === 'record-schema')!;
+    const propX = edges.find((e) => e.kind === 'prop' && e.name === 'x')!;
+    const builder = pp
+      .migration(schema, schema)
+      .map('r', 'r')
+      .map('r:body', 'r:body')
+      .map('r:body.x', 'r:body.x')
+      .mapEdge(recordSchema, recordSchema)
+      .mapEdge(propX, propX);
+
+    const inverted = builder.invert();
+
+    // If the snake→camel remap inside `invert()` regresses, these keys
+    // will be `undefined` and the test will fail loudly instead of
+    // silently typing as a phantom `MigrationSpec`.
+    expect(inverted.vertexMap).toBeDefined();
+    expect(typeof inverted.vertexMap).toBe('object');
+    expect(inverted.edgeMap).toBeDefined();
+    expect(Array.isArray(inverted.edgeMap)).toBe(true);
+    expect(inverted.resolvers).toBeDefined();
+
+    // Inverse of an identity is still an identity on at least one vertex.
+    expect(Object.keys(inverted.vertexMap).length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lens-law checkers — fixed sites: api/lens.rs (LawCheckResult struct used
+// by check_lens_laws, check_get_put, check_put_get). Each returns
+// `{ holds, violation }` and is read by field name in `src/lens.ts`.
+// ---------------------------------------------------------------------------
+
+describe('Lens-law checkers', () => {
+  it('check_lens_laws / check_get_put / check_put_get return { holds, violation } by name', async () => {
+    const { unpackFromWasm } = await import('../src/msgpack.js');
+    const atp = pp.protocol('atproto');
+    const schema = atp
+      .schema()
+      .vertex('r', 'record', { nsid: 'local.regression.laws' })
+      .vertex('r:body', 'object')
+      .vertex('r:body.x', 'string')
+      .edge('r', 'r:body', 'record-schema')
+      .edge('r:body', 'r:body.x', 'prop', { name: 'x' })
+      .build();
+    const mig = pp
+      .migration(schema, schema)
+      .map('r', 'r')
+      .map('r:body', 'r:body')
+      .map('r:body.x', 'r:body.x')
+      .compile();
+    const inst = pp.parseJson(schema, JSON.stringify({ x: 'hi' }));
+
+    // `LawCheckResult` lives on `LensHandle` in the TS SDK today; the
+    // WASM exports take a migration handle directly. We call them here
+    // the same way the SDK would, so the regression signal is identical:
+    // tuple-encoded `LawCheckResult` makes `.holds` undefined and the
+    // assertion fires.
+    for (const fn of [
+      pp._wasm.exports.check_lens_laws,
+      pp._wasm.exports.check_get_put,
+      pp._wasm.exports.check_put_get,
+    ]) {
+      const bytes = fn(mig._handle.id, inst._bytes);
+      const check = unpackFromWasm<{ holds: boolean; violation: string | null }>(bytes);
+      expect(typeof check.holds).toBe('boolean');
+      expect(check).toHaveProperty('violation');
+    }
   });
 });
 

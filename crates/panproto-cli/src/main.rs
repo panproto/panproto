@@ -924,11 +924,14 @@ enum LensAction {
         hints: Option<PathBuf>,
         /// Stringency tier governing which alignment strategies run.
         ///
+        /// Accepted case-insensitively for parity with the Python and
+        /// WASM bindings, both of which trim and lowercase their input.
+        ///
         /// `strict` — only kind-exact name equality.
         /// `balanced` — alias dictionary + tight token similarity (default).
         /// `lenient` — span-search and structural priors.
         /// `exploratory` — lossy retraction witnesses and LM priors.
-        #[arg(long, value_name = "TIER")]
+        #[arg(long, value_name = "TIER", ignore_case = true)]
         stringency: Option<StringencyArg>,
         /// Emit up to N ranked candidate lenses instead of the single
         /// best one. Output format switches to a JSON array when
@@ -1684,8 +1687,8 @@ fn dispatch_git_commands(action: GitAction, verbose: bool) -> Result<()> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use super::{Stringency, StringencyArg};
-    use clap::ValueEnum;
+    use super::{Cli, Stringency, StringencyArg};
+    use clap::{Parser, ValueEnum};
 
     /// `--stringency` is rendered by `clap` with `rename_all =
     /// "snake_case"`, so the four accepted tokens must be exactly
@@ -1700,24 +1703,50 @@ mod tests {
             ("exploratory", Stringency::Exploratory),
         ];
         for (token, expected) in cases {
-            let parsed = StringencyArg::from_str(token, true)
+            // `ignore_case = false` here because the fallback lowercase
+            // token MUST parse without the case-insensitivity escape
+            // hatch — that path locks in the serde wire format.
+            let parsed = StringencyArg::from_str(token, false)
                 .unwrap_or_else(|e| panic!("clap rejected `{token}`: {e}"));
             let engine: Stringency = parsed.into();
             assert_eq!(engine, expected, "{token} should map to {expected:?}");
         }
     }
 
+    /// True parity check with Python/WASM: the CLI must accept every
+    /// tier case-insensitively so a user scripting all three SDKs with
+    /// the same literal `"Strict"` or `"STRICT"` sees consistent
+    /// behaviour. Earlier passes' unit test used `from_str(.., true)`,
+    /// which sidestepped the real clap integration (the attribute
+    /// `ignore_case` defaults to `false`). Drive the full parser here
+    /// so a future change that drops `ignore_case = true` on the
+    /// `#[arg]` attribute regresses this test instead of silently
+    /// re-introducing the case-sensitivity parity gap.
+    #[test]
+    fn cli_stringency_flag_is_case_insensitive_for_parity_with_py_and_wasm() {
+        for token in ["strict", "Strict", "STRICT", "StRiCt"] {
+            let parsed = Cli::try_parse_from([
+                "schema",
+                "lens",
+                "generate",
+                "a.json",
+                "b.json",
+                "--protocol",
+                "atproto",
+                "--stringency",
+                token,
+            ]);
+            assert!(
+                parsed.is_ok(),
+                "CLI must accept `--stringency {token}` case-insensitively for parity with Python/WASM; got {:?}",
+                parsed.as_ref().err().map(ToString::to_string),
+            );
+        }
+    }
+
     #[test]
     fn stringency_arg_rejects_unknown_tokens() {
-        for bad in ["loose", "STRICT", "", "balanced_plus"] {
-            // clap with `rename_all = "snake_case"` accepts exact
-            // lowercase match only when called via `from_str(.., true)`
-            // (case-insensitive). Only entirely unknown tokens must err.
-            if matches!(bad, "STRICT") {
-                // case-insensitive lookup: this is a valid alias for
-                // `strict` through clap's ValueEnum contract; skip.
-                continue;
-            }
+        for bad in ["loose", "", "balanced_plus"] {
             assert!(
                 StringencyArg::from_str(bad, true).is_err(),
                 "clap should reject `{bad}`",

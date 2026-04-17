@@ -170,7 +170,21 @@ export class MigrationBuilder {
         this.#src._handle.id,
         this.#tgt._handle.id,
       );
-      return unpackFromWasm<MigrationSpec>(resultBytes);
+      // Rust emits snake_case field names (`vertex_map`, `edge_map`,
+      // `resolver`) via serde + `to_vec_named`. The TS-facing
+      // `MigrationSpec` uses camelCase. Without this remap, the fields
+      // would be present on the object but unreachable through the
+      // typed API, and consumers would see `undefined` everywhere.
+      const raw = unpackFromWasm<{
+        vertex_map: Readonly<Record<string, string>>;
+        edge_map: readonly [Edge, Edge][];
+        resolver: readonly [[string, string], Edge][];
+      }>(resultBytes);
+      return {
+        vertexMap: raw.vertex_map,
+        edgeMap: raw.edge_map,
+        resolvers: raw.resolver,
+      };
     } catch (error) {
       throw new MigrationError(
         `Failed to invert migration: ${error instanceof Error ? error.message : String(error)}`,
