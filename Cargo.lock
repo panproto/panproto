@@ -1844,6 +1844,7 @@ dependencies = [
  "panproto-gat",
  "panproto-inst",
  "panproto-lens",
+ "panproto-lens-dsl",
  "panproto-mig",
  "panproto-protocols",
  "panproto-schema",

@@ -38,7 +38,12 @@ pub fn structural_anchors(src: &Schema, tgt: &Schema, confidence_floor: f64) -> 
         .collect();
 
     let mut out = Vec::new();
-    for src_id in src.vertices.keys() {
+    let mut src_ids: Vec<&Name> = src.vertices.keys().collect();
+    src_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    let mut tgt_ids: Vec<&Name> = tgt.vertices.keys().collect();
+    tgt_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+
+    for src_id in src_ids.iter().copied() {
         let Some(src_p) = src_profiles.get(src_id) else {
             continue;
         };
@@ -47,7 +52,7 @@ pub fn structural_anchors(src: &Schema, tgt: &Schema, confidence_floor: f64) -> 
         }
 
         let mut best: Option<(Name, f64)> = None;
-        for tgt_id in tgt.vertices.keys() {
+        for tgt_id in tgt_ids.iter().copied() {
             if !kinds_compatible(src, src_id, tgt, tgt_id) {
                 continue;
             }
@@ -267,6 +272,118 @@ mod tests {
                 && !a.tgt.as_str().starts_with("omega.")),
             "high floor should suppress the mismatched root pairing: {anchors:?}"
         );
+    }
+
+    #[test]
+    fn similarity_detects_degree_asymmetry() {
+        // Vertex a: all incoming, no outgoing (sink).
+        // Vertex b: all outgoing, no incoming (source).
+        // Their degree profiles are mirror images; similarity should be
+        // low because the min/max ratio on each side is 0/something.
+        let sink = VertexProfile {
+            out_deg: 0,
+            in_deg: 3,
+            out_kinds: HashMap::new(),
+            in_kinds: {
+                let mut m = HashMap::new();
+                m.insert("prop".to_owned(), 3);
+                m
+            },
+        };
+        let source = VertexProfile {
+            out_deg: 3,
+            in_deg: 0,
+            out_kinds: {
+                let mut m = HashMap::new();
+                m.insert("prop".to_owned(), 3);
+                m
+            },
+            in_kinds: HashMap::new(),
+        };
+        let s = similarity(&sink, &source);
+        // degree_similarity(0,3) = 0, degree_similarity(3,0) = 0.
+        // kind_sim: out: one empty, one nonempty → jaccard 0; in: same.
+        // Total: 0.5*0 + 0.5*0 = 0.
+        assert!(s < 0.1, "sink vs source must score very low: {s}");
+    }
+
+    #[test]
+    fn multiset_jaccard_empty_nonempty() {
+        let empty: HashMap<String, usize> = HashMap::new();
+        let mut m = HashMap::new();
+        m.insert("prop".to_owned(), 1);
+        // union=1 intersection=0 → 0.0.
+        assert_eq!(multiset_jaccard(&empty, &m), 0.0);
+        assert_eq!(multiset_jaccard(&empty, &empty), 1.0);
+    }
+
+    #[test]
+    fn structural_anchors_leaf_only_schema_has_no_anchors() {
+        // Single isolated vertex: out_deg + in_deg == 0, strategy skips.
+        let src = build(&[("x", "string")], &[]);
+        let tgt = build(&[("y", "string")], &[]);
+        assert!(structural_anchors(&src, &tgt, 0.5).is_empty());
+    }
+
+    #[test]
+    fn structural_anchors_deterministic() {
+        let perms: [&[(&str, &str)]; 2] = [
+            &[
+                ("aa", "object"),
+                ("bb", "object"),
+                ("aa.x", "string"),
+                ("bb.x", "string"),
+            ],
+            &[
+                ("bb", "object"),
+                ("aa", "object"),
+                ("bb.x", "string"),
+                ("aa.x", "string"),
+            ],
+        ];
+        let tgt = build(
+            &[("tt", "object"), ("tt.x", "string")],
+            &[("tt", "tt.x", "prop", "x")],
+        );
+        let mut results = Vec::new();
+        for verts in perms {
+            let edges: Vec<(&str, &str, &str, &str)> = verts
+                .iter()
+                .filter(|(id, _)| !id.contains('.'))
+                .map(|(id, _)| {
+                    (
+                        *id,
+                        Box::leak(format!("{id}.x").into_boxed_str()) as &str,
+                        "prop",
+                        "x",
+                    )
+                })
+                .collect();
+            let src = build(verts, &edges);
+            let anchors = structural_anchors(&src, &tgt, 0.5);
+            let mut pairs: Vec<_> = anchors
+                .iter()
+                .map(|a| (a.src.as_str().to_owned(), a.tgt.as_str().to_owned()))
+                .collect();
+            pairs.sort();
+            results.push(pairs);
+        }
+        assert_eq!(results[0], results[1]);
+    }
+
+    #[test]
+    fn structural_anchors_emit_kind_compatible_only() {
+        let src = build(
+            &[("r", "object"), ("r.x", "string")],
+            &[("r", "r.x", "prop", "x")],
+        );
+        let tgt = build(
+            &[("r", "object"), ("r.x", "string")],
+            &[("r", "r.x", "prop", "x")],
+        );
+        for anchor in structural_anchors(&src, &tgt, 0.5) {
+            assert!(kinds_compatible(&src, &anchor.src, &tgt, &anchor.tgt));
+        }
     }
 
     #[test]

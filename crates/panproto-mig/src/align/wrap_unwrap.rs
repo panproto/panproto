@@ -64,7 +64,10 @@ pub fn wrap_unwrap_anchors(src: &Schema, tgt: &Schema) -> Vec<Anchor> {
 fn detect_one_direction(flat: &Schema, wrapped: &Schema, swap: bool) -> Vec<Anchor> {
     let mut out = Vec::new();
 
-    for flat_parent in flat.vertices.keys() {
+    let mut flat_parents: Vec<&Name> = flat.vertices.keys().collect();
+    flat_parents.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+
+    for flat_parent in flat_parents {
         let flat_edges = flat.outgoing_edges(flat_parent);
         if flat_edges.len() < 2 {
             continue;
@@ -77,7 +80,10 @@ fn detect_one_direction(flat: &Schema, wrapped: &Schema, swap: bool) -> Vec<Anch
             continue;
         }
 
-        for (prefix, flat_group) in &groups {
+        let mut group_keys: Vec<&String> = groups.keys().collect();
+        group_keys.sort();
+        for prefix in group_keys {
+            let flat_group = &groups[prefix];
             if flat_group.len() < 2 {
                 continue;
             }
@@ -209,15 +215,18 @@ fn split_prefix_suffix(name: &str) -> Option<(&str, &str)> {
 /// (e.g. `post` vs `post.body`) still register. The caller checks kind
 /// compatibility before emitting anchors.
 fn candidate_wrap_parents(wrapped: &Schema, flat_parent: &Name) -> Option<Vec<Name>> {
-    let mut out: Vec<Name> = wrapped
-        .vertices
-        .keys()
+    let mut ids: Vec<&Name> = wrapped.vertices.keys().collect();
+    ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+
+    let mut out: Vec<Name> = ids
+        .iter()
+        .copied()
         .filter(|id| id.as_str() == flat_parent.as_str())
         .cloned()
         .collect();
 
     if out.is_empty() {
-        for id in wrapped.vertices.keys() {
+        for id in ids {
             if token_similarity(id.as_str(), flat_parent.as_str()) > 0.6 {
                 out.push(id.clone());
             }
@@ -308,6 +317,107 @@ mod tests {
             b = b.edge(src, tgt, kind, Some(*name)).unwrap();
         }
         b.build().unwrap()
+    }
+
+    #[test]
+    fn split_prefix_suffix_edge_cases() {
+        assert_eq!(split_prefix_suffix(""), None);
+        assert_eq!(split_prefix_suffix("a"), None);
+        assert_eq!(split_prefix_suffix("ab"), None);
+        // Leading separator: index 0 is skipped, no other separator → None.
+        assert_eq!(split_prefix_suffix("_abc"), None);
+        // Trailing separator: last index skipped → None.
+        assert_eq!(split_prefix_suffix("abc_"), None);
+        // aB: underscore-loop skips (i==len-1); camelCase loop splits at 'B'.
+        assert_eq!(split_prefix_suffix("aB"), Some(("a", "B")));
+        // ABC: all uppercase, no lower→upper transition → None.
+        assert_eq!(split_prefix_suffix("ABC"), None);
+        // camelCase with lower-upper boundary.
+        assert_eq!(split_prefix_suffix("abCd"), Some(("ab", "Cd")));
+    }
+
+    #[test]
+    fn wrap_unwrap_leaf_only_schema() {
+        let a = build_schema(&[("x", "string")], &[]);
+        let b = build_schema(&[("y", "string")], &[]);
+        assert!(wrap_unwrap_anchors(&a, &b).is_empty());
+    }
+
+    #[test]
+    fn wrap_unwrap_anchors_are_kind_compatible() {
+        let flat = build_schema(
+            &[
+                ("root", "object"),
+                ("root.uri", "string"),
+                ("root.cid", "string"),
+            ],
+            &[
+                ("root", "root.uri", "prop", "subject_uri"),
+                ("root", "root.cid", "prop", "subject_cid"),
+            ],
+        );
+        let wrapped = build_schema(
+            &[
+                ("root", "object"),
+                ("root.subject", "object"),
+                ("root.subject.uri", "string"),
+                ("root.subject.cid", "string"),
+            ],
+            &[
+                ("root", "root.subject", "prop", "subject"),
+                ("root.subject", "root.subject.uri", "prop", "uri"),
+                ("root.subject", "root.subject.cid", "prop", "cid"),
+            ],
+        );
+        for anchor in wrap_unwrap_anchors(&flat, &wrapped) {
+            assert!(kinds_compatible(&flat, &anchor.src, &wrapped, &anchor.tgt));
+        }
+    }
+
+    #[test]
+    fn wrap_unwrap_deterministic_emission() {
+        // Two equivalent schemas constructed with permuted insertion orders.
+        let build_flat = |order: &[(&str, &str, &str, &str)]| {
+            let proto = test_protocol();
+            let mut b = SchemaBuilder::new(&proto);
+            b = b.vertex("root", "object", None::<&str>).unwrap();
+            b = b.vertex("root.u", "string", None::<&str>).unwrap();
+            b = b.vertex("root.c", "string", None::<&str>).unwrap();
+            for (s, t, k, n) in order {
+                b = b.edge(s, t, k, Some(*n)).unwrap();
+            }
+            b.build().unwrap()
+        };
+        let s1 = build_flat(&[
+            ("root", "root.u", "prop", "subject_uri"),
+            ("root", "root.c", "prop", "subject_cid"),
+        ]);
+        let s2 = build_flat(&[
+            ("root", "root.c", "prop", "subject_cid"),
+            ("root", "root.u", "prop", "subject_uri"),
+        ]);
+        let wrapped = build_schema(
+            &[
+                ("root", "object"),
+                ("root.subject", "object"),
+                ("root.subject.uri", "string"),
+                ("root.subject.cid", "string"),
+            ],
+            &[
+                ("root", "root.subject", "prop", "subject"),
+                ("root.subject", "root.subject.uri", "prop", "uri"),
+                ("root.subject", "root.subject.cid", "prop", "cid"),
+            ],
+        );
+        let run = |s: &panproto_schema::Schema| {
+            let mut pairs: Vec<_> = wrap_unwrap_anchors(s, &wrapped)
+                .iter()
+                .map(|a| (a.src.as_str().to_owned(), a.tgt.as_str().to_owned()))
+                .collect();
+            pairs.sort();
+            pairs
+        };
+        assert_eq!(run(&s1), run(&s2));
     }
 
     #[test]

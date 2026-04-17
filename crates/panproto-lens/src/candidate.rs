@@ -76,8 +76,10 @@ impl LensCandidate {
     /// ```
     ///
     /// Used by [`auto_generate_candidates`] to sort the result vector.
-    /// `score` is not normalized to `[0, 1]` — it is an ordering key
-    /// only.
+    /// `score` is not normalized to `[0, 1]`: the maximum achievable
+    /// value is `1.0 + 0.5 + 0.2 = 1.7` (perfect quality, full coverage,
+    /// unit confidence on every step), the minimum is `0.0`. It is
+    /// intended as an ordering key only.
     ///
     /// [`auto_generate_candidates`]: crate::auto_generate_candidates
     #[must_use]
@@ -93,12 +95,23 @@ impl LensCandidate {
 }
 
 /// Compute the coverage term `|matched| / max(|src_vertices|, |tgt_vertices|)`.
+///
+/// The result is clamped to `[0.0, 1.0]` defensively: under a well-formed
+/// CSP result `matched <= max(|src|, |tgt|)` always, but if a caller
+/// supplies a nonsensical `matched` value the clamp keeps the score well
+/// behaved instead of surfacing a ratio above one.
 #[must_use]
 pub fn coverage_ratio(src: &Schema, tgt: &Schema, matched: usize) -> f64 {
     let denom = src.vertex_count().max(tgt.vertex_count()).max(1);
+    debug_assert!(
+        matched <= denom,
+        "matched ({matched}) exceeds max(|src|, |tgt|) = {denom}; \
+         candidate builder produced a nonsensical vertex_map"
+    );
     #[allow(clippy::cast_precision_loss)]
     {
-        matched as f64 / denom as f64
+        let raw = matched as f64 / denom as f64;
+        raw.clamp(0.0, 1.0)
     }
 }
 
@@ -111,32 +124,52 @@ pub fn coverage_ratio(src: &Schema, tgt: &Schema, matched: usize) -> f64 {
 /// match, a structural explanation is synthesized from the step name.
 #[must_use]
 pub fn enrich_steps(chain: &ProtolensChain, anchors: &[Anchor]) -> Vec<CandidateStep> {
-    let by_src: HashMap<&str, &Anchor> = anchors.iter().map(|a| (a.src.as_str(), a)).fold(
-        HashMap::new(),
-        |mut acc, (name, anchor)| {
-            acc.entry(name)
-                .and_modify(|existing: &mut &Anchor| {
-                    if anchor.confidence > existing.confidence {
+    // When two anchors share a key, prefer the one with higher confidence;
+    // break ties on strategy priority (so `Exact > Alias > TokenSim …` at
+    // equal confidence); then on `tgt` name ascending. Without the tie
+    // break the winner depends on the caller's slice order, which is
+    // fed by HashMap iteration upstream and therefore nondeterministic.
+    let priority = |tag: StrategyTag| -> u8 {
+        match tag {
+            StrategyTag::UserHint => 100,
+            StrategyTag::Exact => 90,
+            StrategyTag::Alias => 70,
+            StrategyTag::TypeSignature => 60,
+            StrategyTag::WrapUnwrap => 55,
+            StrategyTag::TokenSimilarity => 50,
+            StrategyTag::Coerce => 40,
+            StrategyTag::Structural => 30,
+            StrategyTag::Llm => 20,
+        }
+    };
+    let better = |a: &Anchor, b: &Anchor| -> bool {
+        // strict: `a > b`
+        match a.confidence.total_cmp(&b.confidence) {
+            std::cmp::Ordering::Greater => true,
+            std::cmp::Ordering::Less => false,
+            std::cmp::Ordering::Equal => match priority(a.strategy).cmp(&priority(b.strategy)) {
+                std::cmp::Ordering::Greater => true,
+                std::cmp::Ordering::Less => false,
+                std::cmp::Ordering::Equal => a.tgt.as_str() < b.tgt.as_str(),
+            },
+        }
+    };
+    let fold_by = |key_fn: fn(&Anchor) -> &str| -> HashMap<&str, &Anchor> {
+        let mut acc: HashMap<&str, &Anchor> = HashMap::new();
+        for anchor in anchors {
+            let key = key_fn(anchor);
+            acc.entry(key)
+                .and_modify(|existing| {
+                    if better(anchor, existing) {
                         *existing = anchor;
                     }
                 })
                 .or_insert(anchor);
-            acc
-        },
-    );
-    let by_tgt: HashMap<&str, &Anchor> = anchors.iter().map(|a| (a.tgt.as_str(), a)).fold(
-        HashMap::new(),
-        |mut acc, (name, anchor)| {
-            acc.entry(name)
-                .and_modify(|existing: &mut &Anchor| {
-                    if anchor.confidence > existing.confidence {
-                        *existing = anchor;
-                    }
-                })
-                .or_insert(anchor);
-            acc
-        },
-    );
+        }
+        acc
+    };
+    let by_src: HashMap<&str, &Anchor> = fold_by(|a| a.src.as_str());
+    let by_tgt: HashMap<&str, &Anchor> = fold_by(|a| a.tgt.as_str());
 
     chain
         .steps
@@ -220,8 +253,12 @@ pub fn strategies_used(anchors: &[Anchor]) -> Vec<StrategyTag> {
 
 /// Count how many source vertices appear in `vertex_map`.
 ///
-/// For a total morphism this equals `src.vertex_count()`; for a
-/// span-with-drops it is strictly smaller and drives the coverage term.
+/// This wraps `HashMap::len` behind a named helper so call sites read
+/// as intent (the "matched vertex count" that feeds coverage) rather
+/// than as a generic collection-length probe. It also pins the
+/// semantics: for a total morphism this equals `src.vertex_count()`;
+/// for a span-with-drops it is strictly smaller and drives the
+/// coverage term.
 #[must_use]
 pub fn matched_count(vertex_map: &HashMap<Name, Name>) -> usize {
     vertex_map.len()
@@ -264,6 +301,133 @@ mod tests {
             .unwrap();
         assert!((coverage_ratio(&s, &s, 1) - 1.0).abs() < 1e-9);
         assert!((coverage_ratio(&s, &s, 0) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn score_combines_quality_coverage_confidence() {
+        use crate::protolens::ProtolensChain;
+        // Build a minimal empty-chain candidate: avg_step_confidence
+        // defaults to 1.0 when steps is empty, so score = quality
+        // + 0.5*coverage + 0.2*1.0.
+        let proto = panproto_schema::Protocol {
+            name: "test".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into()],
+            constraint_sorts: vec![],
+            ..panproto_schema::Protocol::default()
+        };
+        let s = panproto_schema::SchemaBuilder::new(&proto)
+            .vertex("a", "object", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let chain = ProtolensChain::new(vec![]);
+        let lens = chain.instantiate(&s, &proto).unwrap();
+
+        let cand = LensCandidate {
+            chain,
+            lens,
+            quality: 0.8,
+            coverage: 0.6,
+            seed_anchors: vec![],
+            steps: vec![],
+            strategies_used: vec![],
+        };
+        // 0.8 + 0.5*0.6 + 0.2*1.0 = 0.8 + 0.3 + 0.2 = 1.3
+        assert!(
+            (cand.score() - 1.3).abs() < 1e-9,
+            "expected 1.3, got {}",
+            cand.score()
+        );
+
+        // Score with steps: avg confidence weights into the 0.2 term.
+        let steps = vec![
+            CandidateStep {
+                kind: "rename_sort".into(),
+                explanation: "x".into(),
+                confidence: 0.4,
+                strategy: None,
+            },
+            CandidateStep {
+                kind: "rename_sort".into(),
+                explanation: "y".into(),
+                confidence: 0.6,
+                strategy: None,
+            },
+        ];
+        let chain2 = ProtolensChain::new(vec![]);
+        let lens2 = chain2.instantiate(&s, &proto).unwrap();
+        let cand2 = LensCandidate {
+            chain: chain2,
+            lens: lens2,
+            quality: 0.5,
+            coverage: 0.0,
+            seed_anchors: vec![],
+            steps,
+            strategies_used: vec![],
+        };
+        // avg conf = 0.5; 0.5 + 0 + 0.2*0.5 = 0.6
+        assert!(
+            (cand2.score() - 0.6).abs() < 1e-9,
+            "expected 0.6, got {}",
+            cand2.score()
+        );
+    }
+
+    #[test]
+    fn coverage_ratio_clamps_out_of_range() {
+        // Build tiny schema and verify extreme matched counts still land in [0,1].
+        let proto = panproto_schema::Protocol {
+            name: "test".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into()],
+            constraint_sorts: vec![],
+            ..panproto_schema::Protocol::default()
+        };
+        let s = panproto_schema::SchemaBuilder::new(&proto)
+            .vertex("a", "object", None::<&str>)
+            .unwrap()
+            .vertex("b", "object", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        // Release build: no debug_assert firing, clamp must still
+        // produce a value in [0, 1].
+        if cfg!(debug_assertions) {
+            // In debug builds an oversized matched triggers the
+            // assertion — skip the assertion on that branch.
+            assert!(coverage_ratio(&s, &s, 2) <= 1.0);
+        } else {
+            let r = coverage_ratio(&s, &s, 99);
+            assert!((0.0..=1.0).contains(&r), "clamp failed: got {r}");
+        }
+    }
+
+    #[test]
+    fn enrich_steps_prefers_src_match_over_tgt_on_exact_rename() {
+        // A rename_sort transform: the by_src lookup on `old = "foo"`
+        // must win over the by_tgt lookup on `new = "bar"` even when
+        // the tgt-keyed anchor has higher confidence.
+        let step = crate::protolens::elementary::rename_sort(Name::from("foo"), Name::from("bar"));
+        let chain = crate::protolens::ProtolensChain::new(vec![step]);
+        let anchors = vec![
+            // src-keyed: "foo" → high-conf
+            mk_anchor("foo", "bar", 0.95, StrategyTag::Alias, "src-alias"),
+            // tgt-keyed: different src, but matches target name
+            mk_anchor("elsewhere", "bar", 0.99, StrategyTag::UserHint, "tgt-hint"),
+        ];
+        let steps = enrich_steps(&chain, &anchors);
+        assert_eq!(steps.len(), 1);
+        // `by_src` lookup on `old` = "foo" wins even though the
+        // by_tgt anchor has a higher confidence.
+        assert_eq!(
+            steps[0].explanation, "src-alias",
+            "expected src-keyed anchor to win over tgt-keyed anchor; got {steps:?}",
+        );
     }
 
     #[test]

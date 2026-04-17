@@ -58,6 +58,11 @@ pub enum StrategyTag {
     TypeSignature,
     /// Wrap/unwrap detection between record shapes.
     WrapUnwrap,
+    /// Sort-coercion via a registered witness lens (Iso, Retraction, or
+    /// Projection). Distinct from [`StrategyTag::TypeSignature`] so that
+    /// conflict resolution ranks same-kind signatures above cross-kind
+    /// bridges.
+    Coerce,
     /// Pure degree-and-kind-signature matching (last resort).
     Structural,
     /// LM-proposed alignment (feature-gated).
@@ -129,6 +134,10 @@ const fn strategy_priority(tag: StrategyTag) -> u8 {
         StrategyTag::TypeSignature => 60,
         StrategyTag::WrapUnwrap => 55,
         StrategyTag::TokenSimilarity => 50,
+        // Cross-kind bridges sit below same-kind heuristics: a token-match
+        // within the same kind is stronger evidence than a coercion across
+        // kinds.
+        StrategyTag::Coerce => 40,
         StrategyTag::Structural => 30,
         StrategyTag::Llm => 20,
     }

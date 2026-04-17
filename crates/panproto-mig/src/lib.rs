@@ -67,4 +67,7 @@ pub use align::{
     resolve_anchors, token_anchors, token_similarity,
 };
 
-pub use coerce::{SortLensWitness, WitnessLibrary, default_witness_library};
+pub use coerce::{
+    SortLensWitness, WitnessLibrary, default_witness_library, witness_forward_fails_on,
+    witness_satisfies_lens_laws,
+};

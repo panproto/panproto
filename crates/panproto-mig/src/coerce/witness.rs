@@ -47,6 +47,23 @@ impl SortLensWitness {
     }
 }
 
+/// Stable ordinal for [`ValueKind`], used to sort `(src, tgt)` pairs in
+/// the witness library deterministically without relying on `Debug`
+/// output. Adding a new [`ValueKind`] without an entry here is a
+/// compile-time error thanks to the exhaustive match.
+const fn value_kind_ordinal(kind: ValueKind) -> u8 {
+    match kind {
+        ValueKind::Null => 0,
+        ValueKind::Bool => 1,
+        ValueKind::Int => 2,
+        ValueKind::Float => 3,
+        ValueKind::Str => 4,
+        ValueKind::Bytes => 5,
+        ValueKind::Token => 6,
+        ValueKind::Any => 7,
+    }
+}
+
 /// A searchable library of sort-lens witnesses.
 ///
 /// Indexed by the `(source, target)` carrier-kind pair. Values are
@@ -65,12 +82,20 @@ impl WitnessLibrary {
     }
 
     /// Register a witness under its `(source_kind, target_kind)` key.
+    ///
+    /// Witnesses are appended in insertion order. [`Self::lookup`]
+    /// returns this order verbatim, so callers that prefer Iso over
+    /// Retraction (for example) should register Iso witnesses first.
     pub fn register(&mut self, witness: SortLensWitness) {
         let key = (witness.source_kind, witness.target_kind);
         self.by_kinds.entry(key).or_default().push(witness);
     }
 
     /// Return all witnesses from `source_kind` to `target_kind`.
+    ///
+    /// Order is insertion order: the first registered witness appears
+    /// first. Callers that want "best" witnesses should rank the slice
+    /// themselves (e.g. by [`SortLensWitness::class`]).
     #[must_use]
     pub fn lookup(&self, source_kind: ValueKind, target_kind: ValueKind) -> &[SortLensWitness] {
         self.by_kinds
@@ -78,9 +103,20 @@ impl WitnessLibrary {
             .map_or(&[] as &[SortLensWitness], Vec::as_slice)
     }
 
-    /// Iterate all registered witnesses.
+    /// Iterate all registered witnesses in a deterministic order.
+    ///
+    /// Order is: by `(source_kind, target_kind)` ascending using an
+    /// explicit ordinal for [`ValueKind`], then by insertion order
+    /// within each `(source, target)` bucket. Making this deterministic
+    /// lets explanations and diagnostics reproduce across runs even
+    /// though the backing storage is a `HashMap`.
     pub fn iter(&self) -> impl Iterator<Item = &SortLensWitness> {
-        self.by_kinds.values().flatten()
+        let mut keys: Vec<&(ValueKind, ValueKind)> = self.by_kinds.keys().collect();
+        // A table-driven ordinal is stable against `Debug` impl edits
+        // upstream in `panproto-gat`, avoids an allocation per comparison,
+        // and makes the ordering explicit.
+        keys.sort_by_key(|k| (value_kind_ordinal(k.0), value_kind_ordinal(k.1)));
+        keys.into_iter().flat_map(move |k| self.by_kinds[k].iter())
     }
 
     /// Number of registered witnesses (counting multiplicities across
@@ -108,10 +144,15 @@ impl WitnessLibrary {
 
 /// Build the default, protocol-agnostic witness library.
 ///
-/// All witnesses in this library are `Iso`-classified and round-trip
-/// exactly on the carriers they advertise. Callers can verify the
-/// laws themselves via [`super::witness_satisfies_lens_laws`]; the
-/// built-ins here have matching unit tests in this module.
+/// Every built-in witness satisfies `GetPut` on its full source carrier.
+/// All of them are classified [`CoercionClass::Retraction`] because
+/// the reverse direction either rejects off-domain targets
+/// (`StrToInt` on non-numeric strings, `FloatToInt` on fractional
+/// floats) or collapses multiple target values onto the same source
+/// (`Neq 0` on ints with `|v| > 1`). Callers can verify the laws via
+/// [`super::witness_satisfies_lens_laws`] for `GetPut` and
+/// [`super::witness_forward_fails_on`] to positively exhibit an
+/// off-domain target.
 #[must_use]
 pub fn default_witness_library() -> WitnessLibrary {
     let mut lib = WitnessLibrary::new();
@@ -130,6 +171,13 @@ pub fn default_witness_library() -> WitnessLibrary {
 // ---------------------------------------------------------------------------
 
 /// `int → str` via `IntToStr`; inverse `str → int` via `StrToInt`.
+///
+/// Classified as [`CoercionClass::Retraction`]: `inverse(forward(v)) = v`
+/// holds for every integer (the `GetPut` direction is exact), but the
+/// `PutGet` direction fails on the full `str` carrier because
+/// non-numeric strings (`""`, `"abc"`, `"1.5"`, `" 3"`) cause
+/// `StrToInt` to error. The witness is an iso only on the sub-carrier
+/// of canonical decimal integer strings.
 #[must_use]
 pub fn int_to_str_witness() -> SortLensWitness {
     let v: Arc<str> = Arc::from("v");
@@ -138,21 +186,34 @@ pub fn int_to_str_witness() -> SortLensWitness {
         name: "int_to_str".to_owned(),
         source_kind: ValueKind::Int,
         target_kind: ValueKind::Str,
-        class: CoercionClass::Iso,
+        class: CoercionClass::Retraction,
         forward_param: Arc::clone(&v),
         forward: Expr::Builtin(BuiltinOp::IntToStr, vec![Expr::Var(Arc::clone(&v))]),
         inverse_param: Some(Arc::clone(&w)),
         inverse: Some(Expr::Builtin(BuiltinOp::StrToInt, vec![Expr::Var(w)])),
-        description: "int ↔ str via IntToStr / StrToInt".to_owned(),
+        description: "int → str via IntToStr (Retraction: StrToInt fails on non-numeric strings)"
+            .to_owned(),
     }
 }
 
 /// `str → int` via `StrToInt`; inverse `int → str` via `IntToStr`.
 ///
-/// Note: not `Iso` on the full `str` carrier (non-integer strings fail
-/// `StrToInt`). Classified as `Retraction` to flag the lossy
-/// fallback; users who know their strings are numeric can treat it as
-/// an iso.
+/// Classified [`CoercionClass::Retraction`].
+///
+/// **Domain restriction.** The forward direction is partial: it only
+/// accepts canonical decimal integer strings (optional leading `-`,
+/// then digits). `""`, `"abc"`, `"1.5"`, `" 3"`, and `"0x10"` all
+/// cause `StrToInt` to return an error. Callers feeding the witness
+/// must pre-validate their strings, or accept that migration will
+/// fail on malformed input.
+///
+/// **Lens-law scope.** [`super::witness_satisfies_lens_laws`] verifies
+/// `GetPut` on the samples you provide. Pass only in-domain strings
+/// (e.g. `"0"`, `"-1"`, `"42"`) to assert the law on the stated
+/// domain. The checker will report the forward-direction error if you
+/// pass an off-domain sample, which is the correct behaviour for a
+/// `Retraction`: the law holds on-domain, and off-domain evidence is
+/// surfaced as an error rather than silently passed.
 #[must_use]
 pub fn str_to_int_witness() -> SortLensWitness {
     let v: Arc<str> = Arc::from("v");
@@ -172,9 +233,21 @@ pub fn str_to_int_witness() -> SortLensWitness {
 
 /// `int → float` via `IntToFloat`; inverse `float → int` via `FloatToInt`.
 ///
-/// Classified `Retraction` because the float → int direction is not
-/// injective on the full float carrier (floats with fractional parts
-/// lose precision).
+/// Classified [`CoercionClass::Retraction`] because `FloatToInt`
+/// truncates on the full `f64` carrier: floats with fractional parts
+/// (e.g. `1.5`) and floats whose magnitude exceeds `i64::MAX` do not
+/// round-trip.
+///
+/// **When it is actually an iso.** For integers `v` with `|v| < 2^53`,
+/// `IntToFloat(v)` is exact and `FloatToInt(IntToFloat(v)) = v`. The
+/// witness is therefore an iso on the sub-carrier `{v : |v| < 2^53}`.
+/// We intentionally classify the witness as `Retraction` rather than
+/// providing a separate `int_to_float_iso` variant: the CSP-level
+/// decision to admit a lossy migration should be based on the
+/// `Retraction` confidence floor, not on a domain-restricted iso that
+/// the caller has no reliable way to verify at schema time. Documented
+/// here so callers who know their integer magnitudes fit can treat the
+/// witness as invertible.
 #[must_use]
 pub fn int_to_float_witness() -> SortLensWitness {
     let v: Arc<str> = Arc::from("v");
@@ -270,7 +343,7 @@ pub fn int_to_bool_witness() -> SortLensWitness {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use super::super::witness_satisfies_lens_laws;
+    use super::super::{witness_forward_fails_on, witness_satisfies_lens_laws};
     use super::*;
 
     fn int_samples() -> Vec<Literal> {
@@ -294,17 +367,47 @@ mod tests {
     }
 
     #[test]
-    fn int_to_str_round_trips_on_int_samples() {
+    fn int_to_str_get_put_on_int_samples() {
+        // int_to_str is now classified Retraction, so `GetPut` holds on
+        // all ints; target_samples are ignored by the checker for
+        // non-Iso classes.
         let w = int_to_str_witness();
-        witness_satisfies_lens_laws(&w, &int_samples(), &str_numeric_samples())
-            .expect("int_to_str should round-trip as an iso on these samples");
+        witness_satisfies_lens_laws(&w, &int_samples(), &[])
+            .expect("int_to_str `GetPut` should hold on every int");
+    }
+
+    #[test]
+    fn int_to_str_fails_on_off_domain_string() {
+        // A non-numeric string (off the canonical decimal sub-carrier)
+        // must not round-trip: StrToInt errors, so forward(inverse(t))
+        // fails to evaluate — which witness_forward_fails_on treats as
+        // confirmation of the Retraction classification.
+        let w = int_to_str_witness();
+        witness_forward_fails_on(&w, &Literal::Str("abc".to_owned()))
+            .expect("non-numeric strings should not round-trip through int_to_str");
+        witness_forward_fails_on(&w, &Literal::Str(String::new()))
+            .expect("empty string should not round-trip through int_to_str");
     }
 
     #[test]
     fn str_to_int_round_trips_on_numeric_strings() {
         let w = str_to_int_witness();
-        witness_satisfies_lens_laws(&w, &str_numeric_samples(), &int_samples())
-            .expect("str_to_int should round-trip as a retraction on numeric strings");
+        witness_satisfies_lens_laws(&w, &str_numeric_samples(), &[])
+            .expect("str_to_int should satisfy `GetPut` on numeric strings");
+    }
+
+    #[test]
+    fn str_to_int_off_domain_target_does_not_round_trip() {
+        // Any int maps back to a canonical decimal string; a
+        // non-canonical str ("0x10") is off-domain for the reverse
+        // direction (its inverse, IntToStr, would yield the canonical
+        // form, which is different).
+        let w = str_to_int_witness();
+        // Forward errors on "0x10" → the helper treats this as
+        // acceptable evidence of non-iso.
+        witness_forward_fails_on(&w, &Literal::Int(10))
+            .or_else(|_| witness_forward_fails_on(&w, &Literal::Str("0x10".to_owned())))
+            .expect("str_to_int should not be a full iso");
     }
 
     #[test]
@@ -315,25 +418,50 @@ mod tests {
     }
 
     #[test]
-    fn bool_to_int_round_trips() {
-        let w = bool_to_int_witness();
-        witness_satisfies_lens_laws(
-            &w,
-            &[Literal::Bool(true), Literal::Bool(false)],
-            &[Literal::Int(0), Literal::Int(1)],
-        )
-        .expect("bool_to_int should round-trip on {0,1} target samples");
+    fn int_to_float_fails_on_fractional_target() {
+        let w = int_to_float_witness();
+        witness_forward_fails_on(&w, &Literal::Float(1.5))
+            .expect("fractional floats must not round-trip through int_to_float");
     }
 
     #[test]
-    fn int_to_bool_round_trips() {
+    fn bool_to_int_round_trips_on_zero_one() {
+        // Retraction on the full int carrier; iso on the {0,1} sub-
+        // carrier. `GetPut` holds on {true,false}.
+        let w = bool_to_int_witness();
+        witness_satisfies_lens_laws(&w, &[Literal::Bool(true), Literal::Bool(false)], &[])
+            .expect("bool_to_int `GetPut` should hold on {true,false}");
+    }
+
+    #[test]
+    fn bool_to_int_fails_on_off_domain_int() {
+        // Target carrier contains ints outside {0,1}. Round-trip on
+        // Int(2): inverse maps 2 ↦ true (Neq 0), forward maps true ↦ 1,
+        // which is not 2.
+        let w = bool_to_int_witness();
+        witness_forward_fails_on(&w, &Literal::Int(2))
+            .expect("Int(2) should not round-trip through bool_to_int");
+        witness_forward_fails_on(&w, &Literal::Int(-1))
+            .expect("Int(-1) should not round-trip through bool_to_int");
+    }
+
+    #[test]
+    fn int_to_bool_round_trips_on_zero_one() {
         let w = int_to_bool_witness();
-        witness_satisfies_lens_laws(
-            &w,
-            &[Literal::Int(0), Literal::Int(1)],
-            &[Literal::Bool(true), Literal::Bool(false)],
-        )
-        .expect("int_to_bool should round-trip on {0,1} source samples");
+        witness_satisfies_lens_laws(&w, &[Literal::Int(0), Literal::Int(1)], &[])
+            .expect("int_to_bool `GetPut` should hold on {0,1}");
+    }
+
+    #[test]
+    fn int_to_bool_fails_get_put_on_off_domain_source() {
+        // `GetPut` on Int(5): forward → true, inverse → 1, which is not
+        // 5. The checker should report a `GetPut` violation.
+        let w = int_to_bool_witness();
+        let err = witness_satisfies_lens_laws(&w, &[Literal::Int(5)], &[]).unwrap_err();
+        assert!(
+            err.contains("GetPut violation"),
+            "expected GetPut violation for off-domain Int(5); got: {err}"
+        );
     }
 
     #[test]
@@ -348,5 +476,40 @@ mod tests {
     fn library_lookup_returns_empty_for_unknown_pair() {
         let lib = default_witness_library();
         assert!(lib.lookup(ValueKind::Bytes, ValueKind::Token).is_empty());
+    }
+
+    #[test]
+    fn library_iter_is_deterministic() {
+        // Two identical libraries built independently should iterate
+        // in the same order, regardless of HashMap internal ordering.
+        let a: Vec<_> = default_witness_library()
+            .iter()
+            .map(|w| w.name.clone())
+            .collect();
+        let b: Vec<_> = default_witness_library()
+            .iter()
+            .map(|w| w.name.clone())
+            .collect();
+        assert_eq!(a, b, "iter() order must be deterministic across builds");
+    }
+
+    #[test]
+    fn library_lookup_preserves_insertion_order() {
+        // Two witnesses for the same kind pair must surface in the
+        // order they were registered. This is load-bearing for
+        // confidence ranking in align::coerce.
+        let mut lib = WitnessLibrary::new();
+        lib.register(int_to_str_witness());
+        // Register a second int→str witness (dummy: same expression,
+        // different name) and confirm ordering.
+        let mut dup = int_to_str_witness();
+        dup.name = "int_to_str_alt".to_owned();
+        lib.register(dup);
+        let got: Vec<&str> = lib
+            .lookup(ValueKind::Int, ValueKind::Str)
+            .iter()
+            .map(|w| w.name.as_str())
+            .collect();
+        assert_eq!(got, vec!["int_to_str", "int_to_str_alt"]);
     }
 }

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use panproto_gat::{Name, Theory, TheoryEndofunctor, TheoryMorphism, TheoryTransform, factorize};
 use panproto_inst::value::Value;
-use panproto_mig::align::{self, AliasDict, Anchor, default_alias_dict};
+use panproto_mig::align::{self, AliasDict, Anchor, CoerceAnchor, default_alias_dict};
 use panproto_mig::hom_search::{
     DomainConstraints, FoundMorphism, SearchOptions, find_best_morphism,
     find_best_morphism_constrained, find_morphisms, find_morphisms_constrained,
@@ -83,6 +83,18 @@ impl Stringency {
     /// at this tier. Only Exploratory enables this fallback.
     #[must_use]
     pub const fn uses_structural(self) -> bool {
+        matches!(self, Self::Exploratory)
+    }
+
+    /// Whether the sort-coercion witness strategy runs at this tier.
+    ///
+    /// Only Exploratory fires `align::coerce::coerce_anchors`; lower
+    /// tiers reject kind-mismatched vertex pairs entirely. When
+    /// `Exploratory` is active, the coerce strategy proposes anchors
+    /// bridgeable by a library witness (`int ↔ str`, and so on). The
+    /// CSP still validates naturality on every proposal.
+    #[must_use]
+    pub const fn uses_coerce(self) -> bool {
         matches!(self, Self::Exploratory)
     }
 
@@ -160,6 +172,19 @@ pub struct AutoLensResult {
     /// Anchors that the alignment strategies seeded into the CSP
     /// before the morphism search ran. Useful for explanations.
     pub seed_anchors: Vec<Anchor>,
+    /// Sort-coercion proposals emitted at the Exploratory tier by
+    /// [`align::coerce_anchors`]. Each carries the witness name and
+    /// [`panproto_gat::CoercionClass`] so downstream code can look the
+    /// witness back up in a [`panproto_mig::coerce::WitnessLibrary`]
+    /// and emit a `TheoryTransform::CoerceSort` endofunctor. The bare
+    /// `.anchor` field of each entry has already been merged into the
+    /// CSP seed pool, but the witness metadata does not flow through
+    /// the CSP and must be consumed separately.
+    ///
+    /// Empty at every tier except [`Stringency::Exploratory`], and
+    /// empty at Exploratory when no kind pair in the schema matches a
+    /// library witness.
+    pub coerce_proposals: Vec<CoerceAnchor>,
 }
 
 /// Configuration for automatic lens generation.
@@ -199,7 +224,11 @@ impl Default for AutoLensConfig {
 ///
 /// User-supplied anchors (`config.search_opts.initial`) are not consulted
 /// here; callers merge them in on top of the strategy output.
-fn run_strategies(src: &Schema, tgt: &Schema, config: &AutoLensConfig) -> Vec<Anchor> {
+fn run_strategies(
+    src: &Schema,
+    tgt: &Schema,
+    config: &AutoLensConfig,
+) -> (Vec<Anchor>, Vec<CoerceAnchor>) {
     let mut anchors = Vec::new();
 
     // Exact name equality is consulted at every tier.
@@ -228,7 +257,32 @@ fn run_strategies(src: &Schema, tgt: &Schema, config: &AutoLensConfig) -> Vec<An
         anchors.extend(align::structural_anchors(src, tgt, threshold));
     }
 
-    anchors
+    let coerce_proposals = if config.stringency.uses_coerce() {
+        // Consult the default witness library for kind-bridging
+        // proposals. Each proposal contributes its bare `.anchor` to
+        // the CSP seed pool and its witness metadata (name + class)
+        // to the returned proposal vector so downstream callers can
+        // synthesize a `TheoryTransform::CoerceSort` endofunctor.
+        //
+        // Today, the CSP's `kinds_compatible` filter still rejects
+        // kind-mismatched pairs, so bare coerce anchors do not
+        // influence the morphism search. The real value of wiring
+        // them up is making the witness proposals accessible to
+        // downstream code (CLI, DSL) that decides independently
+        // whether to emit CoerceSort transforms. A future pass can
+        // relax the CSP kind filter conditional on the presence of a
+        // registered witness.
+        let library = panproto_mig::coerce::default_witness_library();
+        let proposals = align::coerce_anchors(src, tgt, &library);
+        for ca in &proposals {
+            anchors.push(ca.anchor.clone());
+        }
+        proposals
+    } else {
+        Vec::new()
+    };
+
+    (anchors, coerce_proposals)
 }
 
 /// Merge `additional` (source → target name pairs) into `opts.initial`
@@ -241,6 +295,18 @@ fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>
 
 /// Set `opts.relax_edge_name_pruning` according to `stringency`. The
 /// caller's explicit `true` is preserved if already set.
+///
+/// Other `SearchOptions` fields are intentionally *not* forced by the
+/// tier:
+///
+/// * `monic` / `epic` / `iso`: these encode categorical properties of
+///   the morphism itself, not search aggressiveness; flipping them at
+///   `Strict` would reject perfectly valid identity-fill morphisms on
+///   partial schemas. Callers who want a monic search pass it in via
+///   `AutoLensConfig::search_opts`.
+/// * `max_results`: candidate APIs set this per-call; the single-best
+///   entry point leaves it at the default.
+/// * `initial`: seeded separately via `merge_seed_anchors`.
 const fn apply_stringency_search_opts(opts: &mut SearchOptions, stringency: Stringency) {
     if stringency.relax_edge_name_pruning() {
         opts.relax_edge_name_pruning = true;
@@ -255,7 +321,8 @@ const fn apply_stringency_search_opts(opts: &mut SearchOptions, stringency: Stri
 fn sources_without_compatible_targets(src: &Schema, tgt: &Schema) -> Vec<Name> {
     let tgt_kinds: std::collections::HashSet<&str> =
         tgt.vertices.values().map(|v| v.kind.as_str()).collect();
-    src.vertices
+    let mut out: Vec<Name> = src
+        .vertices
         .iter()
         .filter_map(|(id, vertex)| {
             if tgt_kinds.contains(vertex.kind.as_str()) {
@@ -264,7 +331,12 @@ fn sources_without_compatible_targets(src: &Schema, tgt: &Schema) -> Vec<Name> {
                 Some(id.clone())
             }
         })
-        .collect()
+        .collect();
+    // HashMap iteration is nondeterministic; sort so the derived
+    // `DomainConstraints.excluded_sources` and any downstream log are
+    // stable across runs.
+    out.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    out
 }
 
 /// Generate a protolens chain and concrete lens from two schemas.
@@ -294,7 +366,7 @@ pub fn auto_generate(
     protocol: &Protocol,
     config: &AutoLensConfig,
 ) -> Result<AutoLensResult, LensError> {
-    let seed_anchors = run_strategies(src, tgt, config);
+    let (seed_anchors, coerce_proposals) = run_strategies(src, tgt, config);
     let resolved = align::resolve_anchors(&seed_anchors, config.search_opts.monic);
 
     let mut search_opts = config.search_opts.clone();
@@ -322,6 +394,7 @@ pub fn auto_generate(
         &effective,
         &search_opts,
         span_constraints.as_ref(),
+        DEFAULT_QUALITY_FLOOR,
     )?;
 
     Ok(AutoLensResult {
@@ -329,8 +402,14 @@ pub fn auto_generate(
         lens: result.lens,
         alignment_quality: result.alignment_quality,
         seed_anchors,
+        coerce_proposals,
     })
 }
+
+/// Default alignment quality below which `auto_generate` triggers the
+/// overlap-fallback retry when `try_overlap` is enabled. `auto_generate_with_hints`
+/// accepts a `quality_threshold` override that shadows this constant.
+const DEFAULT_QUALITY_FLOOR: f64 = 0.5;
 
 struct SearchResult {
     chain: ProtolensChain,
@@ -348,6 +427,7 @@ fn run_search(
     config: &AutoLensConfig,
     search_opts: &SearchOptions,
     domain_constraints: Option<&DomainConstraints>,
+    quality_floor: f64,
 ) -> Result<SearchResult, LensError> {
     let search = |opts: &SearchOptions| -> Option<FoundMorphism> {
         domain_constraints.map_or_else(
@@ -358,7 +438,6 @@ fn run_search(
 
     let mut alignment = search(search_opts);
 
-    let quality_floor = 0.5;
     if config.try_overlap {
         let should_try_overlap = alignment.as_ref().is_none_or(|a| a.quality < quality_floor);
         if should_try_overlap {
@@ -425,9 +504,20 @@ pub fn auto_generate_with_hints(
     domain_constraints: &DomainConstraints,
     quality_threshold: Option<f64>,
 ) -> Result<AutoLensResult, LensError> {
-    let _ = quality_threshold; // overlap floor is fixed at 0.5 inside `run_search`
+    // `None` keeps the library default; `Some(x)` overrides the overlap-fallback
+    // floor. NaN is rejected — silently coercing it would make overlap either
+    // always or never fire depending on comparator quirks.
+    let quality_floor = match quality_threshold {
+        None => DEFAULT_QUALITY_FLOOR,
+        Some(x) if x.is_nan() => {
+            return Err(LensError::ProtolensError(
+                "quality_threshold must not be NaN".into(),
+            ));
+        }
+        Some(x) => x.clamp(0.0, 1.0),
+    };
 
-    let strategy_anchors = run_strategies(src, tgt, config);
+    let (strategy_anchors, coerce_proposals) = run_strategies(src, tgt, config);
     let resolved_strategy = align::resolve_anchors(&strategy_anchors, config.search_opts.monic);
 
     let mut search_opts = config.search_opts.clone();
@@ -444,13 +534,26 @@ pub fn auto_generate_with_hints(
         effective.try_overlap = true;
     }
 
+    // Span search: at Lenient+, fold source vertices with no
+    // kind-compatible target into `excluded_sources` so the CSP
+    // searches the shared subschema C instead of failing outright.
+    // User-supplied `domain_constraints` are preserved; the span
+    // exclusions are UNIONED in rather than replacing them.
+    let mut merged_domain = domain_constraints.clone();
+    if let Some(span) = span_exclusions_at_lenient(src, tgt, config.stringency) {
+        merged_domain
+            .excluded_sources
+            .extend(span.excluded_sources);
+    }
+
     let result = run_search(
         src,
         tgt,
         protocol,
         &effective,
         &search_opts,
-        Some(domain_constraints),
+        Some(&merged_domain),
+        quality_floor,
     )?;
 
     // Combine user anchors (as `UserHint`-tagged anchors) with the
@@ -472,6 +575,7 @@ pub fn auto_generate_with_hints(
         lens: result.lens,
         alignment_quality: result.alignment_quality,
         seed_anchors: combined,
+        coerce_proposals,
     })
 }
 
@@ -664,7 +768,7 @@ pub fn auto_generate_candidates(
     top_n: usize,
 ) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
     let n = top_n.max(1);
-    let seed_anchors = run_strategies(src, tgt, config);
+    let (seed_anchors, _coerce_proposals) = run_strategies(src, tgt, config);
     let resolved = align::resolve_anchors(&seed_anchors, config.search_opts.monic);
 
     let mut search_opts = config.search_opts.clone();
@@ -729,7 +833,7 @@ pub fn auto_generate_candidates_with_hints(
     top_n: usize,
 ) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
     let n = top_n.max(1);
-    let strategy_anchors = run_strategies(src, tgt, config);
+    let (strategy_anchors, _coerce_proposals) = run_strategies(src, tgt, config);
     let resolved_strategy = align::resolve_anchors(&strategy_anchors, config.search_opts.monic);
 
     let mut search_opts = config.search_opts.clone();
@@ -762,6 +866,17 @@ pub fn auto_generate_candidates_with_hints(
         n,
         config.stringency.allow_spans(),
     )
+}
+
+/// Concatenation of `chain.steps[i].name` used as a deterministic
+/// tiebreak key for candidate ordering.
+fn chain_step_names(chain: &ProtolensChain) -> String {
+    let mut out = String::new();
+    for step in &chain.steps {
+        out.push_str(step.name.as_str());
+        out.push('|');
+    }
+    out
 }
 
 /// Shared engine for multi-candidate generation. Runs the CSP, builds
@@ -808,10 +923,19 @@ fn candidates_from_search(
         ));
     }
 
+    // Sort by descending composite score; break ties deterministically
+    // by (shorter chain, then lexicographic concatenation of step names).
+    // Without this, two equally-scored candidates produced in different
+    // CSP iterations could swap order across runs.
+    //
+    // `f64::total_cmp` gives a total order even in the presence of NaN,
+    // so a degenerate score cannot silently swap position with a valid
+    // neighbor. NaN values sort to the bottom (after positive infinity).
     candidates.sort_by(|a, b| {
         b.score()
-            .partial_cmp(&a.score())
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&a.score())
+            .then_with(|| a.chain.steps.len().cmp(&b.chain.steps.len()))
+            .then_with(|| chain_step_names(&a.chain).cmp(&chain_step_names(&b.chain)))
     });
     candidates.truncate(n);
     Ok(candidates)
@@ -887,9 +1011,15 @@ fn alignment_to_theory_morphism_mode(
     tgt: &Schema,
     emit_spans: bool,
 ) -> TheoryMorphism {
-    // Build sort map from vertex kind mappings
+    // Build sort map from vertex kind mappings. Iterating `vertex_map`
+    // (a HashMap) in its native order would let the first `or_insert`
+    // winner vary across runs when multiple source vertices share a
+    // kind but map to different target kinds. Sort by source vertex id
+    // so ties break deterministically.
     let mut sort_map: HashMap<Arc<str>, Arc<str>> = HashMap::new();
-    for (src_id, tgt_id) in &found.vertex_map {
+    let mut vertex_pairs: Vec<(&Name, &Name)> = found.vertex_map.iter().collect();
+    vertex_pairs.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+    for (src_id, tgt_id) in vertex_pairs {
         if let (Some(src_v), Some(tgt_v)) = (src.vertices.get(src_id), tgt.vertices.get(tgt_id)) {
             let src_kind: Arc<str> = Arc::from(src_v.kind.as_str());
             let tgt_kind: Arc<str> = Arc::from(tgt_v.kind.as_str());
@@ -897,9 +1027,19 @@ fn alignment_to_theory_morphism_mode(
         }
     }
 
-    // Build op map from edge kind mappings
+    // Build op map from edge kind mappings (same determinism concern as
+    // `sort_map` above).
     let mut op_map: HashMap<Arc<str>, Arc<str>> = HashMap::new();
-    for (src_edge, tgt_edge) in &found.edge_map {
+    let mut edge_pairs: Vec<(&panproto_schema::Edge, &panproto_schema::Edge)> =
+        found.edge_map.iter().collect();
+    edge_pairs.sort_by(|a, b| {
+        a.0.src
+            .as_str()
+            .cmp(b.0.src.as_str())
+            .then_with(|| a.0.tgt.as_str().cmp(b.0.tgt.as_str()))
+            .then_with(|| a.0.kind.as_str().cmp(b.0.kind.as_str()))
+    });
+    for (src_edge, tgt_edge) in edge_pairs {
         let src_kind: Arc<str> = Arc::from(src_edge.kind.as_str());
         let tgt_kind: Arc<str> = Arc::from(tgt_edge.kind.as_str());
         op_map.entry(src_kind).or_insert(tgt_kind);
@@ -937,10 +1077,7 @@ fn alignment_to_theory_morphism_mode(
 /// rejected since they should not appear in a factorized sequence.
 fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens, LensError> {
     match &endofunctor.transform {
-        TheoryTransform::AddSort { sort, vertex_kind }
-        | TheoryTransform::AddSortWithDefault {
-            sort, vertex_kind, ..
-        } => {
+        TheoryTransform::AddSort { sort, vertex_kind } => {
             let vk = vertex_kind
                 .as_ref()
                 .map_or_else(|| sort.default_vertex_kind(), Arc::clone);
@@ -950,20 +1087,46 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
                 Value::Null,
             ))
         }
+        TheoryTransform::AddSortWithDefault {
+            sort,
+            vertex_kind,
+            default_expr,
+        } => {
+            // Previously this variant was collapsed into `AddSort`, which
+            // discarded `default_expr` — the zero-element of the pushout.
+            // Route it through the dedicated elementary so the expression
+            // survives to migration-time evaluation.
+            let vk = vertex_kind
+                .as_ref()
+                .map_or_else(|| sort.default_vertex_kind(), Arc::clone);
+            Ok(elementary::add_sort_with_default(
+                Name::from(&*sort.name),
+                Name::from(&*vk),
+                default_expr.clone(),
+            ))
+        }
         TheoryTransform::DropSort(name) => Ok(elementary::drop_sort(Name::from(&**name))),
         TheoryTransform::RenameSort { old, new } => Ok(elementary::rename_sort(
             Name::from(&**old),
             Name::from(&**new),
         )),
         TheoryTransform::AddOp(op) => {
-            let src = if op.inputs.is_empty() {
-                Name::from("unknown")
-            } else {
-                Name::from(&*op.inputs[0].1)
+            // A protolens `AddOp` needs a source sort to anchor the edge at.
+            // A theory operation with no inputs is a constant; synthesizing
+            // a `"unknown"` sentinel produces an ill-formed elementary that
+            // silently corrupts downstream factorization. Surface it as a
+            // real error so callers can add an explicit input sort or
+            // reroute constants through `AddSortWithDefault`.
+            let Some((_, input_sort)) = op.inputs.first() else {
+                return Err(LensError::ProtolensError(format!(
+                    "AddOp '{}' has no inputs; elementary add_op requires a source sort. \
+                     Supply an explicit input sort or route constants through AddSortWithDefault.",
+                    op.name
+                )));
             };
             Ok(elementary::add_op(
                 Name::from(&*op.name),
-                src,
+                Name::from(&**input_sort),
                 Name::from(&*op.output),
                 Name::from(&*op.name),
             ))
@@ -1018,7 +1181,7 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use panproto_gat::Sort;
@@ -1445,5 +1608,204 @@ mod tests {
             transform: TheoryTransform::Identity,
         };
         assert!(endofunctor_to_protolens(&ef).is_err());
+    }
+
+    #[test]
+    fn uses_coerce_is_exploratory_only() {
+        assert!(!Stringency::Strict.uses_coerce());
+        assert!(!Stringency::Balanced.uses_coerce());
+        assert!(!Stringency::Lenient.uses_coerce());
+        assert!(Stringency::Exploratory.uses_coerce());
+    }
+
+    #[test]
+    fn sources_without_compatible_targets_is_sorted() {
+        let protocol = Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec![
+                "record".into(),
+                "alpha".into(),
+                "beta".into(),
+                "gamma".into(),
+            ],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("zeta", "alpha", None::<&str>)
+            .unwrap()
+            .vertex("aardvark", "beta", None::<&str>)
+            .unwrap()
+            .vertex("mango", "gamma", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let out = sources_without_compatible_targets(&src, &tgt);
+        let names: Vec<&str> = out.iter().map(panproto_gat::Name::as_str).collect();
+        assert_eq!(
+            names,
+            vec!["aardvark", "mango", "zeta"],
+            "HashMap iteration order leaked into output"
+        );
+    }
+
+    #[test]
+    fn lenient_partial_kind_coverage_keeps_sort() {
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.keep", "string", None::<&str>)
+            .unwrap()
+            .vertex("r.extra", "string", None::<&str>)
+            .unwrap()
+            .edge("r", "r.keep", "prop", Some("keep"))
+            .unwrap()
+            .edge("r", "r.extra", "prop", Some("extra"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.keep", "string", None::<&str>)
+            .unwrap()
+            .edge("r", "r.keep", "prop", Some("keep"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let cfg = AutoLensConfig {
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+        let result = auto_generate(&src, &tgt, &protocol, &cfg).unwrap();
+        let dropped_string = result.chain.steps.iter().any(|step| {
+            matches!(
+                &step.target.transform,
+                TheoryTransform::DropSort(name) if &**name == "string"
+            )
+        });
+        assert!(
+            !dropped_string,
+            "Lenient must not drop the `string` sort when at least one \
+             target vertex has that kind; chain: {:?}",
+            result
+                .chain
+                .steps
+                .iter()
+                .map(|s| s.name.to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn auto_generate_candidates_ordering_is_stable_on_ties() {
+        let protocol = test_protocol();
+        let src = schema_post_with_created(&protocol);
+        let tgt = schema_message_with_sent(&protocol);
+        let config = AutoLensConfig {
+            stringency: Stringency::Balanced,
+            ..Default::default()
+        };
+        let a = auto_generate_candidates(&src, &tgt, &protocol, &config, 5)
+            .expect("candidates should exist");
+        let b = auto_generate_candidates(&src, &tgt, &protocol, &config, 5)
+            .expect("candidates should exist");
+        let key = |cands: &[crate::candidate::LensCandidate]| -> Vec<String> {
+            cands
+                .iter()
+                .map(|c| format!("{:.6}:{}", c.score(), chain_step_names(&c.chain)))
+                .collect()
+        };
+        assert_eq!(key(&a), key(&b), "candidate ordering is not deterministic");
+    }
+
+    #[test]
+    fn exploratory_surfaces_coerce_proposals_on_result() {
+        // Two schemas with a kind mismatch (integer vs string) that
+        // the default witness library bridges via `int_to_str`.
+        // Exploratory should surface the proposal on AutoLensResult.
+        let protocol = Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["record".into(), "integer".into(), "string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.n", "integer", None::<&str>)
+            .unwrap()
+            .edge("r", "r.n", "prop", Some("n"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.n", "string", None::<&str>)
+            .unwrap()
+            .edge("r", "r.n", "prop", Some("n"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Balanced: never consults coerce; the proposals vec is empty.
+        let balanced = AutoLensConfig {
+            stringency: Stringency::Balanced,
+            ..Default::default()
+        };
+        // Use auto_generate_with_hints so a morphism is always found
+        // (the CSP without hints would reject mismatched kinds).
+        let hints = std::collections::HashMap::new();
+        let dc = panproto_mig::hom_search::DomainConstraints::default();
+        if let Ok(res) =
+            auto_generate_with_hints(&src, &tgt, &protocol, &balanced, &hints, &dc, None)
+        {
+            assert!(
+                res.coerce_proposals.is_empty(),
+                "Balanced must not populate coerce_proposals"
+            );
+        }
+
+        // Exploratory: regardless of CSP outcome, the proposals vec
+        // should contain the int_to_str bridge.
+        let exploratory = AutoLensConfig {
+            stringency: Stringency::Exploratory,
+            ..Default::default()
+        };
+        if let Ok(res) =
+            auto_generate_with_hints(&src, &tgt, &protocol, &exploratory, &hints, &dc, None)
+        {
+            assert!(
+                res.coerce_proposals
+                    .iter()
+                    .any(|p| p.witness_name == "int_to_str"),
+                "Exploratory should expose int_to_str in coerce_proposals; got {:?}",
+                res.coerce_proposals
+                    .iter()
+                    .map(|p| p.witness_name.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn stringency_uses_coerce_only_at_exploratory() {
+        assert!(!Stringency::Strict.uses_coerce());
+        assert!(!Stringency::Balanced.uses_coerce());
+        assert!(!Stringency::Lenient.uses_coerce());
+        assert!(Stringency::Exploratory.uses_coerce());
     }
 }

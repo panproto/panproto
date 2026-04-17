@@ -42,23 +42,31 @@ pub fn coerce_anchors(src: &Schema, tgt: &Schema, library: &WitnessLibrary) -> V
     let src_value_kinds = schema_value_kinds(src);
     let tgt_value_kinds = schema_value_kinds(tgt);
 
+    // Sort source and target IDs so ties (equal-confidence witnesses)
+    // resolve deterministically across runs. `Schema::vertices` is a
+    // `HashMap`, so its iteration order would otherwise vary.
+    let mut src_ids: Vec<&Name> = src.vertices.keys().collect();
+    src_ids.sort_by_key(|n| n.as_str());
+    let mut tgt_ids: Vec<&Name> = tgt.vertices.keys().collect();
+    tgt_ids.sort_by_key(|n| n.as_str());
+
     let mut out = Vec::new();
-    for src_id in src.vertices.keys() {
+    for src_id in src_ids {
         let Some(src_kind) = src_value_kinds.get(src_id).copied() else {
             continue;
         };
         let mut best: Option<(Name, &SortLensWitness, f64)> = None;
-        for tgt_id in tgt.vertices.keys() {
+        for tgt_id in &tgt_ids {
             if kinds_compatible(src, src_id, tgt, tgt_id) {
                 continue; // identity-kind handled elsewhere
             }
-            let Some(tgt_kind) = tgt_value_kinds.get(tgt_id).copied() else {
+            let Some(tgt_kind) = tgt_value_kinds.get(*tgt_id).copied() else {
                 continue;
             };
             for witness in library.lookup(src_kind, tgt_kind) {
                 let confidence = class_confidence(witness.class);
                 if best.as_ref().is_none_or(|(_, _, prev)| confidence > *prev) {
-                    best = Some((tgt_id.clone(), witness, confidence));
+                    best = Some(((*tgt_id).clone(), witness, confidence));
                 }
             }
         }
@@ -68,7 +76,7 @@ pub fn coerce_anchors(src: &Schema, tgt: &Schema, library: &WitnessLibrary) -> V
                     src: src_id.clone(),
                     tgt: tgt_id.clone(),
                     confidence,
-                    strategy: StrategyTag::TypeSignature,
+                    strategy: StrategyTag::Coerce,
                     explanation: format!(
                         "sort-coercion {}: {} ↔ {} ({:?})",
                         witness.description,
@@ -221,9 +229,13 @@ mod tests {
     }
 
     #[test]
-    fn prefers_iso_over_retraction() {
-        // int → float is Retraction (0.55), int → str is Iso (0.8).
-        // Target offers both kinds; we expect the Iso witness to win.
+    fn prefers_higher_class_when_tied() {
+        // Both int→str and int→float are Retraction (0.55 each) in
+        // the default library. With tied confidence, `coerce_anchors`
+        // keeps the first candidate encountered (strict `>` in the
+        // tie-breaker). This test locks the behaviour: whatever
+        // witness wins, it must be a library witness (not dropped),
+        // and the anchor's class must match the library entry.
         let src = build(
             &[("r", "record"), ("r.n", "integer")],
             &[("r", "r.n", "prop", "n")],
@@ -245,6 +257,66 @@ mod tests {
             .iter()
             .find(|a| a.anchor.src.as_str() == "r.n")
             .expect("should emit a coerce anchor for r.n");
-        assert_eq!(picked.witness_name, "int_to_str");
+        assert!(
+            picked.witness_name == "int_to_str" || picked.witness_name == "int_to_float",
+            "expected a library witness; got {}",
+            picked.witness_name
+        );
+        assert_eq!(
+            picked.witness_class,
+            panproto_gat::CoercionClass::Retraction
+        );
+    }
+
+    #[test]
+    fn iso_beats_retraction_when_both_available() {
+        // Register an Iso int→str witness alongside the default
+        // Retraction one. `coerce_anchors` should prefer the Iso
+        // because 0.8 > 0.55.
+        let mut lib = WitnessLibrary::new();
+        let mut iso = crate::coerce::witness::int_to_str_witness();
+        iso.name = "int_to_str_iso".to_owned();
+        iso.class = panproto_gat::CoercionClass::Iso;
+        lib.register(iso);
+        lib.register(crate::coerce::witness::int_to_str_witness()); // Retraction
+
+        let src = build(
+            &[("r", "record"), ("r.n", "integer")],
+            &[("r", "r.n", "prop", "n")],
+        );
+        let tgt = build(
+            &[("r", "record"), ("r.s", "string")],
+            &[("r", "r.s", "prop", "s")],
+        );
+        let anchors = coerce_anchors(&src, &tgt, &lib);
+        let picked = anchors
+            .iter()
+            .find(|a| a.anchor.src.as_str() == "r.n")
+            .expect("should emit a coerce anchor");
+        assert_eq!(picked.witness_name, "int_to_str_iso");
+    }
+
+    #[test]
+    fn class_confidence_is_monotone_across_known_variants() {
+        // Compile-time-ish check: the four known variants satisfy
+        // Iso > Retraction > Projection > unknown.
+        use panproto_gat::CoercionClass;
+        assert!(class_confidence(CoercionClass::Iso) > class_confidence(CoercionClass::Retraction));
+        assert!(
+            class_confidence(CoercionClass::Retraction)
+                > class_confidence(CoercionClass::Projection)
+        );
+        // `Opaque` (the current "other" variant): falls through to
+        // the conservative 0.2 floor. This pins the value so a future
+        // bump gets a test failure rather than silently widening the
+        // strategy's recall.
+        assert!(
+            (class_confidence(CoercionClass::Opaque) - 0.2).abs() < 1e-9,
+            "Opaque should hit the conservative floor (0.2)"
+        );
+        // Pin the exact confidence values to catch accidental drift.
+        assert!((class_confidence(CoercionClass::Iso) - 0.8).abs() < 1e-9);
+        assert!((class_confidence(CoercionClass::Retraction) - 0.55).abs() < 1e-9);
+        assert!((class_confidence(CoercionClass::Projection) - 0.35).abs() < 1e-9);
     }
 }

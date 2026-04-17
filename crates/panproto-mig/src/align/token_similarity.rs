@@ -191,13 +191,18 @@ pub fn token_similarity(a: &str, b: &str) -> f64 {
 #[must_use]
 pub fn token_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec<Anchor> {
     let mut out = Vec::new();
-    for src_id in src.vertices.keys() {
+    let mut src_ids: Vec<&Name> = src.vertices.keys().collect();
+    src_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    let mut tgt_ids: Vec<&Name> = tgt.vertices.keys().collect();
+    tgt_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    for src_id in src_ids.iter().copied() {
         let mut best: Option<(Name, f64)> = None;
-        for tgt_id in tgt.vertices.keys() {
+        for tgt_id in tgt_ids.iter().copied() {
             if !kinds_compatible(src, src_id, tgt, tgt_id) {
                 continue;
             }
             let score = token_similarity(src_id.as_str(), tgt_id.as_str());
+            // Strict > ensures ties are resolved by sorted target order.
             if best.as_ref().is_none_or(|(_, bs)| score > *bs) {
                 best = Some((tgt_id.clone(), score));
             }
@@ -281,6 +286,113 @@ mod tests {
             score > 0.85,
             "casing-equivalent strings should score near 1.0: {score}"
         );
+    }
+
+    #[test]
+    fn tokenize_adversarial_inputs() {
+        assert_eq!(tokenize(""), Vec::<String>::new());
+        assert_eq!(tokenize("a"), vec!["a"]);
+        assert_eq!(tokenize("A"), vec!["a"]);
+        assert_eq!(tokenize("ABC"), vec!["abc"]);
+        assert_eq!(tokenize("_abc_"), vec!["abc"]);
+        assert_eq!(tokenize("-abc-"), vec!["abc"]);
+        assert_eq!(tokenize("___"), Vec::<String>::new());
+        assert_eq!(tokenize("v2"), vec!["v", "2"]);
+        assert_eq!(tokenize("v2Endpoint"), vec!["v", "2", "endpoint"]);
+        // letter->digit->letter
+        assert_eq!(tokenize("a1b"), vec!["a", "1", "b"]);
+        // unicode letter
+        let toks = tokenize("αβγ");
+        assert_eq!(toks.len(), 1);
+    }
+
+    #[test]
+    fn token_jaccard_both_empty_is_one() {
+        let empty: Vec<String> = vec![];
+        assert!((token_jaccard(&empty, &empty) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn char_ngram_cosine_degenerate_n() {
+        // n=0: guard returns empty grams; strings are unequal so score is 0.
+        assert_eq!(char_ngram_cosine("foo", "bar", 0), 0.0);
+        // equal strings with n=0 map through the a==b shortcut.
+        assert_eq!(char_ngram_cosine("foo", "foo", 0), 1.0);
+        // n=1: works normally.
+        let s = char_ngram_cosine("abc", "abc", 1);
+        assert!((s - 1.0).abs() < 1e-9);
+        // empty vs empty at n=2.
+        assert_eq!(char_ngram_cosine("", "", 2), 1.0);
+        // empty vs nonempty.
+        assert_eq!(char_ngram_cosine("", "abc", 2), 0.0);
+    }
+
+    #[test]
+    fn token_similarity_empty_strings() {
+        // tokenize("") == []; Jaccard empty-empty == 1.0; cosine empty-empty == 1.0.
+        let score = token_similarity("", "");
+        assert!((score - 1.0).abs() < 1e-9);
+        // one empty: cos=0, jac=0, combined=0.
+        assert_eq!(token_similarity("", "foo"), 0.0);
+    }
+
+    #[test]
+    fn token_anchors_minimal_disjoint_schema() {
+        use panproto_schema::{Protocol, SchemaBuilder};
+        let proto = Protocol {
+            name: "t".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let s = SchemaBuilder::new(&proto)
+            .vertex("alpha_beta_gamma", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let t = SchemaBuilder::new(&proto)
+            .vertex("zzz_qqq_xxx", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        // Only one vertex each, utterly dissimilar → no anchors at 0.5.
+        assert!(token_anchors(&s, &t, 0.5).is_empty());
+    }
+
+    #[test]
+    fn token_anchors_deterministic() {
+        use panproto_schema::{Protocol, SchemaBuilder};
+        let proto = Protocol {
+            name: "t".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let build = |order: &[&str]| {
+            let mut b = SchemaBuilder::new(&proto);
+            for id in order {
+                b = b.vertex(id, "string", None::<&str>).unwrap();
+            }
+            b.build().unwrap()
+        };
+        let s1 = build(&["createdAt", "sentAt", "updatedAt"]);
+        let s2 = build(&["updatedAt", "createdAt", "sentAt"]);
+        let t = build(&["created_at", "modified_at"]);
+        let go = |s: &panproto_schema::Schema| {
+            let mut pairs: Vec<_> = token_anchors(s, &t, 0.4)
+                .iter()
+                .map(|a| (a.src.as_str().to_owned(), a.tgt.as_str().to_owned()))
+                .collect();
+            pairs.sort();
+            pairs
+        };
+        assert_eq!(go(&s1), go(&s2));
     }
 
     #[test]

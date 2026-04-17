@@ -890,6 +890,49 @@ pub mod elementary {
         }
     }
 
+    /// `η : Id ⟹ AddSortWithDefault(τ, d_expr)`: adds a vertex kind and
+    /// carries a symbolic default expression (evaluated downstream) so the
+    /// zero-element of the pushout is not lost.
+    ///
+    /// The theory-level payload retains the original `panproto_expr::Expr`;
+    /// this is the variant factorization emits when the source schema
+    /// does not witness the new sort but a default expression was attached
+    /// to it.
+    #[must_use]
+    pub fn add_sort_with_default(
+        sort_name: impl Into<Name>,
+        vertex_kind: impl Into<Name>,
+        default_expr: panproto_expr::Expr,
+    ) -> Protolens {
+        let sort_name = sort_name.into();
+        let vertex_kind = vertex_kind.into();
+        Protolens {
+            name: Name::from(format!("add_sort_with_default_{sort_name}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("add_{sort_name}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::AddSortWithDefault {
+                    sort: Sort::simple(name_arc_clone(&sort_name)),
+                    vertex_kind: Some(Arc::from(&*vertex_kind)),
+                    default_expr,
+                },
+            },
+            // Data-level default is evaluated from the expression at
+            // migration time; store `None` here to avoid a stale cached
+            // value ever diverging from the source-of-truth expression.
+            complement_constructor: ComplementConstructor::AddedElement {
+                element_name: sort_name,
+                element_kind: format!("{vertex_kind}"),
+                default_value: None,
+            },
+        }
+    }
+
     /// `η : Id ⟹ DropSort(τ)`: for each `S` containing sort `τ`,
     /// `η_S` is a lens `S → S \ {τ}`.
     #[must_use]
@@ -1322,6 +1365,18 @@ pub mod elementary {
     ) -> Protolens {
         let sort_name = sort_name.into();
         let arc = name_arc_clone(&sort_name);
+        // For Iso witnesses the lens is lossless in both directions,
+        // so the complement is empty. For every other class we need
+        // to retain the dropped carrier data (Retraction / Projection
+        // / Opaque) so `put` can recover the source value.
+        let complement_constructor = if matches!(coercion_class, panproto_gat::CoercionClass::Iso) {
+            ComplementConstructor::Empty
+        } else {
+            ComplementConstructor::CoercedSortData {
+                sort: sort_name.clone(),
+                class: coercion_class,
+            }
+        };
         Protolens {
             name: Name::from(format!("sort_coerce_{sort_name}")),
             source: TheoryEndofunctor {
@@ -1340,10 +1395,7 @@ pub mod elementary {
                     coercion_class,
                 },
             },
-            complement_constructor: ComplementConstructor::CoercedSortData {
-                sort: sort_name,
-                class: coercion_class,
-            },
+            complement_constructor,
         }
     }
 

@@ -48,7 +48,12 @@ pub fn type_signature_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec
 
     let mut out = Vec::new();
 
-    for src_id in src.vertices.keys() {
+    let mut src_ids: Vec<&Name> = src.vertices.keys().collect();
+    src_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    let mut tgt_ids: Vec<&Name> = tgt.vertices.keys().collect();
+    tgt_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+
+    for src_id in src_ids.iter().copied() {
         let Some(src_sig) = src_sigs.get(src_id) else {
             continue;
         };
@@ -57,7 +62,7 @@ pub fn type_signature_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec
         }
 
         let mut best: Option<(Name, f64, usize)> = None;
-        for tgt_id in tgt.vertices.keys() {
+        for tgt_id in tgt_ids.iter().copied() {
             if !kinds_compatible(src, src_id, tgt, tgt_id) {
                 continue;
             }
@@ -271,6 +276,112 @@ mod tests {
             anchors.is_empty(),
             "string vs integer leaves must not align via type signature: {anchors:?}"
         );
+    }
+
+    #[test]
+    fn signature_is_order_insensitive() {
+        let a = build_schema(
+            &[("r", "object"), ("r.x", "string"), ("r.y", "integer")],
+            &[("r", "r.x", "prop", "x"), ("r", "r.y", "prop", "y")],
+        );
+        let b = build_schema(
+            &[("r", "object"), ("r.y", "integer"), ("r.x", "string")],
+            &[("r", "r.y", "prop", "y"), ("r", "r.x", "prop", "x")],
+        );
+        let sig_a = signature(&a, &Name::from("r"));
+        let sig_b = signature(&b, &Name::from("r"));
+        assert_eq!(
+            sig_a, sig_b,
+            "multiset signatures must be equal regardless of edge insertion order"
+        );
+    }
+
+    #[test]
+    fn multiset_overlap_empty_nonempty() {
+        let a: Vec<SignatureEntry> = vec![];
+        let b = vec![SignatureEntry {
+            edge_kind: "prop".into(),
+            leaf_kind: "string".into(),
+        }];
+        let (ratio, count) = multiset_overlap(&a, &b);
+        assert_eq!(count, 0);
+        // Per code: |A|=0, |B|=1, intersection=0 → 0/1 = 0.0. Only
+        // empty-empty returns 1.0.
+        assert_eq!(ratio, 0.0);
+    }
+
+    #[test]
+    fn type_signature_leaf_only_schema() {
+        // Leaves have empty signatures; strategy must skip them without panic.
+        let src = build_schema(&[("x", "string")], &[]);
+        let tgt = build_schema(&[("y", "string")], &[]);
+        assert!(type_signature_anchors(&src, &tgt, 0.5).is_empty());
+    }
+
+    #[test]
+    fn type_signature_deterministic_emission() {
+        let perms: [&[(&str, &str)]; 2] = [
+            &[
+                ("aa", "object"),
+                ("bb", "object"),
+                ("aa.x", "string"),
+                ("bb.x", "string"),
+            ],
+            &[
+                ("bb", "object"),
+                ("aa", "object"),
+                ("bb.x", "string"),
+                ("aa.x", "string"),
+            ],
+        ];
+        let tgt = build_schema(
+            &[
+                ("tt", "object"),
+                ("uu", "object"),
+                ("tt.x", "string"),
+                ("uu.x", "string"),
+            ],
+            &[("tt", "tt.x", "prop", "x"), ("uu", "uu.x", "prop", "x")],
+        );
+        let mut results = Vec::new();
+        for verts in perms {
+            let edges: Vec<(&str, &str, &str, &str)> = verts
+                .iter()
+                .filter(|(id, _)| !id.contains('.'))
+                .map(|(id, _)| {
+                    (
+                        *id,
+                        Box::leak(format!("{id}.x").into_boxed_str()) as &str,
+                        "prop",
+                        "x",
+                    )
+                })
+                .collect();
+            let src = build_schema(verts, &edges);
+            let anchors = type_signature_anchors(&src, &tgt, 0.5);
+            let mut pairs: Vec<_> = anchors
+                .iter()
+                .map(|a| (a.src.as_str().to_owned(), a.tgt.as_str().to_owned()))
+                .collect();
+            pairs.sort();
+            results.push(pairs);
+        }
+        assert_eq!(results[0], results[1]);
+    }
+
+    #[test]
+    fn type_signature_emits_kind_compatible_only() {
+        let src = build_schema(
+            &[("r", "object"), ("r.x", "string")],
+            &[("r", "r.x", "prop", "x")],
+        );
+        let tgt = build_schema(
+            &[("r", "object"), ("r.x", "string")],
+            &[("r", "r.x", "prop", "x")],
+        );
+        for anchor in type_signature_anchors(&src, &tgt, 0.5) {
+            assert!(kinds_compatible(&src, &anchor.src, &tgt, &anchor.tgt));
+        }
     }
 
     #[test]

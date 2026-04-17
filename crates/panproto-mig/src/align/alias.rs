@@ -71,6 +71,11 @@ impl AliasDict {
     pub fn are_aliases(&self, a: &str, b: &str) -> bool {
         let ca = canonical_form(a);
         let cb = canonical_form(b);
+        // Two inputs that both reduce to empty carry no information; do
+        // not treat them as aliases.
+        if ca.is_empty() || cb.is_empty() {
+            return false;
+        }
         if ca == cb {
             return true;
         }
@@ -248,7 +253,12 @@ pub fn default_alias_dict() -> AliasDict {
 pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor> {
     let mut out = Vec::new();
 
-    for src_id in src.vertices.keys() {
+    let mut src_ids: Vec<&panproto_gat::Name> = src.vertices.keys().collect();
+    src_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    let mut tgt_ids: Vec<&panproto_gat::Name> = tgt.vertices.keys().collect();
+    tgt_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+
+    for src_id in src_ids.iter().copied() {
         let src_edge_names: Vec<&str> = src
             .outgoing_edges(src_id)
             .iter()
@@ -258,7 +268,7 @@ pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor
         if src_edge_names.is_empty() {
             // Pure leaf: we cannot score it by children. Fall back to
             // name-level alias comparison against each candidate.
-            for tgt_id in tgt.vertices.keys() {
+            for tgt_id in tgt_ids.iter().copied() {
                 if !kinds_compatible(src, src_id, tgt, tgt_id) {
                     continue;
                 }
@@ -281,7 +291,7 @@ pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor
             continue;
         }
 
-        for tgt_id in tgt.vertices.keys() {
+        for tgt_id in tgt_ids.iter().copied() {
             if !kinds_compatible(src, src_id, tgt, tgt_id) {
                 continue;
             }
@@ -411,6 +421,127 @@ mod tests {
         assert!(dict.are_aliases("id", "uuid"));
         assert!(dict.are_aliases("ref", "target"));
         assert!(dict.are_aliases("subject", "referent"));
+    }
+
+    #[test]
+    fn are_aliases_rejects_empty_canonical() {
+        let dict = AliasDict::new();
+        assert!(!dict.are_aliases("", ""));
+        assert!(!dict.are_aliases("___", "---"));
+        assert!(!dict.are_aliases("foo", ""));
+    }
+
+    #[test]
+    fn add_cluster_ignores_singletons() {
+        let mut dict = AliasDict::new();
+        dict.add_cluster(["solo"]);
+        assert_eq!(dict.cluster_count(), 0);
+        // After filtering empty canonical forms, only one term remains.
+        dict.add_cluster(["bar", "___"]);
+        assert_eq!(dict.cluster_count(), 0);
+        dict.add_cluster(["bar", "baz"]);
+        assert_eq!(dict.cluster_count(), 1);
+        assert!(dict.are_aliases("bar", "baz"));
+    }
+
+    #[test]
+    fn alias_edge_overlap_empty_sides() {
+        let dict = AliasDict::new();
+        // Empty-empty: documented as 1.0 but matched=0.
+        let (score, matched) = alias_edge_overlap(&[], &[], &dict);
+        assert_eq!(matched, 0);
+        assert!((score - 1.0).abs() < 1e-9);
+        // Empty-nonempty: no matches possible.
+        let (score, matched) = alias_edge_overlap(&[], &["x"], &dict);
+        assert_eq!(matched, 0);
+        assert!(score.abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn alias_anchors_minimal_disjoint_schema_returns_empty() {
+        // A schema with a single unrelated vertex cannot match anything in
+        // a target schema with a different single unrelated vertex; this
+        // is the smallest possible case and verifies no-panic behavior.
+        let src = build_schema(&[("unused_x", "string")], &[]);
+        let tgt = build_schema(&[("unused_y", "integer")], &[]);
+        let dict = default_alias_dict();
+        assert!(alias_anchors(&src, &tgt, &dict).is_empty());
+    }
+
+    #[test]
+    fn alias_anchors_deterministic_emission() {
+        let dict = default_alias_dict();
+        let perms: [&[(&str, &str)]; 2] = [
+            &[("aaa", "object"), ("bbb", "object"), ("ccc", "object")],
+            &[("ccc", "object"), ("aaa", "object"), ("bbb", "object")],
+        ];
+        let targets = build_schema(
+            &[
+                ("aaa", "object"),
+                ("bbb", "object"),
+                ("ccc", "object"),
+                ("aaa.x", "string"),
+                ("bbb.x", "string"),
+                ("ccc.x", "string"),
+            ],
+            &[
+                ("aaa", "aaa.x", "prop", "id"),
+                ("bbb", "bbb.x", "prop", "id"),
+                ("ccc", "ccc.x", "prop", "id"),
+            ],
+        );
+        let mut results = Vec::new();
+        for verts in perms {
+            let leaves: Vec<(&str, &str)> = verts
+                .iter()
+                .map(|(id, _)| {
+                    (
+                        Box::leak(format!("{id}.x").into_boxed_str()) as &str,
+                        "string",
+                    )
+                })
+                .collect();
+            let all_verts: Vec<(&str, &str)> = verts.iter().copied().chain(leaves).collect();
+            let edges: Vec<(&str, &str, &str, &str)> = verts
+                .iter()
+                .map(|(id, _)| {
+                    (
+                        *id,
+                        Box::leak(format!("{id}.x").into_boxed_str()) as &str,
+                        "prop",
+                        "uuid",
+                    )
+                })
+                .collect();
+            let src = build_schema(&all_verts, &edges);
+            let anchors = alias_anchors(&src, &targets, &dict);
+            let mut pairs: Vec<(String, String)> = anchors
+                .iter()
+                .map(|a| (a.src.as_str().into(), a.tgt.as_str().into()))
+                .collect();
+            pairs.sort();
+            results.push(pairs);
+        }
+        assert_eq!(
+            results[0], results[1],
+            "anchor set must be permutation-invariant"
+        );
+    }
+
+    #[test]
+    fn alias_anchors_emit_only_kind_compatible() {
+        let dict = default_alias_dict();
+        let src = build_schema(
+            &[("root", "object"), ("root.id", "string")],
+            &[("root", "root.id", "prop", "id")],
+        );
+        let tgt = build_schema(
+            &[("root", "integer"), ("root.id", "string")],
+            &[("root", "root.id", "prop", "uuid")],
+        );
+        for anchor in alias_anchors(&src, &tgt, &dict) {
+            assert!(kinds_compatible(&src, &anchor.src, &tgt, &anchor.tgt));
+        }
     }
 
     #[test]

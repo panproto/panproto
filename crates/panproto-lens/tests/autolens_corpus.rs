@@ -32,6 +32,7 @@
     clippy::explicit_auto_deref
 )]
 
+use panproto_gat::TheoryTransform;
 use panproto_lens::auto_lens::{AutoLensConfig, AutoLensResult, Stringency, auto_generate};
 use panproto_lens::error::LensError;
 use panproto_schema::{Protocol, Schema, SchemaBuilder};
@@ -191,9 +192,9 @@ fn case_temporal_rename() -> CorpusCase {
         // Exploratory adds the structural strategy, which proposes an
         // extra anchor the CSP then reorders into a slightly
         // lower-quality (but still valid) morphism on this tiny case.
-        // A 0.02 tolerance absorbs the reorder; it reduces once the
-        // coverage term (plan §3) is wired into the composite ranker.
-        monotonicity_tolerance: 0.02,
+        // Measured dip is ~0.016 (0.2595 → 0.2437); the tolerance is
+        // kept at the minimum that covers it with a one-unit safety margin.
+        monotonicity_tolerance: 0.017,
     }
 }
 
@@ -255,10 +256,10 @@ fn case_cross_namespace() -> CorpusCase {
         expected_morphism_at_lenient: Some(ExpectedOutcome::AlignsWithQualityAtLeast(0.2)),
         expected_morphism_at_exploratory: Some(ExpectedOutcome::AlignsWithQualityAtLeast(0.2)),
         // Exploratory's extra coerce + structural anchors reorder the
-        // CSP's choice on this small cross-namespace case, dropping
-        // quality by ≤0.02. Absorbed by a small tolerance; reduces
-        // once the coverage term contributes to the composite score.
-        monotonicity_tolerance: 0.02,
+        // CSP's choice on this small cross-namespace case. Measured dip
+        // is ~0.011 (0.2631 → 0.2526); tolerance is the minimum that
+        // covers it.
+        monotonicity_tolerance: 0.012,
     }
 }
 
@@ -300,9 +301,10 @@ fn case_sql_user_customer() -> CorpusCase {
         expected_morphism_at_balanced: Some(ExpectedOutcome::AlignsWithQualityAtLeast(0.5)),
         expected_morphism_at_lenient: Some(ExpectedOutcome::AlignsWithQualityAtLeast(0.5)),
         expected_morphism_at_exploratory: Some(ExpectedOutcome::AlignsWithQualityAtLeast(0.5)),
-        // Known Strict→Balanced quality dip: 0.656 → 0.645. Remove when
-        // the coverage term (plan §3) is wired into the ranker.
-        monotonicity_tolerance: 0.05,
+        // Known Strict→Balanced quality dip: 0.6565 → 0.6452 (~0.012);
+        // Exploratory re-recovers Strict. Minimum tolerance that covers
+        // the Strict→Balanced step.
+        monotonicity_tolerance: 0.012,
     }
 }
 
@@ -683,6 +685,104 @@ fn corpus_exploratory_dominates_lenient() {
 // Explanation snapshot: case (b) pure_rename_text_body must produce an
 // alias-strategy anchor with a human-readable explanation at Balanced.
 // -----------------------------------------------------------------------
+
+// -----------------------------------------------------------------------
+// Span-search chain-step assertions: drop-only and add-only cases must
+// emit real DropOp/DropSort or AddOp/AddSort endofunctors at Lenient+.
+// -----------------------------------------------------------------------
+
+#[test]
+fn lenient_orphan_source_sort_emits_drop_sort() {
+    // Source has a kind the target lacks; Lenient span-search must
+    // emit a real `DropSort` endofunctor. The corpus `drop_only` case
+    // keeps all kinds on both sides (field-name drop, not sort drop)
+    // so this explicit fixture drives the sort-level path.
+    let src = build(
+        &[("r", "record"), ("r.keep", "string"), ("r.flag", "boolean")],
+        &[
+            ("r", "r.keep", "prop", "keep"),
+            ("r", "r.flag", "prop", "flag"),
+        ],
+    );
+    let tgt = build(
+        &[("r", "record"), ("r.keep", "string")],
+        &[("r", "r.keep", "prop", "keep")],
+    );
+    let protocol = generic_protocol();
+    let result = auto_generate(
+        &src,
+        &tgt,
+        &protocol,
+        &AutoLensConfig {
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        },
+    )
+    .expect("Lenient should find a span");
+    let has_drop_sort_boolean = result.chain.steps.iter().any(|step| {
+        matches!(
+            &step.target.transform,
+            TheoryTransform::DropSort(name) if &**name == "boolean"
+        )
+    });
+    assert!(
+        has_drop_sort_boolean,
+        "Lenient span must emit DropSort(boolean); chain: {:?}",
+        result
+            .chain
+            .steps
+            .iter()
+            .map(|s| s.name.to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn lenient_orphan_target_sort_emits_add_sort() {
+    // Mirror: target has a kind the source lacks; factorize must emit
+    // `AddSort(boolean)`.
+    let src = build(
+        &[("r", "record"), ("r.keep", "string")],
+        &[("r", "r.keep", "prop", "keep")],
+    );
+    let tgt = build(
+        &[("r", "record"), ("r.keep", "string"), ("r.flag", "boolean")],
+        &[
+            ("r", "r.keep", "prop", "keep"),
+            ("r", "r.flag", "prop", "flag"),
+        ],
+    );
+    let protocol = generic_protocol();
+    let result = auto_generate(
+        &src,
+        &tgt,
+        &protocol,
+        &AutoLensConfig {
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        },
+    )
+    .expect("Lenient should find a span");
+    let has_add_sort_boolean = result
+        .chain
+        .steps
+        .iter()
+        .any(|step| match &step.target.transform {
+            TheoryTransform::AddSort { sort, .. }
+            | TheoryTransform::AddSortWithDefault { sort, .. } => &*sort.name == "boolean",
+            _ => false,
+        });
+    assert!(
+        has_add_sort_boolean,
+        "Lenient span must emit AddSort(boolean); chain: {:?}",
+        result
+            .chain
+            .steps
+            .iter()
+            .map(|s| s.name.to_string())
+            .collect::<Vec<_>>()
+    );
+}
 
 #[test]
 fn balanced_emits_alias_explanation_for_pure_rename() {

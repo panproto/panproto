@@ -672,8 +672,8 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
 /// contract imports; precompile Nickel → JSON on the host instead.
 ///
 /// `body_vertex` is the parent vertex id under which field-level steps
-/// (e.g. `rename_field`, `add_field`) attach — typically the record's
-/// `:body` object, such as `"app.bsky.feed.post:body"`.
+/// (e.g. `rename_field`, `add_field`) attach; typically the record's
+/// `:body` object, such as `"com.example.thing:body"`.
 ///
 /// Returns a handle to the compiled `ProtolensChain`.
 ///
@@ -1007,4 +1007,44 @@ pub fn auto_generate_protolens_with_hint_spec(
     Ok(slab::alloc(Resource::ProtolensChain(Box::new(
         result.chain,
     ))))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_stringency_accepts_tiers_case_insensitive() {
+        assert!(matches!(parse_stringency(None), Ok(None)));
+        assert!(matches!(parse_stringency(Some("")), Ok(None),));
+        assert!(matches!(
+            parse_stringency(Some("Strict")),
+            Ok(Some(Stringency::Strict)),
+        ));
+        assert!(matches!(
+            parse_stringency(Some("BALANCED")),
+            Ok(Some(Stringency::Balanced)),
+        ));
+        assert!(matches!(
+            parse_stringency(Some("lenient")),
+            Ok(Some(Stringency::Lenient)),
+        ));
+        assert!(matches!(
+            parse_stringency(Some("Exploratory")),
+            Ok(Some(Stringency::Exploratory)),
+        ));
+    }
+
+    // `parse_stringency` on the error path constructs a `JsError`, which
+    // wasm-bindgen's runtime cannot instantiate on non-wasm hosts. We
+    // therefore only exercise the error path under the wasm target; the
+    // happy paths above are host-neutral because `Ok(None)` / `Ok(Some)`
+    // don't touch wasm-bindgen runtime.
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn parse_stringency_rejects_unknown_value() {
+        let err = parse_stringency(Some("loose")).expect_err("expected an error");
+        let _ = err;
+    }
 }

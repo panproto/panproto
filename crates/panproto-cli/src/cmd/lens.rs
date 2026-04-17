@@ -150,23 +150,13 @@ pub fn cmd_lens_generate(
     // explanations to stdout. Save/fuse/requirements still operate on
     // the top-1 result above.
     if top_n > 1 || explain {
-        let mut candidate_config = lens::AutoLensConfig {
-            defaults: parse_defaults(defaults)?,
-            try_overlap,
-            ..Default::default()
-        };
-        if let Some(s) = stringency_arg {
-            candidate_config.stringency = s;
-        }
-        let candidates = lens::auto_generate_candidates(
-            &src_schema,
-            &tgt_schema,
-            &protocol,
-            &candidate_config,
-            top_n,
-        )
-        .into_diagnostic()
-        .wrap_err("failed to generate candidate lenses")?;
+        // Reuse the (already-merged) `config` from above so
+        // stringency, alias-dict cartridges, and defaults from the
+        // hints file all flow into the candidate path consistently.
+        let candidates =
+            lens::auto_generate_candidates(&src_schema, &tgt_schema, &protocol, &config, top_n)
+                .into_diagnostic()
+                .wrap_err("failed to generate candidate lenses")?;
 
         if json || chain {
             let entries: Vec<serde_json::Value> = candidates
