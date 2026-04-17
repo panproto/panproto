@@ -132,6 +132,7 @@ pub fn cmd_lens_generate(
     } else {
         // Human-readable summary.
         println!("Lens: {} -> {}", old_path.display(), new_path.display());
+        println!("  Stringency: {}", config.stringency);
         println!("  Alignment quality: {:.3}", result.alignment_quality);
         println!("  Steps: {}", result.chain.steps.len());
         for (i, step) in result.chain.steps.iter().enumerate() {
@@ -141,6 +142,20 @@ pub fn cmd_lens_generate(
                 " (lossy)"
             };
             println!("    {}. {}{lossless}", i + 1, step.name);
+        }
+        if explain && !result.coerce_proposals.is_empty() {
+            println!("\nCoerce proposals ({}):", result.coerce_proposals.len());
+            for p in &result.coerce_proposals {
+                println!(
+                    "  - {} ↔ {} via `{}` ({:?}, conf={:.2}): {}",
+                    p.anchor.src.as_str(),
+                    p.anchor.tgt.as_str(),
+                    p.witness_name,
+                    p.witness_class,
+                    p.anchor.confidence,
+                    p.anchor.explanation,
+                );
+            }
         }
     }
 
@@ -176,9 +191,24 @@ pub fn cmd_lens_generate(
                     })
                 })
                 .collect();
+            let coerce_proposals: Vec<serde_json::Value> = result
+                .coerce_proposals
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "src": p.anchor.src.as_str(),
+                        "tgt": p.anchor.tgt.as_str(),
+                        "witness_name": p.witness_name,
+                        "witness_class": p.witness_class,
+                        "confidence": p.anchor.confidence,
+                        "explanation": p.anchor.explanation,
+                    })
+                })
+                .collect();
             let wrapper = serde_json::json!({
                 "candidates": entries,
                 "count": candidates.len(),
+                "coerce_proposals": coerce_proposals,
             });
             let pretty = serde_json::to_string_pretty(&wrapper)
                 .into_diagnostic()

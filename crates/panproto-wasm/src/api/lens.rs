@@ -75,7 +75,28 @@ pub fn auto_generate_candidates(
             reason: e.to_string(),
         })?;
 
-    let payload: Vec<serde_json::Value> = candidates
+    // Exploratory-tier coerce proposals are a property of the run, not
+    // of any individual candidate; run a top-1 alignment at the same
+    // config to surface them alongside the candidate list.
+    let coerce_proposals = match lens::auto_generate(&src, &tgt, &protocol, &config) {
+        Ok(result) => result
+            .coerce_proposals
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "src": p.anchor.src.as_str(),
+                    "tgt": p.anchor.tgt.as_str(),
+                    "witness_name": p.witness_name,
+                    "witness_class": p.witness_class,
+                    "confidence": p.anchor.confidence,
+                    "explanation": p.anchor.explanation,
+                })
+            })
+            .collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    };
+
+    let candidates_payload: Vec<serde_json::Value> = candidates
         .iter()
         .map(|c| {
             serde_json::json!({
@@ -93,7 +114,12 @@ pub fn auto_generate_candidates(
         })
         .collect();
 
-    rmp_serde::to_vec_named(&payload).map_err(|e| -> JsError {
+    let wrapper = serde_json::json!({
+        "candidates": candidates_payload,
+        "coerce_proposals": coerce_proposals,
+    });
+
+    rmp_serde::to_vec_named(&wrapper).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
         }

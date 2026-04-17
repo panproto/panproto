@@ -80,6 +80,7 @@ export interface WasmGlueModule {
   put_json: WasmExports['put_json'];
   instance_element_count: WasmExports['instance_element_count'];
   auto_generate_protolens: WasmExports['auto_generate_protolens'];
+  auto_generate_candidates: WasmExports['auto_generate_candidates'];
   instantiate_protolens: WasmExports['instantiate_protolens'];
   protolens_complement_spec: WasmExports['protolens_complement_spec'];
   protolens_from_diff: WasmExports['protolens_from_diff'];
@@ -97,6 +98,7 @@ export interface WasmGlueModule {
   protolens_fleet: WasmExports['protolens_fleet'];
   protolens_pipeline: WasmExports['protolens_pipeline'];
   auto_generate_protolens_with_hints: WasmExports['auto_generate_protolens_with_hints'];
+  auto_generate_protolens_with_hint_spec: WasmExports['auto_generate_protolens_with_hint_spec'];
   check_lens_laws: WasmExports['check_lens_laws'];
   check_get_put: WasmExports['check_get_put'];
   check_put_get: WasmExports['check_put_get'];
@@ -215,6 +217,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       put_json: glue.put_json,
       instance_element_count: glue.instance_element_count,
       auto_generate_protolens: glue.auto_generate_protolens,
+      auto_generate_candidates: glue.auto_generate_candidates,
       instantiate_protolens: glue.instantiate_protolens,
       protolens_complement_spec: glue.protolens_complement_spec,
       protolens_from_diff: glue.protolens_from_diff,
@@ -232,6 +235,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       protolens_fleet: glue.protolens_fleet,
       protolens_pipeline: glue.protolens_pipeline,
       auto_generate_protolens_with_hints: glue.auto_generate_protolens_with_hints,
+      auto_generate_protolens_with_hint_spec: glue.auto_generate_protolens_with_hint_spec,
       check_lens_laws: glue.check_lens_laws,
       check_get_put: glue.check_get_put,
       check_put_get: glue.check_put_get,

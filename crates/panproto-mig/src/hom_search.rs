@@ -1032,4 +1032,84 @@ mod tests {
             Some("root.name")
         );
     }
+
+    #[test]
+    fn relax_edge_name_pruning_rescues_valid_target_with_disjoint_edge_names() {
+        // Build a source "root" object with >5 candidate targets, all
+        // kind-compatible but sharing zero edge-name overlap with the
+        // source's outgoing edges. With the pruner on (relax=false)
+        // the pruner suppresses them all because none share an edge
+        // name. With relax=true the candidates survive and a morphism
+        // is found.
+        let src = build_schema(
+            &[
+                ("s_root", "object"),
+                ("s_a", "string"),
+                ("s_b", "string"),
+                ("s_c", "string"),
+                ("s_d", "string"),
+                ("s_e", "string"),
+                ("s_f", "string"),
+            ],
+            &[
+                ("s_root", "s_a", "prop", "src_alpha"),
+                ("s_root", "s_b", "prop", "src_beta"),
+                ("s_root", "s_c", "prop", "src_gamma"),
+                ("s_root", "s_d", "prop", "src_delta"),
+                ("s_root", "s_e", "prop", "src_epsilon"),
+                ("s_root", "s_f", "prop", "src_zeta"),
+            ],
+        );
+        // Target objects (>5) each with a disjoint set of edge names:
+        // no overlap with the source's `src_*` names.
+        let tgt = build_schema(
+            &[
+                ("t_root_a", "object"),
+                ("t_root_b", "object"),
+                ("t_root_c", "object"),
+                ("t_root_d", "object"),
+                ("t_root_e", "object"),
+                ("t_root_f", "object"),
+                ("t_leaf_a", "string"),
+                ("t_leaf_b", "string"),
+                ("t_leaf_c", "string"),
+                ("t_leaf_d", "string"),
+                ("t_leaf_e", "string"),
+                ("t_leaf_f", "string"),
+            ],
+            &[
+                ("t_root_a", "t_leaf_a", "prop", "tgt_one"),
+                ("t_root_b", "t_leaf_b", "prop", "tgt_two"),
+                ("t_root_c", "t_leaf_c", "prop", "tgt_three"),
+                ("t_root_d", "t_leaf_d", "prop", "tgt_four"),
+                ("t_root_e", "t_leaf_e", "prop", "tgt_five"),
+                ("t_root_f", "t_leaf_f", "prop", "tgt_six"),
+            ],
+        );
+
+        // Strict-style pruner ON: no morphism honors all source edges,
+        // so the CSP cannot extend to a total assignment via pruned
+        // object domains. Best-found (if any) is low quality.
+        let strict_opts = SearchOptions::default();
+        let strict = find_best_morphism(&src, &tgt, &strict_opts);
+
+        // Relaxed: kind-compatible targets are preserved even with no
+        // edge-name overlap; the CSP can now explore them.
+        let relaxed_opts = SearchOptions {
+            relax_edge_name_pruning: true,
+            ..Default::default()
+        };
+        let relaxed = find_best_morphism(&src, &tgt, &relaxed_opts);
+
+        assert!(
+            relaxed.is_some(),
+            "relaxed pruning should find a morphism between kind-compatible schemas"
+        );
+        if let (Some(s), Some(r)) = (strict.as_ref(), relaxed.as_ref()) {
+            assert!(
+                r.vertex_map.len() >= s.vertex_map.len(),
+                "relaxed pruning should match at least as many vertices"
+            );
+        }
+    }
 }

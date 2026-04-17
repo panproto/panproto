@@ -396,6 +396,108 @@ mod tests {
     }
 
     #[test]
+    fn token_anchors_single_isolated_vertex() {
+        use panproto_schema::{Protocol, SchemaBuilder};
+        let proto = Protocol {
+            name: "t".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        // Smallest legal schema is one vertex; token_anchors returns empty
+        // when there is no opposite-side match.
+        let s = SchemaBuilder::new(&proto)
+            .vertex("alpha", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let t = SchemaBuilder::new(&proto)
+            .vertex("zzzzz", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(token_anchors(&s, &t, 0.9).is_empty());
+    }
+
+    #[test]
+    fn token_anchors_bit_identical_across_100_runs() {
+        use panproto_schema::{Protocol, SchemaBuilder};
+        let proto = Protocol {
+            name: "t".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let build = |names: &[&str]| {
+            let mut b = SchemaBuilder::new(&proto);
+            for n in names {
+                b = b.vertex(n, "string", None::<&str>).unwrap();
+            }
+            b.build().unwrap()
+        };
+        let s = build(&["createdAt", "sentAt", "updatedAt"]);
+        let t = build(&["created_at", "modified_at"]);
+        let baseline: Vec<(String, String, u64)> = token_anchors(&s, &t, 0.4)
+            .iter()
+            .map(|a| {
+                (
+                    a.src.as_str().into(),
+                    a.tgt.as_str().into(),
+                    a.confidence.to_bits(),
+                )
+            })
+            .collect();
+        for _ in 0..100 {
+            let again: Vec<(String, String, u64)> = token_anchors(&s, &t, 0.4)
+                .iter()
+                .map(|a| {
+                    (
+                        a.src.as_str().into(),
+                        a.tgt.as_str().into(),
+                        a.confidence.to_bits(),
+                    )
+                })
+                .collect();
+            assert_eq!(again, baseline);
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn token_similarity_is_symmetric(a in "[a-zA-Z0-9_\\-]{0,20}", b in "[a-zA-Z0-9_\\-]{0,20}") {
+            let ab = token_similarity(&a, &b);
+            let ba = token_similarity(&b, &a);
+            proptest::prop_assert!(
+                (ab - ba).abs() < 1e-9,
+                "token_similarity({a:?}, {b:?}) = {ab} != {ba} = token_similarity({b:?}, {a:?})"
+            );
+        }
+
+        #[test]
+        fn token_jaccard_is_symmetric(
+            a in proptest::collection::vec("[a-z]{1,5}", 0..5),
+            b in proptest::collection::vec("[a-z]{1,5}", 0..5),
+        ) {
+            let ja = token_jaccard(&a, &b);
+            let jb = token_jaccard(&b, &a);
+            proptest::prop_assert!((ja - jb).abs() < 1e-9);
+        }
+
+        #[test]
+        fn char_ngram_cosine_is_symmetric(a in "[a-z0-9]{0,15}", b in "[a-z0-9]{0,15}") {
+            let ab = char_ngram_cosine(&a, &b, 2);
+            let ba = char_ngram_cosine(&b, &a, 2);
+            proptest::prop_assert!((ab - ba).abs() < 1e-9);
+        }
+    }
+
+    #[test]
     fn token_similarity_unrelated_is_low() {
         let score = token_similarity("createdAt", "authorId");
         assert!(

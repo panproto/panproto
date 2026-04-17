@@ -9,7 +9,15 @@
  * @module
  */
 
-import type { WasmModule, LawCheckResult, LiftResult, GetResult } from './types.js';
+import type {
+  WasmModule,
+  LawCheckResult,
+  LiftResult,
+  GetResult,
+  Stringency,
+  HintSpec,
+  CandidateResponse,
+} from './types.js';
 import { WasmError } from './types.js';
 import { WasmHandle, createHandle } from './wasm.js';
 import { packToWasm, unpackFromWasm } from './msgpack.js';
@@ -48,16 +56,67 @@ export class ProtolensChainHandle implements Disposable {
    * @param schema1 - The source schema
    * @param schema2 - The target schema
    * @param wasm - The WASM module
+   * @param stringency - Which alignment strategies to run.
+   *   Defaults to `balanced`. See {@link Stringency}.
    * @returns A ProtolensChainHandle wrapping the generated chain
    * @throws {@link WasmError} if the WASM call fails
    */
-  static autoGenerate(schema1: BuiltSchema, schema2: BuiltSchema, wasm: WasmModule): ProtolensChainHandle {
+  static autoGenerate(
+    schema1: BuiltSchema,
+    schema2: BuiltSchema,
+    wasm: WasmModule,
+    stringency?: Stringency,
+  ): ProtolensChainHandle {
     try {
-      const rawHandle = wasm.exports.auto_generate_protolens(schema1._handle.id, schema2._handle.id);
+      const rawHandle = wasm.exports.auto_generate_protolens(
+        schema1._handle.id,
+        schema2._handle.id,
+        stringency,
+      );
       return new ProtolensChainHandle(createHandle(rawHandle, wasm), wasm);
     } catch (error) {
       throw new WasmError(
         `auto_generate_protolens failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Auto-generate up to `topN` ranked candidate lenses with per-step
+   * explanations and, at the `"exploratory"` tier, sort-coercion
+   * proposals.
+   *
+   * Returns the decoded MessagePack response (not a handle) because the
+   * response carries structural metadata (scores, explanations) that the
+   * caller typically consumes directly rather than re-marshaling.
+   *
+   * @param schema1 - The source schema
+   * @param schema2 - The target schema
+   * @param topN - Maximum number of candidates to return. Values below
+   *   `1` are treated as `1`.
+   * @param wasm - The WASM module
+   * @param stringency - Alignment-strategy tier; defaults to `balanced`.
+   * @throws {@link WasmError} if no morphism is found.
+   */
+  static autoGenerateCandidates(
+    schema1: BuiltSchema,
+    schema2: BuiltSchema,
+    topN: number,
+    wasm: WasmModule,
+    stringency?: Stringency,
+  ): CandidateResponse {
+    try {
+      const bytes = wasm.exports.auto_generate_candidates(
+        schema1._handle.id,
+        schema2._handle.id,
+        topN,
+        stringency,
+      );
+      return unpackFromWasm<CandidateResponse>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `auto_generate_candidates failed: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },
       );
     }
@@ -246,13 +305,13 @@ export class ProtolensChainHandle implements Disposable {
   /**
    * Auto-generate a protolens chain with morphism hints.
    *
-   * Hints are vertex correspondences that seed the morphism search,
-   * enabling alignment across schemas with different NSID namespaces.
+   * Hints are vertex correspondences that seed the morphism search.
    *
    * @param schema1 - The source schema
    * @param schema2 - The target schema
    * @param hints - Map of source vertex names to target vertex names
    * @param wasm - The WASM module
+   * @param stringency - Alignment-strategy tier; defaults to `balanced`.
    * @returns A ProtolensChainHandle wrapping the generated chain
    * @throws {@link WasmError} if no morphism is found even with hints
    */
@@ -261,6 +320,7 @@ export class ProtolensChainHandle implements Disposable {
     schema2: BuiltSchema,
     hints: Record<string, string>,
     wasm: WasmModule,
+    stringency?: Stringency,
   ): ProtolensChainHandle {
     try {
       const hintsBytes = packToWasm(hints);
@@ -268,11 +328,49 @@ export class ProtolensChainHandle implements Disposable {
         schema1._handle.id,
         schema2._handle.id,
         hintsBytes,
+        stringency,
       );
       return new ProtolensChainHandle(createHandle(rawHandle, wasm), wasm);
     } catch (error) {
       throw new WasmError(
         `auto_generate_protolens_with_hints failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Auto-generate a protolens chain from a full {@link HintSpec}.
+   *
+   * Unlike {@link autoGenerateWithHints} (which takes only raw anchor
+   * pairs), this accepts the complete hint DSL: anchors, constraints
+   * (scope / exclude / prefer), an embedded `stringency` tier, and
+   * `alias_clusters` that extend the engine's alias dictionary.
+   *
+   * @param schema1 - The source schema
+   * @param schema2 - The target schema
+   * @param hintSpec - The full HintSpec document
+   * @param wasm - The WASM module
+   * @returns A ProtolensChainHandle wrapping the generated chain
+   * @throws {@link WasmError} if no morphism is found
+   */
+  static autoGenerateWithHintSpec(
+    schema1: BuiltSchema,
+    schema2: BuiltSchema,
+    hintSpec: HintSpec,
+    wasm: WasmModule,
+  ): ProtolensChainHandle {
+    try {
+      const hintSpecBytes = packToWasm(hintSpec);
+      const rawHandle = wasm.exports.auto_generate_protolens_with_hint_spec(
+        schema1._handle.id,
+        schema2._handle.id,
+        hintSpecBytes,
+      );
+      return new ProtolensChainHandle(createHandle(rawHandle, wasm), wasm);
+    } catch (error) {
+      throw new WasmError(
+        `auto_generate_protolens_with_hint_spec failed: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },
       );
     }
@@ -444,12 +542,22 @@ export class LensHandle implements Disposable {
    * @param schema1 - The source schema
    * @param schema2 - The target schema
    * @param wasm - The WASM module
+   * @param stringency - Alignment-strategy tier; defaults to `balanced`.
    * @returns A LensHandle wrapping the generated lens
    * @throws {@link WasmError} if the WASM call fails
    */
-  static autoGenerate(schema1: BuiltSchema, schema2: BuiltSchema, wasm: WasmModule): LensHandle {
+  static autoGenerate(
+    schema1: BuiltSchema,
+    schema2: BuiltSchema,
+    wasm: WasmModule,
+    stringency?: Stringency,
+  ): LensHandle {
     try {
-      const rawHandle = wasm.exports.auto_generate_protolens(schema1._handle.id, schema2._handle.id);
+      const rawHandle = wasm.exports.auto_generate_protolens(
+        schema1._handle.id,
+        schema2._handle.id,
+        stringency,
+      );
       const chainHandle = createHandle(rawHandle, wasm);
       const lensRaw = wasm.exports.instantiate_protolens(chainHandle.id, schema1._handle.id);
       chainHandle[Symbol.dispose]();

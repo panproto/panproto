@@ -3,13 +3,9 @@
 //! behaviour (in particular, the sort-drop span step when a source
 //! kind has no target counterpart).
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::explicit_auto_deref,
-    clippy::items_after_statements
-)]
+#![allow(clippy::expect_used)]
 
+use panproto_gat::TheoryTransform;
 use panproto_lens::{
     auto_lens::{AutoLensConfig, Stringency, auto_generate_with_hints},
     hint,
@@ -33,10 +29,10 @@ fn build(verts: &[(&str, &str)], edges: &[(&str, &str, &str, &str)]) -> Schema {
     let proto = generic_protocol();
     let mut b = SchemaBuilder::new(&proto);
     for (id, k) in verts {
-        b = b.vertex(*id, *k, None::<&str>).expect("vertex");
+        b = b.vertex(id, k, None::<&str>).expect("vertex");
     }
     for (s, t, k, n) in edges {
-        b = b.edge(*s, *t, *k, Some(*n)).expect("edge");
+        b = b.edge(s, t, k, Some(n)).expect("edge");
     }
     b.build().expect("build")
 }
@@ -89,11 +85,10 @@ fn hint_file_with_lenient_stringency_triggers_span_drop() {
     let result = auto_generate_with_hints(&src, &tgt, &protocol, &config, &derived, &domain, None)
         .expect("Lenient should find a span");
 
-    use panproto_gat::TheoryTransform;
     let has_drop_boolean = result.chain.steps.iter().any(|step| {
         matches!(
             &step.target.transform,
-            TheoryTransform::DropSort(name) if &**name == "boolean"
+            TheoryTransform::DropSort(name) if name.as_ref() == "boolean"
         )
     });
     assert!(

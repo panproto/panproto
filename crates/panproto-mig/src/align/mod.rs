@@ -215,4 +215,82 @@ mod tests {
         let resolved = resolve_anchors(&anchors, false);
         assert_eq!(resolved.len(), 2);
     }
+
+    #[test]
+    fn resolve_prefers_type_signature_over_coerce_at_equal_confidence() {
+        // Same-kind signature match ranks above cross-kind Coerce bridge.
+        let anchors = vec![
+            anchor("a", "C", 0.7, StrategyTag::Coerce),
+            anchor("a", "T", 0.7, StrategyTag::TypeSignature),
+        ];
+        let resolved = resolve_anchors(&anchors, false);
+        assert_eq!(
+            resolved.get(&Name::from("a")).map(Name::as_str),
+            Some("T"),
+            "TypeSignature must beat Coerce at tied confidence"
+        );
+    }
+
+    #[test]
+    fn resolve_prefers_exact_over_coerce_at_equal_confidence() {
+        let anchors = vec![
+            anchor("a", "C", 0.7, StrategyTag::Coerce),
+            anchor("a", "E", 0.7, StrategyTag::Exact),
+        ];
+        let resolved = resolve_anchors(&anchors, false);
+        assert_eq!(
+            resolved.get(&Name::from("a")).map(Name::as_str),
+            Some("E"),
+            "Exact must beat Coerce at tied confidence"
+        );
+    }
+
+    #[test]
+    fn resolve_monic_three_sources_one_target_keeps_highest_confidence() {
+        // Three sources all want the same target at different confidences.
+        // Under monic, only the highest-confidence source wins the target;
+        // the others are dropped entirely (they have no fallback anchor).
+        let anchors = vec![
+            anchor("a", "T", 0.6, StrategyTag::Exact),
+            anchor("b", "T", 0.9, StrategyTag::Exact),
+            anchor("c", "T", 0.75, StrategyTag::Exact),
+        ];
+        let resolved = resolve_anchors(&anchors, true);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved.get(&Name::from("b")).map(Name::as_str),
+            Some("T"),
+            "highest confidence wins the target under monic"
+        );
+        assert!(!resolved.contains_key(&Name::from("a")));
+        assert!(!resolved.contains_key(&Name::from("c")));
+    }
+
+    #[test]
+    fn resolve_empty_anchors_returns_empty_map() {
+        let resolved = resolve_anchors(&[], false);
+        assert!(resolved.is_empty());
+        let resolved = resolve_anchors(&[], true);
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn strategy_priority_table_is_total_and_ordered() {
+        // Explicit snapshot of the priority table so future edits don't
+        // silently reshuffle ties.
+        let tags = [
+            (StrategyTag::UserHint, 100),
+            (StrategyTag::Exact, 90),
+            (StrategyTag::Alias, 70),
+            (StrategyTag::TypeSignature, 60),
+            (StrategyTag::WrapUnwrap, 55),
+            (StrategyTag::TokenSimilarity, 50),
+            (StrategyTag::Coerce, 40),
+            (StrategyTag::Structural, 30),
+            (StrategyTag::Llm, 20),
+        ];
+        for (tag, expected) in tags {
+            assert_eq!(strategy_priority(tag), expected, "{tag:?}");
+        }
+    }
 }

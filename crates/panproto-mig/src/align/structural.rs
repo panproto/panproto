@@ -23,6 +23,10 @@ use super::{Anchor, StrategyTag, kinds_compatible};
 /// `confidence_floor` is the minimum score below which anchors are
 /// dropped. The strategy scales confidence by `(degree_similarity +
 /// edge_kind_overlap) / 2` and keeps entries above `confidence_floor`.
+///
+/// Tie-break: when multiple candidate targets share the best score,
+/// the lowest-alphabetical target wins (targets are iterated in sorted
+/// order and the strict `>` comparison retains the first-seen maximum).
 #[must_use]
 pub fn structural_anchors(src: &Schema, tgt: &Schema, confidence_floor: f64) -> Vec<Anchor> {
     let floor = confidence_floor.clamp(0.0, 1.0);
@@ -383,6 +387,86 @@ mod tests {
         );
         for anchor in structural_anchors(&src, &tgt, 0.5) {
             assert!(kinds_compatible(&src, &anchor.src, &tgt, &anchor.tgt));
+        }
+    }
+
+    #[test]
+    fn structural_single_isolated_vertex() {
+        // Smallest legal schema: single vertex has zero in+out degree and
+        // is skipped by the strategy.
+        let s = build(&[("lone", "string")], &[]);
+        let t = build(&[("other", "string")], &[]);
+        assert!(structural_anchors(&s, &t, 0.5).is_empty());
+    }
+
+    #[test]
+    fn structural_tie_break_picks_lowest_alpha_target() {
+        // Source has one equally-good match against two targets with
+        // identical structural profiles. Expect the lowest-alpha target.
+        let src = build(
+            &[("s", "object"), ("s.x", "string")],
+            &[("s", "s.x", "prop", "x")],
+        );
+        let tgt = build(
+            &[
+                ("aaa", "object"),
+                ("aaa.x", "string"),
+                ("zzz", "object"),
+                ("zzz.x", "string"),
+            ],
+            &[("aaa", "aaa.x", "prop", "x"), ("zzz", "zzz.x", "prop", "x")],
+        );
+        let anchors = structural_anchors(&src, &tgt, 0.5);
+        let s_anchor = anchors.iter().find(|a| a.src.as_str() == "s").unwrap();
+        assert_eq!(s_anchor.tgt.as_str(), "aaa");
+    }
+
+    #[test]
+    fn structural_bit_identical_across_100_runs() {
+        let src = build(
+            &[
+                ("alpha", "object"),
+                ("alpha.x", "string"),
+                ("alpha.y", "string"),
+            ],
+            &[
+                ("alpha", "alpha.x", "prop", "x"),
+                ("alpha", "alpha.y", "prop", "y"),
+            ],
+        );
+        let tgt = build(
+            &[
+                ("omega", "object"),
+                ("omega.a", "string"),
+                ("omega.b", "string"),
+            ],
+            &[
+                ("omega", "omega.a", "prop", "a"),
+                ("omega", "omega.b", "prop", "b"),
+            ],
+        );
+        let baseline: Vec<(String, String, u64)> = structural_anchors(&src, &tgt, 0.5)
+            .iter()
+            .map(|a| {
+                (
+                    a.src.as_str().into(),
+                    a.tgt.as_str().into(),
+                    a.confidence.to_bits(),
+                )
+            })
+            .collect();
+        for _ in 0..100 {
+            let again: Vec<(String, String, u64)> = structural_anchors(&src, &tgt, 0.5)
+                .iter()
+                .map(|a| {
+                    (
+                        a.src.as_str().into(),
+                        a.tgt.as_str().into(),
+                        a.confidence.to_bits(),
+                    )
+                })
+                .collect();
+            assert_eq!(again, baseline);
         }
     }
 

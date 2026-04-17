@@ -337,6 +337,101 @@ mod tests {
     }
 
     #[test]
+    fn split_prefix_suffix_trailing_separator_returns_none() {
+        // Regression: "a_" would naively match at index 1, producing an
+        // empty suffix. The len-1 guard prevents that.
+        assert_eq!(split_prefix_suffix("a_"), None);
+        assert_eq!(split_prefix_suffix("ab_"), None);
+        assert_eq!(split_prefix_suffix("abc_"), None);
+        // group_by_prefix therefore never sees an empty-suffix entry.
+    }
+
+    #[test]
+    fn wrap_unwrap_single_isolated_vertex() {
+        // Smallest legal schemas (one vertex each) cannot produce a
+        // multi-edge pattern, so the strategy yields no anchors.
+        let a = build_schema(&[("only_a", "string")], &[]);
+        let b = build_schema(&[("only_b", "string")], &[]);
+        assert!(wrap_unwrap_anchors(&a, &b).is_empty());
+    }
+
+    #[test]
+    fn group_by_prefix_never_emits_empty_suffix() {
+        // Trailing-separator names are filtered at split_prefix_suffix,
+        // so group_by_prefix cannot produce an entry with an empty suffix.
+        let flat = build_schema(
+            &[
+                ("root", "object"),
+                ("root.x", "string"),
+                ("root.y", "string"),
+            ],
+            &[
+                // "subject_" would be a degenerate name; skipped by split.
+                ("root", "root.x", "prop", "subject_uri"),
+                ("root", "root.y", "prop", "subject_cid"),
+            ],
+        );
+        let edges = flat.outgoing_edges(&Name::from("root"));
+        let groups = group_by_prefix(edges);
+        for entries in groups.values() {
+            for (suffix, _, _) in entries {
+                assert!(!suffix.is_empty(), "group_by_prefix emitted empty suffix");
+            }
+        }
+    }
+
+    #[test]
+    fn wrap_unwrap_bit_identical_across_100_runs() {
+        let flat = build_schema(
+            &[
+                ("root", "object"),
+                ("root.uri", "string"),
+                ("root.cid", "string"),
+            ],
+            &[
+                ("root", "root.uri", "prop", "subject_uri"),
+                ("root", "root.cid", "prop", "subject_cid"),
+            ],
+        );
+        let wrapped = build_schema(
+            &[
+                ("root", "object"),
+                ("root.subject", "object"),
+                ("root.subject.uri", "string"),
+                ("root.subject.cid", "string"),
+            ],
+            &[
+                ("root", "root.subject", "prop", "subject"),
+                ("root.subject", "root.subject.uri", "prop", "uri"),
+                ("root.subject", "root.subject.cid", "prop", "cid"),
+            ],
+        );
+        let baseline: Vec<(String, String, u64)> = wrap_unwrap_anchors(&flat, &wrapped)
+            .iter()
+            .map(|a| {
+                (
+                    a.src.as_str().into(),
+                    a.tgt.as_str().into(),
+                    a.confidence.to_bits(),
+                )
+            })
+            .collect();
+        for _ in 0..100 {
+            let again: Vec<(String, String, u64)> = wrap_unwrap_anchors(&flat, &wrapped)
+                .iter()
+                .map(|a| {
+                    (
+                        a.src.as_str().into(),
+                        a.tgt.as_str().into(),
+                        a.confidence.to_bits(),
+                    )
+                })
+                .collect();
+            assert_eq!(again, baseline);
+        }
+    }
+
+    #[test]
     fn wrap_unwrap_leaf_only_schema() {
         let a = build_schema(&[("x", "string")], &[]);
         let b = build_schema(&[("y", "string")], &[]);

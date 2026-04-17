@@ -185,16 +185,22 @@ impl PyLens {
 ///
 /// Returns
 /// -------
-/// tuple[Lens, float]
-///     The generated lens and the alignment quality score (0.0 to 1.0).
+/// tuple[Lens, float, list[dict]]
+///     The generated lens, the alignment quality score (0.0 to 1.0),
+///     and the list of coerce proposals emitted at `"exploratory"`
+///     stringency. Each proposal dict has keys ``src``, ``tgt``,
+///     ``witness_name``, ``witness_class``, ``confidence``, and
+///     ``explanation``. The list is empty at every tier below
+///     `"exploratory"`.
 #[pyfunction]
 #[pyo3(signature = (src_schema, tgt_schema, protocol, stringency=None))]
 pub fn auto_generate_lens(
+    py: Python<'_>,
     src_schema: &PySchema,
     tgt_schema: &PySchema,
     protocol: &PyProtocol,
     stringency: Option<&str>,
-) -> PyResult<(PyLens, f64)> {
+) -> PyResult<(PyLens, f64, PyObject)> {
     let mut config = AutoLensConfig::default();
     if let Some(s) = parse_stringency(stringency)? {
         config.stringency = s;
@@ -209,7 +215,29 @@ pub fn auto_generate_lens(
     let lens = PyLens {
         inner: Arc::new(result.lens),
     };
-    Ok((lens, result.alignment_quality))
+    let proposals_json = coerce_proposals_to_json(&result.coerce_proposals);
+    let proposals_py = convert::to_python(py, &proposals_json)?;
+    Ok((lens, result.alignment_quality, proposals_py))
+}
+
+/// Serialize coerce proposals as a JSON array for `to_python`.
+fn coerce_proposals_to_json(
+    proposals: &[panproto_core::mig::align::CoerceAnchor],
+) -> serde_json::Value {
+    let entries: Vec<serde_json::Value> = proposals
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "src": p.anchor.src.as_str(),
+                "tgt": p.anchor.tgt.as_str(),
+                "witness_name": p.witness_name,
+                "witness_class": p.witness_class,
+                "confidence": p.anchor.confidence,
+                "explanation": p.anchor.explanation,
+            })
+        })
+        .collect();
+    serde_json::Value::Array(entries)
 }
 
 // ---------------------------------------------------------------------------

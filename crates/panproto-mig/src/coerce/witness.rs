@@ -133,12 +133,56 @@ impl WitnessLibrary {
     }
 
     /// Merge another library's witnesses into this one.
+    ///
+    /// Witnesses from `other` are drained in the same
+    /// deterministic order as [`Self::iter`] (sorted by
+    /// `(source_kind, target_kind)` ordinal, then insertion order
+    /// within each bucket), so the merged library is a function of the
+    /// operands' contents rather than the backing `HashMap`'s
+    /// iteration order.
     pub fn extend(&mut self, other: Self) {
-        for (_, ws) in other.by_kinds {
-            for w in ws {
-                self.register(w);
+        // Collect keys in the canonical order before draining to avoid
+        // reading and mutating `other.by_kinds` in the same iteration.
+        let mut keys: Vec<(ValueKind, ValueKind)> = other.by_kinds.keys().copied().collect();
+        keys.sort_by_key(|k| (value_kind_ordinal(k.0), value_kind_ordinal(k.1)));
+        let mut by_kinds = other.by_kinds;
+        for k in keys {
+            if let Some(ws) = by_kinds.remove(&k) {
+                for w in ws {
+                    self.register(w);
+                }
             }
         }
+    }
+
+    /// Look up a registered witness by its `name`.
+    ///
+    /// Returns the first registered witness whose `name` matches
+    /// exactly. Witness names are expected to be unique within a
+    /// library; callers that rely on this invariant should verify it
+    /// via [`Self::witness_names_are_unique`].
+    #[must_use]
+    pub fn witness_by_name(&self, name: &str) -> Option<&SortLensWitness> {
+        self.iter().find(|w| w.name == name)
+    }
+
+    /// Check that every registered witness has a distinct `name`.
+    ///
+    /// Returns `Ok(())` when all names are unique; otherwise returns
+    /// the offending duplicate name. Useful as an assertion after
+    /// building a library from multiple cartridges.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first duplicate name encountered.
+    pub fn witness_names_are_unique(&self) -> Result<(), String> {
+        let mut seen = std::collections::HashSet::new();
+        for w in self.iter() {
+            if !seen.insert(w.name.as_str()) {
+                return Err(w.name.clone());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -157,11 +201,29 @@ impl WitnessLibrary {
 pub fn default_witness_library() -> WitnessLibrary {
     let mut lib = WitnessLibrary::new();
 
+    // Int ↔ Str
     lib.register(int_to_str_witness());
     lib.register(str_to_int_witness());
+
+    // Int ↔ Float
     lib.register(int_to_float_witness());
+    lib.register(float_to_int_witness());
+
+    // Float ↔ Str
+    lib.register(float_to_str_witness());
+    lib.register(str_to_float_witness());
+
+    // Bool ↔ Int
     lib.register(bool_to_int_witness());
     lib.register(int_to_bool_witness());
+
+    // Bool ↔ Str  (canonical "true"/"false")
+    lib.register(bool_to_str_witness());
+    lib.register(str_to_bool_witness());
+
+    // Bool ↔ Float
+    lib.register(bool_to_float_witness());
+    lib.register(float_to_bool_witness());
 
     lib
 }
@@ -340,6 +402,270 @@ pub fn int_to_bool_witness() -> SortLensWitness {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Numeric ↔ numeric additional witnesses
+// ---------------------------------------------------------------------------
+
+/// `float → int` via `FloatToInt` (truncation); inverse `int → float`
+/// via `IntToFloat`.
+///
+/// Classified [`CoercionClass::Retraction`] because `FloatToInt` is
+/// lossy on floats with fractional parts (`1.5 ↦ 1`, `IntToFloat(1) =
+/// 1.0 ≠ 1.5`). The witness is an iso on the sub-carrier of
+/// whole-number floats `{v : v == v.trunc() ∧ |v| < 2^53}`.
+#[must_use]
+pub fn float_to_int_witness() -> SortLensWitness {
+    let v: Arc<str> = Arc::from("v");
+    let w: Arc<str> = Arc::from("w");
+    SortLensWitness {
+        name: "float_to_int".to_owned(),
+        source_kind: ValueKind::Float,
+        target_kind: ValueKind::Int,
+        class: CoercionClass::Retraction,
+        forward_param: Arc::clone(&v),
+        forward: Expr::Builtin(BuiltinOp::FloatToInt, vec![Expr::Var(Arc::clone(&v))]),
+        inverse_param: Some(Arc::clone(&w)),
+        inverse: Some(Expr::Builtin(BuiltinOp::IntToFloat, vec![Expr::Var(w)])),
+        description: "float → int via FloatToInt (Retraction: fractional parts truncate)"
+            .to_owned(),
+    }
+}
+
+/// `float → str` via `FloatToStr`; inverse `str → float` via `StrToFloat`.
+///
+/// Classified [`CoercionClass::Retraction`]: non-numeric strings (and
+/// non-canonical numeric strings that `StrToFloat` rejects) fail the
+/// reverse direction. The witness round-trips on every float the
+/// default formatter can re-parse (the shortest-canonical printer used
+/// by `FloatToStr` is designed to be `StrToFloat`-reversible).
+#[must_use]
+pub fn float_to_str_witness() -> SortLensWitness {
+    let v: Arc<str> = Arc::from("v");
+    let w: Arc<str> = Arc::from("w");
+    SortLensWitness {
+        name: "float_to_str".to_owned(),
+        source_kind: ValueKind::Float,
+        target_kind: ValueKind::Str,
+        class: CoercionClass::Retraction,
+        forward_param: Arc::clone(&v),
+        forward: Expr::Builtin(BuiltinOp::FloatToStr, vec![Expr::Var(Arc::clone(&v))]),
+        inverse_param: Some(Arc::clone(&w)),
+        inverse: Some(Expr::Builtin(BuiltinOp::StrToFloat, vec![Expr::Var(w)])),
+        description: "float → str via FloatToStr (Retraction: non-numeric strings fail)".to_owned(),
+    }
+}
+
+/// `str → float` via `StrToFloat`; inverse `float → str` via `FloatToStr`.
+///
+/// Classified [`CoercionClass::Retraction`]. Forward direction is
+/// partial (rejects non-numeric strings). Reverse direction formats
+/// the float with the default printer, which may not match the
+/// original string bit-for-bit (e.g. `"1.00"` → `1.0` → `"1"`). An iso
+/// only on the sub-carrier of canonical float printings.
+#[must_use]
+pub fn str_to_float_witness() -> SortLensWitness {
+    let v: Arc<str> = Arc::from("v");
+    let w: Arc<str> = Arc::from("w");
+    SortLensWitness {
+        name: "str_to_float".to_owned(),
+        source_kind: ValueKind::Str,
+        target_kind: ValueKind::Float,
+        class: CoercionClass::Retraction,
+        forward_param: Arc::clone(&v),
+        forward: Expr::Builtin(BuiltinOp::StrToFloat, vec![Expr::Var(Arc::clone(&v))]),
+        inverse_param: Some(Arc::clone(&w)),
+        inverse: Some(Expr::Builtin(BuiltinOp::FloatToStr, vec![Expr::Var(w)])),
+        description: "str → float via StrToFloat (Retraction: not all strings are canonical)"
+            .to_owned(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bool ↔ Str / Float witnesses
+// ---------------------------------------------------------------------------
+
+/// `bool → str` as `true ↦ "true"`, `false ↦ "false"`.
+///
+/// Classified [`CoercionClass::Retraction`]. Forward is total on the
+/// `bool` carrier. Inverse recognizes exactly the canonical
+/// `"true"`/`"false"` strings; any other string fails to evaluate.
+/// Iso on the `{"true", "false"}` sub-carrier.
+#[must_use]
+pub fn bool_to_str_witness() -> SortLensWitness {
+    let v: Arc<str> = Arc::from("v");
+    let w: Arc<str> = Arc::from("w");
+    let forward = Expr::Match {
+        scrutinee: Box::new(Expr::Var(Arc::clone(&v))),
+        arms: vec![
+            (
+                panproto_expr::Pattern::Lit(Literal::Bool(true)),
+                Expr::Lit(Literal::Str("true".to_owned())),
+            ),
+            (
+                panproto_expr::Pattern::Lit(Literal::Bool(false)),
+                Expr::Lit(Literal::Str("false".to_owned())),
+            ),
+        ],
+    };
+    let inverse = Expr::Match {
+        scrutinee: Box::new(Expr::Var(Arc::clone(&w))),
+        arms: vec![
+            (
+                panproto_expr::Pattern::Lit(Literal::Str("true".to_owned())),
+                Expr::Lit(Literal::Bool(true)),
+            ),
+            (
+                panproto_expr::Pattern::Lit(Literal::Str("false".to_owned())),
+                Expr::Lit(Literal::Bool(false)),
+            ),
+        ],
+    };
+    SortLensWitness {
+        name: "bool_to_str".to_owned(),
+        source_kind: ValueKind::Bool,
+        target_kind: ValueKind::Str,
+        class: CoercionClass::Retraction,
+        forward_param: v,
+        forward,
+        inverse_param: Some(w),
+        inverse: Some(inverse),
+        description: "bool → str (true↦\"true\", false↦\"false\"); Retraction on arbitrary strings"
+            .to_owned(),
+    }
+}
+
+/// `str → bool` accepts only canonical `"true"` / `"false"`.
+///
+/// Classified [`CoercionClass::Retraction`]. Forward is partial: any
+/// string other than `"true"` or `"false"` causes the match to fail to
+/// evaluate. Inverse is the canonical printer from [`bool_to_str_witness`].
+/// Iso on the `{"true", "false"}` sub-carrier.
+#[must_use]
+pub fn str_to_bool_witness() -> SortLensWitness {
+    let v: Arc<str> = Arc::from("v");
+    let w: Arc<str> = Arc::from("w");
+    let forward = Expr::Match {
+        scrutinee: Box::new(Expr::Var(Arc::clone(&v))),
+        arms: vec![
+            (
+                panproto_expr::Pattern::Lit(Literal::Str("true".to_owned())),
+                Expr::Lit(Literal::Bool(true)),
+            ),
+            (
+                panproto_expr::Pattern::Lit(Literal::Str("false".to_owned())),
+                Expr::Lit(Literal::Bool(false)),
+            ),
+        ],
+    };
+    let inverse = Expr::Match {
+        scrutinee: Box::new(Expr::Var(Arc::clone(&w))),
+        arms: vec![
+            (
+                panproto_expr::Pattern::Lit(Literal::Bool(true)),
+                Expr::Lit(Literal::Str("true".to_owned())),
+            ),
+            (
+                panproto_expr::Pattern::Lit(Literal::Bool(false)),
+                Expr::Lit(Literal::Str("false".to_owned())),
+            ),
+        ],
+    };
+    SortLensWitness {
+        name: "str_to_bool".to_owned(),
+        source_kind: ValueKind::Str,
+        target_kind: ValueKind::Bool,
+        class: CoercionClass::Retraction,
+        forward_param: v,
+        forward,
+        inverse_param: Some(w),
+        inverse: Some(inverse),
+        description: "str → bool (accepts \"true\"/\"false\" only); Retraction".to_owned(),
+    }
+}
+
+/// `bool → float` as `true ↦ 1.0`, `false ↦ 0.0`.
+///
+/// Classified [`CoercionClass::Retraction`]. Inverse tests `≠ 0.0`, so
+/// every float collapses to one of two booleans; the round-trip is
+/// exact only on `{0.0, 1.0}`.
+#[must_use]
+pub fn bool_to_float_witness() -> SortLensWitness {
+    let v: Arc<str> = Arc::from("v");
+    let w: Arc<str> = Arc::from("w");
+    let forward = Expr::Match {
+        scrutinee: Box::new(Expr::Var(Arc::clone(&v))),
+        arms: vec![
+            (
+                panproto_expr::Pattern::Lit(Literal::Bool(true)),
+                Expr::Lit(Literal::Float(1.0)),
+            ),
+            (
+                panproto_expr::Pattern::Lit(Literal::Bool(false)),
+                Expr::Lit(Literal::Float(0.0)),
+            ),
+        ],
+    };
+    let inverse = Expr::Builtin(
+        BuiltinOp::Neq,
+        vec![Expr::Var(Arc::clone(&w)), Expr::Lit(Literal::Float(0.0))],
+    );
+    SortLensWitness {
+        name: "bool_to_float".to_owned(),
+        source_kind: ValueKind::Bool,
+        target_kind: ValueKind::Float,
+        class: CoercionClass::Retraction,
+        forward_param: v,
+        forward,
+        inverse_param: Some(w),
+        inverse: Some(inverse),
+        description: "bool → float (true↦1.0, false↦0.0); Retraction (non-0/1 floats)".to_owned(),
+    }
+}
+
+/// `float → bool`: `0.0 ↦ false`, everything else ↦ `true`.
+///
+/// Classified [`CoercionClass::Retraction`]. Inverse round-trips
+/// `true ↦ 1.0`, `false ↦ 0.0`, so the round-trip is exact on
+/// `{0.0, 1.0}` only.
+///
+/// **NaN handling.** `Neq(NaN, 0.0)` evaluates to `true` under
+/// IEEE-754 semantics (NaN is not equal to anything, including
+/// itself), so `forward(NaN) = true` and `inverse(true) = 1.0`. NaN
+/// inputs therefore also do not round-trip.
+#[must_use]
+pub fn float_to_bool_witness() -> SortLensWitness {
+    let v: Arc<str> = Arc::from("v");
+    let w: Arc<str> = Arc::from("w");
+    let forward = Expr::Builtin(
+        BuiltinOp::Neq,
+        vec![Expr::Var(Arc::clone(&v)), Expr::Lit(Literal::Float(0.0))],
+    );
+    let inverse = Expr::Match {
+        scrutinee: Box::new(Expr::Var(Arc::clone(&w))),
+        arms: vec![
+            (
+                panproto_expr::Pattern::Lit(Literal::Bool(true)),
+                Expr::Lit(Literal::Float(1.0)),
+            ),
+            (
+                panproto_expr::Pattern::Lit(Literal::Bool(false)),
+                Expr::Lit(Literal::Float(0.0)),
+            ),
+        ],
+    };
+    SortLensWitness {
+        name: "float_to_bool".to_owned(),
+        source_kind: ValueKind::Float,
+        target_kind: ValueKind::Bool,
+        class: CoercionClass::Retraction,
+        forward_param: v,
+        forward,
+        inverse_param: Some(w),
+        inverse: Some(inverse),
+        description: "float → bool (0.0↦false, nonzero↦true); Retraction".to_owned(),
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -467,9 +793,204 @@ mod tests {
     #[test]
     fn default_library_is_non_empty() {
         let lib = default_witness_library();
-        assert!(lib.len() >= 5);
+        assert!(lib.len() >= 12);
         assert!(!lib.is_empty());
         assert!(!lib.lookup(ValueKind::Int, ValueKind::Str).is_empty());
+    }
+
+    fn float_whole_samples() -> Vec<Literal> {
+        vec![
+            Literal::Float(0.0),
+            Literal::Float(1.0),
+            Literal::Float(-1.0),
+            Literal::Float(42.0),
+            Literal::Float(-1000.0),
+        ]
+    }
+
+    #[test]
+    fn float_to_int_round_trips_on_whole_floats() {
+        let w = float_to_int_witness();
+        witness_satisfies_lens_laws(&w, &float_whole_samples(), &[])
+            .expect("float_to_int GetPut should hold on whole-number floats");
+    }
+
+    #[test]
+    fn float_to_int_fails_on_fractional_source() {
+        let w = float_to_int_witness();
+        // Forward truncates 1.5 → 1, then inverse(1) = 1.0 ≠ 1.5, so
+        // `witness_satisfies_lens_laws` must report the GetPut violation.
+        let err = witness_satisfies_lens_laws(&w, &[Literal::Float(1.5)], &[])
+            .expect_err("fractional floats must not round-trip through float_to_int");
+        assert!(
+            err.contains("GetPut"),
+            "error should identify GetPut: {err}"
+        );
+    }
+
+    #[test]
+    fn float_to_str_round_trips_on_whole_floats() {
+        let w = float_to_str_witness();
+        witness_satisfies_lens_laws(&w, &float_whole_samples(), &[]).expect(
+            "float_to_str GetPut should hold on whole floats (shortest-canonical printing)",
+        );
+    }
+
+    #[test]
+    fn float_to_str_fails_on_off_domain_string() {
+        let w = float_to_str_witness();
+        witness_forward_fails_on(&w, &Literal::Str("not-a-number".to_owned()))
+            .expect("non-numeric strings should not round-trip through float_to_str");
+    }
+
+    #[test]
+    fn str_to_float_round_trips_on_canonical_numeric_strings() {
+        let w = str_to_float_witness();
+        // Canonical shortest printings only — "1.00" would not round-trip
+        // through FloatToStr because the printer emits "1".
+        let samples = vec![
+            Literal::Str("0".to_owned()),
+            Literal::Str("1".to_owned()),
+            Literal::Str("-1".to_owned()),
+            Literal::Str("1.5".to_owned()),
+            Literal::Str("-3.25".to_owned()),
+        ];
+        witness_satisfies_lens_laws(&w, &samples, &[])
+            .expect("str_to_float GetPut should hold on canonical-printed strings");
+    }
+
+    #[test]
+    fn str_to_float_fails_on_non_canonical_string() {
+        let w = str_to_float_witness();
+        // "1.00" parses to 1.0, and FloatToStr formats 1.0 as "1" (the
+        // shortest-canonical form), so `"1.00"` does not round-trip.
+        let err = witness_satisfies_lens_laws(&w, &[Literal::Str("1.00".to_owned())], &[])
+            .expect_err("non-canonical numeric strings must not round-trip through str_to_float");
+        assert!(
+            err.contains("GetPut"),
+            "error should identify GetPut: {err}"
+        );
+    }
+
+    #[test]
+    fn bool_to_str_round_trips() {
+        let w = bool_to_str_witness();
+        witness_satisfies_lens_laws(
+            &w,
+            &[Literal::Bool(true), Literal::Bool(false)],
+            &[
+                Literal::Str("true".to_owned()),
+                Literal::Str("false".to_owned()),
+            ],
+        )
+        .expect("bool_to_str GetPut should hold on {true, false}");
+    }
+
+    #[test]
+    fn bool_to_str_fails_on_off_domain_string() {
+        let w = bool_to_str_witness();
+        witness_forward_fails_on(&w, &Literal::Str("yes".to_owned()))
+            .expect("non-canonical strings should not round-trip through bool_to_str");
+        witness_forward_fails_on(&w, &Literal::Str("TRUE".to_owned()))
+            .expect("TRUE (uppercase) should not round-trip — only canonical lowercase");
+    }
+
+    #[test]
+    fn str_to_bool_round_trips_on_canonical_strings() {
+        let w = str_to_bool_witness();
+        witness_satisfies_lens_laws(
+            &w,
+            &[
+                Literal::Str("true".to_owned()),
+                Literal::Str("false".to_owned()),
+            ],
+            &[Literal::Bool(true), Literal::Bool(false)],
+        )
+        .expect("str_to_bool GetPut should hold on canonical samples");
+    }
+
+    #[test]
+    fn str_to_bool_fails_on_off_domain_string() {
+        let w = str_to_bool_witness();
+        let err = witness_satisfies_lens_laws(&w, &[Literal::Str("yes".to_owned())], &[])
+            .expect_err("non-canonical source strings must not round-trip through str_to_bool");
+        assert!(
+            err.contains("GetPut") || err.contains("forward"),
+            "error should identify a law violation: {err}"
+        );
+    }
+
+    #[test]
+    fn bool_to_float_round_trips() {
+        let w = bool_to_float_witness();
+        witness_satisfies_lens_laws(
+            &w,
+            &[Literal::Bool(true), Literal::Bool(false)],
+            &[Literal::Float(0.0), Literal::Float(1.0)],
+        )
+        .expect("bool_to_float GetPut should hold on {true, false}");
+    }
+
+    #[test]
+    fn bool_to_float_fails_on_off_domain_float() {
+        let w = bool_to_float_witness();
+        witness_forward_fails_on(&w, &Literal::Float(2.5))
+            .expect("non-0/1 floats should not round-trip through bool_to_float");
+    }
+
+    #[test]
+    fn float_to_bool_round_trips_on_zero_one() {
+        let w = float_to_bool_witness();
+        witness_satisfies_lens_laws(
+            &w,
+            &[Literal::Float(0.0), Literal::Float(1.0)],
+            &[Literal::Bool(true), Literal::Bool(false)],
+        )
+        .expect("float_to_bool GetPut should hold on {0.0, 1.0}");
+    }
+
+    #[test]
+    fn float_to_bool_fails_on_fractional_float() {
+        let w = float_to_bool_witness();
+        let err = witness_satisfies_lens_laws(&w, &[Literal::Float(2.5)], &[])
+            .expect_err("non-0/1 floats must not round-trip through float_to_bool");
+        assert!(
+            err.contains("GetPut"),
+            "error should identify GetPut: {err}"
+        );
+    }
+
+    #[test]
+    fn default_library_covers_all_new_witness_pairs() {
+        let lib = default_witness_library();
+        // Every (source, target) kind pair for the four primitive
+        // carriers (Bool, Int, Float, Str) now has a witness.
+        for src in [
+            ValueKind::Bool,
+            ValueKind::Int,
+            ValueKind::Float,
+            ValueKind::Str,
+        ] {
+            for tgt in [
+                ValueKind::Bool,
+                ValueKind::Int,
+                ValueKind::Float,
+                ValueKind::Str,
+            ] {
+                if src == tgt {
+                    continue;
+                }
+                assert!(
+                    !lib.lookup(src, tgt).is_empty(),
+                    "missing witness from {src:?} to {tgt:?}"
+                );
+            }
+        }
+        // Bytes / Token / Null intentionally do not ship witnesses in
+        // the default library; confirm those remain empty so a future
+        // addition is deliberate.
+        assert!(lib.lookup(ValueKind::Bytes, ValueKind::Str).is_empty());
+        assert!(lib.lookup(ValueKind::Token, ValueKind::Int).is_empty());
     }
 
     #[test]
@@ -491,6 +1012,55 @@ mod tests {
             .map(|w| w.name.clone())
             .collect();
         assert_eq!(a, b, "iter() order must be deterministic across builds");
+    }
+
+    #[test]
+    fn default_library_has_unique_witness_names() {
+        let lib = default_witness_library();
+        lib.witness_names_are_unique()
+            .expect("default library must have unique witness names");
+    }
+
+    #[test]
+    fn witness_by_name_finds_registered_entry() {
+        let lib = default_witness_library();
+        let w = lib
+            .witness_by_name("int_to_str")
+            .expect("default library should expose int_to_str");
+        assert_eq!(w.source_kind, ValueKind::Int);
+        assert_eq!(w.target_kind, ValueKind::Str);
+        assert!(lib.witness_by_name("does_not_exist").is_none());
+    }
+
+    #[test]
+    fn witness_names_duplicate_detected() {
+        let mut lib = WitnessLibrary::new();
+        lib.register(int_to_str_witness());
+        // Register a second witness with the SAME name but different
+        // kinds so `lookup` cannot distinguish them by key alone. The
+        // invariant check should flag this.
+        let mut dup = bool_to_int_witness();
+        dup.name = "int_to_str".to_owned();
+        lib.register(dup);
+        let err = lib.witness_names_are_unique().unwrap_err();
+        assert_eq!(err, "int_to_str");
+    }
+
+    #[test]
+    fn extend_merges_in_deterministic_order() {
+        // Build two libraries A and B with disjoint kind pairs whose
+        // HashMap insertion order can vary run-to-run, then merge
+        // `extend` each into a fresh base and confirm both merges
+        // produce the same post-extend iteration order.
+        let base_a = default_witness_library();
+        let base_b = default_witness_library();
+        let mut target1 = WitnessLibrary::new();
+        target1.extend(base_a);
+        let mut target2 = WitnessLibrary::new();
+        target2.extend(base_b);
+        let order1: Vec<_> = target1.iter().map(|w| w.name.clone()).collect();
+        let order2: Vec<_> = target2.iter().map(|w| w.name.clone()).collect();
+        assert_eq!(order1, order2, "extend must preserve canonical ordering");
     }
 
     #[test]

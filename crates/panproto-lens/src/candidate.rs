@@ -199,6 +199,10 @@ fn step_to_candidate(
             by_src.get(name.as_ref()).copied()
         }
         TheoryTransform::AddOp(op) => by_tgt.get(op.name.as_ref()).copied(),
+        TheoryTransform::CoerceSort { sort_name, .. } => by_src
+            .get(sort_name.as_ref())
+            .or_else(|| by_tgt.get(sort_name.as_ref()))
+            .copied(),
         _ => None,
     };
 
@@ -234,6 +238,14 @@ fn structural_explanation(step: &Protolens) -> String {
         TheoryTransform::RenameOp { old, new } => {
             format!("structural: renamed op `{old}` → `{new}`")
         }
+        TheoryTransform::CoerceSort {
+            sort_name,
+            target_kind,
+            coercion_class,
+            ..
+        } => format!(
+            "structural: coerce sort `{sort_name}` to `{target_kind:?}` ({coercion_class:?})"
+        ),
         other => format!("structural: {other:?}"),
     }
 }
@@ -301,6 +313,46 @@ mod tests {
             .unwrap();
         assert!((coverage_ratio(&s, &s, 1) - 1.0).abs() < 1e-9);
         assert!((coverage_ratio(&s, &s, 0) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn coverage_ratio_asymmetric_clamps_below_one() {
+        // When source and target schemas differ in vertex count, the
+        // denominator is `max(|src|, |tgt|)`. A small source and a large
+        // target must still produce `matched / max_len`, not
+        // `matched / |src|` — otherwise a one-to-one partial alignment
+        // between a 1-vertex source and a 3-vertex target would report
+        // perfect coverage.
+        let proto = panproto_schema::Protocol {
+            name: "test".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into()],
+            constraint_sorts: vec![],
+            ..panproto_schema::Protocol::default()
+        };
+        let small = panproto_schema::SchemaBuilder::new(&proto)
+            .vertex("a", "object", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let large = panproto_schema::SchemaBuilder::new(&proto)
+            .vertex("a", "object", None::<&str>)
+            .unwrap()
+            .vertex("b", "object", None::<&str>)
+            .unwrap()
+            .vertex("c", "object", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let r = coverage_ratio(&small, &large, 1);
+        assert!((r - (1.0 / 3.0)).abs() < 1e-9, "1/3 expected, got {r}");
+        let full = coverage_ratio(&small, &large, 3);
+        assert!(
+            (full - 1.0).abs() < 1e-9,
+            "max match over max denominator must land at 1.0, got {full}"
+        );
     }
 
     #[test]
@@ -427,6 +479,57 @@ mod tests {
         assert_eq!(
             steps[0].explanation, "src-alias",
             "expected src-keyed anchor to win over tgt-keyed anchor; got {steps:?}",
+        );
+    }
+
+    #[test]
+    fn enrich_steps_correlates_coerce_sort_via_sort_name() {
+        // A CoerceSort step on `integer` should correlate with an
+        // anchor keyed on `integer` (src or tgt) rather than falling
+        // through to a structural explanation.
+        use panproto_expr::Expr;
+        use panproto_gat::{CoercionClass, ValueKind};
+        let step = crate::protolens::elementary::sort_coerce(
+            Name::from("integer"),
+            ValueKind::Str,
+            Expr::Lit(panproto_expr::Literal::Int(0)),
+            Some(Expr::Lit(panproto_expr::Literal::Int(0))),
+            CoercionClass::Retraction,
+        );
+        let chain = crate::protolens::ProtolensChain::new(vec![step]);
+        let anchors = vec![mk_anchor(
+            "integer",
+            "string",
+            0.9,
+            StrategyTag::Coerce,
+            "coerce-int-to-str",
+        )];
+        let steps = enrich_steps(&chain, &anchors);
+        assert_eq!(steps.len(), 1);
+        assert_eq!(
+            steps[0].explanation, "coerce-int-to-str",
+            "CoerceSort step must look up by sort_name, not fall to structural"
+        );
+    }
+
+    #[test]
+    fn structural_explanation_handles_coerce_sort() {
+        // When no anchor matches, the structural explanation for a
+        // CoerceSort step should name the sort and its target kind
+        // rather than emitting a bare `Debug`-format fallback.
+        use panproto_expr::Expr;
+        use panproto_gat::{CoercionClass, ValueKind};
+        let step = crate::protolens::elementary::sort_coerce(
+            Name::from("myint"),
+            ValueKind::Str,
+            Expr::Lit(panproto_expr::Literal::Int(0)),
+            Some(Expr::Lit(panproto_expr::Literal::Int(0))),
+            CoercionClass::Retraction,
+        );
+        let explanation = structural_explanation(&step);
+        assert!(
+            explanation.contains("coerce") && explanation.contains("myint"),
+            "coerce_sort structural explanation should name the sort; got: {explanation}"
         );
     }
 

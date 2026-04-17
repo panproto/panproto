@@ -857,6 +857,23 @@ pub mod elementary {
 
     use super::{ComplementConstructor, Protolens, name_arc_clone};
 
+    /// Short, lowercase slug for a [`panproto_gat::ValueKind`] used to
+    /// disambiguate `sort_coerce` protolens names by target carrier.
+    /// Kept in sync with `panproto_mig::coerce::value_kind_label` but
+    /// intentionally private to avoid a cross-crate dependency.
+    const fn value_kind_slug(kind: panproto_gat::ValueKind) -> &'static str {
+        match kind {
+            panproto_gat::ValueKind::Bool => "bool",
+            panproto_gat::ValueKind::Int => "int",
+            panproto_gat::ValueKind::Float => "float",
+            panproto_gat::ValueKind::Str => "str",
+            panproto_gat::ValueKind::Bytes => "bytes",
+            panproto_gat::ValueKind::Token => "token",
+            panproto_gat::ValueKind::Null => "null",
+            panproto_gat::ValueKind::Any => "any",
+        }
+    }
+
     /// `η : Id ⟹ AddSort(τ, d)`: for each `S`, `η_S` is a lens
     /// `S → S+{τ}` that adds a vertex kind with default.
     #[must_use]
@@ -1377,15 +1394,21 @@ pub mod elementary {
                 class: coercion_class,
             }
         };
+        // Include the target kind in the protolens name so that two
+        // witnesses bridging the same source sort to different carriers
+        // (e.g. `n: int → str` vs `n: int → float`) yield distinct
+        // protolens identities. Without this tag, downstream consumers
+        // that key on `Protolens::name` would conflate the two.
+        let target_kind_label = value_kind_slug(target_kind);
         Protolens {
-            name: Name::from(format!("sort_coerce_{sort_name}")),
+            name: Name::from(format!("sort_coerce_{sort_name}_to_{target_kind_label}")),
             source: TheoryEndofunctor {
                 name: Arc::from("id"),
                 precondition: TheoryConstraint::HasSort(Arc::clone(&arc)),
                 transform: TheoryTransform::Identity,
             },
             target: TheoryEndofunctor {
-                name: Arc::from(&*format!("coerce_{sort_name}")),
+                name: Arc::from(&*format!("coerce_{sort_name}_to_{target_kind_label}")),
                 precondition: TheoryConstraint::HasSort(Arc::clone(&arc)),
                 transform: TheoryTransform::CoerceSort {
                     sort_name: Arc::clone(&arc),

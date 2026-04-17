@@ -159,6 +159,26 @@ impl Stringency {
     pub const fn relax_edge_name_pruning(self) -> bool {
         !matches!(self, Self::Strict)
     }
+
+    /// User-facing lowercase token (`"strict"`, `"balanced"`,
+    /// `"lenient"`, `"exploratory"`). Matches the tier names accepted
+    /// by the CLI / SDK parsers and by `serde::Serialize` under
+    /// `rename_all = "snake_case"`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Strict => "strict",
+            Self::Balanced => "balanced",
+            Self::Lenient => "lenient",
+            Self::Exploratory => "exploratory",
+        }
+    }
+}
+
+impl std::fmt::Display for Stringency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// Result of automatic protolens generation.
@@ -541,9 +561,7 @@ pub fn auto_generate_with_hints(
     // exclusions are UNIONED in rather than replacing them.
     let mut merged_domain = domain_constraints.clone();
     if let Some(span) = span_exclusions_at_lenient(src, tgt, config.stringency) {
-        merged_domain
-            .excluded_sources
-            .extend(span.excluded_sources);
+        merged_domain.excluded_sources.extend(span.excluded_sources);
     }
 
     let result = run_search(
@@ -687,12 +705,31 @@ fn derive_field_transforms(
                 }
             }
             TheoryTransform::AddDirectedEquation(deq) => {
-                // Extract the variable name from the LHS pattern
-                let key = match &deq.lhs {
-                    panproto_gat::Term::Var(name) => name.to_string(),
-                    panproto_gat::Term::App { op, .. } => op.to_string(),
+                // For a pattern `f(x) ⇒ g(x)` the field being rewritten is
+                // the op `f`, not the bound variable `x`. A bare `Var` LHS
+                // is not a meaningful rewrite target at the instance
+                // level, so we skip it rather than plumb the variable
+                // name through as a phantom field key.
+                let Some(key) = (match &deq.lhs {
+                    panproto_gat::Term::App { op, .. } => Some(op.to_string()),
+                    panproto_gat::Term::Var(_) => None,
+                }) else {
+                    continue;
                 };
+                // Apply the rewrite only to vertices that actually have
+                // an outgoing edge with this name. The previous
+                // implementation pushed the transform onto *every*
+                // vertex in the schema, including ones that never
+                // mention the op — which both ballooned the complement
+                // and ran the equation on unrelated field values.
                 for vid in src.vertices.keys() {
+                    let has_edge = src
+                        .outgoing_edges(vid)
+                        .iter()
+                        .any(|e| e.name.as_deref() == Some(key.as_str()));
+                    if !has_edge {
+                        continue;
+                    }
                     transforms
                         .entry(vid.clone())
                         .or_default()
@@ -905,10 +942,19 @@ fn candidates_from_search(
     }
 
     let mut candidates = Vec::with_capacity(morphisms.len());
+    // Track the most recent factorization failure so that, if EVERY
+    // morphism fails to realize as a protolens, we can surface the
+    // underlying cause rather than the generic "no morphism could be
+    // realized" message. Silently swallowing every error made real
+    // structural bugs invisible.
+    let mut last_failure: Option<LensError> = None;
     for morphism in morphisms {
         match candidate_from_morphism(src, tgt, protocol, &morphism, seed_anchors, emit_spans) {
             Ok(cand) => candidates.push(cand),
-            Err(_) => continue, // skip morphisms that cannot factorize
+            Err(e) => {
+                last_failure = Some(e);
+                continue;
+            }
         }
         if candidates.len() >= n.saturating_mul(2) {
             // Generate at most 2×n raw candidates before scoring; saves
@@ -918,8 +964,14 @@ fn candidates_from_search(
     }
 
     if candidates.is_empty() {
-        return Err(LensError::ProtolensError(
-            "no morphism could be realized as a protolens".into(),
+        return Err(last_failure.map_or_else(
+            || LensError::ProtolensError("no morphism could be realized as a protolens".into()),
+            |e| {
+                LensError::ProtolensError(format!(
+                    "no morphism could be realized as a protolens; \
+                     last factorization failure: {e}"
+                ))
+            },
         ));
     }
 
@@ -1409,6 +1461,220 @@ mod tests {
     }
 
     #[test]
+    fn endofunctor_to_protolens_rejects_add_op_with_no_inputs() {
+        // Previously this path synthesized a `"unknown"` source sort,
+        // which silently produced an ill-formed elementary protolens.
+        // The fix converts the case to a real error surfaced by
+        // `endofunctor_to_protolens`. Pin the behaviour so a future
+        // refactor cannot reintroduce the sentinel.
+        use panproto_gat::{Operation, TheoryEndofunctor, TheoryTransform};
+        use std::sync::Arc;
+
+        let endo = TheoryEndofunctor {
+            name: Arc::from("add_op_constant"),
+            precondition: panproto_gat::TheoryConstraint::Unconstrained,
+            transform: TheoryTransform::AddOp(Operation {
+                name: Arc::from("constant"),
+                // Zero inputs — the exact shape the old sentinel accepted.
+                inputs: Vec::new(),
+                output: Arc::from("int"),
+            }),
+        };
+        let err = endofunctor_to_protolens(&endo)
+            .expect_err("AddOp with empty inputs must error, not synthesize 'unknown'");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("no inputs") && msg.contains("constant"),
+            "error must name the op and the reason; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn endofunctor_to_protolens_preserves_add_sort_default_expr() {
+        // `AddSortWithDefault` previously collapsed into `AddSort` and
+        // discarded `default_expr`. The fix routes it through a dedicated
+        // elementary; the resulting protolens's target transform must
+        // still be `AddSortWithDefault` carrying the original expression.
+        use panproto_expr::Expr;
+        use panproto_gat::{Sort, TheoryEndofunctor, TheoryTransform};
+        use std::sync::Arc;
+
+        let expr = Expr::Lit(panproto_expr::Literal::Int(42));
+        let endo = TheoryEndofunctor {
+            name: Arc::from("add_counter"),
+            precondition: panproto_gat::TheoryConstraint::Unconstrained,
+            transform: TheoryTransform::AddSortWithDefault {
+                sort: Sort::simple(Arc::from("counter")),
+                vertex_kind: Some(Arc::from("integer")),
+                default_expr: expr.clone(),
+            },
+        };
+        let protolens =
+            endofunctor_to_protolens(&endo).expect("AddSortWithDefault must produce a protolens");
+        match &protolens.target.transform {
+            TheoryTransform::AddSortWithDefault { default_expr, .. } => {
+                assert_eq!(
+                    default_expr, &expr,
+                    "default_expr must be forwarded verbatim, not replaced with Value::Null"
+                );
+            }
+            other => panic!("expected AddSortWithDefault in target transform, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn auto_generate_with_hints_rejects_nan_quality_threshold() {
+        // Supplying `NaN` used to be silently absorbed by
+        // `partial_cmp(...).unwrap_or(Equal)`; the fix rejects it at the
+        // entry point so callers can't accidentally disable the overlap
+        // fallback.
+        let protocol = test_protocol();
+        let src = schema_v1(&protocol);
+        let tgt = schema_v2(&protocol);
+        let result = auto_generate_with_hints(
+            &src,
+            &tgt,
+            &protocol,
+            &AutoLensConfig::default(),
+            &HashMap::new(),
+            &DomainConstraints::default(),
+            Some(f64::NAN),
+        );
+        // `AutoLensResult` doesn't derive `Debug`, so `.expect_err` would
+        // fail to compile; `let…else` gives the same assertion without
+        // needing Debug on the Ok variant.
+        let Err(err) = result else {
+            panic!("NaN quality_threshold must be rejected, but got Ok");
+        };
+        assert!(
+            format!("{err}").contains("NaN"),
+            "error must mention NaN; got: {err}"
+        );
+    }
+
+    #[test]
+    fn endofunctor_to_protolens_roundtrips_coerce_sort() {
+        // `CoerceSort` carries forward + inverse expressions and a class
+        // tag; the elementary wrapper must preserve all three verbatim
+        // so that downstream instantiation can run the bridging lens in
+        // both directions.
+        use panproto_expr::{Expr, Literal};
+        use panproto_gat::{CoercionClass, TheoryEndofunctor, TheoryTransform, ValueKind};
+        use std::sync::Arc;
+
+        let fwd = Expr::Lit(Literal::Int(1));
+        let inv = Expr::Lit(Literal::Int(-1));
+        let endo = TheoryEndofunctor {
+            name: Arc::from("coerce_counter_to_float"),
+            precondition: panproto_gat::TheoryConstraint::HasSort(Arc::from("counter")),
+            transform: TheoryTransform::CoerceSort {
+                sort_name: Arc::from("counter"),
+                target_kind: ValueKind::Float,
+                coercion_expr: fwd.clone(),
+                inverse_expr: Some(inv.clone()),
+                coercion_class: CoercionClass::Retraction,
+            },
+        };
+        let protolens =
+            endofunctor_to_protolens(&endo).expect("CoerceSort must produce a protolens");
+        match &protolens.target.transform {
+            TheoryTransform::CoerceSort {
+                sort_name,
+                target_kind,
+                coercion_expr,
+                inverse_expr,
+                coercion_class,
+            } => {
+                assert_eq!(&**sort_name, "counter");
+                assert_eq!(*target_kind, ValueKind::Float);
+                assert_eq!(coercion_expr, &fwd);
+                assert_eq!(inverse_expr, &Some(inv));
+                assert_eq!(*coercion_class, CoercionClass::Retraction);
+            }
+            other => panic!("expected CoerceSort target transform, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn alignment_to_theory_morphism_is_deterministic_across_hash_iterations() {
+        // Build two `FoundMorphism` values whose `vertex_map` and
+        // `edge_map` carry the same entries inserted in opposite orders.
+        // The resulting `TheoryMorphism.sort_map` / `op_map` must be
+        // identical; otherwise downstream factorization can produce
+        // different chains on different runs.
+        use panproto_mig::FoundMorphism;
+        use panproto_schema::Edge;
+
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.a", "string", None::<&str>)
+            .unwrap()
+            .vertex("r.b", "string", None::<&str>)
+            .unwrap()
+            .edge("r", "r.a", "prop", Some("a"))
+            .unwrap()
+            .edge("r", "r.b", "prop", Some("b"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = src.clone();
+
+        let mk = |pairs: &[(&str, &str)]| -> FoundMorphism {
+            let mut vm = HashMap::new();
+            for (a, b) in pairs {
+                vm.insert(Name::from(*a), Name::from(*b));
+            }
+            let mut em = HashMap::new();
+            let e1 = Edge {
+                src: Name::from("r"),
+                tgt: Name::from("r.a"),
+                kind: Name::from("prop"),
+                name: Some(Name::from("a")),
+            };
+            let e2 = Edge {
+                src: Name::from("r"),
+                tgt: Name::from("r.b"),
+                kind: Name::from("prop"),
+                name: Some(Name::from("b")),
+            };
+            em.insert(e1.clone(), e1);
+            em.insert(e2.clone(), e2);
+            FoundMorphism {
+                vertex_map: vm,
+                edge_map: em,
+                quality: 1.0,
+            }
+        };
+        let fm_a = mk(&[("r", "r"), ("r.a", "r.a"), ("r.b", "r.b")]);
+        let fm_b = mk(&[("r.b", "r.b"), ("r.a", "r.a"), ("r", "r")]);
+
+        let ma = alignment_to_theory_morphism_mode(&fm_a, &src, &tgt, false);
+        let mb = alignment_to_theory_morphism_mode(&fm_b, &src, &tgt, false);
+
+        // sort_map/op_map are HashMaps, so compare as sorted Vec<(k,v)>.
+        let to_sorted = |m: &HashMap<Arc<str>, Arc<str>>| -> Vec<(String, String)> {
+            let mut out: Vec<_> = m
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            out.sort();
+            out
+        };
+        assert_eq!(
+            to_sorted(&ma.sort_map),
+            to_sorted(&mb.sort_map),
+            "sort_map must not depend on vertex_map insertion order"
+        );
+        assert_eq!(
+            to_sorted(&ma.op_map),
+            to_sorted(&mb.op_map),
+            "op_map must not depend on edge_map insertion order"
+        );
+    }
+
+    #[test]
     fn lenient_span_search_drops_orphan_source_sorts() {
         // Schemas that share `record` sort but differ on `boolean`:
         // the source has an `r.flag` child of kind boolean with no
@@ -1441,7 +1707,7 @@ mod tests {
         let strict_res = auto_generate(&src, &tgt, &protocol, &strict);
 
         // Lenient: should succeed AND the chain should contain a
-        // drop_sort step for `integer`.
+        // drop_sort step for `boolean` (the orphan sort in the source).
         let lenient = AutoLensConfig {
             stringency: Stringency::Lenient,
             ..Default::default()
@@ -1608,6 +1874,55 @@ mod tests {
             transform: TheoryTransform::Identity,
         };
         assert!(endofunctor_to_protolens(&ef).is_err());
+    }
+
+    #[test]
+    fn endofunctor_to_protolens_coerce_sort_tags_target_kind_in_name() {
+        // Two CoerceSort endofunctors over the same source sort but
+        // different target kinds must produce distinct protolens
+        // identities. Without tagging the target kind into the
+        // protolens name, downstream consumers keying on `name` would
+        // conflate them.
+        use panproto_expr::{BuiltinOp, Expr};
+        let v: Arc<str> = Arc::from("v");
+        let to_str = TheoryEndofunctor {
+            name: Arc::from("coerce_n_str"),
+            precondition: panproto_gat::TheoryConstraint::HasSort(Arc::from("n")),
+            transform: TheoryTransform::CoerceSort {
+                sort_name: Arc::from("n"),
+                target_kind: panproto_gat::ValueKind::Str,
+                coercion_expr: Expr::Builtin(BuiltinOp::IntToStr, vec![Expr::Var(Arc::clone(&v))]),
+                inverse_expr: None,
+                coercion_class: panproto_gat::CoercionClass::Retraction,
+            },
+        };
+        let to_float = TheoryEndofunctor {
+            name: Arc::from("coerce_n_float"),
+            precondition: panproto_gat::TheoryConstraint::HasSort(Arc::from("n")),
+            transform: TheoryTransform::CoerceSort {
+                sort_name: Arc::from("n"),
+                target_kind: panproto_gat::ValueKind::Float,
+                coercion_expr: Expr::Builtin(BuiltinOp::IntToFloat, vec![Expr::Var(v)]),
+                inverse_expr: None,
+                coercion_class: panproto_gat::CoercionClass::Retraction,
+            },
+        };
+        let p1 = endofunctor_to_protolens(&to_str).unwrap();
+        let p2 = endofunctor_to_protolens(&to_float).unwrap();
+        assert_ne!(
+            p1.name, p2.name,
+            "CoerceSort protolens names must distinguish target kinds"
+        );
+        assert!(
+            p1.name.as_str().contains("str"),
+            "expected target kind in name; got {}",
+            p1.name
+        );
+        assert!(
+            p2.name.as_str().contains("float"),
+            "expected target kind in name; got {}",
+            p2.name
+        );
     }
 
     #[test]
@@ -1807,5 +2122,80 @@ mod tests {
         assert!(!Stringency::Balanced.uses_coerce());
         assert!(!Stringency::Lenient.uses_coerce());
         assert!(Stringency::Exploratory.uses_coerce());
+    }
+
+    #[test]
+    fn stringency_display_matches_serde_tokens() {
+        // Display/as_str must agree with the serde token used by
+        // CLI parsers so user-facing rendering doesn't drift from
+        // the on-wire format.
+        assert_eq!(Stringency::Strict.to_string(), "strict");
+        assert_eq!(Stringency::Balanced.to_string(), "balanced");
+        assert_eq!(Stringency::Lenient.to_string(), "lenient");
+        assert_eq!(Stringency::Exploratory.to_string(), "exploratory");
+        for tier in [
+            Stringency::Strict,
+            Stringency::Balanced,
+            Stringency::Lenient,
+            Stringency::Exploratory,
+        ] {
+            let wire = serde_json::to_string(&tier).expect("serde");
+            assert_eq!(
+                wire.trim_matches('"'),
+                tier.as_str(),
+                "Display must match serde output"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_generate_is_deterministic_across_runs() {
+        let protocol = test_protocol();
+        let src = schema_post_with_created(&protocol);
+        let tgt = schema_message_with_sent(&protocol);
+        let config = AutoLensConfig {
+            stringency: Stringency::Balanced,
+            ..Default::default()
+        };
+        let a = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+        let b = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+        let step_names = |r: &AutoLensResult| -> Vec<String> {
+            r.chain.steps.iter().map(|s| s.name.to_string()).collect()
+        };
+        assert_eq!(step_names(&a), step_names(&b), "step order drift");
+        assert!(
+            (a.alignment_quality - b.alignment_quality).abs() < 1e-12,
+            "quality drift"
+        );
+    }
+
+    #[test]
+    fn score_weights_are_pinned() {
+        // Provisional weights (quality + 0.5*coverage + 0.2*avg_conf).
+        // Any change to the weighting must update this pin explicitly.
+        use crate::candidate::{CandidateStep, LensCandidate};
+        let protocol = test_protocol();
+        let s = schema_v1(&protocol);
+        let chain = crate::protolens::ProtolensChain::new(vec![]);
+        let lens = chain.instantiate(&s, &protocol).unwrap();
+        let cand = LensCandidate {
+            chain,
+            lens,
+            quality: 1.0,
+            coverage: 1.0,
+            seed_anchors: vec![],
+            steps: vec![CandidateStep {
+                kind: "k".into(),
+                explanation: "e".into(),
+                confidence: 1.0,
+                strategy: None,
+            }],
+            strategies_used: vec![],
+        };
+        assert!(
+            (cand.score() - 1.7).abs() < 1e-9,
+            "weight drift: expected 1.7, got {}",
+            cand.score()
+        );
     }
 }

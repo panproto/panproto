@@ -32,6 +32,11 @@ use super::{Anchor, StrategyTag, kinds_compatible};
 /// for an anchor to be emitted. Values below `0.5` are clipped up to
 /// `0.5` to avoid pairing vertices that agree on less than half of
 /// their signature.
+///
+/// Tie-break: when multiple candidate targets share the best overlap
+/// score, the lowest-alphabetical target wins (source and target ids
+/// are both iterated in sorted order, and the ">" comparison retains
+/// the first-seen maximum).
 #[must_use]
 pub fn type_signature_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec<Anchor> {
     let effective_threshold = threshold.max(0.5);
@@ -381,6 +386,91 @@ mod tests {
         );
         for anchor in type_signature_anchors(&src, &tgt, 0.5) {
             assert!(kinds_compatible(&src, &anchor.src, &tgt, &anchor.tgt));
+        }
+    }
+
+    #[test]
+    fn type_signature_single_isolated_vertex() {
+        // Smallest legal schema: one vertex with no edges → empty signature
+        // → no anchors emitted.
+        let s = build_schema(&[("lone", "string")], &[]);
+        let t = build_schema(&[("other", "string")], &[]);
+        assert!(type_signature_anchors(&s, &t, 0.5).is_empty());
+    }
+
+    #[test]
+    fn type_signature_tie_break_picks_lowest_alpha_target() {
+        // Source matches two targets with identical signatures. Sorted
+        // iteration + strict > means the first-seen (alphabetically
+        // lowest) target wins.
+        let src = build_schema(
+            &[("r", "object"), ("r.x", "string")],
+            &[("r", "r.x", "prop", "x")],
+        );
+        let tgt = build_schema(
+            &[
+                ("aa", "object"),
+                ("aa.x", "string"),
+                ("zz", "object"),
+                ("zz.x", "string"),
+            ],
+            &[("aa", "aa.x", "prop", "x"), ("zz", "zz.x", "prop", "x")],
+        );
+        let anchors = type_signature_anchors(&src, &tgt, 0.5);
+        let r_anchor = anchors.iter().find(|a| a.src.as_str() == "r").unwrap();
+        assert_eq!(
+            r_anchor.tgt.as_str(),
+            "aa",
+            "tie-break favors lowest-alpha target"
+        );
+    }
+
+    #[test]
+    fn type_signature_bit_identical_across_100_runs() {
+        let src = build_schema(
+            &[
+                ("post", "object"),
+                ("post.text", "string"),
+                ("post.createdAt", "string"),
+            ],
+            &[
+                ("post", "post.text", "prop", "text"),
+                ("post", "post.createdAt", "prop", "createdAt"),
+            ],
+        );
+        let tgt = build_schema(
+            &[
+                ("message", "object"),
+                ("message.body", "string"),
+                ("message.sentAt", "string"),
+            ],
+            &[
+                ("message", "message.body", "prop", "body"),
+                ("message", "message.sentAt", "prop", "sentAt"),
+            ],
+        );
+        let baseline: Vec<(String, String, u64)> = type_signature_anchors(&src, &tgt, 0.5)
+            .iter()
+            .map(|a| {
+                (
+                    a.src.as_str().into(),
+                    a.tgt.as_str().into(),
+                    a.confidence.to_bits(),
+                )
+            })
+            .collect();
+        for _ in 0..100 {
+            let again: Vec<(String, String, u64)> = type_signature_anchors(&src, &tgt, 0.5)
+                .iter()
+                .map(|a| {
+                    (
+                        a.src.as_str().into(),
+                        a.tgt.as_str().into(),
+                        a.confidence.to_bits(),
+                    )
+                })
+                .collect();
+            assert_eq!(again, baseline);
         }
     }
 

@@ -245,10 +245,12 @@ pub fn default_alias_dict() -> AliasDict {
 /// alias cluster, that counts as evidence that `s` and `t` may align.
 ///
 /// For each source vertex, scores every kind-compatible target vertex by
-/// the fraction of its outgoing edge names that have an alias-matching
-/// counterpart in the target's outgoing edges. Returns all `(s, t)` pairs
-/// whose score (plus a small bonus when the vertex names themselves
-/// alias) clears `0.4`.
+/// a symmetric size-normalized overlap: the number of source edge names
+/// that alias-match some target edge name, divided by the larger of the
+/// two edge-name list sizes. This penalizes pairings where one side has
+/// many extra unmatched fields. Returns all `(s, t)` pairs whose score
+/// (plus a small bonus when the vertex names themselves alias) clears
+/// `0.4`.
 #[must_use]
 pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor> {
     let mut out = Vec::new();
@@ -335,8 +337,14 @@ pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor
     out
 }
 
-/// Jaccard-style overlap counting each source name as "matched" if some
-/// target name is its alias. Returns `(score, matched_count)`.
+/// Size-normalized overlap: counts each source name as "matched" if some
+/// target name is its alias, then divides by `max(|src|, |tgt|)`. This
+/// is symmetric in list sizes (swapping sides preserves the score) but
+/// is NOT the fraction of source fields that matched: when the target
+/// has many unmatched extra fields, the denominator grows and the score
+/// shrinks accordingly. Empty-empty returns `(1.0, 0)` as a vacuous
+/// edge case; callers gate emission on `matched > 0`. Returns
+/// `(score, matched_count)`.
 fn alias_edge_overlap(src_names: &[&str], tgt_names: &[&str], dict: &AliasDict) -> (f64, usize) {
     if src_names.is_empty() && tgt_names.is_empty() {
         return (1.0, 0);
@@ -445,6 +453,31 @@ mod tests {
     }
 
     #[test]
+    fn alias_edge_overlap_asymmetric_sizes_uses_max_denominator() {
+        // 1 match on src side, but target has 9 extra unmatched fields:
+        // score = 1 / max(1, 10) = 0.1. Use an empty dict so that "a"..
+        // "i" do not incidentally alias with anything in src.
+        let dict = AliasDict::new();
+        let (score_small_large, matched) = alias_edge_overlap(
+            &["id"],
+            &["id", "a", "b", "c", "d", "e", "f", "g", "i", "j"],
+            &dict,
+        );
+        assert_eq!(matched, 1);
+        assert!((score_small_large - 0.1).abs() < 1e-9);
+
+        // Swapping src and tgt yields the same score: the metric is
+        // symmetric in list sizes.
+        let (score_large_small, matched_swapped) = alias_edge_overlap(
+            &["id", "a", "b", "c", "d", "e", "f", "g", "i", "j"],
+            &["id"],
+            &dict,
+        );
+        assert_eq!(matched_swapped, 1);
+        assert!((score_large_small - score_small_large).abs() < 1e-9);
+    }
+
+    #[test]
     fn alias_edge_overlap_empty_sides() {
         let dict = AliasDict::new();
         // Empty-empty: documented as 1.0 but matched=0.
@@ -541,6 +574,67 @@ mod tests {
         );
         for anchor in alias_anchors(&src, &tgt, &dict) {
             assert!(kinds_compatible(&src, &anchor.src, &tgt, &anchor.tgt));
+        }
+    }
+
+    #[test]
+    fn alias_anchors_single_isolated_vertex() {
+        // Schema-building requires at least one vertex, so the smallest
+        // schema is a single isolated vertex. Asserts no-panic on the
+        // thinnest legal input.
+        let src = build_schema(&[("lone", "string")], &[]);
+        let tgt = build_schema(&[("other", "integer")], &[]);
+        let dict = default_alias_dict();
+        assert!(alias_anchors(&src, &tgt, &dict).is_empty());
+    }
+
+    #[test]
+    fn alias_anchors_bit_identical_across_100_runs() {
+        let dict = default_alias_dict();
+        let src = build_schema(
+            &[
+                ("root", "object"),
+                ("root.text", "string"),
+                ("root.createdAt", "string"),
+            ],
+            &[
+                ("root", "root.text", "prop", "text"),
+                ("root", "root.createdAt", "prop", "createdAt"),
+            ],
+        );
+        let tgt = build_schema(
+            &[
+                ("root", "object"),
+                ("root.body", "string"),
+                ("root.sentAt", "string"),
+            ],
+            &[
+                ("root", "root.body", "prop", "body"),
+                ("root", "root.sentAt", "prop", "sentAt"),
+            ],
+        );
+        let baseline: Vec<(String, String, u64)> = alias_anchors(&src, &tgt, &dict)
+            .iter()
+            .map(|a| {
+                (
+                    a.src.as_str().into(),
+                    a.tgt.as_str().into(),
+                    a.confidence.to_bits(),
+                )
+            })
+            .collect();
+        for _ in 0..100 {
+            let again: Vec<(String, String, u64)> = alias_anchors(&src, &tgt, &dict)
+                .iter()
+                .map(|a| {
+                    (
+                        a.src.as_str().into(),
+                        a.tgt.as_str().into(),
+                        a.confidence.to_bits(),
+                    )
+                })
+                .collect();
+            assert_eq!(again, baseline);
         }
     }
 

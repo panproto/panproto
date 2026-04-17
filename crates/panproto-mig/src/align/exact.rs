@@ -92,6 +92,72 @@ mod tests {
     }
 
     #[test]
+    fn single_isolated_vertex_schema() {
+        // Schema-building requires ≥ 1 vertex; smallest legal input is a
+        // single isolated vertex. Guards against panics on the thinnest
+        // legal schema.
+        let s = schema(&[("only", "string")]);
+        assert!(exact_anchors(&s, &s).len() == 1);
+    }
+
+    #[test]
+    fn bit_identical_across_100_runs() {
+        let s = schema(&[("a", "string"), ("b", "object"), ("c", "string")]);
+        let t = schema(&[("a", "string"), ("b", "object"), ("c", "string")]);
+        let baseline: Vec<(String, String, u64)> = exact_anchors(&s, &t)
+            .iter()
+            .map(|a| {
+                (
+                    a.src.as_str().into(),
+                    a.tgt.as_str().into(),
+                    a.confidence.to_bits(),
+                )
+            })
+            .collect();
+        for _ in 0..100 {
+            let again: Vec<(String, String, u64)> = exact_anchors(&s, &t)
+                .iter()
+                .map(|a| {
+                    (
+                        a.src.as_str().into(),
+                        a.tgt.as_str().into(),
+                        a.confidence.to_bits(),
+                    )
+                })
+                .collect();
+            assert_eq!(again, baseline);
+        }
+    }
+
+    #[test]
+    fn at_most_one_anchor_per_src_tgt_pair() {
+        // With 5 vertices sharing the same kind on each side, exact_anchors
+        // must still emit exactly one anchor per name and never duplicate.
+        let verts: [(&str, &str); 5] = [
+            ("a", "string"),
+            ("b", "string"),
+            ("c", "string"),
+            ("d", "string"),
+            ("e", "string"),
+        ];
+        let src = schema(&verts);
+        let tgt = schema(&verts);
+        let anchors = exact_anchors(&src, &tgt);
+        let mut pairs: Vec<(String, String)> = anchors
+            .iter()
+            .map(|a| (a.src.as_str().into(), a.tgt.as_str().into()))
+            .collect();
+        pairs.sort();
+        let deduped = {
+            let mut p = pairs.clone();
+            p.dedup();
+            p
+        };
+        assert_eq!(pairs, deduped, "no duplicate (src, tgt) anchors");
+        assert_eq!(pairs.len(), 5);
+    }
+
+    #[test]
     fn emits_anchors_only_for_shared_names_with_matching_kind() {
         let src = schema(&[("a", "string"), ("b", "object"), ("c", "string")]);
         let tgt = schema(&[("a", "string"), ("b", "string"), ("d", "string")]);

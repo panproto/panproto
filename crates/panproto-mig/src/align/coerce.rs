@@ -28,10 +28,37 @@ use crate::coerce::{SortLensWitness, WitnessLibrary};
 /// Identity-kind matches are skipped (they're handled by other
 /// strategies); only coercion pairings are emitted here. Confidence
 /// is derived from the witness's [`panproto_gat::CoercionClass`]:
-/// `Iso` → `0.8`, `Retraction` → `0.55`, `Projection` → `0.35`.
+/// `Iso` → `0.8`, `Retraction` → `0.55`, `Projection` → `0.35`. Ties
+/// at the same confidence are broken by alphabetic witness name so
+/// output is reproducible across runs.
 ///
 /// Returns one coerce-anchor per source vertex at most, picking the
 /// highest-confidence target among bridgeable kinds.
+///
+/// # Known limitation: CSP does not consume these anchors
+///
+/// The bare `.anchor` values this function produces are merged into
+/// the CSP seed pool by
+/// `panproto_lens::auto_lens::run_strategies`, but the morphism
+/// search in [`crate::hom_search::find_morphisms_constrained`] still
+/// rejects kind-mismatched vertex pairs at domain-construction time
+/// (it filters candidate targets by `kinds_compatible`). A coerce
+/// anchor therefore cannot steer the chosen morphism today; its
+/// witness metadata is surfaced only on
+/// `AutoLensResult.coerce_proposals` for CLI / Python / WASM
+/// consumers, which may manually prepend a `CoerceSort` endofunctor
+/// and re-run the migration.
+///
+/// The fix for end-to-end emission is either (a) relax
+/// `kinds_compatible` in `hom_search::new_constrained` when a witness
+/// exists and thread the witness through factorization, or (b)
+/// post-process the morphism in `auto_lens`: when a source sort has
+/// no assigned target, consult `coerce_proposals`, synthesize a
+/// `CoerceSort` step, and re-factorize. Neither path is implemented
+/// in this tier; treat this function as authoritative for *which*
+/// witness would bridge which kind pair, but NOT as a guarantee that
+/// the auto-generated lens contains the corresponding `CoerceSort`
+/// step.
 #[must_use]
 pub fn coerce_anchors(src: &Schema, tgt: &Schema, library: &WitnessLibrary) -> Vec<CoerceAnchor> {
     if library.is_empty() {
@@ -65,7 +92,24 @@ pub fn coerce_anchors(src: &Schema, tgt: &Schema, library: &WitnessLibrary) -> V
             };
             for witness in library.lookup(src_kind, tgt_kind) {
                 let confidence = class_confidence(witness.class);
-                if best.as_ref().is_none_or(|(_, _, prev)| confidence > *prev) {
+                // Tie-break: when two witnesses share the same
+                // confidence (e.g. two Retractions for the same kind
+                // pair), pick the one whose name sorts earliest. This
+                // makes the emitted anchor reproducible even when the
+                // library's internal iteration order for a kind pair
+                // is an insertion-order artifact.
+                let swap = best.as_ref().is_none_or(|(_, prev_w, prev_c)| {
+                    // `total_cmp` gives a total order even at NaN/±0 so
+                    // the tie-break stays deterministic if
+                    // `class_confidence` ever grows to return non-finite
+                    // values.
+                    match confidence.total_cmp(prev_c) {
+                        std::cmp::Ordering::Greater => true,
+                        std::cmp::Ordering::Less => false,
+                        std::cmp::Ordering::Equal => witness.name < prev_w.name,
+                    }
+                });
+                if swap {
                     best = Some(((*tgt_id).clone(), witness, confidence));
                 }
             }
@@ -120,6 +164,19 @@ const fn class_confidence(class: panproto_gat::CoercionClass) -> f64 {
 
 /// Map each vertex in `schema` to its `ValueKind`, when the vertex
 /// kind name parses as one of the primitive carriers.
+///
+/// Covers the seven primitive carriers
+/// (`bool`/`boolean`, `int`/`integer`, `float`/`number`,
+/// `str`/`string`, `bytes`, `token`, `null`). Every other vertex
+/// kind string - including protocol-specific nominal sorts such as
+/// `record`, `array`, `variant`, or cartridge-defined carriers like
+/// `uuid` or `timestamp` - is intentionally left out of the returned
+/// map. `coerce_anchors` skips any vertex whose kind does not appear
+/// here, so unknown kinds neither seed a coercion nor produce a
+/// false match. Downstream cartridges that wish to coerce over
+/// custom carriers should register additional witnesses keyed on one
+/// of the recognized primitives and rename the custom vertex kind
+/// accordingly.
 fn schema_value_kinds(schema: &Schema) -> HashMap<Name, panproto_gat::ValueKind> {
     use panproto_gat::ValueKind;
     let mut out = HashMap::new();
@@ -232,10 +289,10 @@ mod tests {
     fn prefers_higher_class_when_tied() {
         // Both int→str and int→float are Retraction (0.55 each) in
         // the default library. With tied confidence, `coerce_anchors`
-        // keeps the first candidate encountered (strict `>` in the
-        // tie-breaker). This test locks the behaviour: whatever
-        // witness wins, it must be a library witness (not dropped),
-        // and the anchor's class must match the library entry.
+        // tie-breaks on witness name (alphabetic). This test locks
+        // the behaviour: whatever witness wins, it must be a library
+        // witness (not dropped), and the anchor's class must match
+        // the library entry.
         let src = build(
             &[("r", "record"), ("r.n", "integer")],
             &[("r", "r.n", "prop", "n")],
@@ -294,6 +351,42 @@ mod tests {
             .find(|a| a.anchor.src.as_str() == "r.n")
             .expect("should emit a coerce anchor");
         assert_eq!(picked.witness_name, "int_to_str_iso");
+    }
+
+    #[test]
+    fn coerce_anchors_tie_breaks_on_witness_name() {
+        // Two int→str witnesses with the same Retraction class
+        // (equal confidence). Registered in reverse-alphabetic order
+        // so the stable-over-insertion policy must pick "aaa" not
+        // "zzz". This pins deterministic output under HashMap
+        // iteration variance.
+        let mut lib = WitnessLibrary::new();
+        let mut alpha = crate::coerce::witness::int_to_str_witness();
+        alpha.name = "aaa_int_to_str".to_owned();
+        let mut omega = crate::coerce::witness::int_to_str_witness();
+        omega.name = "zzz_int_to_str".to_owned();
+        // Insert in z-then-a order so a purely-insertion-order picker
+        // would choose "zzz_int_to_str" first.
+        lib.register(omega);
+        lib.register(alpha);
+
+        let src = build(
+            &[("r", "record"), ("r.n", "integer")],
+            &[("r", "r.n", "prop", "n")],
+        );
+        let tgt = build(
+            &[("r", "record"), ("r.s", "string")],
+            &[("r", "r.s", "prop", "s")],
+        );
+        let anchors = coerce_anchors(&src, &tgt, &lib);
+        let picked = anchors
+            .iter()
+            .find(|a| a.anchor.src.as_str() == "r.n")
+            .expect("should emit a coerce anchor");
+        assert_eq!(
+            picked.witness_name, "aaa_int_to_str",
+            "tie-break must pick alphabetically earliest witness name"
+        );
     }
 
     #[test]

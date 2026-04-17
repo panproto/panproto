@@ -206,6 +206,17 @@ pub fn witness_forward_fails_on(
 /// - Subnormals compare correctly because the tolerance floor (scale
 ///   clamped to `>= 1.0`) does not collapse subnormal-range comparisons
 ///   to zero.
+/// - [`Literal`] variants such as `Closure` (when present in the
+///   underlying `panproto_expr::Literal` enum) fall through to the
+///   catch-all `a == b` branch and therefore compare by whatever
+///   `PartialEq` is derived for them. Closures are equatable by
+///   identity at best: two distinct closure values with the same
+///   semantics will compare unequal, so witnesses whose forward /
+///   inverse return closures cannot be lens-law-checked by this
+///   predicate. Restrict witness samples to first-order carriers
+///   (ints, floats, strings, bools, records of those, lists of
+///   those) - which is exactly the set the built-in library
+///   exercises.
 fn literal_equal(a: &Literal, b: &Literal) -> bool {
     match (a, b) {
         (Literal::Float(x), Literal::Float(y)) => {
