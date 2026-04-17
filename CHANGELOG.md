@@ -4,6 +4,18 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **panproto-git-remote** (renamed from `git-remote-cospan`): binary is now `git-remote-panproto`; `panproto://` is the canonical URL scheme and `PANPROTO_PUSH_TOKEN`/`PANPROTO_TOKEN` the canonical env vars. Legacy `cospan://` URLs and `COSPAN_*` env vars are still accepted as fallbacks. Per-remote cache now lives under `$GIT_DIR/panproto-cache/<remote>/`; the previous `cospan-cache/<remote>/` directory is still read when present so no re-import is forced on upgrade. Resolves panproto/panproto#38.
+
+### Fixed
+
+- **panproto-git-remote**: `push` reported the full refspec in its `ok`/`error` status lines where the git remote-helper protocol requires only the destination ref. Git silently ignored the mismatched token, reporting "Everything up-to-date" even when the push failed or no-oped. The helper now reports `ok <dst>` / `error <dst> <why>` and mirrors error details to stderr. Resolves panproto/panproto#37.
+
+### Added
+
+- **panproto-git-remote**: `warm [<revspec>]` and `install-hooks` subcommands. A shared warm cache at `$GIT_DIR/panproto-cache/warm/` amortizes tree-sitter parsing and the project coproduct at commit time instead of push time. `install-hooks` writes a sentinel-guarded `post-commit` hook that invokes `warm HEAD` after each commit. On push, the helper copies warm objects and merges warm marks into the per-remote cache, short-circuiting the reparse path. If no warm cache exists, behavior is unchanged. Resolves panproto/panproto#36.
+
 ## [0.33.0] - 2026-04-17
 
 ### Added
