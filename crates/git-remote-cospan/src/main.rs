@@ -204,12 +204,14 @@ fn main() {
         }
 
         if let Some(rest) = line.strip_prefix("push ") {
+            let dst = push_refspec_dst(rest);
             match rt.block_on(cmd_push(&client, rest, &local_git_repo, &cache_dir)) {
                 Ok(()) => {
-                    let _ = writeln!(out, "ok {rest}");
+                    let _ = writeln!(out, "ok {dst}");
                 }
                 Err(e) => {
-                    let _ = writeln!(out, "error {rest} {e}");
+                    eprintln!("git-remote-cospan: push {dst} failed: {e}");
+                    let _ = writeln!(out, "error {dst} {e}");
                 }
             }
             continue;
@@ -570,6 +572,21 @@ fn push_import_stage(
     })
 }
 
+/// Extract the destination ref from a `push` refspec (`<src>:<dst>`).
+///
+/// Git's remote-helper protocol requires `ok <dst>` / `error <dst> <why>`
+/// responses. Reporting the full refspec instead leaves git unable to
+/// match the status line to a push entry, so it silently reports
+/// "Everything up-to-date" even when the push failed or no-oped.
+fn push_refspec_dst(refspec: &str) -> &str {
+    refspec
+        .splitn(2, ':')
+        .nth(1)
+        .unwrap_or(refspec)
+        .trim_start_matches('+')
+        .trim()
+}
+
 /// Path of the git↔panproto marks file for a given cache directory.
 fn marks_path(cache_dir: &Path) -> PathBuf {
     cache_dir.join("git-marks.txt")
@@ -640,7 +657,7 @@ mod tests {
 
     use super::{
         RemoteClient, append_marks, cmd_fetch, cmd_push, fetch_export_stage, load_marks,
-        marks_path, open_or_init_cache, push_import_stage,
+        marks_path, open_or_init_cache, push_import_stage, push_refspec_dst,
     };
     use panproto_vcs::{FsStore, MemStore, Object, ObjectId, Store};
     use std::cell::RefCell;
@@ -654,6 +671,27 @@ mod tests {
     fn fake_git_oid(hex_char: char) -> git2::Oid {
         let s: String = std::iter::repeat_n(hex_char, 40).collect();
         git2::Oid::from_str(&s).unwrap()
+    }
+
+    #[test]
+    fn push_refspec_dst_extracts_destination() {
+        assert_eq!(
+            push_refspec_dst("refs/heads/main:refs/heads/main"),
+            "refs/heads/main"
+        );
+        assert_eq!(
+            push_refspec_dst("refs/heads/feature:refs/heads/main"),
+            "refs/heads/main"
+        );
+        // Force-push prefix.
+        assert_eq!(
+            push_refspec_dst("+refs/heads/main:refs/heads/main"),
+            "refs/heads/main"
+        );
+        // Deletion refspec (empty src).
+        assert_eq!(push_refspec_dst(":refs/heads/gone"), "refs/heads/gone");
+        // Malformed input (no colon) falls back to the whole token.
+        assert_eq!(push_refspec_dst("refs/heads/main"), "refs/heads/main");
     }
 
     #[test]
