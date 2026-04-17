@@ -488,16 +488,14 @@ fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldT
                 target_key,
                 inverse: Some(inv_expr),
                 ..
-            } => {
-                if node.extra_fields.contains_key(target_key) {
-                    let env = panproto_inst::build_env_from_extra_fields(&node.extra_fields);
-                    let config = panproto_expr::EvalConfig::default();
-                    if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
-                        node.extra_fields.insert(
-                            target_key.clone(),
-                            panproto_inst::expr_literal_to_value(&result),
-                        );
-                    }
+            } if node.extra_fields.contains_key(target_key) => {
+                let env = panproto_inst::build_env_from_extra_fields(&node.extra_fields);
+                let config = panproto_expr::EvalConfig::default();
+                if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
+                    node.extra_fields.insert(
+                        target_key.clone(),
+                        panproto_inst::expr_literal_to_value(&result),
+                    );
                 }
             }
             FieldTransform::RenameField { old_key, new_key } => {
@@ -510,13 +508,11 @@ fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldT
                 // Reverse of adding: remove the field.
                 node.extra_fields.remove(key);
             }
-            FieldTransform::PathTransform { path, inner } => {
-                // Recurse into nested structure.
-                if path.is_empty() {
-                    apply_inverse_transforms(node, std::slice::from_ref(inner));
-                }
-                // Non-empty paths into nested Value structures are not inverted
-                // (would require traversing Value::Unknown maps).
+            FieldTransform::PathTransform { path, inner } if path.is_empty() => {
+                // Recurse into nested structure. Non-empty paths into
+                // nested Value structures are not inverted (would
+                // require traversing Value::Unknown maps).
+                apply_inverse_transforms(node, std::slice::from_ref(inner));
             }
             // DropField, KeepFields, Case, MapReferences: data is lost, cannot invert.
             _ => {}

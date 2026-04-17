@@ -238,10 +238,10 @@ impl EditLens {
                     return Ok(TreeEdit::Identity);
                 }
             }
-            TreeEdit::SetField { node_id, .. } => {
-                if self.complement.dropped_nodes.contains_key(node_id) {
-                    return Ok(TreeEdit::Identity);
-                }
+            TreeEdit::SetField { node_id, .. }
+                if self.complement.dropped_nodes.contains_key(node_id) =>
+            {
+                return Ok(TreeEdit::Identity);
             }
             _ => {}
         }
@@ -1019,20 +1019,18 @@ impl EditLens {
         for transforms in self.compiled.field_transforms.values() {
             for transform in transforms {
                 match transform {
-                    panproto_inst::FieldTransform::RenameField { old_key, new_key } => {
-                        if old_key == field {
-                            name.clone_from(new_key);
-                        }
+                    panproto_inst::FieldTransform::RenameField { old_key, new_key }
+                        if old_key == field =>
+                    {
+                        name.clone_from(new_key);
                     }
-                    panproto_inst::FieldTransform::ApplyExpr { key, expr, .. } => {
-                        if key == field {
-                            let input = panproto_inst::value_to_expr_literal(&val);
-                            let env = panproto_expr::Env::new()
-                                .extend(std::sync::Arc::from(key.as_str()), input);
-                            let config = panproto_expr::EvalConfig::default();
-                            if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
-                                val = expr_literal_to_value(&result);
-                            }
+                    panproto_inst::FieldTransform::ApplyExpr { key, expr, .. } if key == field => {
+                        let input = panproto_inst::value_to_expr_literal(&val);
+                        let env = panproto_expr::Env::new()
+                            .extend(std::sync::Arc::from(key.as_str()), input);
+                        let config = panproto_expr::EvalConfig::default();
+                        if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
+                            val = expr_literal_to_value(&result);
                         }
                     }
                     _ => {}

@@ -155,7 +155,7 @@ pub fn cmd_theory_recompose(file: &Path, verbose: bool) -> Result<()> {
     }
 
     if let Some((name, spec)) = compiled.composition_specs.iter().next() {
-        println!("composition '{name}': {} steps", spec.steps.len(),);
+        println!("composition '{name}': {} steps", spec.steps.len());
     }
     Ok(())
 }

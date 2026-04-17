@@ -129,10 +129,10 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                     element_name: sort.clone(),
                     element_kind: "sort".into(),
                     description: format!(
-                        "Data for {count} vertices of kind '{sort}' will be captured in the complement.",
+                        "Data for {count} vertices of kind '{sort}' will be captured in the complement."
                     ),
                 }],
-                summary: format!("Drops sort '{sort}': {count} vertices captured in complement.",),
+                summary: format!("Drops sort '{sort}': {count} vertices captured in complement."),
             }
         }
         ComplementConstructor::DroppedOpData { op } => {
@@ -217,7 +217,7 @@ fn added_element_spec(
         forward_defaults: vec![DefaultRequirement {
             element_name: element_name.clone(),
             element_kind: element_kind.to_string(),
-            description: format!("Default value needed for added {element_kind} '{element_name}'.",),
+            description: format!("Default value needed for added {element_kind} '{element_name}'."),
             suggested_default: default_value.cloned(),
         }],
         captured_data: vec![],

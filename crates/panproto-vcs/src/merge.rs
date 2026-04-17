@@ -3164,7 +3164,7 @@ mod tests {
         let result = three_way_merge(&base, &ours, &theirs);
         assert!(result.conflicts.is_empty());
         let merged_variants = result.merged_schema.variants.get("u");
-        assert!(merged_variants.is_none() || merged_variants.is_some_and(Vec::is_empty));
+        assert!(merged_variants.is_none_or(Vec::is_empty));
     }
 
     // =======================================================================

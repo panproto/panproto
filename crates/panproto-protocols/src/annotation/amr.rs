@@ -163,10 +163,8 @@ pub fn parse_amr_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErro
         for edge_kind in RELATION_EDGES {
             if let Some(targets) = def.get(*edge_kind) {
                 match targets {
-                    serde_json::Value::String(tgt) => {
-                        if types.contains_key(tgt.as_str()) {
-                            builder = builder.edge(name, tgt, edge_kind, None)?;
-                        }
+                    serde_json::Value::String(tgt) if types.contains_key(tgt.as_str()) => {
+                        builder = builder.edge(name, tgt, edge_kind, None)?;
                     }
                     serde_json::Value::Array(arr) => {
                         for (i, item) in arr.iter().enumerate() {
