@@ -16,7 +16,7 @@ git-repository-url = "https://github.com/aaronstevenwhite/panproto"
 edit-url-template = "https://github.com/aaronstevenwhite/panproto/edit/main/book/{path}"
 site-url = "/book/"
 additional-css = ["./theme/cite.css"]
-additional-js = ["./theme/cite-group.js", "./theme/mermaid.min.js", "./theme/mermaid-init.js"]
+additional-js = ["./theme/cite-group.js", "./theme/mermaid.min.js", "./theme/mermaid-init.js", "./theme/bib-links.js", "./theme/bib-linkify.js"]
 
 [output.html.search]
 enable = true
@@ -46,3 +46,4 @@ command = "mdbook-mermaid"
 
 [preprocessor.katex]
 after = ["links"]
+before = ["bib"]

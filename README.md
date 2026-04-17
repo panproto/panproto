@@ -248,8 +248,7 @@ maturin develop --manifest-path crates/panproto-py/Cargo.toml
 
 ## Documentation
 
-- [Tutorial](https://panproto.dev/tutorial/): 22-chapter guide from first schema to automatic migration
-- [Dev Guide](https://panproto.dev/dev-guide/): internals, algorithms, and architecture
+- [The panproto book](https://panproto.dev/book/): the complete reference, from the mathematical foundations (categories, GATs, colimits, lenses) through the Rust implementation, the expression language, the protocol catalogue, schematic version control, the SDKs, and a contributor guide.
 - [API Reference (docs.rs)](https://docs.rs/panproto-core)
 
 ## Acknowledgments

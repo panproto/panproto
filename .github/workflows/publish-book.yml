@@ -1,0 +1,76 @@
+name: Deploy Book
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "book/**"
+      - ".github/workflows/publish-book.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "book/**"
+      - ".github/workflows/publish-book.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: book-pages
+  cancel-in-progress: false
+
+env:
+  MDBOOK_VERSION: "0.5.2"
+  MDBOOK_MERMAID_VERSION: "0.17.0"
+  MDBOOK_KATEX_VERSION: "0.10.0-alpha"
+  MDBOOK_BIB_VERSION: "0.5.2"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache mdbook binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: mdbook-${{ env.MDBOOK_VERSION }}-mermaid-${{ env.MDBOOK_MERMAID_VERSION }}-katex-${{ env.MDBOOK_KATEX_VERSION }}-bib-${{ env.MDBOOK_BIB_VERSION }}
+
+      - name: Install mdbook and preprocessors
+        run: |
+          test -x ~/.cargo/bin/mdbook           || cargo install mdbook           --version ${{ env.MDBOOK_VERSION }}        --locked
+          test -x ~/.cargo/bin/mdbook-mermaid   || cargo install mdbook-mermaid   --version ${{ env.MDBOOK_MERMAID_VERSION }} --locked
+          test -x ~/.cargo/bin/mdbook-katex     || cargo install mdbook-katex     --version ${{ env.MDBOOK_KATEX_VERSION }}   --locked
+          test -x ~/.cargo/bin/mdbook-bib       || cargo install mdbook-bib       --version ${{ env.MDBOOK_BIB_VERSION }}     --locked
+
+      - name: Build book
+        run: mdbook build book
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: book/book
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+# If panproto.dev/book/ is served by an external repository (as the prior
+# tutorial was by panproto/tutorial), replace the deploy job above with a
+# peaceiris/actions-gh-pages@v4 step pushing book/book to that repo, using
+# a deploy-key secret analogous to TUTORIAL_DEPLOY_KEY.
