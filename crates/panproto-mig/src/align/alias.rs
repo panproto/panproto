@@ -47,6 +47,27 @@ impl AliasDict {
         if canonical.len() < 2 {
             return;
         }
+        // Idempotency: if every term is already bound to an existing
+        // cluster, do not allocate a new cluster id and do not push a
+        // dead duplicate onto `self.clusters`. A caller that registers
+        // the same cluster twice — directly or via `extend` merging a
+        // dictionary with overlapping entries — must not bloat
+        // `cluster_count()` or the `clusters` vector.
+        //
+        // We consider the call a duplicate when *every* canonical term
+        // already maps to the *same* existing cluster id. Partial
+        // overlap (some terms fresh, some pre-existing under a
+        // different cluster) still allocates a new cluster id so the
+        // new terms get registered; pre-existing terms keep their
+        // prior binding thanks to `or_insert`.
+        if let Some(&existing) = self.term_to_cluster.get(&canonical[0]) {
+            if canonical
+                .iter()
+                .all(|t| self.term_to_cluster.get(t) == Some(&existing))
+            {
+                return;
+            }
+        }
         let cluster_id = self.clusters.len();
         for term in &canonical {
             self.term_to_cluster
@@ -636,6 +657,81 @@ mod tests {
                 .collect();
             assert_eq!(again, baseline);
         }
+    }
+
+    #[test]
+    fn add_cluster_is_idempotent_on_exact_duplicate() {
+        // Regression: previously, calling add_cluster with an identical
+        // already-registered cluster would push a dead duplicate onto
+        // `self.clusters`, inflating `cluster_count()` while
+        // `term_to_cluster` still pointed at the original id.
+        let mut dict = AliasDict::new();
+        dict.add_cluster(["foo", "bar"]);
+        assert_eq!(dict.cluster_count(), 1);
+        dict.add_cluster(["foo", "bar"]);
+        assert_eq!(
+            dict.cluster_count(),
+            1,
+            "duplicate add_cluster must not create a new cluster"
+        );
+        // Casing/separator variants canonicalize to the same cluster
+        // and must also be idempotent.
+        dict.add_cluster(["FOO", "Bar"]);
+        assert_eq!(dict.cluster_count(), 1);
+        // Disjoint cluster still allocates.
+        dict.add_cluster(["baz", "qux"]);
+        assert_eq!(dict.cluster_count(), 2);
+        // Partial overlap: "foo" already bound (to cluster 0); "new"
+        // is fresh. A new cluster is allocated so "new" gets
+        // registered; "foo" keeps its prior binding.
+        dict.add_cluster(["foo", "new"]);
+        assert_eq!(dict.cluster_count(), 3);
+        assert!(dict.are_aliases("foo", "bar"));
+        assert!(!dict.are_aliases("foo", "new"));
+    }
+
+    #[test]
+    fn extend_with_overlapping_dict_does_not_create_duplicates() {
+        // Regression: `extend` delegates to `add_cluster`, so before
+        // the idempotency fix merging a dictionary against itself
+        // doubled `cluster_count()`.
+        let base = default_alias_dict();
+        let base_count = base.cluster_count();
+        let mut merged = base.clone();
+        merged.extend(&base);
+        assert_eq!(
+            merged.cluster_count(),
+            base_count,
+            "extend with overlapping clusters must be idempotent"
+        );
+        // Alias relationships are unchanged.
+        assert!(merged.are_aliases("createdAt", "sentAt"));
+        assert!(merged.are_aliases("id", "uuid"));
+    }
+
+    #[test]
+    fn alias_anchors_composite_source_leaf_target_emits_nothing() {
+        // Pins the documented asymmetry in `alias_anchors`: when the
+        // source is composite (has named outgoing edges) and the target
+        // is a pure leaf (no outgoing edges), no anchor is emitted
+        // even if the names would alias. The symmetric case (leaf
+        // source, composite target) DOES attempt a name-level alias
+        // check. Different layouts → not a mismatch, but a deliberate
+        // asymmetry because composite↔leaf is wrap/unwrap territory,
+        // not an alias pairing.
+        let src = build_schema(
+            &[("id", "object"), ("id.x", "string")],
+            &[("id", "id.x", "prop", "x")],
+        );
+        let tgt = build_schema(&[("uuid", "object")], &[]);
+        let dict = default_alias_dict();
+        let anchors = alias_anchors(&src, &tgt, &dict);
+        assert!(
+            anchors
+                .iter()
+                .all(|a| !(a.src.as_str() == "id" && a.tgt.as_str() == "uuid")),
+            "composite-source vs leaf-target must not emit alias anchor: {anchors:?}"
+        );
     }
 
     #[test]

@@ -426,6 +426,41 @@ mod tests {
     }
 
     #[test]
+    fn type_signature_tie_break_is_stable_across_three_identical_targets() {
+        // When three candidate targets all tie at ratio = 1.0, the
+        // strict `>` check retains the first-seen maximum; combined
+        // with sorted target iteration this must pick the
+        // alphabetically lowest target regardless of insertion order
+        // in the backing `HashMap`.
+        let src = build_schema(
+            &[("r", "object"), ("r.x", "string")],
+            &[("r", "r.x", "prop", "x")],
+        );
+        let tgt = build_schema(
+            &[
+                ("bbb", "object"),
+                ("bbb.x", "string"),
+                ("aaa", "object"),
+                ("aaa.x", "string"),
+                ("ccc", "object"),
+                ("ccc.x", "string"),
+            ],
+            &[
+                ("bbb", "bbb.x", "prop", "x"),
+                ("aaa", "aaa.x", "prop", "x"),
+                ("ccc", "ccc.x", "prop", "x"),
+            ],
+        );
+        let anchors = type_signature_anchors(&src, &tgt, 0.5);
+        let r_anchor = anchors.iter().find(|a| a.src.as_str() == "r").unwrap();
+        assert_eq!(
+            r_anchor.tgt.as_str(),
+            "aaa",
+            "three-way tie must still resolve to lowest-alpha target"
+        );
+    }
+
+    #[test]
     fn type_signature_bit_identical_across_100_runs() {
         let src = build_schema(
             &[

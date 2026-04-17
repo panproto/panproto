@@ -227,6 +227,25 @@ pub fn cmd_lens_generate(
             emit_candidates,
             requirements,
         )?;
+        // Fold `--fuse` output in now (before printing) so `--chain --fuse
+        // --json`-style invocations still emit a single JSON document.
+        if fuse {
+            let fused = result
+                .chain
+                .fuse()
+                .into_diagnostic()
+                .wrap_err("failed to fuse protolens chain")?;
+            let fused_json_str = fused
+                .to_json()
+                .into_diagnostic()
+                .wrap_err("failed to serialize fused protolens")?;
+            let fused_value: serde_json::Value = serde_json::from_str(&fused_json_str)
+                .into_diagnostic()
+                .wrap_err("failed to parse fused protolens JSON")?;
+            if let serde_json::Value::Object(obj) = &mut root {
+                obj.insert("fused".to_owned(), fused_value);
+            }
+        }
         let pretty = serde_json::to_string_pretty(&root)
             .into_diagnostic()
             .wrap_err("failed to serialize protolens chain")?;
@@ -244,6 +263,23 @@ pub fn cmd_lens_generate(
             emit_candidates,
             requirements,
         )?;
+        if fuse {
+            let fused = result
+                .chain
+                .fuse()
+                .into_diagnostic()
+                .wrap_err("failed to fuse protolens chain")?;
+            let fused_json_str = fused
+                .to_json()
+                .into_diagnostic()
+                .wrap_err("failed to serialize fused protolens")?;
+            let fused_value: serde_json::Value = serde_json::from_str(&fused_json_str)
+                .into_diagnostic()
+                .wrap_err("failed to parse fused protolens JSON")?;
+            if let serde_json::Value::Object(obj) = &mut root {
+                obj.insert("fused".to_owned(), fused_value);
+            }
+        }
         let pretty = serde_json::to_string_pretty(&root)
             .into_diagnostic()
             .wrap_err("failed to serialize lens")?;
@@ -330,31 +366,24 @@ pub fn cmd_lens_generate(
         }
     }
 
-    // Fuse the chain into a single protolens if requested.
-    if fuse {
+    // Fuse the chain into a single protolens if requested. JSON/chain
+    // modes already folded the fused payload into the root document above.
+    if fuse && !json_mode {
         let fused = result
             .chain
             .fuse()
             .into_diagnostic()
             .wrap_err("failed to fuse protolens chain")?;
-        if json {
-            let fused_json = fused
-                .to_json()
-                .into_diagnostic()
-                .wrap_err("failed to serialize fused protolens")?;
-            println!("{fused_json}");
+        println!("\nFused protolens:");
+        println!("  Name: {}", fused.name);
+        println!("  Source: {}", fused.source.name);
+        println!("  Target: {}", fused.target.name);
+        let lossless = if fused.is_lossless() {
+            "lossless"
         } else {
-            println!("\nFused protolens:");
-            println!("  Name: {}", fused.name);
-            println!("  Source: {}", fused.source.name);
-            println!("  Target: {}", fused.target.name);
-            let lossless = if fused.is_lossless() {
-                "lossless"
-            } else {
-                "lossy"
-            };
-            println!("  Complement: {lossless}");
-        }
+            "lossy"
+        };
+        println!("  Complement: {lossless}");
     }
 
     // Show requirements if requested.

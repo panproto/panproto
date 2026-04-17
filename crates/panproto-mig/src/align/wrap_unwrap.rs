@@ -516,6 +516,25 @@ mod tests {
     }
 
     #[test]
+    fn split_prefix_suffix_handles_nul_byte_safely() {
+        // NUL bytes are not in the recognized separator set (`_`, `-`,
+        // camelCase boundary), so `split_prefix_suffix` treats `"a\0b"`
+        // as an atomic identifier. Critically, slicing on byte indices
+        // remains valid — NUL is ASCII, so no UTF-8 boundary is crossed
+        // — and the function must not panic on such input.
+        assert_eq!(split_prefix_suffix("a\0b"), None);
+        assert_eq!(split_prefix_suffix("\0"), None);
+        assert_eq!(split_prefix_suffix("\0_x"), Some(("\0", "x")));
+        // NUL is neither lowercase nor uppercase (Unicode classifies
+        // control characters as neither), so the camelCase loop does
+        // not fire around it either. `"a\0B"` thus has no split point:
+        // position 0 is skipped (i == 0), position 1 (`\0`) is not a
+        // recognized separator, and neither `'a'→'\0'` nor `'\0'→'B'`
+        // is a lowercase→uppercase transition.
+        assert_eq!(split_prefix_suffix("a\0B"), None);
+    }
+
+    #[test]
     fn split_prefix_suffix_on_underscore() {
         assert_eq!(split_prefix_suffix("foo_bar"), Some(("foo", "bar")));
         assert_eq!(split_prefix_suffix("subject_uri"), Some(("subject", "uri")));

@@ -2444,17 +2444,35 @@ fn apply_drop_edge_from_schema(
 /// Build an implicit theory from a schema (sorts = vertex kinds,
 /// ops = edge kinds).
 pub(crate) fn schema_to_implicit_theory(schema: &Schema) -> Theory {
+    // `schema.vertices` / `schema.edges` are HashMaps with a process-
+    // randomized hasher: iterating them directly would let sort / op
+    // order drift across runs, and `factorize` iterates
+    // `theory.sorts` / `theory.ops` in order. Sort before folding so
+    // the resulting `Theory` is identical across process instances on
+    // equal input, which the factorization pipeline depends on for
+    // reproducible endofunctor sequences.
+    let mut vertex_ids: Vec<&Name> = schema.vertices.keys().collect();
+    vertex_ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
     let mut sort_names: HashSet<&str> = HashSet::new();
     let mut sorts = Vec::new();
-    for vertex in schema.vertices.values() {
+    for vid in vertex_ids {
+        let vertex = &schema.vertices[vid];
         if sort_names.insert(&vertex.kind) {
             sorts.push(Sort::simple(name_arc_clone(&vertex.kind)));
         }
     }
 
+    let mut edges: Vec<&Edge> = schema.edges.keys().collect();
+    edges.sort_by(|a, b| {
+        a.src
+            .as_str()
+            .cmp(b.src.as_str())
+            .then_with(|| a.tgt.as_str().cmp(b.tgt.as_str()))
+            .then_with(|| a.kind.as_str().cmp(b.kind.as_str()))
+    });
     let mut op_names: HashSet<&str> = HashSet::new();
     let mut ops = Vec::new();
-    for edge in schema.edges.keys() {
+    for edge in edges {
         if op_names.insert(&edge.kind) {
             let src_kind = schema
                 .vertices
@@ -2550,6 +2568,58 @@ mod tests {
             obj_kinds: vec!["object".into(), "string".into(), "array".into()],
             constraint_sorts: vec![],
             ..Protocol::default()
+        }
+    }
+
+    #[test]
+    fn schema_to_implicit_theory_deterministic_sort_op_order() {
+        // `Schema::vertices` / `Schema::edges` are HashMaps; iterating
+        // them directly would let sort / op order depend on hasher
+        // state. `factorize` iterates `theory.sorts` / `theory.ops`
+        // in order, so drift here would propagate to drift in the
+        // factorized endofunctor chain. Pin the order by content.
+        use panproto_schema::SchemaBuilder;
+        let protocol = Protocol {
+            name: "t".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["record".into(), "string".into(), "integer".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        // Build a schema with enough vertices/edges that HashMap
+        // iteration order is very likely to diverge from insertion.
+        let s = SchemaBuilder::new(&protocol)
+            .vertex("zzz", "record", None::<&str>)
+            .unwrap()
+            .vertex("aaa", "string", None::<&str>)
+            .unwrap()
+            .vertex("mmm", "integer", None::<&str>)
+            .unwrap()
+            .vertex("bbb", "string", None::<&str>)
+            .unwrap()
+            .edge("zzz", "aaa", "prop", Some("x"))
+            .unwrap()
+            .edge("zzz", "mmm", "field", Some("y"))
+            .unwrap()
+            .edge("zzz", "bbb", "attr", Some("z"))
+            .unwrap()
+            .build()
+            .unwrap();
+        // Repeat enough times that any hasher-driven reordering would
+        // show up at least once across runs.
+        let baseline = schema_to_implicit_theory(&s);
+        for _ in 0..16 {
+            let t = schema_to_implicit_theory(&s);
+            let baseline_sorts: Vec<String> =
+                baseline.sorts.iter().map(|x| x.name.to_string()).collect();
+            let t_sorts: Vec<String> = t.sorts.iter().map(|x| x.name.to_string()).collect();
+            assert_eq!(baseline_sorts, t_sorts, "sort order drift");
+            let baseline_ops: Vec<String> =
+                baseline.ops.iter().map(|x| x.name.to_string()).collect();
+            let t_ops: Vec<String> = t.ops.iter().map(|x| x.name.to_string()).collect();
+            assert_eq!(baseline_ops, t_ops, "op order drift");
         }
     }
 

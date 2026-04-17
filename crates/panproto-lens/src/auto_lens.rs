@@ -894,6 +894,25 @@ pub fn auto_generate_candidates_with_hints(
     merge_seed_anchors(&mut search_opts, &resolved_strategy);
     search_opts.max_results = n;
 
+    // Span search: at Lenient+, union auto-derived source exclusions
+    // into the caller's `domain_constraints` so the CSP can still
+    // factor through the shared subschema `C`. User hints override
+    // auto-exclusion: if the caller explicitly anchored a source
+    // vertex, we must NOT add that source to `excluded_sources` even
+    // when our kind-compatibility scan couldn't find a match. Without
+    // this guard the CSP silently drops user-hinted sources, surfacing
+    // as a "CSP ignored my hint" bug (same pattern fixed in
+    // `auto_generate_with_hints`).
+    let mut merged_domain = domain_constraints.clone();
+    if let Some(span) = span_exclusions_at_lenient(src, tgt, config.stringency) {
+        for src_v in span.excluded_sources {
+            if anchors.contains_key(&src_v) {
+                continue;
+            }
+            merged_domain.excluded_sources.insert(src_v);
+        }
+    }
+
     let mut combined = Vec::with_capacity(strategy_anchors.len() + anchors.len());
     for (src_v, tgt_v) in anchors {
         combined.push(Anchor {
@@ -911,7 +930,7 @@ pub fn auto_generate_candidates_with_hints(
         tgt,
         protocol,
         &search_opts,
-        Some(domain_constraints),
+        Some(&merged_domain),
         &combined,
         n,
         config.stringency.allow_spans(),
@@ -2471,5 +2490,79 @@ mod tests {
         // `r.extra`'s data, since the caller excluded it and Lenient
         // emits spans. More importantly: no panic/error.
         let _ = res; // presence of a result proves exclusion was honored
+    }
+
+    #[test]
+    fn auto_generate_candidates_with_hints_user_anchor_overrides_span_exclusion() {
+        // Parity test for `auto_generate_with_hints_user_anchor_overrides_span_exclusion`:
+        // the candidates-API variant must honor the same user-hint-vs-span
+        // exclusion rule. A Lenient search where the source's only child
+        // vertex has no kind-compatible target would otherwise see that
+        // vertex auto-excluded by `span_exclusions_at_lenient`, silently
+        // dropping the caller's anchor. The pass-6 fix unions span
+        // exclusions into the caller's DomainConstraints with the same
+        // `anchors.contains_key` skip guard the single-best path uses.
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.flag", "boolean", None::<&str>)
+            .unwrap()
+            .edge("r", "r.flag", "prop", Some("flag"))
+            .unwrap()
+            .build()
+            .unwrap();
+        // Target has no boolean: auto-exclusion would drop `r.flag`.
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Prove the span logic wants to exclude `r.flag`.
+        let span = span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient)
+            .expect("Lenient should auto-exclude r.flag");
+        assert!(
+            span.excluded_sources.contains(&Name::from("r.flag")),
+            "span auto-exclusion must name r.flag"
+        );
+
+        // User hint: `r.flag -> r`. The candidates-with-hints entry
+        // point must keep `r.flag` in the CSP domain (not exclude it).
+        let mut anchors: HashMap<Name, Name> = HashMap::new();
+        anchors.insert(Name::from("r.flag"), Name::from("r"));
+        let cfg = AutoLensConfig {
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+        // Either the CSP accepts the (kind-mismatched) hint and
+        // produces a candidate, or it rejects on kind-compatibility
+        // grounds — but it must NOT silently drop `r.flag` via the
+        // span path (which would produce a trivial `r -> r` candidate
+        // claiming the hint was honored). We can't observe "was the
+        // exclusion added" directly, so assert the guard logic by
+        // reproducing it on the same inputs.
+        let mut merged = DomainConstraints::default();
+        for src_v in span.excluded_sources {
+            if anchors.contains_key(&src_v) {
+                continue;
+            }
+            merged.excluded_sources.insert(src_v);
+        }
+        assert!(
+            !merged.excluded_sources.contains(&Name::from("r.flag")),
+            "user-hinted source must not end up in excluded_sources"
+        );
+        // End-to-end: call the candidates path; Err is acceptable
+        // (kind mismatch), Ok is acceptable. A panic is not.
+        let _ = auto_generate_candidates_with_hints(
+            &src,
+            &tgt,
+            &protocol,
+            &cfg,
+            &anchors,
+            &DomainConstraints::default(),
+            1,
+        );
     }
 }

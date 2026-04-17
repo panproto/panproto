@@ -1105,6 +1105,43 @@ mod tests {
     }
 
     #[test]
+    fn is_iso_is_false_for_non_iso_classes() {
+        // Pin: `is_iso` must return true only for `Iso`, false for
+        // every other round-trip class (including the `Opaque` floor).
+        let mut w = int_to_str_witness();
+        assert!(!w.is_iso(), "Retraction is not Iso");
+        w.class = CoercionClass::Projection;
+        assert!(!w.is_iso(), "Projection is not Iso");
+        w.class = CoercionClass::Opaque;
+        assert!(!w.is_iso(), "Opaque is not Iso");
+        w.class = CoercionClass::Iso;
+        assert!(w.is_iso(), "Iso must be recognized as Iso");
+    }
+
+    #[test]
+    fn default_witness_library_is_structurally_identical_across_builds() {
+        // Iter order + name set must be identical between two fresh
+        // constructions. This guards against future edits that might
+        // introduce order-dependent state (e.g. randomization in a
+        // shared registry).
+        let a = default_witness_library();
+        let b = default_witness_library();
+        let names_a: Vec<String> = a.iter().map(|w| w.name.clone()).collect();
+        let names_b: Vec<String> = b.iter().map(|w| w.name.clone()).collect();
+        assert_eq!(names_a, names_b);
+        // Classes and kind pairs must match too.
+        let sig_a: Vec<_> = a
+            .iter()
+            .map(|w| (w.name.clone(), w.source_kind, w.target_kind, w.class))
+            .collect();
+        let sig_b: Vec<_> = b
+            .iter()
+            .map(|w| (w.name.clone(), w.source_kind, w.target_kind, w.class))
+            .collect();
+        assert_eq!(sig_a, sig_b);
+    }
+
+    #[test]
     fn library_lookup_preserves_insertion_order() {
         // Two witnesses for the same kind pair must surface in the
         // order they were registered. This is load-bearing for

@@ -561,6 +561,32 @@ mod tests {
     }
 
     #[test]
+    fn token_similarity_treats_nfc_and_nfd_distinctly() {
+        // Pins the current behaviour: `char_ngram_cosine` and
+        // `tokenize` operate on raw `char`s without Unicode
+        // normalization. The NFC "café" (single precomposed `é`) and
+        // the NFD "cafe\u{0301}" (base `e` + combining acute) therefore
+        // have DIFFERENT character-bigram multisets and DIFFERENT
+        // token bags, so `token_similarity` returns a value strictly
+        // less than `1.0`. Callers that need Unicode-equivalence must
+        // normalize their inputs before invoking this function.
+        let nfc = "caf\u{00E9}";
+        let nfd = "cafe\u{0301}";
+        assert_ne!(nfc, nfd);
+        let score = token_similarity(nfc, nfd);
+        assert!(
+            score < 1.0,
+            "NFC and NFD forms are not normalized, so they must not score exactly 1.0 (got {score})"
+        );
+        // Sanity: they still share most bigrams and should score
+        // reasonably high (partial overlap).
+        assert!(
+            score > 0.4,
+            "NFC/NFD should retain partial similarity: {score}"
+        );
+    }
+
+    #[test]
     fn token_similarity_unrelated_is_low() {
         let score = token_similarity("createdAt", "authorId");
         assert!(
