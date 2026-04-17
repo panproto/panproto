@@ -275,6 +275,36 @@ mod tests {
     }
 
     #[test]
+    fn strategy_priority_is_strictly_decreasing_across_all_variants() {
+        // Audit-of-audits: ensure the documented ordering
+        // UserHint > Exact > Alias > TypeSignature > WrapUnwrap >
+        // TokenSimilarity > Coerce > Structural > Llm holds strictly
+        // (no ties) across every variant. A future addition of a new
+        // variant must explicitly slot into the ordering here.
+        let ordered = [
+            StrategyTag::UserHint,
+            StrategyTag::Exact,
+            StrategyTag::Alias,
+            StrategyTag::TypeSignature,
+            StrategyTag::WrapUnwrap,
+            StrategyTag::TokenSimilarity,
+            StrategyTag::Coerce,
+            StrategyTag::Structural,
+            StrategyTag::Llm,
+        ];
+        for pair in ordered.windows(2) {
+            let hi = strategy_priority(pair[0]);
+            let lo = strategy_priority(pair[1]);
+            assert!(
+                hi > lo,
+                "priority must strictly decrease: {:?}({hi}) !> {:?}({lo})",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
+
+    #[test]
     fn strategy_priority_table_is_total_and_ordered() {
         // Explicit snapshot of the priority table so future edits don't
         // silently reshuffle ties.

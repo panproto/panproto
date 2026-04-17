@@ -132,6 +132,19 @@ export type {
   EnrichmentSummary,
 } from './types.js';
 
+// Autolens surface: Stringency, HintSpec, candidate API, coerce proposals
+export type {
+  Stringency,
+  CoercionClass,
+  StrategyTag,
+  HintConstraint,
+  HintSpec,
+  CandidateStep,
+  LensCandidate,
+  CoerceProposal,
+  CandidateResponse,
+} from './types.js';
+
 // Types
 export type {
   LawCheckResult,

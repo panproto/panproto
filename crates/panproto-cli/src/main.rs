@@ -1680,3 +1680,48 @@ fn dispatch_git_commands(action: GitAction, verbose: bool) -> Result<()> {
         GitAction::Export { repo, dest } => cmd::git_bridge::cmd_git_export(&repo, &dest, verbose),
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::{Stringency, StringencyArg};
+    use clap::ValueEnum;
+
+    /// `--stringency` is rendered by `clap` with `rename_all =
+    /// "snake_case"`, so the four accepted tokens must be exactly
+    /// `strict | balanced | lenient | exploratory`. Each must round-trip
+    /// to the matching `Stringency` engine variant.
+    #[test]
+    fn stringency_arg_accepts_each_tier_and_maps_to_engine() {
+        let cases = [
+            ("strict", Stringency::Strict),
+            ("balanced", Stringency::Balanced),
+            ("lenient", Stringency::Lenient),
+            ("exploratory", Stringency::Exploratory),
+        ];
+        for (token, expected) in cases {
+            let parsed = StringencyArg::from_str(token, true)
+                .unwrap_or_else(|e| panic!("clap rejected `{token}`: {e}"));
+            let engine: Stringency = parsed.into();
+            assert_eq!(engine, expected, "{token} should map to {expected:?}");
+        }
+    }
+
+    #[test]
+    fn stringency_arg_rejects_unknown_tokens() {
+        for bad in ["loose", "STRICT", "", "balanced_plus"] {
+            // clap with `rename_all = "snake_case"` accepts exact
+            // lowercase match only when called via `from_str(.., true)`
+            // (case-insensitive). Only entirely unknown tokens must err.
+            if matches!(bad, "STRICT") {
+                // case-insensitive lookup: this is a valid alias for
+                // `strict` through clap's ValueEnum contract; skip.
+                continue;
+            }
+            assert!(
+                StringencyArg::from_str(bad, true).is_err(),
+                "clap should reject `{bad}`",
+            );
+        }
+    }
+}

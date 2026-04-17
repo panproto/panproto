@@ -1064,6 +1064,24 @@ mod tests {
     }
 
     #[test]
+    fn float_to_str_round_trips_pathological_ieee_values() {
+        // Classic IEEE-754 examples whose printed form depends on
+        // shortest-canonical formatting. `0.1 + 0.2 = 0.30000000000000004`
+        // and `1.0 / 3.0` both stress the FloatToStr/StrToFloat
+        // round-trip. `literal_equal`'s 1e-12 relative tolerance should
+        // absorb any sub-ULP drift while surfacing real precision loss.
+        let w = float_to_str_witness();
+        let samples = vec![
+            Literal::Float(0.1_f64 + 0.2_f64),
+            Literal::Float(1.0_f64 / 3.0_f64),
+            Literal::Float(std::f64::consts::PI),
+            Literal::Float(f64::MIN_POSITIVE),
+        ];
+        witness_satisfies_lens_laws(&w, &samples, &[])
+            .expect("FloatToStr/StrToFloat must round-trip pathological IEEE-754 values");
+    }
+
+    #[test]
     fn library_lookup_preserves_insertion_order() {
         // Two witnesses for the same kind pair must surface in the
         // order they were registered. This is load-bearing for

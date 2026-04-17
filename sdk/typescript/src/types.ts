@@ -53,8 +53,15 @@ export interface MigrationHandle extends Handle {
  */
 export type Stringency = 'strict' | 'balanced' | 'lenient' | 'exploratory';
 
-/** Ranking classification of a sort-coercion witness. */
-export type CoercionClass = 'iso' | 'retraction' | 'projection' | 'opaque';
+/**
+ * Ranking classification of a sort-coercion witness.
+ *
+ * These values are serialized from `panproto_gat::CoercionClass`, which
+ * uses the default (PascalCase) serde representation rather than
+ * `rename_all = "snake_case"`. The wire format is therefore PascalCase
+ * and this type matches it exactly.
+ */
+export type CoercionClass = 'Iso' | 'Retraction' | 'Projection' | 'Opaque';
 
 /** Tag identifying which alignment strategy produced an anchor. */
 export type StrategyTag =

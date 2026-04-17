@@ -1112,4 +1112,67 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn relax_edge_name_pruning_composes_with_excluded_sources() {
+        // When `relax_edge_name_pruning` is on AND `excluded_sources`
+        // names some source vertices, the CSP must (a) keep
+        // kind-compatible candidates that would otherwise be pruned
+        // for lack of edge-name overlap, AND (b) still drop the named
+        // source vertices from every domain.
+        let src = build_schema(
+            &[
+                ("s_root", "object"),
+                ("s_a", "string"),
+                ("s_b", "string"),
+                ("s_c", "string"),
+                ("s_d", "string"),
+                ("s_e", "string"),
+                ("s_f", "string"),
+                ("s_excluded", "string"),
+            ],
+            &[
+                ("s_root", "s_a", "prop", "src_alpha"),
+                ("s_root", "s_b", "prop", "src_beta"),
+                ("s_root", "s_c", "prop", "src_gamma"),
+                ("s_root", "s_d", "prop", "src_delta"),
+                ("s_root", "s_e", "prop", "src_epsilon"),
+                ("s_root", "s_f", "prop", "src_zeta"),
+                ("s_root", "s_excluded", "prop", "src_excluded"),
+            ],
+        );
+        let tgt = build_schema(
+            &[
+                ("t_root_a", "object"),
+                ("t_root_b", "object"),
+                ("t_root_c", "object"),
+                ("t_root_d", "object"),
+                ("t_root_e", "object"),
+                ("t_root_f", "object"),
+                ("t_leaf_a", "string"),
+                ("t_leaf_b", "string"),
+            ],
+            &[
+                ("t_root_a", "t_leaf_a", "prop", "tgt_one"),
+                ("t_root_b", "t_leaf_b", "prop", "tgt_two"),
+            ],
+        );
+        let opts = SearchOptions {
+            relax_edge_name_pruning: true,
+            ..Default::default()
+        };
+        let mut constraints = DomainConstraints::default();
+        constraints
+            .excluded_sources
+            .insert(Name::from("s_excluded"));
+        let results = find_morphisms_constrained(&src, &tgt, &opts, &constraints);
+        // Relaxation must not reintroduce the excluded source.
+        for r in &results {
+            assert!(
+                !r.vertex_map.contains_key(&Name::from("s_excluded")),
+                "excluded_sources must win over relax_edge_name_pruning; \
+                 vertex_map leaked excluded source"
+            );
+        }
+    }
 }

@@ -174,19 +174,20 @@ pub fn enrich_steps(chain: &ProtolensChain, anchors: &[Anchor]) -> Vec<Candidate
     chain
         .steps
         .iter()
-        .map(|step| step_to_candidate(step, &by_src, &by_tgt))
+        .map(|step| step_to_candidate(step, &by_src, &by_tgt, anchors))
         .collect()
 }
 
-fn step_to_candidate(
+fn step_to_candidate<'a>(
     step: &Protolens,
-    by_src: &HashMap<&str, &Anchor>,
-    by_tgt: &HashMap<&str, &Anchor>,
+    by_src: &HashMap<&str, &'a Anchor>,
+    by_tgt: &HashMap<&str, &'a Anchor>,
+    anchors: &'a [Anchor],
 ) -> CandidateStep {
     use panproto_gat::TheoryTransform;
     let kind = step.name.to_string();
 
-    let matched_anchor = match &step.target.transform {
+    let matched_anchor: Option<&Anchor> = match &step.target.transform {
         TheoryTransform::RenameSort { old, new } | TheoryTransform::RenameOp { old, new } => by_src
             .get(old.as_ref())
             .or_else(|| by_tgt.get(new.as_ref()))
@@ -199,10 +200,27 @@ fn step_to_candidate(
             by_src.get(name.as_ref()).copied()
         }
         TheoryTransform::AddOp(op) => by_tgt.get(op.name.as_ref()).copied(),
-        TheoryTransform::CoerceSort { sort_name, .. } => by_src
-            .get(sort_name.as_ref())
-            .or_else(|| by_tgt.get(sort_name.as_ref()))
-            .copied(),
+        TheoryTransform::CoerceSort { sort_name, .. } => {
+            // Coerce anchors are keyed by vertex IDs (e.g., `r.n`),
+            // not by sort kind names (e.g., `integer`). Try an exact
+            // lookup first (covers anchors keyed on the sort name
+            // itself), then widen to a substring match, and finally
+            // fall through to any Coerce-strategy anchor. This is the
+            // only place the candidate builder knows the step is a
+            // kind-bridging coercion, so the scan is bounded to those.
+            let key = sort_name.as_ref();
+            by_src
+                .get(key)
+                .or_else(|| by_tgt.get(key))
+                .copied()
+                .or_else(|| {
+                    anchors.iter().find(|a| {
+                        a.strategy == StrategyTag::Coerce
+                            && (a.src.as_str().contains(key) || a.tgt.as_str().contains(key))
+                    })
+                })
+                .or_else(|| anchors.iter().find(|a| a.strategy == StrategyTag::Coerce))
+        }
         _ => None,
     };
 
@@ -531,6 +549,119 @@ mod tests {
             explanation.contains("coerce") && explanation.contains("myint"),
             "coerce_sort structural explanation should name the sort; got: {explanation}"
         );
+    }
+
+    #[test]
+    fn enrich_steps_coerce_sort_falls_back_to_strategy_scan() {
+        // Real coerce anchors are keyed by vertex IDs (e.g. `r.n`),
+        // not by sort kind names (e.g. `integer`). A CoerceSort step
+        // with `sort_name = "integer"` must still correlate with a
+        // Coerce anchor even when neither its src nor its tgt equals
+        // "integer".
+        use panproto_expr::Expr;
+        use panproto_gat::{CoercionClass, ValueKind};
+        let step = crate::protolens::elementary::sort_coerce(
+            Name::from("integer"),
+            ValueKind::Str,
+            Expr::Lit(panproto_expr::Literal::Int(0)),
+            Some(Expr::Lit(panproto_expr::Literal::Int(0))),
+            CoercionClass::Retraction,
+        );
+        let chain = crate::protolens::ProtolensChain::new(vec![step]);
+        let anchors = vec![mk_anchor(
+            "r.n",
+            "r.s",
+            0.9,
+            StrategyTag::Coerce,
+            "int→str via r.n/r.s",
+        )];
+        let steps = enrich_steps(&chain, &anchors);
+        assert_eq!(steps.len(), 1);
+        assert_eq!(
+            steps[0].explanation, "int→str via r.n/r.s",
+            "Coerce strategy scan must find vertex-id-keyed anchors"
+        );
+        assert_eq!(steps[0].strategy, Some(StrategyTag::Coerce));
+    }
+
+    #[test]
+    fn enrich_steps_deterministic_under_anchor_permutations() {
+        // Two anchors share `src = "foo"` at equal confidence but
+        // different strategies. The tie-break must pick by strategy
+        // priority (Exact > Alias), independent of the order anchors
+        // are presented in the slice.
+        let step = crate::protolens::elementary::rename_sort(Name::from("foo"), Name::from("bar"));
+        let chain = crate::protolens::ProtolensChain::new(vec![step]);
+        let exact = mk_anchor("foo", "bar", 0.8, StrategyTag::Exact, "exact-match");
+        let alias = mk_anchor("foo", "bar", 0.8, StrategyTag::Alias, "alias-match");
+        let a = enrich_steps(&chain, &[exact.clone(), alias.clone()]);
+        let b = enrich_steps(&chain, &[alias, exact]);
+        assert_eq!(a[0].explanation, b[0].explanation);
+        assert_eq!(a[0].explanation, "exact-match");
+    }
+
+    #[test]
+    fn score_monotonic_in_quality_coverage_confidence() {
+        // Proptest-style sanity: for two candidates with strict
+        // dominance in every component, the composite score must
+        // respect the dominance.
+        use crate::protolens::ProtolensChain;
+        let proto = panproto_schema::Protocol {
+            name: "t".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into()],
+            constraint_sorts: vec![],
+            ..panproto_schema::Protocol::default()
+        };
+        let s = panproto_schema::SchemaBuilder::new(&proto)
+            .vertex("a", "object", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let mk = |q: f64, c: f64, conf: f64| -> LensCandidate {
+            let chain = ProtolensChain::new(vec![]);
+            let lens = chain.instantiate(&s, &proto).unwrap();
+            LensCandidate {
+                chain,
+                lens,
+                quality: q,
+                coverage: c,
+                seed_anchors: vec![],
+                steps: vec![CandidateStep {
+                    kind: "k".into(),
+                    explanation: "e".into(),
+                    confidence: conf,
+                    strategy: None,
+                }],
+                strategies_used: vec![],
+            }
+        };
+        // Exhaustively check a small grid — a cheap proxy for a
+        // proptest without a new dependency.
+        let xs = [0.0_f64, 0.25, 0.5, 0.75, 1.0];
+        for &q1 in &xs {
+            for &c1 in &xs {
+                for &f1 in &xs {
+                    for &q2 in &xs {
+                        for &c2 in &xs {
+                            for &f2 in &xs {
+                                if q1 > q2 && c1 >= c2 && f1 >= f2 {
+                                    let s1 = mk(q1, c1, f1).score();
+                                    let s2 = mk(q2, c2, f2).score();
+                                    assert!(
+                                        s1 > s2,
+                                        "dominance violated: q=({q1},{q2}) c=({c1},{c2}) \
+                                         f=({f1},{f2}) → score=({s1},{s2})"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

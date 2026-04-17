@@ -390,6 +390,33 @@ mod tests {
     }
 
     #[test]
+    fn custom_kinds_do_not_participate_in_coerce_anchors() {
+        // `schema_value_kinds` only recognizes primitive carriers
+        // (bool/int/float/str/bytes/token/null). Any vertex whose kind
+        // is a cartridge-defined nominal sort (e.g. "record") is
+        // skipped at resolve time, so no coerce anchor is ever emitted
+        // for such pairs even when an Int→Str witness exists in the
+        // library. This pins the documented behaviour from the
+        // function docstring.
+        let src = build(
+            &[("r", "record"), ("r.rec", "record")],
+            &[("r", "r.rec", "prop", "rec")],
+        );
+        let tgt = build(
+            &[("r", "record"), ("r.rec", "string")],
+            &[("r", "r.rec", "prop", "rec")],
+        );
+        let lib = default_witness_library();
+        let anchors = coerce_anchors(&src, &tgt, &lib);
+        // "record" on the source side is not a ValueKind, so r.rec is
+        // never considered as a coerce candidate.
+        assert!(
+            anchors.iter().all(|a| a.anchor.src.as_str() != "r.rec"),
+            "non-primitive source kinds must not seed coerce anchors; got {anchors:?}"
+        );
+    }
+
+    #[test]
     fn class_confidence_is_monotone_across_known_variants() {
         // Compile-time-ish check: the four known variants satisfy
         // Iso > Retraction > Projection > unknown.

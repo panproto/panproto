@@ -1239,6 +1239,36 @@ mod tests {
     use panproto_gat::Sort;
     use panproto_schema::{Protocol, SchemaBuilder};
 
+    #[test]
+    fn stringency_as_str_matches_display_and_serde() {
+        // `Stringency::as_str` / `Display` / serde (`rename_all =
+        // "snake_case"`) all have to render the same four strings, because
+        // the CLI, the Python parser, the WASM parser, and the TypeScript
+        // `Stringency` union all hardcode this representation.
+        for s in [
+            Stringency::Strict,
+            Stringency::Balanced,
+            Stringency::Lenient,
+            Stringency::Exploratory,
+        ] {
+            let as_str = s.as_str();
+            let display = format!("{s}");
+            let serde = serde_json::to_string(&s).expect("serialize stringency");
+            assert_eq!(as_str, display, "Display disagrees with as_str");
+            assert_eq!(
+                format!("\"{as_str}\""),
+                serde,
+                "serde wire format disagrees with as_str",
+            );
+        }
+        // Lowercase tier names; snake_case happens to coincide with
+        // lowercase for all four variants but lock the exact strings.
+        assert_eq!(Stringency::Strict.as_str(), "strict");
+        assert_eq!(Stringency::Balanced.as_str(), "balanced");
+        assert_eq!(Stringency::Lenient.as_str(), "lenient");
+        assert_eq!(Stringency::Exploratory.as_str(), "exploratory");
+    }
+
     fn test_protocol() -> Protocol {
         Protocol {
             name: "test".into(),
@@ -2167,6 +2197,137 @@ mod tests {
             (a.alignment_quality - b.alignment_quality).abs() < 1e-12,
             "quality drift"
         );
+    }
+
+    #[test]
+    fn auto_generate_candidates_top_n_zero_returns_one() {
+        // `top_n == 0` is documented to degenerate to `top_n == 1`;
+        // pin the behaviour so a future refactor can't silently
+        // treat 0 as "unlimited".
+        let protocol = test_protocol();
+        let src = schema_post_with_created(&protocol);
+        let tgt = schema_message_with_sent(&protocol);
+        let config = AutoLensConfig {
+            stringency: Stringency::Balanced,
+            ..Default::default()
+        };
+        let c = auto_generate_candidates(&src, &tgt, &protocol, &config, 0)
+            .unwrap_or_else(|e| panic!("candidates: {e}"));
+        assert!(
+            !c.is_empty() && c.len() == 1,
+            "top_n=0 must yield exactly one candidate, got {}",
+            c.len()
+        );
+    }
+
+    #[test]
+    fn alignment_to_theory_morphism_emit_spans_full_coverage_no_drops() {
+        // When every source sort has a vertex in the vertex_map, the
+        // emit_spans=true mode should still produce a sort_map that
+        // covers every source sort (via the edge-pair scan), and
+        // factorize should emit no DropSort steps. This pins the
+        // "span degenerates to total morphism when nothing is lost"
+        // guarantee.
+        use panproto_mig::FoundMorphism;
+        let protocol = test_protocol();
+        let s = schema_v1(&protocol);
+        let alignment = FoundMorphism {
+            vertex_map: s.vertices.keys().map(|k| (k.clone(), k.clone())).collect(),
+            edge_map: s.edges.keys().map(|e| (e.clone(), e.clone())).collect(),
+            quality: 1.0,
+        };
+        let chain = protolens_from_alignment_mode(&alignment, &s, &s, true)
+            .expect("span-mode chain on identity alignment");
+        assert!(
+            chain.steps.iter().all(|step| !matches!(
+                &step.target.transform,
+                TheoryTransform::DropSort(_) | TheoryTransform::DropOp(_)
+            )),
+            "emit_spans=true with complete vertex_map must not drop any sort/op; got {:?}",
+            chain
+                .steps
+                .iter()
+                .map(|s| s.name.to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn stringency_serde_round_trip() {
+        // Serialize every variant, deserialize, and assert equality —
+        // pins the Display / serde rename_all contract in both
+        // directions.
+        for tier in [
+            Stringency::Strict,
+            Stringency::Balanced,
+            Stringency::Lenient,
+            Stringency::Exploratory,
+        ] {
+            let wire = serde_json::to_string(&tier).expect("serialize");
+            let back: Stringency = serde_json::from_str(&wire).expect("deserialize");
+            assert_eq!(back, tier, "round-trip drift for {tier:?}");
+            // Display must produce the same token (minus quotes).
+            assert_eq!(wire.trim_matches('"'), tier.to_string());
+        }
+    }
+
+    #[test]
+    fn auto_generate_surfaces_coerce_proposals_at_exploratory() {
+        // Pin the parity: `auto_generate` (non-hinted) must populate
+        // `coerce_proposals` when Exploratory is active, matching
+        // `auto_generate_with_hints`. A divergence here would let
+        // callers accidentally drop the proposal data by picking the
+        // non-hinted entry point.
+        let protocol = Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["record".into(), "integer".into(), "string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.n", "integer", None::<&str>)
+            .unwrap()
+            .edge("r", "r.n", "prop", Some("n"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.n", "string", None::<&str>)
+            .unwrap()
+            .edge("r", "r.n", "prop", Some("n"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let cfg = AutoLensConfig {
+            stringency: Stringency::Exploratory,
+            ..Default::default()
+        };
+        if let Ok(res) = auto_generate(&src, &tgt, &protocol, &cfg) {
+            assert!(
+                res.coerce_proposals
+                    .iter()
+                    .any(|p| p.witness_name == "int_to_str"),
+                "auto_generate at Exploratory must expose int_to_str in coerce_proposals"
+            );
+        }
+        // Balanced: proposals must stay empty on the same schemas.
+        let balanced = AutoLensConfig {
+            stringency: Stringency::Balanced,
+            ..Default::default()
+        };
+        if let Ok(res) = auto_generate(&src, &tgt, &protocol, &balanced) {
+            assert!(
+                res.coerce_proposals.is_empty(),
+                "Balanced must not populate coerce_proposals via auto_generate"
+            );
+        }
     }
 
     #[test]
