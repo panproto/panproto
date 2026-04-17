@@ -13,15 +13,6 @@ on:
       - "book/**"
       - ".github/workflows/publish-book.yml"
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: book-pages
-  cancel-in-progress: false
-
 env:
   MDBOOK_VERSION: "0.5.2"
   MDBOOK_MERMAID_VERSION: "0.17.0"
@@ -29,10 +20,12 @@ env:
   MDBOOK_BIB_VERSION: "0.5.2"
 
 jobs:
-  build:
+  build-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -52,25 +45,11 @@ jobs:
       - name: Build book
         run: mdbook build book
 
-      - name: Upload Pages artifact
-        if: github.event_name == 'push'
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy to panproto/book repo
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: book/book
-
-  deploy:
-    needs: build
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-# If panproto.dev/book/ is served by an external repository (as the prior
-# tutorial was by panproto/tutorial), replace the deploy job above with a
-# peaceiris/actions-gh-pages@v4 step pushing book/book to that repo, using
-# a deploy-key secret analogous to TUTORIAL_DEPLOY_KEY.
+          deploy_key: ${{ secrets.BOOK_DEPLOY_KEY }}
+          external_repository: panproto/book
+          publish_branch: main
+          publish_dir: book/book
