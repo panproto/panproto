@@ -1,45 +1,42 @@
 # A note on notation
 
-The book uses a small set of conventions for citations, code, mathematics, cross-references, and figures. This chapter collects them in one place for reference.
+Categories and their inhabitants are written in a standard way across the mathematical literature, and this book follows the standard without deviation.
 
-## Citations
+A category is written with a script capital letter: $\mathcal{C}$, $\mathcal{D}$, $\mathcal{E}$. Two specific categories come up often enough to earn shorter names. $\mathbf{Set}$ is the category whose objects are sets and whose morphisms are functions. $\mathbf{Hask}$ is the category whose objects are Haskell types and whose morphisms are Haskell functions. Specific categories of panproto objects carry subscripts: $\mathbf{Sch}_P$ is the category of schemas under a protocol $P$.
 
-Every academic source the book names carries an inline citation in Chicago author-date style, rendered automatically by the [mdbook-bib](https://github.com/francisco-perez-sorrosal/mdbook-bib) preprocessor. The three citation forms, in Pandoc notation, are:
+Objects of a category are written with capital letters: $A$, $B$, $C$. Morphisms are written with lowercase letters and an arrow: $f : A \to B$ reads "$f$ is a morphism from $A$ to $B$". Composition is written right-to-left with a small circle: $g \circ f$ is "$g$ after $f$", and applied to an argument it computes $g(f(x))$. The right-to-left order matches ordinary function application but disagrees with the left-to-right convention of Unix pipes and F#'s `>>` operator, which do not appear in this book.
 
-- `@key` produces a textual citation ("Mac Lane (1998)") and is used when the cited author is the grammatical subject of the sentence.
-- `[@key]` produces a parenthetical citation ("(Mac Lane 1998)") and is used when the citation follows a claim.
-- `[-@key]` produces a year-only citation ("(1998)") and is used after a name already appears in the sentence.
+The identity morphism on an object $A$ is $\mathrm{id}_A$. The set of morphisms from $A$ to $B$ is the **hom-set** $\mathcal{C}(A, B)$; some authors write this $\mathrm{Hom}_\mathcal{C}(A, B)$. Two objects $A$ and $B$ are isomorphic, written $A \cong B$, when an invertible morphism between them exists.
 
-Multiple citations combine inside a single bracket: `[@key1; @key2]`. The complete bibliography appears at the end of the book, with full metadata and links.
+Functors are written with capital Latin letters: $F$, $G$, $H$. A functor from $\mathcal{C}$ to $\mathcal{D}$ is written $F : \mathcal{C} \to \mathcal{D}$, and its action on a morphism $f : A \to B$ of $\mathcal{C}$ is $F(f) : F(A) \to F(B)$. A natural transformation between two functors $F, G : \mathcal{C} \to \mathcal{D}$ is written with a Greek letter and a double arrow: $\alpha : F \Rightarrow G$. Its component at an object $A$ is $\alpha_A$.
 
-## Cross-references
+Displayed mathematics sits on its own line between the usual delimiters, like this:
 
-References to other chapters appear as hyperlinks to the chapter's title: for example, [Categories](../foundations/categories.md). Chapter numbers are not used in prose, since the book's table of contents is by title rather than by number. References to specific sections within a chapter use anchor links: the reader may follow the link directly to the section named.
+$$f \circ \mathrm{id}_A \;=\; f \;=\; \mathrm{id}_B \circ f.$$
 
-References to specific panproto code appear as hyperlinks to the corresponding [docs.rs](https://docs.rs/) page. Every first mention of a panproto module, type, or function in a chapter is linked; subsequent mentions appear as plain monospace.
+Commutative diagrams are rendered as squares and triangles in the pattern
 
-## Code blocks
+$$
+\begin{CD}
+A @>{f}>> B \\
+@V{g}VV @VV{h}V \\
+C @>>{k}> D
+\end{CD}
+$$
 
-Code appears in fenced blocks with the language tagged. Haskell and Rust are used most often. Haskell carries mathematical definitions whose type syntax is close to the standard mathematical notation for morphisms; Rust carries concrete panproto implementation. Where relevant, a code block is followed by an italic caption numbered `Listing N.M`, where `N` is the chapter's position and `M` is the listing's position within the chapter.
+with the understanding that the diagram commutes: the composite $h \circ f$ equals the composite $k \circ g$. Identity morphisms are elided in diagrams by the universal convention, and composites are drawn only where they bear on the argument.
 
-The caption identifies what the code shows and notes any conventions the reader may not have encountered. A reader who wants a fuller account of panproto's Rust API should consult the [docs.rs documentation for the relevant crate](https://docs.rs/panproto-core/latest/panproto_core/).
+Code appears in fenced blocks. Haskell is used for the mathematical examples of Part I because its type syntax is the closest syntax to the mathematics. Rust is used for the panproto implementation. A language tag on every block identifies which is which:
 
-## Mathematics
+```haskell
+id :: a -> a
+id x = x
+```
 
-Inline mathematics uses `$…$`. Displayed mathematics appears on its own line between `$$…$$` delimiters, rendered by [mdbook-katex](https://github.com/lzanini/mdbook-katex). A display equation is preceded by a sentence that names the symbols appearing in it; a reader who has lost track of a symbol's meaning can scan back to the introducing sentence.
+```rust
+fn identity<T>(x: T) -> T { x }
+```
 
-Standard categorical symbols are used throughout: $\mathcal{C}, \mathcal{D}$ for categories, $f : A \to B$ for a morphism, $g \circ f$ for composition, $\mathrm{id}_A$ for the identity on $A$, $\mathcal{C}(A, B)$ for the hom-set from $A$ to $B$, $A \cong B$ for isomorphism. Panproto-specific conventions are collected in the [notation reference appendix](../appendices/notation-table.md).
+Short code examples with no caption need no further comment. Where a code example earns a reference back from later prose, it carries a caption beneath it, numbered within the chapter.
 
-Commutative diagrams are rendered through KaTeX's `\begin{CD}…\end{CD}` environment for squares, triangles, and any structure expressible in that grammar. Diagrams that require diagonals or pasting structure beyond what `CD` supports appear as committed SVG exported from [quiver](https://q.uiver.app/).
-
-## External links
-
-Every external tool, library, language, or specification carries a hyperlink to its canonical home page on first mention per chapter. Later mentions in the same chapter appear as plain prose. The convention follows academic practice for Web resources and matches how the [docs.rs](https://docs.rs/) code links work.
-
-## What the book assumes
-
-The book assumes the reader can program. It does not assume a specific language background: examples use Haskell for mathematical brevity and Rust for implementation, with each new language construct glossed on first appearance. The book does not assume any prior category theory, set theory beyond the informal level of everyday programming, or familiarity with panproto itself.
-
-A reader who wants a warm-up in category theory before the foundations chapters begin may skim the first few posts of Bartosz Milewski's [Category Theory for Programmers](https://bartoszmilewski.com/2014/10/28/category-theory-for-programmers-the-preface/), from which several of the book's pedagogical conventions are adapted.
-
-The next chapter, [What panproto is](./what-panproto-is.md), positions panproto against the tools a working developer has likely already used; [Categories](../foundations/categories.md) then opens the mathematical development.
+Panproto-specific symbols accumulate as the book proceeds. The [notation reference appendix](../appendices/notation-table.md) collects them in one table with page references.

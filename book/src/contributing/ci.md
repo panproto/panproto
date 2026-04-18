@@ -1,8 +1,8 @@
 # CI, semver-checks, and release
 
-Every commit to panproto's main branch runs through a CI pipeline that verifies formatting, lints, tests, documentation, semver compatibility, and the workspace-hack invariant. This chapter walks through each check, why it exists, and how a contributor reproduces it locally before pushing.
+Every commit to panproto's main branch runs through a CI pipeline whose job is to catch regressions before they land — across formatting, lints, tests, documentation, semver compatibility, and the workspace-hack invariant. The present chapter walks through each check, says why it exists, and gives the local command a contributor can run to reproduce it before pushing.
 
-The pipeline definition lives in `.github/workflows/ci.yml`; the supporting configuration (deny list, clippy lints, nextest settings) lives in `.clippy.toml`, `deny.toml`, and `.config/nextest.toml` at the repository root.
+The pipeline definition lives in `.github/workflows/ci.yml`.
 
 ## The checks
 

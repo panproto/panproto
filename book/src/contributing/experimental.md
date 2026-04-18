@@ -1,8 +1,6 @@
 # Experimental and feature-gated subsystems
 
-Three crates in the panproto workspace are feature-gated and marked experimental: [`panproto-llvm`](https://docs.rs/panproto-llvm/latest/panproto_llvm/), [`panproto-jit`](https://docs.rs/panproto-jit/latest/panproto_jit/), and [`panproto-xrpc`](https://docs.rs/panproto-xrpc/latest/panproto_xrpc/). This chapter describes each, says where it is currently reliable, and names the acceptance criteria for promoting any of them to the stable default-on configuration.
-
-The crates exist to let panproto explore ideas that are promising but not yet load-bearing for the rest of the stack. A contributor working in any of them should treat their API surface as subject to change between minor versions.
+Not every crate in the workspace is production-ready. Three are feature-gated and marked experimental — [`panproto-llvm`](https://docs.rs/panproto-llvm/latest/panproto_llvm/), [`panproto-jit`](https://docs.rs/panproto-jit/latest/panproto_jit/), and [`panproto-xrpc`](https://docs.rs/panproto-xrpc/latest/panproto_xrpc/) — for reasons specific to each: an LLVM installation is a substantial dependency, the JIT compiler is promising but still incomplete, and the XRPC remote-repository support is not yet stable across registry differences. The present chapter describes each crate, says where it is currently reliable, and names the acceptance criteria for promoting it to the stable default-on configuration. A contributor working in any of them should treat the API surface as subject to change between minor versions.
 
 ## panproto-llvm
 

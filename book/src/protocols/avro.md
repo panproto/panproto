@@ -1,6 +1,8 @@
 # Apache Avro: schema evolution as migration
 
-[Apache Avro](https://avro.apache.org/) [@avrospec] is a serialisation format with a schema language specified precisely enough to include formal rules for *schema evolution*: the rules by which a reader using one version of a schema can correctly consume data written under an older or newer version. This chapter walks through those rules and maps them onto the migration primitives developed in [Theory morphisms and instance migration](../core/morphisms-and-migration.md). Where Lexicon (in [the previous chapter](./atproto.md)) leaves schema evolution informal, Avro specifies it, which makes the translation into panproto's framework sharper.
+Avro gets schema evolution right in a way few serialisation formats manage, and the rules it states are precise enough to translate directly into panproto's migration framework. A reader version of a schema is allowed to consume data written under a writer version of the schema when the two versions agree on a small number of concrete rules: which field additions are backward-compatible, which removals are forward-compatible, which type changes cross the compatibility line in each direction. The whole thing is documented. The present chapter works through the rules and shows what each one becomes on the migration side.
+
+Avro is the second of the chapter's two comparisons with the previous one on ATProto. Where ATProto's Lexicon specification leaves schema evolution largely to convention, Avro fixes it. The translation into panproto's framework is correspondingly sharper, and it is worth seeing how sharp it can be when a specification cooperates.
 
 The Rust code is in [`panproto_protocols::serialization::avro`](https://docs.rs/panproto-protocols/latest/panproto_protocols/serialization/avro/).
 

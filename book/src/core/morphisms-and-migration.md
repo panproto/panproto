@@ -1,135 +1,96 @@
 # Theory morphisms and instance migration
 
-The [previous chapter](./schemas-as-instances.md) established the identifications that carry Part II: a protocol is a GAT, a schema is a model of that GAT, the category of models is where every subsequent construction happens. What this chapter adds is the morphism side of the story, and the account of what happens to data when a morphism changes the theory.
+Every change of schema in a working system is a migration waiting to happen. Add a field and somebody has to decide what to do for the records that did not have it; rename a field and somebody has to decide how to reconcile the old name with the new; merge two schemas and somebody has to decide what the shared structure means. Doing this by hand, as most teams still do, is how production incidents begin.
 
-The central claim of the chapter is due to @spivak2012functorial: a morphism of theories induces a triple of functors between the categories of their models, and those three functors are the right notion of "data migration" for any structural change of schema. Panproto's migration engine is an implementation of that triple. The chapter explains what the three functors are, what each one does to concrete data, and how panproto's [`panproto-mig`](https://docs.rs/panproto-mig/latest/panproto_mig/) crate packages them into a single `Migration` value a developer constructs and runs.
-
-This chapter covers:
-
-- theory morphisms between GATs, with inclusions and quotients as the two most common cases
-- the three induced functors on categories of models: the pullback $\Delta_f$ and its two adjoints $\Sigma_f$ (left) and $\Pi_f$ (right)
-- a worked example: the single-field-to-two-field schema extension, with explicit data for each of the three functors
-- panproto's packaging: a `Migration` as a theory morphism plus a choice of pushforward at each extension site
-
-The running example continues to be the address-record story. The schemas of the previous chapter and of Part I reappear; here we watch the migration engine move data between them.
+The central claim of this chapter, due in its categorical form to @spivak2012functorial, is that every such change of schema is the pullback of a theory morphism — plus, when the change extends rather than restricts, a choice between two universal strategies for filling in what the source did not supply. The chapter unpacks the claim. Panproto's [`panproto-mig`](https://docs.rs/panproto-mig/latest/panproto_mig/) crate is the implementation of what the claim prescribes, and the remainder of Part II shows what the implementation looks like stage by stage.
 
 ## Theory morphisms
 
-A **theory morphism** from a GAT $T_1$ to a GAT $T_2$ is a map that translates the vocabulary of $T_1$ into the vocabulary of $T_2$ in a way that respects the structure of both theories. Spelled out:
+A **theory morphism** from a GAT $T_1$ to a GAT $T_2$ is a translation of the first theory's vocabulary into the second's that respects structure on both sides. Concretely, a theory morphism assigns each sort of $T_1$ to a sort of $T_2$; each operation of $T_1$ to an operation of $T_2$ with matching arity after translation (the argument sorts and result sort of the $T_1$-operation, translated through the sort assignment, must match the signature of the $T_2$-operation chosen for it); and each equation of $T_1$ to a consequence of $T_2$'s equations under the translation.
 
-- each sort symbol of $T_1$ is assigned to a sort of $T_2$;
-- each operation symbol of $T_1$ is assigned to an operation of $T_2$ with matching arity after translation (the argument sorts and result sort of the $T_1$-operation, translated via the sort assignment, must match the $T_2$-operation's signature);
-- each equation of $T_1$ is a consequence of $T_2$'s equations, under the translation.
+Equivalently, and perhaps more pleasantly, a theory morphism is a structure-preserving functor $\mathrm{Th}(T_1) \to \mathrm{Th}(T_2)$ between the contextual categories the GATs generate. The functor laws reappear as the three conditions above, lifted to the dependent-sort setting; the contextual structure — how sorts and operations depend on free variables — must match across the translation as well.
 
-Equivalently, a theory morphism is a structure-preserving functor between the contextual categories $\mathrm{Th}(T_1)$ and $\mathrm{Th}(T_2)$ the GATs generate. The functor laws from the [Functors chapter](../foundations/functors.md) reappear as the conditions above, lifted to the dependent-sort setting: composition in $T_1$ must become composition in $T_2$, identities must become identities, and the contextual structure — how sorts and operations depend on free variables — must match.
+Panproto represents a theory morphism by a [`Morphism`](https://docs.rs/panproto-gat/latest/panproto_gat/morphism/struct.Morphism.html) value in [`panproto-gat`](https://docs.rs/panproto-gat/latest/panproto_gat/). The type-checker verifies each of the three conditions. Every source sort's image must exist in the target theory with the right dependencies; every source operation's translated body must type-check in the target's context; every source equation must be derivable from the target's equations under the translation. The last of these is the deepest check and is the one that most often rejects a proposed morphism that the two theories do not actually support.
 
-Panproto represents a theory morphism by the [`Morphism`](https://docs.rs/panproto-gat/latest/panproto_gat/morphism/struct.Morphism.html) type in [`panproto-gat`](https://docs.rs/panproto-gat/latest/panproto_gat/). The type-checker verifies every translation component. For each source sort, the type-checker verifies that the designated target sort exists and has the right dependencies. For each source operation, it translates the operation's body through the sort assignment and confirms the translated body type-checks in the target's context. For each source equation, it confirms that the equation is derivable from the target's equations (this last check is the deepest and is the one that most often rejects a proposed morphism the theories do not actually support).
+### Two shapes that recur
 
-A `Morphism` value whose check passes is a genuine morphism of GATs; a value whose check fails is rejected with a diagnostic pointing at the specific translation component that violates a condition.
+Two kinds of theory morphism come up often enough to be worth naming. An **inclusion** $T_1 \hookrightarrow T_2$ expresses that $T_2$ extends $T_1$ with new sorts, operations, or equations, with every symbol of $T_1$ mapping to itself in $T_2$. Adding a new field to a record schema, adding a new table to a relational schema, tightening a constraint on an existing field — all of these are inclusions. A **quotient** $T_1 \twoheadrightarrow T_2$ expresses that $T_2$ identifies some symbols of $T_1$ or imposes new equations on them; each symbol of $T_1$ maps to its equivalence class under the new identifications. Renaming two fields to the same name, or adding an equation that forces two operations to agree, are quotients.
 
-### Two recurring shapes
-
-Two kinds of theory morphism appear often enough to name.
-
-An **inclusion** $T_1 \hookrightarrow T_2$ is a morphism expressing that $T_2$ extends $T_1$ with additional sorts, operations, or equations. Every symbol of $T_1$ maps to itself in $T_2$; the novelty is entirely in what $T_2$ has that $T_1$ does not. Adding a new field to a record schema produces an inclusion. Adding a new table to a relational schema produces an inclusion. Adding a new constraint that a previously unconstrained field must satisfy produces an inclusion. Most version-bump migrations in production settings are inclusions.
-
-A **quotient** $T_1 \twoheadrightarrow T_2$ is a morphism expressing that $T_2$ identifies some symbols of $T_1$ or imposes new equations. Every symbol of $T_1$ maps to its equivalence class in $T_2$, or, in the case of added equations, to the matching operation modulo the new equation. Renaming a field so that two previously distinct fields collapse into one is a quotient. Adding an equation that says two operations yield the same result is a quotient.
-
-Most real migrations are neither pure inclusions nor pure quotients; they are combinations — a morphism that adds a new field (inclusion) while renaming an existing one (quotient), for instance. Panproto's migration engine decomposes each migration into inclusion-and-quotient components internally for the benefit of the existence checker, but the developer constructs a single `Morphism` value covering both.
+Most real migrations are neither pure inclusions nor pure quotients but combinations: a morphism that adds a new field (an inclusion) while renaming an old one (a quotient), for instance. Panproto's migration engine decomposes each migration into its inclusion and quotient components internally for the existence checker's benefit, but the developer writes one `Morphism` value covering both.
 
 ## The three migration functors
 
-A theory morphism $f : T_1 \to T_2$ does not just act at the level of symbols. It induces three functors between the categories of models, each of which has a concrete meaning as an operation on schemas and their data.
+A theory morphism $f : T_1 \to T_2$ does not just translate symbols; it induces three functors between the categories of models, each with a distinct operational meaning.
 
-The three functors stand in an adjoint relationship:
+The three sit in an adjoint relationship:
 
 $$
 \Delta_f : \mathrm{Mod}(T_2) \to \mathrm{Mod}(T_1),\qquad
 \Sigma_f \dashv \Delta_f \dashv \Pi_f.
 $$
 
-Reading the display: $\Delta_f$ is the functor in the middle, going "backwards" from $T_2$-models to $T_1$-models. The two arrows go "forwards" from $T_1$-models to $T_2$-models: $\Sigma_f$ is the left adjoint of $\Delta_f$, and $\Pi_f$ is the right adjoint. Each of the three has a distinct operational meaning at the data level.
+In words: $\Delta_f$ goes from $T_2$-models to $T_1$-models; its two adjoints $\Sigma_f$ and $\Pi_f$ go the other way; and each adjoint is pinned down up to unique isomorphism by the universal property of being left or right adjoint to $\Delta_f$. The three functors take distinct operational shapes at the data level, and we take them one at a time.
 
 ### The pullback functor $\Delta_f$
 
-The **pullback functor** $\Delta_f$ is the easy one, and the one panproto uses most of the time. Given a model $M \in \mathrm{Mod}(T_2)$, the pullback $\Delta_f M$ is the model of $T_1$ obtained by reading $M$ through $f$: a sort $s$ of $T_1$ is interpreted as $M$'s interpretation of $f(s)$, and an operation of $T_1$ is interpreted as $M$'s interpretation of its image under $f$.
+The pullback $\Delta_f$ is the simplest of the three, and the one panproto uses most. Given a $T_2$-model $M$, the pullback $\Delta_f M$ is the $T_1$-model obtained by reading $M$ through $f$: a sort $s$ of $T_1$ is interpreted as $M$'s interpretation of $f(s)$, and an operation of $T_1$ is interpreted as $M$'s interpretation of its image. Concretely, if $f$ sends the sort $\mathsf{Person}$ of $T_1$ to the sort $\mathsf{Contact}$ of $T_2$, then $\Delta_f M$'s interpretation of $\mathsf{Person}$ is $M$'s interpretation of $\mathsf{Contact}$. No data is created, no data is thrown away; the pullback is a relabelling.
 
-Concretely: if $T_1$ has a sort $\mathsf{Person}$ that $f$ sends to the sort $\mathsf{Contact}$ of $T_2$, then $\Delta_f M$'s interpretation of $\mathsf{Person}$ is $M$'s interpretation of $\mathsf{Contact}$. No data is created; no data is thrown away. The pullback is a relabelling, viewing $M$ through the lens of the translation $f$ provides.
-
-The functoriality of $\Delta_f$ is immediate: given $\alpha : M \to M'$ in $\mathrm{Mod}(T_2)$, the induced morphism $\Delta_f \alpha : \Delta_f M \to \Delta_f M'$ is the same assignment of functions between sort interpretations, now viewed through $f$. The pullback functor is implemented in [`panproto_mig::lift`](https://docs.rs/panproto-mig/latest/panproto_mig/lift/) and is the cheapest of the three at runtime, since it performs no data-level computation beyond relabelling.
-
-The pullback is what Chapter 8 calls **restrict**. When a migration reduces a richer schema to a smaller one — a forgetful migration, in the terminology of database schema evolution — $\Delta_f$ is the functor doing the work.
+Functoriality is immediate: a morphism $\alpha : M \to M'$ in $\mathrm{Mod}(T_2)$ induces a morphism $\Delta_f \alpha : \Delta_f M \to \Delta_f M'$ with the same underlying assignment, read through $f$. The pullback functor is implemented in [`panproto_mig::lift`](https://docs.rs/panproto-mig/latest/panproto_mig/lift/) and is the cheapest of the three at runtime — no data-level computation beyond relabelling. When a migration reduces a richer schema to a smaller one (a forgetful migration), $\Delta_f$ is the functor doing the work, and the next chapter calls this operation the **restrict** half of its pipeline.
 
 ### The pushforward functors $\Sigma_f$ and $\Pi_f$
 
-The **pushforward functors** $\Sigma_f$ and $\Pi_f$ go the other way: both are functors $\mathrm{Mod}(T_1) \to \mathrm{Mod}(T_2)$. Given a $T_1$-model $M$, each produces a $T_2$-model, in two quite different ways.
+The two pushforwards go the other way: both are functors $\mathrm{Mod}(T_1) \to \mathrm{Mod}(T_2)$. They differ in how they handle the new structure $T_2$ demands but $T_1$-models cannot supply.
 
-$\Sigma_f$, the **left adjoint**, is obtained by freely adding whatever new structure $T_2$ demands on top of $M$. If $T_2$ extends $T_1$ with a new operation, $\Sigma_f M$ has the new operation interpreted as a fresh choice at every element, with every possible value admitted; if $T_2$ extends $T_1$ with a new sort, $\Sigma_f M$ has the new sort interpreted as the set of all possible values for it.
+$\Sigma_f$, the left adjoint, is obtained by *freely adding* whatever new structure the target theory asks for. If $T_2$ extends $T_1$ with a new operation, $\Sigma_f M$ has the new operation interpreted as a free choice at every element, with every possible value admitted; if $T_2$ extends $T_1$ with a new sort, $\Sigma_f M$ interprets that sort as the set of all possible values. Formally, $\Sigma_f M$ is the smallest $T_2$-model from which $M$ can be recovered by pullback.
 
-$\Pi_f$, the **right adjoint**, is obtained by taking the *universal* $T_2$-model compatible with $M$, which in practice means a *subset-selection* rather than a free expansion. $\Pi_f M$ includes only those tuples from the $T_1$-model that admit a unique $T_2$-extension; tuples for which the extension is ambiguous are dropped.
+$\Pi_f$, the right adjoint, is obtained by *universal selection* rather than free expansion. Given a $T_1$-model $M$, $\Pi_f M$ is a $T_2$-model whose elements are precisely those elements of $M$ that admit a unique extension compatible with the target theory. Where $\Sigma_f$ is maximally permissive, $\Pi_f$ is maximally restrictive: it includes only what is forced.
 
-The adjointness $\Sigma_f \dashv \Delta_f \dashv \Pi_f$ is what pins the two functors down up to unique isomorphism. $\Sigma_f M$ is universal among $T_2$-models $N$ equipped with a morphism $M \to \Delta_f N$; $\Pi_f M$ is universal among $T_2$-models $N$ equipped with a morphism $\Delta_f N \to M$. The universal-property machinery of [Universal properties](../foundations/universal-properties.md) applies verbatim: each adjoint is defined up to unique isomorphism by what morphisms go to and from it, and the uniqueness argument is the same one we have been using throughout Part I.
+A reader may ask why two pushforwards are needed. The answer lies in the adjointness. $\Sigma_f$ answers the question *what is the smallest $T_2$-model that recovers $M$ by pullback?* and $\Pi_f$ answers *what is the largest $T_2$-model whose pullback equals $M$?* The two coincide only in trivial cases, and diverge whenever $T_2$'s new structure admits ambiguity. In practical terms, $\Sigma_f$ corresponds to "fill new fields with defaults" and $\Pi_f$ to "only keep rows whose new fields are fully determined". Having both available is not a luxury: different migrations want different strategies at different sites, and real schema evolution routinely needs both.
 
-At this point a reader may ask: why two pushforwards? Why not a single "forward" operation? The answer comes from the adjointness. $\Sigma_f$ answers the question "what is the smallest $T_2$-model that recovers $M$ by pullback"; $\Pi_f$ answers the question "what is the largest $T_2$-model whose pullback equals $M$". The two answers coincide in trivial cases and differ whenever $T_2$'s new structure admits ambiguity. For schema evolution in practice, the two answers correspond to the two common migration strategies: $\Sigma_f$ for "fill new fields with defaults", $\Pi_f$ for "only keep rows whose new fields are fully determined". Having both available is essential.
-
-This triple of functors is the framework @spivak2012functorial developed in the setting of categorical databases, refined further in @spivakwisnesky2015relational and worked out in executable form as the CQL system of @wisnesky2013functional. Panproto adopts it essentially as-is, with one adjustment: Spivak's original framework is presented for Lawvere theories, and panproto generalises the same three functors to GATs. The generalisation is mathematically straightforward — contextual categories admit the same adjoint structure as categories with finite products — but it is what lets panproto handle schema languages with dependent structure, which Lawvere theories alone cannot.
+This triple of functors is the framework of functorial data migration, developed in the relational setting by @spivak2012functorial, refined in @spivakwisnesky2015relational, and worked out in executable form as the CQL system of @wisnesky2013functional. Panproto adopts it essentially unchanged, with one generalisation: Spivak's original work is stated for Lawvere theories, and panproto extends the same three functors to GATs. The extension is mathematically straightforward, because contextual categories admit the same adjoint structure as categories with finite products, but it is what lets panproto handle schema languages with dependent structure that Lawvere theories cannot express directly.
 
 ## A worked example
 
-An explicit case makes all three functors concrete.
+The three functors are easier to read in an example than in the abstract. Take the running case from Part I.
 
-Let $T_1$ be the theory of a one-field address record: one sort $\mathsf{Person}$, one operation $\mathsf{name} : \mathsf{Person} \to \mathsf{String}$, no equations. Let $T_2$ extend $T_1$ with a second operation $\mathsf{email} : \mathsf{Person} \to \mathsf{String}$. The theory morphism $f : T_1 \hookrightarrow T_2$ sends $\mathsf{Person}$ to $\mathsf{Person}$ and $\mathsf{name}$ to $\mathsf{name}$; it declares $\mathsf{email}$ to be new in $T_2$.
+Let $T_1$ be the theory of a one-field record: one sort $\mathsf{Person}$, one operation $\mathsf{name} : \mathsf{Person} \to \mathsf{String}$, no equations. Let $T_2$ extend $T_1$ with a second operation $\mathsf{email} : \mathsf{Person} \to \mathsf{String}$. The theory morphism $f : T_1 \hookrightarrow T_2$ sends $\mathsf{Person}$ to $\mathsf{Person}$ and $\mathsf{name}$ to $\mathsf{name}$ and declares $\mathsf{email}$ to be new in $T_2$.
 
-These are the $S_0$ and $S_1$ of the running example from Part I, now written out in the theory-morphism language.
+Start with a specific $T_2$-model $M$: a three-person address book with names and emails,
 
-### The pullback $\Delta_f$
+$$\{\mathrm{alice} \mapsto (\texttt{"Alice"}, \texttt{"a@ex"}),\; \mathrm{bob} \mapsto (\texttt{"Bob"}, \texttt{"b@ex"}),\; \mathrm{carol} \mapsto (\texttt{"Carol"}, \texttt{"c@ex"})\}.$$
 
-Let $M \in \mathrm{Mod}(T_2)$ be a specific $T_2$-model: a three-person address book,
+The pullback $\Delta_f M$ is the same three people with only their names:
 
-$$\{\; \mathrm{alice} \mapsto (\texttt{"Alice"}, \texttt{"a@ex"}), \quad \mathrm{bob} \mapsto (\texttt{"Bob"}, \texttt{"b@ex"}), \quad \mathrm{carol} \mapsto (\texttt{"Carol"}, \texttt{"c@ex"}) \;\}.$$
+$$\{\mathrm{alice} \mapsto \texttt{"Alice"},\; \mathrm{bob} \mapsto \texttt{"Bob"},\; \mathrm{carol} \mapsto \texttt{"Carol"}\}.$$
 
-The pullback $\Delta_f M \in \mathrm{Mod}(T_1)$ is the same set of people with only their names:
+The email column has been forgotten, because $T_1$ has no operation for it. That is what a pullback does.
 
-$$\{\; \mathrm{alice} \mapsto \texttt{"Alice"}, \quad \mathrm{bob} \mapsto \texttt{"Bob"}, \quad \mathrm{carol} \mapsto \texttt{"Carol"} \;\}.$$
+Now go the other way. Start from a $T_1$-model $M$ — the three-name address book without emails — and ask what a $T_2$-model compatible with it should look like.
 
-The $\mathsf{email}$ column is forgotten, because the theory $T_1$ does not have that operation. The pullback is a forgetful migration.
+$\Sigma_f M$, the left adjoint, is the smallest such $T_2$-model. Because $T_2$ has a new operation $\mathsf{email}$ that $M$ knows nothing about, $\Sigma_f M$ must supply *some* email for each person, and it does so freely: every possible email assignment is admitted. The population of $\Sigma_f M$ contains one entry for every pair (person of $M$, possible email string), which is a very large set.
 
-### The left adjoint $\Sigma_f$
+This is almost never what a developer actually wants, and it is worth understanding why the mathematics gives us an answer a developer would reject in practice. The mathematics wants the universal answer, and the universal answer is to admit every possibility, because any commitment to a specific email would impose structure the source model does not justify. Panproto's migration DSL therefore accepts a restricted form of $\Sigma_f$: the developer supplies a rule that picks a single email for each person — a default, a computed value, an empty string — and the engine compiles the rule into a $\Sigma_f$-style pushforward that uses the rule at every extension site. The underlying category-theoretic construction is $\Sigma_f$; the practical construction panproto calls "fill with default" is a restriction of it to a specific choice.
 
-Now suppose the data lives in a $T_1$-model $M$ — the three-name address book without emails — and we want to carry it forward into a $T_2$-model.
+$\Pi_f M$, the right adjoint, is the largest $T_2$-model whose pullback equals $M$. For the schema as stated, it is empty: no person can be extended to a $T_2$-record unambiguously, because every email value is allowed. $\Pi_f$ becomes operationally useful when the target theory carries constraints that eliminate ambiguity. If $T_2$ imposes an equation saying every unset email is the value `"unknown"`, then $\Pi_f M$ extends $M$ by inserting the default; if $T_2$ requires email values to match a pattern that determines them from the name, $\Pi_f M$ drops every person whose name does not already force a unique email.
 
-The left adjoint $\Sigma_f M$ is the smallest $T_2$-model from which $M$ is recoverable by pullback. Because $T_2$ has a new operation $\mathsf{email}$ that $M$ knows nothing about, $\Sigma_f M$ must supply *some* email for each person, and it does so freely: every possible email assignment is admitted. The population of $\Sigma_f M$ contains one entry for every pair (person of $M$, possible email string), which is a very large (infinite) set.
-
-This is almost never what a developer actually wants. $\Sigma_f$ exists because the mathematics requires a left adjoint, and it is the mathematical answer; the developer's answer is usually "pick a default" or "leave the field blank". Panproto's migration engine accepts either kind of answer through the migration DSL, translating it into a restricted form of $\Sigma_f$ that picks a single email for each person rather than all possible ones. The restriction is the role of the $\Sigma_f$-style pushforward declaration in [Syntax and semantics](../expr/syntax-semantics.md).
-
-### The right adjoint $\Pi_f$
-
-The right adjoint $\Pi_f M$ is the largest $T_2$-model whose pullback equals $M$. For the simple schema extension above, $\Pi_f M$ includes only those people for whom a well-formed email is forced by the rest of the model — in this schema with no constraints beyond well-typedness, that means no people at all, since email is unconstrained. The population of $\Pi_f M$ is empty.
-
-$\Pi_f$ becomes operationally useful when the target theory has constraints that eliminate ambiguity. If $T_2$ imposes the equation $\mathsf{email}(p) = \texttt{"unknown"}$ for every person without further specification, then $\Pi_f M$ can extend $M$ to a well-defined $T_2$-model by inserting the default. The same logic applies to subset-selection migrations: if $T_2$ requires email values to match a specific pattern, then $\Pi_f M$ drops every person whose name does not already carry enough information to determine the email uniquely.
-
-### Restrict and lift
-
-In panproto's vocabulary, the pullback $\Delta_f$ is the **restrict** of [The restrict/lift pipeline](./restrict-lift.md). The combination of $\Sigma_f$ and/or $\Pi_f$ (as selected by the developer at each extension site) is the **lift**. Panproto does not supply $\Sigma_f$ and $\Pi_f$ naively; the migration engine takes a user-written migration declaration that says which pushforward behaviour is intended at which extension site, and [`panproto_mig::compile`](https://docs.rs/panproto-mig/latest/panproto_mig/compile/) translates that declaration into a concrete lift function on instances.
+In panproto's vocabulary, the pullback $\Delta_f$ is the **restrict** of [The restrict/lift pipeline](./restrict-lift.md), and the combination of $\Sigma_f$ and $\Pi_f$ at various sites of a migration is the **lift**. The engine does not supply naïve $\Sigma_f$ and $\Pi_f$; it supplies the restricted forms the developer asks for, under the declarations the migration DSL expresses.
 
 ## Panproto's packaging
 
-A panproto **migration** is more than a theory morphism. It is a theory morphism *together with* the choice of $\Sigma_f$ or $\Pi_f$ (or a hybrid) at each extension point, expressed as a user-written declaration in the migration DSL.
+A panproto migration is more than a theory morphism. It is a theory morphism together with a declaration of what to do at each extension site — which strategy among $\Sigma_f$ and $\Pi_f$, with what specific rule — expressed in the migration DSL.
 
-The Rust representation is the [`Migration`](https://docs.rs/panproto-mig/latest/panproto_mig/migration/struct.Migration.html) type in [`panproto-mig`](https://docs.rs/panproto-mig/latest/panproto_mig/). Construction goes through the migration DSL, whose surface syntax is developed in Part III. Compilation — the translation from the symbolic declaration to a runtime lift function — goes through [`panproto_mig::compile`](https://docs.rs/panproto-mig/latest/panproto_mig/compile/). Execution goes through [`panproto_mig::lift`](https://docs.rs/panproto-mig/latest/panproto_mig/lift/), which applies the compiled migration to a specific source instance.
+The Rust representation is a [`Migration`](https://docs.rs/panproto-mig/latest/panproto_mig/migration/struct.Migration.html) value from [`panproto-mig`](https://docs.rs/panproto-mig/latest/panproto_mig/). Construction goes through the migration DSL, whose surface syntax belongs to Part III. Compilation — the translation from the symbolic declaration to a runtime lift function — goes through [`panproto_mig::compile`](https://docs.rs/panproto-mig/latest/panproto_mig/compile/). Execution is [`panproto_mig::lift`](https://docs.rs/panproto-mig/latest/panproto_mig/lift/), which applies a compiled migration to a specific source instance.
 
-Composition of migrations, implemented in [`panproto_mig::compose`](https://docs.rs/panproto-mig/latest/panproto_mig/compose/), combines two migrations into one whose effect is the same as running them in sequence. The composition is the composition of the underlying theory morphisms paired with the pointwise combination of their pushforward choices.
-
-The functor axioms from the [Functors chapter](../foundations/functors.md) reappear here as `panproto-mig`'s compilation invariants. Compiling the composite of two migrations produces the same runtime function as composing the two compiled migrations separately; the identity migration on a schema compiles to the identity function on its instances. Both invariants are enforced by the crate's test suite, and both are load-bearing: a migration engine that gets them wrong produces different answers depending on how it chose to evaluate the migration chain, which is not acceptable.
+Composition of migrations lives in [`panproto_mig::compose`](https://docs.rs/panproto-mig/latest/panproto_mig/compose/). The functor axioms of [Functors and natural transformations](../foundations/functors.md) reappear here as the crate's compilation invariants: compiling the composite of two migrations produces the same runtime function as composing the compiled migrations separately; the identity migration on a schema compiles to the identity function on its instances. Both invariants are load-bearing. A migration engine that fails them is producing different answers depending on how it chose to evaluate a migration chain, which is the worst kind of bug — present intermittently, hard to reproduce, impossible to diagnose without understanding the mathematics the engine is supposed to be implementing.
 
 ## Further reading
 
-The foundational source for the $\Sigma \dashv \Delta \dashv \Pi$ triple in the context of database migrations is @spivak2012functorial, which develops the framework in the setting of categorical databases (Lawvere theories with finite limits). @spivakwisnesky2015relational refines the construction for the relational case and is the version to read if your interest is primarily data engineering. @wisnesky2013functional is the companion thesis that works out the implementation, culminating in the CQL system; panproto's internal structure is closer to CQL than to any other existing system.
+The foundational source for the $\Sigma \dashv \Delta \dashv \Pi$ triple in the database setting is @spivak2012functorial. @spivakwisnesky2015relational refines the construction for the relational case; @wisnesky2013functional is the thesis that works out the implementation in CQL, which is the closest existing system to panproto's migration engine.
 
-For the broader tradition of adjoint functors in category theory, @maclane1998categories chapter IV is the reference. @awodey2010category, chapter 9 ("Adjoints"), gives the same material at undergraduate register. @riehl2017category chapter 4 ("Adjunctions") is the modern treatment. The Spivak-Wisnesky line treats the adjunctions in the database context specifically, and reading one of the categorical chapters alongside it is worthwhile.
+For the broader setting of adjoint functors, @maclane1998categories chapter IV is canonical, @awodey2010category chapter 9 ("Adjoints") gives the material at undergraduate register, and @riehl2017category chapter 4 ("Adjunctions") is the modern treatment.
 
-For the relational-database antecedent the functorial framework generalises, @codd1970relational is the founding paper. @kleppmann2017designing, chapter 2 ("Data Models and Query Languages"), gives the working-developer's view of the same material without category theory; reading the two together is an education in how a single idea can be stated at two very different levels of abstraction.
+For the relational-database antecedent, @codd1970relational is the founding paper, and @kleppmann2017designing chapter 2 ("Data Models and Query Languages") gives the working-developer's view of the same ideas without category theory. Reading the two together is a useful exercise in recognising how a single idea can be stated at very different levels of abstraction.
 
 ## Closing
 
-The next chapter, [The restrict/lift pipeline](./restrict-lift.md), takes panproto's `Migration` value apart into its compilation stages: existence checking, restrict, lift, compose, and invert. Each stage is a small operation on the data assembled in this chapter, and the decomposition is what lets the engine report actionable errors when a migration cannot be carried out.
+The next chapter, [The restrict/lift pipeline](./restrict-lift.md), takes a `Migration` value apart into its compilation stages: existence checking, restrict, lift, compose, invert. Each stage performs one operation on the data assembled above, and the decomposition is what lets the engine diagnose failures at the earliest point a migration can be seen to go wrong.

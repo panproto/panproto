@@ -1,8 +1,8 @@
 # A relational case study
 
-The relational model of @codd1970relational is the setting closest to the original categorical-database treatment of Spivak, in which a database schema is a small category with finite products and a database state is a product-preserving functor from the schema into the category of sets. The framework has since been extended to handle richer data types through the algebraic-databases construction of @schultzspivakvasilakopoulouwisnesky2017algebraic, which panproto follows at the level of its GAT models. Panproto's relational protocols follow this tradition. This chapter walks through what the relational case looks like inside panproto's framework. [Apache Cassandra](https://cassandra.apache.org/) and a subset of SQL are the concrete examples.
+The relational model is the setting closest to the original categorical-database treatment of Spivak, and the reason is historical: Spivak's framework was developed as a categorical reformulation of @codd1970relational's work, which means the translation from relational schemas into panproto's framework is the least lossy of any protocol family in Part IV. A relational schema is already a small category with finite products, and an instance is already a product-preserving functor into $\mathbf{Set}$. Panproto's relational protocols follow this tradition, and the present chapter walks through what the translation actually looks like, using [Apache Cassandra](https://cassandra.apache.org/) and a subset of SQL as the concrete cases.
 
-The relevant code lives in [`panproto_protocols::database`](https://docs.rs/panproto-protocols/latest/panproto_protocols/database/). The mathematical background is in [Protocols as theories, schemas as instances](../core/schemas-as-instances.md) and in the citation of Spivak's functorial-data-migration framework given in [Theory morphisms and instance migration](../core/morphisms-and-migration.md).
+The code lives in [`panproto_protocols::database`](https://docs.rs/panproto-protocols/latest/panproto_protocols/database/).
 
 ## What a relational schema is
 

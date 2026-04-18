@@ -1,8 +1,8 @@
 # FHIR as a document case study
 
-[FHIR](https://www.hl7.org/fhir/) [@fhir] (Fast Healthcare Interoperability Resources) is an HL7 standard for exchanging healthcare records. The columnar-storage and record-shredding ideas that underlie [Apache Parquet](https://parquet.apache.org/) [@parquet], which appears elsewhere in Part IV, originate in @melnik2010dremel. Its schemas are JSON or XML documents with deeply nested objects, elaborate cardinality constraints, terminology bindings, and conformance profiles that layer on top of a base resource to narrow the constraints further. FHIR stresses panproto's framework in a way relational schemas do not: nesting is arbitrary in depth, constraints are frequent, and the versioning cadence (R4, R4B, R5, R6) is both regular and non-backward-compatible across some resources.
+Fast Healthcare Interoperability Resources — [FHIR](https://www.hl7.org/fhir/), in practice — is HL7's standard for exchanging healthcare records, and it is the schema language that gives panproto's framework the hardest workout of anything in Part IV. Where relational schemas are flat and constraints are few, FHIR's schemas are JSON or XML documents with arbitrary-depth nesting, elaborate cardinality constraints, terminology bindings, and conformance profiles that layer on top of base resources to narrow their constraints further. The versioning cadence (R4, R4B, R5, R6) is regular and not always backward-compatible. A schema language stressing a framework like this is a good test of whether the framework can take the weight.
 
-This chapter follows FHIR through panproto's representation and points at the places where the translation is exact and the places where panproto accepts looseness rather than demand fidelity to every corner of the specification. The code is in [`panproto_protocols::domain::fhir`](https://docs.rs/panproto-protocols/latest/panproto_protocols/domain/fhir/).
+The code is in [`panproto_protocols::domain::fhir`](https://docs.rs/panproto-protocols/latest/panproto_protocols/domain/fhir/).
 
 ## What a FHIR resource looks like
 

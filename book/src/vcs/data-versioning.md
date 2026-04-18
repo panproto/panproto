@@ -1,8 +1,8 @@
 # Data versioning
 
-When a schema changes in a panproto-vcs commit, the data stored under the old schema must be lifted to the new one. Often the lift is automatic: the migration from the old schema to the new is uniquely determined, or almost uniquely determined, by the diff between them. Panproto-vcs's auto-migration infrastructure computes this migration without requiring the user to declare it explicitly. This chapter walks through the inference, the cases it handles, and the cases it refuses.
+A schema change in a panproto-vcs commit leaves the data stored under the old schema stranded until something carries it across. The construction that does the carrying is a migration, in the sense Part II developed, and in most cases the migration is uniquely determined or almost uniquely determined by the diff between the two schemas. Panproto-vcs's auto-migration infrastructure exploits this to produce the migration without asking the user to declare it. The present chapter walks through the inference, the cases it handles, and the cases it refuses.
 
-The Rust code is split between [`panproto_vcs::auto_mig`](https://docs.rs/panproto-vcs/latest/panproto_vcs/auto_mig/) (the inference) and [`panproto_vcs::data_mig`](https://docs.rs/panproto-vcs/latest/panproto_vcs/data_mig/) (the application of the inferred migration to stored data). The mathematical background is in [Theory morphisms and instance migration](../core/morphisms-and-migration.md) and [The restrict/lift pipeline](../core/restrict-lift.md).
+The code is split between [`panproto_vcs::auto_mig`](https://docs.rs/panproto-vcs/latest/panproto_vcs/auto_mig/) for the inference and [`panproto_vcs::data_mig`](https://docs.rs/panproto-vcs/latest/panproto_vcs/data_mig/) for its application to stored data.
 
 ## When auto-migration is invoked
 

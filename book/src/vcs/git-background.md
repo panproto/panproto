@@ -1,8 +1,8 @@
 # What git already versions and what it does not
 
-[Git](https://git-scm.com/) is the version-control system most developers reach for by default. It works well, it is ubiquitous, and its internal object model is clean enough that a reader who has not looked at it is often surprised by how simple it is. This chapter lays out git's object model precisely enough to state what git versions and what git does not, and uses the gap to motivate the object model [`panproto-vcs`](https://docs.rs/panproto-vcs/latest/panproto_vcs/) puts in its place.
+Nearly every team that writes software uses [git](https://git-scm.com/), and nearly every such team uses it for the same purpose: versioning the bytes of a source tree, across branches, across time. The internal object model is simple enough that a reader who has never looked inside git is usually surprised at how cleanly it is constructed, and the present chapter lays it out precisely enough to show what git is versioning and what it is not. The gap between those two — what git actually tracks and what a production system often wants tracked — is what the rest of Part V sets out to fill.
 
-The chapter assumes no prior knowledge of git's internals beyond a working familiarity with `commit`, `branch`, and `merge` at the command line. Readers already comfortable with the Merkle DAG structure of git's object database can skim the first two sections and pick up at [What git does not version](#what-git-does-not-version). For a fuller account of git's internals than this chapter develops, @chaconstraub2014pro is the canonical reference. The patch-theoretic alternative pioneered by Darcs [@roundy2005darcs] offers a different perspective on distributed version control and is a point of reference throughout this part of the book. Operational concerns around replicated, eventually-consistent data at production scale are treated at length in @kleppmann2017designing.
+Readers familiar with git's Merkle DAG can skim the first two sections and pick up where the gap is stated. For the deeper account of git's internals, @chaconstraub2014pro is canonical.
 
 ## The three kinds of object
 

@@ -1,8 +1,8 @@
 # Workspace layout
 
-Panproto's Rust code is a single Cargo workspace of 25 crates, organised by layer: foundations, transformation, infrastructure, protocols and auxiliary tooling, SDK bindings, and experimental extensions. This chapter walks through the layers, names each crate's responsibility, and shows where the dependencies flow.
+Twenty-five crates live in panproto's Cargo workspace, organised across six layers: foundations, transformation, infrastructure, protocols and auxiliary tooling, SDK bindings, and experimental extensions. The layering is strict — no crate depends on anything strictly above it — and a contributor working on panproto will want to know which layer their crate belongs to before writing their first patch.
 
-The root workspace manifest is `Cargo.toml` at the repository root; the individual crates are under `crates/`. The non-Rust packages (the TypeScript SDK and the Python SDK's Python-side code) live under `sdk/typescript/` and `sdk/python/`.
+The root workspace manifest is `Cargo.toml` at the repository root; the individual crates are under `crates/`. The non-Rust packages — the TypeScript SDK and the Python SDK's Python-side code — live under `sdk/typescript/` and `sdk/python/`.
 
 ## The layers
 

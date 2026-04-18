@@ -1,8 +1,6 @@
 # The WebAssembly boundary
 
-Panproto's non-Rust clients (the [TypeScript SDK](./typescript.md) for browsers and Node, the browser-side part of the [Python SDK](./python.md) until its native-wheel replacement took over) speak to the engine through a [WebAssembly](https://webassembly.org/) module [@haas2017bringing] built from [`panproto-wasm`](https://docs.rs/panproto-wasm/latest/panproto_wasm/); the normative reference for the bytecode format and execution model is @w3c2019wasm. The module exposes a small, handle-based API designed for an environment where the caller cannot share memory with Rust and every call crosses a serialisation boundary. This chapter explains the shape and the reasons for it.
-
-The code is in [`panproto-wasm`](https://docs.rs/panproto-wasm/latest/panproto_wasm/), built with [`wasm-bindgen`](https://rustwasm.github.io/wasm-bindgen/) [@wasmbindgen] for the browser target. The TypeScript wrapper around the module is in [`sdk/typescript`](https://www.npmjs.com/package/@panproto/core).
+The engine is written in Rust, and the non-Rust clients — the TypeScript SDK for browsers and Node, the browser-side of the Python SDK that has since been deprecated in favour of native wheels — cannot share memory with Rust or respect Rust's ownership discipline from the outside. What they can do is call into a [WebAssembly](https://webassembly.org/) module [@haas2017bringing] that holds the Rust values internally and exposes a small API that exchanges opaque handles and serialised data. The module is [`panproto-wasm`](https://docs.rs/panproto-wasm/latest/panproto_wasm/), built with [`wasm-bindgen`](https://rustwasm.github.io/wasm-bindgen/). The present chapter explains the shape of the API and the reasons it takes the shape it does.
 
 ## Handles, not pointers
 

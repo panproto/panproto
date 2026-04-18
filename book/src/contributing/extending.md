@@ -1,8 +1,6 @@
 # Extending panproto
 
-Contributors most often extend panproto in one of three ways: a new protocol (for a data format or schema language panproto does not yet support), a new lens combinator (for a transformation shape panproto does not yet offer), or a new expression-language builtin (for a small computation the expression language cannot express without one). This chapter walks through each case end-to-end.
-
-The specific skills that accompany this chapter are `panproto-build-protocol` (for protocols), `impl-lens` (for lens combinators), and `panproto-expression-language` (for builtins). Readers should consult whichever skill corresponds to the extension they are making, alongside this chapter.
+A contributor writing new code for panproto is usually doing one of three things: adding support for a data format or schema language the engine does not yet know, adding a transformation shape the lens library does not yet offer, or adding a small computation the expression language needs but cannot express with its existing builtins. The present chapter walks through each case end-to-end.
 
 ## A new protocol
 

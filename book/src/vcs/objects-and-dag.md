@@ -1,8 +1,8 @@
 # Objects, refs, and the DAG
 
-Panproto-vcs's object database mirrors [git](https://git-scm.com/)'s in its overall shape (a Merkle DAG of content-addressed objects referred to by refs) and differs in the specific object types it stores. This chapter specifies the object types, the hashing, the two storage backends panproto-vcs ships with, and the ref structure.
+The object database panproto-vcs sits on top of is a Merkle DAG of content-addressed objects, referenced by refs, in the same overall shape as git's. What differs is the set of object types stored. Where git has three — blob, tree, commit — panproto-vcs has seven, four of which are the new object kinds that carry the schemas, migrations, instances, and protocol definitions the engine uses to track interpretation alongside bytes. The present chapter specifies the seven types, the hashing, the two storage backends, and the ref structure.
 
-The code is in [`panproto-vcs`](https://docs.rs/panproto-vcs/latest/panproto_vcs/). Throughout the chapter, references to specific modules link to that crate's documentation.
+The code lives in [`panproto-vcs`](https://docs.rs/panproto-vcs/latest/panproto_vcs/).
 
 ## Object types
 

@@ -1,8 +1,8 @@
 # The Python SDK
 
-[Python](https://www.python.org/) callers reach panproto through a native [PyO3](https://pyo3.rs/) wheel that binds directly to the Rust implementation, not through the [WebAssembly](https://webassembly.org/) module the [TypeScript SDK](./typescript.md) uses. The choice is a recent one: an earlier pure-Python SDK wrapping the WASM module is deprecated, and the current `panproto` package on [PyPI](https://pypi.org/) is the native build. This chapter covers the native SDK and says briefly why the WASM approach was abandoned for Python.
+A Python caller reaching panproto uses a native [PyO3](https://pyo3.rs/) wheel, which binds the Rust implementation directly into the CPython process rather than going through the WebAssembly module the TypeScript SDK uses. The choice is a recent one. An earlier pure-Python SDK wrapped `panproto-wasm` and went through MessagePack on every call; it is deprecated, and the `panproto` package on [PyPI](https://pypi.org/) is the native build. The present chapter covers the native SDK and says briefly why the earlier approach was abandoned.
 
-The source is in `crates/panproto-py/` (the Rust side) and `sdk/python/` (the Python side).
+The source lives in `crates/panproto-py/` on the Rust side and `sdk/python/` on the Python side.
 
 ## Installation
 

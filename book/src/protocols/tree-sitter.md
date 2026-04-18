@@ -1,6 +1,8 @@
 # Tree-sitter and full-AST parsing
 
-Panproto ships with protocol definitions for 248 programming languages. Writing all of them by hand in the style of the previous chapter would be infeasible; panproto produces them automatically from [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars [@brunsfeld2018treesitter]. Tree-sitter's incremental-parsing algorithm is in the lineage of @wagnergraham1998efficient, and its parsing-expression-grammar support is informed by the packrat-parsing tradition of @ford2002packrat. A tree-sitter grammar describes a language's concrete syntax precisely enough that its node-type metadata is, up to a translation layer, a GAT. This chapter explains the translation, what the resulting theories can and cannot express about the language they describe, and the trade-offs between generic derivation and hand-written protocols.
+Writing a protocol by hand for every programming language one might reasonably want to parse is not a serious proposal. Two hundred and forty-eight languages ship with panproto, and we did not hand-write them. They come from [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars, through a mechanical translation that turns a grammar's node-type metadata into a GAT and a parser. The present chapter explains the translation, what the resulting theories can and cannot express about the language they describe, and when a hand-written upgrade is worth the effort.
+
+Tree-sitter itself is due to @brunsfeld2018treesitter. Its incremental-parsing algorithm descends from @wagnergraham1998efficient, and its parsing-expression-grammar support from the packrat-parsing tradition of @ford2002packrat.
 
 The code is in [`panproto-parse`](https://docs.rs/panproto-parse/latest/panproto_parse/) for the derivation logic and [`panproto-grammars`](https://docs.rs/panproto-grammars/latest/panproto_grammars/) for the bundled tree-sitter grammars.
 
