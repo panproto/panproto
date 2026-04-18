@@ -4,6 +4,18 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **book**: Revised all 28 narrative chapters for readability. Chapter openings now motivate the chapter in prose with longer, subordinate-clause-bearing sentences modelled on the opening paragraphs of *The Rust Programming Language* and Bartosz Milewski's *Category Theory for Programmers*; bulleted "This chapter covers" previews are removed in favour of orientation that arises from the running prose itself. Paragraph shapes sustain thought across sentences with subordinate clauses and vary in length across a paragraph. `preface/notation.md` is rewritten to cover the mathematical notation a reader will encounter ($\mathcal{C}$, $\mathbf{Set}$, $\mathbf{Hask}$, morphism, functor, natural-transformation conventions, commutative-diagram layout) in place of the earlier discussion of citation-key syntax and build-system mechanics. Chapter closings are trimmed to one- or two-sentence pivots. Further-reading sections are preserved, with references still verified against primary sources, and the running address-record example continues to thread through Parts I and II.
+
+### Added
+
+- **panproto-lens tests**: Three regression tests (`tests/put_preserves_view_edits_with_child_vertices.rs`) pin the `asymmetric::put` round-trip for a schema where per-field values live on child vertices (`user.name`, `user.legacyId`, `user.email`) rather than in the root's `extra_fields`, and where `FieldTransform`s are installed on the parent to mirror edge renames at the instance-data layer. One test drives the chain through protolens combinators, one builds the `CompiledMigration` by hand, and one mirrors the JSON-reparse-plus-anchor-remap path a downstream consumer takes. All three guard against future refactors of `asymmetric::put` reintroducing the panproto/panproto#40 scramble under this shape.
+
+### Changed
+
+- **panproto-lens tests**: Renamed the put-regression test from an issue-number name to a behavioural name (`put_preserves_view_edits_under_rename_field`), and backticked `field_transforms` in its documentation for `clippy::doc_markdown`.
+
 ## [0.34.1] - 2026-04-17
 
 ### Fixed
