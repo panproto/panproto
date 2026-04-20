@@ -1895,7 +1895,6 @@ version = "0.35.0"
 dependencies = [
  "divan",
  "panproto-expr",
- "panproto-protocols",
  "proptest",
  "rustc-hash",
  "serde",
