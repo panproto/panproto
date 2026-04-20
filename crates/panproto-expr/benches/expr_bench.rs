@@ -44,7 +44,10 @@ fn post_record() -> Literal {
             Arc::from("createdAt"),
             Literal::Str("2026-04-19T01:05:29.436Z".into()),
         ),
-        (Arc::from("langs"), Literal::List(vec![Literal::Str("en".into())])),
+        (
+            Arc::from("langs"),
+            Literal::List(vec![Literal::Str("en".into())]),
+        ),
     ])
 }
 

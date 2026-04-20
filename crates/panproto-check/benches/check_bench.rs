@@ -14,8 +14,7 @@ fn main() {
     divan::main();
 }
 
-const FEED_POST: &str =
-    include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
+const FEED_POST: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
 const ACTOR_PROFILE: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.actor.profile.json");
 
@@ -29,12 +28,7 @@ fn load(src: &str) -> Schema {
 fn drop_one_vertex(schema: &Schema) -> Schema {
     let mut s = schema.clone();
     let entries: std::collections::HashSet<Name> = s.entries.iter().cloned().collect();
-    if let Some(victim) = s
-        .vertices
-        .keys()
-        .find(|k| !entries.contains(*k))
-        .cloned()
-    {
+    if let Some(victim) = s.vertices.keys().find(|k| !entries.contains(*k)).cloned() {
         s.vertices.remove(&victim);
         s.edges.retain(|e, _| e.src != victim && e.tgt != victim);
     }
@@ -68,4 +62,33 @@ fn diff_two_lexicons(bencher: divan::Bencher) {
     let post = load(FEED_POST);
     let profile = load(ACTOR_PROFILE);
     bencher.bench(|| diff(&post, &profile));
+}
+
+// ---------------------------------------------------------------------------
+// atproto string-refinement change detection (panproto/panproto#42)
+// ---------------------------------------------------------------------------
+
+/// Flip a `format` constraint on every string vertex that has one —
+/// simulates tightening or relaxing every atproto string refinement in
+/// a Lexicon at once. Exercises `format` participation in the classify
+/// pipeline end-to-end.
+fn flip_format_constraints(schema: &Schema) -> Schema {
+    let mut s = schema.clone();
+    for constraints in s.constraints.values_mut() {
+        for c in constraints.iter_mut() {
+            if c.sort.as_ref() == "format" {
+                c.value = format!("{}-flipped", c.value);
+            }
+        }
+    }
+    s
+}
+
+#[divan::bench]
+fn classify_format_change_real_lexicon(bencher: divan::Bencher) {
+    let old = load(FEED_POST);
+    let new = flip_format_constraints(&old);
+    let d = diff(&old, &new);
+    let protocol = atproto::protocol();
+    bencher.bench(|| classify(&d, &protocol));
 }

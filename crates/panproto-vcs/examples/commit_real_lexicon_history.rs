@@ -4,9 +4,18 @@ use panproto_protocols::web_document::atproto;
 use panproto_vcs::Repository;
 
 const LEXICONS: &[(&str, &str)] = &[
-    ("app.bsky.feed.post", include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json")),
-    ("app.bsky.actor.profile", include_str!("../../../fixtures/atproto/lexicons/app.bsky.actor.profile.json")),
-    ("app.bsky.feed.like", include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.like.json")),
+    (
+        "app.bsky.feed.post",
+        include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json"),
+    ),
+    (
+        "app.bsky.actor.profile",
+        include_str!("../../../fixtures/atproto/lexicons/app.bsky.actor.profile.json"),
+    ),
+    (
+        "app.bsky.feed.like",
+        include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.like.json"),
+    ),
 ];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

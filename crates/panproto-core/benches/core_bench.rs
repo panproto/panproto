@@ -38,6 +38,8 @@ fn parse_lift_emit_real_post(bencher: divan::Bencher) {
             .parse_wtype("atproto", &schema, REAL_POST)
             .expect("parse");
         let lifted = lift_wtype(&compiled, &schema, &schema, &instance).expect("lift");
-        registry.emit_wtype("atproto", &schema, &lifted).expect("emit")
+        registry
+            .emit_wtype("atproto", &schema, &lifted)
+            .expect("emit")
     });
 }

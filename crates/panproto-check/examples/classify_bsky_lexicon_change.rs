@@ -2,8 +2,7 @@
 
 use panproto_check::{classify, diff};
 
-const FEED_POST: &str =
-    include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
+const FEED_POST: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let v: serde_json::Value = serde_json::from_str(FEED_POST)?;
@@ -24,7 +23,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("dropped vertex: {victim}");
 
     let d = diff(&old, &new);
-    println!("diff: {} added, {} removed vertices", d.added_vertices.len(), d.removed_vertices.len());
+    println!(
+        "diff: {} added, {} removed vertices",
+        d.added_vertices.len(),
+        d.removed_vertices.len()
+    );
 
     let protocol = panproto_protocols::web_document::atproto::protocol();
     let report = classify(&d, &protocol);

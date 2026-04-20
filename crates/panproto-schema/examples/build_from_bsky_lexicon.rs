@@ -2,8 +2,7 @@
 
 use panproto_schema::{normalize, validate};
 
-const FEED_POST: &str =
-    include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
+const FEED_POST: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lexicon: serde_json::Value = serde_json::from_str(FEED_POST)?;

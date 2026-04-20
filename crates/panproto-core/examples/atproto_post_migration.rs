@@ -24,6 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lifted = lift_wtype(&compiled, &schema, &schema, &instance)?;
     let bytes = registry.emit_wtype("atproto", &schema, &lifted)?;
 
-    println!("pipeline OK: in={} bytes → out={} bytes", REAL_POST.len(), bytes.len());
+    println!(
+        "pipeline OK: in={} bytes → out={} bytes",
+        REAL_POST.len(),
+        bytes.len()
+    );
     Ok(())
 }
