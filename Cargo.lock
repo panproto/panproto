@@ -1673,11 +1673,13 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 name = "panproto-check"
 version = "0.34.1"
 dependencies = [
+ "divan",
  "insta",
  "memchr",
  "panproto-gat",
  "panproto-lens",
  "panproto-mig",
+ "panproto-protocols",
  "panproto-schema",
  "proptest",
  "rustc-hash",
@@ -1720,6 +1722,7 @@ dependencies = [
 name = "panproto-core"
 version = "0.34.1"
 dependencies = [
+ "divan",
  "panproto-check",
  "panproto-gat",
  "panproto-git",
@@ -1734,6 +1737,7 @@ dependencies = [
  "panproto-protocols",
  "panproto-schema",
  "panproto-vcs",
+ "serde_json",
 ]
 
 [[package]]
@@ -2016,6 +2020,7 @@ name = "panproto-protocols"
 version = "0.34.1"
 dependencies = [
  "blake3",
+ "divan",
  "panproto-gat",
  "panproto-inst",
  "panproto-schema",
@@ -2049,8 +2054,10 @@ dependencies = [
 name = "panproto-schema"
 version = "0.34.1"
 dependencies = [
+ "divan",
  "panproto-expr",
  "panproto-gat",
+ "panproto-protocols",
  "proptest",
  "rmp-serde",
  "rustc-hash",

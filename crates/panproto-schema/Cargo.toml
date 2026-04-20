@@ -19,6 +19,12 @@ smallvec = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }
+divan = { workspace = true }
+panproto-protocols = { workspace = true }
+
+[[bench]]
+name = "schema_bench"
+harness = false
 
 [lints]
 workspace = true

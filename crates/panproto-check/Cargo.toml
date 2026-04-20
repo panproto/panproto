@@ -22,6 +22,12 @@ memchr = { workspace = true }
 proptest = { workspace = true }
 smallvec = { workspace = true }
 insta = { workspace = true }
+divan = { workspace = true }
+panproto-protocols = { workspace = true }
+
+[[bench]]
+name = "check_bench"
+harness = false
 
 [lints]
 workspace = true
