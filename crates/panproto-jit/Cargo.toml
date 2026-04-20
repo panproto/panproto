@@ -17,6 +17,13 @@ inkwell = { version = "0.8", features = ["llvm20-1"], optional = true }
 thiserror = { workspace = true }
 miette = { workspace = true }
 
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "jit_bench"
+harness = false
+
 [lints.rust]
 # JIT compilation requires unsafe FFI calls to LLVM via inkwell.
 # This is inherent to the domain and cannot be avoided.

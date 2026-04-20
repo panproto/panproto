@@ -24,6 +24,16 @@ rustc-hash = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+divan = { workspace = true }
+
+[[bench]]
+name = "git_bench"
+harness = false
+required-features = ["panproto-parse/lang-protobuf"]
+
+[[example]]
+name = "import_mini_git_repo"
+required-features = ["panproto-parse/lang-protobuf"]
 
 [lints]
 workspace = true

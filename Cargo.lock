@@ -1907,6 +1907,7 @@ dependencies = [
 name = "panproto-git"
 version = "0.34.1"
 dependencies = [
+ "divan",
  "git2",
  "miette",
  "panproto-gat",
@@ -2023,6 +2024,7 @@ dependencies = [
 name = "panproto-jit"
 version = "0.34.1"
 dependencies = [
+ "divan",
  "inkwell",
  "miette",
  "panproto-expr",
@@ -2074,6 +2076,7 @@ dependencies = [
 name = "panproto-llvm"
 version = "0.34.1"
 dependencies = [
+ "divan",
  "inkwell",
  "miette",
  "panproto-gat",
