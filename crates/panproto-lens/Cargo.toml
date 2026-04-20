@@ -24,6 +24,10 @@ divan = { workspace = true }
 proptest = { workspace = true }
 smallvec = { workspace = true }
 insta = { workspace = true }
+panproto-protocols = { workspace = true }
+panproto-io = { workspace = true }
+panproto-mig = { workspace = true }
+serde_json = { workspace = true }
 
 [[bench]]
 name = "lens_bench"

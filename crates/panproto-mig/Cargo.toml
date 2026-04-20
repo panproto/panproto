@@ -21,6 +21,8 @@ proptest = { workspace = true }
 smallvec = { workspace = true }
 divan = { workspace = true }
 serde_json = { workspace = true }
+panproto-protocols = { workspace = true }
+panproto-io = { workspace = true }
 
 [[bench]]
 name = "mig_bench"
