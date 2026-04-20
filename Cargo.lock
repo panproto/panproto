@@ -1980,6 +1980,7 @@ dependencies = [
 name = "panproto-parse"
 version = "0.34.1"
 dependencies = [
+ "divan",
  "memchr",
  "miette",
  "panproto-gat",
@@ -2001,6 +2002,7 @@ name = "panproto-project"
 version = "0.34.1"
 dependencies = [
  "blake3",
+ "divan",
  "globset",
  "miette",
  "panproto-gat",
