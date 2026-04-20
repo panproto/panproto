@@ -6,9 +6,18 @@ use panproto_project::ProjectBuilder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut project = ProjectBuilder::new();
-    project.add_file(Path::new("trace.proto"), include_bytes!("../../../fixtures/protobuf/trace.proto"))?;
-    project.add_file(Path::new("common.proto"), include_bytes!("../../../fixtures/protobuf/common.proto"))?;
-    project.add_file(Path::new("resource.proto"), include_bytes!("../../../fixtures/protobuf/resource.proto"))?;
+    project.add_file(
+        Path::new("trace.proto"),
+        include_bytes!("../../../fixtures/protobuf/trace.proto"),
+    )?;
+    project.add_file(
+        Path::new("common.proto"),
+        include_bytes!("../../../fixtures/protobuf/common.proto"),
+    )?;
+    project.add_file(
+        Path::new("resource.proto"),
+        include_bytes!("../../../fixtures/protobuf/resource.proto"),
+    )?;
     let n_files = project.file_count();
     let project_schema = project.build()?;
     println!(

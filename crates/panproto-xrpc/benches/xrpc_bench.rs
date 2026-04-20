@@ -70,12 +70,10 @@ fn deserialize_list_commits_result(bencher: divan::Bencher) {
         start: Some("0000000000000000000000000000000000000000000000000000000000000000".into()),
     };
     let bytes = serde_json::to_vec(&result).expect("serialize");
-    bencher.bench(|| {
-        serde_json::from_slice::<ListCommitsResult>(&bytes)
-    });
+    bencher.bench(|| serde_json::from_slice::<ListCommitsResult>(&bytes));
 }
 
-/// Full client round-trip: boot a wiremock server, construct a NodeClient,
+/// Full client round-trip: boot a wiremock server, construct a `NodeClient`,
 /// call `list_commits`, and tear down. Measures the encode/HTTP/decode
 /// path end-to-end but purely in-process (no real network).
 #[divan::bench]

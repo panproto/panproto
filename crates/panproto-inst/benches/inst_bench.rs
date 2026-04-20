@@ -528,7 +528,7 @@ fn parse_real_bsky_post_with_reply_to_winstance(bencher: Bencher) {
     });
 }
 
-/// Restrict a real Bluesky post WInstance along the identity migration of
+/// Restrict a real Bluesky post `WInstance` along the identity migration of
 /// its schema. Identity is chosen because building a non-trivial migration
 /// requires bespoke setup; the identity path still exercises the
 /// reachability/contraction pipeline on a real record.

@@ -1,6 +1,6 @@
 //! Build the TypeScript → LLVM IR lowering morphism and print its shape.
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let proto = panproto_llvm::llvm_ir_protocol();
     println!(
         "LLVM IR protocol: {} object kinds, {} edge rules",
@@ -17,5 +17,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         lowering.sort_map.len(),
         lowering.op_map.len()
     );
-    Ok(())
 }

@@ -367,7 +367,7 @@ fn colimit_thwtype_thmeta_real(bencher: Bencher) {
 }
 
 /// End-to-end: compose the full AT Protocol schema theory from its three
-/// component theories (ThGraph + ThConstraint + ThMulti), the same two-step
+/// component theories (`ThGraph` + `ThConstraint` + `ThMulti`), the same two-step
 /// colimit used at runtime.
 #[divan::bench]
 fn build_atproto_schema_theory(bencher: Bencher) {

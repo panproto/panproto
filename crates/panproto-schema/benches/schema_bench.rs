@@ -10,12 +10,10 @@ fn main() {
     divan::main();
 }
 
-const FEED_POST: &str =
-    include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
+const FEED_POST: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
 const ACTOR_PROFILE: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.actor.profile.json");
-const FEED_LIKE: &str =
-    include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.like.json");
+const FEED_LIKE: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.like.json");
 const GRAPH_FOLLOW: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.graph.follow.json");
 const CREATE_RECORD: &str =

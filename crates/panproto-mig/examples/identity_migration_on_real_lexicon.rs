@@ -9,10 +9,8 @@ use panproto_mig::{Migration, compile, lift_wtype};
 use panproto_protocols::web_document::atproto;
 use panproto_schema::{Edge, Schema};
 
-const FEED_POST: &str =
-    include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
-const POST_RECORD: &[u8] =
-    include_bytes!("../../../fixtures/atproto/records/post-3.json");
+const FEED_POST: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
+const POST_RECORD: &[u8] = include_bytes!("../../../fixtures/atproto/records/post-3.json");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lexicon: serde_json::Value = serde_json::from_str(FEED_POST)?;
@@ -39,7 +37,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("parsed post record: {} nodes", instance.nodes.len());
 
     let lifted = lift_wtype(&compiled, &schema, &schema, &instance)?;
-    println!("lifted through identity migration: {} nodes", lifted.nodes.len());
+    println!(
+        "lifted through identity migration: {} nodes",
+        lifted.nodes.len()
+    );
 
     Ok(())
 }

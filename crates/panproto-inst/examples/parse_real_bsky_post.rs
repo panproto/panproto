@@ -1,11 +1,10 @@
-//! Parse a real Bluesky post record into a WInstance and inspect its structure.
+//! Parse a real Bluesky post record into a `WInstance` and inspect its structure.
 
 use panproto_inst::WInstance;
 
 const FEED_POST_LEXICON: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
-const POST_RECORD: &[u8] =
-    include_bytes!("../../../fixtures/atproto/records/post-3.json");
+const POST_RECORD: &[u8] = include_bytes!("../../../fixtures/atproto/records/post-3.json");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lexicon: serde_json::Value = serde_json::from_str(FEED_POST_LEXICON)?;

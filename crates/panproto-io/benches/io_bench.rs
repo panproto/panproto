@@ -17,8 +17,7 @@ const FEED_POST_LEXICON: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
 const ACTOR_PROFILE_LEXICON: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.actor.profile.json");
-const POST_RECORD_BYTES: &[u8] =
-    include_bytes!("../../../fixtures/atproto/records/post-0.json");
+const POST_RECORD_BYTES: &[u8] = include_bytes!("../../../fixtures/atproto/records/post-0.json");
 const POST_WITH_REPLY_BYTES: &[u8] =
     include_bytes!("../../../fixtures/atproto/records/post-3.json");
 const PROFILE_RECORD_BYTES: &[u8] =

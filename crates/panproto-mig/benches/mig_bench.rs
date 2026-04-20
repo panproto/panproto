@@ -23,12 +23,10 @@ fn main() {
 // Fixtures: real AT Protocol Lexicons
 // ---------------------------------------------------------------------------
 
-const FEED_POST: &str =
-    include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
+const FEED_POST: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
 const ACTOR_PROFILE: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.actor.profile.json");
-const FEED_LIKE: &str =
-    include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.like.json");
+const FEED_LIKE: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.like.json");
 const GRAPH_FOLLOW: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.graph.follow.json");
 
@@ -138,8 +136,14 @@ fn rename_all_migration(schema: &Schema) -> Migration {
 
     let mut edge_map = HashMap::new();
     for edge in schema.edges.keys() {
-        let new_src = vertex_map.get(&edge.src).cloned().unwrap_or_else(|| edge.src.clone());
-        let new_tgt = vertex_map.get(&edge.tgt).cloned().unwrap_or_else(|| edge.tgt.clone());
+        let new_src = vertex_map
+            .get(&edge.src)
+            .cloned()
+            .unwrap_or_else(|| edge.src.clone());
+        let new_tgt = vertex_map
+            .get(&edge.tgt)
+            .cloned()
+            .unwrap_or_else(|| edge.tgt.clone());
         edge_map.insert(
             edge.clone(),
             Edge {
@@ -174,10 +178,8 @@ fn compose_rename_feed_post(bencher: Bencher) {
 // lift_wtype: apply a compiled migration to a real Bluesky post record
 // ---------------------------------------------------------------------------
 
-const POST_RECORD_0: &[u8] =
-    include_bytes!("../../../fixtures/atproto/records/post-0.json");
-const POST_RECORD_3: &[u8] =
-    include_bytes!("../../../fixtures/atproto/records/post-3.json");
+const POST_RECORD_0: &[u8] = include_bytes!("../../../fixtures/atproto/records/post-0.json");
+const POST_RECORD_3: &[u8] = include_bytes!("../../../fixtures/atproto/records/post-3.json");
 
 fn load_post_instance(bytes: &[u8], schema: &Schema) -> panproto_inst::WInstance {
     let registry = panproto_io::default_registry();
