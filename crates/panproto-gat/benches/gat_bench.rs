@@ -338,4 +338,3 @@ fn theory_construction(bencher: Bencher, n: usize) {
 
     bencher.bench(|| Theory::new("Bench", sorts.clone(), ops.clone(), vec![]));
 }
-

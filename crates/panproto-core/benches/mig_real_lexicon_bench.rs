@@ -10,10 +10,10 @@
 use std::collections::HashMap;
 
 use divan::Bencher;
-use panproto_gat::Name;
-use panproto_mig::{Migration, check_existence, compile, compose, lift_wtype};
-use panproto_protocols::web_document::atproto;
-use panproto_schema::{Edge, Schema};
+use panproto_core::gat::Name;
+use panproto_core::mig::{Migration, check_existence, compile, compose, lift_wtype};
+use panproto_core::protocols::web_document::atproto;
+use panproto_core::schema::{Edge, Schema};
 
 fn main() {
     divan::main();
@@ -182,7 +182,7 @@ const POST_RECORD_0: &[u8] = include_bytes!("../../../fixtures/atproto/records/p
 const POST_RECORD_3: &[u8] = include_bytes!("../../../fixtures/atproto/records/post-3.json");
 
 fn load_post_instance(bytes: &[u8], schema: &Schema) -> panproto_inst::WInstance {
-    let registry = panproto_io::default_registry();
+    let registry = panproto_core::io::default_registry();
     registry
         .parse_wtype("atproto", schema, bytes)
         .expect("parse real post record")

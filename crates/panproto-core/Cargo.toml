@@ -49,5 +49,21 @@ serde_json = { workspace = true }
 name = "core_bench"
 harness = false
 
+[[bench]]
+name = "schema_real_lexicon_bench"
+harness = false
+
+[[bench]]
+name = "inst_real_record_bench"
+harness = false
+
+[[bench]]
+name = "mig_real_lexicon_bench"
+harness = false
+
+[[bench]]
+name = "lens_real_record_bench"
+harness = false
+
 [lints]
 workspace = true

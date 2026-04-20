@@ -20,7 +20,6 @@ blake3 = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 divan = { workspace = true }
-panproto-check = { workspace = true }
 
 [[bench]]
 name = "protocols_bench"

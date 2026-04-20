@@ -1,6 +1,6 @@
 //! Parse a real Bluesky post record into a `WInstance` and inspect its structure.
 
-use panproto_inst::WInstance;
+use panproto_core::inst::WInstance;
 
 const FEED_POST_LEXICON: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
@@ -8,9 +8,9 @@ const POST_RECORD: &[u8] = include_bytes!("../../../fixtures/atproto/records/pos
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lexicon: serde_json::Value = serde_json::from_str(FEED_POST_LEXICON)?;
-    let schema = panproto_protocols::web_document::atproto::parse_lexicon(&lexicon)?;
+    let schema = panproto_core::protocols::web_document::atproto::parse_lexicon(&lexicon)?;
 
-    let registry = panproto_io::default_registry();
+    let registry = panproto_core::io::default_registry();
     let instance: WInstance = registry.parse_wtype("atproto", &schema, POST_RECORD)?;
 
     println!("root node id: {}", instance.root);

@@ -3,8 +3,8 @@
 #![allow(clippy::expect_used)]
 
 use divan::Bencher;
-use panproto_protocols::web_document::atproto;
-use panproto_schema::{Schema, normalize, validate};
+use panproto_core::protocols::web_document::atproto;
+use panproto_core::schema::{Schema, normalize, validate};
 
 fn main() {
     divan::main();

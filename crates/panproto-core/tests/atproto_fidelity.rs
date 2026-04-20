@@ -8,16 +8,16 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use panproto_gat::Name;
-use panproto_protocols::web_document::atproto;
-use panproto_schema::Constraint;
+use panproto_core::gat::Name;
+use panproto_core::protocols::web_document::atproto;
+use panproto_core::schema::Constraint;
 
-fn parse(src: &str) -> panproto_schema::Schema {
+fn parse(src: &str) -> panproto_core::schema::Schema {
     let value: serde_json::Value = serde_json::from_str(src).expect("valid JSON");
     atproto::parse_lexicon(&value).expect("parse_lexicon")
 }
 
-fn constraints_on<'a>(schema: &'a panproto_schema::Schema, vertex: &str) -> &'a [Constraint] {
+fn constraints_on<'a>(schema: &'a panproto_core::schema::Schema, vertex: &str) -> &'a [Constraint] {
     schema
         .constraints
         .get(&Name::from(vertex))
@@ -163,7 +163,7 @@ fn diff_reports_known_values_change() {
 
     let old = parse(before);
     let new = parse(after);
-    let diff = panproto_check::diff(&old, &new);
+    let diff = panproto_core::check::diff(&old, &new);
 
     let key = "test.open.enum:body.category";
     let constraint_diff = diff
@@ -226,7 +226,7 @@ fn diff_reports_format_change() {
         }
     }"#;
 
-    let diff = panproto_check::diff(&parse(before), &parse(after));
+    let diff = panproto_core::check::diff(&parse(before), &parse(after));
     let key = "test.fmt.change:body.id";
     let cd = diff
         .modified_constraints

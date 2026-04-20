@@ -1957,8 +1957,6 @@ dependencies = [
  "divan",
  "panproto-expr",
  "panproto-gat",
- "panproto-io",
- "panproto-protocols",
  "panproto-schema",
  "proptest",
  "rustc-hash",
@@ -2039,9 +2037,7 @@ dependencies = [
  "panproto-expr",
  "panproto-gat",
  "panproto-inst",
- "panproto-io",
  "panproto-mig",
- "panproto-protocols",
  "panproto-schema",
  "proptest",
  "rustc-hash",
@@ -2091,12 +2087,9 @@ dependencies = [
 name = "panproto-mig"
 version = "0.35.0"
 dependencies = [
- "divan",
  "panproto-expr",
  "panproto-gat",
  "panproto-inst",
- "panproto-io",
- "panproto-protocols",
  "panproto-schema",
  "proptest",
  "rustc-hash",
@@ -2154,7 +2147,6 @@ version = "0.35.0"
 dependencies = [
  "blake3",
  "divan",
- "panproto-check",
  "panproto-gat",
  "panproto-inst",
  "panproto-schema",
@@ -2188,10 +2180,8 @@ dependencies = [
 name = "panproto-schema"
 version = "0.35.0"
 dependencies = [
- "divan",
  "panproto-expr",
  "panproto-gat",
- "panproto-protocols",
  "proptest",
  "rmp-serde",
  "rustc-hash",

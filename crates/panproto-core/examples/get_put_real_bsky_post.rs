@@ -2,9 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use panproto_inst::CompiledMigration;
-use panproto_lens::{Lens, get, put};
-use panproto_schema::{Edge, Schema};
+use panproto_core::inst::CompiledMigration;
+use panproto_core::lens::{Lens, get, put};
+use panproto_core::schema::{Edge, Schema};
 
 const FEED_POST_LEXICON: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
@@ -12,7 +12,7 @@ const POST_RECORD: &[u8] = include_bytes!("../../../fixtures/atproto/records/pos
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lexicon: serde_json::Value = serde_json::from_str(FEED_POST_LEXICON)?;
-    let schema: Schema = panproto_protocols::web_document::atproto::parse_lexicon(&lexicon)?;
+    let schema: Schema = panproto_core::protocols::web_document::atproto::parse_lexicon(&lexicon)?;
 
     let surviving_verts = schema.vertices.keys().cloned().collect();
     let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tgt_schema: schema.clone(),
     };
 
-    let registry = panproto_io::default_registry();
+    let registry = panproto_core::io::default_registry();
     let instance = registry.parse_wtype("atproto", &schema, POST_RECORD)?;
     println!("source: {} nodes", instance.nodes.len());
 
