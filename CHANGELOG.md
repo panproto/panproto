@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-04-20
+
 ### Added
 
 - **panproto-protocols (atproto)**: `parse_lexicon` now preserves atproto's string refinements on the canonical `Schema` graph instead of silently dropping them. `"format"` values (`datetime`, `at-uri`, `at-identifier`, `cid`, `did`, `handle`, `language`, `nsid`, `record-key`, `tid`, `uri`) round-trip as `Constraint { sort: "format", value: <raw string> }` on the corresponding string vertex; unknown future format names pass through verbatim so parsing stays total under spec evolution. `"knownValues"` (atproto's open-enum construct) round-trips as `Constraint { sort: "knownValues", value: <canonical JSON array> }` on the string vertex. Both new sorts are registered in the atproto protocol's `constraint_sorts` and therefore participate in `panproto-check::diff`/`classify` automatically — a change to a `format` or `knownValues` entry now surfaces as a schema change instead of going unnoticed. Resolves panproto/panproto#42. Downstream atproto codegen tools can drop their hand-written lexicon re-parsers in favour of reading these constraints off the `Schema`.
