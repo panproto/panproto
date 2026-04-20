@@ -26,6 +26,8 @@ All notable changes to panproto will be documented in this file.
 
 - **panproto-lens tests**: Renamed the put-regression test from an issue-number name to a behavioural name (`put_preserves_view_edits_under_rename_field`), and backticked `field_transforms` in its documentation for `clippy::doc_markdown`.
 
+- **examples/benches style**: Retroactive `cargo fmt` pass plus three `clippy::doc_markdown` fixes across the newly added benches and examples (backticked `WInstance`, `ThMulti`, `NodeClient`). `panproto-llvm`'s `lower_typescript_to_llvm` example drops an unnecessary `Result` return. No behavioural change.
+
 ## [0.34.1] - 2026-04-17
 
 ### Fixed
