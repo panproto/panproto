@@ -26,6 +26,12 @@ thiserror = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 tempfile = "3"
+divan = { workspace = true }
+panproto-protocols = { workspace = true }
+
+[[bench]]
+name = "vcs_bench"
+harness = false
 
 [lints]
 workspace = true

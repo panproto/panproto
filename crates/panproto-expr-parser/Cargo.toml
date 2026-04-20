@@ -14,6 +14,11 @@ chumsky = { version = "1.0.0-alpha.8", features = ["pratt"] }
 
 [dev-dependencies]
 proptest.workspace = true
+divan = { workspace = true }
+
+[[bench]]
+name = "expr_parser_bench"
+harness = false
 
 [lints]
 workspace = true

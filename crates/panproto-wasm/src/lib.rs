@@ -86,6 +86,7 @@ pub use api::{
     fiber_at, fiber_decomposition_wasm, free_handle, get_builtin_protocol, get_dataset,
     get_migration_complement, get_protocol_definition, get_record, instance_element_count,
     instance_to_json, instantiate_protolens, invert_migration, json_to_instance, lift_record,
+    parse_atproto_lexicon, schema_metadata,
     list_builtin_protocols, list_io_protocols, migrate_dataset_backward, migrate_dataset_forward,
     migrate_model, migration_coverage, normalize_schema, parse_expr, parse_instance, poly_hom,
     preferred_conversion_path, protolens_chain_to_json, protolens_check_applicability,

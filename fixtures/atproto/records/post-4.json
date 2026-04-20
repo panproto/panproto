@@ -1,0 +1,18 @@
+{
+  "$type": "app.bsky.feed.post",
+  "createdAt": "2026-04-16T23:47:25.965Z",
+  "langs": [
+    "en"
+  ],
+  "reply": {
+    "parent": {
+      "cid": "bafyreieg6pefatfv2zrj3aqba35uca6xlbztbgjla45xjuffxpmqxd7ism",
+      "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3mjnlu7swl22w"
+    },
+    "root": {
+      "cid": "bafyreierzikywhmelbcjl2iagn24oonrw3vq4kkhxgwwvnuztiklpczk5y",
+      "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3mjnlu7smsk2w"
+    }
+  },
+  "text": "The attack is impacting our application, with users experiencing intermittent interruptions in service for their feeds, notifications, threads and search."
+}

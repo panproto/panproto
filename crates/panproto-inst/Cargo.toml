@@ -21,6 +21,8 @@ bumpalo = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 divan = { workspace = true }
+panproto-protocols = { workspace = true }
+panproto-io = { workspace = true }
 
 [[bench]]
 name = "inst_bench"

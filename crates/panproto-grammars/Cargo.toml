@@ -16,6 +16,18 @@ build = "build.rs"
 tree-sitter = { workspace = true }
 tree-sitter-language = "0.1"
 
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "grammars_bench"
+harness = false
+required-features = ["lang-protobuf"]
+
+[[example]]
+name = "parse_with_grammar"
+required-features = ["lang-protobuf"]
+
 [build-dependencies]
 cc = "1"
 toml = "0.8"

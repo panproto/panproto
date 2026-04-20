@@ -26,6 +26,16 @@ memchr = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+divan = { workspace = true }
+
+[[bench]]
+name = "parse_bench"
+harness = false
+required-features = ["lang-protobuf"]
+
+[[example]]
+name = "parse_real_protobuf"
+required-features = ["lang-protobuf"]
 
 [features]
 default = ["grammars"]

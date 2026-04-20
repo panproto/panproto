@@ -17,6 +17,7 @@ rustc-hash = { workspace = true }
 serde_json = { workspace = true }
 proptest = { workspace = true }
 divan = { workspace = true }
+panproto-protocols = { workspace = true }
 
 [[bench]]
 name = "gat_bench"

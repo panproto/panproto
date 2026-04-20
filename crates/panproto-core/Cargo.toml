@@ -41,5 +41,13 @@ panproto-git = { workspace = true, optional = true }
 panproto-llvm = { workspace = true, optional = true }
 panproto-jit = { workspace = true, optional = true }
 
+[dev-dependencies]
+divan = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "core_bench"
+harness = false
+
 [lints]
 workspace = true

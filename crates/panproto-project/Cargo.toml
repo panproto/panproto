@@ -25,6 +25,16 @@ smallvec = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+divan = { workspace = true }
+
+[[bench]]
+name = "project_bench"
+harness = false
+required-features = ["panproto-parse/lang-protobuf"]
+
+[[example]]
+name = "assemble_protos"
+required-features = ["panproto-parse/lang-protobuf"]
 
 [lints]
 workspace = true
