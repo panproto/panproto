@@ -1,0 +1,8 @@
+{
+  "displayName": "Bluesky",
+  "description": "official Bluesky account (check username\ud83d\udc46)\n\nBugs, feature requests, feedback: support@bsky.app",
+  "avatar": "https://cdn.bsky.app/img/avatar/plain/did:plc:z72i7hdynmk6r22z27h6tvur/bafkreihwihm6kpd6zuwhhlro75p5qks5qtrcu55jp3gddbfjsieiv7wuka",
+  "banner": "https://cdn.bsky.app/img/banner/plain/did:plc:z72i7hdynmk6r22z27h6tvur/bafkreichzyovokfzmymz36p5jibbjrhsur6n7hjnzxrpbt5jaydp2szvna",
+  "createdAt": "2023-04-12T04:53:57.057Z",
+  "$type": "app.bsky.actor.profile"
+}

@@ -38,6 +38,13 @@ Live responses captured from the public Bluesky AppView
 These are public records produced by the `@bsky.app` account. Included for
 testing the shape of real records, not to reproduce content.
 
+Derived from the two AppView responses, flat record-shaped fixtures:
+
+| File | Derivation |
+| --- | --- |
+| `post-0.json` … `post-4.json` | `feed-bsky.app.json[feed[0..5].post.record]` — bare `app.bsky.feed.post` records |
+| `profile-record.json` | `profile-bsky.app.json` restricted to the `app.bsky.actor.profile` record fields (`displayName`, `description`, `avatar`, `banner`, `createdAt`) |
+
 ## jsonschema/
 
 Fetched from `schemastore.org` on 2026-04-19.

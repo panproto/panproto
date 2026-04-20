@@ -1,0 +1,18 @@
+{
+  "$type": "app.bsky.feed.post",
+  "createdAt": "2026-04-16T23:47:25.966Z",
+  "langs": [
+    "en"
+  ],
+  "reply": {
+    "parent": {
+      "cid": "bafyreifhdb3ozf4vzzdk7hpemfvbbykb62hz5sbtpsny27jritlvwt2o24",
+      "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3mjnlu7sxkc2w"
+    },
+    "root": {
+      "cid": "bafyreierzikywhmelbcjl2iagn24oonrw3vq4kkhxgwwvnuztiklpczk5y",
+      "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3mjnlu7smsk2w"
+    }
+  },
+  "text": "We will provide an update no later than 10am PDT, April 17."
+}
