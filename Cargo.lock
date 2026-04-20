@@ -1816,6 +1816,7 @@ name = "panproto-grammars"
 version = "0.34.1"
 dependencies = [
  "cc",
+ "divan",
  "serde",
  "toml 0.8.23",
  "tree-sitter",
