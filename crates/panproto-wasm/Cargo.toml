@@ -26,6 +26,13 @@ rustc-hash = { workspace = true }
 default = []
 format-preserving = ["panproto-core/tree-sitter"]
 
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "wasm_bench"
+harness = false
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
 
