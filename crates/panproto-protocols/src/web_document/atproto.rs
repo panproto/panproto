@@ -56,6 +56,8 @@ pub fn protocol() -> Protocol {
             "const".into(),
             "default".into(),
             "closed".into(),
+            "format".into(),
+            "knownValues".into(),
         ],
         has_order: true,
         has_coproducts: true,
@@ -525,6 +527,14 @@ fn parse_query_procedure_def(
 }
 
 /// Parse constraints from a type definition.
+///
+/// In addition to the generic scalar constraints (`minLength`, `maxLength`,
+/// `minimum`, `maximum`, `maxGraphemes`, `enum`, `const`, `default`,
+/// `closed`), this preserves two atproto-specific string refinements
+/// required by codegen and validation: `format` (datetime, did, at-uri,
+/// cid, nsid, handle, tid, etc.) and `knownValues` (atproto's open enum).
+/// Unknown `format` names pass through verbatim so the parser stays total
+/// under atproto spec evolution.
 fn parse_constraints(
     mut builder: SchemaBuilder,
     vertex_id: &str,
@@ -560,6 +570,27 @@ fn parse_constraints(
             builder = builder.constraint(vertex_id, field, &value_str);
         }
     }
+
+    // atproto string refinement: `format` is a named string grammar
+    // (datetime, at-uri, did, cid, nsid, handle, at-identifier, tid,
+    // record-key, language, uri). Stored verbatim so codegen can pick
+    // dedicated newtypes and so future spec additions parse total.
+    if let Some(fmt) = def.get("format").and_then(serde_json::Value::as_str) {
+        builder = builder.constraint(vertex_id, "format", fmt);
+    }
+
+    // atproto open enum: `knownValues` lists recognized string values;
+    // unknown values are still wire-valid. Serialize the array as
+    // canonical JSON into the existing string-valued Constraint shape
+    // so downstream consumers deserialize it back.
+    if let Some(known) = def.get("knownValues").and_then(serde_json::Value::as_array) {
+        let values: Vec<&str> = known.iter().filter_map(serde_json::Value::as_str).collect();
+        if !values.is_empty() {
+            let serialized = serde_json::to_string(&values).unwrap_or_else(|_| String::from("[]"));
+            builder = builder.constraint(vertex_id, "knownValues", &serialized);
+        }
+    }
+
     builder
 }
 

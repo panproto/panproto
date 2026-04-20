@@ -2155,6 +2155,7 @@ version = "0.34.1"
 dependencies = [
  "blake3",
  "divan",
+ "panproto-check",
  "panproto-gat",
  "panproto-inst",
  "panproto-schema",
