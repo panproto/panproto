@@ -1927,6 +1927,7 @@ dependencies = [
 name = "panproto-lens-dsl"
 version = "0.34.1"
 dependencies = [
+ "divan",
  "miette",
  "nickel-lang",
  "panproto-expr",
@@ -2074,6 +2075,7 @@ dependencies = [
 name = "panproto-theory-dsl"
 version = "0.34.1"
 dependencies = [
+ "divan",
  "miette",
  "nickel-lang",
  "panproto-expr",

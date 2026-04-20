@@ -25,6 +25,11 @@ tempfile = "3"
 
 [dev-dependencies]
 proptest.workspace = true
+divan = { workspace = true }
+
+[[bench]]
+name = "lens_dsl_bench"
+harness = false
 
 [lints]
 workspace = true
