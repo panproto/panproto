@@ -1757,6 +1757,7 @@ name = "panproto-expr-parser"
 version = "0.34.1"
 dependencies = [
  "chumsky",
+ "divan",
  "logos 0.16.1",
  "panproto-expr",
  "proptest",
@@ -2091,12 +2092,14 @@ name = "panproto-vcs"
 version = "0.34.1"
 dependencies = [
  "blake3",
+ "divan",
  "panproto-check",
  "panproto-expr",
  "panproto-gat",
  "panproto-inst",
  "panproto-lens",
  "panproto-mig",
+ "panproto-protocols",
  "panproto-schema",
  "proptest",
  "rmp-serde",
