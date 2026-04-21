@@ -988,6 +988,93 @@ mod tests {
         assert_eq!(orig_unit, mig_unit);
     }
 
+    // --- A6: naturality tests for dependent sort morphisms ---
+
+    /// Dependent-sort category theory with `Hom(a, b)` and `id` + `compose`.
+    fn category_theory_for_morphism() -> Theory {
+        use crate::sort::{SortExpr, SortParam};
+        let ob = Sort::simple("Ob");
+        let hom = Sort::dependent(
+            "Hom",
+            vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+        );
+        let hom_xx = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("x")],
+        };
+        let id_op = Operation::unary("id", "x", "Ob", hom_xx);
+        Theory::new("Cat", vec![ob, hom], vec![id_op], Vec::new())
+    }
+
+    #[test]
+    fn identity_morphism_on_dependent_category_is_valid() {
+        let cat = category_theory_for_morphism();
+        let sort_map = HashMap::from([
+            (Arc::from("Ob"), Arc::from("Ob")),
+            (Arc::from("Hom"), Arc::from("Hom")),
+        ]);
+        let op_map = HashMap::from([(Arc::from("id"), Arc::from("id"))]);
+        let m = TheoryMorphism::new("id", "Cat", "Cat", sort_map, op_map);
+        assert!(
+            check_morphism(&m, &cat, &cat).is_ok(),
+            "identity on dependent category should be a valid morphism",
+        );
+    }
+
+    #[test]
+    fn morphism_dropping_sort_parameter_is_rejected() {
+        use crate::sort::{SortExpr, SortParam};
+        // Domain: Hom(a, b) parameterised by two Obs.
+        // Codomain: Hom with only one Ob parameter.
+        let domain = Theory::new(
+            "D",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+            ],
+            vec![Operation::unary(
+                "id",
+                "x",
+                "Ob",
+                SortExpr::App {
+                    name: Arc::from("Hom"),
+                    args: vec![Term::var("x"), Term::var("x")],
+                },
+            )],
+            Vec::new(),
+        );
+        let codomain = Theory::new(
+            "C",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent("Hom", vec![SortParam::new("a", "Ob")]),
+            ],
+            vec![Operation::unary(
+                "id",
+                "x",
+                "Ob",
+                SortExpr::App {
+                    name: Arc::from("Hom"),
+                    args: vec![Term::var("x")],
+                },
+            )],
+            Vec::new(),
+        );
+        let sort_map = HashMap::from([
+            (Arc::from("Ob"), Arc::from("Ob")),
+            (Arc::from("Hom"), Arc::from("Hom")),
+        ]);
+        let op_map = HashMap::from([(Arc::from("id"), Arc::from("id"))]);
+        let m = TheoryMorphism::new("bad", "D", "C", sort_map, op_map);
+        assert!(
+            check_morphism(&m, &domain, &codomain).is_err(),
+            "morphism that drops a sort parameter should be rejected",
+        );
+    }
+
     // --- proptest strategies and property tests ---
 
     mod property {

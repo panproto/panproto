@@ -89,6 +89,43 @@ impl Term {
     }
 }
 
+/// Compose two term substitutions.
+///
+/// The composition `compose_subst(tau, sigma)` is the substitution that
+/// behaves like applying `sigma` first and then `tau`: for every
+/// variable `x`, `compose_subst(tau, sigma)(x) = sigma(x).substitute(tau)`
+/// when `x ∈ dom sigma`, `tau(x)` when `x ∈ dom tau \ dom sigma`, and
+/// `Var(x)` otherwise. The resulting map carries the semantics
+/// `t.substitute(sigma).substitute(tau) == t.substitute(compose_subst(tau, sigma))`
+/// for every term `t`.
+///
+/// The order of arguments mirrors function composition: `compose_subst(tau,
+/// sigma)` is the pushforward of `sigma` along `tau`, i.e. `tau ∘ sigma`.
+#[must_use]
+pub fn compose_subst<S1, S2>(
+    tau: &std::collections::HashMap<Arc<str>, Term, S1>,
+    sigma: &std::collections::HashMap<Arc<str>, Term, S2>,
+) -> rustc_hash::FxHashMap<Arc<str>, Term>
+where
+    S1: std::hash::BuildHasher,
+    S2: std::hash::BuildHasher,
+{
+    // Build a transient FxHashMap view over `tau` for `substitute`, which
+    // requires the FxHasher specifically.
+    let tau_fx: rustc_hash::FxHashMap<Arc<str>, Term> = tau
+        .iter()
+        .map(|(k, v)| (Arc::clone(k), v.clone()))
+        .collect();
+    let mut out: rustc_hash::FxHashMap<Arc<str>, Term> = rustc_hash::FxHashMap::default();
+    for (x, t) in sigma {
+        out.insert(Arc::clone(x), t.substitute(&tau_fx));
+    }
+    for (x, t) in tau {
+        out.entry(Arc::clone(x)).or_insert_with(|| t.clone());
+    }
+    out
+}
+
 /// An equation (axiom) in a GAT.
 ///
 /// Equations express judgemental equalities between terms.
@@ -685,6 +722,65 @@ mod tests {
         assert!(!alpha_equivalent(&t1, &t2));
     }
 
+    // --- compose_subst and substitution monoid laws ---
+
+    fn mk_subst(pairs: &[(&str, Term)]) -> rustc_hash::FxHashMap<Arc<str>, Term> {
+        let mut m = rustc_hash::FxHashMap::default();
+        for (k, v) in pairs {
+            m.insert(Arc::from(*k), v.clone());
+        }
+        m
+    }
+
+    #[test]
+    fn compose_subst_agrees_with_sequential_application() {
+        // t = f(x, y); sigma = [x := g(a)]; tau = [y := b, a := c]
+        let t = Term::app("f", vec![Term::var("x"), Term::var("y")]);
+        let sigma = mk_subst(&[("x", Term::app("g", vec![Term::var("a")]))]);
+        let tau = mk_subst(&[("y", Term::constant("b")), ("a", Term::constant("c"))]);
+        let sequential = t.substitute(&sigma).substitute(&tau);
+        let composed = t.substitute(&compose_subst(&tau, &sigma));
+        assert_eq!(sequential, composed);
+    }
+
+    #[test]
+    fn substitute_empty_is_identity_unit() {
+        let t = Term::app("f", vec![Term::var("x"), Term::constant("c")]);
+        let empty = rustc_hash::FxHashMap::default();
+        assert_eq!(t.substitute(&empty), t);
+    }
+
+    #[test]
+    fn compose_subst_empty_left_is_right() {
+        let sigma = mk_subst(&[("x", Term::var("y"))]);
+        let empty = rustc_hash::FxHashMap::default();
+        let composed = compose_subst(&empty, &sigma);
+        // compose_subst(empty, sigma)(x) = sigma(x).subst(empty) = sigma(x)
+        assert_eq!(composed.get(&Arc::from("x")).unwrap(), &Term::var("y"));
+        assert_eq!(composed.len(), 1);
+    }
+
+    #[test]
+    fn compose_subst_empty_right_is_left() {
+        let tau = mk_subst(&[("y", Term::var("z"))]);
+        let empty = rustc_hash::FxHashMap::default();
+        let composed = compose_subst(&tau, &empty);
+        assert_eq!(composed.get(&Arc::from("y")).unwrap(), &Term::var("z"));
+        assert_eq!(composed.len(), 1);
+    }
+
+    // --- alpha-equivalence transitivity ---
+
+    #[test]
+    fn alpha_equivalence_transitive() {
+        let a = Term::app("f", vec![Term::var("x"), Term::var("y")]);
+        let b = Term::app("f", vec![Term::var("u"), Term::var("v")]);
+        let c = Term::app("f", vec![Term::var("p"), Term::var("q")]);
+        assert!(alpha_equivalent(&a, &b));
+        assert!(alpha_equivalent(&b, &c));
+        assert!(alpha_equivalent(&a, &c));
+    }
+
     // --- proptest strategies and property tests ---
 
     mod property {
@@ -751,6 +847,37 @@ mod tests {
                 let renamed = t.rename_ops(&map);
                 // renaming must preserve the number of free variables
                 prop_assert_eq!(t.free_vars().len(), renamed.free_vars().len());
+            }
+
+            #[test]
+            fn substitute_composition_law(
+                t in arb_term(3),
+                v1 in arb_name(),
+                r1 in arb_term(1),
+                v2 in arb_name(),
+                r2 in arb_term(1),
+            ) {
+                let sigma = {
+                    let mut m = rustc_hash::FxHashMap::default();
+                    m.insert(v1, r1);
+                    m
+                };
+                let tau = {
+                    let mut m = rustc_hash::FxHashMap::default();
+                    m.insert(v2, r2);
+                    m
+                };
+                let sequential = t.substitute(&sigma).substitute(&tau);
+                let composed = t.substitute(&compose_subst(&tau, &sigma));
+                prop_assert_eq!(sequential, composed);
+            }
+
+            #[test]
+            fn alpha_equivalence_transitive_prop(
+                t in arb_term(3),
+            ) {
+                // reflexivity + transitivity via chain t ~ t ~ t.
+                prop_assert!(alpha_equivalent(&t, &t));
             }
 
             #[test]

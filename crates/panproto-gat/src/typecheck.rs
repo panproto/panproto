@@ -787,6 +787,134 @@ mod tests {
         Ok(())
     }
 
+    // --- A3: unification soundness, occurs check, idempotence ---
+
+    #[test]
+    fn unify_same_var_yields_empty_subst() -> Result<(), Box<dyn std::error::Error>> {
+        let subst = unify_all(vec![(Term::var("x"), Term::var("x"))])?;
+        assert!(subst.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn unify_var_to_constant_binds() -> Result<(), Box<dyn std::error::Error>> {
+        let subst = unify_all(vec![(Term::var("x"), Term::constant("c"))])?;
+        assert_eq!(subst.get(&Arc::from("x")), Some(&Term::constant("c")));
+        Ok(())
+    }
+
+    #[test]
+    fn unify_occurs_check_fails() {
+        // x = f(x) must fail the occurs check.
+        let r = unify_all(vec![(Term::var("x"), Term::app("f", vec![Term::var("x")]))]);
+        assert!(matches!(r, Err(GatError::SortUnificationFailure { .. })));
+    }
+
+    #[test]
+    fn unify_head_mismatch_fails() {
+        let r = unify_all(vec![(
+            Term::app("f", vec![Term::var("x")]),
+            Term::app("g", vec![Term::var("x")]),
+        )]);
+        assert!(matches!(r, Err(GatError::SortUnificationFailure { .. })));
+    }
+
+    #[test]
+    fn unify_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
+        // Unify f(x, y) = f(a, g(b)). Then applying the substitution twice
+        // is the same as once.
+        let eqs = vec![(
+            Term::app("f", vec![Term::var("x"), Term::var("y")]),
+            Term::app(
+                "f",
+                vec![Term::var("a"), Term::app("g", vec![Term::var("b")])],
+            ),
+        )];
+        let subst = unify_all(eqs)?;
+        // Apply to x and compare to apply-twice.
+        for k in subst.keys() {
+            let once = Term::var(Arc::clone(k)).substitute(&subst);
+            let twice = once.substitute(&subst);
+            assert_eq!(once, twice, "substitution not idempotent on {k}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unify_soundness_mgu_instantiates_both_sides() -> Result<(), Box<dyn std::error::Error>> {
+        // f(x, g(y)) = f(h(a), g(b))
+        let lhs = Term::app(
+            "f",
+            vec![Term::var("x"), Term::app("g", vec![Term::var("y")])],
+        );
+        let rhs = Term::app(
+            "f",
+            vec![
+                Term::app("h", vec![Term::var("a")]),
+                Term::app("g", vec![Term::var("b")]),
+            ],
+        );
+        let subst = unify_all(vec![(lhs.clone(), rhs.clone())])?;
+        let l2 = lhs.substitute(&subst);
+        let r2 = rhs.substitute(&subst);
+        assert_eq!(l2, r2);
+        Ok(())
+    }
+
+    // --- A4: typecheck idempotence and substitution commuting ---
+
+    #[test]
+    fn typecheck_term_idempotent() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = category_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("x"), SortExpr::from("Ob"));
+        let t = Term::app("id", vec![Term::var("x")]);
+        let s1 = typecheck_term(&t, &ctx, &theory)?;
+        let s2 = typecheck_term(&t, &ctx, &theory)?;
+        assert_eq!(s1, s2);
+        Ok(())
+    }
+
+    #[test]
+    fn typecheck_context_strengthening() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = category_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("x"), SortExpr::from("Ob"));
+        let t = Term::app("id", vec![Term::var("x")]);
+        let s1 = typecheck_term(&t, &ctx, &theory)?;
+        // Extend ctx with unrelated var.
+        ctx.insert(Arc::from("unused"), SortExpr::from("Ob"));
+        let s2 = typecheck_term(&t, &ctx, &theory)?;
+        assert_eq!(s1, s2);
+        Ok(())
+    }
+
+    #[test]
+    fn typecheck_substitution_commutes() -> Result<(), Box<dyn std::error::Error>> {
+        // typecheck(t, ctx) = s implies typecheck(t.subst(sigma), ctx.subst(sigma)) = s.subst(sigma)
+        let theory = category_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("x"), SortExpr::from("Ob"));
+        let t = Term::app("id", vec![Term::var("x")]);
+        let s = typecheck_term(&t, &ctx, &theory)?;
+
+        // sigma maps x to a new variable y : Ob.
+        let mut sigma: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+        sigma.insert(Arc::from("x"), Term::var("y"));
+
+        let t_prime = t.substitute(&sigma);
+        let mut ctx_prime = VarContext::default();
+        ctx_prime.insert(Arc::from("y"), SortExpr::from("Ob"));
+
+        let s_prime = typecheck_term(&t_prime, &ctx_prime, &theory)?;
+        let s_expected = s.subst(&sigma);
+        assert!(
+            s_prime.alpha_eq(&s_expected),
+            "got {s_prime}, expected {s_expected}"
+        );
+        Ok(())
+    }
+
     // --- proptest property tests ---
 
     mod property {

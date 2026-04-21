@@ -11,12 +11,21 @@ use crate::eq::Term;
 /// [`Operation::inputs`](crate::op::Operation::inputs) entries, and
 /// [`SortParam::sort`], wherever a sort occurs.
 ///
-/// The variants are kept distinct in the in-memory representation, but
-/// `alpha_eq` treats `Name(n)` as equal to `App { name: n, args: [] }`.
+/// Normalization invariant: every [`SortExpr`] produced by constructors
+/// and public operations is normalized. A normalized value uses the
+/// `Name` spelling whenever the argument list is empty; `App { name, args:
+/// [] }` never appears in normalized values. This invariant is enforced
+/// by the smart constructor [`SortExpr::app`], by [`Self::subst`], by
+/// [`Self::rename_head`], by [`Self::apply_maps`], and by the custom
+/// `serde::Deserialize` impl. The derived [`PartialEq`] and [`Hash`] are
+/// replaced with manual impls that treat `Name(n)` and `App { name: n,
+/// args: [] }` as equal (in case a caller constructs a non-normalized
+/// value directly through the `App` variant).
+///
 /// The serde representation uses `#[serde(untagged)]`, so `Name(n)`
 /// serializes as the bare string `"n"` and `App` serializes as a struct
 /// with `name` and `args` fields.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Eq, serde::Serialize)]
 #[serde(untagged)]
 pub enum SortExpr {
     /// A plain sort name with no parameters applied.
@@ -31,6 +40,39 @@ pub enum SortExpr {
 }
 
 impl SortExpr {
+    /// Smart constructor: produces [`Self::Name`] when `args` is empty,
+    /// otherwise [`Self::App`]. This is the only way to construct a
+    /// normalized `SortExpr::App`; direct use of the `App` variant is
+    /// allowed for backwards compatibility, but normalization should be
+    /// restored via [`Self::normalize`] before the value escapes its
+    /// local context.
+    #[must_use]
+    pub fn app(name: impl Into<Arc<str>>, args: Vec<Term>) -> Self {
+        if args.is_empty() {
+            Self::Name(name.into())
+        } else {
+            Self::App {
+                name: name.into(),
+                args,
+            }
+        }
+    }
+
+    /// Normalize this expression: collapse `App { name, args: [] }` into
+    /// `Name(name)`. Idempotent; leaves already-normalized values
+    /// unchanged. The argument list is not recursed into because the
+    /// term AST inside arguments does not share this two-spelling
+    /// ambiguity.
+    #[must_use]
+    pub fn normalize(self) -> Self {
+        if let Self::App { name, args } = &self {
+            if args.is_empty() {
+                return Self::Name(Arc::clone(name));
+            }
+        }
+        self
+    }
+
     /// Extract the bare sort name, ignoring any applied arguments.
     #[must_use]
     pub const fn head(&self) -> &Arc<str> {
@@ -54,14 +96,18 @@ impl SortExpr {
     pub fn subst(&self, mapping: &FxHashMap<Arc<str>, Term>) -> Self {
         match self {
             Self::Name(n) => Self::Name(Arc::clone(n)),
-            Self::App { name, args } => Self::App {
-                name: Arc::clone(name),
-                args: args.iter().map(|t| t.substitute(mapping)).collect(),
-            },
+            Self::App { name, args } => Self::app(
+                Arc::clone(name),
+                args.iter().map(|t| t.substitute(mapping)).collect(),
+            ),
         }
     }
 
     /// Structural equality modulo `Name(n) == App { name: n, args: [] }`.
+    ///
+    /// Equivalent to [`PartialEq::eq`] after the normalization invariant;
+    /// retained as a named method for documentation and for code that
+    /// wants to make the two-spelling quotient explicit at call sites.
     #[must_use]
     pub fn alpha_eq(&self, other: &Self) -> bool {
         self.head() == other.head() && self.args() == other.args()
@@ -73,13 +119,13 @@ impl SortExpr {
     pub fn rename_head(&self, sort_map: &std::collections::HashMap<Arc<str>, Arc<str>>) -> Self {
         match self {
             Self::Name(n) => Self::Name(sort_map.get(n).cloned().unwrap_or_else(|| Arc::clone(n))),
-            Self::App { name, args } => Self::App {
-                name: sort_map
+            Self::App { name, args } => Self::app(
+                sort_map
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| Arc::clone(name)),
-                args: args.clone(),
-            },
+                args.clone(),
+            ),
         }
     }
 
@@ -93,13 +139,54 @@ impl SortExpr {
     ) -> Self {
         match self {
             Self::Name(n) => Self::Name(sort_map.get(n).cloned().unwrap_or_else(|| Arc::clone(n))),
-            Self::App { name, args } => Self::App {
-                name: sort_map
+            Self::App { name, args } => Self::app(
+                sort_map
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| Arc::clone(name)),
-                args: args.iter().map(|t| t.rename_ops(op_map)).collect(),
-            },
+                args.iter().map(|t| t.rename_ops(op_map)).collect(),
+            ),
+        }
+    }
+}
+
+impl PartialEq for SortExpr {
+    /// Two sort expressions are equal when their heads and argument lists
+    /// agree. This reduces `Name(n)` to `App { name: n, args: [] }` under
+    /// equality, matching [`SortExpr::alpha_eq`] and ensuring that the
+    /// `Eq`/`Hash` contract holds across both spellings.
+    fn eq(&self, other: &Self) -> bool {
+        self.head() == other.head() && self.args() == other.args()
+    }
+}
+
+impl std::hash::Hash for SortExpr {
+    /// Hash by head and arguments. This agrees with [`PartialEq::eq`]
+    /// across the `Name` / empty-args `App` quotient so that both
+    /// spellings occupy the same hash bucket when used as a map key.
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.head().hash(state);
+        self.args().hash(state);
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SortExpr {
+    /// Normalize on load: any `App { name, args: [] }` incoming from JSON
+    /// collapses to `Name(name)` so that every downstream consumer sees
+    /// the canonical spelling.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Name(Arc<str>),
+            App { name: Arc<str>, args: Vec<Term> },
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Name(n) => Ok(Self::Name(n)),
+            Raw::App { name, args } => Ok(Self::app(name, args)),
         }
     }
 }
@@ -852,6 +939,107 @@ mod tests {
             CoercionClass::Opaque.compose(CoercionClass::Projection),
             CoercionClass::Opaque,
         );
+    }
+
+    // --- A1 normalization / Eq-Hash consistency tests ---
+
+    #[test]
+    fn empty_args_app_normalizes_to_name() {
+        let raw = SortExpr::App {
+            name: Arc::from("Ob"),
+            args: Vec::new(),
+        };
+        let n = raw.normalize();
+        assert!(matches!(n, SortExpr::Name(ref s) if &**s == "Ob"));
+        // Normalization is idempotent.
+        assert_eq!(n.clone().normalize(), n);
+    }
+
+    #[test]
+    fn smart_constructor_collapses_empty_args() {
+        let v = SortExpr::app("Ob", Vec::new());
+        assert!(matches!(v, SortExpr::Name(_)));
+    }
+
+    #[test]
+    fn smart_constructor_preserves_nonempty() {
+        let v = SortExpr::app("Hom", vec![Term::var("x"), Term::var("y")]);
+        assert!(matches!(v, SortExpr::App { .. }));
+    }
+
+    #[test]
+    fn eq_treats_name_and_empty_app_equal() {
+        let a = SortExpr::Name(Arc::from("Ob"));
+        let b = SortExpr::App {
+            name: Arc::from("Ob"),
+            args: Vec::new(),
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn hash_agrees_with_eq_across_spellings() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let a = SortExpr::Name(Arc::from("Ob"));
+        let b = SortExpr::App {
+            name: Arc::from("Ob"),
+            args: Vec::new(),
+        };
+        let hash = |v: &SortExpr| {
+            let mut h = DefaultHasher::new();
+            v.hash(&mut h);
+            h.finish()
+        };
+        assert_eq!(hash(&a), hash(&b));
+    }
+
+    #[test]
+    fn hashmap_lookup_crosses_spellings() {
+        let mut m: FxHashMap<SortExpr, usize> = FxHashMap::default();
+        m.insert(SortExpr::Name(Arc::from("Ob")), 1);
+        let key = SortExpr::App {
+            name: Arc::from("Ob"),
+            args: Vec::new(),
+        };
+        assert_eq!(m.get(&key).copied(), Some(1));
+    }
+
+    #[test]
+    fn subst_produces_normalized_output() {
+        let e = SortExpr::App {
+            name: Arc::from("S"),
+            args: vec![Term::var("x")],
+        };
+        let mut mapping: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+        // Substitute x with a term that reduces args count? No, subst
+        // replaces var-by-term; args count stays. Normalization matters
+        // most at *construction* time and for the empty-args App case.
+        mapping.insert(Arc::from("x"), Term::constant("c"));
+        let r = e.subst(&mapping);
+        assert!(matches!(r, SortExpr::App { .. }));
+    }
+
+    #[test]
+    fn rename_head_normalizes_empty_app() {
+        let e = SortExpr::App {
+            name: Arc::from("Ob"),
+            args: Vec::new(),
+        };
+        let mut sm: std::collections::HashMap<Arc<str>, Arc<str>> =
+            std::collections::HashMap::new();
+        sm.insert(Arc::from("Ob"), Arc::from("Obj"));
+        let r = e.rename_head(&sm);
+        assert!(matches!(r, SortExpr::Name(ref n) if &**n == "Obj"));
+    }
+
+    #[test]
+    fn deserialize_empty_args_app_normalizes() -> Result<(), Box<dyn std::error::Error>> {
+        let json = r#"{"name":"Ob","args":[]}"#;
+        let v: SortExpr = serde_json::from_str(json)?;
+        assert!(matches!(v, SortExpr::Name(ref n) if &**n == "Ob"));
+        Ok(())
     }
 
     #[test]

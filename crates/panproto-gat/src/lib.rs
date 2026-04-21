@@ -51,8 +51,8 @@ pub use composition::{CompositionSpec, CompositionStep, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
 pub use eq::{
-    DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation, match_pattern,
-    normalize,
+    DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation, compose_subst,
+    match_pattern, normalize,
 };
 pub use error::GatError;
 pub use free_model::{FreeModelConfig, FreeModelResult, free_model};

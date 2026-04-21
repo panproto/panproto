@@ -994,6 +994,170 @@ mod tests {
         Ok(())
     }
 
+    /// Free category on two parallel generating arrows `f, g : Hom(a, b)`
+    /// at depth 1 has `{id(a), id(b), f(a, b), g(a, b)}` (4 morphisms), not
+    /// 6 or more. `compose(f, g)` cannot form because `tgt(f) = b` but
+    /// `src(g) = a`, so the middle-object constraint rules out composites
+    /// in either order. This is the fiber-matching test that distinguishes
+    /// a dependent-sort-aware generator from a cartesian-product
+    /// generator.
+    #[test]
+    fn free_model_parallel_arrows_no_spurious_composites() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use crate::sort::{SortExpr, SortParam};
+
+        let hom_ab = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::constant("a"), Term::constant("b")],
+        };
+        let hom_xy = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("y")],
+        };
+        let theory = Theory::new(
+            "ParallelArrows",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+            ],
+            vec![
+                Operation::nullary("a", "Ob"),
+                Operation::nullary("b", "Ob"),
+                Operation::nullary("f", hom_ab.clone()),
+                Operation::nullary("g", hom_ab),
+                Operation::unary(
+                    "id",
+                    "x",
+                    "Ob",
+                    SortExpr::App {
+                        name: Arc::from("Hom"),
+                        args: vec![Term::var("x"), Term::var("x")],
+                    },
+                ),
+                Operation::new(
+                    "compose",
+                    vec![
+                        (Arc::from("x"), SortExpr::from("Ob")),
+                        (Arc::from("y"), SortExpr::from("Ob")),
+                        (Arc::from("z"), SortExpr::from("Ob")),
+                        (
+                            Arc::from("h1"),
+                            SortExpr::App {
+                                name: Arc::from("Hom"),
+                                args: vec![Term::var("x"), Term::var("y")],
+                            },
+                        ),
+                        (
+                            Arc::from("h2"),
+                            SortExpr::App {
+                                name: Arc::from("Hom"),
+                                args: vec![Term::var("y"), Term::var("z")],
+                            },
+                        ),
+                    ],
+                    hom_xy,
+                ),
+            ],
+            Vec::new(),
+        );
+
+        let config = FreeModelConfig {
+            max_depth: 1,
+            max_terms_per_sort: 100,
+        };
+        let model = free_model(&theory, &config)?.model;
+
+        // Ob: {a, b}.
+        assert_eq!(model.sort_interp["Ob"].len(), 2);
+        // Hom at depth 1: id(a), id(b), f, g. No composites because f and
+        // g share source/target (a, b), so compose(f, g) would require
+        // tgt(f) = b = src(g) = a, which fails.
+        assert_eq!(
+            model.sort_interp["Hom"].len(),
+            4,
+            "Hom fiber should contain {{id(a), id(b), f, g}}, got {:?}",
+            model.sort_interp["Hom"],
+        );
+        Ok(())
+    }
+
+    /// Every term in the free model has a well-typed output sort.
+    #[test]
+    fn free_model_every_term_well_typed() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::sort::{SortExpr, SortParam};
+        use crate::typecheck::{VarContext, typecheck_term};
+
+        let hom_xx = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("x")],
+        };
+        let theory = Theory::new(
+            "EndoCat",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+            ],
+            vec![
+                Operation::nullary("star", "Ob"),
+                Operation::unary("id", "x", "Ob", hom_xx.clone()),
+                Operation::unary("f", "x", "Ob", hom_xx),
+            ],
+            Vec::new(),
+        );
+
+        let config = FreeModelConfig {
+            max_depth: 2,
+            max_terms_per_sort: 100,
+        };
+        let (fibers, _) = generate_terms(&theory, &config)?;
+        let ctx = VarContext::default();
+        for (fiber, terms) in &fibers {
+            for term in terms {
+                let inferred = typecheck_term(term, &ctx, &theory)?;
+                assert!(
+                    inferred.alpha_eq(fiber),
+                    "term {term} has fiber {fiber} but typecheck inferred {inferred}",
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// For theories with only simple sorts, the fiber-matching generator
+    /// reduces to the old head-indexed cartesian-product behavior. Verify
+    /// that a simple-sort graph theory produces the expected carrier
+    /// counts.
+    #[test]
+    fn free_model_simple_sorts_backward_compat() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = Theory::new(
+            "Graph",
+            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+            vec![
+                Operation::nullary("v0", "Vertex"),
+                Operation::nullary("v1", "Vertex"),
+                Operation::unary("src", "e", "Edge", "Vertex"),
+                Operation::unary("tgt", "e", "Edge", "Vertex"),
+            ],
+            Vec::new(),
+        );
+        let config = FreeModelConfig {
+            max_depth: 1,
+            max_terms_per_sort: 100,
+        };
+        let model = free_model(&theory, &config)?.model;
+        // Two vertices at depth 0; src/tgt need an Edge which is empty.
+        // So at any depth: Vertex = {v0, v1}, Edge = {}.
+        assert_eq!(model.sort_interp["Vertex"].len(), 2);
+        assert!(model.sort_interp["Edge"].is_empty());
+        Ok(())
+    }
+
     #[test]
     fn free_model_cyclic_sort_dependency_rejected() {
         use crate::sort::SortParam;
