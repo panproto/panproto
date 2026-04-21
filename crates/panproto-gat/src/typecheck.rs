@@ -915,23 +915,22 @@ mod tests {
         Ok(())
     }
 
-    // --- GATlab bug audit: dependent-sort unification soundness ---
+    // --- dependent-sort middle-object agreement ---
     //
-    // These three tests exercise the GATlab `bind_localctx` first-match
-    // bug: in GATlab, `compose(f, g)` with mismatched middle object
-    // still typechecks because only one derivation of each implicit
-    // parameter is consulted. panproto's `typecheck_term` propagates
-    // the substitution theta left-to-right and compares each expected
-    // input sort under theta against the argument's inferred sort via
-    // strict `alpha_eq`, so every repeated derivation of a shared
-    // parameter is checked for agreement.
+    // A shared parameter that appears in more than one argument's sort
+    // (the middle object in `compose(f : Hom(a, b), g : Hom(b, c))`)
+    // must take the same value in every occurrence. `typecheck_term`
+    // propagates the substitution theta left-to-right and compares
+    // each argument's inferred sort against the expected input sort
+    // under theta via strict `alpha_eq`, so mismatched derivations of
+    // a shared parameter are rejected.
 
     #[test]
-    fn gatlab_bug7_compose_mismatched_middle_object_rejected() {
-        // Test A from the audit. compose : (x, y, z : Ob, f : Hom(x, y),
-        // g : Hom(y, z)) -> Hom(x, z). Supply f : Hom(p, q) and g :
-        // Hom(r, s) with q != r and call compose with explicit
-        // middle-object choice that cannot satisfy both.
+    fn compose_with_disagreeing_middle_object_is_rejected() {
+        // compose : (x, y, z : Ob, f : Hom(x, y), g : Hom(y, z)) ->
+        // Hom(x, z). Supply f : Hom(p, q) and g : Hom(r, s) with q != r
+        // and call compose with an explicit middle-object choice that
+        // cannot satisfy both input-sort constraints at once.
         let theory = category_theory();
         let mut ctx = VarContext::default();
         ctx.insert(Arc::from("p"), SortExpr::from("Ob"));
@@ -973,12 +972,10 @@ mod tests {
     }
 
     #[test]
-    fn gatlab_bug7_compose_id_with_hom_mismatch_rejected() {
-        // Test B from the audit. compose(id(p), f) where f : Hom(q, r)
-        // with p != q. id(p) has sort Hom(p, p); for compose to
-        // accept, the middle object must equal p, but the second
-        // argument requires Hom(middle, _) = Hom(q, r), so p = q is
-        // forced and fails.
+    fn compose_of_identity_with_unrelated_arrow_is_rejected() {
+        // compose(id(p), f) where f : Hom(q, r) with p != q. id(p)
+        // has sort Hom(p, p); compose forces the middle object to
+        // equal p in the first slot and q in the second, contradicting.
         let theory = category_theory();
         let mut ctx = VarContext::default();
         ctx.insert(Arc::from("p"), SortExpr::from("Ob"));
@@ -1012,12 +1009,11 @@ mod tests {
     }
 
     #[test]
-    fn gatlab_bug7_compose_two_ids_distinct_objects_rejected() {
-        // Test C from the audit. compose(id(p), id(q)) with p != q:
-        // id(p) : Hom(p, p), id(q) : Hom(q, q); these cannot share a
-        // middle object because p and q are distinct Obs. No choice of
-        // the three explicit middle-object arguments makes both
-        // input-sort checks pass.
+    fn compose_of_two_identities_at_distinct_objects_is_rejected() {
+        // compose(id(p), id(q)) with p != q. id(p) : Hom(p, p), id(q)
+        // : Hom(q, q); the two identities cannot share a middle object
+        // and no choice of the explicit middle-object arguments makes
+        // both input-sort checks pass.
         let theory = category_theory();
         let mut ctx = VarContext::default();
         ctx.insert(Arc::from("p"), SortExpr::from("Ob"));
@@ -1042,10 +1038,10 @@ mod tests {
         );
     }
 
-    // --- GATlab bug audit Bug 6: exhaustive negative typecheck tests ---
+    // --- negative typecheck cases returning specific error variants ---
 
     #[test]
-    fn gatlab_bug6_equation_dependent_sort_arg_mismatch() {
+    fn equation_with_dependent_sort_arg_mismatch_errors() {
         // Equation whose argument sort does not unify with the
         // declared input sort. f : Hom(a, b); the equation uses f on
         // a term of simple sort Ob, which cannot typecheck.
@@ -1065,7 +1061,7 @@ mod tests {
     }
 
     #[test]
-    fn gatlab_bug6_equation_with_unknown_op_errors() {
+    fn equation_with_unknown_op_errors() {
         let theory = monoid_theory();
         let eq = Equation::new(
             "bad",
@@ -1080,7 +1076,7 @@ mod tests {
     }
 
     #[test]
-    fn gatlab_bug6_equation_with_arity_mismatch_errors() {
+    fn equation_with_arity_mismatch_errors() {
         let theory = monoid_theory();
         let eq = Equation::new(
             "bad",
@@ -1095,12 +1091,10 @@ mod tests {
     }
 
     #[test]
-    fn gatlab_bug6_dependent_sort_with_ill_typed_arg_errors() {
-        // Build a context where f is supposed to inhabit Hom(x, x)
-        // but we attempt typecheck_term on compose with an explicit
-        // Ob argument that is in fact a Hom term. This targets the
-        // case where a dependent sort's argument term does not
-        // typecheck.
+    fn dependent_sort_with_ill_typed_arg_errors() {
+        // Passing a Hom-sorted term in an Ob-sorted argument slot
+        // must error rather than silently proceed; this exercises the
+        // case where the inferred sort has the wrong head altogether.
         let theory = category_theory();
         let mut ctx = VarContext::default();
         ctx.insert(Arc::from("x"), SortExpr::from("Ob"));

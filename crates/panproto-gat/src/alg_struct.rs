@@ -120,22 +120,15 @@ mod tests {
         assert_eq!(s.required_field_count(), 0);
     }
 
-    /// `GATlab` bug audit Bug 8: `AlgStruct` self-collision on resolver
-    /// registration.
-    ///
-    /// `GATlab`'s `unsafe_updatecache!` for an `AlgStruct` calls
-    /// `addmethod!` twice with `sortsignature` and `typesortsignature`,
-    /// which collide when the two signatures agree and crash theory
-    /// construction. panproto's `AlgStruct` carries no resolver table
-    /// and is not registered into `Theory`, so building a struct whose
-    /// field names overlap with its declared parameter names, or whose
-    /// shape matches another construct's signature, produces a plain
-    /// data value with no panic.
+    /// An `AlgStruct` whose fields share names with its declared
+    /// parameters is plain data: construction does not register
+    /// anything globally, so name overlap is inert and round-trips
+    /// through serde unchanged.
     #[test]
-    fn gatlab_bug8_alg_struct_field_constructor_collision_is_inert() {
-        // Build a struct whose fields happen to share names with its
-        // params. In GATlab this would be a resolver-table collision;
-        // here it is just data.
+    fn alg_struct_with_name_overlap_between_fields_and_params_is_inert() {
+        // Shape deliberately chosen to make every identifier coincide:
+        // a struct named "Self" with a param "Self" : Type and two
+        // fields that reuse the param name and the struct name.
         let s = AlgStruct::new("Self")
             .with_param("Self", "Type")
             .with_field("Self", "Type")

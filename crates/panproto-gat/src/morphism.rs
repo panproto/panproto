@@ -159,15 +159,17 @@ impl TheoryMorphism {
 
 /// # Soundness note on equation preservation
 ///
-/// Equation preservation is checked syntactically: for every domain
+/// Equation preservation is checked syntactically. For every domain
 /// equation `lhs = rhs`, the mapped pair `F(lhs) = F(rhs)` must appear
 /// alpha-equivalent to some equation already present in the codomain's
-/// equation list. This is stronger than `GATlab`'s behaviour (which
-/// performs no preservation check at all) but weaker than verifying
-/// that the mapped equation follows from the codomain's full equational
-/// theory via normalization or congruence closure. A morphism whose
-/// image is provable but not literally listed in the codomain will be
-/// rejected; complete preservation is a known follow-up.
+/// equation list. This is a conservative approximation of the true
+/// mathematical criterion, which is that `F(lhs) = F(rhs)` hold in the
+/// codomain's full equational theory. The current check rejects any
+/// morphism whose image is derivable in the codomain via directed
+/// rewrites or via chains of other equations but is not literally
+/// listed, and this is a known incompleteness: complete preservation
+/// via normalization or congruence closure against the codomain's
+/// equational theory is a queued follow-up.
 ///
 /// Check that a theory morphism is valid.
 ///
@@ -1115,17 +1117,15 @@ mod tests {
         );
     }
 
-    // --- GATlab bug audit Bug 1: retag recursion into dependent-sort args ---
+    // --- bulk sort and op renaming recurses through nested structure ---
 
-    /// Build a small dependent theory: Ctx and Ty(Γ). Applying a
-    /// morphism that renames every sort and op must rewrite the head
-    /// of every `SortExpr::App` and also every op-application term
-    /// nested under `args`. This is the structural analogue of
-    /// `GATlab`'s "retag does not recurse into Judgments" bug. A clean
-    /// implementation leaves no pre-rename op name anywhere in the
-    /// renamed theory's signatures or equations.
+    /// Applying a theory morphism that renames every sort and op must
+    /// rewrite the head of every `SortExpr::App`, every op-application
+    /// term nested inside a sort's arguments, and every op name inside
+    /// equation bodies. No pre-rename name should survive anywhere in
+    /// the renamed theory's signatures or equations.
     #[test]
-    fn gatlab_bug1_rename_recurses_through_dependent_sort_args() {
+    fn rename_recurses_through_dependent_sort_args_and_equations() {
         use crate::sort::{SortExpr, SortParam};
 
         // Build a little theory with Ctx, Ty(Γ : Ctx), and operations:
@@ -1244,18 +1244,16 @@ mod tests {
         }
     }
 
-    // --- GATlab bug audit Bug 5: flat-namespace collision sanity ---
+    // --- equation-variable independence across theories ---
 
-    /// panproto theory data uses a single flat namespace per theory
-    /// (sort names, op names), so `GATlab`'s "reident collapses scopes
-    /// by matching a single field" pattern does not apply structurally.
-    /// This test exercises two independent theories that both use the
-    /// name "a" as an equation variable and verifies that neither
-    /// composing via identity morphism nor running `typecheck_theory`
-    /// confuses them. Variables are universally quantified per-equation
-    /// and do not leak across theory boundaries.
+    /// Equation variables are universally quantified per equation and
+    /// private to the enclosing theory: two independent theories can
+    /// reuse the same variable name in their axioms without any
+    /// cross-theory interaction. This test builds two such theories,
+    /// typechecks each, and confirms that composing the identity
+    /// morphism on one does not pick up any structure from the other.
     #[test]
-    fn gatlab_bug5_equation_var_names_do_not_leak_across_theories() {
+    fn equation_var_names_do_not_leak_across_theories() {
         let t1 = monoid_theory("M1", "mul", "unit");
         let t2 = monoid_theory("M2", "mul", "unit");
         // Both theories have an assoc equation whose free vars are
@@ -1275,15 +1273,15 @@ mod tests {
         assert!(!std::ptr::eq(t1.eqs.as_ptr(), t2.eqs.as_ptr()));
     }
 
-    // --- GATlab bug audit Bug 9: syntactic axiom-preservation check ---
+    // --- axiom preservation under morphisms ---
 
-    /// A morphism whose image in the codomain does not literally
-    /// include the mapped equation must be rejected. This documents
-    /// that panproto's axiom-preservation check is syntactic (stronger
-    /// than `GATlab`'s absent check, weaker than full
-    /// normalization/congruence closure).
+    /// If the codomain lacks an equation that the domain claims (even
+    /// after the morphism's renaming is applied), the morphism must
+    /// be rejected. This locks in the behaviour of the syntactic
+    /// preservation check, which looks for the mapped equation
+    /// literally among the codomain's equations.
     #[test]
-    fn gatlab_bug9_mapped_equation_missing_in_codomain_rejected() {
+    fn morphism_rejected_when_mapped_equation_absent_from_codomain() {
         // Domain: monoid with assoc, left_id, right_id.
         let domain = monoid_theory("Mdom", "mul", "unit");
         // Codomain: same sorts and ops, but no equations at all.
@@ -1318,12 +1316,13 @@ mod tests {
         );
     }
 
-    /// A morphism whose mapped equation is derivable in the codomain
-    /// via other equations plus rewrites, but not literally present,
-    /// is still rejected by the current syntactic check. This test
-    /// locks in that behaviour as documentation of the known gap.
+    /// The preservation check is syntactic: a mapped equation that
+    /// is derivable in the codomain via directed rewrites but not
+    /// listed as a literal equation is still rejected. This test
+    /// records that limitation; lifting it would require normalizing
+    /// both sides in the codomain before comparing.
     #[test]
-    fn gatlab_bug9_derivable_but_not_listed_equation_is_rejected() {
+    fn morphism_rejected_when_mapped_equation_only_derivable_not_listed() {
         // Domain: a theory with a derived equation f(f(x)) = x, which
         // follows from the directed rewrite f(x) -> x.
         let domain = Theory::new(
