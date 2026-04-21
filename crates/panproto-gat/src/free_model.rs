@@ -77,6 +77,16 @@ pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<FreeModel
 
 /// Collapse a fiber-indexed term map down to a head-indexed term map.
 /// All terms with the same head sort are unioned into a single carrier.
+///
+/// Soundness of the collapse under the downstream quotient: GAT
+/// equations are sort-preserving (both sides of every equation have
+/// the same output sort, enforced by `typecheck_equation`), and
+/// congruence closure over a set of sort-preserving equations only
+/// ever relates terms that are already in the same fiber. The
+/// head-indexed carrier therefore exposes the fibered free model's
+/// underlying set without identifying terms across fibers; consumers
+/// that need fiber information should recover it from each term's
+/// inferred output sort via `typecheck_term`.
 fn collapse_fibers(
     terms_by_fiber: &FxHashMap<SortExpr, Vec<Term>>,
 ) -> FxHashMap<Arc<str>, Vec<Term>> {
@@ -281,13 +291,21 @@ fn extend_op_tuples(
 }
 
 /// Assign consecutive global indices to all generated terms.
+///
+/// Iterates sorts in sort-name order so that the resulting indices are
+/// deterministic across runs, regardless of hash-table insertion order
+/// upstream. Any downstream consumer that hashes or compares free-model
+/// indices (the VCS layer in particular) depends on this determinism.
 fn assign_global_indices(
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
 ) -> (FxHashMap<Arc<str>, Vec<usize>>, usize) {
     let mut global_idx = 0usize;
     let mut term_to_global: FxHashMap<Arc<str>, Vec<usize>> = FxHashMap::default();
 
-    for (sort, terms) in terms_by_sort {
+    let mut sorted_keys: Vec<&Arc<str>> = terms_by_sort.keys().collect();
+    sorted_keys.sort();
+    for sort in sorted_keys {
+        let terms = &terms_by_sort[sort];
         let indices: Vec<usize> = (global_idx..global_idx + terms.len()).collect();
         global_idx += terms.len();
         term_to_global.insert(Arc::clone(sort), indices);
