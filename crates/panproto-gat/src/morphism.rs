@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::eq::{Term, alpha_equivalent_equation};
 use crate::error::GatError;
 use crate::ident::{NameSite, SiteRename};
+use crate::sort::positional_param_rename;
 use crate::theory::Theory;
 
 /// A structure-preserving map between two theories.
@@ -203,9 +204,19 @@ pub fn check_morphism(
             });
         }
 
-        // 3b. Dependent sort parameter sorts must be preserved under the mapping.
+        // 3b. Dependent sort parameter sorts must be preserved under the
+        // mapping, modulo positional alpha-renaming of the parameter
+        // names. The parameter names are local binders at the sort's
+        // declaration site; they are in scope in later parameter sorts.
+        let sort_param_rename = positional_param_rename(
+            sort.params.iter().map(|p| Arc::clone(&p.name)),
+            target_sort.params.iter().map(|p| Arc::clone(&p.name)),
+        );
         for (i, param) in sort.params.iter().enumerate() {
-            let mapped_param_sort = param.sort.apply_maps(&m.sort_map, &m.op_map);
+            let mapped_param_sort = param
+                .sort
+                .apply_maps(&m.sort_map, &m.op_map)
+                .subst(&sort_param_rename);
             if !mapped_param_sort.alpha_eq(&target_sort.params[i].sort) {
                 return Err(GatError::SortParamMismatch {
                     sort: sort.name.to_string(),
@@ -240,6 +251,18 @@ pub fn check_morphism(
             });
         }
 
+        // Parameter names are local binders at the operation's
+        // declaration site, in scope in every later input sort and in
+        // the output sort. When comparing the mapped signature against
+        // the codomain operation we rename the domain's parameter names
+        // to the codomain's positionally, so that a morphism from
+        // `f : (a : A) -> Hom(a, a)` to `f : (x : A) -> Hom(x, x)` is
+        // accepted.
+        let op_param_rename = positional_param_rename(
+            op.inputs.iter().map(|(n, _)| Arc::clone(n)),
+            target_op.inputs.iter().map(|(n, _)| Arc::clone(n)),
+        );
+
         for (i, (_, sort_expr)) in op.inputs.iter().enumerate() {
             // The head of every input sort must have a mapping (this is
             // a structural prerequisite); argument-term renames flow
@@ -247,7 +270,9 @@ pub fn check_morphism(
             if !m.sort_map.contains_key(sort_expr.head()) {
                 return Err(GatError::MissingSortMapping(sort_expr.head().to_string()));
             }
-            let mapped_sort = sort_expr.apply_maps(&m.sort_map, &m.op_map);
+            let mapped_sort = sort_expr
+                .apply_maps(&m.sort_map, &m.op_map)
+                .subst(&op_param_rename);
             let (_, target_sort) = &target_op.inputs[i];
             if !mapped_sort.alpha_eq(target_sort) {
                 return Err(GatError::OpTypeMismatch {
@@ -260,7 +285,10 @@ pub fn check_morphism(
         if !m.sort_map.contains_key(op.output.head()) {
             return Err(GatError::MissingSortMapping(op.output.head().to_string()));
         }
-        let mapped_output = op.output.apply_maps(&m.sort_map, &m.op_map);
+        let mapped_output = op
+            .output
+            .apply_maps(&m.sort_map, &m.op_map)
+            .subst(&op_param_rename);
         if !mapped_output.alpha_eq(&target_op.output) {
             return Err(GatError::OpTypeMismatch {
                 op: op.name.to_string(),
@@ -1072,6 +1100,254 @@ mod tests {
         assert!(
             check_morphism(&m, &domain, &codomain).is_err(),
             "morphism that drops a sort parameter should be rejected",
+        );
+    }
+
+    // --- parameter alpha-renaming tests ---
+
+    /// Domain category where `id` binds its argument as `x`.
+    /// Codomain category where `id` binds its argument as `y`.
+    /// The two theories are categorically identical; the morphism
+    /// between them must typecheck despite the parameter name change.
+    #[test]
+    fn morphism_between_alpha_variant_categories_is_valid() {
+        use crate::sort::{SortExpr, SortParam};
+        let cat_x = {
+            let ob = Sort::simple("Ob");
+            let hom = Sort::dependent(
+                "Hom",
+                vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+            );
+            let id_x = Operation::unary(
+                "id",
+                "x",
+                "Ob",
+                SortExpr::App {
+                    name: Arc::from("Hom"),
+                    args: vec![Term::var("x"), Term::var("x")],
+                },
+            );
+            Theory::new("CatX", vec![ob, hom], vec![id_x], Vec::new())
+        };
+        let cat_y = {
+            let ob = Sort::simple("Ob");
+            let hom = Sort::dependent(
+                "Hom",
+                vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+            );
+            let id_y = Operation::unary(
+                "id",
+                "y",
+                "Ob",
+                SortExpr::App {
+                    name: Arc::from("Hom"),
+                    args: vec![Term::var("y"), Term::var("y")],
+                },
+            );
+            Theory::new("CatY", vec![ob, hom], vec![id_y], Vec::new())
+        };
+        let sort_map = HashMap::from([
+            (Arc::from("Ob"), Arc::from("Ob")),
+            (Arc::from("Hom"), Arc::from("Hom")),
+        ]);
+        let op_map = HashMap::from([(Arc::from("id"), Arc::from("id"))]);
+        let m = TheoryMorphism::new("alpha", "CatX", "CatY", sort_map, op_map);
+        assert!(
+            check_morphism(&m, &cat_x, &cat_y).is_ok(),
+            "morphism between alpha-variant dependent theories should be accepted",
+        );
+    }
+
+    /// Reordering parameters is NOT the same as alpha-renaming them.
+    /// Domain `compose : (x, y, z, f: Hom(x, y), g: Hom(y, z)) -> Hom(x, z)`.
+    /// Codomain with swapped first two parameters (`y, x, z, ...`) is a
+    /// different theory and the morphism must be rejected.
+    #[test]
+    fn morphism_reordering_parameters_is_rejected() {
+        use crate::sort::{SortExpr, SortParam};
+        fn hom(a: &str, b: &str) -> SortExpr {
+            SortExpr::App {
+                name: Arc::from("Hom"),
+                args: vec![Term::var(a), Term::var(b)],
+            }
+        }
+        let hom_sort = Sort::dependent(
+            "Hom",
+            vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+        );
+
+        let domain = {
+            let compose = Operation::new(
+                "compose",
+                vec![
+                    (Arc::from("x"), "Ob".into()),
+                    (Arc::from("y"), "Ob".into()),
+                    (Arc::from("z"), "Ob".into()),
+                    (Arc::from("f"), hom("x", "y")),
+                    (Arc::from("g"), hom("y", "z")),
+                ],
+                hom("x", "z"),
+            );
+            Theory::new(
+                "D",
+                vec![Sort::simple("Ob"), hom_sort.clone()],
+                vec![compose],
+                Vec::new(),
+            )
+        };
+        let codomain = {
+            // Parameters reordered: (y, x, z, ...) with the same sort
+            // expressions would reference the same binder names but in
+            // a different positional binding, producing a genuinely
+            // different signature.
+            let compose = Operation::new(
+                "compose",
+                vec![
+                    (Arc::from("y"), "Ob".into()),
+                    (Arc::from("x"), "Ob".into()),
+                    (Arc::from("z"), "Ob".into()),
+                    (Arc::from("f"), hom("x", "y")),
+                    (Arc::from("g"), hom("y", "z")),
+                ],
+                hom("x", "z"),
+            );
+            Theory::new(
+                "C",
+                vec![Sort::simple("Ob"), hom_sort],
+                vec![compose],
+                Vec::new(),
+            )
+        };
+        let sort_map = HashMap::from([
+            (Arc::from("Ob"), Arc::from("Ob")),
+            (Arc::from("Hom"), Arc::from("Hom")),
+        ]);
+        let op_map = HashMap::from([(Arc::from("compose"), Arc::from("compose"))]);
+        let m = TheoryMorphism::new("reorder", "D", "C", sort_map, op_map);
+        assert!(
+            check_morphism(&m, &domain, &codomain).is_err(),
+            "reordering parameter positions is not a valid morphism",
+        );
+    }
+
+    /// Check the param-rename fix at the sort-declaration site as well:
+    /// domain uses `Hom(a, b)` where `a, b : Ob`; codomain uses
+    /// `Hom(p, q)` where `p, q : Ob`. The sort declaration comparison
+    /// must pass.
+    #[test]
+    fn morphism_renames_sort_param_names() {
+        use crate::sort::{SortExpr, SortParam};
+        let domain = Theory::new(
+            "D",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+            ],
+            vec![Operation::unary(
+                "id",
+                "x",
+                "Ob",
+                SortExpr::App {
+                    name: Arc::from("Hom"),
+                    args: vec![Term::var("x"), Term::var("x")],
+                },
+            )],
+            Vec::new(),
+        );
+        let codomain = Theory::new(
+            "C",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("p", "Ob"), SortParam::new("q", "Ob")],
+                ),
+            ],
+            vec![Operation::unary(
+                "id",
+                "v",
+                "Ob",
+                SortExpr::App {
+                    name: Arc::from("Hom"),
+                    args: vec![Term::var("v"), Term::var("v")],
+                },
+            )],
+            Vec::new(),
+        );
+        let sort_map = HashMap::from([
+            (Arc::from("Ob"), Arc::from("Ob")),
+            (Arc::from("Hom"), Arc::from("Hom")),
+        ]);
+        let op_map = HashMap::from([(Arc::from("id"), Arc::from("id"))]);
+        let m = TheoryMorphism::new("rename_params", "D", "C", sort_map, op_map);
+        assert!(
+            check_morphism(&m, &domain, &codomain).is_ok(),
+            "sort parameter name differences should not block a morphism",
+        );
+    }
+
+    /// If the theories differ in a way that alpha-renaming cannot
+    /// repair (e.g. one argument swapped from `x` to `y` where `y` is
+    /// not the positionally-corresponding param), the morphism must
+    /// still be rejected. This guards against "alpha-renaming papers
+    /// over genuine structural differences".
+    #[test]
+    fn morphism_with_non_positional_name_swap_is_rejected() {
+        use crate::sort::{SortExpr, SortParam};
+        let domain = Theory::new(
+            "D",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+            ],
+            vec![Operation::new(
+                "parallel",
+                vec![(Arc::from("x"), "Ob".into()), (Arc::from("y"), "Ob".into())],
+                SortExpr::App {
+                    name: Arc::from("Hom"),
+                    args: vec![Term::var("x"), Term::var("y")],
+                },
+            )],
+            Vec::new(),
+        );
+        let codomain = Theory::new(
+            "C",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+            ],
+            // codomain output is Hom(y', x') -- swapped, not just renamed.
+            vec![Operation::new(
+                "parallel",
+                vec![
+                    (Arc::from("x_prime"), "Ob".into()),
+                    (Arc::from("y_prime"), "Ob".into()),
+                ],
+                SortExpr::App {
+                    name: Arc::from("Hom"),
+                    args: vec![Term::var("y_prime"), Term::var("x_prime")],
+                },
+            )],
+            Vec::new(),
+        );
+        let sort_map = HashMap::from([
+            (Arc::from("Ob"), Arc::from("Ob")),
+            (Arc::from("Hom"), Arc::from("Hom")),
+        ]);
+        let op_map = HashMap::from([(Arc::from("parallel"), Arc::from("parallel"))]);
+        let m = TheoryMorphism::new("bad_swap", "D", "C", sort_map, op_map);
+        assert!(
+            check_morphism(&m, &domain, &codomain).is_err(),
+            "argument swap is a genuine signature difference, not a rename",
         );
     }
 

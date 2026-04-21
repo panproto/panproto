@@ -69,6 +69,8 @@ pub use quotient::quotient;
 pub use schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
 pub use sort::{
     CoercionClass, Sort, SortExpr, SortKind, SortParam, ValueKind, classify_builtin_coercion,
+    positional_param_rename, signatures_equivalent_modulo_param_rename,
+    sort_params_equivalent_modulo_rename,
 };
 pub use theory::{ConflictPolicy, ConflictStrategy, Theory, resolve_theory, th_editable_structure};
 pub use typecheck::{

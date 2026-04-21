@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::eq::alpha_equivalent_equation;
 use crate::error::GatError;
 use crate::morphism::TheoryMorphism;
+use crate::sort::signatures_equivalent_modulo_param_rename;
 use crate::theory::Theory;
 
 /// Result of a categorical pushout (colimit) computation.
@@ -222,7 +223,12 @@ fn merge_ops(
                     name: effective_name.to_string(),
                 })?;
             let renamed_op = rename_op_sort_refs(op, sort_rename);
-            if t1_op.inputs != renamed_op.inputs || t1_op.output != renamed_op.output {
+            if !signatures_equivalent_modulo_param_rename(
+                &t1_op.inputs,
+                &t1_op.output,
+                &renamed_op.inputs,
+                &renamed_op.output,
+            ) {
                 return Err(GatError::OpConflict {
                     name: effective_name.to_string(),
                 });
@@ -480,7 +486,12 @@ pub fn colimit_by_name(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theo
             let t1_op = t1.find_op(&op.name).ok_or_else(|| GatError::OpConflict {
                 name: op.name.to_string(),
             })?;
-            if t1_op.inputs != op.inputs || t1_op.output != op.output {
+            if !signatures_equivalent_modulo_param_rename(
+                &t1_op.inputs,
+                &t1_op.output,
+                &op.inputs,
+                &op.output,
+            ) {
                 return Err(GatError::OpConflict {
                     name: op.name.to_string(),
                 });

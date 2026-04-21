@@ -150,6 +150,90 @@ impl SortExpr {
     }
 }
 
+/// Build a variable-rename substitution that sends each domain parameter
+/// name to the codomain parameter name at the same position.
+///
+/// Returned substitution is suitable for feeding to
+/// [`SortExpr::subst`](crate::sort::SortExpr::subst) or
+/// [`Term::substitute`](crate::eq::Term::substitute). Positions past the
+/// shorter of the two sequences are not bound; callers that need an
+/// arity equality check should verify it before calling this helper.
+///
+/// Identity pairs (where the two names agree) are omitted, so the
+/// returned substitution is the identity when both sides already use the
+/// same names and `subst` becomes a no-op on short-circuit paths.
+#[must_use]
+pub fn positional_param_rename<I, J>(
+    domain_params: I,
+    target_params: J,
+) -> FxHashMap<Arc<str>, Term>
+where
+    I: IntoIterator<Item = Arc<str>>,
+    J: IntoIterator<Item = Arc<str>>,
+{
+    let mut rename = FxHashMap::default();
+    for (d, t) in domain_params.into_iter().zip(target_params) {
+        if d != t {
+            rename.insert(d, Term::Var(t));
+        }
+    }
+    rename
+}
+
+/// Compare two operation or sort signatures modulo positional alpha-rename
+/// of the declared parameter names.
+///
+/// Each signature is a list of `(param_name, param_sort)` pairs plus an
+/// output sort expression. Parameter names are local binders and are in
+/// scope in every later parameter sort and in the output. Two signatures
+/// are considered equivalent when the substitution that sends the left
+/// side's parameter names to the right side's (positionally) makes the
+/// sort expressions pairwise equal under [`SortExpr::alpha_eq`].
+///
+/// Arity mismatches fail. If either side has fewer parameters than the
+/// other this function returns `false`.
+#[must_use]
+pub fn signatures_equivalent_modulo_param_rename(
+    lhs_inputs: &[(Arc<str>, SortExpr)],
+    lhs_output: &SortExpr,
+    rhs_inputs: &[(Arc<str>, SortExpr)],
+    rhs_output: &SortExpr,
+) -> bool {
+    if lhs_inputs.len() != rhs_inputs.len() {
+        return false;
+    }
+    let rename = positional_param_rename(
+        lhs_inputs.iter().map(|(n, _)| Arc::clone(n)),
+        rhs_inputs.iter().map(|(n, _)| Arc::clone(n)),
+    );
+    for ((_, lhs_sort), (_, rhs_sort)) in lhs_inputs.iter().zip(rhs_inputs.iter()) {
+        if !lhs_sort.subst(&rename).alpha_eq(rhs_sort) {
+            return false;
+        }
+    }
+    lhs_output.subst(&rename).alpha_eq(rhs_output)
+}
+
+/// Compare two sort declarations' parameter blocks modulo positional
+/// alpha-rename of the declared parameter names.
+///
+/// Sort parameter sorts may themselves be dependent (e.g.
+/// `(Γ : Ctx, A : Ty(Γ))`), so the rename is accumulated positionally
+/// and applied to every later parameter sort.
+#[must_use]
+pub fn sort_params_equivalent_modulo_rename(lhs: &[SortParam], rhs: &[SortParam]) -> bool {
+    if lhs.len() != rhs.len() {
+        return false;
+    }
+    let rename = positional_param_rename(
+        lhs.iter().map(|p| Arc::clone(&p.name)),
+        rhs.iter().map(|p| Arc::clone(&p.name)),
+    );
+    lhs.iter()
+        .zip(rhs.iter())
+        .all(|(l, r)| l.sort.subst(&rename).alpha_eq(&r.sort))
+}
+
 impl PartialEq for SortExpr {
     /// Two sort expressions are equal when their heads and argument lists
     /// agree. This reduces `Name(n)` to `App { name: n, args: [] }` under
@@ -1042,6 +1126,144 @@ mod tests {
         Ok(())
     }
 
+    // --- positional_param_rename / signatures_equivalent_modulo_param_rename ---
+
+    #[test]
+    fn positional_rename_identity_is_empty() {
+        let r = positional_param_rename(
+            [Arc::from("a"), Arc::from("b")],
+            [Arc::from("a"), Arc::from("b")],
+        );
+        assert!(r.is_empty(), "identity rename should be empty");
+    }
+
+    #[test]
+    fn positional_rename_maps_differing_names_only() {
+        let r = positional_param_rename(
+            [Arc::from("a"), Arc::from("y"), Arc::from("c")],
+            [Arc::from("x"), Arc::from("y"), Arc::from("z")],
+        );
+        assert_eq!(r.len(), 2);
+        assert_eq!(r.get(&Arc::from("a")), Some(&Term::var("x")));
+        assert_eq!(r.get(&Arc::from("c")), Some(&Term::var("z")));
+        assert!(!r.contains_key(&Arc::from("y")));
+    }
+
+    #[test]
+    fn signature_equivalence_accepts_alpha_variant() {
+        // (a : Ob) -> Hom(a, a) vs (x : Ob) -> Hom(x, x)
+        let lhs_inputs = vec![(Arc::from("a"), SortExpr::from("Ob"))];
+        let lhs_output = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("a"), Term::var("a")],
+        };
+        let rhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"))];
+        let rhs_output = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("x")],
+        };
+        assert!(signatures_equivalent_modulo_param_rename(
+            &lhs_inputs,
+            &lhs_output,
+            &rhs_inputs,
+            &rhs_output,
+        ));
+    }
+
+    #[test]
+    fn signature_equivalence_rejects_swap() {
+        // (x, y : Ob) -> Hom(x, y) vs (x, y : Ob) -> Hom(y, x)
+        let hom = |a: &str, b: &str| SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var(a), Term::var(b)],
+        };
+        let lhs_inputs = vec![
+            (Arc::from("x"), SortExpr::from("Ob")),
+            (Arc::from("y"), SortExpr::from("Ob")),
+        ];
+        let rhs_inputs = lhs_inputs.clone();
+        assert!(!signatures_equivalent_modulo_param_rename(
+            &lhs_inputs,
+            &hom("x", "y"),
+            &rhs_inputs,
+            &hom("y", "x"),
+        ));
+    }
+
+    #[test]
+    fn signature_equivalence_rejects_arity_mismatch() {
+        let lhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"))];
+        let rhs_inputs: Vec<(Arc<str>, SortExpr)> = Vec::new();
+        assert!(!signatures_equivalent_modulo_param_rename(
+            &lhs_inputs,
+            &SortExpr::from("Ob"),
+            &rhs_inputs,
+            &SortExpr::from("Ob"),
+        ));
+    }
+
+    #[test]
+    fn sort_params_rename_alpha_equivalent() {
+        // (a : Ob, b : Ob) vs (p : Ob, q : Ob)
+        let lhs = vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")];
+        let rhs = vec![SortParam::new("p", "Ob"), SortParam::new("q", "Ob")];
+        assert!(sort_params_equivalent_modulo_rename(&lhs, &rhs));
+    }
+
+    #[test]
+    fn sort_params_rename_detects_dependent_difference() {
+        // (Γ : Ctx, A : Ty(Γ)) vs (G : Ctx, A : Ty(G)) -- rename should succeed.
+        let lhs = vec![
+            SortParam::new("Gamma", "Ctx"),
+            SortParam::new(
+                "A",
+                SortExpr::App {
+                    name: Arc::from("Ty"),
+                    args: vec![Term::var("Gamma")],
+                },
+            ),
+        ];
+        let rhs = vec![
+            SortParam::new("G", "Ctx"),
+            SortParam::new(
+                "A",
+                SortExpr::App {
+                    name: Arc::from("Ty"),
+                    args: vec![Term::var("G")],
+                },
+            ),
+        ];
+        assert!(sort_params_equivalent_modulo_rename(&lhs, &rhs));
+    }
+
+    #[test]
+    fn sort_params_rename_rejects_genuine_difference() {
+        // (Γ : Ctx, A : Ty(Γ)) vs (G : Ctx, A : Ty(A)) -- second param's
+        // inner var refers to itself, not to the first param. Not an alpha
+        // variant.
+        let lhs = vec![
+            SortParam::new("Gamma", "Ctx"),
+            SortParam::new(
+                "A",
+                SortExpr::App {
+                    name: Arc::from("Ty"),
+                    args: vec![Term::var("Gamma")],
+                },
+            ),
+        ];
+        let rhs = vec![
+            SortParam::new("G", "Ctx"),
+            SortParam::new(
+                "A",
+                SortExpr::App {
+                    name: Arc::from("Ty"),
+                    args: vec![Term::var("A")],
+                },
+            ),
+        ];
+        assert!(!sort_params_equivalent_modulo_rename(&lhs, &rhs));
+    }
+
     mod property {
         use super::*;
         use proptest::prelude::*;
@@ -1114,6 +1336,45 @@ mod tests {
                 let n1 = e.normalize();
                 let n2 = n1.clone().normalize();
                 prop_assert_eq!(n1, n2);
+            }
+
+            #[test]
+            fn sig_equivalence_is_reflexive(
+                inputs in prop::collection::vec(
+                    (prop::sample::select(&["x", "y", "z"][..]).prop_map(Arc::from), arb_sort_expr()),
+                    0..=3,
+                ),
+                output in arb_sort_expr(),
+            ) {
+                prop_assert!(signatures_equivalent_modulo_param_rename(
+                    &inputs, &output, &inputs, &output,
+                ));
+            }
+
+            #[test]
+            fn sig_equivalence_under_alpha_rename(
+                sort_name in arb_name(),
+                first in prop::sample::select(&["x", "y", "z"][..]).prop_map(Arc::from),
+                replacement in prop::sample::select(&["p", "q", "r"][..]).prop_map(Arc::from),
+            ) {
+                // Build signature `(first : sort_name) -> App { sort_name, [first] }`
+                // and its alpha variant `(replacement : sort_name) -> App { sort_name, [replacement] }`.
+                // Both should be signature-equivalent under the positional rename.
+                let lhs_inputs: Vec<(Arc<str>, SortExpr)> =
+                    vec![(Arc::clone(&first), SortExpr::Name(Arc::clone(&sort_name)))];
+                let lhs_output = SortExpr::App {
+                    name: Arc::clone(&sort_name),
+                    args: vec![Term::Var(Arc::clone(&first))],
+                };
+                let rhs_inputs: Vec<(Arc<str>, SortExpr)> =
+                    vec![(Arc::clone(&replacement), SortExpr::Name(Arc::clone(&sort_name)))];
+                let rhs_output = SortExpr::App {
+                    name: sort_name,
+                    args: vec![Term::Var(replacement)],
+                };
+                prop_assert!(signatures_equivalent_modulo_param_rename(
+                    &lhs_inputs, &lhs_output, &rhs_inputs, &rhs_output,
+                ));
             }
 
             #[test]
