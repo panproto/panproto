@@ -1219,8 +1219,8 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
             };
             Ok(elementary::add_op(
                 Name::from(&*op.name),
-                Name::from(&**input_sort),
-                Name::from(&*op.output),
+                Name::from(input_sort.head().as_ref()),
+                Name::from(op.output.head().as_ref()),
                 Name::from(&*op.name),
             ))
         }

@@ -286,12 +286,9 @@ fn rename_sort_refs(
     let params = sort
         .params
         .iter()
-        .map(|p| {
-            let renamed_sort = sort_rename
-                .get(&p.sort)
-                .cloned()
-                .unwrap_or_else(|| Arc::clone(&p.sort));
-            crate::sort::SortParam::new(Arc::clone(&p.name), renamed_sort)
+        .map(|p| crate::sort::SortParam {
+            name: Arc::clone(&p.name),
+            sort: p.sort.rename_head(sort_rename),
         })
         .collect();
     crate::sort::Sort {
@@ -301,26 +298,20 @@ fn rename_sort_refs(
     }
 }
 
-/// Rename sort references in an operation's input/output sorts using the rename map.
+/// Rename sort references in an operation's input / output sorts using
+/// the rename map. Renames only the sort heads; argument terms of
+/// dependent sorts refer to parameter names that are local to each
+/// operation and are therefore unaffected.
 fn rename_op_sort_refs(
     op: &crate::op::Operation,
     sort_rename: &HashMap<Arc<str>, Arc<str>>,
 ) -> crate::op::Operation {
-    let inputs = op
+    let inputs: Vec<(Arc<str>, crate::sort::SortExpr)> = op
         .inputs
         .iter()
-        .map(|(name, sort)| {
-            let renamed = sort_rename
-                .get(sort)
-                .cloned()
-                .unwrap_or_else(|| Arc::clone(sort));
-            (Arc::clone(name), renamed)
-        })
+        .map(|(name, sort)| (Arc::clone(name), sort.rename_head(sort_rename)))
         .collect();
-    let output = sort_rename
-        .get(&op.output)
-        .cloned()
-        .unwrap_or_else(|| Arc::clone(&op.output));
+    let output = op.output.rename_head(sort_rename);
     crate::op::Operation::new(Arc::clone(&op.name), inputs, output)
 }
 

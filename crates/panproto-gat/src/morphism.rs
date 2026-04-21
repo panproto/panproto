@@ -205,8 +205,8 @@ pub fn check_morphism(
 
         // 3b. Dependent sort parameter sorts must be preserved under the mapping.
         for (i, param) in sort.params.iter().enumerate() {
-            let mapped_param_sort = m.sort_map.get(&param.sort).unwrap_or(&param.sort);
-            if *mapped_param_sort != target_sort.params[i].sort {
+            let mapped_param_sort = param.sort.apply_maps(&m.sort_map, &m.op_map);
+            if !mapped_param_sort.alpha_eq(&target_sort.params[i].sort) {
                 return Err(GatError::SortParamMismatch {
                     sort: sort.name.to_string(),
                     param_index: i,
@@ -240,13 +240,16 @@ pub fn check_morphism(
             });
         }
 
-        for (i, (_, sort_name)) in op.inputs.iter().enumerate() {
-            let mapped_sort = m
-                .sort_map
-                .get(sort_name)
-                .ok_or_else(|| GatError::MissingSortMapping(sort_name.to_string()))?;
+        for (i, (_, sort_expr)) in op.inputs.iter().enumerate() {
+            // The head of every input sort must have a mapping (this is
+            // a structural prerequisite); argument-term renames flow
+            // through the op_map.
+            if !m.sort_map.contains_key(sort_expr.head()) {
+                return Err(GatError::MissingSortMapping(sort_expr.head().to_string()));
+            }
+            let mapped_sort = sort_expr.apply_maps(&m.sort_map, &m.op_map);
             let (_, target_sort) = &target_op.inputs[i];
-            if mapped_sort != target_sort {
+            if !mapped_sort.alpha_eq(target_sort) {
                 return Err(GatError::OpTypeMismatch {
                     op: op.name.to_string(),
                     detail: format!("input {i}: expected sort {mapped_sort}, got {target_sort}"),
@@ -254,11 +257,11 @@ pub fn check_morphism(
             }
         }
 
-        let mapped_output = m
-            .sort_map
-            .get(&op.output)
-            .ok_or_else(|| GatError::MissingSortMapping(op.output.to_string()))?;
-        if mapped_output != &target_op.output {
+        if !m.sort_map.contains_key(op.output.head()) {
+            return Err(GatError::MissingSortMapping(op.output.head().to_string()));
+        }
+        let mapped_output = op.output.apply_maps(&m.sort_map, &m.op_map);
+        if !mapped_output.alpha_eq(&target_op.output) {
             return Err(GatError::OpTypeMismatch {
                 op: op.name.to_string(),
                 detail: format!(
@@ -1049,21 +1052,13 @@ mod tests {
             for op in &theory.ops {
                 let new_name: Arc<str> = Arc::from(format!("{}_{suffix}", op.name));
                 op_map.insert(Arc::clone(&op.name), Arc::clone(&new_name));
-                let new_inputs: Vec<(Arc<str>, Arc<str>)> = op
+                let new_inputs: Vec<(Arc<str>, crate::sort::SortExpr)> = op
                     .inputs
                     .iter()
-                    .map(|(p, s)| {
-                        (
-                            Arc::clone(p),
-                            sort_map.get(s).cloned().unwrap_or_else(|| Arc::clone(s)),
-                        )
-                    })
+                    .map(|(p, s)| (Arc::clone(p), s.apply_maps(&sort_map, &op_map)))
                     .collect();
-                let new_output = sort_map
-                    .get(&op.output)
-                    .cloned()
-                    .unwrap_or_else(|| Arc::clone(&op.output));
-                new_ops.push(Operation::new(&*new_name, new_inputs, &*new_output));
+                let new_output = op.output.apply_maps(&sort_map, &op_map);
+                new_ops.push(Operation::new(&*new_name, new_inputs, new_output));
             }
 
             // Rename equations.

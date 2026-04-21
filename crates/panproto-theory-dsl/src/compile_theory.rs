@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use panproto_gat::{
     CoercionClass, ConflictPolicy, ConflictStrategy, DirectedEquation, Equation, Operation, Sort,
-    SortKind, SortParam, Theory, ValueKind,
+    SortExpr, SortKind, SortParam, Theory, ValueKind,
 };
 
 use crate::document::{
@@ -70,7 +70,7 @@ fn compile_sort(spec: &SortSpec) -> Sort {
     let params: Vec<SortParam> = spec
         .params
         .iter()
-        .map(|p| SortParam::new(p.name.as_str(), p.sort.as_str()))
+        .map(|p| SortParam::new(p.name.as_str(), parse_sort_expr(&p.sort)))
         .collect();
 
     let kind = match &spec.kind {
@@ -96,24 +96,49 @@ fn compile_sort(spec: &SortSpec) -> Sort {
 }
 
 fn compile_op(spec: &OpSpec) -> Operation {
+    let output = parse_sort_expr(&spec.output);
     match (&spec.input, &spec.inputs) {
         (Some(input_sort), _) => {
             let param_name = input_sort[..1].to_ascii_lowercase();
             Operation::unary(
                 spec.name.as_str(),
                 param_name.as_str(),
-                input_sort.as_str(),
-                spec.output.as_str(),
+                parse_sort_expr(input_sort),
+                output,
             )
         }
         (None, Some(inputs)) => {
-            let input_pairs: Vec<(Arc<str>, Arc<str>)> = inputs
+            let input_pairs: Vec<(Arc<str>, SortExpr)> = inputs
                 .iter()
-                .map(|p| (Arc::from(p.name.as_str()), Arc::from(p.sort.as_str())))
+                .map(|p| (Arc::from(p.name.as_str()), parse_sort_expr(&p.sort)))
                 .collect();
-            Operation::new(spec.name.as_str(), input_pairs, spec.output.as_str())
+            Operation::new(spec.name.as_str(), input_pairs, output)
         }
-        (None, None) => Operation::nullary(spec.name.as_str(), spec.output.as_str()),
+        (None, None) => Operation::nullary(spec.name.as_str(), output),
+    }
+}
+
+/// Parse a sort string into a [`SortExpr`]. A bare identifier parses as
+/// [`SortExpr::Name`]; `Ident(arg1, arg2, ...)` parses as
+/// [`SortExpr::App`] with the argument list parsed as terms via
+/// [`parse_term`].
+pub(crate) fn parse_sort_expr(s: &str) -> SortExpr {
+    let trimmed = s.trim();
+    if let Some(paren_pos) = trimmed.find('(') {
+        let head = trimmed[..paren_pos].trim();
+        let inner = &trimmed[paren_pos + 1..];
+        let close = find_matching_paren(inner).unwrap_or(inner.len());
+        let args_str = &inner[..close];
+        let args = split_top_level_commas(args_str)
+            .iter()
+            .filter_map(|a| parse_term(a).ok())
+            .collect();
+        SortExpr::App {
+            name: Arc::from(head),
+            args,
+        }
+    } else {
+        SortExpr::Name(Arc::from(trimmed))
     }
 }
 

@@ -113,7 +113,7 @@ pub fn check_expr(expr_bytes: &[u8]) -> Result<Vec<u8>, JsError> {
     for (var_name, sort_name) in &input.context {
         ctx.insert(
             std::sync::Arc::from(var_name.as_str()),
-            std::sync::Arc::from(sort_name.as_str()),
+            gat::SortExpr::Name(std::sync::Arc::from(sort_name.as_str())),
         );
     }
 

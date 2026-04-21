@@ -15,6 +15,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::eq::Term;
 use crate::error::GatError;
 use crate::model::{Model, ModelValue};
+use crate::sort::SortExpr;
 use crate::theory::Theory;
 
 /// Configuration for free model construction.
@@ -59,11 +60,37 @@ pub struct FreeModelResult {
 ///
 /// Returns [`GatError::ModelError`] if the term count exceeds bounds.
 pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<FreeModelResult, GatError> {
-    let (terms_by_sort, is_complete) = generate_terms(theory, config)?;
+    let (terms_by_fiber, is_complete) = generate_terms(theory, config)?;
+    // Collapse fiber-indexed terms to head-indexed terms for the
+    // downstream model interface, which exposes carriers by sort head
+    // name. Seed empty entries for every declared sort so callers can
+    // always look up a carrier by name.
+    let mut terms_by_sort = collapse_fibers(&terms_by_fiber);
+    for sort in &theory.sorts {
+        terms_by_sort.entry(Arc::clone(&sort.name)).or_default();
+    }
     let (term_to_global, total_terms) = assign_global_indices(&terms_by_sort);
     let mut uf = quotient_by_equations(theory, &terms_by_sort, &term_to_global, total_terms);
     let model = build_model(theory, &terms_by_sort, &term_to_global, &mut uf);
     Ok(FreeModelResult { model, is_complete })
+}
+
+/// Collapse a fiber-indexed term map down to a head-indexed term map.
+/// All terms with the same head sort are unioned into a single carrier.
+fn collapse_fibers(
+    terms_by_fiber: &FxHashMap<SortExpr, Vec<Term>>,
+) -> FxHashMap<Arc<str>, Vec<Term>> {
+    let mut out: FxHashMap<Arc<str>, Vec<Term>> = FxHashMap::default();
+    for (fiber, terms) in terms_by_fiber {
+        let head = Arc::clone(fiber.head());
+        let bucket = out.entry(head).or_default();
+        for t in terms {
+            if !bucket.contains(t) {
+                bucket.push(t.clone());
+            }
+        }
+    }
+    out
 }
 
 /// Topologically sort the theory's sorts so that parameter sorts are
@@ -82,10 +109,11 @@ fn topological_sort_sorts(theory: &Theory) -> Result<Vec<Arc<str>>, GatError> {
     for sort in &theory.sorts {
         in_degree.entry(Arc::clone(&sort.name)).or_insert(0);
         for param in &sort.params {
-            if sort_names.contains(&param.sort) {
+            let param_head = param.sort.head();
+            if sort_names.contains(param_head) {
                 *in_degree.entry(Arc::clone(&sort.name)).or_insert(0) += 1;
                 dependents
-                    .entry(Arc::clone(&param.sort))
+                    .entry(Arc::clone(param_head))
                     .or_default()
                     .push(Arc::clone(&sort.name));
             }
@@ -141,50 +169,46 @@ fn topological_sort_sorts(theory: &Theory) -> Result<Vec<Arc<str>>, GatError> {
 fn generate_terms(
     theory: &Theory,
     config: &FreeModelConfig,
-) -> Result<(FxHashMap<Arc<str>, Vec<Term>>, bool), GatError> {
+) -> Result<(FxHashMap<SortExpr, Vec<Term>>, bool), GatError> {
     #![allow(clippy::type_complexity)]
-    let mut terms_by_sort: FxHashMap<Arc<str>, Vec<Term>> = FxHashMap::default();
+    let mut terms_by_fiber: FxHashMap<SortExpr, Vec<Term>> = FxHashMap::default();
 
-    // Initialize in topological order so parameter sorts are ready first.
-    let ordered_sorts = topological_sort_sorts(theory)?;
-    for sort_name in &ordered_sorts {
-        terms_by_sort.insert(Arc::clone(sort_name), Vec::new());
-    }
+    // Run topological sort for its cycle check; the head ordering is no
+    // longer consulted directly because we file terms under their
+    // instantiated output sort.
+    let _ = topological_sort_sorts(theory)?;
 
-    // Seed: nullary operations.
+    // Seed: nullary operations. A nullary op's output sort cannot
+    // reference any input (there are none), so `op.output` is already a
+    // closed sort expression.
     for op in &theory.ops {
         if op.inputs.is_empty() {
             let term = Term::constant(Arc::clone(&op.name));
-            if let Some(terms) = terms_by_sort.get_mut(&op.output) {
-                if !terms.contains(&term) {
-                    terms.push(term);
-                }
+            let fiber = op.output.clone();
+            let bucket = terms_by_fiber.entry(fiber).or_default();
+            if !bucket.contains(&term) {
+                bucket.push(term);
             }
         }
     }
 
-    // Iterate: generate terms at increasing depths.
     let mut last_depth_added = false;
     for _depth in 1..=config.max_depth {
-        let new_terms = generate_depth(theory, &terms_by_sort);
+        let new_terms = generate_depth(theory, &terms_by_fiber);
 
         let mut added_any = false;
-        for sort_name in &ordered_sorts {
-            let Some(new) = new_terms.get(sort_name) else {
-                continue;
-            };
-            let Some(existing) = terms_by_sort.get_mut(sort_name) else {
-                continue;
-            };
+        for (fiber, new) in new_terms {
+            let bucket = terms_by_fiber.entry(fiber.clone()).or_default();
             for t in new {
-                if existing.len() >= config.max_terms_per_sort {
+                if bucket.len() >= config.max_terms_per_sort {
+                    let head = fiber.head();
                     return Err(GatError::ModelError(format!(
-                        "term count for sort '{sort_name}' exceeds limit {}",
+                        "term count for sort '{head}' exceeds limit {}",
                         config.max_terms_per_sort
                     )));
                 }
-                if !existing.contains(t) {
-                    existing.push(t.clone());
+                if !bucket.contains(&t) {
+                    bucket.push(t);
                     added_any = true;
                 }
             }
@@ -192,48 +216,68 @@ fn generate_terms(
         last_depth_added = added_any;
     }
 
-    // The model is complete (truly initial) if the final depth level
-    // produced no new terms, meaning the carrier sets have stabilized.
     let is_complete = !last_depth_added;
-
-    Ok((terms_by_sort, is_complete))
+    Ok((terms_by_fiber, is_complete))
 }
 
-/// Generate one depth level of terms by applying non-nullary ops to existing terms.
+/// Generate one depth level of terms by applying non-nullary ops to
+/// existing terms, matching argument fibers against the declared input
+/// sort expressions under a running substitution.
 fn generate_depth(
     theory: &Theory,
-    terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
-) -> FxHashMap<Arc<str>, Vec<Term>> {
-    let mut new_terms: FxHashMap<Arc<str>, Vec<Term>> = FxHashMap::default();
+    terms_by_fiber: &FxHashMap<SortExpr, Vec<Term>>,
+) -> FxHashMap<SortExpr, Vec<Term>> {
+    let mut new_terms: FxHashMap<SortExpr, Vec<Term>> = FxHashMap::default();
 
     for op in &theory.ops {
         if op.inputs.is_empty() {
             continue;
         }
-
-        let input_sorts: Vec<&Arc<str>> = op.inputs.iter().map(|(_, s)| s).collect();
-
-        // Skip if any input sort has no terms.
-        if input_sorts
-            .iter()
-            .any(|s| terms_by_sort.get(*s).is_none_or(Vec::is_empty))
-        {
-            continue;
-        }
-
-        let input_term_lists: Vec<&Vec<Term>> =
-            input_sorts.iter().map(|s| &terms_by_sort[*s]).collect();
-
-        for combo in cartesian_product(&input_term_lists) {
-            let term = Term::app(Arc::clone(&op.name), combo);
-            new_terms
-                .entry(Arc::clone(&op.output))
-                .or_default()
-                .push(term);
-        }
+        let mut chosen: Vec<Term> = Vec::with_capacity(op.inputs.len());
+        let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+        extend_op_tuples(
+            op,
+            0,
+            &mut chosen,
+            &mut theta,
+            terms_by_fiber,
+            &mut new_terms,
+        );
     }
 
     new_terms
+}
+
+/// Recursive helper: at slot `i`, try every candidate term whose fiber
+/// matches `op.inputs[i].1.subst(&theta)` and extend θ with the chosen
+/// term, recursing into slot `i + 1`. When `i == op.inputs.len()`,
+/// materialise the application and file it under `op.output.subst(&θ)`.
+fn extend_op_tuples(
+    op: &crate::op::Operation,
+    slot: usize,
+    chosen: &mut Vec<Term>,
+    theta: &mut FxHashMap<Arc<str>, Term>,
+    terms_by_fiber: &FxHashMap<SortExpr, Vec<Term>>,
+    new_terms: &mut FxHashMap<SortExpr, Vec<Term>>,
+) {
+    if slot == op.inputs.len() {
+        let output_fiber = op.output.subst(theta);
+        let term = Term::app(Arc::clone(&op.name), chosen.clone());
+        new_terms.entry(output_fiber).or_default().push(term);
+        return;
+    }
+    let (param_name, declared_sort) = &op.inputs[slot];
+    let expected_fiber = declared_sort.subst(theta);
+    let Some(candidates) = terms_by_fiber.get(&expected_fiber) else {
+        return;
+    };
+    for cand in candidates {
+        chosen.push(cand.clone());
+        theta.insert(Arc::clone(param_name), cand.clone());
+        extend_op_tuples(op, slot + 1, chosen, theta, terms_by_fiber, new_terms);
+        theta.remove(param_name);
+        chosen.pop();
+    }
 }
 
 /// Assign consecutive global indices to all generated terms.
@@ -525,7 +569,7 @@ fn find_term_index(
 fn merge_by_equation(
     eq: &crate::eq::Equation,
     vars: &[Arc<str>],
-    var_sorts: &FxHashMap<Arc<str>, Arc<str>>,
+    var_sorts: &FxHashMap<Arc<str>, SortExpr>,
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
     term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
     uf: &mut UnionFind,
@@ -534,7 +578,7 @@ fn merge_by_equation(
         .iter()
         .filter_map(|v| {
             let sort = var_sorts.get(v)?;
-            let terms = terms_by_sort.get(sort)?;
+            let terms = terms_by_sort.get(sort.head())?;
             Some((v, terms))
         })
         .collect();
@@ -575,27 +619,6 @@ fn merge_by_equation(
             break;
         }
     }
-}
-
-/// Compute the cartesian product of multiple term lists.
-fn cartesian_product(lists: &[&Vec<Term>]) -> Vec<Vec<Term>> {
-    if lists.is_empty() {
-        return vec![vec![]];
-    }
-
-    let mut result = vec![vec![]];
-    for list in lists {
-        let mut new_result = Vec::new();
-        for existing in &result {
-            for item in *list {
-                let mut combo = existing.clone();
-                combo.push(item.clone());
-                new_result.push(combo);
-            }
-        }
-        result = new_result;
-    }
-    result
 }
 
 /// Simple union-find with path compression and union by rank.
@@ -916,6 +939,57 @@ mod tests {
             model.sort_interp["S"].len(),
             2,
             "a ~ b and f(a) ~ f(b) by congruence: expect 2 classes"
+        );
+        Ok(())
+    }
+
+    /// Free category on two generating morphisms. With one object and
+    /// one endo-generator, the expected terms at depth 2 are:
+    /// `id(star)`, `f(star)`, `f(f(star))`. Exactly three morphisms in
+    /// the `Hom` fiber, demonstrating that fiber matching prevents the
+    /// combinatorial blow-up of a cartesian-product model.
+    #[test]
+    fn free_model_dependent_category() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::sort::{SortExpr, SortParam};
+
+        let hom_xx = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("x")],
+        };
+        let theory = Theory::new(
+            "EndoCategory",
+            vec![
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+            ],
+            vec![
+                Operation::nullary("star", "Ob"),
+                Operation::unary("id", "x", "Ob", hom_xx.clone()),
+                Operation::unary("f", "x", "Ob", hom_xx),
+            ],
+            Vec::new(),
+        );
+
+        let config = FreeModelConfig {
+            max_depth: 2,
+            max_terms_per_sort: 100,
+        };
+        let model = free_model(&theory, &config)?.model;
+
+        // Ob: exactly one element (star).
+        assert_eq!(model.sort_interp["Ob"].len(), 1);
+        // Hom: id(star), f(star); f(f(star)) exists only if we stack
+        // unary ops with matching fibers, which holds here because
+        // f: (x: Ob) -> Hom(x, x) maps an Ob to a Hom(x, x), but the
+        // argument of f must itself be an Ob. So at depth 2, the Hom
+        // carrier holds id(star) and f(star) only.
+        assert_eq!(
+            model.sort_interp["Hom"].len(),
+            2,
+            "expected id(star) and f(star) in Hom fiber"
         );
         Ok(())
     }

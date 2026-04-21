@@ -96,7 +96,7 @@ fn build_sorts(t1: &Theory, sort_triples: &[Triple]) -> Vec<Sort> {
                 .iter()
                 .filter_map(|p| {
                     sort_triples.iter().find_map(|(sn, _s2n, pbn)| {
-                        if *sn == p.sort {
+                        if sn == p.sort.head() {
                             Some(crate::sort::SortParam::new(
                                 Arc::clone(&p.name),
                                 Arc::clone(pbn),
@@ -142,15 +142,20 @@ fn pair_ops(
                 continue;
             }
 
-            // Check all input sort pairs exist in the pullback.
-            let input_pb: Option<Vec<(Arc<str>, Arc<str>)>> = op1
+            // Check all input sort pairs exist in the pullback (by head).
+            let input_pb: Option<Vec<(Arc<str>, crate::sort::SortExpr)>> = op1
                 .inputs
                 .iter()
                 .zip(&op2.inputs)
                 .map(|((param, s1_sort), (_, s2_sort))| {
                     sort_pair_map
-                        .get(&(Arc::clone(s1_sort), Arc::clone(s2_sort)))
-                        .map(|pb| (Arc::clone(param), Arc::clone(pb)))
+                        .get(&(Arc::clone(s1_sort.head()), Arc::clone(s2_sort.head())))
+                        .map(|pb| {
+                            (
+                                Arc::clone(param),
+                                crate::sort::SortExpr::Name(Arc::clone(pb)),
+                            )
+                        })
                 })
                 .collect();
 
@@ -158,10 +163,11 @@ fn pair_ops(
                 continue;
             };
 
-            // Check output sort pair exists.
-            let Some(output_pb) =
-                sort_pair_map.get(&(Arc::clone(&op1.output), Arc::clone(&op2.output)))
-            else {
+            // Check output sort pair exists (by head).
+            let Some(output_pb) = sort_pair_map.get(&(
+                Arc::clone(op1.output.head()),
+                Arc::clone(op2.output.head()),
+            )) else {
                 continue;
             };
 
@@ -169,7 +175,7 @@ fn pair_ops(
             ops.push(Operation::new(
                 Arc::clone(&pb_name),
                 input_pb_sorts,
-                Arc::clone(output_pb),
+                crate::sort::SortExpr::Name(Arc::clone(output_pb)),
             ));
             triples.push((Arc::clone(&op1.name), Arc::clone(op2_name), pb_name));
         }

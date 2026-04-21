@@ -227,11 +227,11 @@ fn translate_equation(eq: &Equation, theory: &Theory, schema: &Schema) -> Vec<Em
             // Retraction: if inner produced a value in op's output sort,
             // the variable's sort must have a corresponding row.
             if let Some(op) = theory.find_op(&op_name) {
-                let output_sort = op.output.to_string();
+                let output_sort = op.output.head().to_string();
                 // The variable is in some input sort
                 for (_, input_sort) in &op.inputs {
                     let out_vertex = find_vertex_by_kind(schema, &output_sort);
-                    let in_vertex = find_vertex_by_kind(schema, input_sort.as_ref());
+                    let in_vertex = find_vertex_by_kind(schema, input_sort.head());
 
                     if let (Some(ov), Some(iv)) = (out_vertex, in_vertex) {
                         deps.push(EmbeddedDependency {
@@ -248,10 +248,10 @@ fn translate_equation(eq: &Equation, theory: &Theory, schema: &Schema) -> Vec<Em
             // Pattern: var = op(...)
             // Same as above but reversed
             if let Some(op) = theory.find_op(&op_name) {
-                let output_sort = op.output.to_string();
+                let output_sort = op.output.head().to_string();
                 for (_, input_sort) in &op.inputs {
                     let out_vertex = find_vertex_by_kind(schema, &output_sort);
-                    let in_vertex = find_vertex_by_kind(schema, input_sort.as_ref());
+                    let in_vertex = find_vertex_by_kind(schema, input_sort.head());
 
                     if let (Some(ov), Some(iv)) = (out_vertex, in_vertex) {
                         deps.push(EmbeddedDependency {

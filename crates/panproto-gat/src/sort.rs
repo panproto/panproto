@@ -1,5 +1,172 @@
 use std::sync::Arc;
 
+use rustc_hash::FxHashMap;
+
+use crate::eq::Term;
+
+/// A sort expression: a plain sort name or a dependent sort applied to
+/// argument terms.
+///
+/// Appears in [`Operation::output`](crate::op::Operation::output),
+/// [`Operation::inputs`](crate::op::Operation::inputs) entries, and
+/// [`SortParam::sort`], wherever a sort occurs.
+///
+/// The variants are kept distinct in the in-memory representation, but
+/// `alpha_eq` treats `Name(n)` as equal to `App { name: n, args: [] }`.
+/// The serde representation uses `#[serde(untagged)]`, so `Name(n)`
+/// serializes as the bare string `"n"` and `App` serializes as a struct
+/// with `name` and `args` fields.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum SortExpr {
+    /// A plain sort name with no parameters applied.
+    Name(Arc<str>),
+    /// A dependent sort applied to argument terms, e.g. `Tm(Γ, A)`.
+    App {
+        /// The sort's declared name.
+        name: Arc<str>,
+        /// Argument terms, one per declared sort parameter.
+        args: Vec<Term>,
+    },
+}
+
+impl SortExpr {
+    /// Extract the bare sort name, ignoring any applied arguments.
+    #[must_use]
+    pub fn head(&self) -> &Arc<str> {
+        match self {
+            Self::Name(n) | Self::App { name: n, .. } => n,
+        }
+    }
+
+    /// Argument terms, if any; empty slice for `Name`.
+    #[must_use]
+    pub fn args(&self) -> &[Term] {
+        match self {
+            Self::Name(_) => &[],
+            Self::App { args, .. } => args,
+        }
+    }
+
+    /// Substitute `mapping` (parameter name to term) throughout this sort
+    /// expression's argument terms.
+    #[must_use]
+    pub fn subst(&self, mapping: &FxHashMap<Arc<str>, Term>) -> Self {
+        match self {
+            Self::Name(n) => Self::Name(Arc::clone(n)),
+            Self::App { name, args } => Self::App {
+                name: Arc::clone(name),
+                args: args.iter().map(|t| t.substitute(mapping)).collect(),
+            },
+        }
+    }
+
+    /// Structural equality modulo `Name(n) == App { name: n, args: [] }`.
+    #[must_use]
+    pub fn alpha_eq(&self, other: &Self) -> bool {
+        self.head() == other.head() && self.args() == other.args()
+    }
+
+    /// Rename the head (sort name) via `sort_map`, leaving arguments
+    /// unchanged.
+    #[must_use]
+    pub fn rename_head(&self, sort_map: &std::collections::HashMap<Arc<str>, Arc<str>>) -> Self {
+        match self {
+            Self::Name(n) => Self::Name(sort_map.get(n).cloned().unwrap_or_else(|| Arc::clone(n))),
+            Self::App { name, args } => Self::App {
+                name: sort_map
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::clone(name)),
+                args: args.clone(),
+            },
+        }
+    }
+
+    /// Apply a sort-name rename to the head and an operation rename to
+    /// every term in the argument list.
+    #[must_use]
+    pub fn apply_maps(
+        &self,
+        sort_map: &std::collections::HashMap<Arc<str>, Arc<str>>,
+        op_map: &std::collections::HashMap<Arc<str>, Arc<str>>,
+    ) -> Self {
+        match self {
+            Self::Name(n) => Self::Name(sort_map.get(n).cloned().unwrap_or_else(|| Arc::clone(n))),
+            Self::App { name, args } => Self::App {
+                name: sort_map
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::clone(name)),
+                args: args.iter().map(|t| t.rename_ops(op_map)).collect(),
+            },
+        }
+    }
+}
+
+impl std::fmt::Display for SortExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Name(n) => f.write_str(n),
+            Self::App { name, args } => {
+                f.write_str(name)?;
+                f.write_str("(")?;
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{a}")?;
+                }
+                f.write_str(")")
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Term {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Var(n) => f.write_str(n),
+            Self::App { op, args } if args.is_empty() => write!(f, "{op}()"),
+            Self::App { op, args } => {
+                write!(f, "{op}(")?;
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{a}")?;
+                }
+                f.write_str(")")
+            }
+        }
+    }
+}
+
+impl From<&str> for SortExpr {
+    fn from(s: &str) -> Self {
+        Self::Name(Arc::from(s))
+    }
+}
+
+impl From<String> for SortExpr {
+    fn from(s: String) -> Self {
+        Self::Name(Arc::from(s))
+    }
+}
+
+impl From<Arc<str>> for SortExpr {
+    fn from(s: Arc<str>) -> Self {
+        Self::Name(s)
+    }
+}
+
+impl From<&Arc<str>> for SortExpr {
+    fn from(s: &Arc<str>) -> Self {
+        Self::Name(Arc::clone(s))
+    }
+}
+
+
 /// Classification of a coercion's round-trip properties.
 ///
 /// Forms a four-element lattice under information loss, shaped as a
@@ -266,8 +433,9 @@ pub enum SortKind {
 pub struct SortParam {
     /// The parameter name (e.g., "a", "b").
     pub name: Arc<str>,
-    /// The sort this parameter ranges over (e.g., "Ob").
-    pub sort: Arc<str>,
+    /// The sort expression this parameter ranges over (e.g., `Ob` or
+    /// a dependent sort like `Ty(Γ)`).
+    pub sort: SortExpr,
 }
 
 /// A sort declaration in a GAT.
@@ -354,8 +522,12 @@ impl Sort {
 
 impl SortParam {
     /// Create a new sort parameter.
+    ///
+    /// The `sort` argument may be any value that converts to a
+    /// [`SortExpr`], including `&str`, `String`, `Arc<str>`, or a
+    /// fully-specified `SortExpr::App`.
     #[must_use]
-    pub fn new(name: impl Into<Arc<str>>, sort: impl Into<Arc<str>>) -> Self {
+    pub fn new(name: impl Into<Arc<str>>, sort: impl Into<SortExpr>) -> Self {
         Self {
             name: name.into(),
             sort: sort.into(),
@@ -383,6 +555,112 @@ mod tests {
         );
         assert!(!s.is_simple());
         assert_eq!(s.arity(), 2);
+    }
+
+    // --- SortExpr tests ---
+
+    #[test]
+    fn sort_expr_from_str() {
+        let e: SortExpr = "Ob".into();
+        assert_eq!(e, SortExpr::Name(Arc::from("Ob")));
+        assert_eq!(&**e.head(), "Ob");
+    }
+
+    #[test]
+    fn sort_expr_app_head() {
+        let e = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("y")],
+        };
+        assert_eq!(&**e.head(), "Hom");
+        assert_eq!(e.args().len(), 2);
+    }
+
+    #[test]
+    fn sort_expr_alpha_eq_name_vs_empty_app() {
+        let a = SortExpr::Name(Arc::from("Ob"));
+        let b = SortExpr::App {
+            name: Arc::from("Ob"),
+            args: Vec::new(),
+        };
+        assert!(a.alpha_eq(&b));
+        assert!(b.alpha_eq(&a));
+    }
+
+    #[test]
+    fn sort_expr_alpha_eq_structural() {
+        let a = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("y")],
+        };
+        let b = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("y")],
+        };
+        let c = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("y"), Term::var("x")],
+        };
+        assert!(a.alpha_eq(&b));
+        assert!(!a.alpha_eq(&c));
+    }
+
+    #[test]
+    fn sort_expr_subst() {
+        let e = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("y")],
+        };
+        let mut mapping: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+        mapping.insert(Arc::from("x"), Term::constant("a"));
+        mapping.insert(Arc::from("y"), Term::constant("b"));
+        let result = e.subst(&mapping);
+        assert_eq!(
+            result,
+            SortExpr::App {
+                name: Arc::from("Hom"),
+                args: vec![Term::constant("a"), Term::constant("b")],
+            }
+        );
+    }
+
+    #[test]
+    fn sort_expr_subst_name_unchanged() {
+        let e = SortExpr::Name(Arc::from("Ob"));
+        let mut mapping: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+        mapping.insert(Arc::from("x"), Term::constant("a"));
+        assert_eq!(e.subst(&mapping), e);
+    }
+
+    #[test]
+    fn sort_expr_serde_name_is_bare_string() {
+        let e = SortExpr::Name(Arc::from("Ob"));
+        let s = serde_json::to_string(&e).expect("serialize");
+        assert_eq!(s, "\"Ob\"");
+        let back: SortExpr = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(back, e);
+    }
+
+    #[test]
+    fn sort_expr_serde_app_is_struct() {
+        let e = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("y")],
+        };
+        let s = serde_json::to_string(&e).expect("serialize");
+        let back: SortExpr = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(back, e);
+    }
+
+    #[test]
+    fn sort_expr_display() {
+        let e = SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var("x"), Term::var("y")],
+        };
+        assert_eq!(format!("{e}"), "Hom(x, y)");
+        let n = SortExpr::Name(Arc::from("Ob"));
+        assert_eq!(format!("{n}"), "Ob");
     }
 
     // --- CoercionClass algebraic law tests ---

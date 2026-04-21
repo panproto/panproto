@@ -2135,8 +2135,8 @@ fn apply_add_op(schema: &Schema, op: &panproto_gat::Operation) -> Schema {
     let Some((_, src_sort)) = op.inputs.first() else {
         return new_schema;
     };
-    let src = Name::from(&**src_sort);
-    let tgt = Name::from(&*op.output);
+    let src = Name::from(src_sort.head().as_ref());
+    let tgt = Name::from(op.output.head().as_ref());
     if !new_schema.vertices.contains_key(&src) || !new_schema.vertices.contains_key(&tgt) {
         return new_schema;
     }

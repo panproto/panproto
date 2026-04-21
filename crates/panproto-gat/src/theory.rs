@@ -463,7 +463,7 @@ pub fn th_editable_structure() -> Theory {
 
     let ops = vec![
         // identity() → Edit
-        Operation::new("identity", vec![], "Edit"),
+        Operation::nullary("identity", "Edit"),
         // compose(e1: Edit, e2: Edit) → Edit
         Operation::new(
             "compose",
@@ -824,19 +824,19 @@ mod tests {
         // The dependent sort Param has arity 1.
         let param = th_gat.find_sort("Param").unwrap();
         assert_eq!(param.arity(), 1);
-        assert_eq!(&*param.params[0].sort, "Sort");
+        assert_eq!(&**param.params[0].sort.head(), "Sort");
 
         // All ops are findable and have correct signatures.
         let sn = th_gat.find_op("sort_name").unwrap();
         assert_eq!(sn.inputs.len(), 1);
-        assert_eq!(&*sn.inputs[0].1, "Sort");
-        assert_eq!(&*sn.output, "Name");
+        assert_eq!(&**sn.inputs[0].1.head(), "Sort");
+        assert_eq!(&**sn.output.head(), "Name");
 
         let on = th_gat.find_op("op_name").unwrap();
-        assert_eq!(&*on.output, "Name");
+        assert_eq!(&**on.output.head(), "Name");
 
         let oo = th_gat.find_op("op_output").unwrap();
-        assert_eq!(&*oo.output, "Sort");
+        assert_eq!(&**oo.output.head(), "Sort");
 
         // ThGAT can resolve itself in a registry.
         let mut registry = HashMap::new();
@@ -924,10 +924,15 @@ mod tests {
                             if !seen_op_names.insert(name.clone()) {
                                 continue; // skip duplicate op names
                             }
-                            let inputs: Vec<(Arc<str>, Arc<str>)> = input_lists[i]
+                            let inputs: Vec<(Arc<str>, crate::sort::SortExpr)> = input_lists[i]
                                 .iter()
                                 .enumerate()
-                                .map(|(j, s)| (Arc::from(format!("p{j}")), Arc::from(s.as_str())))
+                                .map(|(j, s)| {
+                                    (
+                                        Arc::from(format!("p{j}")),
+                                        crate::sort::SortExpr::Name(Arc::from(s.as_str())),
+                                    )
+                                })
                                 .collect();
                             let arity = inputs.len();
                             operations.push(Operation::new(name.as_str(), inputs, output.as_str()));

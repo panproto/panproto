@@ -89,9 +89,10 @@ fn check_equation(
     let var_carriers: Vec<(Arc<str>, &[ModelValue])> = var_sorts
         .iter()
         .map(|(var, sort)| {
+            let head = sort.head();
             let carrier = model
                 .sort_interp
-                .get(sort.as_ref())
+                .get(head.as_ref())
                 .ok_or_else(|| GatError::ModelError(format!("no carrier set for sort '{sort}'")))?;
             Ok((Arc::clone(var), carrier.as_slice()))
         })

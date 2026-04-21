@@ -77,7 +77,7 @@ pub fn check_natural_transformation(
     // Nullary ops (constants) reduce to:
     //   alpha_T[x := F(op)()] == G(op)()
     for op in &domain.ops {
-        let output_sort = &op.output;
+        let output_sort = op.output.head();
         let alpha_output = nt
             .components
             .get(output_sort)
@@ -115,10 +115,11 @@ pub fn check_natural_transformation(
         // RHS: G(op)(alpha_{S1}[x:=x0], ..., alpha_{Sn}[x:=xn-1])
         let mut rhs_args = Vec::with_capacity(op.inputs.len());
         for (i, (_, input_sort)) in op.inputs.iter().enumerate() {
+            let input_head = input_sort.head();
             let alpha_input = nt
                 .components
-                .get(input_sort)
-                .ok_or_else(|| GatError::MissingNatTransComponent(input_sort.to_string()))?;
+                .get(input_head)
+                .ok_or_else(|| GatError::MissingNatTransComponent(input_head.to_string()))?;
             let mut subst_arg = FxHashMap::default();
             subst_arg.insert(Arc::from("x"), Term::var(Arc::clone(&var_names[i])));
             rhs_args.push(alpha_input.substitute(&subst_arg));
