@@ -18,6 +18,7 @@
 # Core constructions
 
 - [Protocols as theories, schemas as instances](core/schemas-as-instances.md)
+- [Dependent sorts in practice](core/dependent-sorts.md)
 - [Theory morphisms and instance migration](core/morphisms-and-migration.md)
 - [The restrict/lift pipeline](core/restrict-lift.md)
 - [Bidirectional lenses](core/lenses.md)

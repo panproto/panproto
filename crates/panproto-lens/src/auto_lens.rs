@@ -1219,8 +1219,8 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
             };
             Ok(elementary::add_op(
                 Name::from(&*op.name),
-                Name::from(&**input_sort),
-                Name::from(&*op.output),
+                Name::from(input_sort.head().as_ref()),
+                Name::from(op.output.head().as_ref()),
                 Name::from(&*op.name),
             ))
         }
@@ -1547,7 +1547,7 @@ mod tests {
                 name: Arc::from("constant"),
                 // Zero inputs — the exact shape the old sentinel accepted.
                 inputs: Vec::new(),
-                output: Arc::from("int"),
+                output: panproto_gat::SortExpr::Name(Arc::from("int")),
             }),
         };
         let err = endofunctor_to_protolens(&endo)

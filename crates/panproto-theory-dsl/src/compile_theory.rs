@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use panproto_gat::{
     CoercionClass, ConflictPolicy, ConflictStrategy, DirectedEquation, Equation, Operation, Sort,
-    SortKind, SortParam, Theory, ValueKind,
+    SortExpr, SortKind, SortParam, Theory, ValueKind,
 };
 
 use crate::document::{
@@ -28,8 +28,16 @@ use crate::error::TheoryDslError;
 /// Returns errors for parse failures, unknown value kinds, or
 /// typechecking violations.
 pub fn compile_theory(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
-    let sorts: Vec<Sort> = spec.sorts.iter().map(compile_sort).collect();
-    let ops: Vec<Operation> = spec.ops.iter().map(compile_op).collect();
+    let sorts: Vec<Sort> = spec
+        .sorts
+        .iter()
+        .map(|s| compile_sort(s, &spec.theory))
+        .collect::<Result<Vec<_>, _>>()?;
+    let ops: Vec<Operation> = spec
+        .ops
+        .iter()
+        .map(|o| compile_op(o, &spec.theory))
+        .collect::<Result<Vec<_>, _>>()?;
     let eqs: Vec<Equation> = spec
         .equations
         .iter()
@@ -66,12 +74,23 @@ pub fn compile_theory(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
     Ok(theory)
 }
 
-fn compile_sort(spec: &SortSpec) -> Sort {
+fn compile_sort(spec: &SortSpec, theory_name: &str) -> Result<Sort, TheoryDslError> {
     let params: Vec<SortParam> = spec
         .params
         .iter()
-        .map(|p| SortParam::new(p.name.as_str(), p.sort.as_str()))
-        .collect();
+        .map(|p| {
+            parse_sort_expr(&p.sort)
+                .map(|sort| SortParam::new(p.name.as_str(), sort))
+                .map_err(|msg| TheoryDslError::TermParse {
+                    context: format!(
+                        "parameter '{pname}' of sort '{sname}' in theory '{theory_name}'",
+                        pname = p.name,
+                        sname = spec.name,
+                    ),
+                    message: msg,
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let kind = match &spec.kind {
         SortKindSpec::Structural => SortKind::Structural,
@@ -84,7 +103,7 @@ fn compile_sort(spec: &SortSpec) -> Sort {
         SortKindSpec::Merger { value_kind } => SortKind::Merger(parse_value_kind(value_kind)),
     };
 
-    if params.is_empty() {
+    Ok(if params.is_empty() {
         Sort::with_kind(spec.name.as_str(), kind)
     } else {
         Sort {
@@ -92,28 +111,88 @@ fn compile_sort(spec: &SortSpec) -> Sort {
             params,
             kind,
         }
-    }
+    })
 }
 
-fn compile_op(spec: &OpSpec) -> Operation {
-    match (&spec.input, &spec.inputs) {
+fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslError> {
+    let op_context = |suffix: &str| -> String {
+        format!(
+            "{suffix} of op '{opname}' in theory '{theory_name}'",
+            opname = spec.name,
+        )
+    };
+    let output = parse_sort_expr(&spec.output).map_err(|msg| TheoryDslError::TermParse {
+        context: op_context("output sort"),
+        message: msg,
+    })?;
+    Ok(match (&spec.input, &spec.inputs) {
         (Some(input_sort), _) => {
             let param_name = input_sort[..1].to_ascii_lowercase();
-            Operation::unary(
-                spec.name.as_str(),
-                param_name.as_str(),
-                input_sort.as_str(),
-                spec.output.as_str(),
-            )
+            let input = parse_sort_expr(input_sort).map_err(|msg| TheoryDslError::TermParse {
+                context: op_context("input sort"),
+                message: msg,
+            })?;
+            Operation::unary(spec.name.as_str(), param_name.as_str(), input, output)
         }
         (None, Some(inputs)) => {
-            let input_pairs: Vec<(Arc<str>, Arc<str>)> = inputs
+            let input_pairs: Vec<(Arc<str>, SortExpr)> = inputs
                 .iter()
-                .map(|p| (Arc::from(p.name.as_str()), Arc::from(p.sort.as_str())))
-                .collect();
-            Operation::new(spec.name.as_str(), input_pairs, spec.output.as_str())
+                .map(|p| {
+                    parse_sort_expr(&p.sort)
+                        .map(|sort| (Arc::from(p.name.as_str()), sort))
+                        .map_err(|msg| TheoryDslError::TermParse {
+                            context: op_context(&format!("input '{pname}'", pname = p.name)),
+                            message: msg,
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Operation::new(spec.name.as_str(), input_pairs, output)
         }
-        (None, None) => Operation::nullary(spec.name.as_str(), spec.output.as_str()),
+        (None, None) => Operation::nullary(spec.name.as_str(), output),
+    })
+}
+
+/// Parse a sort string into a [`SortExpr`]. A bare identifier parses as
+/// [`SortExpr::Name`]; `Ident(arg1, arg2, ...)` parses as a
+/// [`SortExpr::App`] with the argument list parsed as terms via
+/// [`parse_term`]. An `Ident()` input with no arguments normalizes to
+/// [`SortExpr::Name`] via the smart constructor.
+///
+/// # Errors
+///
+/// Returns an error describing the problem for: empty input, malformed
+/// identifiers, unclosed parentheses, unexpected trailing input, or any
+/// error propagated from parsing an argument term.
+pub(crate) fn parse_sort_expr(s: &str) -> Result<SortExpr, String> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Err("empty sort expression".to_owned());
+    }
+    match trimmed.find('(') {
+        None => {
+            validate_identifier(trimmed, "sort name")?;
+            Ok(SortExpr::Name(Arc::from(trimmed)))
+        }
+        Some(paren_pos) => {
+            let head = trimmed[..paren_pos].trim();
+            validate_identifier(head, "sort head")?;
+            let inner = &trimmed[paren_pos + 1..];
+            let close = find_matching_paren(inner)
+                .ok_or_else(|| format!("unclosed parenthesis in sort expression: {trimmed:?}"))?;
+            let trailing = inner[close + 1..].trim();
+            if !trailing.is_empty() {
+                return Err(format!(
+                    "unexpected trailing input after closing paren in sort expression \
+                     {trimmed:?}: {trailing:?}"
+                ));
+            }
+            let args_str = &inner[..close];
+            let args = split_top_level_commas(args_str)
+                .into_iter()
+                .map(parse_term)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(SortExpr::app(Arc::from(head), args))
+        }
     }
 }
 
@@ -258,23 +337,56 @@ pub(crate) fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
         return Err("empty term string".to_owned());
     }
 
-    Ok(s.find('(').map_or_else(
-        || panproto_gat::Term::Var(Arc::from(s)),
-        |paren_pos| {
+    match s.find('(') {
+        None => {
+            validate_identifier(s, "term variable")?;
+            Ok(panproto_gat::Term::Var(Arc::from(s)))
+        }
+        Some(paren_pos) => {
             let op_name = s[..paren_pos].trim();
+            validate_identifier(op_name, "term operation")?;
             let inner = &s[paren_pos + 1..];
-            let close = find_matching_paren(inner).unwrap_or(inner.len());
+            let close = find_matching_paren(inner)
+                .ok_or_else(|| format!("unclosed parenthesis in term: {s:?}"))?;
+            let trailing = inner[close + 1..].trim();
+            if !trailing.is_empty() {
+                return Err(format!(
+                    "unexpected trailing input after closing paren in term {s:?}: {trailing:?}"
+                ));
+            }
             let args_str = &inner[..close];
             let args = split_top_level_commas(args_str)
-                .iter()
-                .filter_map(|a| parse_term(a).ok())
-                .collect();
-            panproto_gat::Term::App {
+                .into_iter()
+                .map(parse_term)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(panproto_gat::Term::App {
                 op: Arc::from(op_name),
                 args,
-            }
-        },
-    ))
+            })
+        }
+    }
+}
+
+/// Validate a parsed identifier: non-empty, starts with `_` or a letter,
+/// continues with letters, digits, or underscores. Returns a descriptive
+/// error naming `kind` (e.g. "sort head", "term variable") when the
+/// input violates the grammar.
+fn validate_identifier(s: &str, kind: &str) -> Result<(), String> {
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return Err(format!("empty {kind}"));
+    };
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return Err(format!(
+            "{kind} {s:?} must start with a letter or underscore"
+        ));
+    }
+    for ch in chars {
+        if !(ch.is_ascii_alphanumeric() || ch == '_') {
+            return Err(format!("{kind} {s:?} contains invalid character {ch:?}"));
+        }
+    }
+    Ok(())
 }
 
 /// Find the position of the closing `)` that matches the opening `(`.
@@ -356,29 +468,121 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_sort_simple() {
+    fn test_compile_sort_simple() -> TestResult {
         let spec = SortSpec {
             name: "Vertex".to_owned(),
             params: vec![],
             kind: SortKindSpec::Structural,
         };
-        let sort = compile_sort(&spec);
+        let sort = compile_sort(&spec, "Th")?;
         assert_eq!(&*sort.name, "Vertex");
         assert!(sort.params.is_empty());
         assert!(matches!(sort.kind, SortKind::Structural));
+        Ok(())
     }
 
     #[test]
-    fn test_compile_op_unary() {
+    fn test_compile_op_unary() -> TestResult {
         let spec = OpSpec {
             name: "src".to_owned(),
             input: Some("Edge".to_owned()),
             inputs: None,
             output: "Vertex".to_owned(),
         };
-        let op = compile_op(&spec);
+        let op = compile_op(&spec, "Th")?;
         assert_eq!(&*op.name, "src");
         assert_eq!(op.arity(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sort_expr_bare_name() -> TestResult {
+        let e = parse_sort_expr("Ob")?;
+        if let SortExpr::Name(n) = e {
+            assert_eq!(&*n, "Ob");
+        } else {
+            return Err("expected Name".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sort_expr_applied() -> TestResult {
+        let e = parse_sort_expr("Hom(x, y)")?;
+        if let SortExpr::App { name, args } = e {
+            assert_eq!(&*name, "Hom");
+            assert_eq!(args.len(), 2);
+        } else {
+            return Err("expected App".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sort_expr_nested_args() -> TestResult {
+        let e = parse_sort_expr("Tm(extend(G, A), B)")?;
+        if let SortExpr::App { name, args } = e {
+            assert_eq!(&*name, "Tm");
+            assert_eq!(args.len(), 2);
+            assert!(matches!(args[0], panproto_gat::Term::App { .. }));
+        } else {
+            return Err("expected App".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sort_expr_empty_input_errors() {
+        assert!(parse_sort_expr("").is_err());
+        assert!(parse_sort_expr("   ").is_err());
+    }
+
+    #[test]
+    fn test_parse_sort_expr_unclosed_paren_errors() {
+        assert!(parse_sort_expr("Tm(Ctx, A").is_err());
+        assert!(parse_sort_expr("Hom(").is_err());
+    }
+
+    #[test]
+    fn test_parse_sort_expr_trailing_garbage_errors() {
+        assert!(parse_sort_expr("Tm(A) junk").is_err());
+    }
+
+    #[test]
+    fn test_parse_sort_expr_malformed_identifier_errors() {
+        assert!(parse_sort_expr("1Hom(x, y)").is_err());
+        assert!(parse_sort_expr("Hom(1bad, y)").is_err());
+    }
+
+    #[test]
+    fn test_parse_sort_expr_empty_arglist_normalizes_to_name() -> TestResult {
+        // `Tm()` normalizes to `Name("Tm")` via the smart constructor,
+        // so Display and hashing match a bare-name spelling.
+        let e = parse_sort_expr("Tm()")?;
+        assert_eq!(e, SortExpr::Name(Arc::from("Tm")));
+        Ok(())
+    }
+
+    #[test]
+    fn test_compile_op_with_dependent_output() -> TestResult {
+        let spec = OpSpec {
+            name: "id".to_owned(),
+            input: None,
+            inputs: Some(vec![crate::document::ParamSpec {
+                name: "x".to_owned(),
+                sort: "Ob".to_owned(),
+            }]),
+            output: "Hom(x, x)".to_owned(),
+        };
+        let op = compile_op(&spec, "Th")?;
+        assert_eq!(&*op.name, "id");
+        if let SortExpr::App { name, args } = &op.output {
+            assert_eq!(&**name, "Hom");
+            assert_eq!(args.len(), 2);
+        } else {
+            return Err("expected dependent Hom output".into());
+        }
+        Ok(())
     }
 
     #[test]

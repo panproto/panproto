@@ -105,14 +105,23 @@ fn apply_op_rename(name: &Arc<str>, rename: &RenameMap) -> Arc<str> {
     rename.get(name).cloned().unwrap_or_else(|| name.clone())
 }
 
-/// Compute the renamed signature of an operation (input sort list + output sort).
-fn renamed_op_signature(op: &Operation, sort_rename: &RenameMap) -> (Vec<Arc<str>>, Arc<str>) {
-    let inputs: Vec<Arc<str>> = op
+/// Compute the renamed signature of an operation (input sort list +
+/// output sort), using sort-expression renaming that walks the head
+/// name through the rename map.
+fn renamed_op_signature(
+    op: &Operation,
+    sort_rename: &RenameMap,
+) -> (Vec<crate::sort::SortExpr>, crate::sort::SortExpr) {
+    let rename_std: std::collections::HashMap<Arc<str>, Arc<str>> = sort_rename
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let inputs: Vec<crate::sort::SortExpr> = op
         .inputs
         .iter()
-        .map(|(_, s)| apply_sort_rename(s, sort_rename))
+        .map(|(_, s)| s.rename_head(&rename_std))
         .collect();
-    let output = apply_sort_rename(&op.output, sort_rename);
+    let output = op.output.rename_head(&rename_std);
     (inputs, output)
 }
 
@@ -227,10 +236,17 @@ fn rebuild_sorts(theory: &Theory, sort_rename: &RenameMap) -> Result<Vec<Sort>, 
         let rep = apply_sort_rename(&sort.name, sort_rename);
         if seen.insert(rep.clone()) {
             let rep_sort = get_sort(theory, &rep)?;
+            let rename_std: std::collections::HashMap<Arc<str>, Arc<str>> = sort_rename
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             let params: Vec<SortParam> = rep_sort
                 .params
                 .iter()
-                .map(|p| SortParam::new(p.name.clone(), apply_sort_rename(&p.sort, sort_rename)))
+                .map(|p| SortParam {
+                    name: p.name.clone(),
+                    sort: p.sort.rename_head(&rename_std),
+                })
                 .collect();
             result.push(Sort {
                 name: rep,
@@ -254,15 +270,19 @@ fn rebuild_ops(
         let rep = apply_op_rename(&op.name, op_rename);
         if seen.insert(rep.clone()) {
             let rep_op = get_op(theory, &rep)?;
-            let inputs: Vec<(Arc<str>, Arc<str>)> = rep_op
+            let rename_std: std::collections::HashMap<Arc<str>, Arc<str>> = sort_rename
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let inputs: Vec<(Arc<str>, crate::sort::SortExpr)> = rep_op
                 .inputs
                 .iter()
-                .map(|(pname, psort)| (pname.clone(), apply_sort_rename(psort, sort_rename)))
+                .map(|(pname, psort)| (pname.clone(), psort.rename_head(&rename_std)))
                 .collect();
             result.push(Operation::new(
                 rep,
                 inputs,
-                apply_sort_rename(&rep_op.output, sort_rename),
+                rep_op.output.rename_head(&rename_std),
             ));
         }
     }
@@ -357,8 +377,8 @@ mod tests {
         assert!(q.find_sort("B").is_none());
         assert_eq!(q.ops.len(), 2);
         let g = q.find_op("g").ok_or("op g not found")?;
-        assert_eq!(&*g.output, "A");
-        assert_eq!(&*g.inputs[0].1, "A");
+        assert_eq!(&**g.output.head(), "A");
+        assert_eq!(&**g.inputs[0].1.head(), "A");
         Ok(())
     }
 
@@ -470,7 +490,7 @@ mod tests {
         let q = quotient(&t, &ids)?;
         assert_eq!(q.sorts.len(), 2);
         let d = q.find_sort("D").ok_or("sort D not found")?;
-        assert_eq!(&*d.params[0].sort, "A");
+        assert_eq!(&**d.params[0].sort.head(), "A");
         Ok(())
     }
 }

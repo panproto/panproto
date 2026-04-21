@@ -51,8 +51,8 @@ pub use composition::{CompositionSpec, CompositionStep, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
 pub use eq::{
-    DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation, match_pattern,
-    normalize,
+    DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation, compose_subst,
+    match_pattern, normalize,
 };
 pub use error::GatError;
 pub use free_model::{FreeModelConfig, FreeModelResult, free_model};
@@ -67,7 +67,11 @@ pub use op::Operation;
 pub use pullback::{PullbackResult, pullback};
 pub use quotient::quotient;
 pub use schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
-pub use sort::{CoercionClass, Sort, SortKind, SortParam, ValueKind, classify_builtin_coercion};
+pub use sort::{
+    CoercionClass, Sort, SortExpr, SortKind, SortParam, ValueKind, classify_builtin_coercion,
+    positional_param_rename, signatures_equivalent_modulo_param_rename,
+    sort_params_equivalent_modulo_rename,
+};
 pub use theory::{ConflictPolicy, ConflictStrategy, Theory, resolve_theory, th_editable_structure};
 pub use typecheck::{
     VarContext, infer_var_sorts, typecheck_equation, typecheck_term, typecheck_theory,

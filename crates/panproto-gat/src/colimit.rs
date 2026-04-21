@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::eq::alpha_equivalent_equation;
 use crate::error::GatError;
 use crate::morphism::TheoryMorphism;
+use crate::sort::signatures_equivalent_modulo_param_rename;
 use crate::theory::Theory;
 
 /// Result of a categorical pushout (colimit) computation.
@@ -222,7 +223,12 @@ fn merge_ops(
                     name: effective_name.to_string(),
                 })?;
             let renamed_op = rename_op_sort_refs(op, sort_rename);
-            if t1_op.inputs != renamed_op.inputs || t1_op.output != renamed_op.output {
+            if !signatures_equivalent_modulo_param_rename(
+                &t1_op.inputs,
+                &t1_op.output,
+                &renamed_op.inputs,
+                &renamed_op.output,
+            ) {
                 return Err(GatError::OpConflict {
                     name: effective_name.to_string(),
                 });
@@ -286,12 +292,9 @@ fn rename_sort_refs(
     let params = sort
         .params
         .iter()
-        .map(|p| {
-            let renamed_sort = sort_rename
-                .get(&p.sort)
-                .cloned()
-                .unwrap_or_else(|| Arc::clone(&p.sort));
-            crate::sort::SortParam::new(Arc::clone(&p.name), renamed_sort)
+        .map(|p| crate::sort::SortParam {
+            name: Arc::clone(&p.name),
+            sort: p.sort.rename_head(sort_rename),
         })
         .collect();
     crate::sort::Sort {
@@ -301,26 +304,20 @@ fn rename_sort_refs(
     }
 }
 
-/// Rename sort references in an operation's input/output sorts using the rename map.
+/// Rename sort references in an operation's input / output sorts using
+/// the rename map. Renames only the sort heads; argument terms of
+/// dependent sorts refer to parameter names that are local to each
+/// operation and are therefore unaffected.
 fn rename_op_sort_refs(
     op: &crate::op::Operation,
     sort_rename: &HashMap<Arc<str>, Arc<str>>,
 ) -> crate::op::Operation {
-    let inputs = op
+    let inputs: Vec<(Arc<str>, crate::sort::SortExpr)> = op
         .inputs
         .iter()
-        .map(|(name, sort)| {
-            let renamed = sort_rename
-                .get(sort)
-                .cloned()
-                .unwrap_or_else(|| Arc::clone(sort));
-            (Arc::clone(name), renamed)
-        })
+        .map(|(name, sort)| (Arc::clone(name), sort.rename_head(sort_rename)))
         .collect();
-    let output = sort_rename
-        .get(&op.output)
-        .cloned()
-        .unwrap_or_else(|| Arc::clone(&op.output));
+    let output = op.output.rename_head(sort_rename);
     crate::op::Operation::new(Arc::clone(&op.name), inputs, output)
 }
 
@@ -489,7 +486,12 @@ pub fn colimit_by_name(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theo
             let t1_op = t1.find_op(&op.name).ok_or_else(|| GatError::OpConflict {
                 name: op.name.to_string(),
             })?;
-            if t1_op.inputs != op.inputs || t1_op.output != op.output {
+            if !signatures_equivalent_modulo_param_rename(
+                &t1_op.inputs,
+                &t1_op.output,
+                &op.inputs,
+                &op.output,
+            ) {
                 return Err(GatError::OpConflict {
                     name: op.name.to_string(),
                 });

@@ -129,7 +129,7 @@ fn emit_adds(
         }
         let (ready, not_ready): (Vec<_>, Vec<_>) = remaining
             .into_iter()
-            .partition(|s| s.params.iter().all(|p| added_sorts.contains(&p.sort)));
+            .partition(|s| s.params.iter().all(|p| added_sorts.contains(p.sort.head())));
         for sort in &ready {
             added_sorts.insert(Arc::clone(&sort.name));
             sorted_adds.push((*sort).clone());

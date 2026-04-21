@@ -143,7 +143,7 @@ pub fn cmd_expr_gat_check(file: &Path, verbose: bool) -> Result<()> {
     for (var_name, sort_name) in &input.context {
         ctx.insert(
             std::sync::Arc::from(var_name.as_str()),
-            std::sync::Arc::from(sort_name.as_str()),
+            gat::SortExpr::Name(std::sync::Arc::from(sort_name.as_str())),
         );
     }
 

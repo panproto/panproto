@@ -120,6 +120,29 @@ mod tests {
         assert_eq!(s.required_field_count(), 0);
     }
 
+    /// An `AlgStruct` whose fields share names with its declared
+    /// parameters is plain data: construction does not register
+    /// anything globally, so name overlap is inert and round-trips
+    /// through serde unchanged.
+    #[test]
+    fn alg_struct_with_name_overlap_between_fields_and_params_is_inert() {
+        // Shape deliberately chosen to make every identifier coincide:
+        // a struct named "Self" with a param "Self" : Type and two
+        // fields that reuse the param name and the struct name.
+        let s = AlgStruct::new("Self")
+            .with_param("Self", "Type")
+            .with_field("Self", "Type")
+            .with_field("value", "Self");
+        assert_eq!(&*s.name, "Self");
+        assert_eq!(s.params.len(), 1);
+        assert_eq!(s.fields.len(), 2);
+
+        // Round-trip survives the clash without panic.
+        let json = serde_json::to_string(&s).expect("serialize");
+        let back: AlgStruct = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(s, back);
+    }
+
     #[test]
     fn serialization_round_trip() {
         let s = AlgStruct::new("Pair")

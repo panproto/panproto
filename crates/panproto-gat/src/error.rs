@@ -168,6 +168,14 @@ pub enum GatError {
         sort2: String,
     },
 
+    /// Sort-expression unification failed (e.g. heads differ, arity
+    /// mismatch, or occurs check).
+    #[error("sort unification failure: {reason}")]
+    SortUnificationFailure {
+        /// Human-readable reason for the failure.
+        reason: String,
+    },
+
     // --- Natural transformation errors ---
     /// Source and target morphisms of a natural transformation have different domains.
     #[error(

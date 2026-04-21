@@ -194,6 +194,27 @@ mod tests {
             .unwrap()
     }
 
+    /// A `SiteRename` is matched by its `NameSite`, not by its display
+    /// name. Two renames that share an `old` string but target
+    /// different sites are distinct values and `rename_affects_site`
+    /// returns `true` only when the sites agree.
+    #[test]
+    fn site_rename_does_not_cross_sites() {
+        let vertex_rename = SiteRename::new(NameSite::VertexKind, "x", "y");
+        let edge_rename = SiteRename::new(NameSite::EdgeKind, "x", "y");
+
+        // Each rename affects only its declared site.
+        assert!(rename_affects_site(&vertex_rename, &NameSite::VertexKind));
+        assert!(!rename_affects_site(&vertex_rename, &NameSite::EdgeKind));
+        assert!(rename_affects_site(&edge_rename, &NameSite::EdgeKind));
+        assert!(!rename_affects_site(&edge_rename, &NameSite::VertexKind));
+
+        // Same display name but different site: not equal, so filters
+        // that key on `site` keep them apart.
+        assert_ne!(vertex_rename, edge_rename);
+        assert_ne!(vertex_rename.site, edge_rename.site);
+    }
+
     #[test]
     fn induce_schema_morphism_renames_edge_kinds() {
         let morph = test_morphism();

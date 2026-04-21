@@ -241,7 +241,7 @@ fn apply_drop_sort(theory: &Theory, name: &Arc<str>) -> Theory {
     let ops: Vec<_> = theory
         .ops
         .iter()
-        .filter(|o| o.output != *name && o.inputs.iter().all(|(_, s)| s != name))
+        .filter(|o| o.output.head() != name && o.inputs.iter().all(|(_, s)| s.head() != name))
         .cloned()
         .collect();
     let eqs = filter_eqs_by_remaining_ops(&theory.eqs, &ops);
@@ -261,18 +261,14 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
                     kind: s.kind.clone(),
                 }
             } else {
+                let mut rename_map = std::collections::HashMap::new();
+                rename_map.insert(Arc::clone(old), Arc::clone(new));
                 let params = s
                     .params
                     .iter()
-                    .map(|p| {
-                        if p.sort == *old {
-                            SortParam {
-                                name: Arc::clone(&p.name),
-                                sort: Arc::clone(new),
-                            }
-                        } else {
-                            p.clone()
-                        }
+                    .map(|p| SortParam {
+                        name: Arc::clone(&p.name),
+                        sort: p.sort.rename_head(&rename_map),
                     })
                     .collect();
                 Sort {
@@ -283,6 +279,8 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
             }
         })
         .collect();
+    let mut rename_map = std::collections::HashMap::new();
+    rename_map.insert(Arc::clone(old), Arc::clone(new));
     let ops: Vec<_> = theory
         .ops
         .iter()
@@ -290,22 +288,9 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
             let inputs = o
                 .inputs
                 .iter()
-                .map(|(n, s)| {
-                    (
-                        Arc::clone(n),
-                        if s == old {
-                            Arc::clone(new)
-                        } else {
-                            Arc::clone(s)
-                        },
-                    )
-                })
+                .map(|(n, s)| (Arc::clone(n), s.rename_head(&rename_map)))
                 .collect();
-            let output = if o.output == *old {
-                Arc::clone(new)
-            } else {
-                Arc::clone(&o.output)
-            };
+            let output = o.output.rename_head(&rename_map);
             Operation {
                 name: Arc::clone(&o.name),
                 inputs,
@@ -338,7 +323,7 @@ fn apply_rename_op(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory {
                 Operation {
                     name: Arc::clone(new),
                     inputs: o.inputs.clone(),
-                    output: Arc::clone(&o.output),
+                    output: o.output.clone(),
                 }
             } else {
                 o.clone()
@@ -386,9 +371,9 @@ fn reachable_sorts_from(theory: &Theory, start: &str) -> FxHashSet<Arc<str>> {
     while let Some(current) = queue.pop_front() {
         for op in &theory.ops {
             // If any input sort is the current sort, the output sort is reachable.
-            let has_current_as_input = op.inputs.iter().any(|(_, s)| **s == *current);
-            if has_current_as_input && reachable.insert(Arc::clone(&op.output)) {
-                queue.push_back(Arc::clone(&op.output));
+            let has_current_as_input = op.inputs.iter().any(|(_, s)| **s.head() == *current);
+            if has_current_as_input && reachable.insert(Arc::clone(op.output.head())) {
+                queue.push_back(Arc::clone(op.output.head()));
             }
         }
     }
@@ -443,6 +428,9 @@ fn apply_merge_sorts(
             }
         })
         .collect();
+    let mut rename_map = std::collections::HashMap::new();
+    rename_map.insert(Arc::clone(sort_a), Arc::clone(merged_name));
+    rename_map.insert(Arc::clone(sort_b), Arc::clone(merged_name));
     let ops: Vec<_> = theory
         .ops
         .iter()
@@ -450,20 +438,9 @@ fn apply_merge_sorts(
             let inputs: Vec<_> = o
                 .inputs
                 .iter()
-                .map(|(n, s)| {
-                    let mapped = if s == sort_a || s == sort_b {
-                        Arc::clone(merged_name)
-                    } else {
-                        Arc::clone(s)
-                    };
-                    (Arc::clone(n), mapped)
-                })
+                .map(|(n, s)| (Arc::clone(n), s.rename_head(&rename_map)))
                 .collect();
-            let output = if o.output == *sort_a || o.output == *sort_b {
-                Arc::clone(merged_name)
-            } else {
-                Arc::clone(&o.output)
-            };
+            let output = o.output.rename_head(&rename_map);
             Operation {
                 name: Arc::clone(&o.name),
                 inputs,
@@ -526,7 +503,8 @@ fn apply_scoped_transform(
         .ops
         .iter()
         .filter(|op| {
-            op.inputs.iter().all(|i| reachable.contains(&i.1)) && reachable.contains(&op.output)
+            op.inputs.iter().all(|i| reachable.contains(i.1.head()))
+                && reachable.contains(op.output.head())
         })
         .map(|o| Arc::clone(&o.name))
         .collect();
@@ -674,7 +652,8 @@ fn build_sub_theory(theory: &Theory, focus: &Arc<str>, reachable: &FxHashSet<Arc
         .ops
         .iter()
         .filter(|op| {
-            op.inputs.iter().all(|i| reachable.contains(&i.1)) && reachable.contains(&op.output)
+            op.inputs.iter().all(|i| reachable.contains(i.1.head()))
+                && reachable.contains(op.output.head())
         })
         .cloned()
         .collect();
@@ -1013,7 +992,7 @@ mod tests {
         assert!(!result.has_sort("Vertex"));
         // Ops should reference the renamed sort
         let src = result.find_op("src").unwrap();
-        assert_eq!(&*src.output, "Node");
+        assert_eq!(&**src.output.head(), "Node");
     }
 
     #[test]
