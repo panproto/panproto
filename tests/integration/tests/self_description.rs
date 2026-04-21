@@ -67,16 +67,20 @@ fn th_gat_is_well_formed() -> Result<(), Box<dyn std::error::Error>> {
     // Param sort is dependent with arity 1.
     let param = gat.find_sort("Param").ok_or("Param sort not found")?;
     assert_eq!(param.arity(), 1, "Param should have arity 1");
-    assert_eq!(&*param.params[0].sort, "Sort", "Param depends on Sort");
+    assert_eq!(
+        &**param.params[0].sort.head(),
+        "Sort",
+        "Param depends on Sort"
+    );
 
     // All operations have correct signatures.
     let sn = gat.find_op("sort_name").ok_or("sort_name not found")?;
     assert_eq!(sn.inputs.len(), 1);
-    assert_eq!(&*sn.inputs[0].1, "Sort");
-    assert_eq!(&*sn.output, "Name");
+    assert_eq!(&**sn.inputs[0].1.head(), "Sort");
+    assert_eq!(&**sn.output.head(), "Name");
 
     let oo = gat.find_op("op_output").ok_or("op_output not found")?;
-    assert_eq!(&*oo.output, "Sort");
+    assert_eq!(&**oo.output.head(), "Sort");
 
     Ok(())
 }

@@ -124,22 +124,23 @@ fn compile_op(spec: &OpSpec) -> Operation {
 /// [`parse_term`].
 pub(crate) fn parse_sort_expr(s: &str) -> SortExpr {
     let trimmed = s.trim();
-    if let Some(paren_pos) = trimmed.find('(') {
-        let head = trimmed[..paren_pos].trim();
-        let inner = &trimmed[paren_pos + 1..];
-        let close = find_matching_paren(inner).unwrap_or(inner.len());
-        let args_str = &inner[..close];
-        let args = split_top_level_commas(args_str)
-            .iter()
-            .filter_map(|a| parse_term(a).ok())
-            .collect();
-        SortExpr::App {
-            name: Arc::from(head),
-            args,
-        }
-    } else {
-        SortExpr::Name(Arc::from(trimmed))
-    }
+    trimmed.find('(').map_or_else(
+        || SortExpr::Name(Arc::from(trimmed)),
+        |paren_pos| {
+            let head = trimmed[..paren_pos].trim();
+            let inner = &trimmed[paren_pos + 1..];
+            let close = find_matching_paren(inner).unwrap_or(inner.len());
+            let args_str = &inner[..close];
+            let args = split_top_level_commas(args_str)
+                .iter()
+                .filter_map(|a| parse_term(a).ok())
+                .collect();
+            SortExpr::App {
+                name: Arc::from(head),
+                args,
+            }
+        },
+    )
 }
 
 fn compile_equation(spec: &EquationSpec, theory_name: &str) -> Result<Equation, TheoryDslError> {
@@ -404,6 +405,60 @@ mod tests {
         let op = compile_op(&spec);
         assert_eq!(&*op.name, "src");
         assert_eq!(op.arity(), 1);
+    }
+
+    #[test]
+    fn test_parse_sort_expr_bare_name() {
+        let e = parse_sort_expr("Ob");
+        if let SortExpr::Name(n) = e {
+            assert_eq!(&*n, "Ob");
+        } else {
+            panic!("expected Name");
+        }
+    }
+
+    #[test]
+    fn test_parse_sort_expr_applied() {
+        let e = parse_sort_expr("Hom(x, y)");
+        if let SortExpr::App { name, args } = e {
+            assert_eq!(&*name, "Hom");
+            assert_eq!(args.len(), 2);
+        } else {
+            panic!("expected App");
+        }
+    }
+
+    #[test]
+    fn test_parse_sort_expr_nested_args() {
+        let e = parse_sort_expr("Tm(extend(G, A), B)");
+        if let SortExpr::App { name, args } = e {
+            assert_eq!(&*name, "Tm");
+            assert_eq!(args.len(), 2);
+            assert!(matches!(args[0], panproto_gat::Term::App { .. }));
+        } else {
+            panic!("expected App");
+        }
+    }
+
+    #[test]
+    fn test_compile_op_with_dependent_output() {
+        let spec = OpSpec {
+            name: "id".to_owned(),
+            input: None,
+            inputs: Some(vec![crate::document::ParamSpec {
+                name: "x".to_owned(),
+                sort: "Ob".to_owned(),
+            }]),
+            output: "Hom(x, x)".to_owned(),
+        };
+        let op = compile_op(&spec);
+        assert_eq!(&*op.name, "id");
+        if let SortExpr::App { name, args } = &op.output {
+            assert_eq!(&**name, "Hom");
+            assert_eq!(args.len(), 2);
+        } else {
+            panic!("expected dependent Hom output");
+        }
     }
 
     #[test]

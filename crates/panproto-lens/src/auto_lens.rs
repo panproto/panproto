@@ -1547,7 +1547,7 @@ mod tests {
                 name: Arc::from("constant"),
                 // Zero inputs — the exact shape the old sentinel accepted.
                 inputs: Vec::new(),
-                output: Arc::from("int"),
+                output: panproto_gat::SortExpr::Name(Arc::from("int")),
             }),
         };
         let err = endofunctor_to_protolens(&endo)

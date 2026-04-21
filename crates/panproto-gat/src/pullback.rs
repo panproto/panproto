@@ -164,10 +164,9 @@ fn pair_ops(
             };
 
             // Check output sort pair exists (by head).
-            let Some(output_pb) = sort_pair_map.get(&(
-                Arc::clone(op1.output.head()),
-                Arc::clone(op2.output.head()),
-            )) else {
+            let Some(output_pb) =
+                sort_pair_map.get(&(Arc::clone(op1.output.head()), Arc::clone(op2.output.head())))
+            else {
                 continue;
             };
 

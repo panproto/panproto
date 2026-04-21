@@ -16,10 +16,12 @@ use crate::error::GatError;
 use crate::sort::SortExpr;
 use crate::theory::Theory;
 
-/// A variable typing context: maps variable names to their sort
-/// expressions. Sort expressions may themselves reference variables (as
-/// `Term::Var` nodes under a `SortExpr::App`), which is the load-bearing
-/// feature that distinguishes GATs from many-sorted equational theories.
+/// A variable typing context.
+///
+/// Maps variable names to their sort expressions. Sort expressions may
+/// themselves reference variables (as `Term::Var` nodes under a
+/// `SortExpr::App`), which is the load-bearing feature that distinguishes
+/// GATs from many-sorted equational theories.
 pub type VarContext = FxHashMap<Arc<str>, SortExpr>;
 
 /// Infer the output sort expression of a term given a variable context
@@ -253,8 +255,8 @@ fn unify_all(mut eqs: Vec<(Term, Term)>) -> Result<FxHashMap<Arc<str>, Term>, Ga
                         ),
                     });
                 }
-                for (x, y) in args_a.into_iter().zip(args_b.into_iter()) {
-                    eqs.push((x, y));
+                for pair in args_a.into_iter().zip(args_b) {
+                    eqs.push(pair);
                 }
             }
         }
@@ -395,15 +397,15 @@ mod tests {
             args: vec![Term::var("x"), Term::var("x")],
         };
         let id = Operation::unary("id", "x", "Ob", hom_xx);
-        let hom_xy = SortExpr::App {
+        let hom_src_mid = SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var("x"), Term::var("y")],
         };
-        let hom_yz = SortExpr::App {
+        let hom_mid_tgt = SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var("y"), Term::var("z")],
         };
-        let hom_xz = SortExpr::App {
+        let hom_src_tgt = SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var("x"), Term::var("z")],
         };
@@ -413,10 +415,10 @@ mod tests {
                 (Arc::from("x"), SortExpr::from("Ob")),
                 (Arc::from("y"), SortExpr::from("Ob")),
                 (Arc::from("z"), SortExpr::from("Ob")),
-                (Arc::from("f"), hom_xy),
-                (Arc::from("g"), hom_yz),
+                (Arc::from("f"), hom_src_mid),
+                (Arc::from("g"), hom_mid_tgt),
             ],
-            hom_xz,
+            hom_src_tgt,
         );
         Theory::new("Category", vec![ob, hom], vec![id, compose], Vec::new())
     }

@@ -33,7 +33,7 @@ pub enum SortExpr {
 impl SortExpr {
     /// Extract the bare sort name, ignoring any applied arguments.
     #[must_use]
-    pub fn head(&self) -> &Arc<str> {
+    pub const fn head(&self) -> &Arc<str> {
         match self {
             Self::Name(n) | Self::App { name: n, .. } => n,
         }
@@ -165,7 +165,6 @@ impl From<&Arc<str>> for SortExpr {
         Self::Name(Arc::clone(s))
     }
 }
-
 
 /// Classification of a coercion's round-trip properties.
 ///
@@ -633,23 +632,25 @@ mod tests {
     }
 
     #[test]
-    fn sort_expr_serde_name_is_bare_string() {
+    fn sort_expr_serde_name_is_bare_string() -> Result<(), Box<dyn std::error::Error>> {
         let e = SortExpr::Name(Arc::from("Ob"));
-        let s = serde_json::to_string(&e).expect("serialize");
+        let s = serde_json::to_string(&e)?;
         assert_eq!(s, "\"Ob\"");
-        let back: SortExpr = serde_json::from_str(&s).expect("deserialize");
+        let back: SortExpr = serde_json::from_str(&s)?;
         assert_eq!(back, e);
+        Ok(())
     }
 
     #[test]
-    fn sort_expr_serde_app_is_struct() {
+    fn sort_expr_serde_app_is_struct() -> Result<(), Box<dyn std::error::Error>> {
         let e = SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var("x"), Term::var("y")],
         };
-        let s = serde_json::to_string(&e).expect("serialize");
-        let back: SortExpr = serde_json::from_str(&s).expect("deserialize");
+        let s = serde_json::to_string(&e)?;
+        let back: SortExpr = serde_json::from_str(&s)?;
         assert_eq!(back, e);
+        Ok(())
     }
 
     #[test]

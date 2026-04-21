@@ -24,7 +24,10 @@ fn shared_theory(n: usize) -> Theory {
         .map(|i| {
             Operation::new(
                 format!("shared_op{i}"),
-                vec![(Arc::from("x"), Arc::from(format!("Shared{i}").as_str()))],
+                vec![(
+                    Arc::from("x"),
+                    panproto_gat::SortExpr::Name(Arc::from(format!("Shared{i}").as_str())),
+                )],
                 format!("Shared{i}"),
             )
         })
@@ -44,7 +47,10 @@ fn colimit_setup(shared_size: usize, extra_size: usize) -> (Theory, Theory, Theo
         t1_sorts.push(Sort::simple(name.as_str()));
         t1_ops.push(Operation::new(
             format!("t1_extra_op{i}"),
-            vec![(Arc::from("x"), Arc::from(name.as_str()))],
+            vec![(
+                Arc::from("x"),
+                panproto_gat::SortExpr::Name(Arc::from(name.as_str())),
+            )],
             name,
         ));
     }
@@ -58,7 +64,10 @@ fn colimit_setup(shared_size: usize, extra_size: usize) -> (Theory, Theory, Theo
         t2_sorts.push(Sort::simple(name.as_str()));
         t2_ops.push(Operation::new(
             format!("t2_extra_op{i}"),
-            vec![(Arc::from("x"), Arc::from(name.as_str()))],
+            vec![(
+                Arc::from("x"),
+                panproto_gat::SortExpr::Name(Arc::from(name.as_str())),
+            )],
             name,
         ));
     }

@@ -718,8 +718,8 @@ fn quotient_then_pullback_then_typecheck() -> Result<(), Box<dyn std::error::Err
     assert!(q.find_sort("A").is_some());
     // f should now be A -> A.
     let f_op = q.find_op("f").ok_or("op f not found in quotient")?;
-    assert_eq!(&*f_op.output, "A");
-    assert_eq!(&*f_op.inputs[0].1, "A");
+    assert_eq!(&**f_op.output.head(), "A");
+    assert_eq!(&**f_op.inputs[0].1.head(), "A");
 
     // Typecheck the quotient theory.
     assert!(
