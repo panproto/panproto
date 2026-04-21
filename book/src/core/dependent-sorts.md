@@ -17,7 +17,7 @@ The theory has three sorts. The context sort $\mathsf{Ctx}$ and the type sort $\
 
 The operations are familiar:
 
-```
+```text
 arrow    : (A : Ty, B : Ty) -> Ty
 extend   : (G : Ctx, A : Ty) -> Ctx
 emptyCtx : () -> Ctx
@@ -31,7 +31,7 @@ Every output sort references the input parameters explicitly: `var_zero` lives i
 
 There is one equation, the $\beta$-law stated as a rewrite between two already-well-typed terms:
 
-```
+```text
 app(G, A, B, lam(G, A, B, body), x)  =  subst(G, A, B, body, x)
 ```
 
@@ -58,6 +58,10 @@ The cost is that the theory has to carry an explicit `extend` / `var_zero` / `su
 The machinery that makes STLC work is not STLC-specific. Any protocol whose sorts carry indexing — a relational schema where a column's sort depends on its table, a graph schema where an edge's sort depends on its source and target vertex kinds, a message schema where a field's sort depends on a discriminator — uses the same mechanism. The GATs chapter ([How panproto-gat represents dependent sorts](../foundations/gats.md)) states the mechanism abstractly; this chapter is the worked case that makes the abstraction concrete.
 
 The typical indexing depth for the protocols covered in Part IV is shallow (one or two parameters), far short of what STLC demands. Reading the STLC example is therefore a way of confirming that the engine is not near its limits when it handles the simpler cases; it is doing, in production, a much weaker version of what the worked example exercises.
+
+## Current limitations
+
+One limitation is worth flagging for readers who will push the engine against its edges. The morphism well-formedness check in [`panproto_gat::morphism::check_morphism`](https://docs.rs/panproto-gat/latest/panproto_gat/morphism/fn.check_morphism.html) compares input and output sort expressions structurally, including the parameter-variable names that appear inside them. A morphism between two theories whose operations agree on shape but spell their parameter names differently (say, domain `Hom(a, b)` against codomain `Hom(x, y)`) is rejected under the current check, even though the morphism is categorically well-formed. The fix is to compare sort expressions modulo alpha-renaming of the parameter binders in the operation's signature, threading the renaming through the argument terms. It is a localised change, queued for a follow-up pass, and does not affect typechecking, free-model generation, or any of the within-theory machinery this chapter exercises; it matters only when mapping between two theories that happen to use different parameter names.
 
 ## Further reading
 
