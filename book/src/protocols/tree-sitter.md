@@ -1,5 +1,12 @@
 # Tree-sitter and full-AST parsing
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Writing a protocol by hand for every programming language one might reasonably want to parse is not a serious proposal. Two hundred and forty-eight languages ship with panproto, and we did not hand-write them. They come from [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars, through a mechanical translation that turns a grammar's node-type metadata into a GAT and a parser. The present chapter explains the translation, what the resulting theories can and cannot express about the language they describe, and when a hand-written upgrade is worth the effort.
 
 Tree-sitter itself is due to @brunsfeld2018treesitter. Its incremental-parsing algorithm descends from @wagnergraham1998efficient, and its parsing-expression-grammar support from the packrat-parsing tradition of @ford2002packrat.

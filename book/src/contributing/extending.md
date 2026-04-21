@@ -1,5 +1,12 @@
 # Extending panproto
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A contributor writing new code for panproto is usually doing one of three things: adding support for a data format or schema language the engine does not yet know, adding a transformation shape the lens library does not yet offer, or adding a small computation the expression language needs but cannot express with its existing builtins. The present chapter walks through each case end-to-end.
 
 ## A new protocol

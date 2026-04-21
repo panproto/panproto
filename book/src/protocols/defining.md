@@ -1,5 +1,12 @@
 # Defining a protocol
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Part IV is where the framework of Part II meets the protocols panproto ships with. The remaining chapters in the part work through specific cases — ATProto, Avro, a relational case study, FHIR, and the tree-sitter-derived protocols — each one an instance of the constructions developed abstractly earlier. The present chapter is the template those cases instantiate: what a protocol registration looks like in Rust, and what obligations the registration imposes on its parser and emitter.
 
 A reader who has followed [Protocols as theories, schemas as instances](../core/schemas-as-instances.md) has seen the theoretical content. The present chapter concentrates on what the Rust code actually does.

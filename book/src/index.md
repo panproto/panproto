@@ -1,5 +1,12 @@
 # Preface
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Data outlives its schemas. Any system that stores records for more than a few months eventually faces a situation in which the records on disk were written against one shape and the code that reads them expects another, and the gap between the two has to be closed by somebody working by hand, under time pressure, without a mechanical check that the thing being done is correct. The tools most developers reach for on either side of this problem — source control on one side, serialisation formats on the other — were designed for something narrower. [Git](https://git-scm.com/) versions byte sequences. [Protobuf](https://protobuf.dev/), [Avro](https://avro.apache.org/), and [JSON Schema](https://json-schema.org/) describe the shape of those sequences. Neither addresses the relationship between the two, which is where things go wrong.
 
 This book presents a different way of arranging those tools. Its central claim is that the schema, the data under it, and the transformations between schema versions can all be treated as members of the same kind of mathematical object. Once the treatment is carried out, the operations one ordinarily does by hand — merging a schema change across two branches, migrating data across a schema version boundary — follow from constructions worked out carefully in a part of mathematics most working developers have not yet seen. The mathematics is the categorical treatment of generalised algebraic theories and their morphisms, due largely to @eilenbergmaclane1945general, @lawvere1963functorial, and @cartmell1986generalised, applied to databases by @spivak2012functorial and @spivakwisnesky2015relational. The software discussed in the book, panproto, is an implementation of the arrangement.

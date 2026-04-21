@@ -1,5 +1,12 @@
 # The TypeScript SDK
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The TypeScript SDK, published on npm as [`@panproto/core`](https://www.npmjs.com/package/@panproto/core), wraps the WebAssembly boundary developed in [the previous chapter](./wasm-boundary.md) in a typed, ergonomic API for JavaScript and TypeScript callers. What the wrapping adds is threefold: ordinary JavaScript object lifetimes instead of manual handle management; MessagePack serialisation hidden inside method calls rather than exposed at the API level; and a fluent builder API that bundles the many discrete WASM calls of schema and migration construction into a single round-trip.
 
 The source lives in `sdk/typescript/` in the panproto repository.

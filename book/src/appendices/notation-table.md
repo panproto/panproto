@@ -1,5 +1,12 @@
 # Notation reference
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A lookup for the non-standard symbols and typographic conventions used in the book. The table lists each symbol, its meaning, and the chapter in which it is introduced.
 
 ## Categorical notation

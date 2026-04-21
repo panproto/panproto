@@ -1,5 +1,12 @@
 # Categories
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Most of the rest of this book can be read as commentary on a single definition, and the present chapter gives it. The definition is short enough to write down in half a page. Becoming comfortable enough with it to reason by it takes longer, and the chapter is paced for that second requirement rather than the first: the formal statement arrives after the middle, once three worked settings have built up enough familiarity that the definition lands as the name for something already seen.
 
 The concept originates with @eilenbergmaclane1945general, who introduced it to organise the comparison of algebraic structures in topology. It has since become the standard vocabulary for any situation where *things* and *directed operations between things* are studied together, and has been picked up in turn by logic, algebra, programming language theory, and the theory of databases. In this book the things are schemas and the operations are the migrations that carry data from one schema to another. By the end of the chapter the words *thing*, *directed operation*, and *structure* will have been pinned down precisely enough to be usable in every later chapter.

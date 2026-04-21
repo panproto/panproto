@@ -1,5 +1,12 @@
 # Theory morphisms and instance migration
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Every change of schema in a working system is a migration waiting to happen. Add a field and somebody has to decide what to do for the records that did not have it; rename a field and somebody has to decide how to reconcile the old name with the new; merge two schemas and somebody has to decide what the shared structure means. Doing this by hand, as most teams still do, is how production incidents begin.
 
 The central claim of this chapter, due in its categorical form to @spivak2012functorial, is that every such change of schema is the pullback of a theory morphism — plus, when the change extends rather than restricts, a choice between two universal strategies for filling in what the source did not supply. The chapter unpacks the claim. Panproto's [`panproto-mig`](https://docs.rs/panproto-mig/latest/panproto_mig/) crate is the implementation of what the claim prescribes, and the remainder of Part II shows what the implementation looks like stage by stage.

@@ -1,5 +1,12 @@
 # The git bridge
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A version-control system adopted by a team has to fit into the tooling that team already uses, and for most teams today that means git. A panproto-vcs repository under active development needs to be pushable to a GitHub or GitLab remote running ordinary git, reviewable through git-aware tooling, and pullable back into a panproto-vcs working copy afterwards without losing the schema-level history the push and the review cannot carry. The bridge that makes this work is the subject of the present chapter: [`panproto-git`](https://docs.rs/panproto-git/latest/panproto_git/) supplies the bidirectional translation of repository state, and the [`panproto-git-remote`](https://docs.rs/panproto-git-remote/latest/panproto_git_remote/) helper — installed as `git-remote-panproto` — lets git itself speak to a panproto-vcs remote through `git push` and `git fetch`.
 
 ## Two translations

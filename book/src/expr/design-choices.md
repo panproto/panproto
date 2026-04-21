@@ -1,5 +1,12 @@
 # Why bounded pure evaluation
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Every choice of DSL in a system as opinionated as panproto invites the question of whether an existing language would have served. The question has a specific answer, and this chapter gives it.
 
 The short version: panproto needs a language that is pure, bounded, deterministic, serialisable, and capable of pattern-matching over panproto's own schema-indexed types, and no existing candidate satisfies all five. The chapter walks through the requirements, the four closest candidates — Starlark, Dhall, Nickel, CUE — and what each one gives up at the boundary that turned out to matter.

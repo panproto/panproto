@@ -1,5 +1,12 @@
 # What git already versions and what it does not
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Nearly every team that writes software uses [git](https://git-scm.com/), and nearly every such team uses it for the same purpose: versioning the bytes of a source tree, across branches, across time. The internal object model is simple enough that a reader who has never looked inside git is usually surprised at how cleanly it is constructed, and the present chapter lays it out precisely enough to show what git is versioning and what it is not. The gap between those two — what git actually tracks and what a production system often wants tracked — is what the rest of Part V sets out to fill.
 
 Readers familiar with git's Merkle DAG can skim the first two sections and pick up where the gap is stated. For the deeper account of git's internals, @chaconstraub2014pro is canonical.

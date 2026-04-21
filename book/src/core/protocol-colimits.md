@@ -1,5 +1,12 @@
 # Protocol colimits
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Two protocols that share a common sub-protocol combine by pushout in the category of GATs. The composite protocol has every sort and operation of both factors, with sorts and operations in the shared sub-protocol identified along the inclusions. The construction is the same pushout from [Colimits and pushouts](../foundations/colimits.md), applied to a different category.
 
 The chapter has little new mathematics to add beyond that observation. What it owes the reader is a concrete sense of the construction at work on protocols panproto ships, and an honest account of what the universal property buys a developer combining protocols in practice.

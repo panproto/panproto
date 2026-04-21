@@ -1,5 +1,12 @@
 # Protolenses
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The lens of the previous chapter mediates between two specific structures, a source and a view. Schema evolution in real systems rarely produces just one pair. A team that uses panproto writes many migrations, each between two versions of the same logical schema, and wants the lens machinery for the whole family rather than one pair at a time.
 
 Panproto calls a schema-indexed family of lenses a **protolens**. The name is specific to this book and to [`panproto-lens`](https://docs.rs/panproto-lens/latest/panproto_lens/); the idea has partial analogues in the wider lens literature but is not, so far as we are aware, treated as a first-class object with the shape panproto gives it. The closest published work comprises the profunctor-optics formulation of @pickeringgibbonswu2017profunctor and the categorical treatment of @clarke2020profunctor, together with the delta-lens constructions of @pachecocunhahu2012delta and @diskin2011from. Where panproto's construction coincides with the published work we note the coincidence; where it appears novel we say so.

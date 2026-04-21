@@ -1,5 +1,12 @@
 # CI, semver-checks, and release
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Every commit to panproto's main branch runs through a CI pipeline whose job is to catch regressions before they land — across formatting, lints, tests, documentation, semver compatibility, and the workspace-hack invariant. The present chapter walks through each check, says why it exists, and gives the local command a contributor can run to reproduce it before pushing.
 
 The pipeline definition lives in `.github/workflows/ci.yml`.

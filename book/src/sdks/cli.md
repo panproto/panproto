@@ -1,5 +1,12 @@
 # The CLI
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Most first-time users of panproto encounter it through the `schema` command — a single binary built from [`panproto-cli`](https://docs.rs/panproto-cli/latest/panproto_cli/) that exposes the engine's operations as subcommands, covering the same ground the SDKs of the previous chapters cover programmatically. The present chapter is a reference for the subcommand surface, organised by workflow rather than alphabetically.
 
 ## Installation

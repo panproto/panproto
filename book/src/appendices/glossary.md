@@ -1,5 +1,12 @@
 # Glossary
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A glossary of defined terms used in more than one chapter, with back-links to the chapter that introduces each.
 
 **arrow.** Synonym for *morphism*. Used more often when drawing diagrams. [Categories](../foundations/categories.md).

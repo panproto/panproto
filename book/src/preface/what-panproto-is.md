@@ -1,5 +1,12 @@
 # What panproto is
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A small service stores user records as JSON and keeps the schema for those records in a file called `user.schema.json`, checked into the same repository as the code. The schema declares a `name` field and an `email` field, both required. After a few months, a new requirement arrives: users should have a display name that may differ from the account name. The schema grows a `displayName` field. Old records in the database do not have a `displayName`; new records do. A developer writes a small migration script to populate the new field on the old records, and commits the script alongside the schema change.
 
 This is not unusual. Every non-trivial production system runs some version of the same sequence. The specifics vary between [ATProto](https://atproto.com/), [Apache Avro](https://avro.apache.org/), [FHIR](https://www.hl7.org/fhir/), Postgres DDL, and the two dozen other schema languages in wide use, but the shape is the same: a schema file is edited, a migration runs against existing data, and the system is now operating against a new schema.

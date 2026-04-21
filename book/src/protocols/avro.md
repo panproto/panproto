@@ -1,5 +1,12 @@
 # Apache Avro: schema evolution as migration
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Avro gets schema evolution right in a way few serialisation formats manage, and the rules it states are precise enough to translate directly into panproto's migration framework. A reader version of a schema is allowed to consume data written under a writer version of the schema when the two versions agree on a small number of concrete rules: which field additions are backward-compatible, which removals are forward-compatible, which type changes cross the compatibility line in each direction. The whole thing is documented. The present chapter works through the rules and shows what each one becomes on the migration side.
 
 Avro is the second of the chapter's two comparisons with the previous one on ATProto. Where ATProto's Lexicon specification leaves schema evolution largely to convention, Avro fixes it. The translation into panproto's framework is correspondingly sharper, and it is worth seeing how sharp it can be when a specification cooperates.

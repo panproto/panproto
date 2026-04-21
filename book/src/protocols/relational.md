@@ -1,5 +1,12 @@
 # A relational case study
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The relational model is the setting closest to the original categorical-database treatment of Spivak, and the reason is historical: Spivak's framework was developed as a categorical reformulation of @codd1970relational's work, which means the translation from relational schemas into panproto's framework is the least lossy of any protocol family in Part IV. A relational schema is already a small category with finite products, and an instance is already a product-preserving functor into $\mathbf{Set}$. Panproto's relational protocols follow this tradition, and the present chapter walks through what the translation actually looks like, using [Apache Cassandra](https://cassandra.apache.org/) and a subset of SQL as the concrete cases.
 
 The code lives in [`panproto_protocols::database`](https://docs.rs/panproto-protocols/latest/panproto_protocols/database/).

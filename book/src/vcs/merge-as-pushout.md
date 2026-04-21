@@ -1,5 +1,12 @@
 # Merge as pushout
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A three-way merge in a version-control system is, at heart, a reconciliation of two parallel edits against a common ancestor. Git carries out this reconciliation at the level of bytes, which works when the bytes are what the team cares about and falls apart when the bytes are interpreted as something richer. Panproto-vcs performs the same reconciliation at the level of schemas, and the construction it uses is the pushout of [Colimits and pushouts](../foundations/colimits.md), applied now in the category $\mathbf{Sch}_P$ of schemas under a fixed protocol.
 
 The present chapter explains what the pushout identification means concretely, what it buys over git's line-based merge, and what happens when the pushout fails to exist. The categorical treatment of merge as pushout has precedents: @mimramdigiusto2013categorical develop it for textual patches, and @angiuli2014homotopical give a homotopy-type-theoretic variant. What panproto's version adds is the shift of the pushout from the category of patches or types to the category of schemas, where the engineering payoff is visible. The code lives in [`panproto_vcs::merge`](https://docs.rs/panproto-vcs/latest/panproto_vcs/merge/).

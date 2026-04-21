@@ -1,5 +1,12 @@
 # The Rust SDK
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A working Rust project using panproto depends on one crate, [`panproto-core`](https://docs.rs/panproto-core/latest/panproto_core/), and gets a facade that re-exports every subsystem worth using from one place. The present chapter is a working guide to the facade — what it exposes, what the feature flags gate, and what idioms recur in code written against it. Readers familiar with panproto's architecture from Parts II and V will find it short.
 
 ## The facade

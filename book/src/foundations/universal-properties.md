@@ -1,5 +1,12 @@
 # Universal properties
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Any construction in a category can be specified in two ways: by saying what it *is* (the Cartesian product of two sets is a set of ordered pairs; the disjoint union is a set of tagged alternatives), or by saying how morphisms *into* or *out of* it look. The first way is concrete; the second is abstract. The abstract way turns out to be more useful, because it pins the construction down up to isomorphism without committing to any particular representation, and because a single abstract specification can be instantiated in many different categories at once. The abstract way is what we mean by a *universal property*.
 
 The present chapter develops the two smallest examples: products and coproducts. Generalisation to limits and colimits, which the next chapter covers, is immediate once the pattern of argument is clear in the small case; and essentially every construction in Parts II and V of this book will turn out to be universal.

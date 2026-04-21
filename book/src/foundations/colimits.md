@@ -1,5 +1,12 @@
 # Colimits and pushouts
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The coproduct of the previous chapter combined two objects without asking anything about how they might already be related. In the setting of panproto, and indeed in most settings where structured things have to be combined, that is not what one usually wants. Two schemas that both descend from a shared ancestor should combine in a way that identifies the shared piece; two protocols with a common sub-vocabulary should combine in a way that identifies the common vocabulary. The construction that handles this is the *pushout*, and the general theory it sits inside is that of *colimits*.
 
 The chapter has three tasks. The first is to define a diagram — the mathematical gadget for naming a shape of combination — and the general notion of colimit over a diagram of any shape. The second is to specialise to the three-object diagram called a span, whose colimit is the pushout. The third is to show the pushout at work in panproto, where it governs both protocol composition and the three-way merge operation at the heart of schematic version control.

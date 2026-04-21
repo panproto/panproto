@@ -1,5 +1,12 @@
 # The WebAssembly boundary
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The engine is written in Rust, and the non-Rust clients — the TypeScript SDK for browsers and Node, the browser-side of the Python SDK that has since been deprecated in favour of native wheels — cannot share memory with Rust or respect Rust's ownership discipline from the outside. What they can do is call into a [WebAssembly](https://webassembly.org/) module [@haas2017bringing] that holds the Rust values internally and exposes a small API that exchanges opaque handles and serialised data. The module is [`panproto-wasm`](https://docs.rs/panproto-wasm/latest/panproto_wasm/), built with [`wasm-bindgen`](https://rustwasm.github.io/wasm-bindgen/). The present chapter explains the shape of the API and the reasons it takes the shape it does.
 
 ## Handles, not pointers

@@ -1,5 +1,12 @@
 # A note on notation
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Categories and their inhabitants are written in a standard way across the mathematical literature, and this book follows the standard without deviation.
 
 A category is written with a script capital letter: $\mathcal{C}$, $\mathcal{D}$, $\mathcal{E}$. Two specific categories come up often enough to earn shorter names. $\mathbf{Set}$ is the category whose objects are sets and whose morphisms are functions. $\mathbf{Hask}$ is the category whose objects are Haskell types and whose morphisms are Haskell functions. Specific categories of panproto objects carry subscripts: $\mathbf{Sch}_P$ is the category of schemas under a protocol $P$.

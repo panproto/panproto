@@ -1,5 +1,12 @@
 # The restrict/lift pipeline
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The previous chapter handed us a compact mathematical statement: a migration is a theory morphism together with a choice of pushforward at each extension site. That sentence is exactly one step removed from what a developer sees when they use [`panproto-mig`](https://docs.rs/panproto-mig/latest/panproto_mig/). The crate takes the mathematical object apart into five stages, each performing one sharply-defined operation, so that a migration rejected or misbehaving is rejected or misbehaving at a specific stage with a specific diagnostic.
 
 The decomposition is the whole reason the crate is not one function called `migrate`. A monolithic migrate operation can report a failure only as the collapsed state of everything at once: the engine knows *that* the migration is broken and not *why*. The five-stage pipeline, in exchange for its apparent fuss, gives the engine something to say about where the failure lies — often specific enough that the fix is one line of the migration DSL.

@@ -1,5 +1,12 @@
 # Data versioning
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A schema change in a panproto-vcs commit leaves the data stored under the old schema stranded until something carries it across. The construction that does the carrying is a migration, in the sense Part II developed, and in most cases the migration is uniquely determined or almost uniquely determined by the diff between the two schemas. Panproto-vcs's auto-migration infrastructure exploits this to produce the migration without asking the user to declare it. The present chapter walks through the inference, the cases it handles, and the cases it refuses.
 
 The code is split between [`panproto_vcs::auto_mig`](https://docs.rs/panproto-vcs/latest/panproto_vcs/auto_mig/) for the inference and [`panproto_vcs::data_mig`](https://docs.rs/panproto-vcs/latest/panproto_vcs/data_mig/) for its application to stored data.

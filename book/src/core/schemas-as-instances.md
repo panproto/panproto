@@ -1,5 +1,12 @@
 # Protocols as theories, schemas as instances
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Part II opens here, and its job is to take the single equation stated at the end of Part I — protocol = GAT, schema = model, migration = morphism of models — and work each side of it out in enough detail that a reader can find their way from a Rust value in `panproto-schema` to the mathematical object it represents, and back again.
 
 The present chapter handles the first two identifications. A reader comfortable with the mathematics of Part I already has most of what is needed; the new material is the mapping between the mathematical vocabulary and the names of Rust types in the crate, together with a worked small protocol concrete enough to touch.

@@ -1,5 +1,12 @@
 # Algebraic and generalised algebraic theories
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Three identifications carry the technical content of panproto, and the present chapter is where each of them is made precise. A protocol is a generalised algebraic theory. A schema is a model of one. A migration is a morphism of models. The chapter has the job of making those three sentences land as mathematics rather than slogans, so that every later chapter can invoke them without further justification.
 
 The concepts we are going to use are older than panproto by decades, and most of them are older than most working programmers. Algebraic theories in the modern sense are due to @lawvere1963functorial, whose 1963 thesis reformulated the venerable notion of an algebraic structure — group, ring, vector space — as a small category with finite products, thereby making "model of a theory" mean "product-preserving functor into the category of sets". Generalised algebraic theories, which extend Lawvere's framework to accommodate dependent sorts, are due to @cartmell1978generalised, whose thesis gave them their first formal treatment; the more widely cited journal version is @cartmell1986generalised. What this book adds is the engineering claim that the schema languages working programmers use every day — JSON Schema, Avro, Protobuf, ATProto lexicons, SQL DDL, tree-sitter grammars — all fit in this framework, and that once they do, the migration and lens machinery of Part II applies to them uniformly. The present chapter states the mathematical side of that claim; Parts II and IV vindicate the engineering side case by case.

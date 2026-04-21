@@ -1,5 +1,12 @@
 # Open problems
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A list of questions where panproto's implementation and the book's mathematical account are not yet in full agreement, or where we do not know of prior work on a topic panproto addresses. Each entry names the question, the current state, and what would count as progress.
 
 ## Where we don't know of prior work

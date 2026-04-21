@@ -1,5 +1,12 @@
 # Totality and termination
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The language of the previous chapter is a small typed lambda calculus. Nothing in the definition so far prevents a well-typed term from running for a very long time, or from consuming an amount of memory that embarrasses the machine it is running on. For an engine that embeds user-written expressions and runs them against millions of records, that is not acceptable; before a migration touches production data the engine has to know, with some confidence, that every expression in the migration will terminate within a known budget.
 
 The mechanism that provides this confidence is two resource limits: a **step limit** on the number of reduction steps any one evaluation may take, and a **depth limit** on the nesting of active calls. Together, the two limits make every well-typed evaluation terminate, produce a unique outcome, and fit inside a serialisable record that can be replayed across processes. The present chapter explains the limits, the guarantees they purchase, and the trade-offs they impose; the trade-offs against a Turing-complete alternative are the subject of the next chapter.

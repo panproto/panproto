@@ -1,5 +1,12 @@
 # Syntax and semantics
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The migrations of Part II are built around a theory morphism and a choice of pushforward at each extension site. The pushforward is where the engine needs a small programming language: an expression that, given the values visible at a site of the source instance, produces the value required at the target — a default, a computed field, a transformation of an existing value. Part III is about the language in which those expressions are written.
 
 The language, called [`panproto-expr`](https://docs.rs/panproto-expr/latest/panproto_expr/), is a typed lambda calculus extended with records, lists, pattern matching, and around fifty builtin operations on strings, numbers, collections, and panproto schemas. It is pure, total, deterministic, and serialisable — four properties the engine depends on and which the next two chapters argue for at length. The surface syntax is Haskell-flavoured, not because of a preference for Haskell as such but because a migration expression is usually short, and the Haskell surface is the most compact idiom that still reads as code.

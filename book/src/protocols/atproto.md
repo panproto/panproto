@@ -1,5 +1,12 @@
 # ATProto lexicons
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The protocol underlying [Bluesky](https://bsky.app/) and the wider AT network is called [ATProto](https://atproto.com/), and the schemas under it are written in a language called [Lexicon](https://atproto.com/specs/lexicon): JSON documents declaring record types, their fields, and the constraints the fields must satisfy. Reading the Lexicon specification and implementing a protocol for it in panproto was an interesting exercise because Lexicon leaves rather a lot to convention. Where most serialisation formats have formal rules for schema evolution, Lexicon has a specification that is less formal than those rules would like it to be and more formal than a casual reader might expect. The translation panproto performs has to absorb the informality into explicit equations, and the chapter is about where the translation is clean and where it is not.
 
 The code lives in [`panproto_protocols::web_document::atproto`](https://docs.rs/panproto-protocols/latest/panproto_protocols/web_document/atproto/); the mathematical background lives in [Protocols as theories, schemas as instances](../core/schemas-as-instances.md) and [Algebraic and generalised algebraic theories](../foundations/gats.md).

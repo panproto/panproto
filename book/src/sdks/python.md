@@ -1,5 +1,12 @@
 # The Python SDK
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A Python caller reaching panproto uses a native [PyO3](https://pyo3.rs/) wheel, which binds the Rust implementation directly into the CPython process rather than going through the WebAssembly module the TypeScript SDK uses. The choice is a recent one. An earlier pure-Python SDK wrapped `panproto-wasm` and went through MessagePack on every call; it is deprecated, and the `panproto` package on [PyPI](https://pypi.org/) is the native build. The present chapter covers the native SDK and says briefly why the earlier approach was abandoned.
 
 The source lives in `crates/panproto-py/` on the Rust side and `sdk/python/` on the Python side.

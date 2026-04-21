@@ -1,5 +1,12 @@
 # Bidirectional lenses
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 A lens is a disciplined way of running a transformation in both directions at once. One half, called `get`, projects a view out of a larger source. The other half, called `put`, takes a modified view together with the original source and returns a new source incorporating the modification. The discipline comes from a pair of equations, the *round-trip laws*, which force `put` to be a genuine partial inverse of `get` on the subset of data where inversion is possible.
 
 The concept originates in the programming-languages community, where lenses were introduced as the semantic foundation of the Boomerang line of research by @foster2007combinators, whose paper "Combinators for Bidirectional Tree Transformations" is the reference most subsequent work returns to. The relational-lens variant of @bohannonpiercevaughan2006relational predates the general formulation and supplies a database-flavoured version; the broader bidirectional-transformations landscape is surveyed by @czarnecki2009bidirectional.

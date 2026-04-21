@@ -1,5 +1,12 @@
 # Workspace layout
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Twenty-five crates live in panproto's Cargo workspace, organised across six layers: foundations, transformation, infrastructure, protocols and auxiliary tooling, SDK bindings, and experimental extensions. The layering is strict — no crate depends on anything strictly above it — and a contributor working on panproto will want to know which layer their crate belongs to before writing their first patch.
 
 The root workspace manifest is `Cargo.toml` at the repository root; the individual crates are under `crates/`. The non-Rust packages — the TypeScript SDK and the Python SDK's Python-side code — live under `sdk/typescript/` and `sdk/python/`.

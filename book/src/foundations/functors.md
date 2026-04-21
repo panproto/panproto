@@ -1,5 +1,12 @@
 # Functors and natural transformations
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 The previous chapter left us with a collection of categories — $\mathbf{Hask}$, $\mathbf{Set}$, the category of panproto schemas under a fixed protocol — and no vocabulary for comparing them. The present chapter supplies that vocabulary. A functor is the right shape of map between two categories, one that moves objects to objects and morphisms to morphisms in a way that preserves composition and identity. A natural transformation is the right shape of map between two functors that share a source and a target, one that is compatible with whatever morphisms the source category provides.
 
 Both concepts are due to @eilenbergmaclane1945general, who introduced natural transformations first and had to introduce functors and categories along the way to make the definition of naturality go through. For a working developer the payoff in this book is specific. Panproto's migration engine is built around a functor sending each schema to the set of its instances and each migration to the function that lifts those instances. Bidirectional lenses are natural transformations between two such functors. Every claim the engine makes about data being preserved across a migration is a functoriality claim stated in the language we now introduce.

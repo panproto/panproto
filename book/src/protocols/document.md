@@ -1,5 +1,12 @@
 # FHIR as a document case study
 
+<!-- lm-disclaimer -->
+> **Disclaimer.** The content of this page is largely LM-generated.
+> It was written as a stopgap to make the panproto system legible while we work
+> through the book verifying and editing the content by hand. When a chapter
+> has been verified or edited by a human, the parts that were verified or
+> edited will be noted at the head of the chapter.
+
 Fast Healthcare Interoperability Resources — [FHIR](https://www.hl7.org/fhir/), in practice — is HL7's standard for exchanging healthcare records, and it is the schema language that gives panproto's framework the hardest workout of anything in Part IV. Where relational schemas are flat and constraints are few, FHIR's schemas are JSON or XML documents with arbitrary-depth nesting, elaborate cardinality constraints, terminology bindings, and conformance profiles that layer on top of base resources to narrow their constraints further. The versioning cadence (R4, R4B, R5, R6) is regular and not always backward-compatible. A schema language stressing a framework like this is a good test of whether the framework can take the weight.
 
 The code is in [`panproto_protocols::domain::fhir`](https://docs.rs/panproto-protocols/latest/panproto_protocols/domain/fhir/).
