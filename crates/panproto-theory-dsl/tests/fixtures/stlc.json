@@ -1,0 +1,88 @@
+{
+  "id": "dev.panproto.stlc",
+  "description": "Simply-typed lambda calculus as a GAT.",
+  "theory": "STLC",
+  "extends": [],
+  "sorts": [
+    { "name": "Ctx", "params": [] },
+    { "name": "Ty", "params": [] },
+    {
+      "name": "Tm",
+      "params": [
+        { "name": "G", "sort": "Ctx" },
+        { "name": "A", "sort": "Ty" }
+      ]
+    }
+  ],
+  "ops": [
+    {
+      "name": "arrow",
+      "inputs": [
+        { "name": "A", "sort": "Ty" },
+        { "name": "B", "sort": "Ty" }
+      ],
+      "output": "Ty"
+    },
+    {
+      "name": "extend",
+      "inputs": [
+        { "name": "G", "sort": "Ctx" },
+        { "name": "A", "sort": "Ty" }
+      ],
+      "output": "Ctx"
+    },
+    {
+      "name": "emptyCtx",
+      "output": "Ctx"
+    },
+    {
+      "name": "var_zero",
+      "inputs": [
+        { "name": "G", "sort": "Ctx" },
+        { "name": "A", "sort": "Ty" }
+      ],
+      "output": "Tm(extend(G, A), A)"
+    },
+    {
+      "name": "lam",
+      "inputs": [
+        { "name": "G", "sort": "Ctx" },
+        { "name": "A", "sort": "Ty" },
+        { "name": "B", "sort": "Ty" },
+        { "name": "body", "sort": "Tm(extend(G, A), B)" }
+      ],
+      "output": "Tm(G, arrow(A, B))"
+    },
+    {
+      "name": "app",
+      "inputs": [
+        { "name": "G", "sort": "Ctx" },
+        { "name": "A", "sort": "Ty" },
+        { "name": "B", "sort": "Ty" },
+        { "name": "f", "sort": "Tm(G, arrow(A, B))" },
+        { "name": "x", "sort": "Tm(G, A)" }
+      ],
+      "output": "Tm(G, B)"
+    },
+    {
+      "name": "subst",
+      "inputs": [
+        { "name": "G", "sort": "Ctx" },
+        { "name": "A", "sort": "Ty" },
+        { "name": "B", "sort": "Ty" },
+        { "name": "body", "sort": "Tm(extend(G, A), B)" },
+        { "name": "x", "sort": "Tm(G, A)" }
+      ],
+      "output": "Tm(G, B)"
+    }
+  ],
+  "equations": [
+    {
+      "name": "beta",
+      "lhs": "app(G, A, B, lam(G, A, B, body), x)",
+      "rhs": "subst(G, A, B, body, x)"
+    }
+  ],
+  "directed_equations": [],
+  "policies": []
+}

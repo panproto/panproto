@@ -1042,6 +1042,96 @@ mod tests {
         Ok(())
     }
 
+    mod property {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn arb_name() -> impl Strategy<Value = Arc<str>> {
+            prop::sample::select(&["S", "T", "Hom", "Tm", "Ob"][..]).prop_map(Arc::from)
+        }
+
+        fn arb_term(depth: usize) -> BoxedStrategy<Term> {
+            if depth == 0 {
+                prop::sample::select(&["x", "y", "z"][..])
+                    .prop_map(|s| Term::var(Arc::from(s)))
+                    .boxed()
+            } else {
+                let leaf = prop::sample::select(&["x", "y", "z"][..])
+                    .prop_map(|s| Term::var(Arc::from(s)));
+                let app = (
+                    prop::sample::select(&["f", "g"][..]).prop_map(Arc::from),
+                    prop::collection::vec(arb_term(depth - 1), 0..=2),
+                )
+                    .prop_map(|(op, args)| Term::App { op, args });
+                prop_oneof![leaf, app].boxed()
+            }
+        }
+
+        fn arb_sort_expr() -> BoxedStrategy<SortExpr> {
+            prop_oneof![
+                arb_name().prop_map(SortExpr::Name),
+                (arb_name(), prop::collection::vec(arb_term(1), 0..=3))
+                    .prop_map(|(name, args)| SortExpr::app(name, args))
+            ]
+            .boxed()
+        }
+
+        fn arb_subst() -> BoxedStrategy<FxHashMap<Arc<str>, Term>> {
+            prop::collection::vec(
+                (
+                    prop::sample::select(&["x", "y", "z"][..]).prop_map(Arc::from),
+                    arb_term(1),
+                ),
+                0..=3,
+            )
+            .prop_map(|pairs| {
+                let mut m = FxHashMap::default();
+                for (k, v) in pairs {
+                    m.insert(k, v);
+                }
+                m
+            })
+            .boxed()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn subst_empty_is_identity(e in arb_sort_expr()) {
+                let empty = FxHashMap::default();
+                prop_assert_eq!(e.subst(&empty), e);
+            }
+
+            #[test]
+            fn subst_preserves_head(e in arb_sort_expr(), sigma in arb_subst()) {
+                let after = e.subst(&sigma);
+                prop_assert_eq!(e.head(), after.head());
+            }
+
+            #[test]
+            fn normalization_is_idempotent(e in arb_sort_expr()) {
+                let n1 = e.normalize();
+                let n2 = n1.clone().normalize();
+                prop_assert_eq!(n1, n2);
+            }
+
+            #[test]
+            fn name_and_empty_app_hash_equal(name in arb_name()) {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let a = SortExpr::Name(Arc::clone(&name));
+                let b = SortExpr::App { name, args: Vec::new() };
+                let mut ha = DefaultHasher::new();
+                a.hash(&mut ha);
+                let mut hb = DefaultHasher::new();
+                b.hash(&mut hb);
+                prop_assert_eq!(ha.finish(), hb.finish());
+                prop_assert_eq!(a, b);
+            }
+        }
+    }
+
     #[test]
     fn coercion_class_serde_wire_format_is_pascal_case() {
         // `CoercionClass` uses the default serde representation (no

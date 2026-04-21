@@ -978,6 +978,33 @@ mod tests {
                     "well-typed theory should pass typecheck",
                 );
             }
+
+            #[test]
+            fn unification_soundness_on_congruent_pairs(
+                c1 in prop::sample::select(&["a", "b", "c"][..]),
+                c2 in prop::sample::select(&["a", "b", "c"][..]),
+            ) {
+                // f(x, y) = f(c1, c2) under unification: the substitution
+                // must make both sides equal.
+                let lhs = Term::app(
+                    "f",
+                    vec![Term::var("x"), Term::var("y")],
+                );
+                let rhs = Term::app(
+                    "f",
+                    vec![Term::constant(c1), Term::constant(c2)],
+                );
+                let subst = match unify_all(vec![(lhs.clone(), rhs.clone())]) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        prop_assert!(false, "unify failed: {e}");
+                        return Ok(());
+                    }
+                };
+                let l2 = lhs.substitute(&subst);
+                let r2 = rhs.substitute(&subst);
+                prop_assert_eq!(l2, r2);
+            }
         }
     }
 }
