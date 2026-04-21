@@ -4,6 +4,28 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-04-21
+
+### Added
+
+- **panproto-gat (dependent sorts)**: `SortExpr`, a sort-expression type that is either a plain sort name or a named sort applied to argument terms, threaded through `Operation::inputs`, `Operation::output`, and `SortParam::sort`. Sort parameters bound at an operation's declaration site are in scope in every later input sort and in the output sort; `typecheck_term` substitutes concrete argument terms into the declared sort expressions as it walks the argument list, so an operation signature like `compose : (a, b, c : Ob, f : Hom(a, b), g : Hom(b, c)) -> Hom(a, c)` enforces the shared middle object positionally and rejects any call whose argument sorts disagree. Equation typechecking uses Robinson unification over `Term` with an occurs check. The free-model generator is fiber-indexed: a fiber of `Tm(Γ, A)` is keyed by the pair `(Γ, A)`, so the free category on two parallel generators gets exactly the well-typed composites and no spurious ones. The morphism well-formedness check `check_morphism` compares operation and sort signatures modulo positional alpha-renaming of bound parameter names, so a morphism from `id : (x : Ob) -> Hom(x, x)` to `id : (y : Ob) -> Hom(y, y)` is accepted as a rename of the bound variable. `SortExpr` carries manual `PartialEq`/`Hash` impls that quotient `Name(n)` and `App { name: n, args: [] }` into a single value, a `SortExpr::app` smart constructor that normalizes, a custom `Deserialize` that normalizes on load, `positional_param_rename`, `signatures_equivalent_modulo_param_rename`, and `sort_params_equivalent_modulo_rename` helpers reused from `colimit` when merging operations across independently-authored theories. Resolves the "decorative sort parameters" gap that had blocked encoding the simply-typed lambda calculus as a GAT.
+
+- **panproto-theory-dsl**: Parses `"Tm(Ctx, A)"`-style strings into `SortExpr::App` from `OpSpec.output`, `OpSpec.inputs[].sort`, and `SortSpec.params[].sort`. The wire format remains a string; bare identifiers still produce `SortExpr::Name` so every existing theory document parses unchanged. `parse_sort_expr` and `parse_term` now propagate parse errors via `TheoryDslError::TermParse` with a context string naming the op or sort and the specific field that failed; empty input, unclosed parentheses, trailing garbage, and malformed identifiers are all surfaced at the parse site rather than deferred to typechecking. An STLC-as-GAT JSON fixture at `crates/panproto-theory-dsl/tests/fixtures/stlc.json` serves as an end-to-end integration test.
+
+- **book**: New chapter `book/src/core/dependent-sorts.md` working through the simply-typed lambda calculus as a GAT, showing the `extend` / `var_zero` / `lam` / `app` / `subst` signatures, the β-equation stated as a plain equation between two already-well-typed terms, and the argument that explicit substitution sidesteps capture-avoiding issues at the meta-level. The GATs foundations chapter gains a new subsection documenting how `panproto-gat` represents dependent sorts in code, with rustdoc links to `SortExpr`, `typecheck_term`, and `typecheck_theory`. The morphisms-and-migration chapter now explicitly documents the syntactic-vs-derivability gap in the current equation-preservation check.
+
+- **integration tests**: `tests/integration/tests/stlc_gat.rs` and `tests/integration/tests/dependent_sorts.rs` exercise full dependent-sort theories end-to-end, including typecheck acceptance, β-equation acceptance, JSON round-trip, and explicit rejection of ill-typed applications. Exhaustive proptest coverage for `SortExpr::subst` monoid laws, unification soundness and occurs-check necessity, typecheck idempotence and substitution commuting, free-model fiber fidelity (parallel-arrows-no-spurious-composites, every-term-well-typed, simple-sort backward compatibility), and morphism naturality.
+
+### Changed
+
+- **panproto-gat (breaking)**: `Operation::inputs` is now `Vec<(Arc<str>, SortExpr)>` and `Operation::output` is `SortExpr`, replacing `Arc<str>`. `SortParam::sort` is now `SortExpr`. `Operation::new`, `Operation::unary`, and `Operation::nullary` accept `impl Into<SortExpr>` so every existing call site that passed a `&str` or `Arc<str>` keeps compiling via the new `From` impls. Downstream consumers in `panproto-protocols`, `panproto-lens`, `panproto-schema`, `panproto-mig`, `panproto-parse`, `panproto-vcs`, and `panproto-wasm` switch to `op.output.head()` or `SortExpr::alpha_eq` where they previously compared `Arc<str>` names. The JSON wire format is unchanged: `Name(n)` serializes as the bare string `"n"` and `App` as `{"name": ..., "args": [...]}`, so existing stored theories round-trip byte-for-byte.
+
+- **panproto-gat (free model)**: `assign_global_indices` sorts the sort-name keys before assigning consecutive global indices, making the numbering a pure function of the input regardless of hash-table insertion order upstream. Any downstream consumer that hashes free-model indices (the VCS layer) now sees stable numbering across logically equivalent theories.
+
+### Fixed
+
+- **panproto-theory-dsl**: `parse_sort_expr` and `parse_term` dropped malformed argument terms via `filter_map(Result::ok)`, silently reducing arity at the parse site and deferring the failure to a much later typecheck. Unclosed parentheses were accepted via `unwrap_or(inner.len())`, which treated everything to end-of-string as the argument list. `SortExpr::App` was being constructed directly by variant rather than via the `SortExpr::app` smart constructor, bypassing the normalization invariant. All three paths now produce descriptive errors.
+
 ## [0.35.0] - 2026-04-20
 
 ### Added
