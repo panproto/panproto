@@ -915,6 +915,220 @@ mod tests {
         Ok(())
     }
 
+    // --- GATlab bug audit: dependent-sort unification soundness ---
+    //
+    // These three tests exercise the GATlab `bind_localctx` first-match
+    // bug: in GATlab, `compose(f, g)` with mismatched middle object
+    // still typechecks because only one derivation of each implicit
+    // parameter is consulted. panproto's `typecheck_term` propagates
+    // the substitution theta left-to-right and compares each expected
+    // input sort under theta against the argument's inferred sort via
+    // strict `alpha_eq`, so every repeated derivation of a shared
+    // parameter is checked for agreement.
+
+    #[test]
+    fn gatlab_bug7_compose_mismatched_middle_object_rejected() {
+        // Test A from the audit. compose : (x, y, z : Ob, f : Hom(x, y),
+        // g : Hom(y, z)) -> Hom(x, z). Supply f : Hom(p, q) and g :
+        // Hom(r, s) with q != r and call compose with explicit
+        // middle-object choice that cannot satisfy both.
+        let theory = category_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("p"), SortExpr::from("Ob"));
+        ctx.insert(Arc::from("q"), SortExpr::from("Ob"));
+        ctx.insert(Arc::from("r"), SortExpr::from("Ob"));
+        ctx.insert(Arc::from("s"), SortExpr::from("Ob"));
+        ctx.insert(
+            Arc::from("f"),
+            SortExpr::App {
+                name: Arc::from("Hom"),
+                args: vec![Term::var("p"), Term::var("q")],
+            },
+        );
+        ctx.insert(
+            Arc::from("g"),
+            SortExpr::App {
+                name: Arc::from("Hom"),
+                args: vec![Term::var("r"), Term::var("s")],
+            },
+        );
+        // Whatever Ob we pick for the middle argument, one of f or g
+        // cannot match it: f wants middle = q, g wants middle = r, and
+        // q and r are distinct Obs.
+        let term = Term::app(
+            "compose",
+            vec![
+                Term::var("p"),
+                Term::var("q"),
+                Term::var("s"),
+                Term::var("f"),
+                Term::var("g"),
+            ],
+        );
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::ArgTypeMismatch { .. })),
+            "compose with mismatched middle object must be rejected, got {result:?}",
+        );
+    }
+
+    #[test]
+    fn gatlab_bug7_compose_id_with_hom_mismatch_rejected() {
+        // Test B from the audit. compose(id(p), f) where f : Hom(q, r)
+        // with p != q. id(p) has sort Hom(p, p); for compose to
+        // accept, the middle object must equal p, but the second
+        // argument requires Hom(middle, _) = Hom(q, r), so p = q is
+        // forced and fails.
+        let theory = category_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("p"), SortExpr::from("Ob"));
+        ctx.insert(Arc::from("q"), SortExpr::from("Ob"));
+        ctx.insert(Arc::from("r"), SortExpr::from("Ob"));
+        ctx.insert(
+            Arc::from("f"),
+            SortExpr::App {
+                name: Arc::from("Hom"),
+                args: vec![Term::var("q"), Term::var("r")],
+            },
+        );
+        // Explicit Obs: (src = p, mid = p, tgt = r) forces g's sort
+        // check with expected Hom(p, r) but actual Hom(q, r), so q != p
+        // fails.
+        let term = Term::app(
+            "compose",
+            vec![
+                Term::var("p"),
+                Term::var("p"),
+                Term::var("r"),
+                Term::app("id", vec![Term::var("p")]),
+                Term::var("f"),
+            ],
+        );
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::ArgTypeMismatch { .. })),
+            "compose(id(p), f) with src(f) != p must be rejected, got {result:?}",
+        );
+    }
+
+    #[test]
+    fn gatlab_bug7_compose_two_ids_distinct_objects_rejected() {
+        // Test C from the audit. compose(id(p), id(q)) with p != q:
+        // id(p) : Hom(p, p), id(q) : Hom(q, q); these cannot share a
+        // middle object because p and q are distinct Obs. No choice of
+        // the three explicit middle-object arguments makes both
+        // input-sort checks pass.
+        let theory = category_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("p"), SortExpr::from("Ob"));
+        ctx.insert(Arc::from("q"), SortExpr::from("Ob"));
+        // Choose the middle as p; then id(p) : Hom(p, p) is ok for the
+        // first hom-slot, but id(q) : Hom(q, q) cannot match the
+        // expected Hom(p, q).
+        let term = Term::app(
+            "compose",
+            vec![
+                Term::var("p"),
+                Term::var("p"),
+                Term::var("q"),
+                Term::app("id", vec![Term::var("p")]),
+                Term::app("id", vec![Term::var("q")]),
+            ],
+        );
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::ArgTypeMismatch { .. })),
+            "compose(id(p), id(q)) with p != q must be rejected, got {result:?}",
+        );
+    }
+
+    // --- GATlab bug audit Bug 6: exhaustive negative typecheck tests ---
+
+    #[test]
+    fn gatlab_bug6_equation_dependent_sort_arg_mismatch() {
+        // Equation whose argument sort does not unify with the
+        // declared input sort. f : Hom(a, b); the equation uses f on
+        // a term of simple sort Ob, which cannot typecheck.
+        let theory = category_theory();
+        let eq = Equation::new(
+            "bad",
+            Term::app("id", vec![Term::app("id", vec![Term::var("x")])]),
+            Term::var("x"),
+        );
+        // id(id(x)): inner id(x) has sort Hom(x, x), but outer id
+        // expects Ob. Typechecking this equation should error.
+        let result = typecheck_equation(&eq, &theory);
+        assert!(
+            result.is_err(),
+            "equation with argument-sort mismatch must error, got {result:?}",
+        );
+    }
+
+    #[test]
+    fn gatlab_bug6_equation_with_unknown_op_errors() {
+        let theory = monoid_theory();
+        let eq = Equation::new(
+            "bad",
+            Term::app("mystery", vec![Term::var("a")]),
+            Term::var("a"),
+        );
+        let result = typecheck_equation(&eq, &theory);
+        assert!(
+            matches!(result, Err(GatError::OpNotFound(_))),
+            "equation referencing unknown op must error, got {result:?}",
+        );
+    }
+
+    #[test]
+    fn gatlab_bug6_equation_with_arity_mismatch_errors() {
+        let theory = monoid_theory();
+        let eq = Equation::new(
+            "bad",
+            Term::app("mul", vec![Term::var("a")]),
+            Term::var("a"),
+        );
+        let result = typecheck_equation(&eq, &theory);
+        assert!(
+            matches!(result, Err(GatError::TermArityMismatch { .. })),
+            "equation with arity mismatch must error, got {result:?}",
+        );
+    }
+
+    #[test]
+    fn gatlab_bug6_dependent_sort_with_ill_typed_arg_errors() {
+        // Build a context where f is supposed to inhabit Hom(x, x)
+        // but we attempt typecheck_term on compose with an explicit
+        // Ob argument that is in fact a Hom term. This targets the
+        // case where a dependent sort's argument term does not
+        // typecheck.
+        let theory = category_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("x"), SortExpr::from("Ob"));
+        ctx.insert(
+            Arc::from("f"),
+            SortExpr::App {
+                name: Arc::from("Hom"),
+                args: vec![Term::var("x"), Term::var("x")],
+            },
+        );
+        // Pass f (which is a Hom, not an Ob) in the src-Ob position.
+        let term = Term::app(
+            "compose",
+            vec![
+                Term::var("f"),
+                Term::var("x"),
+                Term::var("x"),
+                Term::var("f"),
+                Term::var("f"),
+            ],
+        );
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::ArgTypeMismatch { .. })),
+            "ill-typed dependent-sort argument must error, got {result:?}",
+        );
+    }
+
     // --- proptest property tests ---
 
     mod property {

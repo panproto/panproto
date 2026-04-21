@@ -194,6 +194,32 @@ mod tests {
             .unwrap()
     }
 
+    /// `GATlab` bug audit Bug 2: scope-crossing rename.
+    ///
+    /// `GATlab`'s `rename` on `Ident` lost its scope guard and would
+    /// rename every ident whose display name matched, regardless of
+    /// scope. panproto's `SiteRename` carries a `NameSite` field and
+    /// `rename_affects_site` matches on `rename.site == *site`, so a
+    /// rename targeting one site must not match a different site even
+    /// when the `old` string coincides. This test locks that
+    /// behaviour.
+    #[test]
+    fn gatlab_bug2_site_rename_does_not_cross_sites() {
+        let vertex_rename = SiteRename::new(NameSite::VertexKind, "x", "y");
+        let edge_rename = SiteRename::new(NameSite::EdgeKind, "x", "y");
+
+        // Each rename affects only its declared site.
+        assert!(rename_affects_site(&vertex_rename, &NameSite::VertexKind));
+        assert!(!rename_affects_site(&vertex_rename, &NameSite::EdgeKind));
+        assert!(rename_affects_site(&edge_rename, &NameSite::EdgeKind));
+        assert!(!rename_affects_site(&edge_rename, &NameSite::VertexKind));
+
+        // Same display name but different site: not equal, so filters
+        // that key on `site` keep them apart.
+        assert_ne!(vertex_rename, edge_rename);
+        assert_ne!(vertex_rename.site, edge_rename.site);
+    }
+
     #[test]
     fn induce_schema_morphism_renames_edge_kinds() {
         let morph = test_morphism();

@@ -157,6 +157,18 @@ impl TheoryMorphism {
     }
 }
 
+/// # Soundness note on equation preservation
+///
+/// Equation preservation is checked syntactically: for every domain
+/// equation `lhs = rhs`, the mapped pair `F(lhs) = F(rhs)` must appear
+/// alpha-equivalent to some equation already present in the codomain's
+/// equation list. This is stronger than `GATlab`'s behaviour (which
+/// performs no preservation check at all) but weaker than verifying
+/// that the mapped equation follows from the codomain's full equational
+/// theory via normalization or congruence closure. A morphism whose
+/// image is provable but not literally listed in the codomain will be
+/// rejected; complete preservation is a known follow-up.
+///
 /// Check that a theory morphism is valid.
 ///
 /// Verifies that:
@@ -1100,6 +1112,258 @@ mod tests {
         assert!(
             check_morphism(&m, &domain, &codomain).is_err(),
             "morphism that drops a sort parameter should be rejected",
+        );
+    }
+
+    // --- GATlab bug audit Bug 1: retag recursion into dependent-sort args ---
+
+    /// Build a small dependent theory: Ctx and Ty(Γ). Applying a
+    /// morphism that renames every sort and op must rewrite the head
+    /// of every `SortExpr::App` and also every op-application term
+    /// nested under `args`. This is the structural analogue of
+    /// `GATlab`'s "retag does not recurse into Judgments" bug. A clean
+    /// implementation leaves no pre-rename op name anywhere in the
+    /// renamed theory's signatures or equations.
+    #[test]
+    fn gatlab_bug1_rename_recurses_through_dependent_sort_args() {
+        use crate::sort::{SortExpr, SortParam};
+
+        // Build a little theory with Ctx, Ty(Γ : Ctx), and operations:
+        //   empty_ctx : Ctx
+        //   ty_over : (g : Ctx) -> Ty(g)
+        // Then an equation ty_over(empty_ctx()) = ty_over(empty_ctx()).
+        fn ctx_sort() -> Sort {
+            Sort::simple("Ctx")
+        }
+        fn ty_sort() -> Sort {
+            Sort::dependent("Ty", vec![SortParam::new("g", "Ctx")])
+        }
+        let empty_ctx = Operation::nullary("empty_ctx", "Ctx");
+        let ty_over = Operation::new(
+            "ty_over",
+            vec![(Arc::from("g"), SortExpr::from("Ctx"))],
+            SortExpr::App {
+                name: Arc::from("Ty"),
+                args: vec![Term::var("g")],
+            },
+        );
+        let refl = Equation::new(
+            "refl",
+            Term::app("ty_over", vec![Term::constant("empty_ctx")]),
+            Term::app("ty_over", vec![Term::constant("empty_ctx")]),
+        );
+        let domain = Theory::new(
+            "D",
+            vec![ctx_sort(), ty_sort()],
+            vec![empty_ctx, ty_over.clone()],
+            vec![refl],
+        );
+
+        // Codomain with every sort and op renamed.
+        let empty_ctx2 = Operation::nullary("empty2", "C2");
+        let ty_over2 = Operation::new(
+            "ty2",
+            vec![(Arc::from("g"), SortExpr::from("C2"))],
+            SortExpr::App {
+                name: Arc::from("T2"),
+                args: vec![Term::var("g")],
+            },
+        );
+        let refl2 = Equation::new(
+            "refl",
+            Term::app("ty2", vec![Term::constant("empty2")]),
+            Term::app("ty2", vec![Term::constant("empty2")]),
+        );
+        let codomain = Theory::new(
+            "C",
+            vec![
+                Sort::simple("C2"),
+                Sort::dependent("T2", vec![SortParam::new("g", "C2")]),
+            ],
+            vec![empty_ctx2, ty_over2],
+            vec![refl2],
+        );
+
+        let sort_map = HashMap::from([
+            (Arc::from("Ctx"), Arc::from("C2")),
+            (Arc::from("Ty"), Arc::from("T2")),
+        ]);
+        let op_map = HashMap::from([
+            (Arc::from("empty_ctx"), Arc::from("empty2")),
+            (Arc::from("ty_over"), Arc::from("ty2")),
+        ]);
+        let m = TheoryMorphism::new("retag", "D", "C", sort_map.clone(), op_map.clone());
+        assert!(
+            check_morphism(&m, &domain, &codomain).is_ok(),
+            "renaming morphism on dependent theory must check",
+        );
+
+        // Now verify apply_maps / rename_ops actually rewrite every
+        // nested occurrence. The output sort of ty_over is Ty(g); after
+        // applying the maps (and composing with an empty op_map since
+        // g is a variable) it must be T2(g), and no pre-rename name
+        // must remain in any argument position.
+        let mapped_output = ty_over.output.apply_maps(&sort_map, &op_map);
+        assert_eq!(&**mapped_output.head(), "T2", "head must be renamed");
+        // The arg term is Term::var("g"), which rename_ops leaves alone
+        // (no op to rename), but the head rewrite must have happened.
+        // If ty_over had a nested op term in its sort args, rename_ops
+        // would need to recurse; we exercise that too.
+        let nested = SortExpr::App {
+            name: Arc::from("Ty"),
+            args: vec![Term::app("empty_ctx", vec![])],
+        };
+        let nested_mapped = nested.apply_maps(&sort_map, &op_map);
+        if let SortExpr::App { ref name, ref args } = nested_mapped {
+            assert_eq!(&**name, "T2", "head recursed");
+            assert_eq!(args.len(), 1);
+            if let Term::App { op, .. } = &args[0] {
+                assert_eq!(
+                    &**op, "empty2",
+                    "nested op inside sort arg must also be renamed",
+                );
+            } else {
+                panic!("expected nested app, got {:?}", &args[0]);
+            }
+        } else {
+            panic!("expected App, got {nested_mapped:?}");
+        }
+
+        // Equation bodies must also recurse through nested ops.
+        let renamed_eq = domain.eqs[0].rename_ops(&op_map);
+        // Both sides' outer and inner ops must be rewritten.
+        if let Term::App { op, args } = &renamed_eq.lhs {
+            assert_eq!(&**op, "ty2");
+            if let Term::App { op: inner, .. } = &args[0] {
+                assert_eq!(&**inner, "empty2");
+            } else {
+                panic!("expected inner app, got {:?}", &args[0]);
+            }
+        } else {
+            panic!("expected outer app, got {:?}", &renamed_eq.lhs);
+        }
+    }
+
+    // --- GATlab bug audit Bug 5: flat-namespace collision sanity ---
+
+    /// panproto theory data uses a single flat namespace per theory
+    /// (sort names, op names), so `GATlab`'s "reident collapses scopes
+    /// by matching a single field" pattern does not apply structurally.
+    /// This test exercises two independent theories that both use the
+    /// name "a" as an equation variable and verifies that neither
+    /// composing via identity morphism nor running `typecheck_theory`
+    /// confuses them. Variables are universally quantified per-equation
+    /// and do not leak across theory boundaries.
+    #[test]
+    fn gatlab_bug5_equation_var_names_do_not_leak_across_theories() {
+        let t1 = monoid_theory("M1", "mul", "unit");
+        let t2 = monoid_theory("M2", "mul", "unit");
+        // Both theories have an assoc equation whose free vars are
+        // a, b, c. These are local to each equation / theory.
+        crate::typecheck::typecheck_theory(&t1).unwrap();
+        crate::typecheck::typecheck_theory(&t2).unwrap();
+        // An identity morphism on t1 composes with itself without
+        // picking up any structure from t2.
+        let id1 = TheoryMorphism::identity(&t1);
+        let id1_twice = id1.compose(&id1).unwrap();
+        assert_eq!(id1_twice.sort_map, id1.sort_map);
+        assert_eq!(id1_twice.op_map, id1.op_map);
+        // t1 and t2 do not share mutable state: their equations are
+        // independent Vec<Equation> values.
+        assert_eq!(t1.eqs.len(), t2.eqs.len());
+        assert_eq!(t1.eqs[0].name, t2.eqs[0].name);
+        assert!(!std::ptr::eq(t1.eqs.as_ptr(), t2.eqs.as_ptr()));
+    }
+
+    // --- GATlab bug audit Bug 9: syntactic axiom-preservation check ---
+
+    /// A morphism whose image in the codomain does not literally
+    /// include the mapped equation must be rejected. This documents
+    /// that panproto's axiom-preservation check is syntactic (stronger
+    /// than `GATlab`'s absent check, weaker than full
+    /// normalization/congruence closure).
+    #[test]
+    fn gatlab_bug9_mapped_equation_missing_in_codomain_rejected() {
+        // Domain: monoid with assoc, left_id, right_id.
+        let domain = monoid_theory("Mdom", "mul", "unit");
+        // Codomain: same sorts and ops, but no equations at all.
+        let codomain = Theory::new(
+            "Mcod",
+            vec![Sort::simple("Carrier")],
+            vec![
+                Operation::new(
+                    "mul",
+                    vec![
+                        ("a".into(), "Carrier".into()),
+                        ("b".into(), "Carrier".into()),
+                    ],
+                    "Carrier",
+                ),
+                Operation::nullary("unit", "Carrier"),
+            ],
+            Vec::new(),
+        );
+        let sort_map = HashMap::from([(Arc::from("Carrier"), Arc::from("Carrier"))]);
+        let op_map = HashMap::from([
+            (Arc::from("mul"), Arc::from("mul")),
+            (Arc::from("unit"), Arc::from("unit")),
+        ]);
+        let m = TheoryMorphism::new("bad", "Mdom", "Mcod", sort_map, op_map);
+        assert!(
+            matches!(
+                check_morphism(&m, &domain, &codomain),
+                Err(GatError::EquationNotPreserved { .. }),
+            ),
+            "missing mapped equation in codomain must yield EquationNotPreserved",
+        );
+    }
+
+    /// A morphism whose mapped equation is derivable in the codomain
+    /// via other equations plus rewrites, but not literally present,
+    /// is still rejected by the current syntactic check. This test
+    /// locks in that behaviour as documentation of the known gap.
+    #[test]
+    fn gatlab_bug9_derivable_but_not_listed_equation_is_rejected() {
+        // Domain: a theory with a derived equation f(f(x)) = x, which
+        // follows from the directed rewrite f(x) -> x.
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            vec![Equation::new(
+                "idem",
+                Term::app("f", vec![Term::app("f", vec![Term::var("x")])]),
+                Term::var("x"),
+            )],
+        );
+        // Codomain: the same signature, with a directed rewrite
+        // `f(x) -> x` that makes `f(f(x)) = x` a consequence, but
+        // without listing `idem` as a literal equation. A
+        // normalization-based preservation check would accept; the
+        // current syntactic check rejects.
+        let codomain = Theory::full(
+            "C",
+            Vec::new(),
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            Vec::new(),
+            vec![crate::eq::DirectedEquation::new(
+                "rule",
+                Term::app("f", vec![Term::var("x")]),
+                Term::var("x"),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            Vec::new(),
+        );
+        let sort_map = HashMap::from([(Arc::from("A"), Arc::from("A"))]);
+        let op_map = HashMap::from([(Arc::from("f"), Arc::from("f"))]);
+        let m = TheoryMorphism::new("syntactic", "D", "C", sort_map, op_map);
+        assert!(
+            matches!(
+                check_morphism(&m, &domain, &codomain),
+                Err(GatError::EquationNotPreserved { .. }),
+            ),
+            "the current syntactic check rejects derivable-but-not-listed equations",
         );
     }
 

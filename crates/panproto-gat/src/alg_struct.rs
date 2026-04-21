@@ -120,6 +120,36 @@ mod tests {
         assert_eq!(s.required_field_count(), 0);
     }
 
+    /// `GATlab` bug audit Bug 8: `AlgStruct` self-collision on resolver
+    /// registration.
+    ///
+    /// `GATlab`'s `unsafe_updatecache!` for an `AlgStruct` calls
+    /// `addmethod!` twice with `sortsignature` and `typesortsignature`,
+    /// which collide when the two signatures agree and crash theory
+    /// construction. panproto's `AlgStruct` carries no resolver table
+    /// and is not registered into `Theory`, so building a struct whose
+    /// field names overlap with its declared parameter names, or whose
+    /// shape matches another construct's signature, produces a plain
+    /// data value with no panic.
+    #[test]
+    fn gatlab_bug8_alg_struct_field_constructor_collision_is_inert() {
+        // Build a struct whose fields happen to share names with its
+        // params. In GATlab this would be a resolver-table collision;
+        // here it is just data.
+        let s = AlgStruct::new("Self")
+            .with_param("Self", "Type")
+            .with_field("Self", "Type")
+            .with_field("value", "Self");
+        assert_eq!(&*s.name, "Self");
+        assert_eq!(s.params.len(), 1);
+        assert_eq!(s.fields.len(), 2);
+
+        // Round-trip survives the clash without panic.
+        let json = serde_json::to_string(&s).expect("serialize");
+        let back: AlgStruct = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(s, back);
+    }
+
     #[test]
     fn serialization_round_trip() {
         let s = AlgStruct::new("Pair")
