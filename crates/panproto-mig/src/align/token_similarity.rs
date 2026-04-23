@@ -91,10 +91,9 @@ pub fn token_jaccard(a: &[String], b: &[String]) -> f64 {
     if union == 0 {
         1.0
     } else {
-        #[allow(clippy::cast_precision_loss)]
-        {
-            intersection as f64 / union as f64
-        }
+        let inter_f = f64::from(u32::try_from(intersection).unwrap_or(u32::MAX));
+        let union_f = f64::from(u32::try_from(union).unwrap_or(u32::MAX));
+        inter_f / union_f
     }
 }
 
@@ -109,16 +108,15 @@ pub fn char_ngram_cosine(a: &str, b: &str, n: usize) -> f64 {
         return if a == b { 1.0 } else { 0.0 };
     }
 
-    #[allow(clippy::cast_precision_loss)]
+    let count_to_f = |c: &usize| f64::from(u32::try_from(*c).unwrap_or(u32::MAX));
     let norm_a: f64 = grams_a
         .values()
-        .map(|c| (*c as f64).powi(2))
+        .map(|c| count_to_f(c).powi(2))
         .sum::<f64>()
         .sqrt();
-    #[allow(clippy::cast_precision_loss)]
     let norm_b: f64 = grams_b
         .values()
-        .map(|c| (*c as f64).powi(2))
+        .map(|c| count_to_f(c).powi(2))
         .sum::<f64>()
         .sqrt();
     if norm_a == 0.0 || norm_b == 0.0 {
@@ -128,10 +126,9 @@ pub fn char_ngram_cosine(a: &str, b: &str, n: usize) -> f64 {
     let mut dot = 0.0;
     for (g, &ca) in &grams_a {
         if let Some(&cb) = grams_b.get(g) {
-            #[allow(clippy::cast_precision_loss)]
-            {
-                dot += (ca as f64) * (cb as f64);
-            }
+            let a_val = f64::from(u32::try_from(ca).unwrap_or(u32::MAX));
+            let b_val = f64::from(u32::try_from(cb).unwrap_or(u32::MAX));
+            dot += a_val * b_val;
         }
     }
     (dot / (norm_a * norm_b)).clamp(0.0, 1.0)

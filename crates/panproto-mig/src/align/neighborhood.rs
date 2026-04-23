@@ -126,10 +126,13 @@ fn degree_overlap(src: &Schema, s: &Name, tgt: &Schema, t: &Name) -> f64 {
         if hi == 0 {
             return 1.0;
         }
-        #[allow(clippy::cast_precision_loss)]
-        {
-            a.min(b) as f64 / hi as f64
-        }
+        // Convert via u32 (clamped) to f64: edge counts up to u32::MAX
+        // are representable exactly by f64, and counts beyond that are
+        // clipped rather than silently round-tripped through a raw
+        // `as f64` cast.
+        let lo_f = f64::from(u32::try_from(a.min(b)).unwrap_or(u32::MAX));
+        let hi_f = f64::from(u32::try_from(hi).unwrap_or(u32::MAX));
+        lo_f / hi_f
     };
     0.5f64.mul_add(axis(so, to), 0.5 * axis(si, ti))
 }

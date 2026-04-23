@@ -23,7 +23,7 @@ use std::collections::{HashMap, HashSet};
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
-use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
+use super::{Anchor, StrategyTag, kinds_and_constraints_compatible, kinds_compatible};
 
 /// Emit anchors for every `(src_child, tgt_child)` pair reached by a
 /// labeled edge of the same name and kind on each side, when the child
@@ -63,6 +63,13 @@ pub fn edge_label_anchors(src: &Schema, tgt: &Schema) -> Vec<Anchor> {
             continue;
         };
         for tgt_edge in candidates {
+            // Cheap gate first: compatible parent kinds. An edge named
+            // `id` on a `record` vs one on a `list` are unlikely to
+            // encode the same concept; reject the pair before the more
+            // expensive child-side constraint check.
+            if !kinds_compatible(src, &src_edge.src, tgt, &tgt_edge.src) {
+                continue;
+            }
             if !kinds_and_constraints_compatible(src, &src_edge.tgt, tgt, &tgt_edge.tgt) {
                 continue;
             }

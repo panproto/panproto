@@ -112,16 +112,31 @@ fn initial_color(schema: &Schema, id: &Name, kind: &Name) -> [u8; 32] {
     hasher.update(kind.as_str().as_bytes());
     hasher.update(b"|");
     if let Some(cs) = schema.constraints.get(id) {
-        let mut sorts: Vec<&str> = cs.iter().map(|c| c.sort.as_str()).collect();
-        sorts.sort_unstable();
-        sorts.dedup();
-        for s in sorts {
+        // Include constraint (sort, value) pairs in the initial color
+        // so that, e.g., two `string` vertices with different
+        // `maxLength` values do not collide. Sort by (sort, value) for
+        // a stable canonical order independent of insertion order.
+        let mut pairs: Vec<(&str, &str)> = cs
+            .iter()
+            .map(|c| (c.sort.as_str(), c.value.as_str()))
+            .collect();
+        pairs.sort_unstable();
+        pairs.dedup();
+        for (s, v) in pairs {
             hasher.update(s.as_bytes());
+            hasher.update(b"=");
+            hasher.update(v.as_bytes());
             hasher.update(b",");
         }
     }
     *hasher.finalize().as_bytes()
 }
+
+/// A distinct sentinel for "edge points at a missing vertex": all
+/// 0xFF differs from legitimate blake3 color outputs with negligible
+/// probability, so misconfigured schemas do not silently map every
+/// missing-endpoint edge onto the zero color reserved elsewhere.
+const MISSING_SENTINEL: [u8; 32] = [0xFF; 32];
 
 fn refine_step(schema: &Schema, id: &Name, colors: &HashMap<Name, [u8; 32]>) -> [u8; 32] {
     // Direction marker keeps outgoing and incoming triples in
@@ -129,12 +144,24 @@ fn refine_step(schema: &Schema, id: &Name, colors: &HashMap<Name, [u8; 32]>) -> 
     // "in" is not conflated with a vertex reached via an edge "out".
     let mut triples: Vec<(u8, [u8; 32], &str, &str)> = Vec::new();
     for edge in schema.outgoing_edges(id) {
-        let neighbor_color = colors.get(&edge.tgt).copied().unwrap_or([0u8; 32]);
+        debug_assert!(
+            colors.contains_key(&edge.tgt),
+            "edge tgt missing from colors map: {} -> {}",
+            id.as_str(),
+            edge.tgt.as_str(),
+        );
+        let neighbor_color = colors.get(&edge.tgt).copied().unwrap_or(MISSING_SENTINEL);
         let label = edge.name.as_deref().unwrap_or("");
         triples.push((b'>', neighbor_color, label, edge.kind.as_str()));
     }
     for edge in schema.incoming_edges(id) {
-        let neighbor_color = colors.get(&edge.src).copied().unwrap_or([0u8; 32]);
+        debug_assert!(
+            colors.contains_key(&edge.src),
+            "edge src missing from colors map: {} <- {}",
+            id.as_str(),
+            edge.src.as_str(),
+        );
+        let neighbor_color = colors.get(&edge.src).copied().unwrap_or(MISSING_SENTINEL);
         let label = edge.name.as_deref().unwrap_or("");
         triples.push((b'<', neighbor_color, label, edge.kind.as_str()));
     }

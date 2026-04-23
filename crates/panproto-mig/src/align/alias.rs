@@ -439,13 +439,10 @@ fn alias_edge_overlap(src_names: &[&str], tgt_names: &[&str], dict: &AliasDict) 
             matched += 1;
         }
     }
-    #[allow(clippy::cast_precision_loss)]
-    let denom = (src_names.len().max(tgt_names.len())) as f64;
+    let denom_count = src_names.len().max(tgt_names.len());
+    let denom = f64::from(u32::try_from(denom_count).unwrap_or(u32::MAX));
     let score = if denom > 0.0 {
-        #[allow(clippy::cast_precision_loss)]
-        {
-            matched as f64 / denom
-        }
+        f64::from(u32::try_from(matched).unwrap_or(u32::MAX)) / denom
     } else {
         0.0
     };

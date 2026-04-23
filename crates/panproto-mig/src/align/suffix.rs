@@ -27,6 +27,11 @@ use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 /// Confidence is `1.0` because a terminal-segment equality is a
 /// categorical name match at the local-prop level; the prefix is
 /// namespacing metadata, not schema content.
+/// A single source vertex may emit multiple target anchors when more
+/// than one target shares its terminal segment. The CSP's naturality
+/// check and [`super::resolve_anchors`] pick the surviving mapping;
+/// no deduplication happens here, in parity with
+/// [`super::edge_label_anchors`].
 #[must_use]
 pub fn suffix_anchors(src: &Schema, tgt: &Schema) -> Vec<Anchor> {
     let mut src_ids: Vec<&panproto_gat::Name> = src.vertices.keys().collect();

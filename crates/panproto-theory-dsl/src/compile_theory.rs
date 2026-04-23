@@ -362,10 +362,8 @@ fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslEr
             // starts with a non-ASCII character (giving it a readable
             // default rather than an empty string).
             let first_char = input_sort.chars().next().filter(char::is_ascii_alphabetic);
-            let param_name: String = first_char.map_or_else(
-                || "x".to_string(),
-                |c| c.to_ascii_lowercase().to_string(),
-            );
+            let param_name: String =
+                first_char.map_or_else(|| "x".to_string(), |c| c.to_ascii_lowercase().to_string());
             let input = parse_sort_expr(input_sort).map_err(|msg| TheoryDslError::TermParse {
                 context: op_context("input sort"),
                 message: msg,

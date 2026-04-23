@@ -89,9 +89,10 @@ pub fn description_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec<An
         }
         let mut best: Option<(Name, f64)> = None;
         for tgt_id in tgt_ids.iter().copied() {
-            if src_id.as_str() == tgt_id.as_str() {
-                continue;
-            }
+            // Same-id across distinct schemas can legitimately denote
+            // different concepts: trust exact_anchors' priority to
+            // overwrite this strategy's proposal when the ids really do
+            // refer to the same thing.
             // `kinds_compatible` rather than the stricter
             // `kinds_and_constraints_compatible` because the
             // description string itself lives in a constraint; any
@@ -198,12 +199,17 @@ mod tests {
     }
 
     #[test]
-    fn exact_identifier_match_skipped() {
-        // The exact strategy owns same-name anchors; description
-        // strategy skips them so the priority table stays clean.
+    fn exact_identifier_match_emits_anchor() {
+        // Cross-schema same-id can legitimately denote different
+        // concepts, so the description strategy no longer skips it;
+        // exact_anchors' higher priority overwrites this proposal when
+        // the ids genuinely coincide.
         let src = schema(&[("a", "string", Some("desc"))]);
         let tgt = schema(&[("a", "string", Some("desc"))]);
-        assert!(description_anchors(&src, &tgt, 0.1).is_empty());
+        let anchors = description_anchors(&src, &tgt, 0.1);
+        assert_eq!(anchors.len(), 1);
+        assert_eq!(anchors[0].src.as_str(), "a");
+        assert_eq!(anchors[0].tgt.as_str(), "a");
     }
 
     #[test]

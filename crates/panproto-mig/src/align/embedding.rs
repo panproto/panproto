@@ -110,6 +110,14 @@ fn embedding_text(schema: &Schema, vertex_id: &Name) -> String {
 /// description constraint so that both name and prose evidence feed
 /// into the score.
 ///
+/// Each source vertex emits at most one anchor, pointing at its
+/// single best target. Targets are not deduplicated here: two source
+/// vertices can propose the same target independently, and
+/// [`crate::align::resolve_anchors`] handles monic-mode resolution
+/// across strategies. This mirrors the behaviour of sibling strategies
+/// which also produce multiple-target-per-target proposals and rely on
+/// the resolver for uniqueness.
+///
 /// # Errors
 ///
 /// Returns the first [`EmbedError`] produced by `embedder.embed` and
@@ -222,7 +230,8 @@ impl Embedder for HashEmbedder {
             let mut buf = [0u8; 8];
             buf.copy_from_slice(&bytes[..8]);
             let seed = u64::from_le_bytes(buf);
-            let bucket = usize::try_from(seed % self.dim as u64).unwrap_or(0);
+            let dim_u64 = u64::try_from(self.dim).unwrap_or(u64::MAX);
+            let bucket = usize::try_from(seed % dim_u64).unwrap_or(0);
             v[bucket] += 1.0;
         }
         Ok(v)

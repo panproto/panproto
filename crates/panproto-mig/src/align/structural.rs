@@ -136,10 +136,9 @@ fn degree_similarity(a: usize, b: usize) -> f64 {
     }
     let max = a.max(b);
     let min = a.min(b);
-    #[allow(clippy::cast_precision_loss)]
-    {
-        min as f64 / max as f64
-    }
+    let max_f = f64::from(u32::try_from(max).unwrap_or(u32::MAX));
+    let min_f = f64::from(u32::try_from(min).unwrap_or(u32::MAX));
+    min_f / max_f
 }
 
 fn multiset_jaccard(a: &HashMap<String, usize>, b: &HashMap<String, usize>) -> f64 {
@@ -158,10 +157,9 @@ fn multiset_jaccard(a: &HashMap<String, usize>, b: &HashMap<String, usize>) -> f
     if union == 0 {
         1.0
     } else {
-        #[allow(clippy::cast_precision_loss)]
-        {
-            intersection as f64 / union as f64
-        }
+        let inter_f = f64::from(u32::try_from(intersection).unwrap_or(u32::MAX));
+        let union_f = f64::from(u32::try_from(union).unwrap_or(u32::MAX));
+        inter_f / union_f
     }
 }
 

@@ -96,7 +96,6 @@ pub fn type_signature_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec
             };
             // Scale confidence down slightly for very small signatures
             // (two fields with one edge is weak evidence regardless).
-            #[allow(clippy::cast_precision_loss)]
             let size_penalty = if size < 2 { 0.1 } else { 0.0 };
             let confidence = (overlap + boost - size_penalty).clamp(0.4, 0.9);
             out.push(Anchor {
@@ -164,8 +163,10 @@ fn multiset_overlap(a: &[SignatureEntry], b: &[SignatureEntry]) -> (f64, usize) 
             intersection += ca.min(cb);
         }
     }
-    #[allow(clippy::cast_precision_loss)]
-    let ratio = intersection as f64 / a.len().max(b.len()) as f64;
+    let denom_count = a.len().max(b.len());
+    let inter_f = f64::from(u32::try_from(intersection).unwrap_or(u32::MAX));
+    let denom_f = f64::from(u32::try_from(denom_count).unwrap_or(u32::MAX));
+    let ratio = inter_f / denom_f;
     (ratio, intersection)
 }
 
