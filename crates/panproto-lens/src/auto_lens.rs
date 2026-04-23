@@ -244,6 +244,19 @@ impl Default for AutoLensConfig {
 ///
 /// User-supplied anchors (`config.search_opts.initial`) are not consulted
 /// here; callers merge them in on top of the strategy output.
+/// Test-only view of `run_strategies` used by regression tests that
+/// need to inspect the raw anchor output without running the CSP.
+/// Available in integration-test builds only.
+#[doc(hidden)]
+#[must_use]
+pub fn run_strategies_for_tests(
+    src: &Schema,
+    tgt: &Schema,
+    config: &AutoLensConfig,
+) -> (Vec<Anchor>, Vec<CoerceAnchor>) {
+    run_strategies(src, tgt, config)
+}
+
 fn run_strategies(
     src: &Schema,
     tgt: &Schema,
@@ -253,6 +266,13 @@ fn run_strategies(
 
     // Exact name equality is consulted at every tier.
     anchors.extend(align::exact_anchors(src, tgt));
+
+    // Terminal dot-segment equality fills the cross-namespace gap that
+    // exact and token strategies miss on schemas whose identifiers are
+    // namespace-prefixed under disjoint prefixes. Runs unconditionally:
+    // the CSP's naturality check discards any proposal that violates
+    // edge preservation, so a spurious suffix collision is cheap.
+    anchors.extend(align::suffix_anchors(src, tgt));
 
     if config.stringency.uses_alias_dict() {
         anchors.extend(align::alias_anchors(src, tgt, &config.alias_dict));

@@ -133,6 +133,7 @@ pub fn enrich_steps(chain: &ProtolensChain, anchors: &[Anchor]) -> Vec<Candidate
         match tag {
             StrategyTag::UserHint => 100,
             StrategyTag::Exact => 90,
+            StrategyTag::ExactSuffix => 80,
             StrategyTag::Alias => 70,
             StrategyTag::TypeSignature => 60,
             StrategyTag::WrapUnwrap => 55,
