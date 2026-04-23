@@ -165,6 +165,30 @@ pub enum TheoryDslError {
     #[diagnostic(code(panproto_theory_dsl::gat))]
     Gat(#[from] panproto_gat::GatError),
 
+    /// A value-kind string in a theory spec is not one of the recognised
+    /// kinds.
+    #[error(
+        "unknown value kind '{kind}': expected one of boolean/bool, \
+         integer/int, float/number, string/str, bytes, token, null, or any"
+    )]
+    #[diagnostic(code(panproto_theory_dsl::unknown_value_kind))]
+    UnknownValueKind {
+        /// The offending kind string.
+        kind: String,
+    },
+
+    /// A coercion-class string in a theory spec is not one of the
+    /// recognised classes.
+    #[error(
+        "unknown coercion class '{class}': expected one of iso, \
+         retraction, projection, or opaque"
+    )]
+    #[diagnostic(code(panproto_theory_dsl::unknown_coercion_class))]
+    UnknownCoercionClass {
+        /// The offending class string.
+        class: String,
+    },
+
     /// An instance binding names a key that is neither a sort param nor
     /// an operation of the class theory.
     #[error(

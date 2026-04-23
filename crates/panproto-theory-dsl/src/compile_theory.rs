@@ -75,6 +75,7 @@ fn resolve_imports(
                 &canonical,
                 imp.alias.as_deref(),
                 &expose_set,
+                &imp.from,
             );
             out.sorts.insert(0, imported_sort_to_spec(s, canonical));
         }
@@ -86,6 +87,7 @@ fn resolve_imports(
                 &canonical,
                 imp.alias.as_deref(),
                 &expose_set,
+                &imp.from,
             );
             out.ops
                 .insert(0, imported_op_to_spec(op, canonical, &name_rewrite));
@@ -116,12 +118,26 @@ fn record_rewrite(
     canonical: &str,
     alias: Option<&str>,
     expose: &std::collections::HashSet<String>,
+    from: &str,
 ) {
+    // Always populate the fully-qualified form so that references like
+    // `<importee_id>.Foo` resolve regardless of alias or expose
+    // settings.
+    rewrite.insert(format!("{from}.{original}"), canonical.to_string());
     if let Some(a) = alias {
         rewrite.insert(format!("{a}.{original}"), canonical.to_string());
     }
     if expose.contains(original) {
         rewrite.insert(original.to_string(), canonical.to_string());
+    }
+    // For no-alias, no-expose imports, let the bare name still resolve
+    // to the canonical name: callers frequently write `Foo` expecting
+    // the importee's sort to be reachable, and the canonical rename
+    // already disambiguates when two imports collide.
+    if alias.is_none() && !expose.contains(original) {
+        rewrite
+            .entry(original.to_string())
+            .or_insert_with(|| canonical.to_string());
     }
 }
 
@@ -303,13 +319,13 @@ fn compile_sort(spec: &SortSpec, theory_name: &str) -> Result<Sort, TheoryDslErr
 
     let kind = match &spec.kind {
         SortKindSpec::Structural => SortKind::Structural,
-        SortKindSpec::Val { value_kind } => SortKind::Val(parse_value_kind(value_kind)),
+        SortKindSpec::Val { value_kind } => SortKind::Val(parse_value_kind(value_kind)?),
         SortKindSpec::Coercion { from, to, class } => SortKind::Coercion {
-            from: parse_value_kind(from),
-            to: parse_value_kind(to),
-            class: parse_coercion_class(class),
+            from: parse_value_kind(from)?,
+            to: parse_value_kind(to)?,
+            class: parse_coercion_class(class)?,
         },
-        SortKindSpec::Merger { value_kind } => SortKind::Merger(parse_value_kind(value_kind)),
+        SortKindSpec::Merger { value_kind } => SortKind::Merger(parse_value_kind(value_kind)?),
     };
 
     let closure = spec
@@ -340,7 +356,16 @@ fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslEr
     })?;
     Ok(match (&spec.input, &spec.inputs) {
         (Some(input_sort), _) => {
-            let param_name = input_sort[..1].to_ascii_lowercase();
+            // Take the first character safely: byte slicing with [..1]
+            // would panic on a multi-byte UTF-8 boundary. Fall back to a
+            // conventional placeholder when the sort name is empty or
+            // starts with a non-ASCII character (giving it a readable
+            // default rather than an empty string).
+            let first_char = input_sort.chars().next().filter(char::is_ascii_alphabetic);
+            let param_name: String = first_char.map_or_else(
+                || "x".to_string(),
+                |c| c.to_ascii_lowercase().to_string(),
+            );
             let input = parse_sort_expr(input_sort).map_err(|msg| TheoryDslError::TermParse {
                 context: op_context("input sort"),
                 message: msg,
@@ -458,9 +483,17 @@ fn compile_directed_eq(
         .map(|inv| parse_expr(inv, &ctx))
         .transpose()?;
 
-    let source_kind = spec.source_kind.as_deref().map(parse_value_kind);
-    let target_kind = spec.target_kind.as_deref().map(parse_value_kind);
-    let coercion_class = parse_coercion_class(&spec.coercion_class);
+    let source_kind = spec
+        .source_kind
+        .as_deref()
+        .map(parse_value_kind)
+        .transpose()?;
+    let target_kind = spec
+        .target_kind
+        .as_deref()
+        .map(parse_value_kind)
+        .transpose()?;
+    let coercion_class = parse_coercion_class(&spec.coercion_class)?;
 
     Ok(DirectedEquation {
         name: Arc::from(spec.name.as_str()),
@@ -491,7 +524,7 @@ fn compile_policy(spec: &PolicySpec, theory_name: &str) -> Result<ConflictPolicy
 
     Ok(ConflictPolicy {
         name: Arc::from(spec.name.as_str()),
-        value_kind: parse_value_kind(&spec.value_kind),
+        value_kind: parse_value_kind(&spec.value_kind)?,
         strategy,
     })
 }
@@ -500,25 +533,31 @@ fn compile_policy(spec: &PolicySpec, theory_name: &str) -> Result<ConflictPolicy
 // Parsing helpers
 // ═══════════════════════════════════════════════════════════════════
 
-fn parse_value_kind(s: &str) -> ValueKind {
+fn parse_value_kind(s: &str) -> Result<ValueKind, TheoryDslError> {
     match s {
-        "boolean" | "bool" => ValueKind::Bool,
-        "integer" | "int" => ValueKind::Int,
-        "float" | "number" => ValueKind::Float,
-        "string" | "str" => ValueKind::Str,
-        "bytes" => ValueKind::Bytes,
-        "token" => ValueKind::Token,
-        "null" => ValueKind::Null,
-        _ => ValueKind::Any,
+        "boolean" | "bool" => Ok(ValueKind::Bool),
+        "integer" | "int" => Ok(ValueKind::Int),
+        "float" | "number" => Ok(ValueKind::Float),
+        "string" | "str" => Ok(ValueKind::Str),
+        "bytes" => Ok(ValueKind::Bytes),
+        "token" => Ok(ValueKind::Token),
+        "null" => Ok(ValueKind::Null),
+        "any" => Ok(ValueKind::Any),
+        other => Err(TheoryDslError::UnknownValueKind {
+            kind: other.to_owned(),
+        }),
     }
 }
 
-fn parse_coercion_class(s: &str) -> CoercionClass {
+fn parse_coercion_class(s: &str) -> Result<CoercionClass, TheoryDslError> {
     match s {
-        "iso" => CoercionClass::Iso,
-        "retraction" => CoercionClass::Retraction,
-        "projection" => CoercionClass::Projection,
-        _ => CoercionClass::Opaque,
+        "iso" => Ok(CoercionClass::Iso),
+        "retraction" => Ok(CoercionClass::Retraction),
+        "projection" => Ok(CoercionClass::Projection),
+        "opaque" => Ok(CoercionClass::Opaque),
+        other => Err(TheoryDslError::UnknownCoercionClass {
+            class: other.to_owned(),
+        }),
     }
 }
 
