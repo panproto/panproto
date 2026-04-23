@@ -1,18 +1,18 @@
 //! Proc-macro surface for declarative class and instance syntax
 //! targeting panproto-gat.
 //!
-//! Provides three macros:
-//!
 //! - `class! { ThEq<A> { ... } }` expands to a `theory_<lowercase>()`
 //!   function that returns a `panproto_gat::Theory` built from the
 //!   listed signatures and axioms.
 //! - `instance! { Name: Class<Ty, ...> in Target { op = target_op; ... } }`
 //!   expands to an `instance_<lowercase>(class, target)` function that
 //!   builds a validated `panproto_gat::TheoryMorphism`.
-//! - `fn_with_constraints!` is a syntactic placeholder for the
-//!   constrained-function sugar; it currently parses the form and
-//!   emits a specific compile error directing users to the follow-up
-//!   work.
+//! - `inductive! { Nat { zero : Nat, succ(n: Nat) : Nat } }` expands to
+//!   a theory constructor with a closed sort and one operation per
+//!   listed constructor.
+//! - `derive_theory!` accepts a theory-declaration block annotated
+//!   with `#[derive(Eq)]` or `#[derive(Hash)]` and emits the base
+//!   theory plus instance-builder functions for each derivation.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -485,15 +485,10 @@ pub fn derive_theory(input: TokenStream) -> TokenStream {
 
     for d in &derives {
         let s = d.to_string();
-        if !matches!(s.as_str(), "Eq" | "Hash" | "Ord" | "Show") {
-            return syn::Error::new(d.span(), format!("unknown derive target: {s}"))
-                .to_compile_error()
-                .into();
-        }
-        if matches!(s.as_str(), "Ord" | "Show") {
+        if !matches!(s.as_str(), "Eq" | "Hash") {
             return syn::Error::new(
                 d.span(),
-                format!("derive({s}) is not yet supported; use Eq and Hash for now"),
+                format!("unknown derive target: {s} (supported: Eq, Hash)"),
             )
             .to_compile_error()
             .into();
@@ -789,61 +784,6 @@ pub fn inductive(input: TokenStream) -> TokenStream {
         }
     };
     expanded.into()
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// fn_with_constraints! macro (parse-only stub)
-// ═══════════════════════════════════════════════════════════════════
-
-struct FnWithConstraintsInput {
-    _raw: TokenStream2,
-}
-
-impl Parse for FnWithConstraintsInput {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        // Accept the form:
-        //   name<A: Class, ...>(args) -> Out { body }
-        // but do not compile it; we only want the parse tree to be
-        // well-defined so a future expansion can use it.
-        let _name: Ident = input.parse()?;
-        input.parse::<Token![<]>()?;
-        // Parse `A: Class` or `A: Class1 + Class2`-style entries until `>`.
-        while !input.peek(Token![>]) {
-            let _param: Ident = input.parse()?;
-            input.parse::<Token![:]>()?;
-            // Consume one or more idents separated by `+`.
-            let _: Ident = input.parse()?;
-            while input.peek(Token![+]) {
-                input.parse::<Token![+]>()?;
-                let _: Ident = input.parse()?;
-            }
-            if input.peek(Token![,]) {
-                input.parse::<Token![,]>()?;
-            }
-        }
-        input.parse::<Token![>]>()?;
-        let _args;
-        parenthesized!(_args in input);
-        // Consume the rest.
-        let mut raw = TokenStream2::new();
-        while !input.is_empty() {
-            let tt: proc_macro2::TokenTree = input.parse()?;
-            raw.extend(std::iter::once(tt));
-        }
-        Ok(Self { _raw: raw })
-    }
-}
-
-/// Parse the constrained-function surface and emit a compile error
-/// directing users that the expansion is queued as follow-up work.
-#[proc_macro]
-pub fn fn_with_constraints(input: TokenStream) -> TokenStream {
-    let _ = parse_macro_input!(input as FnWithConstraintsInput);
-    let err = syn::Error::new(
-        proc_macro2::Span::call_site(),
-        "constrained-function sugar is queued as follow-up",
-    );
-    err.to_compile_error().into()
 }
 
 // ═══════════════════════════════════════════════════════════════════

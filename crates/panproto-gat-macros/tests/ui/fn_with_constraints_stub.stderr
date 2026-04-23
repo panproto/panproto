@@ -1,5 +1,0 @@
-error: unexpected token, expected `)`
- --> tests/ui/fn_with_constraints_stub.rs:4:19
-  |
-4 |     elem<A: ThEq>(x: A) -> Bool { eq(x, x) }
-  |                   ^
