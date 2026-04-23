@@ -6,7 +6,7 @@
 //! * `e_src.name == e_tgt.name` (the optional human-readable label set on
 //!   the fourth argument of `SchemaBuilder::edge`),
 //! * `e_src.kind == e_tgt.kind` (the edge kind, e.g. `"prop"`),
-//! * [`kinds_compatible`](super::kinds_compatible) on the child vertices.
+//! * [`kinds_compatible`] on the child vertices.
 //!
 //! Complementary to [`super::suffix_anchors`]: edge-label targets
 //! children reached via labeled edges from any parent, while suffix
