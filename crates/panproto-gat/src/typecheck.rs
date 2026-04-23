@@ -777,6 +777,38 @@ pub fn typecheck_equation(eq: &Equation, theory: &Theory) -> Result<(), GatError
     Ok(())
 }
 
+/// Typecheck an equation with sort equality relaxed modulo a set of
+/// directed rewrite rules.
+///
+/// Differs from [`typecheck_equation`] only in the final comparison
+/// step: the inferred LHS and RHS sorts are considered equal when they
+/// match under [`SortExpr::alpha_eq_modulo_rewrites`] with the given
+/// rules and step budget. Useful in dependent-type settings where
+/// judgmental equality holds modulo the theory's own rewrite system.
+///
+/// # Errors
+///
+/// Same as [`typecheck_equation`] except that the mismatch check uses
+/// the relaxed equality.
+pub fn typecheck_equation_modulo_rewrites(
+    eq: &Equation,
+    theory: &Theory,
+    rules: &[crate::eq::DirectedEquation],
+    step_limit: usize,
+) -> Result<(), GatError> {
+    let ctx = infer_var_sorts(eq, theory)?;
+    let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
+    let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
+    if !lhs_sort.alpha_eq_modulo_rewrites(&rhs_sort, rules, step_limit) {
+        return Err(GatError::EquationSortMismatch {
+            equation: eq.name.to_string(),
+            lhs_sort: lhs_sort.to_string(),
+            rhs_sort: rhs_sort.to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Typecheck all equations in a theory.
 ///
 /// Also verifies, for every operation, that every implicit parameter's

@@ -113,6 +113,38 @@ impl SortExpr {
         self.head() == other.head() && self.args() == other.args()
     }
 
+    /// Definitional equality modulo a directed-rewrite system.
+    ///
+    /// Normalizes both sides by rewriting every argument term with
+    /// [`crate::eq::normalize`] under `rules` and a bounded step budget,
+    /// then compares the normalized sort expressions with
+    /// [`Self::alpha_eq`]. Heads must agree; if they do not, no amount
+    /// of rewriting closes the gap and the function returns `false`
+    /// immediately. Callers that want the strict structural equality
+    /// should continue to use [`Self::alpha_eq`].
+    #[must_use]
+    pub fn alpha_eq_modulo_rewrites(
+        &self,
+        other: &Self,
+        rules: &[crate::eq::DirectedEquation],
+        step_limit: usize,
+    ) -> bool {
+        if self.head() != other.head() {
+            return false;
+        }
+        if self.args().len() != other.args().len() {
+            return false;
+        }
+        let normalize_all = |args: &[Term]| -> Vec<Term> {
+            args.iter()
+                .map(|t| crate::eq::normalize(t, rules, step_limit))
+                .collect()
+        };
+        let left = normalize_all(self.args());
+        let right = normalize_all(other.args());
+        left == right
+    }
+
     /// Rename the head (sort name) via `sort_map`, leaving arguments
     /// unchanged.
     #[must_use]
