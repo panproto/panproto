@@ -163,18 +163,19 @@ fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslEr
     })
 }
 
-/// Parse a sort string into a [`SortExpr`]. A bare identifier parses as
-/// [`SortExpr::Name`]; `Ident(arg1, arg2, ...)` parses as a
-/// [`SortExpr::App`] with the argument list parsed as terms via
-/// [`parse_term`]. An `Ident()` input with no arguments normalizes to
-/// [`SortExpr::Name`] via the smart constructor.
+/// Parse a sort string into a [`SortExpr`].
+///
+/// A bare identifier parses as [`SortExpr::Name`]; `Ident(arg1, arg2, ...)`
+/// parses as a [`SortExpr::App`] with the argument list parsed as terms
+/// via [`parse_term`]. An `Ident()` input with no arguments normalizes
+/// to [`SortExpr::Name`] via the smart constructor.
 ///
 /// # Errors
 ///
 /// Returns an error describing the problem for: empty input, malformed
 /// identifiers, unclosed parentheses, unexpected trailing input, or any
 /// error propagated from parsing an argument term.
-pub(crate) fn parse_sort_expr(s: &str) -> Result<SortExpr, String> {
+pub fn parse_sort_expr(s: &str) -> Result<SortExpr, String> {
     let trimmed = s.trim();
     if trimmed.is_empty() {
         return Err("empty sort expression".to_owned());
@@ -342,7 +343,13 @@ fn parse_expr(expr_str: &str, context: &str) -> Result<panproto_expr::Expr, Theo
 ///          | ident                              -- variable
 /// ident ::= [a-zA-Z_][a-zA-Z0-9_]*
 /// ```
-pub(crate) fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
+///
+/// # Errors
+///
+/// Returns a descriptive message for parse failures: empty input,
+/// malformed identifiers, unclosed parentheses, missing keywords, or
+/// errors propagated from nested term parses.
+pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
     let s = s.trim();
     if s.is_empty() {
         return Err("empty term string".to_owned());
