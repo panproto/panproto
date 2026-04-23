@@ -568,6 +568,10 @@ pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
         return parse_case_term(rest);
     }
 
+    if let Some(rest) = s.strip_prefix("let ") {
+        return parse_let_term(rest);
+    }
+
     if let Some(rest) = s.strip_prefix('?') {
         let rest = rest.trim();
         if rest.is_empty() {
@@ -607,6 +611,35 @@ pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
             })
         }
     }
+}
+
+/// Parse the body of a `let` term, given the text following the
+/// leading `let ` keyword.
+///
+/// Grammar:
+///
+/// ```text
+/// let_body ::= ident '=' term 'in' term
+/// ```
+fn parse_let_term(rest: &str) -> Result<panproto_gat::Term, String> {
+    let rest = rest.trim();
+    let eq_pos = rest
+        .find('=')
+        .ok_or_else(|| format!("let term missing `=`: {rest:?}"))?;
+    let name_part = rest[..eq_pos].trim();
+    validate_identifier(name_part, "let binder")?;
+    let after_eq = &rest[eq_pos + 1..];
+    let in_pos = find_top_level_keyword(after_eq, "in")
+        .ok_or_else(|| format!("let term missing `in`: {rest:?}"))?;
+    let bound_str = after_eq[..in_pos].trim();
+    let body_str = after_eq[in_pos + 2..].trim();
+    let bound = parse_term(bound_str)?;
+    let body = parse_term(body_str)?;
+    Ok(panproto_gat::Term::Let {
+        name: Arc::from(name_part),
+        bound: Box::new(bound),
+        body: Box::new(body),
+    })
 }
 
 /// Parse the body of a `case` term, given the text following the

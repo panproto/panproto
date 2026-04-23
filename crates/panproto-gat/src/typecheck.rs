@@ -17,6 +17,50 @@ use crate::op::{Implicit, Operation};
 use crate::sort::{SortClosure, SortExpr};
 use crate::theory::Theory;
 
+/// A sort scheme: a sort expression universally quantified over a list
+/// of metavariable names.
+///
+/// Monomorphic entries carry an empty `metavars` list and behave like
+/// plain sort expressions; ML-style let-generalization produces
+/// schemes with one or more metavariables.
+#[derive(Debug, Clone)]
+pub struct SortScheme {
+    /// Universally-quantified metavariable names.
+    pub metavars: Vec<Arc<str>>,
+    /// The scheme's body.
+    pub body: SortExpr,
+}
+
+impl SortScheme {
+    /// Build a monomorphic scheme from a sort expression.
+    #[must_use]
+    pub const fn mono(body: SortExpr) -> Self {
+        Self {
+            metavars: Vec::new(),
+            body,
+        }
+    }
+
+    /// Instantiate the scheme by freshening each metavariable and
+    /// substituting the fresh name into the scheme's body.
+    ///
+    /// Fresh names are derived by suffixing `counter` to each
+    /// metavariable, so two calls with different counters produce
+    /// distinct sort expressions.
+    #[must_use]
+    pub fn instantiate(&self, counter: usize) -> SortExpr {
+        if self.metavars.is_empty() {
+            return self.body.clone();
+        }
+        let mut subst: FxHashMap<Arc<str>, crate::eq::Term> = FxHashMap::default();
+        for mv in &self.metavars {
+            let fresh: Arc<str> = Arc::from(format!("{mv}_inst_{counter}"));
+            subst.insert(Arc::clone(mv), crate::eq::Term::Var(fresh));
+        }
+        self.body.subst(&subst)
+    }
+}
+
 /// A report generated for each typed hole encountered by
 /// [`typecheck_term_with_holes`].
 #[derive(Debug, Clone)]
@@ -100,6 +144,20 @@ pub fn typecheck_term(
             scrutinee,
             branches,
         } => typecheck_case(scrutinee, branches, ctx, theory),
+
+        Term::Let { name, bound, body } => {
+            // Typecheck the bound term, extend the context with the
+            // resulting sort, then typecheck the body. For GAT sorts,
+            // which are first-order and closed, there are no free
+            // sort-metavariables to generalize over, so the mono/poly
+            // distinction collapses: binding the bound's inferred sort
+            // directly is equivalent to ML-style generalization
+            // producing an empty-metavars scheme.
+            let bound_sort = typecheck_term(bound, ctx, theory)?;
+            let mut extended = ctx.clone();
+            extended.insert(Arc::clone(name), bound_sort);
+            typecheck_term(body, &extended, theory)
+        }
     }
 }
 
@@ -419,6 +477,11 @@ fn collect_constraints(
             }
             return Ok(());
         }
+        Term::Let { bound, body, .. } => {
+            collect_constraints(bound, theory, ctx, term_eqs)?;
+            collect_constraints(body, theory, ctx, term_eqs)?;
+            return Ok(());
+        }
         Term::Var(_) | Term::Hole { .. } => return Ok(()),
     };
     let operation = theory
@@ -444,7 +507,7 @@ fn collect_constraints(
                     ctx.insert(Arc::clone(var_name), expected);
                 }
             }
-            Term::App { .. } | Term::Case { .. } | Term::Hole { .. } => {
+            Term::App { .. } | Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => {
                 collect_constraints(arg, theory, ctx, term_eqs)?;
             }
         }
@@ -570,6 +633,9 @@ fn occurs_in(var: &Arc<str>, term: &Term) -> bool {
     match term {
         Term::Var(v) => v == var,
         Term::Hole { .. } => false,
+        Term::Let { name, bound, body } => {
+            occurs_in(var, bound) || (name != var && occurs_in(var, body))
+        }
         Term::App { args, .. } => args.iter().any(|a| occurs_in(var, a)),
         Term::Case {
             scrutinee,
@@ -683,6 +749,12 @@ fn typecheck_with_expected(
             scrutinee,
             branches,
         } => typecheck_case_with_holes(scrutinee, branches, ctx, theory, reports),
+        Term::Let { name, bound, body } => {
+            let bound_sort = typecheck_with_expected(bound, None, ctx, theory, reports)?;
+            let mut extended = ctx.clone();
+            extended.insert(Arc::clone(name), bound_sort);
+            typecheck_with_expected(body, None, &extended, theory, reports)
+        }
     }
 }
 
@@ -916,6 +988,7 @@ fn term_contains_hole(t: &Term) -> bool {
     match t {
         Term::Hole { .. } => true,
         Term::Var(_) => false,
+        Term::Let { bound, body, .. } => term_contains_hole(bound) || term_contains_hole(body),
         Term::App { args, .. } => args.iter().any(term_contains_hole),
         Term::Case {
             scrutinee,
@@ -928,6 +1001,11 @@ fn term_mentions_var(t: &Term, name: &Arc<str>) -> bool {
     match t {
         Term::Var(v) => v == name,
         Term::Hole { .. } => false,
+        Term::Let {
+            name: binder,
+            bound,
+            body,
+        } => term_mentions_var(bound, name) || (binder != name && term_mentions_var(body, name)),
         Term::App { args, .. } => args.iter().any(|a| term_mentions_var(a, name)),
         Term::Case {
             scrutinee,

@@ -734,7 +734,8 @@ fn derive_field_transforms(
                     panproto_gat::Term::App { op, .. } => Some(op.to_string()),
                     panproto_gat::Term::Var(_)
                     | panproto_gat::Term::Case { .. }
-                    | panproto_gat::Term::Hole { .. } => None,
+                    | panproto_gat::Term::Hole { .. }
+                    | panproto_gat::Term::Let { .. } => None,
                 }) else {
                     continue;
                 };

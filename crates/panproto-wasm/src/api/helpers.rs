@@ -873,6 +873,12 @@ pub(super) fn eval_term_recursive(
         gat::Term::Hole { .. } => {
             Err("typed holes cannot be evaluated; they only carry type information".to_string())
         }
+        gat::Term::Let { name, bound, body } => {
+            let v = eval_term_recursive(bound, env, theory)?;
+            let mut extended: Vec<(String, gat::ModelValue)> = env.to_vec();
+            extended.push((name.to_string(), v));
+            eval_term_recursive(body, &extended, theory)
+        }
     }
 }
 

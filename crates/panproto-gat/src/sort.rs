@@ -348,6 +348,9 @@ impl std::fmt::Display for Term {
                 Some(n) => write!(f, "?{n}"),
                 None => f.write_str("?"),
             },
+            Self::Let { name, bound, body } => {
+                write!(f, "let {name} = {bound} in {body}")
+            }
             Self::Case {
                 scrutinee,
                 branches,

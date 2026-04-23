@@ -835,6 +835,10 @@ fn collect_ops_in_equation(eq: &Equation) -> Vec<Arc<str>> {
 fn collect_ops_in_term(term: &Term, ops: &mut Vec<Arc<str>>) {
     match term {
         Term::Var(_) | Term::Hole { .. } => {}
+        Term::Let { bound, body, .. } => {
+            collect_ops_in_term(bound, ops);
+            collect_ops_in_term(body, ops);
+        }
         Term::App { op, args } => {
             ops.push(Arc::clone(op));
             for arg in args {

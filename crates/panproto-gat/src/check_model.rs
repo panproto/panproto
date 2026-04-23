@@ -207,6 +207,12 @@ fn eval_term(
         Term::Hole { .. } => Err(GatError::ModelError(
             "typed holes cannot be evaluated in a set-theoretic model".to_string(),
         )),
+        Term::Let { name, bound, body } => {
+            let v = eval_term(bound, assignment, model)?;
+            let mut extended = assignment.clone();
+            extended.insert(Arc::clone(name), v);
+            eval_term(body, &extended, model)
+        }
     }
 }
 

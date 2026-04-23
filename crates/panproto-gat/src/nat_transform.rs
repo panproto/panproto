@@ -192,6 +192,10 @@ fn full_rewrite_rules(theory: &Theory) -> Vec<crate::eq::DirectedEquation> {
 fn validate_term_ops(term: &Term, codomain: &Theory) -> Result<(), String> {
     match term {
         Term::Var(_) | Term::Hole { .. } => Ok(()),
+        Term::Let { bound, body, .. } => {
+            validate_term_ops(bound, codomain)?;
+            validate_term_ops(body, codomain)
+        }
         Term::App { op, args } => {
             if !codomain.has_op(op) {
                 return Err(format!("operation {op} not found in codomain"));

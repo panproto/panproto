@@ -283,5 +283,11 @@ fn eval_term(term: &Term, env: &[(String, gat::ModelValue)]) -> Result<gat::Mode
         Term::Hole { .. } => Err(miette::miette!(
             "typed holes cannot be evaluated; they only carry type information"
         )),
+        Term::Let { name, bound, body } => {
+            let v = eval_term(bound, env)?;
+            let mut extended = env.to_vec();
+            extended.push((name.to_string(), v));
+            eval_term(body, &extended)
+        }
     }
 }

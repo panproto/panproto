@@ -38,6 +38,18 @@ pub enum Term {
         /// anonymous `?`.
         name: Option<Arc<str>>,
     },
+    /// A local `let`-binding: `let name = bound in body`. The bound
+    /// term's inferred sort is (ML-style) generalized over its free
+    /// sort-metavariables, yielding a [`crate::typecheck::SortScheme`]
+    /// that is instantiated at every use of `name` in `body`.
+    Let {
+        /// Bound name.
+        name: Arc<str>,
+        /// The bound term.
+        bound: Box<Self>,
+        /// The body in which `name` is in scope.
+        body: Box<Self>,
+    },
 }
 
 /// One branch of a [`Term::Case`] expression.
@@ -121,6 +133,16 @@ impl Term {
                     branches: new_branches,
                 }
             }
+            Self::Let { name, bound, body } => {
+                let new_bound = Box::new(bound.substitute(subst));
+                let mut inner = subst.clone();
+                inner.remove(name);
+                Self::Let {
+                    name: Arc::clone(name),
+                    bound: new_bound,
+                    body: Box::new(body.substitute(&inner)),
+                }
+            }
         }
     }
 
@@ -160,6 +182,13 @@ impl Term {
                     vars.extend(local);
                 }
             }
+            Self::Let { name, bound, body } => {
+                bound.collect_vars(vars);
+                let mut local = rustc_hash::FxHashSet::default();
+                body.collect_vars(&mut local);
+                local.remove(name);
+                vars.extend(local);
+            }
         }
     }
 
@@ -192,6 +221,11 @@ impl Term {
                         body: b.body.rename_ops(op_map),
                     })
                     .collect(),
+            },
+            Self::Let { name, bound, body } => Self::Let {
+                name: Arc::clone(name),
+                bound: Box::new(bound.rename_ops(op_map)),
+                body: Box::new(body.rename_ops(op_map)),
             },
         }
     }
@@ -340,21 +374,7 @@ struct AlphaChecker {
 impl AlphaChecker {
     fn check(&mut self, t1: &Term, t2: &Term) -> bool {
         match (t1, t2) {
-            (Term::Var(a), Term::Var(b)) => {
-                if let Some(mapped) = self.forward.get(a) {
-                    if mapped != b {
-                        return false;
-                    }
-                } else if let Some(mapped_back) = self.backward.get(b) {
-                    if mapped_back != a {
-                        return false;
-                    }
-                } else {
-                    self.forward.insert(Arc::clone(a), Arc::clone(b));
-                    self.backward.insert(Arc::clone(b), Arc::clone(a));
-                }
-                true
-            }
+            (Term::Var(a), Term::Var(b)) => self.check_vars(a, b),
             (
                 Term::App {
                     op: op1,
@@ -414,8 +434,65 @@ impl AlphaChecker {
                 true
             }
             (Term::Hole { name: n1 }, Term::Hole { name: n2 }) => n1 == n2,
-            (Term::Var(_) | Term::App { .. } | Term::Case { .. } | Term::Hole { .. }, _) => false,
+            (
+                Term::Let {
+                    name: n1,
+                    bound: b1,
+                    body: body1,
+                },
+                Term::Let {
+                    name: n2,
+                    bound: b2,
+                    body: body2,
+                },
+            ) => self.check_let(n1, b1, body1, n2, b2, body2),
+            (
+                Term::Var(_)
+                | Term::App { .. }
+                | Term::Case { .. }
+                | Term::Hole { .. }
+                | Term::Let { .. },
+                _,
+            ) => false,
         }
+    }
+
+    fn check_vars(&mut self, a: &Arc<str>, b: &Arc<str>) -> bool {
+        if let Some(mapped) = self.forward.get(a) {
+            if mapped != b {
+                return false;
+            }
+        } else if let Some(mapped_back) = self.backward.get(b) {
+            if mapped_back != a {
+                return false;
+            }
+        } else {
+            self.forward.insert(Arc::clone(a), Arc::clone(b));
+            self.backward.insert(Arc::clone(b), Arc::clone(a));
+        }
+        true
+    }
+
+    fn check_let(
+        &mut self,
+        n1: &Arc<str>,
+        b1: &Term,
+        body1: &Term,
+        n2: &Arc<str>,
+        b2: &Term,
+        body2: &Term,
+    ) -> bool {
+        if !self.check(b1, b2) {
+            return false;
+        }
+        let saved_forward = self.forward.clone();
+        let saved_backward = self.backward.clone();
+        self.forward.insert(Arc::clone(n1), Arc::clone(n2));
+        self.backward.insert(Arc::clone(n2), Arc::clone(n1));
+        let ok = self.check(body1, body2);
+        self.forward = saved_forward;
+        self.backward = saved_backward;
+        ok
     }
 }
 
@@ -465,7 +542,7 @@ fn match_pattern_inner(
                         .zip(t_args.iter())
                         .all(|(p, t)| match_pattern_inner(p, t, subst))
             }
-            Term::Var(_) | Term::Case { .. } | Term::Hole { .. } => false,
+            Term::Var(_) | Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => false,
         },
         Term::Case {
             scrutinee: p_s,
@@ -488,12 +565,13 @@ fn match_pattern_inner(
                 }
                 true
             }
-            Term::Var(_) | Term::App { .. } | Term::Hole { .. } => false,
+            Term::Var(_) | Term::App { .. } | Term::Hole { .. } | Term::Let { .. } => false,
         },
         Term::Hole { name } => match term {
             Term::Hole { name: n2 } => name == n2,
-            Term::Var(_) | Term::App { .. } | Term::Case { .. } => false,
+            Term::Var(_) | Term::App { .. } | Term::Case { .. } | Term::Let { .. } => false,
         },
+        Term::Let { .. } => false,
     }
 }
 
@@ -529,6 +607,15 @@ fn normalize_once(
     // Innermost first: normalize subterms before trying root.
     let normalized_subterms = match term {
         Term::Var(_) | Term::Hole { .. } => term.clone(),
+        Term::Let { name, bound, body } => {
+            let new_bound = normalize_once(bound, directed_eqs, steps, max_steps);
+            // Substitute the normalized bound into the body and
+            // continue normalization.
+            let mut subst = rustc_hash::FxHashMap::default();
+            subst.insert(Arc::clone(name), new_bound);
+            let substituted = body.substitute(&subst);
+            return normalize_once(&substituted, directed_eqs, steps, max_steps);
+        }
         Term::App { op, args } => {
             let new_args: Vec<Term> = args
                 .iter()

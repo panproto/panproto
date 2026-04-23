@@ -499,6 +499,11 @@ fn term_to_string(term: &Term) -> String {
         Term::Hole { name } => name
             .as_ref()
             .map_or_else(|| "?".to_string(), |n| format!("?{n}")),
+        Term::Let { name, bound, body } => format!(
+            "let {name} = {} in {}",
+            term_to_string(bound),
+            term_to_string(body)
+        ),
     }
 }
 

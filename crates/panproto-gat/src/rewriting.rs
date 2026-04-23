@@ -144,6 +144,10 @@ fn collect_vars_walk(term: &Term, out: &mut Vec<Arc<str>>) {
             }
         }
         Term::Hole { .. } => {}
+        Term::Let { bound, body, .. } => {
+            collect_vars_walk(bound, out);
+            collect_vars_walk(body, out);
+        }
         Term::App { args, .. } => {
             for arg in args {
                 collect_vars_walk(arg, out);
@@ -269,6 +273,7 @@ fn occurs(var: &Arc<str>, t: &Term) -> bool {
     match t {
         Term::Var(v) => v == var,
         Term::Hole { .. } => false,
+        Term::Let { name, bound, body } => occurs(var, bound) || (name != var && occurs(var, body)),
         Term::App { args, .. } => args.iter().any(|a| occurs(var, a)),
         Term::Case {
             scrutinee,
@@ -375,7 +380,7 @@ pub fn lpo_greater(s: &Term, t: &Term, prec: &OpPrecedence) -> bool {
         Term::App { op, args } => (op, args),
         // Variables and case scrutinees cannot be LPO-greater than
         // anything: LPO compares structural terms only.
-        Term::Var(_) | Term::Case { .. } | Term::Hole { .. } => return false,
+        Term::Var(_) | Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => return false,
     };
     match t {
         Term::Var(x) => s_args.iter().any(|a| contains_var(a, x)),
@@ -402,7 +407,7 @@ pub fn lpo_greater(s: &Term, t: &Term, prec: &OpPrecedence) -> bool {
                 _ => false,
             }
         }
-        Term::Case { .. } | Term::Hole { .. } => false,
+        Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => false,
     }
 }
 
@@ -410,6 +415,9 @@ fn contains_var(t: &Term, var: &Arc<str>) -> bool {
     match t {
         Term::Var(v) => v == var,
         Term::Hole { .. } => false,
+        Term::Let { name, bound, body } => {
+            contains_var(bound, var) || (name != var && contains_var(body, var))
+        }
         Term::App { args, .. } => args.iter().any(|a| contains_var(a, var)),
         Term::Case {
             scrutinee,
