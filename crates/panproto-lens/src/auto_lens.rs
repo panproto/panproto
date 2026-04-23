@@ -61,6 +61,28 @@ impl Stringency {
         !matches!(self, Self::Strict)
     }
 
+    /// Whether the description-similarity strategy is consulted at this
+    /// tier. Enabled on Balanced and above; disabled on Strict because
+    /// description text is a soft signal that can misfire when two
+    /// unrelated props share generic phrasing.
+    #[must_use]
+    pub const fn uses_description_similarity(self) -> bool {
+        !matches!(self, Self::Strict)
+    }
+
+    /// Minimum description-similarity score required to emit an anchor
+    /// at this tier. Irrelevant at `Strict` where the strategy is
+    /// disabled.
+    #[must_use]
+    pub const fn description_similarity_threshold(self) -> f64 {
+        match self {
+            Self::Strict => 1.0,
+            Self::Balanced => 0.55,
+            Self::Lenient => 0.45,
+            Self::Exploratory => 0.35,
+        }
+    }
+
     /// Whether the alias dictionary is consulted at this tier.
     #[must_use]
     pub const fn uses_alias_dict(self) -> bool {
@@ -288,6 +310,11 @@ fn run_strategies(
     if config.stringency.uses_token_similarity() {
         let threshold = config.stringency.token_similarity_threshold();
         anchors.extend(align::token_anchors(src, tgt, threshold));
+    }
+
+    if config.stringency.uses_description_similarity() {
+        let threshold = config.stringency.description_similarity_threshold();
+        anchors.extend(align::description_anchors(src, tgt, threshold));
     }
 
     if config.stringency.uses_wrap_unwrap() {

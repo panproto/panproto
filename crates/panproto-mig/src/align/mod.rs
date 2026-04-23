@@ -28,6 +28,7 @@ use panproto_schema::Schema;
 
 pub mod alias;
 pub mod coerce;
+pub mod description_similarity;
 pub mod edge_label;
 pub mod exact;
 pub mod structural;
@@ -38,6 +39,7 @@ pub mod wrap_unwrap;
 
 pub use alias::{AliasDict, alias_anchors, default_alias_dict};
 pub use coerce::{CoerceAnchor, coerce_anchors};
+pub use description_similarity::{description_anchors, description_similarity};
 pub use edge_label::edge_label_anchors;
 pub use exact::exact_anchors;
 pub use structural::structural_anchors;
@@ -66,6 +68,10 @@ pub enum StrategyTag {
     Alias,
     /// Token-bag Jaccard + character-n-gram cosine above threshold.
     TokenSimilarity,
+    /// Token similarity of vertex descriptions (constraint sort
+    /// `description`) above threshold. Only fires on schemas whose
+    /// vertices carry description annotations.
+    DescriptionSimilarity,
     /// Matching sort carrier shapes (edge-kind signatures + cardinality).
     TypeSignature,
     /// Wrap/unwrap detection between record shapes.
@@ -159,6 +165,7 @@ const fn strategy_priority(tag: StrategyTag) -> u8 {
         StrategyTag::TypeSignature => 60,
         StrategyTag::WrapUnwrap => 55,
         StrategyTag::TokenSimilarity => 50,
+        StrategyTag::DescriptionSimilarity => 45,
         // Cross-kind bridges sit below same-kind heuristics: a token-match
         // within the same kind is stronger evidence than a coercion across
         // kinds.
@@ -543,6 +550,7 @@ mod tests {
             StrategyTag::TypeSignature,
             StrategyTag::WrapUnwrap,
             StrategyTag::TokenSimilarity,
+            StrategyTag::DescriptionSimilarity,
             StrategyTag::Coerce,
             StrategyTag::Structural,
             StrategyTag::Llm,
@@ -572,6 +580,7 @@ mod tests {
             (StrategyTag::TypeSignature, 60),
             (StrategyTag::WrapUnwrap, 55),
             (StrategyTag::TokenSimilarity, 50),
+            (StrategyTag::DescriptionSimilarity, 45),
             (StrategyTag::Coerce, 40),
             (StrategyTag::Structural, 30),
             (StrategyTag::Llm, 20),

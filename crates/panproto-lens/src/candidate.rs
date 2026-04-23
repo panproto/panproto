@@ -139,6 +139,7 @@ pub fn enrich_steps(chain: &ProtolensChain, anchors: &[Anchor]) -> Vec<Candidate
             StrategyTag::TypeSignature => 60,
             StrategyTag::WrapUnwrap => 55,
             StrategyTag::TokenSimilarity => 50,
+            StrategyTag::DescriptionSimilarity => 45,
             StrategyTag::Coerce => 40,
             StrategyTag::Structural => 30,
             StrategyTag::Llm => 20,
