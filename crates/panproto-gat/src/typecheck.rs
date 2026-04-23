@@ -20,9 +20,10 @@ use crate::theory::Theory;
 /// A sort scheme: a sort expression universally quantified over a list
 /// of metavariable names.
 ///
-/// Monomorphic entries carry an empty `metavars` list and behave like
-/// plain sort expressions; ML-style let-generalization produces
-/// schemes with one or more metavariables.
+/// Retained for future extension. GAT signatures are first-order and
+/// have no free sort-metavariables, so [`typecheck_term`] never
+/// constructs a non-empty `metavars` list at the present time; every
+/// scheme encountered in practice is monomorphic.
 #[derive(Debug, Clone)]
 pub struct SortScheme {
     /// Universally-quantified metavariable names.
@@ -116,10 +117,13 @@ pub fn typecheck_term(
 
         Term::Hole { name } => {
             // In strict mode (no hole collector), a hole typechecks to a
-            // fresh metavariable sort; there is no constraint to solve,
-            // so the hole is accepted and the caller is told its sort is
-            // a metavariable `?<name>`. Use `typecheck_term_with_holes`
-            // to collect hole reports.
+            // fresh metavariable sort whose name is `?<name>` (or
+            // `?hole` for anonymous holes). This string does not
+            // round-trip through the DSL parser: callers that serialize
+            // a term for re-parsing must use `typecheck_term_with_holes`
+            // to collect hole reports and fill in their expected sorts
+            // before emitting. Use `typecheck_term_with_holes` to
+            // collect hole reports.
             let mv: Arc<str> = Arc::from(format!("?{}", name.as_deref().unwrap_or("hole")));
             Ok(SortExpr::Name(mv))
         }
@@ -147,12 +151,13 @@ pub fn typecheck_term(
 
         Term::Let { name, bound, body } => {
             // Typecheck the bound term, extend the context with the
-            // resulting sort, then typecheck the body. For GAT sorts,
-            // which are first-order and closed, there are no free
-            // sort-metavariables to generalize over, so the mono/poly
-            // distinction collapses: binding the bound's inferred sort
-            // directly is equivalent to ML-style generalization
-            // producing an empty-metavars scheme.
+            // resulting sort, then typecheck the body. GAT sorts are
+            // first-order with no free sort-metavariables, so there is
+            // nothing to generalize over: the binding is always
+            // monomorphic and the [`SortScheme`] produced at a
+            // hypothetical generalization step always has an empty
+            // `metavars` list. We therefore bind the inferred sort
+            // directly rather than constructing a trivial scheme.
             let bound_sort = typecheck_term(bound, ctx, theory)?;
             let mut extended = ctx.clone();
             extended.insert(Arc::clone(name), bound_sort);
@@ -706,14 +711,14 @@ fn typecheck_with_expected(
                 .iter()
                 .any(|(_, _, imp)| matches!(imp, Implicit::Yes));
             if has_implicits {
-                // Implicit-inference path: recurse into each arg with
-                // typecheck_term so that holes get a fresh metavariable
-                // sort report before unification kicks in, then run the
-                // standard path for the final result sort.
-                for arg in args {
-                    let _ = typecheck_with_expected(arg, None, ctx, theory, reports)?;
-                }
-                typecheck_term(term, ctx, theory)
+                // Implicit-inference path: thread the expected sort
+                // through each explicit arg so that holes attach to the
+                // right expected sort, then recover the implicit
+                // parameter values via the same unification machinery
+                // as typecheck_term.
+                typecheck_app_with_implicits_collecting_holes(
+                    op, args, operation, ctx, theory, reports,
+                )
             } else {
                 if args.len() != operation.inputs.len() {
                     return Err(GatError::TermArityMismatch {
@@ -772,13 +777,56 @@ fn typecheck_case_with_holes(
         let constructor_op = theory
             .find_op(&b.constructor)
             .ok_or_else(|| GatError::OpNotFound(b.constructor.to_string()))?;
+        if constructor_op.inputs.len() != b.binders.len() {
+            return Err(GatError::TermArityMismatch {
+                op: b.constructor.to_string(),
+                expected: constructor_op.inputs.len(),
+                got: b.binders.len(),
+            });
+        }
+        // Mirror the strict path: unify the constructor's declared
+        // output sort with the scrutinee's actual sort, apply the
+        // resulting subst to each declared binder input sort, and
+        // extend the context with the substituted sorts.
+        if constructor_op.output.head() != scrutinee_sort.head()
+            || constructor_op.output.args().len() != scrutinee_sort.args().len()
+        {
+            return Err(GatError::OpTypeMismatch {
+                op: b.constructor.to_string(),
+                detail: format!(
+                    "constructor output sort {} does not match scrutinee sort {scrutinee_sort}",
+                    constructor_op.output
+                ),
+            });
+        }
+        let unify_eqs: Vec<(Term, Term)> = constructor_op
+            .output
+            .args()
+            .iter()
+            .zip(scrutinee_sort.args().iter())
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect();
+        let subst = unify_all(unify_eqs)?;
         let mut extended = ctx.clone();
         for ((_, declared_sort, _), binder) in constructor_op.inputs.iter().zip(b.binders.iter()) {
-            extended.insert(Arc::clone(binder), declared_sort.clone());
+            let binder_sort = declared_sort.subst(&subst);
+            extended.insert(Arc::clone(binder), binder_sort);
         }
         let body_sort = typecheck_with_expected(&b.body, None, &extended, theory, reports)?;
-        if branch_sort.is_none() {
-            branch_sort = Some(body_sort);
+        match &branch_sort {
+            None => branch_sort = Some(body_sort),
+            Some(existing) => {
+                // Require every branch body to produce an
+                // alpha-equivalent output sort. Mirror the strict
+                // typecheck_case behaviour.
+                if !existing.alpha_eq(&body_sort) {
+                    return Err(GatError::EquationSortMismatch {
+                        equation: "case".to_string(),
+                        lhs_sort: existing.to_string(),
+                        rhs_sort: body_sort.to_string(),
+                    });
+                }
+            }
         }
     }
     branch_sort.ok_or_else(|| GatError::NonExhaustiveCase {
@@ -836,6 +884,13 @@ fn check_case_exhaustiveness_soft(
 /// different sorts, or any error from [`typecheck_term`] or
 /// [`infer_var_sorts`].
 pub fn typecheck_equation(eq: &Equation, theory: &Theory) -> Result<(), GatError> {
+    let hole_count = count_holes(&eq.lhs) + count_holes(&eq.rhs);
+    if hole_count > 0 {
+        return Err(GatError::HolesInEquation {
+            equation: eq.name.to_string(),
+            count: hole_count,
+        });
+    }
     let ctx = infer_var_sorts(eq, theory)?;
     let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
     let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
@@ -868,6 +923,13 @@ pub fn typecheck_equation_modulo_rewrites(
     rules: &[crate::eq::DirectedEquation],
     step_limit: usize,
 ) -> Result<(), GatError> {
+    let hole_count = count_holes(&eq.lhs) + count_holes(&eq.rhs);
+    if hole_count > 0 {
+        return Err(GatError::HolesInEquation {
+            equation: eq.name.to_string(),
+            count: hole_count,
+        });
+    }
     let ctx = infer_var_sorts(eq, theory)?;
     let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
     let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
@@ -982,6 +1044,90 @@ fn check_implicits_inferrable(op: &Operation) -> Result<(), GatError> {
 /// argument terms of `sort`.
 fn sort_expr_mentions_var(sort: &SortExpr, name: &Arc<str>) -> bool {
     sort.args().iter().any(|t| term_mentions_var(t, name))
+}
+
+/// Hole-collecting variant of [`typecheck_app_with_implicits`]. Walks
+/// explicit args through [`typecheck_with_expected`] so that holes
+/// attach to the correct expected sort (before implicit-inference
+/// unification pins anything down), then recovers the output sort via
+/// the same unification pipeline as the non-collecting path.
+fn typecheck_app_with_implicits_collecting_holes(
+    op: &Arc<str>,
+    args: &[Term],
+    operation: &Operation,
+    ctx: &VarContext,
+    theory: &Theory,
+    reports: &mut Vec<HoleReport>,
+) -> Result<SortExpr, GatError> {
+    let explicit_count = operation.explicit_arity();
+    if args.len() != explicit_count {
+        return Err(GatError::TermArityMismatch {
+            op: op.to_string(),
+            expected: explicit_count,
+            got: args.len(),
+        });
+    }
+
+    let mut fresh_rename: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+    for (idx, (pname, _, imp)) in operation.inputs.iter().enumerate() {
+        if matches!(imp, Implicit::Yes) {
+            let mv: Arc<str> = Arc::from(format!("?{pname}_{idx}"));
+            fresh_rename.insert(Arc::clone(pname), Term::Var(mv));
+        }
+    }
+
+    let mut theta: FxHashMap<Arc<str>, Term> = fresh_rename.clone();
+    let mut term_eqs: Vec<(Term, Term)> = Vec::new();
+    let mut explicit_iter = args.iter();
+    for (pname, declared_sort, imp) in &operation.inputs {
+        match imp {
+            Implicit::Yes => {}
+            Implicit::No => {
+                let Some(arg) = explicit_iter.next() else {
+                    return Err(GatError::TermArityMismatch {
+                        op: op.to_string(),
+                        expected: explicit_count,
+                        got: args.len(),
+                    });
+                };
+                let expected = declared_sort.subst(&theta);
+                let arg_sort = typecheck_with_expected(arg, Some(&expected), ctx, theory, reports)?;
+                push_sort_expr_eqs_into(&expected, &arg_sort, op, &mut term_eqs)?;
+                theta.insert(Arc::clone(pname), arg.clone());
+            }
+        }
+    }
+
+    let mgu = unify_all(term_eqs).map_err(|e| match e {
+        GatError::SortUnificationFailure { reason } => GatError::SortUnificationFailure {
+            reason: format!("implicit inference for {op}: {reason}"),
+        },
+        other => other,
+    })?;
+
+    let mut final_subst = theta.clone();
+    for (k, v) in &mgu {
+        final_subst.insert(Arc::clone(k), v.clone());
+    }
+    let final_subst: FxHashMap<Arc<str>, Term> = final_subst
+        .into_iter()
+        .map(|(k, v)| (k, v.substitute(&mgu)))
+        .collect();
+
+    Ok(operation.output.subst(&final_subst))
+}
+
+fn count_holes(t: &Term) -> usize {
+    match t {
+        Term::Hole { .. } => 1,
+        Term::Var(_) => 0,
+        Term::App { args, .. } => args.iter().map(count_holes).sum(),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => count_holes(scrutinee) + branches.iter().map(|b| count_holes(&b.body)).sum::<usize>(),
+        Term::Let { bound, body, .. } => count_holes(bound) + count_holes(body),
+    }
 }
 
 fn term_contains_hole(t: &Term) -> bool {
@@ -2261,6 +2407,33 @@ mod tests {
         let result = typecheck_term(&Term::app("id", vec![Term::var("x")]), &ctx, &theory)?;
         assert_eq!(&**result.head(), "Hom");
         Ok(())
+    }
+
+    #[test]
+    fn monomorphic_let_typechecks() -> Result<(), Box<dyn std::error::Error>> {
+        // let x = unit in mul(x, x) : Carrier.
+        let theory = monoid_theory();
+        let ctx = VarContext::default();
+        let t = Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(Term::constant("unit")),
+            body: Box::new(Term::app("mul", vec![Term::var("x"), Term::var("x")])),
+        };
+        let sort = typecheck_term(&t, &ctx, &theory)?;
+        assert_eq!(&**sort.head(), "Carrier");
+        Ok(())
+    }
+
+    #[test]
+    fn equation_with_hole_is_rejected() {
+        let theory = monoid_theory();
+        let eq = Equation::new(
+            "bad",
+            Term::app("mul", vec![Term::var("a"), Term::Hole { name: None }]),
+            Term::var("a"),
+        );
+        let result = typecheck_equation(&eq, &theory);
+        assert!(matches!(result, Err(GatError::HolesInEquation { .. })));
     }
 
     // --- proptest property tests ---

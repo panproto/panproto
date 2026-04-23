@@ -393,6 +393,18 @@ pub enum GatError {
         node_kind: &'static str,
     },
 
+    /// An equation (or directed equation) contains one or more typed
+    /// holes on its LHS or RHS. Holes are only meaningful inside terms
+    /// being typechecked for completion, not in equations that must
+    /// hold in every model.
+    #[error("equation {equation} contains {count} hole(s); holes are not permitted in equations")]
+    HolesInEquation {
+        /// The equation name.
+        equation: String,
+        /// The number of holes encountered across both sides.
+        count: usize,
+    },
+
     /// An LPO termination check encountered a rewrite rule that contains
     /// a hole on one of its sides. Holes in rewrite rules are not
     /// meaningful for LPO comparison.

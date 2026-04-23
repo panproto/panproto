@@ -38,10 +38,15 @@ pub enum Term {
         /// anonymous `?`.
         name: Option<Arc<str>>,
     },
-    /// A local `let`-binding: `let name = bound in body`. The bound
-    /// term's inferred sort is (ML-style) generalized over its free
-    /// sort-metavariables, yielding a [`crate::typecheck::SortScheme`]
-    /// that is instantiated at every use of `name` in `body`.
+    /// A local `let`-binding: `let name = bound in body`.
+    ///
+    /// GAT signatures are first-order and their sorts have no free
+    /// sort-metavariables; there is nothing to generalize over. The
+    /// bound term's inferred sort is therefore bound monomorphically
+    /// into the context when typechecking the body. The
+    /// [`crate::typecheck::SortScheme`] type is retained for future
+    /// extension, but `typecheck_term` currently always produces a
+    /// scheme with an empty `metavars` list at a Let site.
     Let {
         /// Bound name.
         name: Arc<str>,

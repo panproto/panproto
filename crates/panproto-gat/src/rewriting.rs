@@ -769,18 +769,9 @@ mod tests {
                 Term::constant("c"),
             ],
         );
-        assert_eq!(
-            term_at_position(&term, &[0]),
-            Some(Term::constant("a")),
-        );
-        assert_eq!(
-            term_at_position(&term, &[1]),
-            Some(Term::constant("b")),
-        );
-        assert_eq!(
-            term_at_position(&term, &[2]),
-            Some(Term::constant("c")),
-        );
+        assert_eq!(term_at_position(&term, &[0]), Some(Term::constant("a")),);
+        assert_eq!(term_at_position(&term, &[1]), Some(Term::constant("b")),);
+        assert_eq!(term_at_position(&term, &[2]), Some(Term::constant("c")),);
     }
 
     #[test]
