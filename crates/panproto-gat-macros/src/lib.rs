@@ -442,6 +442,12 @@ impl Parse for DeriveTheoryInput {
                 "derive_theory! expects a `#[derive(...)]` attribute",
             ));
         }
+        if !bracket_content.peek(syn::token::Paren) {
+            return Err(syn::Error::new(
+                derive_ident.span(),
+                "derive_theory! expects `#[derive(...)]` with a parenthesized list of trait names",
+            ));
+        }
         let derive_list;
         parenthesized!(derive_list in bracket_content);
         let derives_punc: Punctuated<Ident, Token![,]> =
