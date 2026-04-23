@@ -143,6 +143,7 @@ fn collect_vars_walk(term: &Term, out: &mut Vec<Arc<str>>) {
                 out.push(Arc::clone(name));
             }
         }
+        Term::Hole { .. } => {}
         Term::App { args, .. } => {
             for arg in args {
                 collect_vars_walk(arg, out);
@@ -267,6 +268,7 @@ fn apply(t: &Term, subst: &FxHashMap<Arc<str>, Term>) -> Term {
 fn occurs(var: &Arc<str>, t: &Term) -> bool {
     match t {
         Term::Var(v) => v == var,
+        Term::Hole { .. } => false,
         Term::App { args, .. } => args.iter().any(|a| occurs(var, a)),
         Term::Case {
             scrutinee,
@@ -373,7 +375,7 @@ pub fn lpo_greater(s: &Term, t: &Term, prec: &OpPrecedence) -> bool {
         Term::App { op, args } => (op, args),
         // Variables and case scrutinees cannot be LPO-greater than
         // anything: LPO compares structural terms only.
-        Term::Var(_) | Term::Case { .. } => return false,
+        Term::Var(_) | Term::Case { .. } | Term::Hole { .. } => return false,
     };
     match t {
         Term::Var(x) => s_args.iter().any(|a| contains_var(a, x)),
@@ -400,13 +402,14 @@ pub fn lpo_greater(s: &Term, t: &Term, prec: &OpPrecedence) -> bool {
                 _ => false,
             }
         }
-        Term::Case { .. } => false,
+        Term::Case { .. } | Term::Hole { .. } => false,
     }
 }
 
 fn contains_var(t: &Term, var: &Arc<str>) -> bool {
     match t {
         Term::Var(v) => v == var,
+        Term::Hole { .. } => false,
         Term::App { args, .. } => args.iter().any(|a| contains_var(a, var)),
         Term::Case {
             scrutinee,

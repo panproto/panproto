@@ -191,7 +191,7 @@ fn full_rewrite_rules(theory: &Theory) -> Vec<crate::eq::DirectedEquation> {
 /// Recursively validate that all operations used in a term exist in the codomain theory.
 fn validate_term_ops(term: &Term, codomain: &Theory) -> Result<(), String> {
     match term {
-        Term::Var(_) => Ok(()),
+        Term::Var(_) | Term::Hole { .. } => Ok(()),
         Term::App { op, args } => {
             if !codomain.has_op(op) {
                 return Err(format!("operation {op} not found in codomain"));

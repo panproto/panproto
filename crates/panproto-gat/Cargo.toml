@@ -12,6 +12,7 @@ panproto-expr = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 rustc-hash = { workspace = true }
+miette = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

@@ -352,6 +352,17 @@ pub(crate) fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
         return parse_case_term(rest);
     }
 
+    if let Some(rest) = s.strip_prefix('?') {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return Ok(panproto_gat::Term::Hole { name: None });
+        }
+        validate_identifier(rest, "hole name")?;
+        return Ok(panproto_gat::Term::Hole {
+            name: Some(Arc::from(rest)),
+        });
+    }
+
     match s.find('(') {
         None => {
             validate_identifier(s, "term variable")?;

@@ -732,7 +732,9 @@ fn derive_field_transforms(
                 // name through as a phantom field key.
                 let Some(key) = (match &deq.lhs {
                     panproto_gat::Term::App { op, .. } => Some(op.to_string()),
-                    panproto_gat::Term::Var(_) | panproto_gat::Term::Case { .. } => None,
+                    panproto_gat::Term::Var(_)
+                    | panproto_gat::Term::Case { .. }
+                    | panproto_gat::Term::Hole { .. } => None,
                 }) else {
                     continue;
                 };

@@ -30,6 +30,14 @@ pub enum Term {
         /// One branch per constructor of the scrutinee's closed sort.
         branches: Vec<CaseBranch>,
     },
+    /// A typed hole: a placeholder with an optional name. Typechecking
+    /// assigns a fresh metavariable sort and records a [`crate::typecheck::HoleReport`]
+    /// so callers can inspect the expected sort at each hole site.
+    Hole {
+        /// Optional name for the hole (e.g. `?foo`); `None` for an
+        /// anonymous `?`.
+        name: Option<Arc<str>>,
+    },
 }
 
 /// One branch of a [`Term::Case`] expression.
@@ -84,6 +92,7 @@ impl Term {
     pub fn substitute(&self, subst: &rustc_hash::FxHashMap<Arc<str>, Self>) -> Self {
         match self {
             Self::Var(name) => subst.get(name).cloned().unwrap_or_else(|| self.clone()),
+            Self::Hole { .. } => self.clone(),
             Self::App { op, args } => Self::App {
                 op: Arc::clone(op),
                 args: args.iter().map(|a| a.substitute(subst)).collect(),
@@ -128,6 +137,7 @@ impl Term {
             Self::Var(name) => {
                 vars.insert(Arc::clone(name));
             }
+            Self::Hole { .. } => {}
             Self::App { args, .. } => {
                 for arg in args {
                     arg.collect_vars(vars);
@@ -161,7 +171,7 @@ impl Term {
     #[must_use]
     pub fn rename_ops(&self, op_map: &std::collections::HashMap<Arc<str>, Arc<str>>) -> Self {
         match self {
-            Self::Var(_) => self.clone(),
+            Self::Var(_) | Self::Hole { .. } => self.clone(),
             Self::App { op, args } => Self::App {
                 op: op_map.get(op).cloned().unwrap_or_else(|| Arc::clone(op)),
                 args: args.iter().map(|a| a.rename_ops(op_map)).collect(),
@@ -403,7 +413,8 @@ impl AlphaChecker {
                 }
                 true
             }
-            (Term::Var(_) | Term::App { .. } | Term::Case { .. }, _) => false,
+            (Term::Hole { name: n1 }, Term::Hole { name: n2 }) => n1 == n2,
+            (Term::Var(_) | Term::App { .. } | Term::Case { .. } | Term::Hole { .. }, _) => false,
         }
     }
 }
@@ -454,7 +465,7 @@ fn match_pattern_inner(
                         .zip(t_args.iter())
                         .all(|(p, t)| match_pattern_inner(p, t, subst))
             }
-            Term::Var(_) | Term::Case { .. } => false,
+            Term::Var(_) | Term::Case { .. } | Term::Hole { .. } => false,
         },
         Term::Case {
             scrutinee: p_s,
@@ -477,7 +488,11 @@ fn match_pattern_inner(
                 }
                 true
             }
-            Term::Var(_) | Term::App { .. } => false,
+            Term::Var(_) | Term::App { .. } | Term::Hole { .. } => false,
+        },
+        Term::Hole { name } => match term {
+            Term::Hole { name: n2 } => name == n2,
+            Term::Var(_) | Term::App { .. } | Term::Case { .. } => false,
         },
     }
 }
@@ -513,7 +528,7 @@ fn normalize_once(
 
     // Innermost first: normalize subterms before trying root.
     let normalized_subterms = match term {
-        Term::Var(_) => term.clone(),
+        Term::Var(_) | Term::Hole { .. } => term.clone(),
         Term::App { op, args } => {
             let new_args: Vec<Term> = args
                 .iter()

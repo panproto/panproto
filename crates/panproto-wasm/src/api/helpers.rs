@@ -870,6 +870,9 @@ pub(super) fn eval_term_recursive(
         gat::Term::Case { .. } => {
             Err("case terms are not yet supported in WASM expression evaluation".to_string())
         }
+        gat::Term::Hole { .. } => {
+            Err("typed holes cannot be evaluated; they only carry type information".to_string())
+        }
     }
 }
 

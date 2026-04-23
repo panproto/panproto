@@ -17,6 +17,22 @@ use crate::op::{Implicit, Operation};
 use crate::sort::{SortClosure, SortExpr};
 use crate::theory::Theory;
 
+/// A report generated for each typed hole encountered by
+/// [`typecheck_term_with_holes`].
+#[derive(Debug, Clone)]
+pub struct HoleReport {
+    /// The hole's optional name (from `?name` syntax).
+    pub name: Option<Arc<str>>,
+    /// The sort expected at this hole site. For holes whose sort is not
+    /// constrained by the surrounding context, this is a fresh
+    /// metavariable sort.
+    pub expected: SortExpr,
+    /// The variable context in scope at the hole.
+    pub context: VarContext,
+    /// Optional source span (populated by the DSL when available).
+    pub position: Option<miette::SourceSpan>,
+}
+
 /// A variable typing context.
 ///
 /// Maps variable names to their sort expressions. Sort expressions may
@@ -53,6 +69,16 @@ pub fn typecheck_term(
             .get(name)
             .cloned()
             .ok_or_else(|| GatError::UnboundVariable(name.to_string())),
+
+        Term::Hole { name } => {
+            // In strict mode (no hole collector), a hole typechecks to a
+            // fresh metavariable sort; there is no constraint to solve,
+            // so the hole is accepted and the caller is told its sort is
+            // a metavariable `?<name>`. Use `typecheck_term_with_holes`
+            // to collect hole reports.
+            let mv: Arc<str> = Arc::from(format!("?{}", name.as_deref().unwrap_or("hole")));
+            Ok(SortExpr::Name(mv))
+        }
 
         Term::App { op, args } => {
             let operation = theory
@@ -393,7 +419,7 @@ fn collect_constraints(
             }
             return Ok(());
         }
-        Term::Var(_) => return Ok(()),
+        Term::Var(_) | Term::Hole { .. } => return Ok(()),
     };
     let operation = theory
         .find_op(op)
@@ -418,7 +444,7 @@ fn collect_constraints(
                     ctx.insert(Arc::clone(var_name), expected);
                 }
             }
-            Term::App { .. } | Term::Case { .. } => {
+            Term::App { .. } | Term::Case { .. } | Term::Hole { .. } => {
                 collect_constraints(arg, theory, ctx, term_eqs)?;
             }
         }
@@ -543,6 +569,7 @@ fn apply_subst(term: &Term, subst: &FxHashMap<Arc<str>, Term>) -> Term {
 fn occurs_in(var: &Arc<str>, term: &Term) -> bool {
     match term {
         Term::Var(v) => v == var,
+        Term::Hole { .. } => false,
         Term::App { args, .. } => args.iter().any(|a| occurs_in(var, a)),
         Term::Case {
             scrutinee,
@@ -554,6 +581,178 @@ fn occurs_in(var: &Arc<str>, term: &Term) -> bool {
                     .any(|b| !b.binders.contains(var) && occurs_in(var, &b.body))
         }
     }
+}
+
+/// Typecheck a term, collecting a [`HoleReport`] at every [`Term::Hole`]
+/// site.
+///
+/// Unlike [`typecheck_term`], which treats holes as fresh metavariable
+/// sorts and lets the caller discard the information, this walker
+/// propagates the surrounding context's expected sort into each hole.
+/// When the enclosing operation's input sort constrains the hole, the
+/// report carries that sort exactly; otherwise the report carries a
+/// fresh metavariable sort.
+///
+/// # Errors
+///
+/// Returns any error from [`typecheck_term`] except that hole
+/// encounters never fail.
+pub fn typecheck_term_with_holes(
+    term: &Term,
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<(SortExpr, Vec<HoleReport>), GatError> {
+    let mut reports: Vec<HoleReport> = Vec::new();
+    let sort = typecheck_with_expected(term, None, ctx, theory, &mut reports)?;
+    Ok((sort, reports))
+}
+
+fn typecheck_with_expected(
+    term: &Term,
+    expected: Option<&SortExpr>,
+    ctx: &VarContext,
+    theory: &Theory,
+    reports: &mut Vec<HoleReport>,
+) -> Result<SortExpr, GatError> {
+    match term {
+        Term::Hole { name } => {
+            let sort = expected.cloned().unwrap_or_else(|| {
+                SortExpr::Name(Arc::from(format!("?{}", name.as_deref().unwrap_or("hole"))))
+            });
+            reports.push(HoleReport {
+                name: name.clone(),
+                expected: sort.clone(),
+                context: ctx.clone(),
+                position: None,
+            });
+            Ok(sort)
+        }
+        Term::Var(n) => ctx
+            .get(n)
+            .cloned()
+            .ok_or_else(|| GatError::UnboundVariable(n.to_string())),
+        Term::App { op, args } => {
+            let operation = theory
+                .find_op(op)
+                .ok_or_else(|| GatError::OpNotFound(op.to_string()))?;
+            let has_implicits = operation
+                .inputs
+                .iter()
+                .any(|(_, _, imp)| matches!(imp, Implicit::Yes));
+            if has_implicits {
+                // Implicit-inference path: recurse into each arg with
+                // typecheck_term so that holes get a fresh metavariable
+                // sort report before unification kicks in, then run the
+                // standard path for the final result sort.
+                for arg in args {
+                    let _ = typecheck_with_expected(arg, None, ctx, theory, reports)?;
+                }
+                typecheck_term(term, ctx, theory)
+            } else {
+                if args.len() != operation.inputs.len() {
+                    return Err(GatError::TermArityMismatch {
+                        op: op.to_string(),
+                        expected: operation.inputs.len(),
+                        got: args.len(),
+                    });
+                }
+                let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+                for (i, (arg, (param_name, declared_sort, _))) in
+                    args.iter().zip(operation.inputs.iter()).enumerate()
+                {
+                    let expected_sort = declared_sort.subst(&theta);
+                    let arg_sort =
+                        typecheck_with_expected(arg, Some(&expected_sort), ctx, theory, reports)?;
+                    // Holes produce the expected sort by construction,
+                    // so alpha_eq holds trivially. For non-hole terms,
+                    // enforce the usual alpha_eq check.
+                    if !term_contains_hole(arg) && !arg_sort.alpha_eq(&expected_sort) {
+                        return Err(GatError::ArgTypeMismatch {
+                            op: op.to_string(),
+                            arg_index: i,
+                            expected: expected_sort.to_string(),
+                            got: arg_sort.to_string(),
+                        });
+                    }
+                    theta.insert(Arc::clone(param_name), arg.clone());
+                }
+                Ok(operation.output.subst(&theta))
+            }
+        }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => typecheck_case_with_holes(scrutinee, branches, ctx, theory, reports),
+    }
+}
+
+fn typecheck_case_with_holes(
+    scrutinee: &Term,
+    branches: &[CaseBranch],
+    ctx: &VarContext,
+    theory: &Theory,
+    reports: &mut Vec<HoleReport>,
+) -> Result<SortExpr, GatError> {
+    let scrutinee_sort = typecheck_with_expected(scrutinee, None, ctx, theory, reports)?;
+    check_case_exhaustiveness_soft(&scrutinee_sort, branches, theory)?;
+    let mut branch_sort: Option<SortExpr> = None;
+    for b in branches {
+        let constructor_op = theory
+            .find_op(&b.constructor)
+            .ok_or_else(|| GatError::OpNotFound(b.constructor.to_string()))?;
+        let mut extended = ctx.clone();
+        for ((_, declared_sort, _), binder) in constructor_op.inputs.iter().zip(b.binders.iter()) {
+            extended.insert(Arc::clone(binder), declared_sort.clone());
+        }
+        let body_sort = typecheck_with_expected(&b.body, None, &extended, theory, reports)?;
+        if branch_sort.is_none() {
+            branch_sort = Some(body_sort);
+        }
+    }
+    branch_sort.ok_or_else(|| GatError::NonExhaustiveCase {
+        sort: scrutinee_sort.head().to_string(),
+        missing: Vec::new(),
+    })
+}
+
+fn check_case_exhaustiveness_soft(
+    scrutinee_sort: &SortExpr,
+    branches: &[CaseBranch],
+    theory: &Theory,
+) -> Result<(), GatError> {
+    let Some(sort_decl) = theory.find_sort(scrutinee_sort.head()) else {
+        return Ok(());
+    };
+    let SortClosure::Closed(ctors) = &sort_decl.closure else {
+        return Ok(());
+    };
+    let mut seen: rustc_hash::FxHashSet<Arc<str>> = rustc_hash::FxHashSet::default();
+    for b in branches {
+        if !ctors.contains(&b.constructor) {
+            return Err(GatError::UnknownCaseConstructor {
+                sort: scrutinee_sort.head().to_string(),
+                constructor: b.constructor.to_string(),
+            });
+        }
+        if !seen.insert(Arc::clone(&b.constructor)) {
+            return Err(GatError::RedundantCaseBranch {
+                sort: scrutinee_sort.head().to_string(),
+                constructor: b.constructor.to_string(),
+            });
+        }
+    }
+    if seen.len() < ctors.len() {
+        let missing: Vec<String> = ctors
+            .iter()
+            .filter(|c| !seen.contains(*c))
+            .map(ToString::to_string)
+            .collect();
+        return Err(GatError::NonExhaustiveCase {
+            sort: scrutinee_sort.head().to_string(),
+            missing,
+        });
+    }
+    Ok(())
 }
 
 /// Typecheck an equation: infer variable sorts, typecheck both sides,
@@ -681,9 +880,22 @@ fn sort_expr_mentions_var(sort: &SortExpr, name: &Arc<str>) -> bool {
     sort.args().iter().any(|t| term_mentions_var(t, name))
 }
 
+fn term_contains_hole(t: &Term) -> bool {
+    match t {
+        Term::Hole { .. } => true,
+        Term::Var(_) => false,
+        Term::App { args, .. } => args.iter().any(term_contains_hole),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => term_contains_hole(scrutinee) || branches.iter().any(|b| term_contains_hole(&b.body)),
+    }
+}
+
 fn term_mentions_var(t: &Term, name: &Arc<str>) -> bool {
     match t {
         Term::Var(v) => v == name,
+        Term::Hole { .. } => false,
         Term::App { args, .. } => args.iter().any(|a| term_mentions_var(a, name)),
         Term::Case {
             scrutinee,

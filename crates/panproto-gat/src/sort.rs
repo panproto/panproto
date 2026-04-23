@@ -312,6 +312,10 @@ impl std::fmt::Display for Term {
                 }
                 f.write_str(")")
             }
+            Self::Hole { name } => match name {
+                Some(n) => write!(f, "?{n}"),
+                None => f.write_str("?"),
+            },
             Self::Case {
                 scrutinee,
                 branches,

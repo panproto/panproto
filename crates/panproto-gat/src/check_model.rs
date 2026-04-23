@@ -203,6 +203,10 @@ fn eval_term(
                 "case terms are not yet supported in set-theoretic model evaluation".to_string(),
             ))
         }
+
+        Term::Hole { .. } => Err(GatError::ModelError(
+            "typed holes cannot be evaluated in a set-theoretic model".to_string(),
+        )),
     }
 }
 

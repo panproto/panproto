@@ -496,6 +496,9 @@ fn term_to_string(term: &Term) -> String {
                 branch_strs.join(" | ")
             )
         }
+        Term::Hole { name } => name
+            .as_ref()
+            .map_or_else(|| "?".to_string(), |n| format!("?{n}")),
     }
 }
 

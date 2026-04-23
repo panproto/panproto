@@ -1900,6 +1900,7 @@ name = "panproto-gat"
 version = "0.36.0"
 dependencies = [
  "divan",
+ "miette",
  "panproto-expr",
  "proptest",
  "rustc-hash",
