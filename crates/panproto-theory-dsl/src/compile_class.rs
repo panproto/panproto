@@ -31,6 +31,7 @@ pub fn compile_class(spec: &ClassSpec) -> Result<Theory, crate::error::TheoryDsl
     let theory_spec = TheorySpec {
         theory: spec.class.clone(),
         extends: Vec::new(),
+        imports: Vec::new(),
         sorts,
         ops: spec.signatures.clone(),
         equations: spec.axioms.clone(),

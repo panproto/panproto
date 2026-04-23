@@ -139,6 +139,9 @@ pub struct TheorySpec {
     /// Parent theories this theory extends.
     #[serde(default)]
     pub extends: Vec<String>,
+    /// Imports from other theories, optionally namespaced.
+    #[serde(default)]
+    pub imports: Vec<ImportSpec>,
     /// Sort declarations.
     #[serde(default)]
     pub sorts: Vec<SortSpec>,
@@ -154,6 +157,26 @@ pub struct TheorySpec {
     /// Conflict policies.
     #[serde(default)]
     pub policies: Vec<PolicySpec>,
+}
+
+/// Import directive: pull sorts and ops from another theory into this
+/// theory's namespace.
+///
+/// The compiler treats each import as a pushout along the identity
+/// morphism from the imported theory, renaming public symbols according
+/// to `alias` and `expose`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportSpec {
+    /// The imported theory's name, as understood by the resolver.
+    pub from: String,
+    /// Optional namespace alias. When present, imported symbols are
+    /// referred to as `Alias.Name` in this theory's sort/op expressions.
+    #[serde(default)]
+    pub alias: Option<String>,
+    /// Names to expose without any alias prefix; each listed symbol can
+    /// be referenced as the bare name in this theory.
+    #[serde(default)]
+    pub expose: Vec<String>,
 }
 
 /// Sort declaration.

@@ -15,7 +15,6 @@ use crate::compile_inductive::compile_inductive;
 use crate::compile_instance::compile_instance;
 use crate::compile_morphism::compile_morphism;
 use crate::compile_protocol::compile_protocol;
-use crate::compile_theory::compile_theory;
 use crate::document::{
     BundleSpec, ClassSpec, CompiledTheorySet, CompositionBody, InductiveSpec, InstanceSpec,
     MorphismSpec, ProtocolSpec, TheoryBody, TheoryDocument, TheorySpec,
@@ -36,7 +35,7 @@ pub fn compile(
     resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
     match &doc.body {
-        TheoryBody::Theory(spec) => compile_single_theory(&doc.id, spec),
+        TheoryBody::Theory(spec) => compile_single_theory(&doc.id, spec, resolver),
         TheoryBody::Morphism(spec) => compile_single_morphism(&doc.id, spec, resolver),
         TheoryBody::Composition(body) => compile_single_composition(&doc.id, body, resolver),
         TheoryBody::Protocol(spec) => compile_single_protocol(&doc.id, spec, resolver),
@@ -112,8 +111,9 @@ pub fn builtin_resolver() -> impl Fn(&str) -> Option<Theory> {
 fn compile_single_theory(
     doc_id: &str,
     spec: &TheorySpec,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
-    let theory = compile_theory(spec)?;
+    let theory = crate::compile_theory::compile_theory_with_resolver(spec, resolver)?;
     let name = theory.name.to_string();
     let mut theories = HashMap::new();
     theories.insert(name, theory);
@@ -237,7 +237,10 @@ fn compile_bundle_inner(
                 name: spec.theory.clone(),
             });
         }
-        let theory = compile_theory(spec)?;
+        let combined = |name: &str| -> Option<Theory> {
+            theories.get(name).cloned().or_else(|| resolver(name))
+        };
+        let theory = crate::compile_theory::compile_theory_with_resolver(spec, &combined)?;
         theories.insert(spec.theory.clone(), theory);
     }
 

@@ -88,6 +88,7 @@ pub fn inductive_to_theory_spec(spec: &InductiveSpec) -> TheorySpec {
     TheorySpec {
         theory: spec.inductive.clone(),
         extends: Vec::new(),
+        imports: Vec::new(),
         sorts: all_sorts,
         ops,
         equations: Vec::new(),

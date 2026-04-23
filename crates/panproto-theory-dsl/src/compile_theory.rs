@@ -21,13 +21,222 @@ use crate::error::TheoryDslError;
 ///
 /// Parses all sorts, operations, equations, directed equations, and
 /// policies from spec types into GAT engine types, constructs the
-/// theory via [`Theory::full`], and runs typechecking.
+/// theory via [`Theory::full`], and runs typechecking. When the spec
+/// declares imports, the importing crate must call
+/// [`compile_theory_with_resolver`] so the imports can be resolved.
 ///
 /// # Errors
 ///
 /// Returns errors for parse failures, unknown value kinds, or
 /// typechecking violations.
 pub fn compile_theory(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
+    compile_theory_with_resolver(spec, &|_name| None)
+}
+
+/// Compile a [`TheorySpec`] with support for imports.
+///
+/// # Errors
+///
+/// Same as [`compile_theory`], plus [`TheoryDslError::TheoryNotFound`]
+/// when an import names a theory the resolver cannot find.
+pub fn compile_theory_with_resolver(
+    spec: &TheorySpec,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<Theory, TheoryDslError> {
+    let spec = if spec.imports.is_empty() {
+        spec.clone()
+    } else {
+        resolve_imports(spec, resolver)?
+    };
+    compile_theory_inner(&spec)
+}
+
+fn resolve_imports(
+    spec: &TheorySpec,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<TheorySpec, TheoryDslError> {
+    let mut out = spec.clone();
+    out.imports = Vec::new();
+    for imp in &spec.imports {
+        let imported = resolver(&imp.from).ok_or_else(|| TheoryDslError::TheoryNotFound {
+            name: imp.from.clone(),
+            context: format!("import in theory '{}'", spec.theory),
+        })?;
+        let expose_set: std::collections::HashSet<String> = imp.expose.iter().cloned().collect();
+        let mut name_rewrite: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let rename =
+            |name: &str| canonical_name(name, &imp.from, imp.alias.as_deref(), &expose_set);
+        for s in &imported.sorts {
+            let canonical = rename(&s.name);
+            record_rewrite(
+                &mut name_rewrite,
+                &s.name,
+                &canonical,
+                imp.alias.as_deref(),
+                &expose_set,
+            );
+            out.sorts.insert(0, imported_sort_to_spec(s, canonical));
+        }
+        for op in &imported.ops {
+            let canonical = rename(&op.name);
+            record_rewrite(
+                &mut name_rewrite,
+                &op.name,
+                &canonical,
+                imp.alias.as_deref(),
+                &expose_set,
+            );
+            out.ops
+                .insert(0, imported_op_to_spec(op, canonical, &name_rewrite));
+        }
+        rewrite_inplace(&mut out, &name_rewrite);
+    }
+    Ok(out)
+}
+
+fn canonical_name(
+    name: &str,
+    from: &str,
+    alias: Option<&str>,
+    expose: &std::collections::HashSet<String>,
+) -> String {
+    if expose.contains(name) {
+        name.to_string()
+    } else if let Some(a) = alias {
+        format!("{a}_{name}")
+    } else {
+        format!("{from}_{name}")
+    }
+}
+
+fn record_rewrite(
+    rewrite: &mut std::collections::HashMap<String, String>,
+    original: &str,
+    canonical: &str,
+    alias: Option<&str>,
+    expose: &std::collections::HashSet<String>,
+) {
+    if let Some(a) = alias {
+        rewrite.insert(format!("{a}.{original}"), canonical.to_string());
+    }
+    if expose.contains(original) {
+        rewrite.insert(original.to_string(), canonical.to_string());
+    }
+}
+
+fn imported_sort_to_spec(s: &Sort, canonical: String) -> SortSpec {
+    SortSpec {
+        name: canonical,
+        params: s
+            .params
+            .iter()
+            .map(|p| crate::document::ParamSpec {
+                name: p.name.to_string(),
+                sort: p.sort.to_string(),
+                implicit: false,
+            })
+            .collect(),
+        kind: match &s.kind {
+            panproto_gat::SortKind::Structural => crate::document::SortKindSpec::Structural,
+            panproto_gat::SortKind::Val(vk) => crate::document::SortKindSpec::Val {
+                value_kind: vk.as_str().to_string(),
+            },
+            panproto_gat::SortKind::Coercion { from, to, class } => {
+                crate::document::SortKindSpec::Coercion {
+                    from: from.as_str().to_string(),
+                    to: to.as_str().to_string(),
+                    class: format!("{class:?}"),
+                }
+            }
+            panproto_gat::SortKind::Merger(vk) => crate::document::SortKindSpec::Merger {
+                value_kind: vk.as_str().to_string(),
+            },
+        },
+        closed: match &s.closure {
+            panproto_gat::SortClosure::Open => None,
+            panproto_gat::SortClosure::Closed(cs) => {
+                Some(cs.iter().map(ToString::to_string).collect())
+            }
+        },
+    }
+}
+
+fn imported_op_to_spec(
+    op: &Operation,
+    canonical: String,
+    name_rewrite: &std::collections::HashMap<String, String>,
+) -> OpSpec {
+    OpSpec {
+        name: canonical,
+        input: None,
+        inputs: Some(
+            op.inputs
+                .iter()
+                .map(|(n, s, _)| crate::document::ParamSpec {
+                    name: n.to_string(),
+                    sort: rewrite_sort_string(&s.to_string(), name_rewrite),
+                    implicit: false,
+                })
+                .collect(),
+        ),
+        output: rewrite_sort_string(&op.output.to_string(), name_rewrite),
+    }
+}
+
+fn rewrite_inplace(out: &mut TheorySpec, name_rewrite: &std::collections::HashMap<String, String>) {
+    for sort in &mut out.sorts {
+        for p in &mut sort.params {
+            p.sort = rewrite_sort_string(&p.sort, name_rewrite);
+        }
+    }
+    for op in &mut out.ops {
+        op.output = rewrite_sort_string(&op.output, name_rewrite);
+        if let Some(ins) = &mut op.inputs {
+            for p in ins {
+                p.sort = rewrite_sort_string(&p.sort, name_rewrite);
+            }
+        }
+        if let Some(i) = &mut op.input {
+            *i = rewrite_sort_string(i, name_rewrite);
+        }
+    }
+}
+
+fn rewrite_sort_string(s: &str, rewrite: &std::collections::HashMap<String, String>) -> String {
+    // Replace `Alias.Name` (or bare exposed names) with their canonical
+    // form. We match tokens separated by non-identifier characters so
+    // that `Foo.Bar(x)` rewrites to the canonical `Foo_Bar(x)` and a
+    // bare `Bar` in the `expose` list rewrites the same way.
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if c.is_ascii_alphabetic() || c == '_' {
+            let start = i;
+            while i < bytes.len() {
+                let cc = bytes[i] as char;
+                if cc.is_ascii_alphanumeric() || cc == '_' || cc == '.' {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let tok = &s[start..i];
+            match rewrite.get(tok) {
+                Some(canonical) => result.push_str(canonical),
+                None => result.push_str(tok),
+            }
+        } else {
+            result.push(c);
+            i += 1;
+        }
+    }
+    result
+}
+
+fn compile_theory_inner(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
     let sorts: Vec<Sort> = spec
         .sorts
         .iter()
@@ -757,6 +966,7 @@ mod tests {
         let spec = TheorySpec {
             theory: "ThTest".to_owned(),
             extends: vec![],
+            imports: vec![],
             sorts: vec![
                 SortSpec {
                     name: "Vertex".to_owned(),

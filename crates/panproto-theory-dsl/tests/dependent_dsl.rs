@@ -80,6 +80,7 @@ fn parse_applied_sort_expr_produces_app_variant() {
     let theory_spec = panproto_theory_dsl::document::TheorySpec {
         theory: "Cat".to_owned(),
         extends: vec![],
+        imports: vec![],
         sorts: vec![
             panproto_theory_dsl::document::SortSpec {
                 name: "Ob".to_owned(),
@@ -131,6 +132,7 @@ fn compile_rejects_dsl_theory_with_ill_typed_equation() {
     let spec = TheorySpec {
         theory: "Bad".to_owned(),
         extends: vec![],
+        imports: vec![],
         sorts: vec![
             SortSpec {
                 name: "A".to_owned(),
