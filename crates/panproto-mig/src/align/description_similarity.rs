@@ -3,7 +3,7 @@
 //! Extracts a per-vertex description string (the value of any constraint
 //! whose sort is `description`) and cross-scores pairs by token bag
 //! Jaccard plus character n-gram cosine, reusing the normalization
-//! from [`super::token_similarity`]. Emits anchors above `threshold`.
+//! from [`mod@super::token_similarity`]. Emits anchors above `threshold`.
 //!
 //! Protocols that do not carry descriptions produce no anchors: the
 //! strategy silently no-ops on any schema whose vertices lack the

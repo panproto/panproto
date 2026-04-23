@@ -12,9 +12,8 @@
 //! mapping.
 //!
 //! Skipped when the full IDs already match; [`super::exact_anchors`]
-//! handles that case with [`StrategyTag::Exact`](super::StrategyTag::Exact),
-//! which has strictly higher priority than
-//! [`StrategyTag::ExactSuffix`](super::StrategyTag::ExactSuffix).
+//! handles that case with [`super::StrategyTag::Exact`], which has
+//! strictly higher priority than [`super::StrategyTag::ExactSuffix`].
 
 use std::collections::HashMap;
 
