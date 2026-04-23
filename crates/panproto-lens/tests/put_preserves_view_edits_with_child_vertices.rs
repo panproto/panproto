@@ -1,10 +1,10 @@
-//! Reproduces the protolab downstream bug from panproto/panproto#40
-//! where per-field schema vertices (user/user.name/user.legacyId/user.email)
-//! are combined with root-vertex `FieldTransform::RenameField` on a key
-//! that is actually an edge *label* (not an entry in the user node's
-//! `extra_fields`). The v0.34.1 fix handled only the all-extra-fields
-//! case; this test exercises the case where the renamed value lives on
-//! a child vertex whose edge label was schema-renamed.
+//! `asymmetric::put` must preserve view edits when per-field values
+//! live on child vertices (e.g. `user/user.name/user.legacyId/user.email`)
+//! rather than on the root vertex's `extra_fields`, and when the
+//! `FieldTransform::RenameField` on the root targets a key that is
+//! actually an *edge label* on an outgoing child edge rather than an
+//! `extra_fields` entry. The all-`extra_fields` case has its own
+//! regression; this file covers the child-vertex-via-edge-label case.
 
 #![allow(
     clippy::unwrap_used,

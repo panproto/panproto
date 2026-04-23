@@ -1587,7 +1587,6 @@ pub mod combinators {
     /// than by name. Neither assumption holds for schemas built via
     /// `SchemaBuilder::add_prop`, `ATProto` lexicons, or any protocol where
     /// edge labels are short JSON keys and vertex ids are path-qualified.
-    /// See panproto/panproto#23.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
     pub fn nest_field(
@@ -3208,10 +3207,9 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Regression tests for panproto/panproto#23:
-    // `combinators::nest_field` against schemas with qualified vertex ids
-    // (where the vertex id, e.g. `post:body.text`, is distinct from the
-    // short edge label, e.g. `"text"`).
+    // `combinators::nest_field` against schemas with qualified vertex
+    // ids (where the vertex id, e.g. `post:body.text`, is distinct from
+    // the short edge label, e.g. `"text"`).
     // -----------------------------------------------------------------
 
     use panproto_gat::Name as GatName;
@@ -3283,10 +3281,11 @@ mod tests {
 
     #[test]
     fn nest_field_handles_qualified_vertex_ids() {
-        // Regression for panproto/panproto#23. The original nest_field
-        // assumed child vertex id == edge name and dropped edges by kind.
-        // Here we use a qualified child id (`post:body.text`) with short
-        // edge label (`"text"`), which broke the old implementation.
+        // `nest_field` must not assume child vertex id equals edge
+        // label, and must drop the original edge by name rather than
+        // by kind. This test uses a qualified child id
+        // (`post:body.text`) with a short edge label (`"text"`), the
+        // shape produced by `SchemaBuilder::add_prop`.
         let schema = three_node_schema();
         let protocol = test_protocol();
         let chain = super::combinators::nest_field(
@@ -3390,9 +3389,9 @@ mod tests {
 
     #[test]
     fn nest_field_forward_eval_synthesizes_intermediate_node() {
-        // Regression for panproto/panproto#24: `asymmetric::get` must
-        // synthesize a fresh intermediate view node when a nest_field
-        // chain turns a direct source arc into a two-hop target path.
+        // `asymmetric::get` must synthesize a fresh intermediate view
+        // node when a `nest_field` chain turns a direct source arc
+        // into a two-hop target path.
         use crate::asymmetric;
         use crate::tests::three_node_instance;
 

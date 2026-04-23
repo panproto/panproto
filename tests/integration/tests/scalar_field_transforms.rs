@@ -1,10 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-//! Integration tests for scalar field transforms (panproto/panproto#13).
+//! Integration tests for scalar field transforms.
 //!
 //! Verifies that `ComputeField`, `ApplyExpr`, and `Case` transforms can
 //! access scalar values from schema-defined child vertices, not just
-//! `extra_fields`. This tests the dependent-sum projection from the
-//! total fiber over a vertex in the Grothendieck fibration.
+//! `extra_fields`. This exercises the dependent-sum projection from
+//! the total fiber over a vertex in the Grothendieck fibration.
 //!
 //! The core correctness property: field transforms see the full fiber
 //! `Fiber(v) = ExtraFields(v) x Product_{e: v->w} Fiber(w)`, where
@@ -182,7 +182,8 @@ fn at_uri_decomposition_end_to_end() {
     //   index 3 = "app.bsky.feed.post" (the collection NSID)
     //   index 4 = "rkey456" (the record key)
     //
-    // This is the real decomposition described in panproto/panproto#13.
+    // This is the canonical decomposition of an AT-URI into its
+    // DID, collection, and record-key components.
 
     // Helper: (index (split repo "/") n)
     let at_uri_part = |field: &str, idx: i64| -> Expr {

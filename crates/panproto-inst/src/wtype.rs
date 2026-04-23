@@ -2595,7 +2595,7 @@ mod tests {
         );
     }
 
-    // --- Child scalar access tests (panproto/panproto#13) ---
+    // --- Child scalar access tests ---
 
     /// Build a 3-node instance: root object + two string children.
     fn instance_with_scalar_children() -> (WInstance, HashMap<String, Value>) {
@@ -2634,11 +2634,11 @@ mod tests {
 
     #[test]
     fn compute_field_reads_scalar_child() {
-        // Reproduces panproto/panproto#13: ComputeField should access
-        // string fields stored as child vertices, not just extra_fields.
-        // This unit test verifies the basic access path; the integration
-        // test at_uri_decomposition_end_to_end exercises real Split/Index
-        // expressions for full AT-URI parsing.
+        // ComputeField must read string fields stored as child
+        // vertices, not just those in `extra_fields`. This unit test
+        // covers the basic access path; the integration test
+        // `at_uri_decomposition_end_to_end` exercises real Split /
+        // Index expressions for full AT-URI parsing.
         let (_instance, scalars) = instance_with_scalar_children();
         let mut node = Node::new(0, "body");
 
