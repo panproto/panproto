@@ -2173,6 +2173,7 @@ dependencies = [
 name = "panproto-mig"
 version = "0.36.0"
 dependencies = [
+ "blake3",
  "panproto-expr",
  "panproto-gat",
  "panproto-inst",

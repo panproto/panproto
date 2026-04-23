@@ -36,6 +36,7 @@ pub mod structural;
 pub mod suffix;
 pub mod token_similarity;
 pub mod type_signature;
+pub mod wl;
 pub mod wrap_unwrap;
 
 pub use alias::{AliasDict, alias_anchors, default_alias_dict};
@@ -48,6 +49,7 @@ pub use structural::structural_anchors;
 pub use suffix::suffix_anchors;
 pub use token_similarity::{token_anchors, token_similarity};
 pub use type_signature::type_signature_anchors;
+pub use wl::wl_anchors;
 pub use wrap_unwrap::wrap_unwrap_anchors;
 
 /// Tag identifying which strategy produced an anchor.
@@ -88,6 +90,10 @@ pub enum StrategyTag {
     /// equality, kind-and-constraints compatibility, and degree
     /// overlap.
     Neighborhood,
+    /// Weisfeiler-Leman color refinement: structural signatures from
+    /// iterated neighborhood hashing. Emits anchors for singleton
+    /// color classes on both sides.
+    WlRefinement,
     /// Pure degree-and-kind-signature matching (last resort).
     Structural,
     /// LM-proposed alignment (feature-gated).
@@ -178,6 +184,7 @@ const fn strategy_priority(tag: StrategyTag) -> u8 {
         // kinds.
         StrategyTag::Coerce => 40,
         StrategyTag::Neighborhood => 35,
+        StrategyTag::WlRefinement => 32,
         StrategyTag::Structural => 30,
         StrategyTag::Llm => 20,
     }
@@ -761,6 +768,7 @@ mod tests {
             StrategyTag::DescriptionSimilarity,
             StrategyTag::Coerce,
             StrategyTag::Neighborhood,
+            StrategyTag::WlRefinement,
             StrategyTag::Structural,
             StrategyTag::Llm,
         ];
@@ -792,6 +800,7 @@ mod tests {
             (StrategyTag::DescriptionSimilarity, 45),
             (StrategyTag::Coerce, 40),
             (StrategyTag::Neighborhood, 35),
+            (StrategyTag::WlRefinement, 32),
             (StrategyTag::Structural, 30),
             (StrategyTag::Llm, 20),
         ];

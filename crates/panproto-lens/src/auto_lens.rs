@@ -103,6 +103,24 @@ impl Stringency {
         }
     }
 
+    /// Whether Weisfeiler-Leman color refinement runs at this tier.
+    /// Enabled at `Lenient` and above; color refinement is a refined
+    /// form of structural matching and shares its tier profile.
+    #[must_use]
+    pub const fn uses_wl_refinement(self) -> bool {
+        matches!(self, Self::Lenient | Self::Exploratory)
+    }
+
+    /// Number of WL refinement iterations at this tier. More
+    /// iterations distinguish deeper neighborhood structure.
+    #[must_use]
+    pub const fn wl_iterations(self) -> usize {
+        match self {
+            Self::Exploratory => 3,
+            _ => 2,
+        }
+    }
+
     /// Whether the alias dictionary is consulted at this tier.
     #[must_use]
     pub const fn uses_alias_dict(self) -> bool {
@@ -349,6 +367,11 @@ fn run_strategies(
     if config.stringency.uses_structural() {
         let threshold = config.stringency.structural_threshold();
         anchors.extend(align::structural_anchors(src, tgt, threshold));
+    }
+
+    if config.stringency.uses_wl_refinement() {
+        let iterations = config.stringency.wl_iterations();
+        anchors.extend(align::wl_anchors(src, tgt, iterations));
     }
 
     let coerce_proposals = if config.stringency.uses_coerce() {
