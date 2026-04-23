@@ -21,10 +21,51 @@ use crate::document::{
 };
 use crate::error::TheoryDslError;
 
-/// Compile a [`TheoryDocument`] into theories, morphisms, and protocols.
+/// Compile a document with source text on hand, producing spanned
+/// diagnostics when typechecking fails.
 ///
-/// The `resolver` provides lookup for externally-defined theories (e.g.
-/// built-in theories like `ThWType`, or theories from other packages).
+/// This is the variant callers use when they want miette-rendered
+/// errors pointing at the offending location in the original source.
+/// Currently populates spans only for JSON and YAML surfaces; Nickel
+/// sources fall through to the un-spanned path because evaluation
+/// loses the original text positions.
+///
+/// # Errors
+///
+/// Same as [`compile`], except that typecheck failures are upgraded
+/// to [`TheoryDslError::TypeCheckSpanned`] when a span can be located
+/// in the original source.
+pub fn compile_with_source(
+    doc: &TheoryDocument,
+    source: &str,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    match compile(doc, resolver) {
+        Ok(set) => Ok(set),
+        Err(TheoryDslError::TypeCheck { theory, message }) => {
+            // Find the first occurrence of the theory name as a JSON
+            // field or string value; this locates the offending
+            // declaration for miette's renderer.
+            let span = find_name_span(source, &theory).unwrap_or_else(|| (0, 0).into());
+            Err(TheoryDslError::TypeCheckSpanned {
+                theory,
+                message,
+                src: source.to_owned(),
+                span,
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn find_name_span(source: &str, name: &str) -> Option<miette::SourceSpan> {
+    let needle = format!("\"{name}\"");
+    source
+        .find(&needle)
+        .map(|i| miette::SourceSpan::new(i.into(), needle.len()))
+}
+
+/// Compile a [`TheoryDocument`] without source-span tracking.
 ///
 /// # Errors
 ///

@@ -95,6 +95,28 @@ pub enum TheoryDslError {
         message: String,
     },
 
+    /// Type-checking a theory failed, with a source-pointed diagnostic.
+    ///
+    /// Populated when the DSL compiler has the original source text on
+    /// hand and can locate a span corresponding to the failing element
+    /// (the theory name, an op name, etc.). Nickel-loaded theories
+    /// currently fall back to the un-spanned [`Self::TypeCheck`] variant
+    /// because spans are lost through Nickel evaluation.
+    #[error("type error in theory '{theory}': {message}")]
+    #[diagnostic(code(panproto_theory_dsl::typecheck_spanned))]
+    TypeCheckSpanned {
+        /// The theory that failed typechecking.
+        theory: String,
+        /// Human-readable type error.
+        message: String,
+        /// Source text, used by miette for rendering.
+        #[source_code]
+        src: String,
+        /// Span into `src` pointing at the failing element.
+        #[label("in this theory")]
+        span: miette::SourceSpan,
+    },
+
     /// Morphism validation failed.
     #[error("morphism check failed for '{morphism}': {message}")]
     #[diagnostic(code(panproto_theory_dsl::morphism_check))]
