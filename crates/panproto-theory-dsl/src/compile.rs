@@ -9,13 +9,15 @@ use std::collections::HashMap;
 
 use panproto_gat::Theory;
 
+use crate::compile_class::compile_class;
 use crate::compile_compose::compile_composition;
+use crate::compile_instance::compile_instance;
 use crate::compile_morphism::compile_morphism;
 use crate::compile_protocol::compile_protocol;
 use crate::compile_theory::compile_theory;
 use crate::document::{
-    BundleSpec, CompiledTheorySet, CompositionBody, MorphismSpec, ProtocolSpec, TheoryBody,
-    TheoryDocument, TheorySpec,
+    BundleSpec, ClassSpec, CompiledTheorySet, CompositionBody, InstanceSpec, MorphismSpec,
+    ProtocolSpec, TheoryBody, TheoryDocument, TheorySpec,
 };
 use crate::error::TheoryDslError;
 
@@ -38,6 +40,8 @@ pub fn compile(
         TheoryBody::Composition(body) => compile_single_composition(&doc.id, body, resolver),
         TheoryBody::Protocol(spec) => compile_single_protocol(&doc.id, spec, resolver),
         TheoryBody::Bundle(spec) => compile_bundle_inner(&doc.id, spec, resolver),
+        TheoryBody::Class(spec) => compile_single_class(&doc.id, spec),
+        TheoryBody::Instance(spec) => compile_single_instance(&doc.id, spec, resolver),
     }
 }
 
@@ -157,6 +161,41 @@ fn compile_single_protocol(
         theories: HashMap::new(),
         morphisms: HashMap::new(),
         protocols,
+        composition_specs: HashMap::new(),
+    })
+}
+
+fn compile_single_class(
+    doc_id: &str,
+    spec: &ClassSpec,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    let theory = compile_class(spec)?;
+    let name = theory.name.to_string();
+    let mut theories = HashMap::new();
+    theories.insert(name, theory);
+    Ok(CompiledTheorySet {
+        id: doc_id.to_owned(),
+        theories,
+        morphisms: HashMap::new(),
+        protocols: HashMap::new(),
+        composition_specs: HashMap::new(),
+    })
+}
+
+fn compile_single_instance(
+    doc_id: &str,
+    spec: &InstanceSpec,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    let morphism = compile_instance(spec, resolver)?;
+    let name = morphism.name.to_string();
+    let mut morphisms = HashMap::new();
+    morphisms.insert(name, morphism);
+    Ok(CompiledTheorySet {
+        id: doc_id.to_owned(),
+        theories: HashMap::new(),
+        morphisms,
+        protocols: HashMap::new(),
         composition_specs: HashMap::new(),
     })
 }

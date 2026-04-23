@@ -143,6 +143,24 @@ let Bundle = {
   protocols | Array { protocol | String, .. } | default = [],
 } in
 
+let Class = {
+  id | String,
+  description | String,
+  class | String,
+  params | Array String,
+  signatures | Array OpSpec,
+  axioms | Array EquationSpec | default = [],
+} in
+
+let Instance = {
+  id | String,
+  description | String,
+  instance | String,
+  class | String,
+  target | String,
+  bindings | { _ : String },
+} in
+
 # ═══════════════════════════════════════════════════════════════════
 # Sort combinators
 # ═══════════════════════════════════════════════════════════════════
@@ -270,6 +288,8 @@ let edge_rule = fun edge_kind src_kind tgt_kind => {
   Composition,
   Protocol,
   Bundle,
+  Class,
+  Instance,
 
   # Sort combinators
   simple,

@@ -142,4 +142,20 @@ pub enum TheoryDslError {
     #[error("GAT engine error: {0}")]
     #[diagnostic(code(panproto_theory_dsl::gat))]
     Gat(#[from] panproto_gat::GatError),
+
+    /// An instance binding names a key that is neither a sort param nor
+    /// an operation of the class theory.
+    #[error(
+        "instance '{instance}' has binding '{name}' that is not a sort param \
+         or operation of class '{class}'"
+    )]
+    #[diagnostic(code(panproto_theory_dsl::instance_binding))]
+    InstanceBinding {
+        /// The instance name.
+        instance: String,
+        /// The class theory name.
+        class: String,
+        /// The offending binding key.
+        name: String,
+    },
 }

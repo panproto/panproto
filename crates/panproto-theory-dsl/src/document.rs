@@ -40,6 +40,52 @@ pub enum TheoryBody {
     Protocol(Box<ProtocolSpec>),
     /// Bundle: multiple theories, morphisms, and compositions in one file.
     Bundle(Box<BundleSpec>),
+    /// Typeclass-style class declaration. Compiles to a theory whose sorts
+    /// are the listed `params` and whose operations are the `signatures`.
+    Class(ClassSpec),
+    /// Typeclass-style instance declaration. Compiles to a theory morphism
+    /// from the class theory to the target theory.
+    Instance(InstanceSpec),
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ClassSpec and InstanceSpec
+// ═══════════════════════════════════════════════════════════════════
+
+/// Typeclass-style class declaration: a theory whose sorts are the named
+/// parameters and whose operations are the listed signatures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassSpec {
+    /// Class name, used as the theory name.
+    pub class: String,
+    /// Sort parameter names (e.g. `["A"]`). Each becomes a simple
+    /// structural sort in the compiled theory.
+    pub params: Vec<String>,
+    /// Operation signatures declared by the class.
+    pub signatures: Vec<OpSpec>,
+    /// Equational axioms over the class operations.
+    #[serde(default)]
+    pub axioms: Vec<EquationSpec>,
+}
+
+/// Typeclass-style instance declaration.
+///
+/// An instance desugars to a theory morphism from the class theory to the
+/// target theory. The `bindings` map carries both sort-to-sort entries
+/// (for each class `param`) and op-to-op entries (for each class
+/// signature).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstanceSpec {
+    /// Instance name.
+    pub instance: String,
+    /// The class theory name (morphism domain).
+    pub class: String,
+    /// The target theory name (morphism codomain).
+    pub target: String,
+    /// Name bindings from class-side names to target-side names. Entries
+    /// whose domain key is one of the class's sort params become the
+    /// `sort_map`; remaining entries become the `op_map`.
+    pub bindings: HashMap<String, String>,
 }
 
 // ═══════════════════════════════════════════════════════════════════
