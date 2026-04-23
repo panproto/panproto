@@ -244,6 +244,7 @@ impl Repl {
     }
 
     fn cmd_model(&self, tail: &str) -> ReplOutcome {
+        const MAX_MODEL_DEPTH: usize = 10;
         let theory = match self.active_theory() {
             Ok(t) => t,
             Err(e) => return e,
@@ -252,7 +253,13 @@ impl Repl {
             3
         } else {
             match tail.parse::<usize>() {
-                Ok(d) => d,
+                Ok(d) if d <= MAX_MODEL_DEPTH => d,
+                Ok(d) => {
+                    return ReplOutcome::Error(format!(
+                        "depth {d} exceeds maximum {MAX_MODEL_DEPTH}; free-model expansion is \
+                         exponential so :model caps the depth to keep the REPL responsive",
+                    ));
+                }
                 Err(_) => return ReplOutcome::Error(format!("invalid depth: {tail}")),
             }
         };
@@ -279,7 +286,10 @@ impl Repl {
     }
 
     fn cmd_instance(&mut self, rest: &str) -> ReplOutcome {
-        // Minimal surface: `:instance <class> in <target> { sort = target_sort; op = target_op; ... }`
+        // Parse the surface syntax `<class> in <target> { key = value; ... }`
+        // into an InstanceSpec and delegate to the DSL's compile_instance
+        // rather than duplicating the class-sort / class-op classification
+        // logic here.
         let Some(brace_pos) = rest.find('{') else {
             return ReplOutcome::Error(
                 "usage: :instance <class> in <target> { binding = target; ... }".to_string(),
@@ -292,16 +302,8 @@ impl Repl {
         };
         let class_name = header[..in_pos].trim();
         let target_name = header[in_pos + 4..].trim();
-        let class_theory = match self.theories.get(class_name) {
-            Some(t) => t.clone(),
-            None => return ReplOutcome::Error(format!("class theory '{class_name}' not loaded")),
-        };
-        let target_theory = match self.theories.get(target_name) {
-            Some(t) => t.clone(),
-            None => return ReplOutcome::Error(format!("target theory '{target_name}' not loaded")),
-        };
-        let mut sort_map: HashMap<std::sync::Arc<str>, std::sync::Arc<str>> = HashMap::new();
-        let mut op_map: HashMap<std::sync::Arc<str>, std::sync::Arc<str>> = HashMap::new();
+
+        let mut bindings: HashMap<String, String> = HashMap::new();
         for entry in body.split(';') {
             let e = entry.trim();
             if e.is_empty() {
@@ -312,25 +314,19 @@ impl Repl {
             };
             let from = e[..eq_pos].trim();
             let to = e[eq_pos + 1..].trim();
-            if class_theory.find_sort(from).is_some() {
-                sort_map.insert(std::sync::Arc::from(from), std::sync::Arc::from(to));
-            } else if class_theory.find_op(from).is_some() {
-                op_map.insert(std::sync::Arc::from(from), std::sync::Arc::from(to));
-            } else {
-                return ReplOutcome::Error(format!(
-                    "binding '{from}' is neither a sort nor an op of class '{class_name}'"
-                ));
-            }
+            bindings.insert(from.to_string(), to.to_string());
         }
-        let morphism = TheoryMorphism::new(
-            format!("{class_name}_to_{target_name}"),
-            class_name,
-            target_name,
-            sort_map,
-            op_map,
-        );
-        match panproto_gat::check_morphism(&morphism, &class_theory, &target_theory) {
-            Ok(()) => {
+
+        let instance_name = format!("{class_name}_to_{target_name}");
+        let spec = panproto_theory_dsl::document::InstanceSpec {
+            instance: instance_name,
+            class: class_name.to_string(),
+            target: target_name.to_string(),
+            bindings,
+        };
+        let resolver = |name: &str| self.theories.get(name).cloned();
+        match panproto_theory_dsl::compile_instance::compile_instance(&spec, &resolver) {
+            Ok(morphism) => {
                 let name = morphism.name.to_string();
                 self.morphisms.insert(name.clone(), morphism);
                 ReplOutcome::Output(format!("instance {name} ok"))
