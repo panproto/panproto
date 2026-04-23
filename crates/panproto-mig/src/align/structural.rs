@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
-use super::{Anchor, StrategyTag, kinds_compatible};
+use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 
 /// Emit structural-match anchors at `Exploratory` tier.
 ///
@@ -57,7 +57,7 @@ pub fn structural_anchors(src: &Schema, tgt: &Schema, confidence_floor: f64) -> 
 
         let mut best: Option<(Name, f64)> = None;
         for tgt_id in tgt_ids.iter().copied() {
-            if !kinds_compatible(src, src_id, tgt, tgt_id) {
+            if !kinds_and_constraints_compatible(src, src_id, tgt, tgt_id) {
                 continue;
             }
             let Some(tgt_p) = tgt_profiles.get(tgt_id) else {
@@ -386,7 +386,12 @@ mod tests {
             &[("r", "r.x", "prop", "x")],
         );
         for anchor in structural_anchors(&src, &tgt, 0.5) {
-            assert!(kinds_compatible(&src, &anchor.src, &tgt, &anchor.tgt));
+            assert!(super::super::kinds_compatible(
+                &src,
+                &anchor.src,
+                &tgt,
+                &anchor.tgt
+            ));
         }
     }
 

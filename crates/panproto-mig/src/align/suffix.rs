@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 use panproto_schema::Schema;
 
-use super::{Anchor, StrategyTag, kinds_compatible};
+use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 
 /// Emit anchors for every `(source, target)` pair whose vertex IDs
 /// share a terminal dot-segment and whose kinds are compatible.
@@ -60,7 +60,7 @@ pub fn suffix_anchors(src: &Schema, tgt: &Schema) -> Vec<Anchor> {
                 // Exact tag wins the priority tiebreak.
                 continue;
             }
-            if !kinds_compatible(src, src_id, tgt, tgt_id) {
+            if !kinds_and_constraints_compatible(src, src_id, tgt, tgt_id) {
                 continue;
             }
             out.push(Anchor {

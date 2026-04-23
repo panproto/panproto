@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
-use super::{Anchor, StrategyTag, kinds_compatible};
+use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 
 /// Split an identifier into lowercase word tokens. Boundaries are
 /// detected at:
@@ -205,7 +205,7 @@ pub fn token_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec<Anchor> 
     for src_id in src_ids.iter().copied() {
         let mut best: Option<(Name, f64)> = None;
         for tgt_id in tgt_ids.iter().copied() {
-            if !kinds_compatible(src, src_id, tgt, tgt_id) {
+            if !kinds_and_constraints_compatible(src, src_id, tgt, tgt_id) {
                 continue;
             }
             let score = token_similarity(src_id.as_str(), tgt_id.as_str());

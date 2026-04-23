@@ -178,6 +178,161 @@ pub fn kinds_compatible(src: &Schema, src_id: &Name, tgt: &Schema, tgt_id: &Name
         .is_some_and(|(sv, tv)| sv.kind == tv.kind)
 }
 
+/// Kind-and-constraint compatibility test.
+///
+/// Stricter than [`kinds_compatible`]: in addition to the kind check,
+/// every constraint sort declared on the source vertex must be carried
+/// by the target vertex with an equal value. A source vertex with no
+/// constraints matches any target of the same kind; a source vertex
+/// with constraints requires the target to carry a matching constraint
+/// of the same sort and value.
+///
+/// Equality of constraint values is string-literal: the function
+/// compares the serialized form stored on
+/// [`panproto_schema::Constraint`]. Protocols whose constraint sorts
+/// are enumerated discretely (`format`, `knownValues`) therefore get
+/// exact match semantics; numeric-range sorts
+/// (`maxLength = 200` vs `maxLength = 300`) are treated as distinct.
+/// This is the intended behaviour: loosening numeric constraints
+/// should not produce a silent match.
+///
+/// The function is protocol-generic: it consults the schemas' own
+/// constraint tables rather than any external vocabulary.
+#[must_use]
+pub fn kinds_and_constraints_compatible(
+    src: &Schema,
+    src_id: &Name,
+    tgt: &Schema,
+    tgt_id: &Name,
+) -> bool {
+    if !kinds_compatible(src, src_id, tgt, tgt_id) {
+        return false;
+    }
+    let empty: Vec<panproto_schema::Constraint> = Vec::new();
+    let src_cs = src.constraints.get(src_id).unwrap_or(&empty);
+    if src_cs.is_empty() {
+        return true;
+    }
+    let tgt_cs = tgt.constraints.get(tgt_id).unwrap_or(&empty);
+    for sc in src_cs {
+        let ok = tgt_cs
+            .iter()
+            .any(|tc| tc.sort == sc.sort && tc.value == sc.value);
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod constraint_compat_tests {
+    use super::*;
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    fn proto_with_format() -> Protocol {
+        Protocol {
+            name: "t".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["string".into()],
+            constraint_sorts: vec!["format".into(), "knownValues".into()],
+            ..Protocol::default()
+        }
+    }
+
+    fn schema_with(
+        name: &str,
+        kind: &str,
+        constraints: &[(&str, &str)],
+    ) -> panproto_schema::Schema {
+        let proto = proto_with_format();
+        let mut b = SchemaBuilder::new(&proto)
+            .vertex(name, kind, None::<&str>)
+            .unwrap();
+        for (sort, value) in constraints {
+            b = b.constraint(name, sort, value);
+        }
+        b.build().unwrap()
+    }
+
+    #[test]
+    fn source_with_no_constraints_matches_any_target_of_same_kind() {
+        let src = schema_with("a", "string", &[]);
+        let tgt = schema_with("a", "string", &[("format", "datetime")]);
+        assert!(kinds_and_constraints_compatible(
+            &src,
+            &Name::from("a"),
+            &tgt,
+            &Name::from("a"),
+        ));
+    }
+
+    #[test]
+    fn matching_format_constraint_compatible() {
+        let src = schema_with("a", "string", &[("format", "datetime")]);
+        let tgt = schema_with("a", "string", &[("format", "datetime")]);
+        assert!(kinds_and_constraints_compatible(
+            &src,
+            &Name::from("a"),
+            &tgt,
+            &Name::from("a"),
+        ));
+    }
+
+    #[test]
+    fn missing_constraint_on_target_fails() {
+        let src = schema_with("a", "string", &[("format", "datetime")]);
+        let tgt = schema_with("a", "string", &[]);
+        assert!(!kinds_and_constraints_compatible(
+            &src,
+            &Name::from("a"),
+            &tgt,
+            &Name::from("a"),
+        ));
+    }
+
+    #[test]
+    fn differing_format_value_fails() {
+        let src = schema_with("a", "string", &[("format", "datetime")]);
+        let tgt = schema_with("a", "string", &[("format", "uri")]);
+        assert!(!kinds_and_constraints_compatible(
+            &src,
+            &Name::from("a"),
+            &tgt,
+            &Name::from("a"),
+        ));
+    }
+
+    #[test]
+    fn mismatched_kind_fails_even_with_identical_constraints() {
+        let proto = proto_with_format();
+        let other_proto = Protocol {
+            obj_kinds: vec!["string".into(), "object".into()],
+            ..proto.clone()
+        };
+        let src = SchemaBuilder::new(&proto)
+            .vertex("a", "string", None::<&str>)
+            .unwrap()
+            .constraint("a", "format", "datetime")
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&other_proto)
+            .vertex("a", "object", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(!kinds_and_constraints_compatible(
+            &src,
+            &Name::from("a"),
+            &tgt,
+            &Name::from("a"),
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

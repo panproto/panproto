@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use panproto_schema::Schema;
 
-use super::{Anchor, StrategyTag, kinds_compatible};
+use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 
 /// A cluster of mutually-aliased terms. All members of the same cluster
 /// are treated as interchangeable at alignment time.
@@ -355,7 +355,7 @@ pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor
             // Pure leaf: we cannot score it by children. Fall back to
             // name-level alias comparison against each candidate.
             for tgt_id in tgt_ids.iter().copied() {
-                if !kinds_compatible(src, src_id, tgt, tgt_id) {
+                if !kinds_and_constraints_compatible(src, src_id, tgt, tgt_id) {
                     continue;
                 }
                 if dict.are_aliases(src_id.as_str(), tgt_id.as_str())
@@ -378,7 +378,7 @@ pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor
         }
 
         for tgt_id in tgt_ids.iter().copied() {
-            if !kinds_compatible(src, src_id, tgt, tgt_id) {
+            if !kinds_and_constraints_compatible(src, src_id, tgt, tgt_id) {
                 continue;
             }
             let tgt_edge_names: Vec<&str> = tgt
@@ -681,7 +681,12 @@ mod tests {
             &[("root", "root.id", "prop", "uuid")],
         );
         for anchor in alias_anchors(&src, &tgt, &dict) {
-            assert!(kinds_compatible(&src, &anchor.src, &tgt, &anchor.tgt));
+            assert!(super::super::kinds_compatible(
+                &src,
+                &anchor.src,
+                &tgt,
+                &anchor.tgt
+            ));
         }
     }
 
