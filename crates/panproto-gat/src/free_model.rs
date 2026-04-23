@@ -462,6 +462,18 @@ fn congruence_closure_pass(
 ///
 /// This must be used consistently for both carrier set values and
 /// operation results to ensure that `check_model` can match them.
+/// Check whether a term is built entirely from `Var` and `App` nodes.
+/// The free-model generator only produces App-only terms, so this
+/// invariant holds on every term that reaches `build_model`'s
+/// stringification path and makes `term_to_string` injective.
+fn is_app_only(term: &Term) -> bool {
+    match term {
+        Term::Var(_) => true,
+        Term::App { args, .. } => args.iter().all(is_app_only),
+        Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => false,
+    }
+}
+
 fn term_to_string(term: &Term) -> String {
     match term {
         Term::Var(name) => name.to_string(),
@@ -515,32 +527,33 @@ fn build_model(
 ) -> Model {
     let mut model = Model::new(&*theory.name);
 
-    // Build a lookup table keyed on the term itself (not its
-    // stringification). Term: Hash + Eq is derived, so distinct holes
-    // hash to distinct keys even when their stringifications collide.
-    let mut term_to_rep: FxHashMap<Term, String> = FxHashMap::default();
+    // String-keyed representative lookup. Safe because the free-model
+    // generator emits only `Term::App` nodes via `extend_op_tuples`;
+    // `term_to_string` is injective on App-only terms with App-only
+    // arguments, so stringification does not collide across terms.
+    // The debug assertion guards the invariant: every term seen here
+    // must be App-only (holes, case terms, and let bindings are
+    // produced by user input to the typechecker, never by the free
+    // model enumerator).
     let mut class_rep_string: FxHashMap<usize, String> = FxHashMap::default();
+    let mut string_to_rep: FxHashMap<String, String> = FxHashMap::default();
     for (sort, terms) in terms_by_sort {
         let indices = &term_to_global[sort];
         let mut seen_classes: FxHashSet<usize> = FxHashSet::default();
 
         for (i, term) in terms.iter().enumerate() {
+            debug_assert!(
+                is_app_only(term),
+                "free-model generator emitted a non-App term: {term:?}",
+            );
             let rep = uf.find(indices[i]);
             if seen_classes.insert(rep) {
                 // First term in this class becomes the representative string.
                 class_rep_string.insert(rep, term_to_string(term));
             }
             let rep_str = class_rep_string[&rep].clone();
-            term_to_rep.insert(term.clone(), rep_str);
+            string_to_rep.insert(term_to_string(term), rep_str);
         }
-    }
-
-    // Secondary lookup: stringification → representative string. Used
-    // when an operation's interpretation is called with `ModelValue::Str`
-    // arguments that we only have in stringified form.
-    let mut string_to_rep: FxHashMap<String, String> = FxHashMap::default();
-    for (term, rep) in &term_to_rep {
-        string_to_rep.insert(term_to_string(term), rep.clone());
     }
 
     // Build carrier sets using class representatives.

@@ -122,11 +122,16 @@ fn initial_color(schema: &Schema, id: &Name, kind: &Name) -> [u8; 32] {
             .collect();
         pairs.sort_unstable();
         pairs.dedup();
+        // Length-prefix each field so the hash is injective on pair
+        // contents. Without the prefix, a pair like ("a", "b=c") would
+        // collide with ("a=b", "c") under byte concatenation.
         for (s, v) in pairs {
+            let s_len = u64::try_from(s.len()).unwrap_or(u64::MAX);
+            let v_len = u64::try_from(v.len()).unwrap_or(u64::MAX);
+            hasher.update(&s_len.to_le_bytes());
             hasher.update(s.as_bytes());
-            hasher.update(b"=");
+            hasher.update(&v_len.to_le_bytes());
             hasher.update(v.as_bytes());
-            hasher.update(b",");
         }
     }
     *hasher.finalize().as_bytes()
