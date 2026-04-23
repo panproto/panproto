@@ -37,6 +37,7 @@ mod op;
 mod pullback;
 mod quotient;
 pub mod refinement;
+pub mod rewriting;
 mod schema_functor;
 mod sort;
 mod theory;
@@ -79,4 +80,8 @@ pub use typecheck::{
 
 pub use alg_struct::{AlgStruct, StructField, StructParam};
 pub use refinement::{RefinedSort, RefinementConstraint, RefinementError};
+pub use rewriting::{
+    ConfluenceReport, CriticalPair, OpPrecedence, RuleViolation, TerminationReport,
+    check_local_confluence, check_termination_via_lpo, lpo_greater,
+};
 pub use witness::{EqWitness, WitnessJustification};
