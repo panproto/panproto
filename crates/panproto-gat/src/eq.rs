@@ -137,10 +137,48 @@ impl Term {
                 let new_bound = Box::new(bound.substitute(subst));
                 let mut inner = subst.clone();
                 inner.remove(name);
-                Self::Let {
-                    name: Arc::clone(name),
-                    bound: new_bound,
-                    body: Box::new(body.substitute(&inner)),
+                // Capture avoidance: if any term in `inner` (restricted
+                // to vars that are free in `body`) has `name` as a free
+                // variable, alpha-rename the binder to a fresh name.
+                let body_free = body.free_vars();
+                let mut captures = false;
+                let mut taken: rustc_hash::FxHashSet<Arc<str>> = rustc_hash::FxHashSet::default();
+                for (k, v) in &inner {
+                    if body_free.contains(k) {
+                        let fv = v.free_vars();
+                        if fv.contains(name) {
+                            captures = true;
+                        }
+                        for n in fv {
+                            taken.insert(n);
+                        }
+                    }
+                }
+                if captures {
+                    // Choose a fresh name disjoint from `taken`, from
+                    // free vars of body, and from the old name.
+                    let mut fresh = format!("{name}'");
+                    while taken.contains::<str>(fresh.as_str())
+                        || body_free.contains::<str>(fresh.as_str())
+                        || &*fresh == name.as_ref()
+                    {
+                        fresh.push('\'');
+                    }
+                    let fresh_name: Arc<str> = Arc::from(fresh);
+                    let mut rename = rustc_hash::FxHashMap::default();
+                    rename.insert(Arc::clone(name), Self::Var(Arc::clone(&fresh_name)));
+                    let renamed_body = body.substitute(&rename);
+                    Self::Let {
+                        name: fresh_name,
+                        bound: new_bound,
+                        body: Box::new(renamed_body.substitute(&inner)),
+                    }
+                } else {
+                    Self::Let {
+                        name: Arc::clone(name),
+                        bound: new_bound,
+                        body: Box::new(body.substitute(&inner)),
+                    }
                 }
             }
         }
@@ -556,10 +594,20 @@ fn match_pattern_inner(
                     return false;
                 }
                 for (pb, tb) in p_b.iter().zip(t_b.iter()) {
-                    if pb.constructor != tb.constructor
-                        || pb.binders.len() != tb.binders.len()
-                        || !match_pattern_inner(&pb.body, &tb.body, subst)
-                    {
+                    if pb.constructor != tb.constructor || pb.binders.len() != tb.binders.len() {
+                        return false;
+                    }
+                    // Save the subst, extend it with positional binder
+                    // renamings p_binders[i] := Var(t_binders[i]), match
+                    // the branch body, then restore the outer subst.
+                    // Binder names are branch-local and must not leak.
+                    let saved = subst.clone();
+                    for (pb_b, tb_b) in pb.binders.iter().zip(tb.binders.iter()) {
+                        subst.insert(Arc::clone(pb_b), Term::Var(Arc::clone(tb_b)));
+                    }
+                    let ok = match_pattern_inner(&pb.body, &tb.body, subst);
+                    *subst = saved;
+                    if !ok {
                         return false;
                     }
                 }
@@ -571,7 +619,27 @@ fn match_pattern_inner(
             Term::Hole { name: n2 } => name == n2,
             Term::Var(_) | Term::App { .. } | Term::Case { .. } | Term::Let { .. } => false,
         },
-        Term::Let { .. } => false,
+        Term::Let {
+            name: p_n,
+            bound: p_b,
+            body: p_body,
+        } => match term {
+            Term::Let {
+                name: t_n,
+                bound: t_b,
+                body: t_body,
+            } => {
+                if !match_pattern_inner(p_b, t_b, subst) {
+                    return false;
+                }
+                let saved = subst.clone();
+                subst.insert(Arc::clone(p_n), Term::Var(Arc::clone(t_n)));
+                let ok = match_pattern_inner(p_body, t_body, subst);
+                *subst = saved;
+                ok
+            }
+            Term::Var(_) | Term::App { .. } | Term::Case { .. } | Term::Hole { .. } => false,
+        },
     }
 }
 
@@ -1176,6 +1244,42 @@ mod tests {
             ) {
                 // reflexivity + transitivity via chain t ~ t ~ t.
                 prop_assert!(alpha_equivalent(&t, &t));
+            }
+
+            #[test]
+            fn let_substitute_does_not_capture(
+                _dummy in arb_name(),
+            ) {
+                // let x = a in f(x, y): substitute y := g(x).
+                // Naive substitution would capture the x bound by the
+                // let; capture-avoiding substitution renames the let's
+                // binder.
+                let body = Term::app("f", vec![Term::Var(Arc::from("x")), Term::Var(Arc::from("y"))]);
+                let t = Term::Let {
+                    name: Arc::from("x"),
+                    bound: Box::new(Term::constant("a")),
+                    body: Box::new(body),
+                };
+                let mut subst = rustc_hash::FxHashMap::default();
+                subst.insert(
+                    Arc::from("y"),
+                    Term::app("g", vec![Term::Var(Arc::from("x"))]),
+                );
+                let result = t.substitute(&subst);
+                if let Term::Let { name, body, .. } = result {
+                    // The outer free `x` (inside g(x)) must not be
+                    // captured by the let binder: the binder must be
+                    // alpha-renamed away from `x`.
+                    prop_assert_ne!(&*name, "x");
+                    if let Term::App { args, .. } = *body {
+                        let is_g = matches!(&args[1], Term::App { op, .. } if &**op == "g");
+                        prop_assert!(is_g);
+                    } else {
+                        prop_assert!(false, "expected App body");
+                    }
+                } else {
+                    prop_assert!(false, "expected Let result");
+                }
             }
 
             #[test]

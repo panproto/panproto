@@ -85,7 +85,9 @@ fn collect_critical_pairs_at_positions(
     let r2_fresh = freshen_rule(r2, &r1.name);
     let positions = non_variable_positions(&r1.lhs);
     for pos in positions {
-        let subterm = term_at_position(&r1.lhs, &pos);
+        let Some(subterm) = term_at_position(&r1.lhs, &pos) else {
+            continue;
+        };
         let Some(sigma) = first_order_unify(&subterm, &r2_fresh.lhs) else {
             continue;
         };
@@ -96,7 +98,9 @@ fn collect_critical_pairs_at_positions(
         let left = r1.rhs.substitute(&sigma);
         let right_inner = r2_fresh.rhs.substitute(&sigma);
         let right_whole = r1.lhs.substitute(&sigma);
-        let right = replace_at_position(&right_whole, &pos, right_inner);
+        let Ok(right) = replace_at_position(&right_whole, &pos, right_inner) else {
+            continue;
+        };
 
         let left_nf = normalize(&left, rules, normalize_depth);
         let right_nf = normalize(&right, rules, normalize_depth);
@@ -193,31 +197,129 @@ fn non_variable_positions(term: &Term) -> Vec<Vec<usize>> {
     out
 }
 
-fn term_at_position(term: &Term, pos: &[usize]) -> Term {
+/// Navigate to the subterm at `pos` under `term`.
+///
+/// Paths encode child indices: for [`Term::App`] the index selects an
+/// argument; for [`Term::Case`] index `0` is the scrutinee and indices
+/// `1..=n` select branch bodies by position; for [`Term::Let`] index
+/// `0` is the bound term and `1` is the body. Variables and holes have
+/// no children.
+///
+/// Returns `None` if the path descends into a variant or child index
+/// that does not exist.
+fn term_at_position(term: &Term, pos: &[usize]) -> Option<Term> {
     let mut cur = term.clone();
     for &i in pos {
         match cur {
-            Term::App { mut args, .. } => {
-                cur = args.swap_remove(i);
+            Term::App { args, .. } => {
+                cur = args.get(i).cloned()?;
             }
-            _ => return cur,
+            Term::Case {
+                scrutinee,
+                branches,
+            } => {
+                if i == 0 {
+                    cur = *scrutinee;
+                } else {
+                    let branch = branches.get(i - 1)?;
+                    cur = branch.body.clone();
+                }
+            }
+            Term::Let { bound, body, .. } => match i {
+                0 => cur = *bound,
+                1 => cur = *body,
+                _ => return None,
+            },
+            Term::Var(_) | Term::Hole { .. } => return None,
         }
     }
-    cur
+    Some(cur)
 }
 
-fn replace_at_position(term: &Term, pos: &[usize], replacement: Term) -> Term {
+/// Replace the subterm at `pos` under `term` with `replacement`.
+///
+/// Same path semantics as [`term_at_position`]. Returns
+/// [`GatError::InvalidRewritePosition`] when the path descends into a
+/// node variant that cannot carry such a child.
+fn replace_at_position(term: &Term, pos: &[usize], replacement: Term) -> Result<Term, GatError> {
     if pos.is_empty() {
-        return replacement;
+        return Ok(replacement);
     }
+    let head = pos[0];
+    let rest = &pos[1..];
     match term.clone() {
         Term::App { op, mut args } => {
-            let head = pos[0];
-            let rest = &pos[1..];
-            args[head] = replace_at_position(&args[head], rest, replacement);
-            Term::App { op, args }
+            let slot = args
+                .get(head)
+                .ok_or_else(|| GatError::InvalidRewritePosition {
+                    path: pos.to_vec(),
+                    node_kind: "App (index out of range)",
+                })?;
+            let replaced = replace_at_position(slot, rest, replacement)?;
+            args[head] = replaced;
+            Ok(Term::App { op, args })
         }
-        other => other,
+        Term::Case {
+            scrutinee,
+            mut branches,
+        } => {
+            if head == 0 {
+                let new_scrut = replace_at_position(&scrutinee, rest, replacement)?;
+                Ok(Term::Case {
+                    scrutinee: Box::new(new_scrut),
+                    branches,
+                })
+            } else {
+                let branch_idx = head - 1;
+                let branch =
+                    branches
+                        .get(branch_idx)
+                        .ok_or_else(|| GatError::InvalidRewritePosition {
+                            path: pos.to_vec(),
+                            node_kind: "Case (branch index out of range)",
+                        })?;
+                let new_body = replace_at_position(&branch.body, rest, replacement)?;
+                branches[branch_idx] = crate::eq::CaseBranch {
+                    constructor: Arc::clone(&branch.constructor),
+                    binders: branch.binders.clone(),
+                    body: new_body,
+                };
+                Ok(Term::Case {
+                    scrutinee,
+                    branches,
+                })
+            }
+        }
+        Term::Let { name, bound, body } => match head {
+            0 => {
+                let new_bound = replace_at_position(&bound, rest, replacement)?;
+                Ok(Term::Let {
+                    name,
+                    bound: Box::new(new_bound),
+                    body,
+                })
+            }
+            1 => {
+                let new_body = replace_at_position(&body, rest, replacement)?;
+                Ok(Term::Let {
+                    name,
+                    bound,
+                    body: Box::new(new_body),
+                })
+            }
+            _ => Err(GatError::InvalidRewritePosition {
+                path: pos.to_vec(),
+                node_kind: "Let (only indices 0 and 1 are valid)",
+            }),
+        },
+        Term::Var(_) => Err(GatError::InvalidRewritePosition {
+            path: pos.to_vec(),
+            node_kind: "Var",
+        }),
+        Term::Hole { .. } => Err(GatError::InvalidRewritePosition {
+            path: pos.to_vec(),
+            node_kind: "Hole",
+        }),
     }
 }
 
@@ -236,15 +338,14 @@ fn first_order_unify(left: &Term, right: &Term) -> Option<FxHashMap<Arc<str>, Te
                 if occurs(&n, &term) {
                     return None;
                 }
-                let updated: FxHashMap<Arc<str>, Term> = subst
-                    .iter()
-                    .map(|(k, v)| {
-                        let mut single = FxHashMap::default();
-                        single.insert(Arc::clone(&n), term.clone());
-                        (Arc::clone(k), v.substitute(&single))
-                    })
-                    .collect();
-                subst = updated;
+                // Apply `n := term` in-place to existing bindings, then
+                // record the binding itself. Linear in the binding count
+                // per step rather than rebuilding the map from scratch.
+                let mut single = FxHashMap::default();
+                single.insert(Arc::clone(&n), term.clone());
+                for v in subst.values_mut() {
+                    *v = v.substitute(&single);
+                }
                 subst.insert(n, term);
             }
             (Term::App { op: op_a, args: aa }, Term::App { op: op_b, args: bb }) => {
@@ -349,6 +450,11 @@ pub fn check_termination_via_lpo(
 ) -> Result<TerminationReport, GatError> {
     let mut violations = Vec::new();
     for rule in &theory.directed_eqs {
+        if contains_hole(&rule.lhs) || contains_hole(&rule.rhs) {
+            return Err(GatError::LpoHoleInRule {
+                rule: rule.name.to_string(),
+            });
+        }
         if !lpo_greater(&rule.lhs, &rule.rhs, precedence) {
             violations.push(RuleViolation {
                 rule: Arc::clone(&rule.name),
@@ -357,6 +463,19 @@ pub fn check_termination_via_lpo(
         }
     }
     Ok(TerminationReport { violations })
+}
+
+fn contains_hole(t: &Term) -> bool {
+    match t {
+        Term::Hole { .. } => true,
+        Term::Var(_) => false,
+        Term::App { args, .. } => args.iter().any(contains_hole),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => contains_hole(scrutinee) || branches.iter().any(|b| contains_hole(&b.body)),
+        Term::Let { bound, body, .. } => contains_hole(bound) || contains_hole(body),
+    }
 }
 
 /// Lexicographic path ordering: `s >_lpo t`.
@@ -376,38 +495,77 @@ pub fn check_termination_via_lpo(
 /// `f(...)`.
 #[must_use]
 pub fn lpo_greater(s: &Term, t: &Term, prec: &OpPrecedence) -> bool {
-    let (f, s_args) = match s {
-        Term::App { op, args } => (op, args),
-        // Variables and case scrutinees cannot be LPO-greater than
-        // anything: LPO compares structural terms only.
-        Term::Var(_) | Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => return false,
-    };
+    // Variables and holes cannot be LPO-greater than anything: LPO
+    // compares structural terms only.
+    if matches!(s, Term::Var(_) | Term::Hole { .. }) {
+        return false;
+    }
+    // Compute the subterm list of s: [args...] for App, [scrutinee,
+    // branch bodies...] for Case, [bound, body] for Let.
+    let s_subs = subterms(s);
+
+    // Case 1: some proper subterm of s is >= t.
+    for si in &s_subs {
+        if si == t || lpo_greater(si, t, prec) {
+            return true;
+        }
+    }
     match t {
-        Term::Var(x) => s_args.iter().any(|a| contains_var(a, x)),
-        Term::App {
-            op: g,
-            args: t_args,
-        } => {
-            // Case 1: some s_i >=_lpo t.
-            for si in s_args {
-                if si == t || lpo_greater(si, t, prec) {
-                    return true;
-                }
-            }
-            match prec.compare(f, g) {
+        Term::Var(x) => s_subs.iter().any(|a| contains_var(a, x)),
+        Term::Hole { .. } => false,
+        _ => {
+            // Non-leaf t: compare heads.
+            let (Some(f), Some(g)) = (structural_head(s), structural_head(t)) else {
+                return false;
+            };
+            let t_subs = subterms(t);
+            match prec.compare(&f, &g) {
                 Some(std::cmp::Ordering::Greater) => {
-                    t_args.iter().all(|tj| lpo_greater(s, tj, prec))
+                    t_subs.iter().all(|tj| lpo_greater(s, tj, prec))
                 }
                 Some(std::cmp::Ordering::Equal) => {
-                    if !t_args.iter().all(|tj| lpo_greater(s, tj, prec)) {
+                    if !t_subs.iter().all(|tj| lpo_greater(s, tj, prec)) {
                         return false;
                     }
-                    lex_greater(s_args, t_args, prec)
+                    lex_greater(&s_subs, &t_subs, prec)
                 }
                 _ => false,
             }
         }
-        Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => false,
+    }
+}
+
+/// Return the ordered list of structural subterms of a compound term.
+/// Variables and holes return an empty list.
+fn subterms(t: &Term) -> Vec<Term> {
+    match t {
+        Term::Var(_) | Term::Hole { .. } => Vec::new(),
+        Term::App { args, .. } => args.clone(),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            let mut v = Vec::with_capacity(branches.len() + 1);
+            v.push((**scrutinee).clone());
+            for b in branches {
+                v.push(b.body.clone());
+            }
+            v
+        }
+        Term::Let { bound, body, .. } => vec![(**bound).clone(), (**body).clone()],
+    }
+}
+
+/// Return the structural head name used for LPO precedence comparison.
+/// `Case` and `Let` get synthetic pseudo-op names that only compare
+/// equal to themselves; this means a user must include these names in
+/// the precedence for a rule to pass LPO.
+fn structural_head(t: &Term) -> Option<Arc<str>> {
+    match t {
+        Term::App { op, .. } => Some(Arc::clone(op)),
+        Term::Case { .. } => Some(Arc::from("__case__")),
+        Term::Let { .. } => Some(Arc::from("__let__")),
+        Term::Var(_) | Term::Hole { .. } => None,
     }
 }
 
@@ -598,6 +756,69 @@ mod tests {
             report.violations,
         );
         Ok(())
+    }
+
+    #[test]
+    fn term_at_position_preserves_index_in_three_arg_app() {
+        // f(a, b, c) at [0] must return a, not c (swap_remove regression).
+        let term = Term::app(
+            "f",
+            vec![
+                Term::constant("a"),
+                Term::constant("b"),
+                Term::constant("c"),
+            ],
+        );
+        assert_eq!(
+            term_at_position(&term, &[0]),
+            Some(Term::constant("a")),
+        );
+        assert_eq!(
+            term_at_position(&term, &[1]),
+            Some(Term::constant("b")),
+        );
+        assert_eq!(
+            term_at_position(&term, &[2]),
+            Some(Term::constant("c")),
+        );
+    }
+
+    #[test]
+    fn replace_at_position_inside_let_body() {
+        // let x = a in f(x): replace body [1] with g(x).
+        let t = Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(Term::constant("a")),
+            body: Box::new(Term::app("f", vec![Term::var("x")])),
+        };
+        let result = replace_at_position(&t, &[1], Term::app("g", vec![Term::var("x")]));
+        match result {
+            Ok(Term::Let { body, .. }) => {
+                assert_eq!(*body, Term::app("g", vec![Term::var("x")]));
+            }
+            other => panic!("expected Ok(Let), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn replace_at_position_invalid_var_errors() {
+        let t = Term::var("x");
+        let err = replace_at_position(&t, &[0], Term::constant("a"));
+        assert!(matches!(err, Err(GatError::InvalidRewritePosition { .. })));
+    }
+
+    #[test]
+    fn lpo_rejects_hole_in_rule() {
+        // A rule containing a hole must be rejected with a specific error.
+        let r = mk_rule(
+            "bad",
+            Term::app("f", vec![Term::Hole { name: None }]),
+            Term::constant("a"),
+        );
+        let theory = trivial_theory(vec![r]);
+        let prec = OpPrecedence::new(["a", "f"]);
+        let err = check_termination_via_lpo(&theory, &prec);
+        assert!(matches!(err, Err(GatError::LpoHoleInRule { .. })));
     }
 
     #[test]

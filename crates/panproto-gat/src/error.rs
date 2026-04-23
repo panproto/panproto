@@ -383,6 +383,25 @@ pub enum GatError {
         declared: usize,
     },
 
+    /// A rewrite position is invalid: the path descends through a term
+    /// variant that does not have the requested child index.
+    #[error("invalid rewrite position {path:?}: node is {node_kind}")]
+    InvalidRewritePosition {
+        /// The path that was requested.
+        path: Vec<usize>,
+        /// The kind of node that could not be descended into.
+        node_kind: &'static str,
+    },
+
+    /// An LPO termination check encountered a rewrite rule that contains
+    /// a hole on one of its sides. Holes in rewrite rules are not
+    /// meaningful for LPO comparison.
+    #[error("LPO: rule {rule} contains a hole; holes are not comparable under LPO")]
+    LpoHoleInRule {
+        /// The offending rule name.
+        rule: String,
+    },
+
     /// Identified elements are incompatible for quotienting.
     #[error("cannot identify {name_a} and {name_b}: {detail}")]
     QuotientIncompatible {
