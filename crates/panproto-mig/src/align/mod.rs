@@ -28,6 +28,7 @@ use panproto_schema::Schema;
 
 pub mod alias;
 pub mod coerce;
+pub mod edge_label;
 pub mod exact;
 pub mod structural;
 pub mod suffix;
@@ -37,6 +38,7 @@ pub mod wrap_unwrap;
 
 pub use alias::{AliasDict, alias_anchors, default_alias_dict};
 pub use coerce::{CoerceAnchor, coerce_anchors};
+pub use edge_label::edge_label_anchors;
 pub use exact::exact_anchors;
 pub use structural::structural_anchors;
 pub use suffix::suffix_anchors;
@@ -56,6 +58,10 @@ pub enum StrategyTag {
     /// for namespaced identifiers that share the same local prop or
     /// field name under disjoint prefixes.
     ExactSuffix,
+    /// Same-label same-kind edge on each side with compatible child
+    /// vertex kinds. Catches pairs of children reached via labeled
+    /// edges whose parents have disjoint identifiers.
+    EdgeLabel,
     /// Name match modulo alias dictionary + casing variants.
     Alias,
     /// Token-bag Jaccard + character-n-gram cosine above threshold.
@@ -147,6 +153,7 @@ const fn strategy_priority(tag: StrategyTag) -> u8 {
     match tag {
         StrategyTag::UserHint => 100,
         StrategyTag::Exact => 90,
+        StrategyTag::EdgeLabel => 85,
         StrategyTag::ExactSuffix => 80,
         StrategyTag::Alias => 70,
         StrategyTag::TypeSignature => 60,
@@ -367,13 +374,16 @@ mod tests {
     #[test]
     fn strategy_priority_is_strictly_decreasing_across_all_variants() {
         // Audit-of-audits: ensure the documented ordering
-        // UserHint > Exact > Alias > TypeSignature > WrapUnwrap >
-        // TokenSimilarity > Coerce > Structural > Llm holds strictly
-        // (no ties) across every variant. A future addition of a new
-        // variant must explicitly slot into the ordering here.
+        // UserHint > Exact > EdgeLabel > ExactSuffix > Alias >
+        // TypeSignature > WrapUnwrap > TokenSimilarity > Coerce >
+        // Structural > Llm holds strictly (no ties) across every
+        // variant. A future addition of a new variant must explicitly
+        // slot into the ordering here.
         let ordered = [
             StrategyTag::UserHint,
             StrategyTag::Exact,
+            StrategyTag::EdgeLabel,
+            StrategyTag::ExactSuffix,
             StrategyTag::Alias,
             StrategyTag::TypeSignature,
             StrategyTag::WrapUnwrap,
@@ -401,6 +411,8 @@ mod tests {
         let tags = [
             (StrategyTag::UserHint, 100),
             (StrategyTag::Exact, 90),
+            (StrategyTag::EdgeLabel, 85),
+            (StrategyTag::ExactSuffix, 80),
             (StrategyTag::Alias, 70),
             (StrategyTag::TypeSignature, 60),
             (StrategyTag::WrapUnwrap, 55),

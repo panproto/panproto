@@ -274,6 +274,13 @@ fn run_strategies(
     // edge preservation, so a spurious suffix collision is cheap.
     anchors.extend(align::suffix_anchors(src, tgt));
 
+    // Same-label same-kind edge matching: anchors children reached by
+    // labeled edges that agree on both the label and the edge kind,
+    // regardless of the parent identifier. Complementary to suffix
+    // (which keys on vertex-id tails) on schemas whose label semantics
+    // don't flow through dotted identifiers.
+    anchors.extend(align::edge_label_anchors(src, tgt));
+
     if config.stringency.uses_alias_dict() {
         anchors.extend(align::alias_anchors(src, tgt, &config.alias_dict));
     }
