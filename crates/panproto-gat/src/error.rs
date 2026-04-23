@@ -352,6 +352,37 @@ pub enum GatError {
         param: String,
     },
 
+    /// An instance-style binding names a key that is neither a sort
+    /// parameter nor an operation of the class theory. Produced by the
+    /// `instance!` proc-macro when validating its bindings.
+    #[error(
+        "instance {instance} binds unknown name {name} which is neither a sort nor an op of class {class}"
+    )]
+    InstanceBindingUnknown {
+        /// The instance name.
+        instance: String,
+        /// The class theory name.
+        class: String,
+        /// The offending binding key.
+        name: String,
+    },
+
+    /// An instance-style declaration passes more type arguments than the
+    /// class theory has sort parameters.
+    #[error(
+        "instance {instance} passes {passed} type arguments to class {class} which declares {declared} sort(s)"
+    )]
+    InstanceTypeArgsArity {
+        /// The instance name.
+        instance: String,
+        /// The class theory name.
+        class: String,
+        /// Number of type arguments passed.
+        passed: usize,
+        /// Number of sort parameters declared by the class.
+        declared: usize,
+    },
+
     /// Identified elements are incompatible for quotienting.
     #[error("cannot identify {name_a} and {name_b}: {detail}")]
     QuotientIncompatible {
