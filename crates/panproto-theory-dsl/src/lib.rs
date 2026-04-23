@@ -27,6 +27,7 @@
 pub mod compile;
 pub mod compile_class;
 pub mod compile_compose;
+pub mod compile_inductive;
 pub mod compile_instance;
 pub mod compile_morphism;
 pub mod compile_protocol;

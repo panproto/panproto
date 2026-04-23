@@ -421,6 +421,135 @@ pub fn instance(input: TokenStream) -> TokenStream {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// inductive! macro
+// ═══════════════════════════════════════════════════════════════════
+
+/// AST for a single constructor inside an `inductive!` body.
+///
+/// Two surface forms are accepted:
+///
+/// ```text
+/// zero : Nat,
+/// succ(n: Nat) : Nat,
+/// ```
+struct InductiveCtor {
+    name: Ident,
+    inputs: Vec<ArgItem>,
+    output: Ident,
+}
+
+impl Parse for InductiveCtor {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let name: Ident = input.parse()?;
+        let inputs = if input.peek(syn::token::Paren) {
+            let content;
+            parenthesized!(content in input);
+            let args = Punctuated::<ArgItem, Token![,]>::parse_terminated(&content)?;
+            args.into_iter().collect()
+        } else {
+            Vec::new()
+        };
+        input.parse::<Token![:]>()?;
+        let output: Ident = input.parse()?;
+        Ok(Self {
+            name,
+            inputs,
+            output,
+        })
+    }
+}
+
+struct InductiveInput {
+    name: Ident,
+    ctors: Vec<InductiveCtor>,
+}
+
+impl Parse for InductiveInput {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let name: Ident = input.parse()?;
+        let body;
+        braced!(body in input);
+        let ctors_punc: Punctuated<InductiveCtor, Token![,]> = Punctuated::parse_terminated(&body)?;
+        Ok(Self {
+            name,
+            ctors: ctors_punc.into_iter().collect(),
+        })
+    }
+}
+
+/// Build a closed inductive theory.
+///
+/// Surface:
+///
+/// ```ignore
+/// inductive! {
+///     Nat {
+///         zero : Nat,
+///         succ(n: Nat) : Nat,
+///     }
+/// }
+/// ```
+///
+/// Expands to `pub fn theory_nat() -> panproto_gat::Theory` returning a
+/// theory whose one sort is `Nat`, closed against `[zero, succ]`, with
+/// one op per constructor.
+#[proc_macro]
+pub fn inductive(input: TokenStream) -> TokenStream {
+    let InductiveInput { name, ctors } = parse_macro_input!(input as InductiveInput);
+    let name_str = name.to_string();
+    let fn_name = format_ident!("theory_{}", name_str.to_lowercase());
+
+    let ctor_names: Vec<String> = ctors.iter().map(|c| c.name.to_string()).collect();
+    let ctor_name_lits = ctor_names.iter().map(|n| quote! { #n });
+
+    let sort_init = quote! {
+        ::panproto_gat::Sort::closed(
+            #name_str,
+            ::std::vec::Vec::new(),
+            ::std::vec![ #( #ctor_name_lits ),* ],
+        )
+    };
+
+    let op_inits = ctors.iter().map(|c| {
+        let op_name = c.name.to_string();
+        let output = c.output.to_string();
+        let arg_triples = c.inputs.iter().map(|ArgItem { name, ty }| {
+            let n = name.to_string();
+            let t = ty.to_string();
+            quote! {
+                (
+                    ::std::sync::Arc::from(#n),
+                    ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#t)),
+                    ::panproto_gat::Implicit::No,
+                )
+            }
+        });
+        quote! {
+            ::panproto_gat::Operation::with_implicit(
+                #op_name,
+                ::std::vec![ #( #arg_triples ),* ],
+                ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#output)),
+            )
+        }
+    });
+
+    let doc =
+        format!("Construct the inductive theory `{name_str}` produced by the `inductive!` macro.");
+    let expanded = quote! {
+        #[doc = #doc]
+        pub fn #fn_name() -> ::panproto_gat::Theory {
+            ::panproto_gat::Theory::new(
+                #name_str,
+                ::std::vec![ #sort_init ],
+                ::std::vec![ #( #op_inits ),* ],
+                ::std::vec::Vec::new(),
+            )
+        }
+    };
+    expanded.into()
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // fn_with_constraints! macro (parse-only stub)
 // ═══════════════════════════════════════════════════════════════════
 

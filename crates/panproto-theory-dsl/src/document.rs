@@ -46,6 +46,45 @@ pub enum TheoryBody {
     /// Typeclass-style instance declaration. Compiles to a theory morphism
     /// from the class theory to the target theory.
     Instance(InstanceSpec),
+    /// Inductive-type declaration. Compiles to a theory with one closed
+    /// sort and one constructor op per entry.
+    Inductive(InductiveSpec),
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// InductiveSpec
+// ═══════════════════════════════════════════════════════════════════
+
+/// Concise inductive-type declaration. Expands to a theory with one
+/// closed sort (whose constructor list is `constructors.map(|c| c.name)`)
+/// and one operation per constructor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InductiveSpec {
+    /// Sort name to introduce.
+    pub inductive: String,
+    /// Optional description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Parameters of the inductive type (for dependent inductive types
+    /// like `List<A>`). Each parameter becomes both a sort parameter of
+    /// the inductive sort and an argument position on every constructor
+    /// whose output sort is the inductive applied to these parameters.
+    #[serde(default)]
+    pub params: Vec<ParamSpec>,
+    /// Constructor declarations.
+    pub constructors: Vec<ConstructorSpec>,
+}
+
+/// One constructor of an [`InductiveSpec`]. The output sort is implicit:
+/// it is the inductive sort applied to the surrounding spec's `params`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstructorSpec {
+    /// Constructor op name.
+    pub name: String,
+    /// Constructor inputs. May reference the inductive type itself
+    /// (for recursive constructors like `succ`).
+    #[serde(default)]
+    pub inputs: Vec<ParamSpec>,
 }
 
 // ═══════════════════════════════════════════════════════════════════

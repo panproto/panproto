@@ -1,0 +1,16 @@
+{
+  "id": "dev.panproto.test.list_inductive",
+  "description": "Inductive polymorphic List<A>.",
+  "inductive": "List",
+  "params": [{ "name": "A", "sort": "A" }],
+  "constructors": [
+    { "name": "nil", "inputs": [] },
+    {
+      "name": "cons",
+      "inputs": [
+        { "name": "x", "sort": "A" },
+        { "name": "xs", "sort": "List(A)" }
+      ]
+    }
+  ]
+}

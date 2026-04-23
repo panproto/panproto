@@ -11,13 +11,14 @@ use panproto_gat::Theory;
 
 use crate::compile_class::compile_class;
 use crate::compile_compose::compile_composition;
+use crate::compile_inductive::compile_inductive;
 use crate::compile_instance::compile_instance;
 use crate::compile_morphism::compile_morphism;
 use crate::compile_protocol::compile_protocol;
 use crate::compile_theory::compile_theory;
 use crate::document::{
-    BundleSpec, ClassSpec, CompiledTheorySet, CompositionBody, InstanceSpec, MorphismSpec,
-    ProtocolSpec, TheoryBody, TheoryDocument, TheorySpec,
+    BundleSpec, ClassSpec, CompiledTheorySet, CompositionBody, InductiveSpec, InstanceSpec,
+    MorphismSpec, ProtocolSpec, TheoryBody, TheoryDocument, TheorySpec,
 };
 use crate::error::TheoryDslError;
 
@@ -42,7 +43,25 @@ pub fn compile(
         TheoryBody::Bundle(spec) => compile_bundle_inner(&doc.id, spec, resolver),
         TheoryBody::Class(spec) => compile_single_class(&doc.id, spec),
         TheoryBody::Instance(spec) => compile_single_instance(&doc.id, spec, resolver),
+        TheoryBody::Inductive(spec) => compile_single_inductive(&doc.id, spec),
     }
+}
+
+fn compile_single_inductive(
+    doc_id: &str,
+    spec: &InductiveSpec,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    let theory = compile_inductive(spec)?;
+    let name = theory.name.to_string();
+    let mut theories = HashMap::new();
+    theories.insert(name, theory);
+    Ok(CompiledTheorySet {
+        id: doc_id.to_owned(),
+        theories,
+        morphisms: HashMap::new(),
+        protocols: HashMap::new(),
+        composition_specs: HashMap::new(),
+    })
 }
 
 /// Compile a [`BundleSpec`] with dependency ordering.

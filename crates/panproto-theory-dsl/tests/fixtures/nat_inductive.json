@@ -1,0 +1,9 @@
+{
+  "id": "dev.panproto.test.nat_inductive",
+  "description": "Inductive Nat type.",
+  "inductive": "Nat",
+  "constructors": [
+    { "name": "zero", "inputs": [] },
+    { "name": "succ", "inputs": [{ "name": "n", "sort": "Nat" }] }
+  ]
+}
