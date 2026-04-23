@@ -31,6 +31,7 @@ pub mod coerce;
 pub mod description_similarity;
 pub mod edge_label;
 pub mod exact;
+pub mod neighborhood;
 pub mod structural;
 pub mod suffix;
 pub mod token_similarity;
@@ -42,6 +43,7 @@ pub use coerce::{CoerceAnchor, coerce_anchors};
 pub use description_similarity::{description_anchors, description_similarity};
 pub use edge_label::edge_label_anchors;
 pub use exact::exact_anchors;
+pub use neighborhood::neighborhood_anchors;
 pub use structural::structural_anchors;
 pub use suffix::suffix_anchors;
 pub use token_similarity::{token_anchors, token_similarity};
@@ -81,6 +83,11 @@ pub enum StrategyTag {
     /// conflict resolution ranks same-kind signatures above cross-kind
     /// bridges.
     Coerce,
+    /// Neighborhood propagation: child-pair scoring seeded from an
+    /// already-aligned parent pair via edge-label similarity, edge-kind
+    /// equality, kind-and-constraints compatibility, and degree
+    /// overlap.
+    Neighborhood,
     /// Pure degree-and-kind-signature matching (last resort).
     Structural,
     /// LM-proposed alignment (feature-gated).
@@ -170,6 +177,7 @@ const fn strategy_priority(tag: StrategyTag) -> u8 {
         // within the same kind is stronger evidence than a coercion across
         // kinds.
         StrategyTag::Coerce => 40,
+        StrategyTag::Neighborhood => 35,
         StrategyTag::Structural => 30,
         StrategyTag::Llm => 20,
     }
@@ -752,6 +760,7 @@ mod tests {
             StrategyTag::TokenSimilarity,
             StrategyTag::DescriptionSimilarity,
             StrategyTag::Coerce,
+            StrategyTag::Neighborhood,
             StrategyTag::Structural,
             StrategyTag::Llm,
         ];
@@ -782,6 +791,7 @@ mod tests {
             (StrategyTag::TokenSimilarity, 50),
             (StrategyTag::DescriptionSimilarity, 45),
             (StrategyTag::Coerce, 40),
+            (StrategyTag::Neighborhood, 35),
             (StrategyTag::Structural, 30),
             (StrategyTag::Llm, 20),
         ];

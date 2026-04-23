@@ -83,6 +83,26 @@ impl Stringency {
         }
     }
 
+    /// Whether the neighborhood-propagation strategy runs at this tier.
+    /// Enabled at `Lenient` and `Exploratory`; the signal is too soft
+    /// for `Strict` or `Balanced`, where child-pair alignment should
+    /// come from direct name or label evidence instead.
+    #[must_use]
+    pub const fn uses_neighborhood_propagation(self) -> bool {
+        matches!(self, Self::Lenient | Self::Exploratory)
+    }
+
+    /// Threshold for the neighborhood propagation score. Tighter at
+    /// Lenient, looser at Exploratory.
+    #[must_use]
+    pub const fn neighborhood_threshold(self) -> f64 {
+        match self {
+            Self::Lenient => 0.6,
+            Self::Exploratory => 0.45,
+            _ => 1.0,
+        }
+    }
+
     /// Whether the alias dictionary is consulted at this tier.
     #[must_use]
     pub const fn uses_alias_dict(self) -> bool {
@@ -361,6 +381,17 @@ fn run_strategies(
     // vertices. Runs after every strategy has emitted so that the
     // adjustment applies uniformly to the anchor pool.
     align::adjust_anchors_by_required_sets(&mut anchors, src, tgt);
+
+    // Neighborhood propagation: re-resolve the first-pass anchors to
+    // obtain a seed map and propagate child anchors from each seeded
+    // pair. The second-pass anchors are merged back into the pool and
+    // the caller's `resolve_anchors` later picks winners overall.
+    if config.stringency.uses_neighborhood_propagation() {
+        let seeds = align::resolve_anchors(&anchors, false);
+        let threshold = config.stringency.neighborhood_threshold();
+        let neighborhood = align::neighborhood_anchors(src, tgt, &seeds, threshold);
+        anchors.extend(neighborhood);
+    }
 
     (anchors, coerce_proposals)
 }
