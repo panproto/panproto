@@ -232,6 +232,206 @@ pub fn kinds_and_constraints_compatible(
     true
 }
 
+/// Return `true` if `vertex_id` is pointed to by any edge in the
+/// schema's `required` table. Protocol-generic: uses the schema's own
+/// required-edge annotations rather than any specific vocabulary.
+#[must_use]
+pub fn vertex_is_required(schema: &Schema, vertex_id: &Name) -> bool {
+    schema
+        .required
+        .values()
+        .any(|edges| edges.iter().any(|e| &e.tgt == vertex_id))
+}
+
+/// Apply a required-set correspondence tiebreak to `anchors` in place.
+///
+/// For every anchor proposal `(s, t)`:
+/// * `+0.05` when both `s` and `t` are required (positively correlated).
+/// * `-0.05` when exactly one side is required (asymmetric: reassigning
+///   required data to optional data, or vice versa, usually indicates a
+///   schema-shape change the anchor should not silently confirm).
+/// * Unchanged when both sides are optional.
+///
+/// Confidences are clamped to `[0.0, 1.0]` so the adjustment cannot
+/// push a heuristic anchor above `Exact = 1.0` or below zero. The
+/// magnitude is small by design: it breaks ties without overwhelming
+/// the strategy-priority ordering honored by [`resolve_anchors`].
+pub fn adjust_anchors_by_required_sets(anchors: &mut [Anchor], src: &Schema, tgt: &Schema) {
+    for anchor in anchors.iter_mut() {
+        let sr = vertex_is_required(src, &anchor.src);
+        let tr = vertex_is_required(tgt, &anchor.tgt);
+        let delta = match (sr, tr) {
+            (true, true) => 0.05,
+            (true, false) | (false, true) => -0.05,
+            (false, false) => 0.0,
+        };
+        if delta == 0.0 {
+            continue;
+        }
+        anchor.confidence = (anchor.confidence + delta).clamp(0.0, 1.0);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::float_cmp)]
+mod required_tiebreak_tests {
+    use super::*;
+    use panproto_schema::{Edge, EdgeRule, Protocol, SchemaBuilder};
+
+    fn proto() -> Protocol {
+        Protocol {
+            name: "t".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![EdgeRule {
+                edge_kind: "prop".into(),
+                src_kinds: vec!["object".into()],
+                tgt_kinds: vec!["string".into()],
+            }],
+            obj_kinds: vec!["object".into(), "string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        }
+    }
+
+    fn schema_with_required(parent: &str, child: &str, required: bool) -> panproto_schema::Schema {
+        let p = proto();
+        let mut b = SchemaBuilder::new(&p)
+            .vertex(parent, "object", None::<&str>)
+            .unwrap()
+            .vertex(child, "string", None::<&str>)
+            .unwrap()
+            .edge(parent, child, "prop", Some("f"))
+            .unwrap();
+        if required {
+            let edge = Edge {
+                src: Name::from(parent),
+                tgt: Name::from(child),
+                kind: Name::from("prop"),
+                name: Some(Name::from("f")),
+            };
+            b = b.required(parent, vec![edge]);
+        }
+        b.build().unwrap()
+    }
+
+    #[test]
+    fn required_matching_required_boosts() {
+        let src = schema_with_required("p", "c", true);
+        let tgt = schema_with_required("q", "d", true);
+        let mut anchors = vec![Anchor {
+            src: Name::from("c"),
+            tgt: Name::from("d"),
+            confidence: 0.5,
+            strategy: StrategyTag::Alias,
+            explanation: String::new(),
+        }];
+        adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
+        assert!((anchors[0].confidence - 0.55).abs() < 1e-9);
+    }
+
+    #[test]
+    fn required_to_optional_penalizes() {
+        let src = schema_with_required("p", "c", true);
+        let tgt = schema_with_required("q", "d", false);
+        let mut anchors = vec![Anchor {
+            src: Name::from("c"),
+            tgt: Name::from("d"),
+            confidence: 0.5,
+            strategy: StrategyTag::Alias,
+            explanation: String::new(),
+        }];
+        adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
+        assert!((anchors[0].confidence - 0.45).abs() < 1e-9);
+    }
+
+    #[test]
+    fn both_optional_unchanged() {
+        let src = schema_with_required("p", "c", false);
+        let tgt = schema_with_required("q", "d", false);
+        let mut anchors = vec![Anchor {
+            src: Name::from("c"),
+            tgt: Name::from("d"),
+            confidence: 0.5,
+            strategy: StrategyTag::Alias,
+            explanation: String::new(),
+        }];
+        adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
+        assert_eq!(anchors[0].confidence, 0.5);
+    }
+
+    #[test]
+    fn clamps_to_unit_interval() {
+        let src = schema_with_required("p", "c", true);
+        let tgt = schema_with_required("q", "d", true);
+        let mut anchors = vec![Anchor {
+            src: Name::from("c"),
+            tgt: Name::from("d"),
+            confidence: 0.99,
+            strategy: StrategyTag::Exact,
+            explanation: String::new(),
+        }];
+        adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
+        assert!(anchors[0].confidence <= 1.0);
+        assert!(anchors[0].confidence >= 0.99); // boost applied but clamped
+    }
+
+    #[test]
+    fn matched_required_beats_mismatched_at_tie() {
+        // Two anchors pointing the same source at different targets;
+        // after the tiebreak, `resolve_anchors` must pick the required-
+        // matching one.
+        let src = schema_with_required("p", "c", true);
+        let p2 = proto();
+        // Target with two children: `d` required, `e` optional.
+        let tgt = SchemaBuilder::new(&p2)
+            .vertex("q", "object", None::<&str>)
+            .unwrap()
+            .vertex("d", "string", None::<&str>)
+            .unwrap()
+            .vertex("e", "string", None::<&str>)
+            .unwrap()
+            .edge("q", "d", "prop", Some("fd"))
+            .unwrap()
+            .edge("q", "e", "prop", Some("fe"))
+            .unwrap()
+            .required(
+                "q",
+                vec![Edge {
+                    src: Name::from("q"),
+                    tgt: Name::from("d"),
+                    kind: Name::from("prop"),
+                    name: Some(Name::from("fd")),
+                }],
+            )
+            .build()
+            .unwrap();
+        let mut anchors = vec![
+            Anchor {
+                src: Name::from("c"),
+                tgt: Name::from("d"),
+                confidence: 0.7,
+                strategy: StrategyTag::Alias,
+                explanation: String::new(),
+            },
+            Anchor {
+                src: Name::from("c"),
+                tgt: Name::from("e"),
+                confidence: 0.7,
+                strategy: StrategyTag::Alias,
+                explanation: String::new(),
+            },
+        ];
+        adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
+        let resolved = resolve_anchors(&anchors, false);
+        assert_eq!(
+            resolved.get(&Name::from("c")).map(Name::as_str),
+            Some("d"),
+            "required-matching anchor must win the source slot"
+        );
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod constraint_compat_tests {

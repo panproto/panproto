@@ -356,6 +356,12 @@ fn run_strategies(
         Vec::new()
     };
 
+    // Required-set correspondence tiebreak: a small delta that breaks
+    // ties among equal-confidence anchors targeting required-vs-optional
+    // vertices. Runs after every strategy has emitted so that the
+    // adjustment applies uniformly to the anchor pool.
+    align::adjust_anchors_by_required_sets(&mut anchors, src, tgt);
+
     (anchors, coerce_proposals)
 }
 
