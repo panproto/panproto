@@ -1,16 +1,17 @@
-//! Regression test for panproto/panproto#48.
+//! Anchor-seed integration test for two atproto lexicons whose records
+//! sit under disjoint NSIDs but share user-visible prop names.
 //!
-//! Reproduces the reported failure on real atproto lexicons that share
-//! user-visible prop names but live under disjoint NSIDs. Before the
-//! fix, `auto_generate_candidates` at `Stringency::Balanced` seeded
-//! zero anchors between `app.bsky.feed.post` and `site.standard.document`
-//! and fell back to the degenerate all-`DropOp` chain, because every
-//! alignment strategy at Balanced keyed on vertex IDs (which are
-//! fully-qualified as `{object}.{prop}` by `parse_lexicon`) and none
-//! recovered the obvious `tags ↔ tags` and `labels ↔ labels` matches.
-//! After the fix, the new suffix strategy emits those pairs with
-//! confidence 1.0, the CSP validates them against the naturality
-//! check, and the resulting morphism aligns the shared props.
+//! The lexicons `app.bsky.feed.post` and `site.standard.document` each
+//! expose a `tags` prop (identical `array<string>`) and a `labels` prop
+//! (byte-identical `union refs=['com.atproto.label.defs#selfLabels']`).
+//! `parse_lexicon` names each prop vertex as `{record_id}:body.{prop}`,
+//! so the full IDs share no tokens and carry disjoint NSID prefixes.
+//! At `Stringency::Balanced`, exact, alias, and identifier-token
+//! strategies therefore produce zero anchors on this pair.
+//!
+//! This test confirms that `suffix_anchors` recovers both shared-name
+//! pairs at confidence 1.0 under `StrategyTag::ExactSuffix`, so that the
+//! CSP has something non-trivial to anchor on.
 
 #![allow(clippy::expect_used)]
 #![allow(clippy::unwrap_used)]
@@ -33,7 +34,8 @@ fn suffix_strategy_seeds_cross_nsid_tags_and_labels_at_balanced() {
     let src = parse_lexicon(&post_json).expect("app.bsky.feed.post parses");
     let tgt = parse_lexicon(&doc_json).expect("site.standard.document parses");
 
-    // Vertex IDs as the issue cites them: `{record_id}.{prop_name}`.
+    // Confirm the input shape before asserting on the strategy output:
+    // `parse_lexicon` names prop vertices `{record_id}:body.{prop}`.
     assert!(
         src.vertices
             .keys()
@@ -59,7 +61,7 @@ fn suffix_strategy_seeds_cross_nsid_tags_and_labels_at_balanced() {
         .map(|a| (a.src.as_str().to_owned(), a.tgt.as_str().to_owned()))
         .collect();
 
-    // `tags ↔ tags`: identical `array<string>` on both sides, caught
+    // `tags ↔ tags`: identical `array<string>` on both sides, anchored
     // at confidence 1.0 by the suffix strategy.
     assert!(
         pairs.contains(&(
@@ -69,8 +71,7 @@ fn suffix_strategy_seeds_cross_nsid_tags_and_labels_at_balanced() {
         "expected suffix-anchored `tags` pair in {pairs:#?}",
     );
 
-    // `labels ↔ labels`: byte-identical `union refs=['com.atproto.label.defs#selfLabels']`
-    // on both sides.
+    // `labels ↔ labels`: byte-identical `union` on both sides.
     assert!(
         pairs.contains(&(
             "app.bsky.feed.post:body.labels".into(),
@@ -79,8 +80,8 @@ fn suffix_strategy_seeds_cross_nsid_tags_and_labels_at_balanced() {
         "expected suffix-anchored `labels` pair in {pairs:#?}",
     );
 
-    // Before the fix, zero anchors were seeded; verify at least the
-    // two shared-named pairs now appear.
+    // Both shared-named pairs must have been emitted as ExactSuffix
+    // anchors (not by some other strategy inadvertently hitting them).
     let shared = ["tags", "labels"];
     let seeded_tails: Vec<&str> = anchors
         .iter()
