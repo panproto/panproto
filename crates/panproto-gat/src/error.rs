@@ -268,6 +268,71 @@ pub enum GatError {
     CyclicSortDependency(Vec<String>),
 
     // --- Quotient errors ---
+    /// A case expression fails to cover every constructor of its
+    /// scrutinee's closed sort.
+    #[error("case on sort {sort} missing branches for: {missing:?}")]
+    NonExhaustiveCase {
+        /// The scrutinee's sort name.
+        sort: String,
+        /// Constructor names not covered.
+        missing: Vec<String>,
+    },
+
+    /// A case expression has two branches for the same constructor.
+    #[error("case on sort {sort} has a redundant branch for constructor {constructor}")]
+    RedundantCaseBranch {
+        /// The scrutinee's sort name.
+        sort: String,
+        /// The duplicated constructor name.
+        constructor: String,
+    },
+
+    /// A case branch names a constructor that is not in the scrutinee's
+    /// closed-sort constructor list.
+    #[error("case on sort {sort} references unknown constructor {constructor}")]
+    UnknownCaseConstructor {
+        /// The scrutinee's sort name.
+        sort: String,
+        /// The offending constructor name.
+        constructor: String,
+    },
+
+    /// A case expression's scrutinee has an open sort; pattern
+    /// matching requires a closed sort.
+    #[error("case scrutinee has open sort {sort}; pattern matching requires a closed sort")]
+    CaseOnOpenSort {
+        /// The scrutinee's sort name.
+        sort: String,
+    },
+
+    /// A closed sort's constructor list references an op that either
+    /// does not exist, does not produce this sort, or conflicts with
+    /// another op producing the sort.
+    #[error("closed sort {sort} has invalid constructor {constructor}: {detail}")]
+    InvalidClosedSortConstructor {
+        /// The closed sort name.
+        sort: String,
+        /// The offending constructor op name.
+        constructor: String,
+        /// Details about the problem.
+        detail: String,
+    },
+
+    /// A morphism does not preserve a domain sort's closure: the
+    /// image of the constructor list under the op map is not the
+    /// codomain sort's constructor list.
+    #[error(
+        "morphism fails closure preservation for sort {sort}: expected closure {expected:?}, got {got:?}"
+    )]
+    MorphismClosureMismatch {
+        /// The domain sort name.
+        sort: String,
+        /// Expected constructor set (domain closure image under `op_map`).
+        expected: Vec<String>,
+        /// Actual constructor set in the codomain sort.
+        got: Vec<String>,
+    },
+
     /// An operation declares an implicit parameter whose value cannot
     /// be recovered from the explicit inputs at a call site.
     ///

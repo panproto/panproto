@@ -11,10 +11,10 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use crate::eq::{Equation, Term};
+use crate::eq::{CaseBranch, Equation, Term};
 use crate::error::GatError;
 use crate::op::{Implicit, Operation};
-use crate::sort::SortExpr;
+use crate::sort::{SortClosure, SortExpr};
 use crate::theory::Theory;
 
 /// A variable typing context.
@@ -69,7 +69,126 @@ pub fn typecheck_term(
                 typecheck_app_explicit(op, args, operation, ctx, theory)
             }
         }
+
+        Term::Case {
+            scrutinee,
+            branches,
+        } => typecheck_case(scrutinee, branches, ctx, theory),
     }
+}
+
+/// Typecheck a [`Term::Case`] expression.
+fn typecheck_case(
+    scrutinee: &Term,
+    branches: &[CaseBranch],
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<SortExpr, GatError> {
+    let scrutinee_sort = typecheck_term(scrutinee, ctx, theory)?;
+    let sort_name = scrutinee_sort.head();
+    let sort_decl = theory
+        .find_sort(sort_name)
+        .ok_or_else(|| GatError::SortNotFound(sort_name.to_string()))?;
+    let constructors = match &sort_decl.closure {
+        SortClosure::Open => {
+            return Err(GatError::CaseOnOpenSort {
+                sort: sort_name.to_string(),
+            });
+        }
+        SortClosure::Closed(cs) => cs.clone(),
+    };
+
+    // Exhaustiveness: every constructor appears exactly once, and no
+    // branch names an unknown constructor. Build both checks in one
+    // pass.
+    let mut seen: rustc_hash::FxHashSet<Arc<str>> = rustc_hash::FxHashSet::default();
+    for b in branches {
+        if !constructors.contains(&b.constructor) {
+            return Err(GatError::UnknownCaseConstructor {
+                sort: sort_name.to_string(),
+                constructor: b.constructor.to_string(),
+            });
+        }
+        if !seen.insert(Arc::clone(&b.constructor)) {
+            return Err(GatError::RedundantCaseBranch {
+                sort: sort_name.to_string(),
+                constructor: b.constructor.to_string(),
+            });
+        }
+    }
+    if seen.len() < constructors.len() {
+        let missing: Vec<String> = constructors
+            .iter()
+            .filter(|c| !seen.contains(*c))
+            .map(ToString::to_string)
+            .collect();
+        return Err(GatError::NonExhaustiveCase {
+            sort: sort_name.to_string(),
+            missing,
+        });
+    }
+
+    // Typecheck each branch body; all must produce alpha-equivalent
+    // output sorts. The first branch's output sort is the case
+    // expression's sort.
+    let mut branch_sort: Option<SortExpr> = None;
+    for b in branches {
+        let constructor_op = theory
+            .find_op(&b.constructor)
+            .ok_or_else(|| GatError::OpNotFound(b.constructor.to_string()))?;
+        if constructor_op.inputs.len() != b.binders.len() {
+            return Err(GatError::TermArityMismatch {
+                op: b.constructor.to_string(),
+                expected: constructor_op.inputs.len(),
+                got: b.binders.len(),
+            });
+        }
+        // Unify constructor's declared output sort with the actual
+        // scrutinee sort to instantiate the constructor's parameter
+        // vars.
+        let unify_eqs: Vec<(Term, Term)> = constructor_op
+            .output
+            .args()
+            .iter()
+            .zip(scrutinee_sort.args().iter())
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect();
+        if constructor_op.output.head() != scrutinee_sort.head()
+            || constructor_op.output.args().len() != scrutinee_sort.args().len()
+        {
+            return Err(GatError::OpTypeMismatch {
+                op: b.constructor.to_string(),
+                detail: format!(
+                    "constructor output sort {} does not match scrutinee sort {scrutinee_sort}",
+                    constructor_op.output
+                ),
+            });
+        }
+        let subst = unify_all(unify_eqs)?;
+        let mut extended = ctx.clone();
+        for ((_, declared_sort, _), binder) in constructor_op.inputs.iter().zip(b.binders.iter()) {
+            let binder_sort = declared_sort.subst(&subst);
+            extended.insert(Arc::clone(binder), binder_sort);
+        }
+        let body_sort = typecheck_term(&b.body, &extended, theory)?;
+        match &branch_sort {
+            None => branch_sort = Some(body_sort),
+            Some(existing) => {
+                if !existing.alpha_eq(&body_sort) {
+                    return Err(GatError::EquationSortMismatch {
+                        equation: "case".to_string(),
+                        lhs_sort: existing.to_string(),
+                        rhs_sort: body_sort.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    branch_sort.ok_or_else(|| GatError::NonExhaustiveCase {
+        sort: sort_name.to_string(),
+        missing: constructors.iter().map(ToString::to_string).collect(),
+    })
 }
 
 /// Typecheck an `App` against an operation with every input marked
@@ -262,8 +381,19 @@ fn collect_constraints(
     ctx: &mut VarContext,
     term_eqs: &mut Vec<(Term, Term)>,
 ) -> Result<(), GatError> {
-    let Term::App { op, args } = term else {
-        return Ok(());
+    let (op, args) = match term {
+        Term::App { op, args } => (op, args),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            collect_constraints(scrutinee, theory, ctx, term_eqs)?;
+            for b in branches {
+                collect_constraints(&b.body, theory, ctx, term_eqs)?;
+            }
+            return Ok(());
+        }
+        Term::Var(_) => return Ok(()),
     };
     let operation = theory
         .find_op(op)
@@ -288,7 +418,7 @@ fn collect_constraints(
                     ctx.insert(Arc::clone(var_name), expected);
                 }
             }
-            Term::App { .. } => {
+            Term::App { .. } | Term::Case { .. } => {
                 collect_constraints(arg, theory, ctx, term_eqs)?;
             }
         }
@@ -392,6 +522,11 @@ fn unify_all(mut eqs: Vec<(Term, Term)>) -> Result<FxHashMap<Arc<str>, Term>, Ga
                     eqs.push(pair);
                 }
             }
+            (lhs, rhs) => {
+                return Err(GatError::SortUnificationFailure {
+                    reason: format!("cannot unify {lhs} with {rhs}"),
+                });
+            }
         }
     }
 
@@ -409,6 +544,15 @@ fn occurs_in(var: &Arc<str>, term: &Term) -> bool {
     match term {
         Term::Var(v) => v == var,
         Term::App { args, .. } => args.iter().any(|a| occurs_in(var, a)),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            occurs_in(var, scrutinee)
+                || branches
+                    .iter()
+                    .any(|b| !b.binders.contains(var) && occurs_in(var, &b.body))
+        }
     }
 }
 
@@ -449,8 +593,57 @@ pub fn typecheck_theory(theory: &Theory) -> Result<(), GatError> {
     for op in &theory.ops {
         check_implicits_inferrable(op)?;
     }
+    check_closed_sorts(theory)?;
     for eq in &theory.eqs {
         typecheck_equation(eq, theory)?;
+    }
+    Ok(())
+}
+
+/// Verify every [`SortClosure::Closed`] sort's constructor list against
+/// the theory's op table.
+///
+/// For a sort `S` closed against `[c1, ..., cn]`:
+/// - each `ci` must be an op in the theory,
+/// - each `ci`'s output head must equal `S`,
+/// - no op outside `[c1, ..., cn]` produces `S`.
+fn check_closed_sorts(theory: &Theory) -> Result<(), GatError> {
+    for sort in &theory.sorts {
+        let SortClosure::Closed(ctors) = &sort.closure else {
+            continue;
+        };
+        let ctor_set: rustc_hash::FxHashSet<Arc<str>> = ctors.iter().map(Arc::clone).collect();
+        for ctor in ctors {
+            let op =
+                theory
+                    .find_op(ctor)
+                    .ok_or_else(|| GatError::InvalidClosedSortConstructor {
+                        sort: sort.name.to_string(),
+                        constructor: ctor.to_string(),
+                        detail: "op does not exist in the theory".to_string(),
+                    })?;
+            if op.output.head() != &sort.name {
+                return Err(GatError::InvalidClosedSortConstructor {
+                    sort: sort.name.to_string(),
+                    constructor: ctor.to_string(),
+                    detail: format!(
+                        "op output head is {}, expected {}",
+                        op.output.head(),
+                        sort.name
+                    ),
+                });
+            }
+        }
+        for op in &theory.ops {
+            if op.output.head() == &sort.name && !ctor_set.contains(&op.name) {
+                return Err(GatError::InvalidClosedSortConstructor {
+                    sort: sort.name.to_string(),
+                    constructor: op.name.to_string(),
+                    detail: "op produces the closed sort but is not listed in its closure"
+                        .to_string(),
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -492,6 +685,15 @@ fn term_mentions_var(t: &Term, name: &Arc<str>) -> bool {
     match t {
         Term::Var(v) => v == name,
         Term::App { args, .. } => args.iter().any(|a| term_mentions_var(a, name)),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            term_mentions_var(scrutinee, name)
+                || branches
+                    .iter()
+                    .any(|b| !b.binders.contains(name) && term_mentions_var(&b.body, name))
+        }
     }
 }
 
@@ -1305,6 +1507,245 @@ mod tests {
         );
     }
 
+    // --- closed sorts and case terms (1.2) ---
+
+    /// Theory with closed sort `Nat` and constructors `zero`, `succ`.
+    fn nat_theory() -> Theory {
+        let nat = Sort::closed(
+            "Nat",
+            Vec::new(),
+            [Arc::from("zero") as Arc<str>, Arc::from("succ")],
+        );
+        let zero = Operation::nullary("zero", "Nat");
+        let succ = Operation::unary("succ", "n", "Nat", "Nat");
+        Theory::new("NatTh", vec![nat], vec![zero, succ], Vec::new())
+    }
+
+    #[test]
+    fn closed_sort_exhaustive_case_typechecks() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = nat_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![
+                CaseBranch {
+                    constructor: Arc::from("zero"),
+                    binders: Vec::new(),
+                    body: Term::constant("zero"),
+                },
+                CaseBranch {
+                    constructor: Arc::from("succ"),
+                    binders: vec![Arc::from("m")],
+                    body: Term::var("m"),
+                },
+            ],
+        };
+        let sort = typecheck_term(&term, &ctx, &theory)?;
+        assert_eq!(&**sort.head(), "Nat");
+        Ok(())
+    }
+
+    #[test]
+    fn closed_sort_missing_branch_rejected() {
+        let theory = nat_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![CaseBranch {
+                constructor: Arc::from("zero"),
+                binders: Vec::new(),
+                body: Term::constant("zero"),
+            }],
+        };
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::NonExhaustiveCase { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn closed_sort_redundant_branch_rejected() {
+        let theory = nat_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![
+                CaseBranch {
+                    constructor: Arc::from("zero"),
+                    binders: Vec::new(),
+                    body: Term::constant("zero"),
+                },
+                CaseBranch {
+                    constructor: Arc::from("zero"),
+                    binders: Vec::new(),
+                    body: Term::constant("zero"),
+                },
+            ],
+        };
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::RedundantCaseBranch { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn case_on_open_sort_rejected() {
+        // Use a plain open sort `Vertex` with a `v0` nullary.
+        let v = Sort::simple("Vertex");
+        let v0 = Operation::nullary("v0", "Vertex");
+        let theory = Theory::new("Open", vec![v], vec![v0], Vec::new());
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("x"), SortExpr::from("Vertex"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("x")),
+            branches: vec![CaseBranch {
+                constructor: Arc::from("v0"),
+                binders: Vec::new(),
+                body: Term::constant("v0"),
+            }],
+        };
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::CaseOnOpenSort { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn case_unknown_constructor_rejected() {
+        let theory = nat_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![
+                CaseBranch {
+                    constructor: Arc::from("nope"),
+                    binders: Vec::new(),
+                    body: Term::constant("zero"),
+                },
+                CaseBranch {
+                    constructor: Arc::from("succ"),
+                    binders: vec![Arc::from("m")],
+                    body: Term::var("m"),
+                },
+            ],
+        };
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::UnknownCaseConstructor { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn closed_sort_rejects_external_constructor() {
+        // A sort closed against [zero] but another op also produces Nat:
+        // typecheck_theory must reject this.
+        let nat = Sort::closed("Nat", Vec::new(), [Arc::from("zero") as Arc<str>]);
+        let zero = Operation::nullary("zero", "Nat");
+        let sneaky = Operation::nullary("sneaky", "Nat");
+        let theory = Theory::new("BadClosure", vec![nat], vec![zero, sneaky], Vec::new());
+        let result = typecheck_theory(&theory);
+        assert!(
+            matches!(result, Err(GatError::InvalidClosedSortConstructor { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn morphism_preserves_closure_constructors() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::morphism::{TheoryMorphism, check_morphism};
+        use std::collections::HashMap;
+
+        let nat1 = nat_theory();
+        // Codomain theory: Nat' closed against [zero', succ']
+        let nat_prime = Sort::closed(
+            "Nat",
+            Vec::new(),
+            [Arc::from("zero2") as Arc<str>, Arc::from("succ2")],
+        );
+        let zero2 = Operation::nullary("zero2", "Nat");
+        let succ2 = Operation::unary("succ2", "n", "Nat", "Nat");
+        let nat2 = Theory::new("NatTh2", vec![nat_prime], vec![zero2, succ2], Vec::new());
+
+        let mut sort_map = HashMap::new();
+        sort_map.insert(Arc::from("Nat"), Arc::from("Nat"));
+        let mut op_map = HashMap::new();
+        op_map.insert(Arc::from("zero"), Arc::from("zero2"));
+        op_map.insert(Arc::from("succ"), Arc::from("succ2"));
+        let m = TheoryMorphism::new("m", "NatTh", "NatTh2", sort_map, op_map);
+        check_morphism(&m, &nat1, &nat2)?;
+
+        // Now swap succ2 to an unrelated op in the codomain closure and
+        // verify the morphism check fails.
+        let nat_prime_bad = Sort::closed(
+            "Nat",
+            Vec::new(),
+            [Arc::from("zero2") as Arc<str>, Arc::from("other")],
+        );
+        let other = Operation::unary("other", "n", "Nat", "Nat");
+        let nat2_bad = Theory::new(
+            "NatTh2",
+            vec![nat_prime_bad],
+            vec![Operation::nullary("zero2", "Nat"), other],
+            Vec::new(),
+        );
+        let result = check_morphism(&m, &nat1, &nat2_bad);
+        assert!(
+            matches!(result, Err(GatError::MorphismClosureMismatch { .. })),
+            "got {result:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn case_term_substitution_respects_binder_shadow() {
+        // case n of zero => m | succ(m) => m end
+        // Under substitution [m := succ(zero())], the zero branch's
+        // body becomes succ(zero()), but the succ branch's body is
+        // shadowed by its binder `m` and remains `m`.
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![
+                CaseBranch {
+                    constructor: Arc::from("zero"),
+                    binders: Vec::new(),
+                    body: Term::var("m"),
+                },
+                CaseBranch {
+                    constructor: Arc::from("succ"),
+                    binders: vec![Arc::from("m")],
+                    body: Term::var("m"),
+                },
+            ],
+        };
+        let mut subst = FxHashMap::default();
+        subst.insert(
+            Arc::from("m"),
+            Term::app("succ", vec![Term::constant("zero")]),
+        );
+        let result = term.substitute(&subst);
+        let Term::Case { branches, .. } = &result else {
+            panic!("expected Case, got {result:?}");
+        };
+        assert_eq!(
+            branches[0].body,
+            Term::app("succ", vec![Term::constant("zero")]),
+            "zero branch body should be substituted"
+        );
+        assert_eq!(
+            branches[1].body,
+            Term::var("m"),
+            "succ branch body must be shadowed, body stays `m`"
+        );
+    }
+
     // --- implicit arg inference (1.1) ---
 
     /// Build a minimal lambda-calculus-style theory with an `app`
@@ -1546,8 +1987,67 @@ mod tests {
             })
         }
 
+        /// Generate a closed `Nat` theory plus a random list of
+        /// constructor names chosen from `{zero, succ}` as branch
+        /// constructors, possibly with missing/duplicate/unknown ones.
+        fn arb_case_on_nat() -> impl Strategy<Value = (Theory, Vec<Arc<str>>)> {
+            let nat = Sort::closed(
+                "Nat",
+                Vec::new(),
+                [Arc::from("zero") as Arc<str>, Arc::from("succ")],
+            );
+            let zero = Operation::nullary("zero", "Nat");
+            let succ = Operation::unary("succ", "n", "Nat", "Nat");
+            let theory = Theory::new("NatTh", vec![nat], vec![zero, succ], Vec::new());
+            (
+                Just(theory),
+                prop::collection::vec(
+                    prop::sample::select(vec![
+                        Arc::from("zero"),
+                        Arc::from("succ"),
+                        Arc::from("bogus"),
+                    ] as Vec<Arc<str>>),
+                    0..=3,
+                ),
+            )
+        }
+
         proptest! {
             #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn case_on_closed_sort_never_panics(
+                (theory, ctors) in arb_case_on_nat()
+            ) {
+                let mut ctx = VarContext::default();
+                ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+                let branches: Vec<CaseBranch> = ctors
+                    .into_iter()
+                    .map(|c| CaseBranch {
+                        constructor: c,
+                        binders: Vec::new(),
+                        body: Term::constant("zero"),
+                    })
+                    .collect();
+                let term = Term::Case {
+                    scrutinee: Box::new(Term::var("n")),
+                    branches,
+                };
+                // Must return a well-typed sort or a specific GatError
+                // variant; it must not panic.
+                let r = typecheck_term(&term, &ctx, &theory);
+                match r {
+                    Ok(_)
+                    | Err(
+                        GatError::NonExhaustiveCase { .. }
+                        | GatError::RedundantCaseBranch { .. }
+                        | GatError::UnknownCaseConstructor { .. }
+                        | GatError::OpTypeMismatch { .. }
+                        | GatError::TermArityMismatch { .. },
+                    ) => {}
+                    other => prop_assert!(false, "unexpected result: {other:?}"),
+                }
+            }
 
             #[test]
             fn typecheck_is_idempotent(t in arb_well_typed_theory()) {

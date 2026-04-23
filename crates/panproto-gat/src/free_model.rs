@@ -470,6 +470,32 @@ fn term_to_string(term: &Term) -> String {
             let arg_strs: Vec<String> = args.iter().map(term_to_string).collect();
             format!("{op}({})", arg_strs.join(", "))
         }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            let branch_strs: Vec<String> = branches
+                .iter()
+                .map(|b| {
+                    let binders = b
+                        .binders
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>();
+                    format!(
+                        "{}({}) => {}",
+                        b.constructor,
+                        binders.join(", "),
+                        term_to_string(&b.body)
+                    )
+                })
+                .collect();
+            format!(
+                "case {} of {} end",
+                term_to_string(scrutinee),
+                branch_strs.join(" | ")
+            )
+        }
     }
 }
 

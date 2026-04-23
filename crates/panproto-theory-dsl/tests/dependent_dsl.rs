@@ -85,6 +85,7 @@ fn parse_applied_sort_expr_produces_app_variant() {
                 name: "Ob".to_owned(),
                 params: vec![],
                 kind: panproto_theory_dsl::document::SortKindSpec::Structural,
+                closed: None,
             },
             panproto_theory_dsl::document::SortSpec {
                 name: "Hom".to_owned(),
@@ -101,6 +102,7 @@ fn parse_applied_sort_expr_produces_app_variant() {
                     },
                 ],
                 kind: panproto_theory_dsl::document::SortKindSpec::Structural,
+                closed: None,
             },
         ],
         ops: vec![spec],
@@ -134,11 +136,13 @@ fn compile_rejects_dsl_theory_with_ill_typed_equation() {
                 name: "A".to_owned(),
                 params: vec![],
                 kind: SortKindSpec::Structural,
+                closed: None,
             },
             SortSpec {
                 name: "B".to_owned(),
                 params: vec![],
                 kind: SortKindSpec::Structural,
+                closed: None,
             },
         ],
         ops: vec![

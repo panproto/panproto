@@ -312,6 +312,26 @@ impl std::fmt::Display for Term {
                 }
                 f.write_str(")")
             }
+            Self::Case {
+                scrutinee,
+                branches,
+            } => {
+                write!(f, "case {scrutinee} of ")?;
+                for (i, b) in branches.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(" | ")?;
+                    }
+                    write!(f, "{}(", b.constructor)?;
+                    for (j, binder) in b.binders.iter().enumerate() {
+                        if j > 0 {
+                            f.write_str(", ")?;
+                        }
+                        f.write_str(binder)?;
+                    }
+                    write!(f, ") => {}", b.body)?;
+                }
+                f.write_str(" end")
+            }
         }
     }
 }
@@ -611,16 +631,37 @@ pub struct SortParam {
     pub sort: SortExpr,
 }
 
+/// Closure attribute on a [`Sort`].
+///
+/// An open sort may be inhabited by any operation whose output head
+/// names this sort. A closed sort enumerates the exhaustive set of
+/// constructor operations, enabling pattern matching via `Term::Case`
+/// and exhaustiveness checking at theory-declaration time.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum SortClosure {
+    /// Open sort: any operation with this output head may produce an
+    /// inhabitant. No exhaustiveness check applies.
+    #[default]
+    Open,
+    /// Closed sort: the listed op names form the complete set of
+    /// introduction forms. Pattern matches over this sort must cover
+    /// every listed constructor exactly once.
+    Closed(Vec<Arc<str>>),
+}
+
 /// A sort declaration in a GAT.
 ///
 /// Sorts are the types of a GAT. They may be simple (no parameters)
-/// or dependent (parameterized by terms of other sorts).
+/// or dependent (parameterized by terms of other sorts). A sort may
+/// additionally be declared closed against an enumerated set of
+/// constructors, enabling exhaustive pattern matching.
 ///
 /// # Examples
 ///
 /// - Simple sort: `Vertex` (no params)
 /// - Dependent sort: `Hom(a: Ob, b: Ob)` (two params of sort `Ob`)
 /// - Dependent sort: `Constraint(v: Vertex)` (one param of sort `Vertex`)
+/// - Closed inductive sort: `Nat` closed against `[zero, succ]`
 ///
 /// Based on the formal definition of GAT sorts from Cartmell (1986).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -632,36 +673,65 @@ pub struct Sort {
     /// The kind of this sort (structural, value, coercion, or merger).
     #[serde(default)]
     pub kind: SortKind,
+    /// Closure attribute. Defaults to [`SortClosure::Open`].
+    #[serde(default)]
+    pub closure: SortClosure,
 }
 
 impl Sort {
-    /// Create a simple (non-dependent) sort with structural kind.
+    /// Create a simple (non-dependent) sort with structural kind and
+    /// open closure.
     #[must_use]
     pub fn simple(name: impl Into<Arc<str>>) -> Self {
         Self {
             name: name.into(),
             params: Vec::new(),
             kind: SortKind::default(),
+            closure: SortClosure::Open,
         }
     }
 
-    /// Create a dependent sort with the given parameters and structural kind.
+    /// Create a dependent sort with the given parameters, structural
+    /// kind, and open closure.
     #[must_use]
     pub fn dependent(name: impl Into<Arc<str>>, params: Vec<SortParam>) -> Self {
         Self {
             name: name.into(),
             params,
             kind: SortKind::default(),
+            closure: SortClosure::Open,
         }
     }
 
-    /// Create a simple sort with a specific kind.
+    /// Create a simple sort with a specific kind and open closure.
     #[must_use]
     pub fn with_kind(name: impl Into<Arc<str>>, kind: SortKind) -> Self {
         Self {
             name: name.into(),
             params: Vec::new(),
             kind,
+            closure: SortClosure::Open,
+        }
+    }
+
+    /// Create a closed simple sort with the given constructor op names.
+    ///
+    /// The closure declares these ops as the exhaustive set of
+    /// constructors for this sort. A `Term::Case` over the sort must
+    /// cover every listed constructor exactly once; adding a new
+    /// constructor elsewhere in the theory without updating the
+    /// closure fails `typecheck_theory`.
+    #[must_use]
+    pub fn closed<I, S>(name: impl Into<Arc<str>>, params: Vec<SortParam>, constructors: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<Arc<str>>,
+    {
+        Self {
+            name: name.into(),
+            params,
+            kind: SortKind::default(),
+            closure: SortClosure::Closed(constructors.into_iter().map(Into::into).collect()),
         }
     }
 

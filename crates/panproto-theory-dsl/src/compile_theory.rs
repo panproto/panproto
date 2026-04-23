@@ -103,14 +103,18 @@ fn compile_sort(spec: &SortSpec, theory_name: &str) -> Result<Sort, TheoryDslErr
         SortKindSpec::Merger { value_kind } => SortKind::Merger(parse_value_kind(value_kind)),
     };
 
-    Ok(if params.is_empty() {
-        Sort::with_kind(spec.name.as_str(), kind)
-    } else {
-        Sort {
-            name: Arc::from(spec.name.as_str()),
-            params,
-            kind,
-        }
+    let closure = spec
+        .closed
+        .as_ref()
+        .map_or(panproto_gat::SortClosure::Open, |ctors| {
+            panproto_gat::SortClosure::Closed(ctors.iter().map(|c| Arc::from(c.as_str())).collect())
+        });
+
+    Ok(Sort {
+        name: Arc::from(spec.name.as_str()),
+        params,
+        kind,
+        closure,
     })
 }
 
@@ -344,6 +348,10 @@ pub(crate) fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
         return Err("empty term string".to_owned());
     }
 
+    if let Some(rest) = s.strip_prefix("case ") {
+        return parse_case_term(rest);
+    }
+
     match s.find('(') {
         None => {
             validate_identifier(s, "term variable")?;
@@ -372,6 +380,138 @@ pub(crate) fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
             })
         }
     }
+}
+
+/// Parse the body of a `case` term, given the text following the
+/// leading `case ` keyword.
+///
+/// Grammar:
+///
+/// ```text
+/// case_body ::= scrutinee 'of' branch ('|' branch)* 'end'
+/// branch    ::= ctor '(' binder (',' binder)* ')' '=>' body
+/// ```
+fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
+    let rest = rest.trim();
+    let stripped = rest
+        .strip_suffix("end")
+        .ok_or_else(|| format!("case term missing trailing `end`: {rest:?}"))?
+        .trim_end();
+    let of_pos = find_top_level_keyword(stripped, "of")
+        .ok_or_else(|| format!("case term missing `of` keyword: {rest:?}"))?;
+    let scrutinee_str = stripped[..of_pos].trim();
+    let branches_str = stripped[of_pos + 2..].trim();
+    let scrutinee = parse_term(scrutinee_str)?;
+
+    let branch_parts = split_top_level_pipes(branches_str);
+    if branch_parts.is_empty() {
+        return Err(format!("case term has no branches: {rest:?}"));
+    }
+    let branches = branch_parts
+        .into_iter()
+        .map(parse_case_branch)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(panproto_gat::Term::Case {
+        scrutinee: Box::new(scrutinee),
+        branches,
+    })
+}
+
+fn parse_case_branch(s: &str) -> Result<panproto_gat::CaseBranch, String> {
+    let s = s.trim();
+    let arrow = s
+        .find("=>")
+        .ok_or_else(|| format!("case branch missing `=>`: {s:?}"))?;
+    let head = s[..arrow].trim();
+    let body_str = s[arrow + 2..].trim();
+    let body = parse_term(body_str)?;
+
+    let paren_pos = head
+        .find('(')
+        .ok_or_else(|| format!("case branch constructor missing `(`: {head:?}"))?;
+    let ctor_name = head[..paren_pos].trim();
+    validate_identifier(ctor_name, "case branch constructor")?;
+    let inner = &head[paren_pos + 1..];
+    let close = find_matching_paren(inner)
+        .ok_or_else(|| format!("unclosed paren in case branch: {head:?}"))?;
+    let trailing = inner[close + 1..].trim();
+    if !trailing.is_empty() {
+        return Err(format!(
+            "unexpected trailing input in case branch {head:?}: {trailing:?}"
+        ));
+    }
+    let binders_str = &inner[..close];
+    let binders = if binders_str.trim().is_empty() {
+        Vec::new()
+    } else {
+        split_top_level_commas(binders_str)
+            .into_iter()
+            .map(|b| {
+                let b = b.trim();
+                validate_identifier(b, "case branch binder")?;
+                Ok::<Arc<str>, String>(Arc::from(b))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    Ok(panproto_gat::CaseBranch {
+        constructor: Arc::from(ctor_name),
+        binders,
+        body,
+    })
+}
+
+/// Find a whitespace-delimited occurrence of `keyword` at the top level
+/// (not inside parens). Returns the byte offset of the keyword start.
+fn find_top_level_keyword(s: &str, keyword: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let klen = keyword.len();
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0
+            && i + klen <= bytes.len()
+            && &s[i..i + klen] == keyword
+            && (i == 0 || (bytes[i - 1] as char).is_whitespace())
+            && (i + klen == bytes.len() || (bytes[i + klen] as char).is_whitespace())
+        {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Split by `|` at the top level (not inside parens).
+fn split_top_level_pipes(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            '|' if depth == 0 => {
+                let p = s[start..i].trim();
+                if !p.is_empty() {
+                    parts.push(p);
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let tail = s[start..].trim();
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+    parts
 }
 
 /// Validate a parsed identifier: non-empty, starts with `_` or a letter,
@@ -480,6 +620,7 @@ mod tests {
             name: "Vertex".to_owned(),
             params: vec![],
             kind: SortKindSpec::Structural,
+            closed: None,
         };
         let sort = compile_sort(&spec, "Th")?;
         assert_eq!(&*sort.name, "Vertex");
@@ -603,11 +744,13 @@ mod tests {
                     name: "Vertex".to_owned(),
                     params: vec![],
                     kind: SortKindSpec::Structural,
+                    closed: None,
                 },
                 SortSpec {
                     name: "Edge".to_owned(),
                     params: vec![],
                     kind: SortKindSpec::Structural,
+                    closed: None,
                 },
             ],
             ops: vec![OpSpec {

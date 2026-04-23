@@ -240,6 +240,9 @@ pub fn check_morphism(
                 });
             }
         }
+
+        // 3c. Closure preservation.
+        check_closure_preservation(sort, target_sort, m)?;
     }
 
     // 2. All domain ops must be mapped.
@@ -317,6 +320,35 @@ pub fn check_morphism(
     check_equations_preserved(m, domain, codomain)?;
     check_directed_equations_preserved(m, domain, codomain)?;
 
+    Ok(())
+}
+
+/// A closed sort in the domain must map to a closed sort in the
+/// codomain whose constructor list equals the image of the domain
+/// constructors under the morphism's `op_map` (as a set).
+fn check_closure_preservation(
+    sort: &crate::sort::Sort,
+    target_sort: &crate::sort::Sort,
+    m: &TheoryMorphism,
+) -> Result<(), GatError> {
+    let crate::sort::SortClosure::Closed(dom_ctors) = &sort.closure else {
+        return Ok(());
+    };
+    let expected_image: std::collections::BTreeSet<Arc<str>> = dom_ctors
+        .iter()
+        .map(|c| m.op_map.get(c).cloned().unwrap_or_else(|| Arc::clone(c)))
+        .collect();
+    let actual: std::collections::BTreeSet<Arc<str>> = match &target_sort.closure {
+        crate::sort::SortClosure::Closed(cs) => cs.iter().cloned().collect(),
+        crate::sort::SortClosure::Open => std::collections::BTreeSet::new(),
+    };
+    if expected_image != actual {
+        return Err(GatError::MorphismClosureMismatch {
+            sort: sort.name.to_string(),
+            expected: expected_image.iter().map(ToString::to_string).collect(),
+            got: actual.iter().map(ToString::to_string).collect(),
+        });
+    }
     Ok(())
 }
 

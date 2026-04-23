@@ -201,6 +201,22 @@ fn validate_term_ops(term: &Term, codomain: &Theory) -> Result<(), String> {
             }
             Ok(())
         }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            validate_term_ops(scrutinee, codomain)?;
+            for b in branches {
+                if !codomain.has_op(&b.constructor) {
+                    return Err(format!(
+                        "case constructor {} not found in codomain",
+                        b.constructor
+                    ));
+                }
+                validate_term_ops(&b.body, codomain)?;
+            }
+            Ok(())
+        }
     }
 }
 

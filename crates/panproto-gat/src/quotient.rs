@@ -252,6 +252,7 @@ fn rebuild_sorts(theory: &Theory, sort_rename: &RenameMap) -> Result<Vec<Sort>, 
                 name: rep,
                 params,
                 kind: rep_sort.kind.clone(),
+                closure: rep_sort.closure.clone(),
             });
         }
     }

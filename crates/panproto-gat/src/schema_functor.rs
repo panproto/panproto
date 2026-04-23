@@ -259,6 +259,7 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
                     name: Arc::clone(new),
                     params: s.params.clone(),
                     kind: s.kind.clone(),
+                    closure: s.closure.clone(),
                 }
             } else {
                 let mut rename_map = std::collections::HashMap::new();
@@ -275,6 +276,7 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
                     name: Arc::clone(&s.name),
                     params,
                     kind: s.kind.clone(),
+                    closure: s.closure.clone(),
                 }
             }
         })
@@ -420,6 +422,7 @@ fn apply_merge_sorts(
                     name: Arc::clone(merged_name),
                     params: s.params.clone(),
                     kind: s.kind.clone(),
+                    closure: s.closure.clone(),
                 })
             } else if s.name == *sort_b {
                 None
@@ -622,6 +625,7 @@ fn apply_coerce_sort(
                     name: Arc::clone(&s.name),
                     params: s.params.clone(),
                     kind: SortKind::Val(target_kind),
+                    closure: s.closure.clone(),
                 }
             } else {
                 s.clone()
@@ -835,6 +839,16 @@ fn collect_ops_in_term(term: &Term, ops: &mut Vec<Arc<str>>) {
             ops.push(Arc::clone(op));
             for arg in args {
                 collect_ops_in_term(arg, ops);
+            }
+        }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            collect_ops_in_term(scrutinee, ops);
+            for b in branches {
+                ops.push(Arc::clone(&b.constructor));
+                collect_ops_in_term(&b.body, ops);
             }
         }
     }

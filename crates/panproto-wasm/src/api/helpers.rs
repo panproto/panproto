@@ -867,6 +867,9 @@ pub(super) fn eval_term_recursive(
                 map
             }))
         }
+        gat::Term::Case { .. } => {
+            Err("case terms are not yet supported in WASM expression evaluation".to_string())
+        }
     }
 }
 

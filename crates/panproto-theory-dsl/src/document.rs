@@ -82,6 +82,10 @@ pub struct SortSpec {
     /// Sort kind (defaults to structural).
     #[serde(default = "default_structural")]
     pub kind: SortKindSpec,
+    /// Closure: `None` means open; `Some(constructors)` declares the
+    /// sort closed against those constructor op names.
+    #[serde(default)]
+    pub closed: Option<Vec<String>>,
 }
 
 /// Named parameter for dependent sorts and operations.

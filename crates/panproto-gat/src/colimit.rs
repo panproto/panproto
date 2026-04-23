@@ -301,6 +301,7 @@ fn rename_sort_refs(
         name: Arc::clone(&sort.name),
         params,
         kind: sort.kind.clone(),
+        closure: sort.closure.clone(),
     }
 }
 

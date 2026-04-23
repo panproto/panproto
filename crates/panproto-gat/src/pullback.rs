@@ -111,6 +111,7 @@ fn build_sorts(t1: &Theory, sort_triples: &[Triple]) -> Vec<Sort> {
                 name: Arc::clone(pb_name),
                 params: pb_params,
                 kind: s1.kind.clone(),
+                closure: crate::sort::SortClosure::Open,
             })
         })
         .collect()

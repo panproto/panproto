@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 /// A term in a GAT expression.
 ///
-/// Terms are built from variables and operation applications.
-/// They form the language in which equations are expressed.
-///
+/// Terms are built from variables, operation applications, and case
+/// analyses on closed-sort scrutinees. The `Case` variant is
+/// exhaustiveness-checked at `typecheck_term` time; the scrutinee's
+/// head sort must carry [`crate::sort::SortClosure::Closed`] with a
+/// complete list of constructors.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Term {
     /// A variable reference (e.g., `x`, `a`).
@@ -16,6 +18,34 @@ pub enum Term {
         /// The argument terms.
         args: Vec<Self>,
     },
+    /// A case analysis on a closed-sort scrutinee.
+    ///
+    /// Every branch binds one name per argument of its constructor.
+    /// Typechecking verifies exhaustiveness (every constructor listed
+    /// in the scrutinee's closure appears exactly once) and that all
+    /// branch bodies produce the same output sort.
+    Case {
+        /// The term being case-analysed.
+        scrutinee: Box<Self>,
+        /// One branch per constructor of the scrutinee's closed sort.
+        branches: Vec<CaseBranch>,
+    },
+}
+
+/// One branch of a [`Term::Case`] expression.
+///
+/// The `constructor` field must be an op whose output head matches the
+/// scrutinee's sort; `binders` supplies one local name per input of
+/// that op. The body typechecks in an extended context that binds
+/// each binder to the corresponding input sort.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct CaseBranch {
+    /// Constructor op name.
+    pub constructor: Arc<str>,
+    /// Local binders; one per input of `constructor`.
+    pub binders: Vec<Arc<str>>,
+    /// The branch body.
+    pub body: Term,
 }
 
 impl Term {
@@ -44,6 +74,12 @@ impl Term {
     }
 
     /// Apply a substitution (variable name → term) to this term.
+    ///
+    /// Under [`Self::Case`], branch binders shadow the outer scope: a
+    /// binding in `subst` for a name that a branch also binds is
+    /// dropped from the substitution when descending into that
+    /// branch's body. Variables inside the scrutinee are always
+    /// substituted (the scrutinee is in the outer scope).
     #[must_use]
     pub fn substitute(&self, subst: &rustc_hash::FxHashMap<Arc<str>, Self>) -> Self {
         match self {
@@ -52,6 +88,30 @@ impl Term {
                 op: Arc::clone(op),
                 args: args.iter().map(|a| a.substitute(subst)).collect(),
             },
+            Self::Case {
+                scrutinee,
+                branches,
+            } => {
+                let new_scrutinee = Box::new(scrutinee.substitute(subst));
+                let new_branches = branches
+                    .iter()
+                    .map(|b| {
+                        let mut inner = subst.clone();
+                        for binder in &b.binders {
+                            inner.remove(binder);
+                        }
+                        CaseBranch {
+                            constructor: Arc::clone(&b.constructor),
+                            binders: b.binders.clone(),
+                            body: b.body.substitute(&inner),
+                        }
+                    })
+                    .collect();
+                Self::Case {
+                    scrutinee: new_scrutinee,
+                    branches: new_branches,
+                }
+            }
         }
     }
 
@@ -73,10 +133,31 @@ impl Term {
                     arg.collect_vars(vars);
                 }
             }
+            Self::Case {
+                scrutinee,
+                branches,
+            } => {
+                scrutinee.collect_vars(vars);
+                for b in branches {
+                    // Branch binders shadow outer names inside the
+                    // body; compute the body's free vars locally and
+                    // subtract the binders before merging.
+                    let mut local = rustc_hash::FxHashSet::default();
+                    b.body.collect_vars(&mut local);
+                    for binder in &b.binders {
+                        local.remove(binder);
+                    }
+                    vars.extend(local);
+                }
+            }
         }
     }
 
     /// Apply an operation renaming to this term.
+    ///
+    /// A [`Self::Case`] branch's constructor op is also renamed via
+    /// `op_map`; branch binders and the scrutinee term are recursed
+    /// into.
     #[must_use]
     pub fn rename_ops(&self, op_map: &std::collections::HashMap<Arc<str>, Arc<str>>) -> Self {
         match self {
@@ -84,6 +165,23 @@ impl Term {
             Self::App { op, args } => Self::App {
                 op: op_map.get(op).cloned().unwrap_or_else(|| Arc::clone(op)),
                 args: args.iter().map(|a| a.rename_ops(op_map)).collect(),
+            },
+            Self::Case {
+                scrutinee,
+                branches,
+            } => Self::Case {
+                scrutinee: Box::new(scrutinee.rename_ops(op_map)),
+                branches: branches
+                    .iter()
+                    .map(|b| CaseBranch {
+                        constructor: op_map
+                            .get(&b.constructor)
+                            .cloned()
+                            .unwrap_or_else(|| Arc::clone(&b.constructor)),
+                        binders: b.binders.clone(),
+                        body: b.body.rename_ops(op_map),
+                    })
+                    .collect(),
             },
         }
     }
@@ -264,7 +362,48 @@ impl AlphaChecker {
                         .zip(args2.iter())
                         .all(|(a1, a2)| self.check(a1, a2))
             }
-            _ => false,
+            (
+                Term::Case {
+                    scrutinee: s1,
+                    branches: b1,
+                },
+                Term::Case {
+                    scrutinee: s2,
+                    branches: b2,
+                },
+            ) => {
+                if !self.check(s1, s2) {
+                    return false;
+                }
+                if b1.len() != b2.len() {
+                    return false;
+                }
+                for (br1, br2) in b1.iter().zip(b2.iter()) {
+                    if br1.constructor != br2.constructor || br1.binders.len() != br2.binders.len()
+                    {
+                        return false;
+                    }
+                    // Extend bijection with branch binders, check body,
+                    // then roll back.
+                    let saved_forward = self.forward.clone();
+                    let saved_backward = self.backward.clone();
+                    let mut ok = true;
+                    for (a, b) in br1.binders.iter().zip(br2.binders.iter()) {
+                        self.forward.insert(Arc::clone(a), Arc::clone(b));
+                        self.backward.insert(Arc::clone(b), Arc::clone(a));
+                    }
+                    if !self.check(&br1.body, &br2.body) {
+                        ok = false;
+                    }
+                    self.forward = saved_forward;
+                    self.backward = saved_backward;
+                    if !ok {
+                        return false;
+                    }
+                }
+                true
+            }
+            (Term::Var(_) | Term::App { .. } | Term::Case { .. }, _) => false,
         }
     }
 }
@@ -315,7 +454,30 @@ fn match_pattern_inner(
                         .zip(t_args.iter())
                         .all(|(p, t)| match_pattern_inner(p, t, subst))
             }
-            Term::Var(_) => false,
+            Term::Var(_) | Term::Case { .. } => false,
+        },
+        Term::Case {
+            scrutinee: p_s,
+            branches: p_b,
+        } => match term {
+            Term::Case {
+                scrutinee: t_s,
+                branches: t_b,
+            } => {
+                if p_b.len() != t_b.len() || !match_pattern_inner(p_s, t_s, subst) {
+                    return false;
+                }
+                for (pb, tb) in p_b.iter().zip(t_b.iter()) {
+                    if pb.constructor != tb.constructor
+                        || pb.binders.len() != tb.binders.len()
+                        || !match_pattern_inner(&pb.body, &tb.body, subst)
+                    {
+                        return false;
+                    }
+                }
+                true
+            }
+            Term::Var(_) | Term::App { .. } => false,
         },
     }
 }
@@ -360,6 +522,40 @@ fn normalize_once(
             Term::App {
                 op: Arc::clone(op),
                 args: new_args,
+            }
+        }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            let new_scrut = Box::new(normalize_once(scrutinee, directed_eqs, steps, max_steps));
+            // If the normalized scrutinee is a fully-applied
+            // constructor matching one of the branches, contract the
+            // case to that branch with its binders substituted by the
+            // constructor's argument terms.
+            if let Term::App { op, args } = new_scrut.as_ref() {
+                if let Some(branch) = branches.iter().find(|b| &b.constructor == op) {
+                    if branch.binders.len() == args.len() {
+                        let mut subst = rustc_hash::FxHashMap::default();
+                        for (binder, arg) in branch.binders.iter().zip(args.iter()) {
+                            subst.insert(Arc::clone(binder), arg.clone());
+                        }
+                        let body = branch.body.substitute(&subst);
+                        return normalize_once(&body, directed_eqs, steps, max_steps);
+                    }
+                }
+            }
+            let new_branches = branches
+                .iter()
+                .map(|b| CaseBranch {
+                    constructor: Arc::clone(&b.constructor),
+                    binders: b.binders.clone(),
+                    body: normalize_once(&b.body, directed_eqs, steps, max_steps),
+                })
+                .collect();
+            Term::Case {
+                scrutinee: new_scrut,
+                branches: new_branches,
             }
         }
     };

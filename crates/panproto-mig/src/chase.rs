@@ -275,7 +275,7 @@ fn translate_equation(eq: &Equation, theory: &Theory, schema: &Schema) -> Vec<Em
 /// Extract the outermost operation name from a term.
 fn outermost_op(term: &Term) -> Option<String> {
     match term {
-        Term::Var(_) => None,
+        Term::Var(_) | Term::Case { .. } => None,
         Term::App { op, .. } => Some(op.to_string()),
     }
 }
