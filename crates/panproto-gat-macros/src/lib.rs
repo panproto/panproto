@@ -421,6 +421,242 @@ pub fn instance(input: TokenStream) -> TokenStream {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// derive_theory! macro
+// ═══════════════════════════════════════════════════════════════════
+
+struct DeriveTheoryInput {
+    derives: Vec<Ident>,
+    class: ClassInput,
+}
+
+impl Parse for DeriveTheoryInput {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        // Leading attribute of the form `#[derive(Eq, Hash)]`.
+        input.parse::<Token![#]>()?;
+        let bracket_content;
+        syn::bracketed!(bracket_content in input);
+        let derive_ident: Ident = bracket_content.parse()?;
+        if derive_ident != "derive" {
+            return Err(syn::Error::new(
+                derive_ident.span(),
+                "derive_theory! expects a `#[derive(...)]` attribute",
+            ));
+        }
+        let derive_list;
+        parenthesized!(derive_list in bracket_content);
+        let derives_punc: Punctuated<Ident, Token![,]> =
+            Punctuated::parse_separated_nonempty(&derive_list)?;
+        let class: ClassInput = input.parse()?;
+        Ok(Self {
+            derives: derives_punc.into_iter().collect(),
+            class,
+        })
+    }
+}
+
+/// Build a theory together with auto-generated class instances.
+///
+/// Surface:
+///
+/// ```ignore
+/// derive_theory! {
+///     #[derive(Eq, Hash)]
+///     ThVertex<Vertex, Str> {
+///         name(x: Vertex) -> Str;
+///     }
+/// }
+/// ```
+///
+/// Expands to the `class!`-style theory builder (`pub fn theory_thvertex()`)
+/// plus one instance-builder function per listed derive.
+///
+/// Supported derives: `Eq`, `Hash`. Passing `Ord` or `Show` emits a
+/// compile error directing callers to the follow-up work, which keeps
+/// the surface stable for those derives when support lands.
+#[proc_macro]
+pub fn derive_theory(input: TokenStream) -> TokenStream {
+    let DeriveTheoryInput { derives, class } = parse_macro_input!(input as DeriveTheoryInput);
+
+    for d in &derives {
+        let s = d.to_string();
+        if !matches!(s.as_str(), "Eq" | "Hash" | "Ord" | "Show") {
+            return syn::Error::new(d.span(), format!("unknown derive target: {s}"))
+                .to_compile_error()
+                .into();
+        }
+        if matches!(s.as_str(), "Ord" | "Show") {
+            return syn::Error::new(
+                d.span(),
+                format!("derive({s}) is not yet supported; use Eq and Hash for now"),
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+
+    let class_name = class.name.clone();
+    let class_tokens = class_to_tokens(&class);
+
+    // Primary sort: the first param of the class.
+    let Some(primary_sort) = class.params.first().cloned() else {
+        return syn::Error::new(
+            class_name.span(),
+            "derive_theory expects at least one sort parameter",
+        )
+        .to_compile_error()
+        .into();
+    };
+
+    let mut instance_fns: Vec<TokenStream2> = Vec::new();
+    for d in &derives {
+        let s = d.to_string();
+        match s.as_str() {
+            "Eq" => instance_fns.push(build_derived_instance("eq", &class_name, &primary_sort)),
+            "Hash" => instance_fns.push(build_derived_instance("hash", &class_name, &primary_sort)),
+            _ => {}
+        }
+    }
+
+    let expanded = quote! {
+        #class_tokens
+        #( #instance_fns )*
+    };
+    expanded.into()
+}
+
+fn class_to_tokens(class: &ClassInput) -> TokenStream2 {
+    let name = &class.name;
+    let name_str = name.to_string();
+    let fn_name = format_ident!("theory_{}", name_str.to_lowercase());
+    let sort_names: Vec<String> = class.params.iter().map(ToString::to_string).collect();
+    let sort_inits = sort_names.iter().map(|n| {
+        quote! { ::panproto_gat::Sort::simple(#n) }
+    });
+    let mut op_inits: Vec<TokenStream2> = Vec::new();
+    for item in &class.items {
+        if let ClassBodyItem::Sig(SigItem {
+            name: op_name,
+            args,
+            output,
+        }) = item
+        {
+            let op_name_str = op_name.to_string();
+            let output_str = output.to_string();
+            let arg_triples = args.iter().map(|ArgItem { name, ty }| {
+                let n = name.to_string();
+                let t = ty.to_string();
+                quote! {
+                    (
+                        ::std::sync::Arc::from(#n),
+                        ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#t)),
+                        ::panproto_gat::Implicit::No,
+                    )
+                }
+            });
+            op_inits.push(quote! {
+                ::panproto_gat::Operation::with_implicit(
+                    #op_name_str,
+                    ::std::vec![ #( #arg_triples ),* ],
+                    ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#output_str)),
+                )
+            });
+        }
+    }
+    let doc = format!("Construct the `{name_str}` theory produced by the `derive_theory!` macro.");
+    quote! {
+        #[doc = #doc]
+        pub fn #fn_name() -> ::panproto_gat::Theory {
+            ::panproto_gat::Theory::new(
+                #name_str,
+                ::std::vec![ #( #sort_inits ),* ],
+                ::std::vec![ #( #op_inits ),* ],
+                ::std::vec::Vec::new(),
+            )
+        }
+    }
+}
+
+fn build_derived_instance(
+    class_suffix: &str,
+    theory_name: &Ident,
+    primary_sort: &Ident,
+) -> TokenStream2 {
+    let theory_name_str = theory_name.to_string();
+    let primary_sort_str = primary_sort.to_string();
+    let lower = primary_sort_str.to_lowercase();
+    let fn_name = format_ident!("instance_{lower}_{class_suffix}");
+    let class_theory_name = format!("Th{}", capitalize(class_suffix));
+    let op_name = class_suffix.to_string();
+    let doc = format!(
+        "Build a `{class_theory_name}` instance morphism from `{theory_name_str}` generated by `derive_theory!`."
+    );
+    quote! {
+        #[doc = #doc]
+        pub fn #fn_name(
+            class_theory: &::panproto_gat::Theory,
+            target_theory: &::panproto_gat::Theory,
+        ) -> ::std::result::Result<::panproto_gat::TheoryMorphism, ::panproto_gat::GatError> {
+            let mut sort_map: ::std::collections::HashMap<
+                ::std::sync::Arc<str>, ::std::sync::Arc<str>
+            > = ::std::collections::HashMap::new();
+            let mut op_map: ::std::collections::HashMap<
+                ::std::sync::Arc<str>, ::std::sync::Arc<str>
+            > = ::std::collections::HashMap::new();
+            // Map every class sort positionally onto the matching target
+            // sort. Default dispatch: the primary class sort maps to the
+            // target theory's primary sort (the first declared sort).
+            let class_sort_params: ::std::vec::Vec<::std::sync::Arc<str>> =
+                class_theory.sorts.iter().map(|s| ::std::sync::Arc::clone(&s.name)).collect();
+            let target_sort_names: ::std::vec::Vec<::std::sync::Arc<str>> =
+                target_theory.sorts.iter().map(|s| ::std::sync::Arc::clone(&s.name)).collect();
+            if target_sort_names.is_empty() {
+                return ::std::result::Result::Err(
+                    ::panproto_gat::GatError::SortNotFound(#primary_sort_str.to_string())
+                );
+            }
+            for (i, param) in class_sort_params.iter().enumerate() {
+                let target = target_sort_names.get(i).cloned()
+                    .unwrap_or_else(|| ::std::sync::Arc::clone(&target_sort_names[0]));
+                sort_map.insert(::std::sync::Arc::clone(param), target);
+            }
+            // Map the class's primary operation onto a target op with
+            // the same name when it exists; otherwise synthesise a
+            // canonical default name by prefixing the primary sort.
+            let default_op_name: ::std::sync::Arc<str> = ::std::sync::Arc::from(
+                format!("{}_{}", #primary_sort_str.to_lowercase(), #op_name).as_str()
+            );
+            let resolved: ::std::sync::Arc<str> = if target_theory.find_op(&default_op_name).is_some() {
+                default_op_name
+            } else if target_theory.find_op(#op_name).is_some() {
+                ::std::sync::Arc::from(#op_name)
+            } else {
+                return ::std::result::Result::Err(
+                    ::panproto_gat::GatError::MissingOpMapping(#op_name.to_string())
+                );
+            };
+            op_map.insert(::std::sync::Arc::from(#op_name), resolved);
+            let morphism_name = format!("{}_{}_instance", #theory_name_str, #op_name);
+            let morphism = ::panproto_gat::TheoryMorphism::new(
+                morphism_name,
+                class_theory.name.as_ref(),
+                target_theory.name.as_ref(),
+                sort_map,
+                op_map,
+            );
+            ::panproto_gat::check_morphism(&morphism, class_theory, target_theory)?;
+            ::std::result::Result::Ok(morphism)
+        }
+    }
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().collect::<String>() + chars.as_str()
+    })
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // inductive! macro
 // ═══════════════════════════════════════════════════════════════════
 
