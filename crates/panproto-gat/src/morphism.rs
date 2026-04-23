@@ -273,11 +273,11 @@ pub fn check_morphism(
         // `f : (a : A) -> Hom(a, a)` to `f : (x : A) -> Hom(x, x)` is
         // accepted.
         let op_param_rename = positional_param_rename(
-            op.inputs.iter().map(|(n, _)| Arc::clone(n)),
-            target_op.inputs.iter().map(|(n, _)| Arc::clone(n)),
+            op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
+            target_op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
         );
 
-        for (i, (_, sort_expr)) in op.inputs.iter().enumerate() {
+        for (i, (_, sort_expr, _)) in op.inputs.iter().enumerate() {
             // The head of every input sort must have a mapping (this is
             // a structural prerequisite); argument-term renames flow
             // through the op_map.
@@ -287,7 +287,7 @@ pub fn check_morphism(
             let mapped_sort = sort_expr
                 .apply_maps(&m.sort_map, &m.op_map)
                 .subst(&op_param_rename);
-            let (_, target_sort) = &target_op.inputs[i];
+            let (_, target_sort, _) = &target_op.inputs[i];
             if !mapped_sort.alpha_eq(target_sort) {
                 return Err(GatError::OpTypeMismatch {
                     op: op.name.to_string(),
@@ -1678,13 +1678,13 @@ mod tests {
             for op in &theory.ops {
                 let new_name: Arc<str> = Arc::from(format!("{}_{suffix}", op.name));
                 op_map.insert(Arc::clone(&op.name), Arc::clone(&new_name));
-                let new_inputs: Vec<(Arc<str>, crate::sort::SortExpr)> = op
+                let new_inputs: Vec<(Arc<str>, crate::sort::SortExpr, crate::op::Implicit)> = op
                     .inputs
                     .iter()
-                    .map(|(p, s)| (Arc::clone(p), s.apply_maps(&sort_map, &op_map)))
+                    .map(|(p, s, imp)| (Arc::clone(p), s.apply_maps(&sort_map, &op_map), *imp))
                     .collect();
                 let new_output = op.output.apply_maps(&sort_map, &op_map);
-                new_ops.push(Operation::new(&*new_name, new_inputs, new_output));
+                new_ops.push(Operation::with_implicit(&*new_name, new_inputs, new_output));
             }
 
             // Rename equations.

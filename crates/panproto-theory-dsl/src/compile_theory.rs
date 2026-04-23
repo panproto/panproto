@@ -135,18 +135,25 @@ fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslEr
             Operation::unary(spec.name.as_str(), param_name.as_str(), input, output)
         }
         (None, Some(inputs)) => {
-            let input_pairs: Vec<(Arc<str>, SortExpr)> = inputs
+            let input_triples: Vec<(Arc<str>, SortExpr, panproto_gat::Implicit)> = inputs
                 .iter()
                 .map(|p| {
                     parse_sort_expr(&p.sort)
-                        .map(|sort| (Arc::from(p.name.as_str()), sort))
+                        .map(|sort| {
+                            let imp = if p.implicit {
+                                panproto_gat::Implicit::Yes
+                            } else {
+                                panproto_gat::Implicit::No
+                            };
+                            (Arc::from(p.name.as_str()), sort, imp)
+                        })
                         .map_err(|msg| TheoryDslError::TermParse {
                             context: op_context(&format!("input '{pname}'", pname = p.name)),
                             message: msg,
                         })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Operation::new(spec.name.as_str(), input_pairs, output)
+            Operation::with_implicit(spec.name.as_str(), input_triples, output)
         }
         (None, None) => Operation::nullary(spec.name.as_str(), output),
     })
@@ -571,6 +578,7 @@ mod tests {
             inputs: Some(vec![crate::document::ParamSpec {
                 name: "x".to_owned(),
                 sort: "Ob".to_owned(),
+                implicit: false,
             }]),
             output: "Hom(x, x)".to_owned(),
         };

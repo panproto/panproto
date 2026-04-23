@@ -147,7 +147,7 @@ fn pair_ops(
                 .inputs
                 .iter()
                 .zip(&op2.inputs)
-                .map(|((param, s1_sort), (_, s2_sort))| {
+                .map(|((param, s1_sort, _), (_, s2_sort, _))| {
                     sort_pair_map
                         .get(&(Arc::clone(s1_sort.head()), Arc::clone(s2_sort.head())))
                         .map(|pb| {

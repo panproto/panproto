@@ -119,7 +119,7 @@ fn renamed_op_signature(
     let inputs: Vec<crate::sort::SortExpr> = op
         .inputs
         .iter()
-        .map(|(_, s)| s.rename_head(&rename_std))
+        .map(|(_, s, _)| s.rename_head(&rename_std))
         .collect();
     let output = op.output.rename_head(&rename_std);
     (inputs, output)
@@ -274,12 +274,12 @@ fn rebuild_ops(
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            let inputs: Vec<(Arc<str>, crate::sort::SortExpr)> = rep_op
+            let inputs: Vec<(Arc<str>, crate::sort::SortExpr, crate::op::Implicit)> = rep_op
                 .inputs
                 .iter()
-                .map(|(pname, psort)| (pname.clone(), psort.rename_head(&rename_std)))
+                .map(|(pname, psort, imp)| (pname.clone(), psort.rename_head(&rename_std), *imp))
                 .collect();
-            result.push(Operation::new(
+            result.push(Operation::with_implicit(
                 rep,
                 inputs,
                 rep_op.output.rename_head(&rename_std),

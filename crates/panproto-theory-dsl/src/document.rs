@@ -91,6 +91,10 @@ pub struct ParamSpec {
     pub name: String,
     /// Sort this parameter ranges over.
     pub sort: String,
+    /// Whether this parameter is implicit (inferred at call sites by
+    /// unification against explicit arguments). Defaults to `false`.
+    #[serde(default)]
+    pub implicit: bool,
 }
 
 /// Sort kind classification.

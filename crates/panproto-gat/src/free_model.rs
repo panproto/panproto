@@ -276,7 +276,7 @@ fn extend_op_tuples(
         new_terms.entry(output_fiber).or_default().push(term);
         return;
     }
-    let (param_name, declared_sort) = &op.inputs[slot];
+    let (param_name, declared_sort, _implicit) = &op.inputs[slot];
     let expected_fiber = declared_sort.subst(theta);
     let Some(candidates) = terms_by_fiber.get(&expected_fiber) else {
         return;

@@ -194,19 +194,22 @@ where
 /// other this function returns `false`.
 #[must_use]
 pub fn signatures_equivalent_modulo_param_rename(
-    lhs_inputs: &[(Arc<str>, SortExpr)],
+    lhs_inputs: &[(Arc<str>, SortExpr, crate::op::Implicit)],
     lhs_output: &SortExpr,
-    rhs_inputs: &[(Arc<str>, SortExpr)],
+    rhs_inputs: &[(Arc<str>, SortExpr, crate::op::Implicit)],
     rhs_output: &SortExpr,
 ) -> bool {
     if lhs_inputs.len() != rhs_inputs.len() {
         return false;
     }
     let rename = positional_param_rename(
-        lhs_inputs.iter().map(|(n, _)| Arc::clone(n)),
-        rhs_inputs.iter().map(|(n, _)| Arc::clone(n)),
+        lhs_inputs.iter().map(|(n, _, _)| Arc::clone(n)),
+        rhs_inputs.iter().map(|(n, _, _)| Arc::clone(n)),
     );
-    for ((_, lhs_sort), (_, rhs_sort)) in lhs_inputs.iter().zip(rhs_inputs.iter()) {
+    for ((_, lhs_sort, l_imp), (_, rhs_sort, r_imp)) in lhs_inputs.iter().zip(rhs_inputs.iter()) {
+        if l_imp != r_imp {
+            return false;
+        }
         if !lhs_sort.subst(&rename).alpha_eq(rhs_sort) {
             return false;
         }
@@ -1151,13 +1154,14 @@ mod tests {
 
     #[test]
     fn signature_equivalence_accepts_alpha_variant() {
+        use crate::op::Implicit;
         // (a : Ob) -> Hom(a, a) vs (x : Ob) -> Hom(x, x)
-        let lhs_inputs = vec![(Arc::from("a"), SortExpr::from("Ob"))];
+        let lhs_inputs = vec![(Arc::from("a"), SortExpr::from("Ob"), Implicit::No)];
         let lhs_output = SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var("a"), Term::var("a")],
         };
-        let rhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"))];
+        let rhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"), Implicit::No)];
         let rhs_output = SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var("x"), Term::var("x")],
@@ -1172,14 +1176,15 @@ mod tests {
 
     #[test]
     fn signature_equivalence_rejects_swap() {
+        use crate::op::Implicit;
         // (x, y : Ob) -> Hom(x, y) vs (x, y : Ob) -> Hom(y, x)
         let hom = |a: &str, b: &str| SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var(a), Term::var(b)],
         };
         let lhs_inputs = vec![
-            (Arc::from("x"), SortExpr::from("Ob")),
-            (Arc::from("y"), SortExpr::from("Ob")),
+            (Arc::from("x"), SortExpr::from("Ob"), Implicit::No),
+            (Arc::from("y"), SortExpr::from("Ob"), Implicit::No),
         ];
         let rhs_inputs = lhs_inputs.clone();
         assert!(!signatures_equivalent_modulo_param_rename(
@@ -1192,8 +1197,9 @@ mod tests {
 
     #[test]
     fn signature_equivalence_rejects_arity_mismatch() {
-        let lhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"))];
-        let rhs_inputs: Vec<(Arc<str>, SortExpr)> = Vec::new();
+        use crate::op::Implicit;
+        let lhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"), Implicit::No)];
+        let rhs_inputs: Vec<(Arc<str>, SortExpr, Implicit)> = Vec::new();
         assert!(!signatures_equivalent_modulo_param_rename(
             &lhs_inputs,
             &SortExpr::from("Ob"),
@@ -1340,12 +1346,16 @@ mod tests {
 
             #[test]
             fn sig_equivalence_is_reflexive(
-                inputs in prop::collection::vec(
+                raw_inputs in prop::collection::vec(
                     (prop::sample::select(&["x", "y", "z"][..]).prop_map(Arc::from), arb_sort_expr()),
                     0..=3,
                 ),
                 output in arb_sort_expr(),
             ) {
+                let inputs: Vec<(Arc<str>, SortExpr, crate::op::Implicit)> = raw_inputs
+                    .into_iter()
+                    .map(|(n, s)| (n, s, crate::op::Implicit::No))
+                    .collect();
                 prop_assert!(signatures_equivalent_modulo_param_rename(
                     &inputs, &output, &inputs, &output,
                 ));
@@ -1360,14 +1370,20 @@ mod tests {
                 // Build signature `(first : sort_name) -> App { sort_name, [first] }`
                 // and its alpha variant `(replacement : sort_name) -> App { sort_name, [replacement] }`.
                 // Both should be signature-equivalent under the positional rename.
-                let lhs_inputs: Vec<(Arc<str>, SortExpr)> =
-                    vec![(Arc::clone(&first), SortExpr::Name(Arc::clone(&sort_name)))];
+                let lhs_inputs: Vec<(Arc<str>, SortExpr, crate::op::Implicit)> = vec![(
+                    Arc::clone(&first),
+                    SortExpr::Name(Arc::clone(&sort_name)),
+                    crate::op::Implicit::No,
+                )];
                 let lhs_output = SortExpr::App {
                     name: Arc::clone(&sort_name),
                     args: vec![Term::Var(Arc::clone(&first))],
                 };
-                let rhs_inputs: Vec<(Arc<str>, SortExpr)> =
-                    vec![(Arc::clone(&replacement), SortExpr::Name(Arc::clone(&sort_name)))];
+                let rhs_inputs: Vec<(Arc<str>, SortExpr, crate::op::Implicit)> = vec![(
+                    Arc::clone(&replacement),
+                    SortExpr::Name(Arc::clone(&sort_name)),
+                    crate::op::Implicit::No,
+                )];
                 let rhs_output = SortExpr::App {
                     name: sort_name,
                     args: vec![Term::Var(replacement)],

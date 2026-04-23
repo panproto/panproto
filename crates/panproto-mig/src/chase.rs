@@ -229,7 +229,7 @@ fn translate_equation(eq: &Equation, theory: &Theory, schema: &Schema) -> Vec<Em
             if let Some(op) = theory.find_op(&op_name) {
                 let output_sort = op.output.head().to_string();
                 // The variable is in some input sort
-                for (_, input_sort) in &op.inputs {
+                for (_, input_sort, _) in &op.inputs {
                     let out_vertex = find_vertex_by_kind(schema, &output_sort);
                     let in_vertex = find_vertex_by_kind(schema, input_sort.head());
 
@@ -249,7 +249,7 @@ fn translate_equation(eq: &Equation, theory: &Theory, schema: &Schema) -> Vec<Em
             // Same as above but reversed
             if let Some(op) = theory.find_op(&op_name) {
                 let output_sort = op.output.head().to_string();
-                for (_, input_sort) in &op.inputs {
+                for (_, input_sort, _) in &op.inputs {
                     let out_vertex = find_vertex_by_kind(schema, &output_sort);
                     let in_vertex = find_vertex_by_kind(schema, input_sort.head());
 

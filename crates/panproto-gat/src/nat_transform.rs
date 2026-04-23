@@ -114,7 +114,7 @@ pub fn check_natural_transformation(
 
         // RHS: G(op)(alpha_{S1}[x:=x0], ..., alpha_{Sn}[x:=xn-1])
         let mut rhs_args = Vec::with_capacity(op.inputs.len());
-        for (i, (_, input_sort)) in op.inputs.iter().enumerate() {
+        for (i, (_, input_sort, _)) in op.inputs.iter().enumerate() {
             let input_head = input_sort.head();
             let alpha_input = nt
                 .components

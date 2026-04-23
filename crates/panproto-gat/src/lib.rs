@@ -63,7 +63,7 @@ pub use nat_transform::{
     NaturalTransformation, check_interchange, check_natural_transformation, horizontal_compose,
     vertical_compose,
 };
-pub use op::Operation;
+pub use op::{Implicit, Operation};
 pub use pullback::{PullbackResult, pullback};
 pub use quotient::quotient;
 pub use schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};

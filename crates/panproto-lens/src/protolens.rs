@@ -2132,7 +2132,7 @@ fn apply_rename_edge_name(
 /// endpoints are silently ignored (the schema is unchanged).
 fn apply_add_op(schema: &Schema, op: &panproto_gat::Operation) -> Schema {
     let mut new_schema = schema.clone();
-    let Some((_, src_sort)) = op.inputs.first() else {
+    let Some((_, src_sort, _)) = op.inputs.first() else {
         return new_schema;
     };
     let src = Name::from(src_sort.head().as_ref());

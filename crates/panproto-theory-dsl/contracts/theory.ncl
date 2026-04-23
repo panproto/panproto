@@ -26,6 +26,7 @@ let Merger = fun kind => { type = "merger", value_kind = kind } in
 let ParamSpec = {
   name | String,
   sort | String,
+  implicit | Bool | optional,
 } in
 
 let SortKindSpec = {

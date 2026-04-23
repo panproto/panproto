@@ -13,6 +13,7 @@ use rustc_hash::FxHashMap;
 
 use crate::eq::{Equation, Term};
 use crate::error::GatError;
+use crate::op::{Implicit, Operation};
 use crate::sort::SortExpr;
 use crate::theory::Theory;
 
@@ -58,34 +59,166 @@ pub fn typecheck_term(
                 .find_op(op)
                 .ok_or_else(|| GatError::OpNotFound(op.to_string()))?;
 
-            if args.len() != operation.inputs.len() {
-                return Err(GatError::TermArityMismatch {
-                    op: op.to_string(),
-                    expected: operation.inputs.len(),
-                    got: args.len(),
-                });
+            let has_implicits = operation
+                .inputs
+                .iter()
+                .any(|(_, _, imp)| matches!(imp, Implicit::Yes));
+            if has_implicits {
+                typecheck_app_with_implicits(op, args, operation, ctx, theory)
+            } else {
+                typecheck_app_explicit(op, args, operation, ctx, theory)
             }
-
-            let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
-            for (i, (arg, (param_name, declared_sort))) in
-                args.iter().zip(operation.inputs.iter()).enumerate()
-            {
-                let arg_sort = typecheck_term(arg, ctx, theory)?;
-                let expected = declared_sort.subst(&theta);
-                if !arg_sort.alpha_eq(&expected) {
-                    return Err(GatError::ArgTypeMismatch {
-                        op: op.to_string(),
-                        arg_index: i,
-                        expected: expected.to_string(),
-                        got: arg_sort.to_string(),
-                    });
-                }
-                theta.insert(Arc::clone(param_name), arg.clone());
-            }
-
-            Ok(operation.output.subst(&theta))
         }
     }
+}
+
+/// Typecheck an `App` against an operation with every input marked
+/// explicit. Uses the existing sequential-theta-propagation path: each
+/// argument's inferred sort must alpha-equal the expected input sort
+/// under the running substitution theta.
+fn typecheck_app_explicit(
+    op: &Arc<str>,
+    args: &[Term],
+    operation: &Operation,
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<SortExpr, GatError> {
+    if args.len() != operation.inputs.len() {
+        return Err(GatError::TermArityMismatch {
+            op: op.to_string(),
+            expected: operation.inputs.len(),
+            got: args.len(),
+        });
+    }
+
+    let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+    for (i, (arg, (param_name, declared_sort, _))) in
+        args.iter().zip(operation.inputs.iter()).enumerate()
+    {
+        let arg_sort = typecheck_term(arg, ctx, theory)?;
+        let expected = declared_sort.subst(&theta);
+        if !arg_sort.alpha_eq(&expected) {
+            return Err(GatError::ArgTypeMismatch {
+                op: op.to_string(),
+                arg_index: i,
+                expected: expected.to_string(),
+                got: arg_sort.to_string(),
+            });
+        }
+        theta.insert(Arc::clone(param_name), arg.clone());
+    }
+
+    Ok(operation.output.subst(&theta))
+}
+
+/// Typecheck an `App` against an operation that declares one or more
+/// implicit inputs.
+///
+/// Implicit parameters are fresh-renamed to unique metavariables to
+/// avoid clashing with context variables. Explicit argument sorts are
+/// then unified against the declared input sorts via first-order
+/// Robinson unification; the MGU recovers the implicit params and the
+/// output sort follows by substitution.
+fn typecheck_app_with_implicits(
+    op: &Arc<str>,
+    args: &[Term],
+    operation: &Operation,
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<SortExpr, GatError> {
+    let explicit_count = operation.explicit_arity();
+    if args.len() != explicit_count {
+        return Err(GatError::TermArityMismatch {
+            op: op.to_string(),
+            expected: explicit_count,
+            got: args.len(),
+        });
+    }
+
+    // Fresh-rename every implicit param name to a unique metavariable.
+    let mut fresh_rename: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+    for (idx, (pname, _, imp)) in operation.inputs.iter().enumerate() {
+        if matches!(imp, Implicit::Yes) {
+            let mv: Arc<str> = Arc::from(format!("?{pname}_{idx}"));
+            fresh_rename.insert(Arc::clone(pname), Term::Var(mv));
+        }
+    }
+
+    // Walk explicit args, typecheck each, and push unification constraints
+    // matching declared input sort against inferred sort. Running theta
+    // also records explicit-arg values for later positions (dependent
+    // signatures).
+    let mut theta: FxHashMap<Arc<str>, Term> = fresh_rename.clone();
+    let mut term_eqs: Vec<(Term, Term)> = Vec::new();
+    let mut explicit_iter = args.iter();
+    for (pname, declared_sort, imp) in &operation.inputs {
+        match imp {
+            Implicit::Yes => {
+                // Nothing to do at this slot: the value is recovered by
+                // unification.
+            }
+            Implicit::No => {
+                let Some(arg) = explicit_iter.next() else {
+                    return Err(GatError::TermArityMismatch {
+                        op: op.to_string(),
+                        expected: explicit_count,
+                        got: args.len(),
+                    });
+                };
+                let arg_sort = typecheck_term(arg, ctx, theory)?;
+                let expected = declared_sort.subst(&theta);
+                push_sort_expr_eqs_into(&expected, &arg_sort, op, &mut term_eqs)?;
+                theta.insert(Arc::clone(pname), arg.clone());
+            }
+        }
+    }
+
+    let mgu = unify_all(term_eqs).map_err(|e| match e {
+        GatError::SortUnificationFailure { reason } => GatError::SortUnificationFailure {
+            reason: format!("implicit inference for {op}: {reason}"),
+        },
+        other => other,
+    })?;
+
+    // Compose mgu with theta to get the final substitution for the
+    // output sort.
+    let mut final_subst = theta.clone();
+    for (k, v) in &mgu {
+        final_subst.insert(Arc::clone(k), v.clone());
+    }
+    // Apply mgu to the running bindings so metavariables resolve.
+    let final_subst: FxHashMap<Arc<str>, Term> = final_subst
+        .into_iter()
+        .map(|(k, v)| (k, v.substitute(&mgu)))
+        .collect();
+
+    Ok(operation.output.subst(&final_subst))
+}
+
+/// Push head-agreement + pairwise-arg-term constraints for two sort
+/// expressions into a unification queue.
+///
+/// Heads must agree; on head mismatch this returns
+/// [`GatError::ArgTypeMismatch`] naming the two sorts. Argument terms
+/// are pushed pairwise onto `term_eqs` for later unification.
+fn push_sort_expr_eqs_into(
+    expected: &SortExpr,
+    actual: &SortExpr,
+    op: &Arc<str>,
+    term_eqs: &mut Vec<(Term, Term)>,
+) -> Result<(), GatError> {
+    if expected.head() != actual.head() || expected.args().len() != actual.args().len() {
+        return Err(GatError::ArgTypeMismatch {
+            op: op.to_string(),
+            arg_index: 0,
+            expected: expected.to_string(),
+            got: actual.to_string(),
+        });
+    }
+    for (x, y) in expected.args().iter().zip(actual.args().iter()) {
+        term_eqs.push((x.clone(), y.clone()));
+    }
+    Ok(())
 }
 
 /// Infer variable sorts from an equation's term structure.
@@ -145,7 +278,7 @@ fn collect_constraints(
     }
 
     let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
-    for (arg, (param_name, declared_sort)) in args.iter().zip(operation.inputs.iter()) {
+    for (arg, (param_name, declared_sort, _)) in args.iter().zip(operation.inputs.iter()) {
         let expected = declared_sort.subst(&theta);
         match arg {
             Term::Var(var_name) => {
@@ -303,14 +436,63 @@ pub fn typecheck_equation(eq: &Equation, theory: &Theory) -> Result<(), GatError
 
 /// Typecheck all equations in a theory.
 ///
+/// Also verifies, for every operation, that every implicit parameter's
+/// name occurs in at least one explicit input sort or the output sort.
+/// An implicit parameter that never appears in a position where
+/// first-order unification can pin it down is rejected with
+/// [`GatError::NonInferrableImplicit`].
+///
 /// # Errors
 ///
 /// Returns the first type error encountered.
 pub fn typecheck_theory(theory: &Theory) -> Result<(), GatError> {
+    for op in &theory.ops {
+        check_implicits_inferrable(op)?;
+    }
     for eq in &theory.eqs {
         typecheck_equation(eq, theory)?;
     }
     Ok(())
+}
+
+/// Verify that every implicit parameter of `op` occurs as a `Term::Var`
+/// in at least one explicit input sort or in the output sort.
+fn check_implicits_inferrable(op: &Operation) -> Result<(), GatError> {
+    for (pname, _, imp) in &op.inputs {
+        if !matches!(imp, Implicit::Yes) {
+            continue;
+        }
+        let mut found = false;
+        for (_, sort_expr, other_imp) in &op.inputs {
+            if matches!(other_imp, Implicit::No) && sort_expr_mentions_var(sort_expr, pname) {
+                found = true;
+                break;
+            }
+        }
+        if !found && sort_expr_mentions_var(&op.output, pname) {
+            found = true;
+        }
+        if !found {
+            return Err(GatError::NonInferrableImplicit {
+                op: op.name.to_string(),
+                param: pname.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Returns `true` if `name` appears as a [`Term::Var`] anywhere in the
+/// argument terms of `sort`.
+fn sort_expr_mentions_var(sort: &SortExpr, name: &Arc<str>) -> bool {
+    sort.args().iter().any(|t| term_mentions_var(t, name))
+}
+
+fn term_mentions_var(t: &Term, name: &Arc<str>) -> bool {
+    match t {
+        Term::Var(v) => v == name,
+        Term::App { args, .. } => args.iter().any(|a| term_mentions_var(a, name)),
+    }
 }
 
 #[cfg(test)]
@@ -1123,6 +1305,201 @@ mod tests {
         );
     }
 
+    // --- implicit arg inference (1.1) ---
+
+    /// Build a minimal lambda-calculus-style theory with an `app`
+    /// operation whose first two arguments are implicit type witnesses.
+    ///
+    /// Sorts: `Ty` (simple), `Tm(t : Ty)` (dependent).
+    /// Ops:
+    /// - `arrow : (a : Ty, b : Ty) -> Ty`
+    /// - `app : {a : Ty}{b : Ty}(f : Tm(arrow(a, b)), x : Tm(a)) -> Tm(b)`
+    fn lambda_theory() -> Theory {
+        use crate::op::Implicit;
+        let ty = Sort::simple("Ty");
+        let tm = Sort::dependent("Tm", vec![SortParam::new("t", "Ty")]);
+        let arrow = Operation::new(
+            "arrow",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty")),
+                (Arc::from("b"), SortExpr::from("Ty")),
+            ],
+            "Ty",
+        );
+        let tm_a = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("a")],
+        };
+        let tm_b = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("b")],
+        };
+        let tm_arrow = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::app("arrow", vec![Term::var("a"), Term::var("b")])],
+        };
+        let app = Operation::with_implicit(
+            "app",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty"), Implicit::Yes),
+                (Arc::from("b"), SortExpr::from("Ty"), Implicit::Yes),
+                (Arc::from("f"), tm_arrow, Implicit::No),
+                (Arc::from("x"), tm_a, Implicit::No),
+            ],
+            tm_b,
+        );
+        Theory::new("Lambda", vec![ty, tm], vec![arrow, app], Vec::new())
+    }
+
+    #[test]
+    fn app_with_inferred_implicit_types() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = lambda_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("A"), SortExpr::from("Ty"));
+        ctx.insert(Arc::from("B"), SortExpr::from("Ty"));
+        ctx.insert(
+            Arc::from("f"),
+            SortExpr::App {
+                name: Arc::from("Tm"),
+                args: vec![Term::app("arrow", vec![Term::var("A"), Term::var("B")])],
+            },
+        );
+        ctx.insert(
+            Arc::from("x"),
+            SortExpr::App {
+                name: Arc::from("Tm"),
+                args: vec![Term::var("A")],
+            },
+        );
+        // Call `app(f, x)` without the implicit type witnesses.
+        let result = typecheck_term(
+            &Term::app("app", vec![Term::var("f"), Term::var("x")]),
+            &ctx,
+            &theory,
+        )?;
+        let expected = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("B")],
+        };
+        assert!(result.alpha_eq(&expected), "got {result}");
+        Ok(())
+    }
+
+    #[test]
+    fn implicit_inference_rejects_overconstrained_call() {
+        use crate::op::Implicit;
+        // Build a theory extended with two ground `Ty` constants
+        // `first_ty` and `second_ty`. A call to `app(f, x)` where f's
+        // domain is the first but x's type is the second must fail
+        // unification of the implicit `a`.
+        let type_decl = Sort::simple("Ty");
+        let term_decl = Sort::dependent("Tm", vec![SortParam::new("t", "Ty")]);
+        let first_ty = Operation::nullary("tyA", "Ty");
+        let second_ty = Operation::nullary("tyB", "Ty");
+        let arrow = Operation::new(
+            "arrow",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty")),
+                (Arc::from("b"), SortExpr::from("Ty")),
+            ],
+            "Ty",
+        );
+        let tm_of_a = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("a")],
+        };
+        let tm_of_b = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("b")],
+        };
+        let tm_of_arrow = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::app("arrow", vec![Term::var("a"), Term::var("b")])],
+        };
+        let app = Operation::with_implicit(
+            "app",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty"), Implicit::Yes),
+                (Arc::from("b"), SortExpr::from("Ty"), Implicit::Yes),
+                (Arc::from("f"), tm_of_arrow, Implicit::No),
+                (Arc::from("x"), tm_of_a, Implicit::No),
+            ],
+            tm_of_b,
+        );
+        let theory = Theory::new(
+            "LambdaGround",
+            vec![type_decl, term_decl],
+            vec![first_ty, second_ty, arrow, app],
+            Vec::new(),
+        );
+
+        let mut ctx = VarContext::default();
+        ctx.insert(
+            Arc::from("f"),
+            SortExpr::App {
+                name: Arc::from("Tm"),
+                args: vec![Term::app(
+                    "arrow",
+                    vec![Term::constant("tyA"), Term::constant("tyB")],
+                )],
+            },
+        );
+        ctx.insert(
+            Arc::from("x"),
+            SortExpr::App {
+                name: Arc::from("Tm"),
+                args: vec![Term::constant("tyB")],
+            },
+        );
+        let result = typecheck_term(
+            &Term::app("app", vec![Term::var("f"), Term::var("x")]),
+            &ctx,
+            &theory,
+        );
+        assert!(
+            matches!(result, Err(GatError::SortUnificationFailure { .. })),
+            "overconstrained implicit inference must fail: got {result:?}",
+        );
+    }
+
+    #[test]
+    fn implicit_declaration_rejected_when_not_inferrable() {
+        use crate::op::Implicit;
+        // Op with implicit param `c` that appears in neither any
+        // explicit input sort nor the output sort: not inferrable.
+        let foo = Operation::with_implicit(
+            "foo",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty"), Implicit::No),
+                (Arc::from("c"), SortExpr::from("Ty"), Implicit::Yes),
+            ],
+            SortExpr::from("Ty"),
+        );
+        let theory = Theory::new(
+            "BadImplicit",
+            vec![Sort::simple("Ty")],
+            vec![foo],
+            Vec::new(),
+        );
+        let result = typecheck_theory(&theory);
+        assert!(
+            matches!(result, Err(GatError::NonInferrableImplicit { .. })),
+            "non-inferrable implicit must be rejected: got {result:?}",
+        );
+    }
+
+    #[test]
+    fn app_without_implicits_still_typechecks() -> Result<(), Box<dyn std::error::Error>> {
+        // Sanity check that operations with no implicit inputs still
+        // traverse the old explicit-theta path.
+        let theory = category_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("x"), SortExpr::from("Ob"));
+        let result = typecheck_term(&Term::app("id", vec![Term::var("x")]), &ctx, &theory)?;
+        assert_eq!(&**result.head(), "Hom");
+        Ok(())
+    }
+
     // --- proptest property tests ---
 
     mod property {
@@ -1185,6 +1562,85 @@ mod tests {
                     typecheck_theory(&t).is_ok(),
                     "well-typed theory should pass typecheck",
                 );
+            }
+
+            #[test]
+            fn implicit_inference_stable_across_names(
+                a_name in prop::sample::select(&["A", "B", "C", "P", "Q"][..]).prop_map(Arc::from),
+                b_name in prop::sample::select(&["A", "B", "C", "P", "Q"][..]).prop_map(Arc::from),
+            ) {
+                use crate::op::Implicit;
+                // Theory with `arrow` and implicit-argument `app`. For
+                // any choice of two ground `Ty` constants in ctx, the
+                // inferred output sort is `Tm(b)` with `b` bound to the
+                // codomain of the function's declared arrow. Running
+                // typecheck twice yields the same sort.
+                let ty = Sort::simple("Ty");
+                let tm = Sort::dependent("Tm", vec![SortParam::new("t", "Ty")]);
+                let arrow = Operation::new(
+                    "arrow",
+                    vec![
+                        (Arc::from("a"), SortExpr::from("Ty")),
+                        (Arc::from("b"), SortExpr::from("Ty")),
+                    ],
+                    "Ty",
+                );
+                let tm_a = SortExpr::App {
+                    name: Arc::from("Tm"),
+                    args: vec![Term::var("a")],
+                };
+                let tm_b = SortExpr::App {
+                    name: Arc::from("Tm"),
+                    args: vec![Term::var("b")],
+                };
+                let tm_arrow = SortExpr::App {
+                    name: Arc::from("Tm"),
+                    args: vec![Term::app(
+                        "arrow",
+                        vec![Term::var("a"), Term::var("b")],
+                    )],
+                };
+                let app = Operation::with_implicit(
+                    "app",
+                    vec![
+                        (Arc::from("a"), SortExpr::from("Ty"), Implicit::Yes),
+                        (Arc::from("b"), SortExpr::from("Ty"), Implicit::Yes),
+                        (Arc::from("f"), tm_arrow, Implicit::No),
+                        (Arc::from("x"), tm_a, Implicit::No),
+                    ],
+                    tm_b,
+                );
+                let theory = Theory::new("Lambda", vec![ty, tm], vec![arrow, app], Vec::new());
+
+                let mut ctx = VarContext::default();
+                ctx.insert(Arc::clone(&a_name), SortExpr::from("Ty"));
+                if a_name != b_name {
+                    ctx.insert(Arc::clone(&b_name), SortExpr::from("Ty"));
+                }
+                ctx.insert(
+                    Arc::from("f"),
+                    SortExpr::App {
+                        name: Arc::from("Tm"),
+                        args: vec![Term::app(
+                            "arrow",
+                            vec![Term::Var(Arc::clone(&a_name)), Term::Var(Arc::clone(&b_name))],
+                        )],
+                    },
+                );
+                ctx.insert(
+                    Arc::from("x"),
+                    SortExpr::App {
+                        name: Arc::from("Tm"),
+                        args: vec![Term::Var(Arc::clone(&a_name))],
+                    },
+                );
+                let call = Term::app("app", vec![Term::var("f"), Term::var("x")]);
+                let s1 = typecheck_term(&call, &ctx, &theory);
+                let s2 = typecheck_term(&call, &ctx, &theory);
+                prop_assert_eq!(s1.is_ok(), s2.is_ok());
+                if let (Ok(a), Ok(b)) = (&s1, &s2) {
+                    prop_assert!(a.alpha_eq(b));
+                }
             }
 
             #[test]

@@ -268,6 +268,25 @@ pub enum GatError {
     CyclicSortDependency(Vec<String>),
 
     // --- Quotient errors ---
+    /// An operation declares an implicit parameter whose value cannot
+    /// be recovered from the explicit inputs at a call site.
+    ///
+    /// An implicit parameter must occur as a `Term::Var` somewhere in
+    /// the sort expression of at least one explicit input or in the
+    /// output sort, so that first-order unification of the declared
+    /// input sorts against the call site's actual sorts pins down the
+    /// parameter's value. Implicit parameters that do not appear in
+    /// such a position are rejected at theory-declaration time.
+    #[error(
+        "operation {op} declares implicit parameter {param} that does not occur in any explicit input sort or the output sort"
+    )]
+    NonInferrableImplicit {
+        /// The operation name.
+        op: String,
+        /// The implicit parameter name.
+        param: String,
+    },
+
     /// Identified elements are incompatible for quotienting.
     #[error("cannot identify {name_a} and {name_b}: {detail}")]
     QuotientIncompatible {

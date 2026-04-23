@@ -241,7 +241,7 @@ fn apply_drop_sort(theory: &Theory, name: &Arc<str>) -> Theory {
     let ops: Vec<_> = theory
         .ops
         .iter()
-        .filter(|o| o.output.head() != name && o.inputs.iter().all(|(_, s)| s.head() != name))
+        .filter(|o| o.output.head() != name && o.inputs.iter().all(|(_, s, _)| s.head() != name))
         .cloned()
         .collect();
     let eqs = filter_eqs_by_remaining_ops(&theory.eqs, &ops);
@@ -288,7 +288,7 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
             let inputs = o
                 .inputs
                 .iter()
-                .map(|(n, s)| (Arc::clone(n), s.rename_head(&rename_map)))
+                .map(|(n, s, imp)| (Arc::clone(n), s.rename_head(&rename_map), *imp))
                 .collect();
             let output = o.output.rename_head(&rename_map);
             Operation {
@@ -371,7 +371,7 @@ fn reachable_sorts_from(theory: &Theory, start: &str) -> FxHashSet<Arc<str>> {
     while let Some(current) = queue.pop_front() {
         for op in &theory.ops {
             // If any input sort is the current sort, the output sort is reachable.
-            let has_current_as_input = op.inputs.iter().any(|(_, s)| **s.head() == *current);
+            let has_current_as_input = op.inputs.iter().any(|(_, s, _)| **s.head() == *current);
             if has_current_as_input && reachable.insert(Arc::clone(op.output.head())) {
                 queue.push_back(Arc::clone(op.output.head()));
             }
@@ -438,7 +438,7 @@ fn apply_merge_sorts(
             let inputs: Vec<_> = o
                 .inputs
                 .iter()
-                .map(|(n, s)| (Arc::clone(n), s.rename_head(&rename_map)))
+                .map(|(n, s, imp)| (Arc::clone(n), s.rename_head(&rename_map), *imp))
                 .collect();
             let output = o.output.rename_head(&rename_map);
             Operation {

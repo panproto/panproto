@@ -1210,7 +1210,7 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
             // silently corrupts downstream factorization. Surface it as a
             // real error so callers can add an explicit input sort or
             // reroute constants through `AddSortWithDefault`.
-            let Some((_, input_sort)) = op.inputs.first() else {
+            let Some((_, input_sort, _)) = op.inputs.first() else {
                 return Err(LensError::ProtolensError(format!(
                     "AddOp '{}' has no inputs; elementary add_op requires a source sort. \
                      Supply an explicit input sort or route constants through AddSortWithDefault.",
