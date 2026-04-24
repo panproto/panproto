@@ -908,6 +908,39 @@ mod tests {
     }
 
     #[test]
+    fn exhaustive_check_coercion_class() {
+        // Exhaustiveness guard for `check_coercion_laws`.
+        //
+        // `CoercionClass` is `#[non_exhaustive]`, so the checker needs
+        // a wildcard arm (currently producing `UnknownClass`). This
+        // test enumerates every *known* variant and asserts the
+        // checker handles each explicitly, i.e. never returns
+        // `UnknownClass` for a variant it ought to recognise.
+        //
+        // When a new variant is added upstream, this test begins
+        // emitting `UnknownClass` and forces an update before merge.
+        let forward = identity_expr("x");
+        let inverse = Some(identity_expr("x"));
+        let samples = [Literal::Str("probe".to_owned())];
+
+        for class in [
+            CoercionClass::Iso,
+            CoercionClass::Retraction,
+            CoercionClass::Projection,
+            CoercionClass::Opaque,
+        ] {
+            let violations = check_coercion_laws(&forward, inverse.as_ref(), class, &samples, "x");
+            for v in &violations {
+                assert!(
+                    !matches!(v, CoercionLawViolation::UnknownClass { .. }),
+                    "check_coercion_laws must handle {class:?} explicitly; \
+                     got UnknownClass in {violations:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn eval_error_on_wrong_type_is_reported() {
         // upper on an integer sample: evaluator surfaces a type
         // error; the check reports it rather than silently passing.
