@@ -368,6 +368,17 @@ impl CoercionSampleRegistry {
     /// other kind's samples.
     #[must_use]
     pub fn with_defaults() -> Self {
+        // Fixed iteration order for the `Any` union below; declared
+        // up front to avoid `clippy::items_after_statements`.
+        const KIND_ORDER: [ValueKind; 7] = [
+            ValueKind::Bool,
+            ValueKind::Int,
+            ValueKind::Float,
+            ValueKind::Str,
+            ValueKind::Bytes,
+            ValueKind::Token,
+            ValueKind::Null,
+        ];
         let mut reg = Self::new();
         reg.register(
             ValueKind::Bool,
@@ -414,19 +425,10 @@ impl CoercionSampleRegistry {
         );
 
         // `Any` is the union across every other registered kind.
-        // Iterate a fixed slice of `ValueKind` variants rather than the
-        // backing `FxHashMap` so the `Any` bucket is reproducible; the
-        // hashmap's iteration order is not stable and would leak into
-        // downstream law-check output.
-        const KIND_ORDER: [ValueKind; 7] = [
-            ValueKind::Bool,
-            ValueKind::Int,
-            ValueKind::Float,
-            ValueKind::Str,
-            ValueKind::Bytes,
-            ValueKind::Token,
-            ValueKind::Null,
-        ];
+        // Iterate `KIND_ORDER` (declared at the top of this function)
+        // rather than the backing `FxHashMap` so the `Any` bucket is
+        // reproducible; the hashmap's iteration order is not stable
+        // and would leak into downstream law-check output.
         let mut union: Vec<Literal> = Vec::new();
         for kind in KIND_ORDER {
             if let Some(vs) = reg.samples.get(&kind) {

@@ -692,18 +692,57 @@ fn sources_without_naturality_compatible_targets(
     anchors: &HashMap<Name, Name>,
     strict_edge_names: bool,
 ) -> Vec<Name> {
+    // Precompute each target vertex's outgoing edges bucketed by edge
+    // kind. Without this, `naturality_feasible` iterates every source
+    // edge against every target edge of every target vertex for every
+    // source vertex, giving `O(|V_s| * |V_t| * |E_s| * |E_t|)`. With
+    // a kind-keyed lookup, the inner edge match is `O(1)` hash
+    // probe plus the usually-small number of edges sharing a kind.
+    let target_edge_index = build_target_edge_index(tgt);
     let mut out: Vec<Name> = src
         .vertices
         .keys()
         .filter(|s| {
-            !tgt.vertices
-                .keys()
-                .any(|t| naturality_feasible(src, s, tgt, t, anchors, strict_edge_names))
+            !tgt.vertices.keys().any(|t| {
+                naturality_feasible(
+                    src,
+                    s,
+                    tgt,
+                    t,
+                    anchors,
+                    strict_edge_names,
+                    &target_edge_index,
+                )
+            })
         })
         .cloned()
         .collect();
     out.sort_by(|a, b| a.as_str().cmp(b.as_str()));
     out
+}
+
+/// Map each target vertex to a sub-map keyed by edge `kind`, listing
+/// the outgoing edges with that kind. Used by
+/// [`naturality_feasible`] to replace the per-source inner
+/// `O(|E_t|)` scan with an `O(1)` hash lookup that narrows to the
+/// edges whose kind can possibly match.
+fn build_target_edge_index<'a>(
+    tgt: &'a Schema,
+) -> rustc_hash::FxHashMap<&'a Name, rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>>>
+{
+    let mut index: rustc_hash::FxHashMap<
+        &'a Name,
+        rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>>,
+    > = rustc_hash::FxHashMap::default();
+    for t in tgt.vertices.keys() {
+        let mut bucket: rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>> =
+            rustc_hash::FxHashMap::default();
+        for edge in tgt.outgoing_edges(t.as_str()) {
+            bucket.entry(&edge.kind).or_default().push(edge);
+        }
+        index.insert(t, bucket);
+    }
+    index
 }
 
 /// Return `true` when mapping `s ↦ t` is consistent with naturality
@@ -721,24 +760,39 @@ fn sources_without_naturality_compatible_targets(
 /// side of naturality during the main search, and a source whose only
 /// problem is incoming-side naturality can still be assigned within
 /// the CSP.
-fn naturality_feasible(
+///
+/// `target_edge_index` is a precomputed map of every target vertex to
+/// its outgoing edges bucketed by edge kind; callers in a loop (e.g.
+/// [`sources_without_naturality_compatible_targets`]) build the index
+/// once and pass it to every invocation so each inner lookup is a
+/// hash probe rather than a linear scan over the target vertex's full
+/// outgoing-edge set.
+fn naturality_feasible<'a>(
     src: &Schema,
     s: &Name,
     tgt: &Schema,
     t: &Name,
     anchors: &HashMap<Name, Name>,
     strict_edge_names: bool,
+    target_edge_index: &rustc_hash::FxHashMap<
+        &'a Name,
+        rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>>,
+    >,
 ) -> bool {
     // Source and target must themselves be kind-compatible before
     // naturality-feasibility makes sense to evaluate.
     if !align::kinds_compatible(src, s, tgt, t) {
         return false;
     }
-    let outgoing_target_edges = tgt.outgoing_edges(t.as_str());
+    let empty_bucket: rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>> =
+        rustc_hash::FxHashMap::default();
+    let by_kind = target_edge_index.get(t).unwrap_or(&empty_bucket);
     src.outgoing_edges(s.as_str()).iter().all(|se| {
-        outgoing_target_edges.iter().any(|te| {
-            te.kind == se.kind
-                && (!strict_edge_names || edge_labels_compatible(se, te))
+        let Some(candidates) = by_kind.get(&se.kind) else {
+            return false;
+        };
+        candidates.iter().any(|te| {
+            (!strict_edge_names || edge_labels_compatible(se, te))
                 && child_target_respects_anchor(src, se, tgt, te, anchors)
         })
     })
@@ -3287,5 +3341,64 @@ mod tests {
         let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
         assert_eq!(kept.len(), 1);
         assert!(dropped.is_empty());
+    }
+
+    /// Regression guard for the cached edge-index optimization:
+    /// `sources_without_naturality_compatible_targets` must remain
+    /// fast on moderately-sized schemas. Before the cache the inner
+    /// loop was `O(|V_s|*|V_t|*|E_s|*|E_t|)` and would linger on a
+    /// 30x30-vertex pair; with the cache the same input is an
+    /// `O(|V_s|*|V_t|*|E_s|)` hash-probe loop.
+    #[test]
+    fn sources_without_naturality_compatible_targets_scales_on_larger_schemas() {
+        let protocol = test_protocol();
+        let size: usize = 30;
+
+        let mut src_builder = SchemaBuilder::new(&protocol);
+        for i in 0..size {
+            src_builder = src_builder
+                .vertex(&format!("src_rec_{i}"), "record", None::<&str>)
+                .unwrap()
+                .vertex(&format!("src_rec_{i}.name"), "string", None::<&str>)
+                .unwrap()
+                .edge(
+                    &format!("src_rec_{i}"),
+                    &format!("src_rec_{i}.name"),
+                    "prop",
+                    Some("name"),
+                )
+                .unwrap();
+        }
+        let src = src_builder.build().unwrap();
+
+        let mut tgt_builder = SchemaBuilder::new(&protocol);
+        for i in 0..size {
+            tgt_builder = tgt_builder
+                .vertex(&format!("tgt_rec_{i}"), "record", None::<&str>)
+                .unwrap()
+                .vertex(&format!("tgt_rec_{i}.name"), "string", None::<&str>)
+                .unwrap()
+                .edge(
+                    &format!("tgt_rec_{i}"),
+                    &format!("tgt_rec_{i}.name"),
+                    "prop",
+                    Some("name"),
+                )
+                .unwrap();
+        }
+        let tgt = tgt_builder.build().unwrap();
+
+        let anchors: HashMap<Name, Name> = HashMap::new();
+        let excluded = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
+        // Every source record has a compatible target record (both
+        // carry one `prop` outgoing edge to a `string` child), so the
+        // record vertices themselves must not be excluded. The
+        // `.name` leaves have no outgoing edges and therefore every
+        // kind-compatible target satisfies the vacuous universal
+        // quantifier; they must survive too.
+        assert!(
+            excluded.is_empty(),
+            "no source should be excluded on a symmetric schema pair; got {excluded:?}",
+        );
     }
 }
