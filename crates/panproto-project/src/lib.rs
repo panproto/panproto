@@ -374,7 +374,7 @@ impl ProjectBuilder {
         // same edges the flat coproduct would. Without this step,
         // tree-built projects silently drop every cross-file import
         // edge that the flat build path records.
-        let cross_file_edges = resolve_per_file_imports(&self.file_schemas, &self.protocol_map);
+        let cross_file_edges = resolve_per_file_imports(&self.file_schemas, &self.protocol_map)?;
         let root_id = build_project_tree(
             store,
             &self.file_schemas,
@@ -549,13 +549,13 @@ pub struct ProjectSchemaTree {
 fn resolve_per_file_imports<H1, H2>(
     file_schemas: &std::collections::HashMap<PathBuf, panproto_schema::Schema, H1>,
     protocol_map: &std::collections::HashMap<PathBuf, String, H2>,
-) -> std::collections::HashMap<PathBuf, Vec<panproto_schema::Edge>>
+) -> Result<std::collections::HashMap<PathBuf, Vec<panproto_schema::Edge>>, ProjectError>
 where
     H1: std::hash::BuildHasher,
     H2: std::hash::BuildHasher,
 {
     if file_schemas.len() <= 1 {
-        return HashMap::new();
+        return Ok(HashMap::new());
     }
 
     // Rebuild the flat coproduct just like `ProjectBuilder::build`
@@ -590,10 +590,11 @@ where
         let mut file_vertices = Vec::new();
         for (name, vertex) in &schema.vertices {
             let prefixed_name = format!("{prefix}::{name}");
-            let Ok(next) = builder.vertex(&prefixed_name, vertex.kind.as_ref(), None) else {
-                return HashMap::new();
-            };
-            builder = next;
+            builder = builder
+                .vertex(&prefixed_name, vertex.kind.as_ref(), None)
+                .map_err(|e| ProjectError::CoproductFailed {
+                    reason: format!("vertex {prefixed_name}: {e}"),
+                })?;
             file_vertices.push(panproto_gat::Name::from(prefixed_name.as_str()));
             if let Some(constraints) = schema.constraints.get(name) {
                 for c in constraints {
@@ -605,22 +606,23 @@ where
             let prefixed_src = format!("{prefix}::{}", edge.src);
             let prefixed_tgt = format!("{prefix}::{}", edge.tgt);
             let edge_name = edge.name.as_ref().map(|n| format!("{prefix}::{n}"));
-            let Ok(next) = builder.edge(
-                &prefixed_src,
-                &prefixed_tgt,
-                edge.kind.as_ref(),
-                edge_name.as_deref(),
-            ) else {
-                return HashMap::new();
-            };
-            builder = next;
+            builder = builder
+                .edge(
+                    &prefixed_src,
+                    &prefixed_tgt,
+                    edge.kind.as_ref(),
+                    edge_name.as_deref(),
+                )
+                .map_err(|e| ProjectError::CoproductFailed {
+                    reason: format!("edge {prefixed_src} -> {prefixed_tgt}: {e}"),
+                })?;
         }
         file_map.insert(path.clone(), file_vertices);
     }
 
-    let Ok(mut schema) = builder.build() else {
-        return HashMap::new();
-    };
+    let mut schema = builder.build().map_err(|e| ProjectError::CoproductFailed {
+        reason: format!("build: {e}"),
+    })?;
     let protocols: HashMap<PathBuf, String> = protocol_map
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
@@ -650,7 +652,7 @@ where
         by_file.entry(owner).or_default().push(edge.clone());
     }
 
-    by_file
+    Ok(by_file)
 }
 
 /// Build a project schema tree and store it in `store`.
