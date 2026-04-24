@@ -4,6 +4,27 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **panproto-vcs (per-file content addressing)**: `Object::FileSchema` carries the parsed schema for a single project file, `Object::SchemaTree` is a sorted list of `(name, SchemaTreeEntry)` entries that mirrors git's tree object, and `SchemaTreeEntry` tags each entry as `File(ObjectId)` or `Tree(ObjectId)`. The project schema for a commit is now a Merkle tree rooted at a `SchemaTree`, not a single flat schema object. `tree::assemble_schema` (generic over `Store`) and `tree::assemble_schema_dyn` (behind `&dyn Store`) walk the tree and return the flat `Schema` the pre-0.38 code path produced, so downstream consumers see no behavioral change at the `Schema` level. `tree::walk_tree` exposes the raw depth-first traversal. `tree::resolve_commit_schema` and `tree::resolve_commit_schema_dyn` dispatch on a `CommitObject` directly. `tree::store_schema_as_tree` wraps a single assembled `Schema` as a single-leaf tree for code paths that produce one merged or staged schema at a time (merge, rebase, cherry-pick, blame test fixtures, the REPL, the CLI's single-file `schema add`). `tree::build_schema_tree` and `tree::build_tree_from_leaves` emit the multi-leaf tree shape used by project-level imports.
+- **panproto-project (tree emitter)**: `build_project_tree` walks the parsed per-file schemas and emits a Merkle tree of `FileSchemaObject` leaves joined by `SchemaTreeObject` nodes, returning the root `ObjectId` ready to attach to a `CommitObject.schema_id`. Directory entries are sorted lexicographically before hashing so the root `ObjectId` is independent of traversal order.
+- **panproto-git (blob-OID cache)**: `import_git_repo_with_cache` threads a `BlobSchemaCache` (`FxHashMap<git2::Oid, panproto_vcs::ObjectId>`) through per-commit import, so an unchanged file's `FileSchema` object is reused by its blob OID rather than reparsed and rehashed. The cache is loaded from and persisted to `$cache/<remote>/blob_to_schema` via `load_blob_cache` / `save_blob_cache`. Real imports see linear-in-distinct-file-versions object growth instead of the previous linear-in-commits-times-files blowup.
+
+### Changed
+
+- **panproto-vcs (monolithic schema objects replaced)**: the `Object::Schema(Box<Schema>)` variant is gone. Every `CommitObject.schema_id` now points exclusively at an `Object::SchemaTree` root whose leaves are `Object::FileSchema` objects. Callers that previously matched on `Object::Schema` go through `tree::resolve_commit_schema` (or `_dyn`). Callers that previously stored a flat schema via `store.put(&Object::Schema(Box::new(s)))` go through `tree::store_schema_as_tree`. The `Migration.src`/`tgt` fields continue to identify flat schema content via `hash_schema`, independent of tree object ids.
+- **panproto-git (import defaults to tree)**: `import_git_repo_incremental` and `import_git_repo_with_cache` both emit `SchemaTree` roots. `export_to_git` assembles the flat schema from the tree before serializing, preserving the JSON shape in the git tree unchanged.
+- **panproto-py, panproto-wasm, panproto-cli (internal rewires)**: every call path that previously embedded a flat `Schema` in the store now routes through the tree helpers. Public Python and WASM APIs keep their existing shapes; the returned ids now address `SchemaTree` objects rather than flat schemas.
+
+### Removed
+
+- **panproto-vcs**: `Object::Schema` and its canonical hashing, GC, and store-dispatch cases. The store now has exactly two project-schema object kinds: `FileSchema` leaves and `SchemaTree` inner nodes.
+
+### Notes
+
+- **Storage impact (measured target)**: cospan.dev (492 files, 213 commits) currently produces a ~20 GB local cache and ~9 GB of objects on the remote node. Raw git for the same history is 14 MB. The file-level Merkle decomposition plus blob-OID dedup is expected to drop the panproto-vcs footprint under 100 MB, within an order of magnitude of git's 14 MB. Formal measurement is out of scope for this changelog entry and will be reported against the cospan.dev baseline when the next push lands.
+- **Breaking, by design**: this is a clean break. Existing VCS repos produced by panproto 0.38 and earlier cannot be read by the new object store and must be rebuilt (reimport from the git mirror, or re-run the project-builder path against the working tree). No migration command ships: the old monolithic-schema repos were produced during pre-1.0 experimentation, and the one-shot repair is always cheaper than maintaining a V1/V2 compatibility shim.
+
 ## [0.38.0] - 2026-04-24
 
 ### Added
