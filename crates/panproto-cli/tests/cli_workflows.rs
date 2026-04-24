@@ -2340,3 +2340,70 @@ fn theory_check_coercion_laws_json_output_is_valid() {
     assert_eq!(parsed["clean"], serde_json::Value::Bool(true));
     assert_eq!(parsed["total_violations"], serde_json::json!(0));
 }
+
+/// Write a bundle document containing two theories. The DSL stores
+/// theories in a `HashMap`, so iteration order is not insertion order;
+/// the CLI must sort by theory name before rendering to keep JSON
+/// output byte-stable across runs.
+fn write_two_theory_bundle(dir: &Path, name: &str) {
+    let doc = serde_json::json!({
+        "id": "test.two_theory_bundle",
+        "description": "two-theory bundle for determinism regression test",
+        "bundle": "Pair",
+        "theories": [
+            {
+                "theory": "BetaTheory",
+                "sorts": [
+                    { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+                ],
+                "ops": [],
+                "equations": [],
+                "directed_equations": [],
+                "policies": []
+            },
+            {
+                "theory": "AlphaTheory",
+                "sorts": [
+                    { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+                ],
+                "ops": [],
+                "equations": [],
+                "directed_equations": [],
+                "policies": []
+            }
+        ]
+    });
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+}
+
+#[test]
+fn theory_compile_json_output_is_deterministic_across_runs() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_two_theory_bundle(tmp.path(), "pair.json");
+
+    let run_once = || -> String {
+        let output = schema_cmd()
+            .args(["theory", "compile", "pair.json", "--json"])
+            .current_dir(tmp.path())
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    let first = run_once();
+    // Repeated runs must produce byte-identical stdout. Collect a
+    // handful so a spurious insertion-order coincidence is unlikely to
+    // pass.
+    for _ in 0..5 {
+        assert_eq!(run_once(), first, "theory compile JSON must be stable");
+    }
+    // Theories must appear alphabetically (AlphaTheory before
+    // BetaTheory) regardless of declaration order.
+    let parsed: serde_json::Value = serde_json::from_str(&first).unwrap();
+    let theories = parsed["theories"].as_array().unwrap();
+    let names: Vec<&str> = theories.iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(names, vec!["AlphaTheory", "BetaTheory"]);
+}

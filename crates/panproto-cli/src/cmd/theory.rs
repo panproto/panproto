@@ -32,13 +32,25 @@ pub fn cmd_theory_compile(file: &Path, json: bool, verbose: bool) -> Result<()> 
     let compiled =
         panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
 
+    // Theory, morphism, protocol, and composition maps are `HashMap`s
+    // keyed on name; iterate in a sorted order so CLI output (both
+    // human-readable and JSON) is byte-stable across runs.
+    let mut theory_names: Vec<&String> = compiled.theories.keys().collect();
+    theory_names.sort();
+    let mut morphism_names: Vec<&String> = compiled.morphisms.keys().collect();
+    morphism_names.sort();
+    let mut protocol_names: Vec<&String> = compiled.protocols.keys().collect();
+    protocol_names.sort();
+    let mut composition_names: Vec<&String> = compiled.composition_specs.keys().collect();
+    composition_names.sort();
+
     if json {
         let summary = serde_json::json!({
             "id": compiled.id,
-            "theories": compiled.theories.keys().collect::<Vec<_>>(),
-            "morphisms": compiled.morphisms.keys().collect::<Vec<_>>(),
-            "protocols": compiled.protocols.keys().collect::<Vec<_>>(),
-            "compositions": compiled.composition_specs.keys().collect::<Vec<_>>(),
+            "theories": theory_names,
+            "morphisms": morphism_names,
+            "protocols": protocol_names,
+            "compositions": composition_names,
         });
         println!(
             "{}",
@@ -46,7 +58,8 @@ pub fn cmd_theory_compile(file: &Path, json: bool, verbose: bool) -> Result<()> 
         );
     } else {
         println!("Document: {}", compiled.id);
-        for (name, theory) in &compiled.theories {
+        for name in &theory_names {
+            let theory = &compiled.theories[*name];
             println!(
                 "  theory {name}: {} sorts, {} ops, {} eqs",
                 theory.sorts.len(),
@@ -62,10 +75,10 @@ pub fn cmd_theory_compile(file: &Path, json: bool, verbose: bool) -> Result<()> 
                 }
             }
         }
-        for name in compiled.morphisms.keys() {
+        for name in &morphism_names {
             println!("  morphism {name}");
         }
-        for name in compiled.protocols.keys() {
+        for name in &protocol_names {
             println!("  protocol {name}");
         }
     }
@@ -137,7 +150,11 @@ pub fn cmd_theory_recompose(file: &Path, verbose: bool) -> Result<()> {
     let compiled =
         panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
 
-    for (name, theory) in &compiled.theories {
+    // Iterate in sorted name order so output is stable across runs.
+    let mut theory_names: Vec<&String> = compiled.theories.keys().collect();
+    theory_names.sort();
+    for name in &theory_names {
+        let theory = &compiled.theories[*name];
         println!(
             "theory {name}: {} sorts, {} ops, {} eqs",
             theory.sorts.len(),
@@ -154,7 +171,10 @@ pub fn cmd_theory_recompose(file: &Path, verbose: bool) -> Result<()> {
         }
     }
 
-    if let Some((name, spec)) = compiled.composition_specs.iter().next() {
+    let mut composition_names: Vec<&String> = compiled.composition_specs.keys().collect();
+    composition_names.sort();
+    if let Some(name) = composition_names.first() {
+        let spec = &compiled.composition_specs[*name];
         println!("composition '{name}': {} steps", spec.steps.len());
     }
     Ok(())
@@ -175,10 +195,16 @@ pub fn cmd_theory_check_coercion_laws(file: &Path, json: bool, verbose: bool) ->
         panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
 
     let registry = CoercionSampleRegistry::with_defaults();
+    // Compile's `theories` is a `HashMap`; iterate in sorted name order
+    // so reports (and the emitted JSON / text output) are byte-stable
+    // across runs.
+    let mut theory_names: Vec<&String> = compiled.theories.keys().collect();
+    theory_names.sort();
     let mut reports: Vec<(String, TheoryCoercionReport)> = Vec::new();
-    for (name, theory) in &compiled.theories {
+    for name in &theory_names {
+        let theory = &compiled.theories[*name];
         let report = check_theory(theory, &registry);
-        reports.push((name.clone(), report));
+        reports.push(((*name).clone(), report));
     }
 
     let total_violations: usize = reports.iter().map(|(_, r)| r.violation_count()).sum();
