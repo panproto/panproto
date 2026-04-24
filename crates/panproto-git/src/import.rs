@@ -46,13 +46,12 @@ pub enum BlobCacheLoadError {
 /// Load a blob-to-schema cache from a plain-text file.
 ///
 /// File format: one entry per line,
-/// `<git_blob_oid> <protocol_name> <file_schema_panproto_id>`.
-///
-/// A legacy two-column format (`<git_blob_oid>
-/// <file_schema_panproto_id>`) is still accepted and is treated as
-/// an empty protocol slot so mixed-format files round-trip without
-/// losing entries; the next save rewrites everything in the current
-/// format.
+/// `<git_blob_oid> <protocol_name> <file_schema_panproto_id>`. Every
+/// entry must carry a protocol slot; the earlier two-column form is
+/// no longer accepted. A cache from before the three-column format
+/// existed is rejected as corrupt so the caller can delete it and
+/// reimport rather than silently round-trip through an empty protocol
+/// slot.
 ///
 /// # Errors
 ///
@@ -81,18 +80,19 @@ pub fn load_blob_cache(path: &Path) -> Result<BlobSchemaCache, BlobCacheLoadErro
         let Some(blob_hex) = parts.next() else {
             continue;
         };
-        let second = parts.next();
-        let third = parts.next();
-        let (protocol, panproto_hex) = match (second, third) {
-            (Some(proto), Some(id_hex)) => (proto.to_owned(), id_hex),
-            (Some(id_hex), None) => (String::new(), id_hex),
-            _ => {
-                return Err(BlobCacheLoadError::Corrupt {
-                    path: path.display().to_string(),
-                    line: idx + 1,
-                    reason: "missing fields".to_owned(),
-                });
-            }
+        let Some(protocol) = parts.next() else {
+            return Err(BlobCacheLoadError::Corrupt {
+                path: path.display().to_string(),
+                line: idx + 1,
+                reason: "missing protocol slot (legacy two-column cache is no longer supported; delete the cache file and reimport)".to_owned(),
+            });
+        };
+        let Some(panproto_hex) = parts.next() else {
+            return Err(BlobCacheLoadError::Corrupt {
+                path: path.display().to_string(),
+                line: idx + 1,
+                reason: "missing panproto id".to_owned(),
+            });
         };
         let blob_oid = git2::Oid::from_str(blob_hex).map_err(|e| BlobCacheLoadError::Corrupt {
             path: path.display().to_string(),
@@ -107,7 +107,7 @@ pub fn load_blob_cache(path: &Path) -> Result<BlobSchemaCache, BlobCacheLoadErro
                     line: idx + 1,
                     reason: format!("bad panproto id: {e}"),
                 })?;
-        map.insert((blob_oid, protocol), panproto_id);
+        map.insert((blob_oid, protocol.to_owned()), panproto_id);
     }
     Ok(map)
 }
@@ -130,13 +130,18 @@ pub fn save_blob_cache(path: &Path, cache: &BlobSchemaCache) -> std::io::Result<
         )
     })?;
     std::fs::create_dir_all(parent)?;
-    let mut lines: Vec<String> = cache
-        .iter()
-        .map(|((blob, protocol), id)| {
-            let proto_slot = if protocol.is_empty() { "-" } else { protocol };
-            format!("{blob} {proto_slot} {id}")
-        })
-        .collect();
+    let mut lines: Vec<String> = Vec::with_capacity(cache.len());
+    for ((blob, protocol), id) in cache {
+        if protocol.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "blob cache entry for {blob} has empty protocol; every entry must carry a protocol name"
+                ),
+            ));
+        }
+        lines.push(format!("{blob} {protocol} {id}"));
+    }
     lines.sort();
     let body = lines.join("\n") + "\n";
     let tmp = path.with_extension("tmp");
