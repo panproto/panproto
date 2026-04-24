@@ -3343,6 +3343,74 @@ mod tests {
         assert!(dropped.is_empty());
     }
 
+    /// Leaf-source regression: a source vertex with zero outgoing
+    /// edges satisfies the universal quantifier over its outgoing
+    /// edges vacuously, so it must not be excluded by
+    /// `sources_without_naturality_compatible_targets` as long as the
+    /// target has at least one vertex of a compatible kind. Conversely,
+    /// when no such target vertex exists the kind-compatibility gate
+    /// alone excludes the leaf.
+    #[test]
+    fn leaf_source_is_kept_when_kind_compatible_target_exists() {
+        let protocol = test_protocol();
+
+        // Source is a single leaf of kind `string` with no outgoing
+        // edges.
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("leaf", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Target has a `string` vertex among others.
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("doc", "record", None::<&str>)
+            .unwrap()
+            .vertex("doc.title", "string", None::<&str>)
+            .unwrap()
+            .edge("doc", "doc.title", "prop", Some("title"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let anchors: HashMap<Name, Name> = HashMap::new();
+        let excluded = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
+        assert!(
+            !excluded.contains(&Name::from("leaf")),
+            "leaf source with zero outgoing edges must not be excluded when a \
+             kind-compatible target exists (got {excluded:?})",
+        );
+    }
+
+    #[test]
+    fn leaf_source_is_excluded_when_no_kind_compatible_target_exists() {
+        let protocol = test_protocol();
+
+        // Leaf source kind `string`.
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("leaf", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Target has no `string` vertex, only `record` and `array`.
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("doc", "record", None::<&str>)
+            .unwrap()
+            .vertex("items", "array", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let anchors: HashMap<Name, Name> = HashMap::new();
+        let excluded = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
+        assert!(
+            excluded.contains(&Name::from("leaf")),
+            "leaf source must be excluded when no target vertex has a compatible kind \
+             (got {excluded:?})",
+        );
+    }
+
     /// Regression guard for the cached edge-index optimization:
     /// `sources_without_naturality_compatible_targets` must remain
     /// fast on moderately-sized schemas. Before the cache the inner
