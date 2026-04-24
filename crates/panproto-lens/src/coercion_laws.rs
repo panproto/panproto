@@ -112,9 +112,13 @@ pub enum CoercionLawViolation {
     /// to the upstream `CoercionClass` enum after this module was
     /// last updated). Returned once per invocation rather than per
     /// sample to keep the output concise.
+    ///
+    /// Stores the `Debug` rendering of the unrecognised class rather
+    /// than the [`CoercionClass`] value itself so the identifying
+    /// information survives future `Debug` impl drift on the enum.
     UnknownClass {
-        /// The unrecognised class.
-        class: CoercionClass,
+        /// Best-effort `Debug` rendering of the unrecognised class.
+        debug_repr: String,
     },
 }
 
@@ -173,7 +177,12 @@ pub fn check_coercion_laws(
             // A class variant the checker does not recognise.
             // Surface it once rather than silently passing so a
             // future class addition cannot masquerade as Opaque.
-            violations.push(CoercionLawViolation::UnknownClass { class: other });
+            // Capture the `Debug` rendering here so downstream
+            // consumers see identifying info even if the enum's
+            // `Debug` impl drifts across releases.
+            violations.push(CoercionLawViolation::UnknownClass {
+                debug_repr: format!("{other:?}"),
+            });
         }
     }
 
