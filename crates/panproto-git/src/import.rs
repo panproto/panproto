@@ -122,9 +122,14 @@ pub fn load_blob_cache(path: &Path) -> Result<BlobSchemaCache, BlobCacheLoadErro
 /// Returns any I/O error encountered while creating parent
 /// directories, writing, or renaming.
 pub fn save_blob_cache(path: &Path, cache: &BlobSchemaCache) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    use std::io::Write;
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "blob cache path has no parent directory",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
     let mut lines: Vec<String> = cache
         .iter()
         .map(|((blob, protocol), id)| {
@@ -135,8 +140,18 @@ pub fn save_blob_cache(path: &Path, cache: &BlobSchemaCache) -> std::io::Result<
     lines.sort();
     let body = lines.join("\n") + "\n";
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, body)?;
+    // Create + write + fsync the temp file so its bytes are on disk
+    // before the rename. Then fsync the parent directory so the
+    // rename itself is durable; without this, a crash can leave the
+    // rename unrecorded even though the payload is on disk.
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(body.as_bytes())?;
+        f.sync_all()?;
+    }
     std::fs::rename(&tmp, path)?;
+    let dir = std::fs::File::open(parent)?;
+    dir.sync_all()?;
     Ok(())
 }
 
