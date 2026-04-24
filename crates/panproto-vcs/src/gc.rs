@@ -85,7 +85,8 @@ pub fn mark_reachable(
                 for (_, entry) in tree.entries {
                     match entry {
                         crate::object::SchemaTreeEntry::File(id)
-                        | crate::object::SchemaTreeEntry::Tree(id) => queue.push(id),
+                        | crate::object::SchemaTreeEntry::Tree(id)
+                        | crate::object::SchemaTreeEntry::SingleLeaf(id) => queue.push(id),
                     }
                 }
             }

@@ -59,16 +59,31 @@ where
             } else {
                 prefix.clone()
             };
-            visit(&path, &file)
+            if path.as_os_str().is_empty() {
+                // A wrapper tree leaf produced by
+                // `store_schema_as_tree` carries no path; the flat
+                // assembly path handles it via the single-file
+                // shortcut in `assemble_from_files`.
+                visit(Path::new(""), &file)
+            } else {
+                visit(&path, &file)
+            }
         }
         Object::SchemaTree(tree) => {
-            for (name, entry) in &tree.entries {
-                prefix.push(name);
-                let child_id = match entry {
-                    SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => id,
-                };
-                walk_tree_inner(store, child_id, prefix, visit)?;
-                prefix.pop();
+            for (name, entry) in tree.sorted_entries() {
+                match entry {
+                    SchemaTreeEntry::SingleLeaf(id) => {
+                        // Walk through the wrapped leaf without
+                        // pushing a name component; the leaf's own
+                        // `path` supplies the display path.
+                        walk_tree_inner(store, id, prefix, visit)?;
+                    }
+                    SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => {
+                        prefix.push(name);
+                        walk_tree_inner(store, id, prefix, visit)?;
+                        prefix.pop();
+                    }
+                }
             }
             Ok(())
         }
@@ -233,13 +248,17 @@ fn walk_tree_dyn(
             visit(&path, &file)
         }
         Object::SchemaTree(tree) => {
-            for (name, entry) in &tree.entries {
-                prefix.push(name);
-                let child_id = match entry {
-                    SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => id,
-                };
-                walk_tree_dyn(store, child_id, prefix, visit)?;
-                prefix.pop();
+            for (name, entry) in tree.sorted_entries() {
+                match entry {
+                    SchemaTreeEntry::SingleLeaf(id) => {
+                        walk_tree_dyn(store, id, prefix, visit)?;
+                    }
+                    SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => {
+                        prefix.push(name);
+                        walk_tree_dyn(store, id, prefix, visit)?;
+                        prefix.pop();
+                    }
+                }
             }
             Ok(())
         }
@@ -306,8 +325,12 @@ pub fn project_coproduct_protocol() -> Protocol {
 /// Used by commit paths that produce a single assembled or merged
 /// [`Schema`] (e.g., merge, rebase, cherry-pick, and the CLI's
 /// single-file `schema commit`). The resulting tree has one
-/// [`FileSchemaObject`] leaf at path [`SINGLE_FILE_LEAF_PATH`], so a
-/// subsequent [`assemble_schema`] call returns the input schema
+/// [`SchemaTreeEntry::SingleLeaf`] pointing at the stored
+/// [`FileSchemaObject`]; that variant is nameless and therefore
+/// cannot collide with any real project path, so mixed-use stores
+/// cannot produce ambiguous walks.
+///
+/// A subsequent [`assemble_schema`] call returns the input schema
 /// unchanged (single-file optimization in [`assemble_from_files`]).
 ///
 /// # Errors
@@ -317,27 +340,16 @@ pub fn project_coproduct_protocol() -> Protocol {
 pub fn store_schema_as_tree(store: &mut dyn Store, schema: Schema) -> Result<ObjectId, VcsError> {
     let protocol = schema.protocol.clone();
     let file = FileSchemaObject {
-        path: SINGLE_FILE_LEAF_PATH.to_owned(),
+        path: String::new(),
         protocol,
         schema,
     };
     let leaf_id = store.put(&Object::FileSchema(Box::new(file)))?;
     let tree = SchemaTreeObject {
-        entries: vec![(
-            SINGLE_FILE_LEAF_PATH.to_owned(),
-            SchemaTreeEntry::File(leaf_id),
-        )],
+        entries: vec![(String::new(), SchemaTreeEntry::SingleLeaf(leaf_id))],
     };
     store.put(&Object::SchemaTree(Box::new(tree)))
 }
-
-/// Path used for the single leaf of a tree produced by
-/// [`store_schema_as_tree`].
-///
-/// A single U+FFFD character is chosen because it is never a valid
-/// source file path component, so it cannot collide with real
-/// project files in mixed-use stores.
-pub const SINGLE_FILE_LEAF_PATH: &str = "\u{fffd}";
 
 /// Build a schema tree from a flat list of path-keyed file schemas.
 ///
@@ -566,6 +578,46 @@ mod tests {
         let commit = CommitObject::builder(root, "p", "a", "m").build();
         let resolved = resolve_commit_schema(&store, &commit).unwrap();
         assert_eq!(resolved.vertices.len(), schema.vertices.len());
+    }
+
+    #[test]
+    fn single_leaf_wrapper_walks_once_without_name_component() {
+        let mut store = MemStore::new();
+        let schema = tiny_schema("wrapped");
+        let root = store_schema_as_tree(&mut store, schema).unwrap();
+
+        let mut seen: Vec<String> = Vec::new();
+        walk_tree(&store, &root, |p, _f| {
+            seen.push(p.display().to_string());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen.len(), 1);
+        // The wrapper leaf has no name component, so the walker
+        // reports an empty path.
+        assert_eq!(seen[0], "");
+    }
+
+    #[test]
+    fn schema_tree_deserializes_in_canonical_order() {
+        use crate::object::{SchemaTreeEntry, SchemaTreeObject};
+
+        // Construct an adversarial wire form whose entries are NOT
+        // sorted; a well-behaved consumer must still see them in
+        // canonical order via `sorted_entries`.
+        let id_a = ObjectId::from_bytes([1; 32]);
+        let id_b = ObjectId::from_bytes([2; 32]);
+        let unsorted = SchemaTreeObject {
+            entries: vec![
+                ("z".to_owned(), SchemaTreeEntry::File(id_a)),
+                ("a".to_owned(), SchemaTreeEntry::File(id_b)),
+            ],
+        };
+        let bytes = rmp_serde::to_vec(&unsorted).unwrap();
+        let round: SchemaTreeObject = rmp_serde::from_slice(&bytes).unwrap();
+        let sorted = round.sorted_entries();
+        assert_eq!(sorted[0].0, "a");
+        assert_eq!(sorted[1].0, "z");
     }
 
     #[test]

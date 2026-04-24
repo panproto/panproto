@@ -1194,6 +1194,7 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
                 let (kind, child_id) = match entry {
                     vcs::SchemaTreeEntry::File(child) => ("file", child),
                     vcs::SchemaTreeEntry::Tree(child) => ("tree", child),
+                    vcs::SchemaTreeEntry::SingleLeaf(child) => ("single", child),
                 };
                 println!("  {kind}  {child_id}  {name}");
             }

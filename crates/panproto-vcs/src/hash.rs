@@ -566,10 +566,14 @@ pub fn hash_file_schema(file: &crate::object::FileSchemaObject) -> Result<Object
 ///
 /// Returns an error if serialization fails.
 pub fn hash_schema_tree(tree: &crate::object::SchemaTreeObject) -> Result<ObjectId, VcsError> {
-    // Entries are already expected to be sorted; sort defensively to
-    // make the hash order-independent.
-    let mut sorted = tree.entries.clone();
-    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    // Hash the canonical ordering so the id is independent of wire
+    // order. `SingleLeaf` wrapper trees carry a single nameless
+    // entry and are passed through unchanged.
+    let sorted: Vec<(String, crate::object::SchemaTreeEntry)> = tree
+        .sorted_entries()
+        .into_iter()
+        .map(|(n, e)| (n.to_owned(), e.clone()))
+        .collect();
     let bytes = rmp_serde::to_vec(&sorted)?;
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"schema_tree:");

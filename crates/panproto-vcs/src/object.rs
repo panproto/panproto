@@ -133,24 +133,73 @@ pub struct FileSchemaObject {
 /// from inner (`Tree`, pointing at another [`SchemaTreeObject`]) so
 /// the tree walker does not need to re-fetch objects just to
 /// classify them.
+///
+/// A third variant, `SingleLeaf`, is used by single-file wrappers
+/// produced by [`crate::tree::store_schema_as_tree`]. It carries no
+/// name, so it cannot collide with any real git-like path component;
+/// wrappers that expose a flat [`panproto_schema::Schema`] emit
+/// exactly one `SingleLeaf` entry at the tree root.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SchemaTreeEntry {
-    /// A file-schema leaf.
+    /// A file-schema leaf named by its parent tree.
     File(ObjectId),
-    /// A subtree.
+    /// A subtree named by its parent tree.
     Tree(ObjectId),
+    /// A nameless single-leaf wrapper.
+    ///
+    /// Exists so that [`crate::tree::store_schema_as_tree`] can
+    /// represent a single flat schema as a one-entry tree without
+    /// needing a synthetic path component. Walkers see the wrapped
+    /// [`FileSchemaObject`] exactly once, with the leaf's own
+    /// `path` field supplying the display path.
+    SingleLeaf(ObjectId),
 }
 
 /// An inner node of the project schema Merkle tree.
 ///
-/// Entries are sorted lexicographically by name. The sort order is
-/// part of the serialized form, so two trees containing the same
-/// `(name, entry)` set hash to the same [`ObjectId`] regardless of
-/// how they were constructed.
+/// Named entries (`File` and `Tree`) are sorted lexicographically by
+/// name so two trees with the same `(name, entry)` set hash to the
+/// same [`ObjectId`] regardless of how they were constructed. A tree
+/// that wraps a flat schema contains exactly one nameless
+/// [`SchemaTreeEntry::SingleLeaf`] at position zero; no tree can mix
+/// the two shapes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SchemaTreeObject {
-    /// Child entries sorted lexicographically by name.
+    /// Child entries.
+    ///
+    /// When the tree wraps a flat schema, `entries` contains exactly
+    /// one element whose name is empty and whose variant is
+    /// [`SchemaTreeEntry::SingleLeaf`]. Otherwise every entry name is
+    /// non-empty and the list is sorted lexicographically. Callers
+    /// consuming a deserialized `SchemaTreeObject` should iterate via
+    /// [`SchemaTreeObject::sorted_entries`] to enforce canonical
+    /// ordering regardless of how the bytes arrived on the wire.
     pub entries: Vec<(String, SchemaTreeEntry)>,
+}
+
+impl SchemaTreeObject {
+    /// Return a canonically ordered view of `entries`.
+    ///
+    /// Named entries (`File`, `Tree`) are sorted lexicographically by
+    /// name. A wrapper tree consisting of exactly one
+    /// [`SchemaTreeEntry::SingleLeaf`] is returned unchanged because
+    /// its entry carries no name.
+    ///
+    /// Use this anywhere the flat-schema hash or walk order is
+    /// observable, so a remote cannot produce different flat hashes
+    /// for the same tree [`ObjectId`] by permuting wire-order.
+    #[must_use]
+    pub fn sorted_entries(&self) -> Vec<(&str, &SchemaTreeEntry)> {
+        let mut out: Vec<(&str, &SchemaTreeEntry)> =
+            self.entries.iter().map(|(n, e)| (n.as_str(), e)).collect();
+        let has_single = out
+            .iter()
+            .any(|(_, e)| matches!(e, SchemaTreeEntry::SingleLeaf(_)));
+        if !has_single {
+            out.sort_by(|a, b| a.0.cmp(b.0));
+        }
+        out
+    }
 }
 
 /// A commit in the schema evolution DAG.
