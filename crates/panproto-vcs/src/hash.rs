@@ -569,18 +569,29 @@ pub fn hash_file_schema(file: &crate::object::FileSchemaObject) -> Result<Object
 ///
 /// Returns an error if serialization fails.
 pub fn hash_schema_tree(tree: &crate::object::SchemaTreeObject) -> Result<ObjectId, VcsError> {
-    // Hash the canonical ordering so the id is independent of wire
-    // order. `SingleLeaf` wrapper trees carry a single nameless
-    // entry and are passed through unchanged.
-    let sorted: Vec<(String, crate::object::SchemaTreeEntry)> = tree
-        .sorted_entries()
-        .into_iter()
-        .map(|(n, e)| (n.to_owned(), e.clone()))
-        .collect();
-    let bytes = rmp_serde::to_vec(&sorted)?;
+    // A `SingleLeaf` has a distinct object shape with no name slot and
+    // hashes over its `file_schema_id` alone. A `Directory` hashes
+    // over its entries in canonical sorted order so the id is
+    // independent of wire order.
+    use crate::object::SchemaTreeObject;
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"schema_tree:");
-    hasher.update(&bytes);
+    match tree {
+        SchemaTreeObject::SingleLeaf { file_schema_id } => {
+            hasher.update(b"single:");
+            hasher.update(file_schema_id.as_bytes());
+        }
+        SchemaTreeObject::Directory { .. } => {
+            let sorted: Vec<(String, crate::object::SchemaTreeEntry)> = tree
+                .sorted_entries()
+                .into_iter()
+                .map(|(n, e)| (n.to_owned(), e.clone()))
+                .collect();
+            let bytes = rmp_serde::to_vec(&sorted)?;
+            hasher.update(b"dir:");
+            hasher.update(&bytes);
+        }
+    }
     Ok(ObjectId(hasher.finalize().into()))
 }
 

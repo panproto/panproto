@@ -1189,14 +1189,22 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
         }
         vcs::Object::SchemaTree(tree) => {
             println!("schema_tree {id}");
-            println!("Entries:  {}", tree.entries.len());
-            for (name, entry) in &tree.entries {
-                let (kind, child_id) = match entry {
-                    vcs::SchemaTreeEntry::File(child) => ("file", child),
-                    vcs::SchemaTreeEntry::Tree(child) => ("tree", child),
-                    vcs::SchemaTreeEntry::SingleLeaf(child) => ("single", child),
-                };
-                println!("  {kind}  {child_id}  {name}");
+            match tree.as_ref() {
+                vcs::SchemaTreeObject::SingleLeaf { file_schema_id } => {
+                    println!("Entries:  1");
+                    println!("  single  {file_schema_id}");
+                }
+                vcs::SchemaTreeObject::Directory { .. } => {
+                    let sorted = tree.sorted_entries();
+                    println!("Entries:  {}", sorted.len());
+                    for (name, entry) in sorted {
+                        let (kind, child_id) = match entry {
+                            vcs::SchemaTreeEntry::File(child) => ("file", child),
+                            vcs::SchemaTreeEntry::Tree(child) => ("tree", child),
+                        };
+                        println!("  {kind}  {child_id}  {name}");
+                    }
+                }
             }
         }
         vcs::Object::FlatSchema(schema) => {

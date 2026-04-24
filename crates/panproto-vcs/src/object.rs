@@ -151,78 +151,72 @@ pub struct FileSchemaObject {
     pub cross_file_edges: Vec<panproto_schema::Edge>,
 }
 
-/// An entry in a [`SchemaTreeObject`].
+/// An entry in a [`SchemaTreeObject::Directory`] node.
 ///
 /// Distinguishes leaf (`File`, pointing at a [`FileSchemaObject`])
 /// from inner (`Tree`, pointing at another [`SchemaTreeObject`]) so
 /// the tree walker does not need to re-fetch objects just to
 /// classify them.
-///
-/// A third variant, `SingleLeaf`, is used by single-file wrappers
-/// produced by [`crate::tree::store_schema_as_tree`]. It carries no
-/// name, so it cannot collide with any real git-like path component;
-/// wrappers that expose a flat [`panproto_schema::Schema`] emit
-/// exactly one `SingleLeaf` entry at the tree root.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SchemaTreeEntry {
     /// A file-schema leaf named by its parent tree.
     File(ObjectId),
     /// A subtree named by its parent tree.
     Tree(ObjectId),
-    /// A nameless single-leaf wrapper.
-    ///
-    /// Exists so that [`crate::tree::store_schema_as_tree`] can
-    /// represent a single flat schema as a one-entry tree without
-    /// needing a synthetic path component. Walkers see the wrapped
-    /// [`FileSchemaObject`] exactly once, with the leaf's own
-    /// `path` field supplying the display path.
-    SingleLeaf(ObjectId),
 }
 
 /// An inner node of the project schema Merkle tree.
 ///
-/// Named entries (`File` and `Tree`) are sorted lexicographically by
-/// name so two trees with the same `(name, entry)` set hash to the
-/// same [`ObjectId`] regardless of how they were constructed. A tree
-/// that wraps a flat schema contains exactly one nameless
-/// [`SchemaTreeEntry::SingleLeaf`] at position zero; no tree can mix
-/// the two shapes.
+/// A [`SchemaTreeObject::Directory`] holds named entries sorted
+/// lexicographically by name so two directories with the same
+/// `(name, entry)` set hash to the same [`ObjectId`] regardless of
+/// how they were constructed. A [`SchemaTreeObject::SingleLeaf`] is a
+/// nameless wrapper over a single [`FileSchemaObject`], produced by
+/// [`crate::tree::store_schema_as_tree`] when a caller needs to store
+/// a flat [`panproto_schema::Schema`] under the tree-based commit
+/// model. Keeping the two shapes as distinct variants of the object
+/// itself (rather than a name slot alongside a `SingleLeaf` entry)
+/// means a peer cannot forge a `(name="x", SingleLeaf(id))` entry
+/// that walks identically to the canonical form but hashes
+/// differently.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SchemaTreeObject {
-    /// Child entries.
-    ///
-    /// When the tree wraps a flat schema, `entries` contains exactly
-    /// one element whose name is empty and whose variant is
-    /// [`SchemaTreeEntry::SingleLeaf`]. Otherwise every entry name is
-    /// non-empty and the list is sorted lexicographically. Callers
-    /// consuming a deserialized `SchemaTreeObject` should iterate via
-    /// [`SchemaTreeObject::sorted_entries`] to enforce canonical
-    /// ordering regardless of how the bytes arrived on the wire.
-    pub entries: Vec<(String, SchemaTreeEntry)>,
+pub enum SchemaTreeObject {
+    /// Nameless wrapper around a single file schema.
+    SingleLeaf {
+        /// [`ObjectId`] of the wrapped [`FileSchemaObject`].
+        file_schema_id: ObjectId,
+    },
+    /// Directory node holding named child entries.
+    Directory {
+        /// Child entries, canonically sorted lexicographically by name.
+        ///
+        /// Callers consuming a deserialized `Directory` should iterate
+        /// via [`SchemaTreeObject::sorted_entries`] to enforce the
+        /// canonical ordering regardless of how the bytes arrived on
+        /// the wire.
+        entries: Vec<(String, SchemaTreeEntry)>,
+    },
 }
 
 impl SchemaTreeObject {
-    /// Return a canonically ordered view of `entries`.
+    /// Return a canonically ordered view of a directory's entries,
+    /// or an empty vector for a [`SchemaTreeObject::SingleLeaf`].
     ///
-    /// Named entries (`File`, `Tree`) are sorted lexicographically by
-    /// name. A wrapper tree consisting of exactly one
-    /// [`SchemaTreeEntry::SingleLeaf`] is returned unchanged because
-    /// its entry carries no name.
-    ///
-    /// Use this anywhere the flat-schema hash or walk order is
-    /// observable, so a remote cannot produce different flat hashes
-    /// for the same tree [`ObjectId`] by permuting wire-order.
+    /// Entries are sorted lexicographically by name. Use this anywhere
+    /// the flat-schema hash or walk order is observable, so a remote
+    /// cannot produce different flat hashes for the same tree
+    /// [`ObjectId`] by permuting wire-order.
     #[must_use]
     pub fn sorted_entries(&self) -> Vec<(&str, &SchemaTreeEntry)> {
-        let mut out: Vec<(&str, &SchemaTreeEntry)> =
-            self.entries.iter().map(|(n, e)| (n.as_str(), e)).collect();
-        let has_single = out
-            .iter()
-            .any(|(_, e)| matches!(e, SchemaTreeEntry::SingleLeaf(_)));
-        if !has_single {
-            out.sort_by(|a, b| a.0.cmp(b.0));
+        match self {
+            Self::SingleLeaf { .. } => Vec::new(),
+            Self::Directory { entries } => {
+                let mut out: Vec<(&str, &SchemaTreeEntry)> =
+                    entries.iter().map(|(n, e)| (n.as_str(), e)).collect();
+                out.sort_by(|a, b| a.0.cmp(b.0));
+                out
+            }
         }
-        out
     }
 }
 

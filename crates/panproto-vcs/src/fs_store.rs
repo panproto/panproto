@@ -390,7 +390,12 @@ mod tests {
 
         let retrieved = store.get(&id)?;
         match retrieved {
-            Object::SchemaTree(tree) => assert_eq!(tree.entries.len(), 1),
+            Object::SchemaTree(tree) => match *tree {
+                crate::object::SchemaTreeObject::SingleLeaf { .. } => {}
+                crate::object::SchemaTreeObject::Directory { .. } => {
+                    panic!("expected SingleLeaf wrapper, got Directory")
+                }
+            },
             _ => panic!("expected SchemaTree object"),
         }
         Ok(())

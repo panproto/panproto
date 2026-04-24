@@ -69,24 +69,26 @@ where
                 visit(&path, &file)
             }
         }
-        Object::SchemaTree(tree) => {
-            for (name, entry) in tree.sorted_entries() {
-                match entry {
-                    SchemaTreeEntry::SingleLeaf(id) => {
-                        // Walk through the wrapped leaf without
-                        // pushing a name component; the leaf's own
-                        // `path` supplies the display path.
-                        walk_tree_inner(store, id, prefix, visit)?;
-                    }
-                    SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => {
-                        prefix.push(name);
-                        walk_tree_inner(store, id, prefix, visit)?;
-                        prefix.pop();
+        Object::SchemaTree(tree) => match tree.as_ref() {
+            SchemaTreeObject::SingleLeaf { file_schema_id } => {
+                // Walk through the wrapped leaf without pushing a
+                // name component; the leaf's own `path` supplies the
+                // display path.
+                walk_tree_inner(store, file_schema_id, prefix, visit)
+            }
+            SchemaTreeObject::Directory { .. } => {
+                for (name, entry) in tree.sorted_entries() {
+                    match entry {
+                        SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => {
+                            prefix.push(name);
+                            walk_tree_inner(store, id, prefix, visit)?;
+                            prefix.pop();
+                        }
                     }
                 }
+                Ok(())
             }
-            Ok(())
-        }
+        },
         other => Err(VcsError::WrongObjectType {
             expected: "file_schema or schema_tree",
             found: other.type_name(),
@@ -438,21 +440,23 @@ fn walk_tree_dyn(
             };
             visit(&path, &file)
         }
-        Object::SchemaTree(tree) => {
-            for (name, entry) in tree.sorted_entries() {
-                match entry {
-                    SchemaTreeEntry::SingleLeaf(id) => {
-                        walk_tree_dyn(store, id, prefix, visit)?;
-                    }
-                    SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => {
-                        prefix.push(name);
-                        walk_tree_dyn(store, id, prefix, visit)?;
-                        prefix.pop();
+        Object::SchemaTree(tree) => match tree.as_ref() {
+            SchemaTreeObject::SingleLeaf { file_schema_id } => {
+                walk_tree_dyn(store, file_schema_id, prefix, visit)
+            }
+            SchemaTreeObject::Directory { .. } => {
+                for (name, entry) in tree.sorted_entries() {
+                    match entry {
+                        SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => {
+                            prefix.push(name);
+                            walk_tree_dyn(store, id, prefix, visit)?;
+                            prefix.pop();
+                        }
                     }
                 }
+                Ok(())
             }
-            Ok(())
-        }
+        },
         other => Err(VcsError::WrongObjectType {
             expected: "file_schema or schema_tree",
             found: other.type_name(),
@@ -515,9 +519,9 @@ pub fn project_coproduct_protocol() -> Protocol {
 ///
 /// Used by commit paths that produce a single assembled or merged
 /// [`Schema`] (e.g., merge, rebase, cherry-pick, and the CLI's
-/// single-file `schema commit`). The resulting tree has one
-/// [`SchemaTreeEntry::SingleLeaf`] pointing at the stored
-/// [`FileSchemaObject`]; that variant is nameless and therefore
+/// single-file `schema commit`). The resulting tree is a
+/// [`SchemaTreeObject::SingleLeaf`] pointing at the stored
+/// [`FileSchemaObject`]; that shape has no name slot and therefore
 /// cannot collide with any real project path, so mixed-use stores
 /// cannot produce ambiguous walks.
 ///
@@ -537,8 +541,8 @@ pub fn store_schema_as_tree(store: &mut dyn Store, schema: Schema) -> Result<Obj
         cross_file_edges: Vec::new(),
     };
     let leaf_id = store.put(&Object::FileSchema(Box::new(file)))?;
-    let tree = SchemaTreeObject {
-        entries: vec![(String::new(), SchemaTreeEntry::SingleLeaf(leaf_id))],
+    let tree = SchemaTreeObject::SingleLeaf {
+        file_schema_id: leaf_id,
     };
     store.put(&Object::SchemaTree(Box::new(tree)))
 }
@@ -646,7 +650,7 @@ pub fn build_tree_from_leaves<S: Store>(
                     out.push((name, entry));
                 }
                 out.sort_by(|a, b| a.0.cmp(&b.0));
-                let tree = SchemaTreeObject { entries: out };
+                let tree = SchemaTreeObject::Directory { entries: out };
                 let id = store.put(&Object::SchemaTree(Box::new(tree)))?;
                 Ok((id, false))
             }
@@ -775,7 +779,12 @@ mod tests {
         let mut store = MemStore::new();
         let root = build_schema_tree(&mut store, vec![]).unwrap();
         match store.get(&root).unwrap() {
-            Object::SchemaTree(t) => assert!(t.entries.is_empty()),
+            Object::SchemaTree(t) => match *t {
+                SchemaTreeObject::Directory { entries } => assert!(entries.is_empty()),
+                SchemaTreeObject::SingleLeaf { .. } => {
+                    panic!("expected Directory, got SingleLeaf")
+                }
+            },
             other => panic!("expected schema_tree, got {}", other.type_name()),
         }
     }
@@ -832,7 +841,7 @@ mod tests {
         // canonical order via `sorted_entries`.
         let id_a = ObjectId::from_bytes([1; 32]);
         let id_b = ObjectId::from_bytes([2; 32]);
-        let unsorted = SchemaTreeObject {
+        let unsorted = SchemaTreeObject::Directory {
             entries: vec![
                 ("z".to_owned(), SchemaTreeEntry::File(id_a)),
                 ("a".to_owned(), SchemaTreeEntry::File(id_b)),

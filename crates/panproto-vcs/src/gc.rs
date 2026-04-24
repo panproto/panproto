@@ -82,15 +82,22 @@ pub fn mark_reachable(
             | Object::CstComplement(_)
             | Object::FileSchema(_)
             | Object::FlatSchema(_) => {}
-            Object::SchemaTree(tree) => {
-                for (_, entry) in tree.entries {
-                    match entry {
-                        crate::object::SchemaTreeEntry::File(id)
-                        | crate::object::SchemaTreeEntry::Tree(id)
-                        | crate::object::SchemaTreeEntry::SingleLeaf(id) => queue.push(id),
+            Object::SchemaTree(tree) => match tree.as_ref() {
+                crate::object::SchemaTreeObject::SingleLeaf { file_schema_id } => {
+                    queue.push(*file_schema_id);
+                }
+                crate::object::SchemaTreeObject::Directory { .. } => {
+                    // Route every consumer through `sorted_entries`
+                    // so the invariant that GC observes canonical
+                    // iteration order holds regardless of wire order.
+                    for (_, entry) in tree.sorted_entries() {
+                        match entry {
+                            crate::object::SchemaTreeEntry::File(id)
+                            | crate::object::SchemaTreeEntry::Tree(id) => queue.push(*id),
+                        }
                     }
                 }
-            }
+            },
             Object::Tag(tag) => {
                 queue.push(tag.target);
             }
