@@ -285,11 +285,13 @@ pub fn cmd_theory_check_coercion_laws(
             }
         }
         if clean {
-            if reports.len() == 1 {
-                println!("All 1 theory clean.");
-            } else {
-                println!("All {} theories clean.", reports.len());
-            }
+            let n = reports.len();
+            let msg = match n {
+                0 => "No theories to check.".to_owned(),
+                1 => "All 1 theory clean.".to_owned(),
+                _ => format!("All {n} theories clean."),
+            };
+            println!("{msg}");
         } else {
             println!("Total violations: {total_violations}");
             if let Some(suggested) = suggest_var_name_from_reports(&reports, var_name) {
@@ -314,10 +316,15 @@ pub fn cmd_theory_check_coercion_laws(
 }
 
 /// Inspect the per-theory reports for the "unbound variable X"
-/// anti-pattern: if every violation is a `ForwardEvalError` whose
-/// error message names the same unbound variable (and that variable
-/// is not the current `var_name`), return that variable so the
-/// caller can suggest `--var-name X`. Otherwise return `None`.
+/// anti-pattern. Returns the suggested name when at least 75% of
+/// violations are eval errors that name the same unbound variable
+/// (and that variable is not the current `var_name`); otherwise
+/// returns `None`.
+///
+/// The ratio is deliberately loose so a single unrelated violation
+/// (e.g. one genuine `Backward` law failure) does not suppress the
+/// hint when the dominant signal is still "every equation is using
+/// the wrong free variable".
 fn suggest_var_name_from_reports(
     reports: &[(
         String,
@@ -327,27 +334,45 @@ fn suggest_var_name_from_reports(
 ) -> Option<String> {
     use panproto_core::lens::coercion_laws::CoercionLawViolation;
 
+    let mut total: usize = 0;
+    let mut matching: usize = 0;
     let mut suggested: Option<String> = None;
-    let mut saw_any = false;
     for (_, report) in reports {
         for (_, violations) in &report.per_equation {
             for v in violations {
-                saw_any = true;
+                total += 1;
                 let (CoercionLawViolation::ForwardEvalError { error, .. }
                 | CoercionLawViolation::InverseEvalError { error, .. }) = v
                 else {
-                    return None;
+                    continue;
                 };
-                let name = extract_unbound_variable_name(error)?;
+                let Some(name) = extract_unbound_variable_name(error) else {
+                    continue;
+                };
                 match &suggested {
-                    None => suggested = Some(name),
-                    Some(existing) if existing == &name => {}
+                    None => {
+                        suggested = Some(name);
+                        matching += 1;
+                    }
+                    Some(existing) if existing == &name => {
+                        matching += 1;
+                    }
+                    // A different unbound-variable name was seen. The
+                    // extracted name is no longer unanimous among
+                    // matching violations; bail out rather than emit
+                    // an ambiguous hint.
                     Some(_) => return None,
                 }
             }
         }
     }
-    if !saw_any {
+    if total == 0 {
+        return None;
+    }
+    // Require at least 75% of all violations to be matching
+    // unbound-variable eval errors sharing the same name. Integer
+    // comparison: `4 * matching >= 3 * total` avoids floating point.
+    if matching.saturating_mul(4) < total.saturating_mul(3) {
         return None;
     }
     let name = suggested?;
@@ -373,5 +398,82 @@ fn extract_unbound_variable_name(error: &str) -> Option<String> {
         None
     } else {
         Some(name.to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use panproto_core::lens::coercion_laws::{
+        CoercionLawViolation, TheoryCoercionReport,
+    };
+    use panproto_expr::Literal;
+    use std::sync::Arc;
+
+    fn eval_err(name: &str) -> CoercionLawViolation {
+        CoercionLawViolation::ForwardEvalError {
+            input: Literal::Str("probe".to_owned()),
+            error: format!("unbound variable: {name}"),
+        }
+    }
+
+    fn backward_err() -> CoercionLawViolation {
+        CoercionLawViolation::Backward {
+            input: Literal::Str("a".to_owned()),
+            forward_result: Literal::Str("A".to_owned()),
+            round_tripped: Literal::Str("A".to_owned()),
+        }
+    }
+
+    fn single_report(violations: Vec<CoercionLawViolation>) -> Vec<(String, TheoryCoercionReport)> {
+        let report = TheoryCoercionReport {
+            per_equation: vec![(Arc::from("eq"), violations)],
+        };
+        vec![("T".to_owned(), report)]
+    }
+
+    #[test]
+    fn hint_fires_when_one_backward_and_five_unbound() {
+        let mut vs = vec![backward_err()];
+        for _ in 0..5 {
+            vs.push(eval_err("v"));
+        }
+        let reports = single_report(vs);
+        // 5/6 ≈ 83% are matching; above the 75% threshold.
+        assert_eq!(
+            suggest_var_name_from_reports(&reports, "x"),
+            Some("v".to_owned()),
+        );
+    }
+
+    #[test]
+    fn hint_suppressed_when_one_unbound_and_six_backward() {
+        let mut vs = vec![eval_err("v")];
+        for _ in 0..6 {
+            vs.push(backward_err());
+        }
+        let reports = single_report(vs);
+        // 1/7 ≈ 14%; well below the 75% threshold.
+        assert_eq!(suggest_var_name_from_reports(&reports, "x"), None);
+    }
+
+    #[test]
+    fn hint_suppressed_when_names_disagree() {
+        let vs = vec![eval_err("v"), eval_err("w"), eval_err("v"), eval_err("v")];
+        let reports = single_report(vs);
+        assert_eq!(suggest_var_name_from_reports(&reports, "x"), None);
+    }
+
+    #[test]
+    fn hint_suppressed_when_suggested_equals_current() {
+        let vs = vec![eval_err("x"), eval_err("x"), eval_err("x"), eval_err("x")];
+        let reports = single_report(vs);
+        assert_eq!(suggest_var_name_from_reports(&reports, "x"), None);
+    }
+
+    #[test]
+    fn hint_suppressed_when_no_violations() {
+        let reports: Vec<(String, TheoryCoercionReport)> = Vec::new();
+        assert_eq!(suggest_var_name_from_reports(&reports, "x"), None);
     }
 }
