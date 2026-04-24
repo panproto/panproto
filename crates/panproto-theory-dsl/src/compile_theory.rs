@@ -57,17 +57,24 @@ pub fn compile_theory_with_law_check(
     if report.is_clean() {
         return Ok(theory);
     }
-    let violations: Vec<(String, String)> = report
-        .per_equation
-        .into_iter()
-        .flat_map(|(name, vs)| {
-            vs.into_iter()
-                .map(move |v| (name.as_ref().to_owned(), format!("{v:?}")))
-        })
-        .collect();
+    let mut violations: Vec<crate::error::CoercionLawViolationDetail> = Vec::new();
+    let mut distinct_equations: usize = 0;
+    for (name, vs) in report.per_equation {
+        if vs.is_empty() {
+            continue;
+        }
+        distinct_equations += 1;
+        for v in vs {
+            violations.push(crate::error::CoercionLawViolationDetail {
+                equation: name.as_ref().to_owned(),
+                violation: v,
+            });
+        }
+    }
     Err(TheoryDslError::CoercionLawViolation {
         theory: theory.name.as_ref().to_owned(),
         violations,
+        distinct_equations,
     })
 }
 
@@ -1161,10 +1168,26 @@ mod tests {
             return Err("lying iso must be rejected".into());
         };
         match err {
-            TheoryDslError::CoercionLawViolation { theory, violations } => {
+            TheoryDslError::CoercionLawViolation {
+                theory,
+                violations,
+                distinct_equations,
+            } => {
                 assert_eq!(theory, "ThLying");
                 assert!(!violations.is_empty());
-                assert!(violations.iter().all(|(n, _)| n == "lying_upper_iso"));
+                assert!(violations.iter().all(|d| d.equation == "lying_upper_iso"));
+                assert_eq!(distinct_equations, 1);
+                // The structured payload must be preserved so
+                // downstream consumers can match on the variant.
+                assert!(
+                    violations.iter().any(|d| matches!(
+                        d.violation,
+                        panproto_lens::coercion_laws::CoercionLawViolation::Backward { .. }
+                            | panproto_lens::coercion_laws::CoercionLawViolation::Forward { .. }
+                    )),
+                    "expected at least one Backward or Forward structured violation, \
+                     got {violations:?}",
+                );
                 Ok(())
             }
             other => Err(format!("expected CoercionLawViolation, got {other:?}").into()),

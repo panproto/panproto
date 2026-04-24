@@ -211,17 +211,45 @@ pub enum TheoryDslError {
     /// [`crate::compile_theory_with_law_check`]; the plain compile
     /// path ignores declared classes.
     #[error(
-        "coercion law violation in theory '{theory}': {} violation(s) across {} equation(s)",
+        "coercion law violation in theory '{theory}': {} violation(s) across {distinct_equations} equation(s)",
         violations.len(),
-        violations.iter().map(|(n, _)| n).collect::<std::collections::HashSet<_>>().len(),
     )]
     #[diagnostic(code(panproto_theory_dsl::coercion_law_violation))]
     CoercionLawViolation {
         /// The theory whose directed equations failed the sample
         /// check.
         theory: String,
-        /// One entry per sample-level violation: (equation name,
-        /// rendered violation).
-        violations: Vec<(String, String)>,
+        /// One entry per sample-level violation, carrying the
+        /// equation name and the structured
+        /// [`panproto_lens::coercion_laws::CoercionLawViolation`]
+        /// payload (preserved so downstream consumers can tree-shake
+        /// by variant: `Backward` / `Forward` / `NonDeterministic` /
+        /// `MissingInverse` / `ForwardEvalError` / `InverseEvalError`
+        /// / `UnknownClass`).
+        violations: Vec<CoercionLawViolationDetail>,
+        /// Count of distinct equations that produced at least one
+        /// violation. Cached at construction time so the
+        /// [`std::fmt::Display`] impl does not rebuild a `HashSet`
+        /// on every render.
+        distinct_equations: usize,
     },
+}
+
+/// One entry in
+/// [`TheoryDslError::CoercionLawViolation::violations`]. Pairs the
+/// originating equation name with the structured violation the
+/// sample-law checker produced.
+#[derive(Debug, Clone)]
+pub struct CoercionLawViolationDetail {
+    /// The directed equation on which the violation fired.
+    pub equation: String,
+    /// The structured violation produced by
+    /// [`panproto_lens::coercion_laws::check_directed_equation_with_registry`].
+    pub violation: panproto_lens::coercion_laws::CoercionLawViolation,
+}
+
+impl std::fmt::Display for CoercionLawViolationDetail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {:?}", self.equation, self.violation)
+    }
 }
