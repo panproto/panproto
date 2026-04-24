@@ -523,6 +523,41 @@ impl CoercionClass {
     pub const fn needs_complement_storage(self) -> bool {
         matches!(self, Self::Retraction | Self::Opaque)
     }
+
+    /// Every currently-known variant of [`CoercionClass`].
+    ///
+    /// The returned slice is the authoritative iteration order for
+    /// exhaustiveness-sensitive consumers (sample-based law checkers,
+    /// regression tests that must run once per class, breaking-change
+    /// migration tables). A dummy `match` below forces a compile
+    /// error when a new variant is added upstream: extend both the
+    /// match arms and the returned slice together.
+    ///
+    /// `CoercionClass` is `#[non_exhaustive]`; callers outside this
+    /// crate cannot write a `match` that panics on unknown variants
+    /// without a wildcard arm. This method lets them stay in lockstep
+    /// with the enum anyway.
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
+        // Exhaustiveness guard: adding a new variant to
+        // `CoercionClass` breaks this match and forces an update to
+        // `ALL` below.
+        const fn _exhaustiveness_witness(c: CoercionClass) {
+            match c {
+                CoercionClass::Iso
+                | CoercionClass::Retraction
+                | CoercionClass::Projection
+                | CoercionClass::Opaque => {}
+            }
+        }
+        const ALL: &[CoercionClass] = &[
+            CoercionClass::Iso,
+            CoercionClass::Retraction,
+            CoercionClass::Projection,
+            CoercionClass::Opaque,
+        ];
+        ALL
+    }
 }
 
 impl PartialOrd for CoercionClass {
@@ -627,6 +662,42 @@ impl ValueKind {
             Self::Null => "null",
             Self::Any => "any",
         }
+    }
+
+    /// Every variant of [`ValueKind`], in a fixed canonical order.
+    ///
+    /// Consumers that need to iterate every value kind (sample
+    /// registries, coverage regression tests, kind-indexed tables)
+    /// should use this rather than hand-written slice literals; the
+    /// dummy `match` below turns a silent omission into a compile
+    /// error when a new variant is added.
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
+        // Exhaustiveness guard: adding a new variant to `ValueKind`
+        // breaks this match and forces an update to `ALL` below.
+        const fn _exhaustiveness_witness(k: ValueKind) {
+            match k {
+                ValueKind::Bool
+                | ValueKind::Int
+                | ValueKind::Float
+                | ValueKind::Str
+                | ValueKind::Bytes
+                | ValueKind::Token
+                | ValueKind::Null
+                | ValueKind::Any => {}
+            }
+        }
+        const ALL: &[ValueKind] = &[
+            ValueKind::Bool,
+            ValueKind::Int,
+            ValueKind::Float,
+            ValueKind::Str,
+            ValueKind::Bytes,
+            ValueKind::Token,
+            ValueKind::Null,
+            ValueKind::Any,
+        ];
+        ALL
     }
 }
 
