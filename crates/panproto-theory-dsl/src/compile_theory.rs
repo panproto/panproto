@@ -33,6 +33,44 @@ pub fn compile_theory(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
     compile_theory_with_resolver(spec, &|_name| None)
 }
 
+/// Compile a [`TheorySpec`] and then run sample-based coercion law
+/// checks on every directed equation using `registry`.
+///
+/// Produces the same [`Theory`] as [`compile_theory`] when every
+/// declared coercion class is consistent with the sample evidence.
+/// Otherwise returns
+/// [`TheoryDslError::CoercionLawViolation`] with one entry per
+/// sample-level violation. The plain [`compile_theory`] path does
+/// not run this check, preserving the pre-0.38 behavior.
+///
+/// # Errors
+///
+/// Same as [`compile_theory`], plus
+/// [`TheoryDslError::CoercionLawViolation`] when a declared coercion
+/// class is falsified on `registry`'s samples.
+pub fn compile_theory_with_law_check(
+    spec: &TheorySpec,
+    registry: &panproto_lens::coercion_laws::CoercionSampleRegistry,
+) -> Result<Theory, TheoryDslError> {
+    let theory = compile_theory(spec)?;
+    let report = panproto_lens::coercion_laws::check_theory(&theory, registry);
+    if report.is_clean() {
+        return Ok(theory);
+    }
+    let violations: Vec<(String, String)> = report
+        .per_equation
+        .into_iter()
+        .flat_map(|(name, vs)| {
+            vs.into_iter()
+                .map(move |v| (name.as_ref().to_owned(), format!("{v:?}")))
+        })
+        .collect();
+    Err(TheoryDslError::CoercionLawViolation {
+        theory: theory.name.as_ref().to_owned(),
+        violations,
+    })
+}
+
 /// Compile a [`TheorySpec`] with support for imports.
 ///
 /// # Errors
@@ -1065,6 +1103,105 @@ mod tests {
         assert_eq!(&*theory.name, "ThTest");
         assert_eq!(theory.sorts.len(), 2);
         assert_eq!(theory.ops.len(), 1);
+        Ok(())
+    }
+
+    fn lying_iso_theory_spec() -> TheorySpec {
+        use crate::document::DirectedEqSpec;
+        TheorySpec {
+            theory: "ThLying".to_owned(),
+            extends: vec![],
+            imports: vec![],
+            sorts: vec![SortSpec {
+                name: "Str".to_owned(),
+                params: vec![],
+                kind: SortKindSpec::Val {
+                    value_kind: "string".to_owned(),
+                },
+                closed: None,
+            }],
+            ops: vec![OpSpec {
+                name: "upper".to_owned(),
+                input: Some("Str".to_owned()),
+                inputs: None,
+                output: "Str".to_owned(),
+            }],
+            equations: vec![],
+            directed_equations: vec![DirectedEqSpec {
+                name: "lying_upper_iso".to_owned(),
+                lhs: "upper(x)".to_owned(),
+                rhs: "x".to_owned(),
+                impl_expr: "upper(x)".to_owned(),
+                inverse: Some("x".to_owned()),
+                source_kind: Some("string".to_owned()),
+                target_kind: Some("string".to_owned()),
+                coercion_class: "iso".to_owned(),
+            }],
+            policies: vec![],
+        }
+    }
+
+    #[test]
+    fn compile_theory_accepts_lying_iso_without_law_check() -> TestResult {
+        // Baseline: plain compile does not consult coercion classes,
+        // so a lying Iso declaration round-trips through the
+        // compiler.
+        let spec = lying_iso_theory_spec();
+        let theory = compile_theory(&spec)?;
+        assert_eq!(theory.directed_eqs.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn compile_theory_with_law_check_rejects_lying_iso() -> TestResult {
+        let spec = lying_iso_theory_spec();
+        let registry = panproto_lens::coercion_laws::CoercionSampleRegistry::with_defaults();
+        let result = compile_theory_with_law_check(&spec, &registry);
+        let Err(err) = result else {
+            return Err("lying iso must be rejected".into());
+        };
+        match err {
+            TheoryDslError::CoercionLawViolation { theory, violations } => {
+                assert_eq!(theory, "ThLying");
+                assert!(!violations.is_empty());
+                assert!(violations.iter().all(|(n, _)| n == "lying_upper_iso"));
+                Ok(())
+            }
+            other => Err(format!("expected CoercionLawViolation, got {other:?}").into()),
+        }
+    }
+
+    #[test]
+    fn compile_theory_with_law_check_accepts_honest_iso() -> TestResult {
+        let spec = TheorySpec {
+            theory: "ThHonest".to_owned(),
+            extends: vec![],
+            imports: vec![],
+            sorts: vec![SortSpec {
+                name: "Str".to_owned(),
+                params: vec![],
+                kind: SortKindSpec::Val {
+                    value_kind: "string".to_owned(),
+                },
+                closed: None,
+            }],
+            ops: vec![],
+            equations: vec![],
+            directed_equations: vec![crate::document::DirectedEqSpec {
+                name: "identity_iso".to_owned(),
+                lhs: "x".to_owned(),
+                rhs: "x".to_owned(),
+                impl_expr: "x".to_owned(),
+                inverse: Some("x".to_owned()),
+                source_kind: Some("string".to_owned()),
+                target_kind: Some("string".to_owned()),
+                coercion_class: "iso".to_owned(),
+            }],
+            policies: vec![],
+        };
+        let registry = panproto_lens::coercion_laws::CoercionSampleRegistry::with_defaults();
+        let theory = compile_theory_with_law_check(&spec, &registry)?;
+        assert_eq!(theory.directed_eqs.len(), 1);
         Ok(())
     }
 }

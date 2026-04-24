@@ -39,6 +39,7 @@ pub mod eval;
 use std::path::Path;
 
 pub use compile::{builtin_resolver, compile_bundle, compile_with_source};
+pub use compile_theory::{compile_theory, compile_theory_with_law_check};
 pub use document::{BundleSpec, CompiledTheorySet, TheoryBody, TheoryDocument, TheorySpec};
 pub use error::TheoryDslError;
 

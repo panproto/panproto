@@ -204,4 +204,24 @@ pub enum TheoryDslError {
         /// The offending binding key.
         name: String,
     },
+
+    /// Sample-based coercion law check detected a declared coercion
+    /// class whose forward/inverse pair falsifies the declared law on
+    /// the sample registry's samples. Surfaced only by
+    /// [`crate::compile_theory_with_law_check`]; the plain compile
+    /// path ignores declared classes.
+    #[error(
+        "coercion law violation in theory '{theory}': {} violation(s) across {} equation(s)",
+        violations.len(),
+        violations.iter().map(|(n, _)| n).collect::<std::collections::HashSet<_>>().len(),
+    )]
+    #[diagnostic(code(panproto_theory_dsl::coercion_law_violation))]
+    CoercionLawViolation {
+        /// The theory whose directed equations failed the sample
+        /// check.
+        theory: String,
+        /// One entry per sample-level violation: (equation name,
+        /// rendered violation).
+        violations: Vec<(String, String)>,
+    },
 }

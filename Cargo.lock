@@ -2299,6 +2299,7 @@ dependencies = [
  "panproto-expr",
  "panproto-expr-parser",
  "panproto-gat",
+ "panproto-lens",
  "panproto-protocols",
  "panproto-schema",
  "proptest",
