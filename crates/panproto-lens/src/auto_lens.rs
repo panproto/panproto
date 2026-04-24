@@ -473,6 +473,100 @@ fn sources_without_compatible_targets(src: &Schema, tgt: &Schema) -> Vec<Name> {
     out
 }
 
+/// Identify source vertices that cannot participate in any naturality-
+/// consistent morphism given the currently-seeded anchors.
+///
+/// Strictly stronger than [`sources_without_compatible_targets`]: a
+/// source `s` passes this test only when there is at least one target
+/// `t` such that every outgoing edge `s --kind--> s'` in the source has
+/// a corresponding outgoing edge `t --kind'--> t'` in the target where
+/// the child target respects the anchor (when `s'` is already anchored)
+/// or is kind-compatible with `s'` (when it is not).
+///
+/// Excluding the sources returned here lets the CSP find a morphism
+/// on the anchored sub-schema even when the full source has sparse
+/// overlap with the target. The naturality-feasibility test is sound
+/// (never excludes a source that could participate in a valid
+/// morphism) because a source whose outgoing-edge set has no feasible
+/// counterpart cannot satisfy naturality against any target choice.
+fn sources_without_naturality_compatible_targets(
+    src: &Schema,
+    tgt: &Schema,
+    anchors: &HashMap<Name, Name>,
+    strict_edge_names: bool,
+) -> Vec<Name> {
+    let mut out: Vec<Name> = src
+        .vertices
+        .keys()
+        .filter(|s| {
+            !tgt.vertices
+                .keys()
+                .any(|t| naturality_feasible(src, s, tgt, t, anchors, strict_edge_names))
+        })
+        .cloned()
+        .collect();
+    out.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    out
+}
+
+/// Return `true` when mapping `s ↦ t` is consistent with naturality
+/// for every outgoing edge of `s` given the existing anchor set.
+///
+/// For each edge `s --kind--> s'` the target must have at least one
+/// edge `t --kind'--> t'` satisfying:
+///
+/// - kinds agree (`kind == kind'`),
+/// - labels agree when `strict_edge_names` is on,
+/// - if `s'` is anchored to `t''`, `t' == t''`; otherwise `t'`'s
+///   vertex kind is compatible with `s'`'s.
+///
+/// The check ignores incoming edges: the CSP validates the incoming
+/// side of naturality during the main search, and a source whose only
+/// problem is incoming-side naturality can still be assigned within
+/// the CSP.
+fn naturality_feasible(
+    src: &Schema,
+    s: &Name,
+    tgt: &Schema,
+    t: &Name,
+    anchors: &HashMap<Name, Name>,
+    strict_edge_names: bool,
+) -> bool {
+    // Source and target must themselves be kind-compatible before
+    // naturality-feasibility makes sense to evaluate.
+    if !align::kinds_compatible(src, s, tgt, t) {
+        return false;
+    }
+    let outgoing_target_edges = tgt.outgoing_edges(t.as_str());
+    src.outgoing_edges(s.as_str()).iter().all(|se| {
+        outgoing_target_edges.iter().any(|te| {
+            te.kind == se.kind
+                && (!strict_edge_names || edge_labels_compatible(se, te))
+                && child_target_respects_anchor(src, se, tgt, te, anchors)
+        })
+    })
+}
+
+fn edge_labels_compatible(se: &panproto_schema::Edge, te: &panproto_schema::Edge) -> bool {
+    match (&se.name, &te.name) {
+        (None, _) | (_, None) => true,
+        (Some(a), Some(b)) => a == b,
+    }
+}
+
+fn child_target_respects_anchor(
+    src: &Schema,
+    se: &panproto_schema::Edge,
+    tgt: &Schema,
+    te: &panproto_schema::Edge,
+    anchors: &HashMap<Name, Name>,
+) -> bool {
+    anchors.get(&se.tgt).map_or_else(
+        || align::kinds_compatible(src, &se.tgt, tgt, &te.tgt),
+        |anchored| &te.tgt == anchored,
+    )
+}
+
 /// Generate a protolens chain and concrete lens from two schemas.
 ///
 /// # Pipeline
@@ -516,10 +610,16 @@ pub fn auto_generate(
     }
 
     // Span search: at Lenient+, pre-exclude source vertices with no
-    // kind-compatible target. Excluded vertices surface as `DropSort`
-    // endofunctors in the factorized chain — the left leg of the span
-    // `A ←f− C −g→ B`.
-    let span_constraints = span_exclusions_at_lenient(src, tgt, config.stringency);
+    // naturality-feasible target given the already-resolved anchor
+    // set. Excluded vertices surface as `DropSort` endofunctors in the
+    // factorized chain: the left leg of the span `A ←f− C −g→ B`.
+    let span_constraints = span_exclusions_at_lenient(
+        src,
+        tgt,
+        config.stringency,
+        &resolved,
+        !search_opts.relax_edge_name_pruning,
+    );
 
     let result = run_search(
         src,
@@ -682,7 +782,21 @@ pub fn auto_generate_with_hints(
     // dropping a hinted source would surface as "CSP ignored my
     // hint" from the caller's perspective.
     let mut merged_domain = domain_constraints.clone();
-    if let Some(span) = span_exclusions_at_lenient(src, tgt, config.stringency) {
+    // Combine user hints with strategy anchors for the feasibility
+    // check: a richer anchor set lets the naturality predicate rule
+    // out more sources that cannot participate in a consistent
+    // morphism.
+    let mut feasibility_anchors: HashMap<Name, Name> = resolved_strategy.clone();
+    for (s, t) in anchors {
+        feasibility_anchors.insert(s.clone(), t.clone());
+    }
+    if let Some(span) = span_exclusions_at_lenient(
+        src,
+        tgt,
+        config.stringency,
+        &feasibility_anchors,
+        !search_opts.relax_edge_name_pruning,
+    ) {
         for src_v in span.excluded_sources {
             if anchors.contains_key(&src_v) {
                 continue;
@@ -951,9 +1065,16 @@ pub fn auto_generate_candidates(
     search_opts.max_results = n;
 
     // Span search: at Lenient+ pre-exclude source vertices with no
-    // kind-compatible target so the CSP can still find a morphism on
-    // the shared subschema.
-    let span_constraints = span_exclusions_at_lenient(src, tgt, config.stringency);
+    // naturality-feasible target given the resolved anchor set, so
+    // the CSP searches the anchored sub-schema rather than failing on
+    // full-source coverage.
+    let span_constraints = span_exclusions_at_lenient(
+        src,
+        tgt,
+        config.stringency,
+        &resolved,
+        !search_opts.relax_edge_name_pruning,
+    );
 
     candidates_from_search(
         src,
@@ -970,15 +1091,32 @@ pub fn auto_generate_candidates(
 /// Build `DomainConstraints` with auto-derived `excluded_sources` for
 /// span search. Returns `None` at tiers where spans are not allowed or
 /// when every source vertex has a compatible target.
+///
+/// When `anchors` is non-empty, the stronger naturality-feasibility
+/// predicate is used: a source is excluded if no target vertex admits
+/// a naturality-consistent assignment given the anchor set. This
+/// catches cases where a source vertex has some kind-compatible
+/// target but no *naturality-compatible* one, which otherwise forces
+/// the CSP to fail on schemas with sparse overlap.
+///
+/// When `anchors` is empty, falls back to the kind-only predicate so
+/// the pre-alignment path (where no anchors exist yet) is not starved
+/// of exclusions.
 fn span_exclusions_at_lenient(
     src: &Schema,
     tgt: &Schema,
     stringency: Stringency,
+    anchors: &HashMap<Name, Name>,
+    strict_edge_names: bool,
 ) -> Option<DomainConstraints> {
     if !stringency.allow_spans() {
         return None;
     }
-    let to_drop = sources_without_compatible_targets(src, tgt);
+    let to_drop = if anchors.is_empty() {
+        sources_without_compatible_targets(src, tgt)
+    } else {
+        sources_without_naturality_compatible_targets(src, tgt, anchors, strict_edge_names)
+    };
     if to_drop.is_empty() {
         return None;
     }
@@ -1027,7 +1165,17 @@ pub fn auto_generate_candidates_with_hints(
     // this guard the CSP silently drops user-hinted sources, surfacing
     // as a "CSP ignored my hint" bug.
     let mut merged_domain = domain_constraints.clone();
-    if let Some(span) = span_exclusions_at_lenient(src, tgt, config.stringency) {
+    let mut feasibility_anchors: HashMap<Name, Name> = resolved_strategy.clone();
+    for (s, t) in anchors {
+        feasibility_anchors.insert(s.clone(), t.clone());
+    }
+    if let Some(span) = span_exclusions_at_lenient(
+        src,
+        tgt,
+        config.stringency,
+        &feasibility_anchors,
+        !search_opts.relax_edge_name_pruning,
+    ) {
         for src_v in span.excluded_sources {
             if anchors.contains_key(&src_v) {
                 continue;
@@ -2556,8 +2704,9 @@ mod tests {
         // Directly exercise the merge logic: build the span set and
         // the user-hint set, and confirm the hinted source is kept in
         // the CSP domain (not excluded).
-        let span = span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient)
-            .expect("Lenient should auto-exclude r.flag");
+        let span =
+            span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient, &HashMap::new(), false)
+                .expect("Lenient should auto-exclude r.flag");
         assert!(
             span.excluded_sources.contains(&Name::from("r.flag")),
             "span auto-exclusion must name r.flag"
@@ -2655,8 +2804,9 @@ mod tests {
             .unwrap();
 
         // Prove the span logic wants to exclude `r.flag`.
-        let span = span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient)
-            .expect("Lenient should auto-exclude r.flag");
+        let span =
+            span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient, &HashMap::new(), false)
+                .expect("Lenient should auto-exclude r.flag");
         assert!(
             span.excluded_sources.contains(&Name::from("r.flag")),
             "span auto-exclusion must name r.flag"
@@ -2698,6 +2848,118 @@ mod tests {
             &anchors,
             &DomainConstraints::default(),
             1,
+        );
+    }
+
+    /// Naturality-aware exclusion catches sources whose outgoing
+    /// edges have no corresponding counterpart in the target, even
+    /// when the source vertex kind happens to appear somewhere in the
+    /// target. Under the old kind-only predicate, a `record` source
+    /// with an incompatible outgoing-edge structure would be retained
+    /// in the CSP scope and block every candidate solution. The
+    /// stronger predicate excludes it so the CSP searches only the
+    /// anchored subschema.
+    #[test]
+    fn naturality_feasibility_excludes_sources_with_unmatchable_outgoing_edges() {
+        let protocol = test_protocol();
+
+        // Source: a record with a `blob` child via the "blob" edge
+        // kind. Target has no "blob" edges at all, only "prop" edges.
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.media", "array", None::<&str>)
+            .unwrap()
+            .edge("post", "post.media", "blob", Some("media"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Target carries records, strings, and objects, none linked by
+        // a "blob" edge. The source record's kind (`record`) matches
+        // both target records, so the kind-only predicate retains
+        // `post`. Naturality-feasibility rejects it because no target
+        // record offers a `blob` outgoing edge.
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("doc", "record", None::<&str>)
+            .unwrap()
+            .vertex("doc.title", "string", None::<&str>)
+            .unwrap()
+            .edge("doc", "doc.title", "prop", Some("title"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let anchors: HashMap<Name, Name> = HashMap::new();
+        let kind_only = sources_without_compatible_targets(&src, &tgt);
+        assert!(
+            !kind_only.contains(&Name::from("post")),
+            "kind-only predicate retains `post` because target also has a record kind",
+        );
+
+        let naturality = sources_without_naturality_compatible_targets(
+            &src, &tgt, &anchors, /* strict_edge_names = */ false,
+        );
+        assert!(
+            naturality.contains(&Name::from("post")),
+            "naturality predicate must exclude `post`: no target record has a `blob` \
+             outgoing edge, so no naturality-consistent mapping exists (got {naturality:?})",
+        );
+    }
+
+    /// A schema pair where every source vertex has a kind-compatible
+    /// target but only one source has a naturality-compatible one.
+    /// Under the old predicate the CSP retains all sources and fails
+    /// to find a total morphism; under the stronger predicate the
+    /// unmatchable sources are excluded and the CSP succeeds on the
+    /// remaining anchored sub-schema.
+    #[test]
+    fn stronger_predicate_unblocks_csp_when_kind_only_retains_unmatchable_sources() {
+        let protocol = test_protocol();
+
+        // Source has two records. `recA` has a `prop` outgoing; `recB`
+        // has a `blob` outgoing that the target cannot fulfil. The
+        // kind-only predicate keeps both because both are records.
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("recA", "record", None::<&str>)
+            .unwrap()
+            .vertex("recA.name", "string", None::<&str>)
+            .unwrap()
+            .vertex("recB", "record", None::<&str>)
+            .unwrap()
+            .vertex("recB.media", "array", None::<&str>)
+            .unwrap()
+            .edge("recA", "recA.name", "prop", Some("name"))
+            .unwrap()
+            .edge("recB", "recB.media", "blob", Some("media"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("rec", "record", None::<&str>)
+            .unwrap()
+            .vertex("rec.name", "string", None::<&str>)
+            .unwrap()
+            .edge("rec", "rec.name", "prop", Some("name"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut anchors: HashMap<Name, Name> = HashMap::new();
+        anchors.insert(Name::from("recA"), Name::from("rec"));
+        anchors.insert(Name::from("recA.name"), Name::from("rec.name"));
+
+        let naturality = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
+        assert!(
+            naturality.contains(&Name::from("recB")),
+            "recB must be excluded: its `blob` outgoing edge has no target counterpart \
+             (got {naturality:?})",
+        );
+        assert!(
+            !naturality.contains(&Name::from("recA")),
+            "recA must survive: its outgoing `prop` edge aligns with the target's \
+             outgoing `prop` edge on the anchored `rec` vertex (got {naturality:?})",
         );
     }
 }
