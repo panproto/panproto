@@ -588,6 +588,82 @@ mod tests {
     }
 
     #[test]
+    fn flat_schema_round_trip_through_serde() -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_gat::Name;
+        use panproto_schema::{Schema, Vertex};
+        use std::collections::HashMap;
+
+        let mut vertices = HashMap::new();
+        vertices.insert(
+            Name::from("root"),
+            Vertex {
+                id: Name::from("root"),
+                kind: Name::from("object"),
+                nsid: None,
+            },
+        );
+        let schema = Schema {
+            protocol: "flat-proto".into(),
+            vertices,
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            entries: Vec::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        };
+        let obj = Object::FlatSchema(Box::new(schema.clone()));
+        let bytes = rmp_serde::to_vec(&obj)?;
+        let obj2: Object = rmp_serde::from_slice(&bytes)?;
+        match obj2 {
+            Object::FlatSchema(s) => {
+                assert_eq!(s.protocol, schema.protocol);
+                assert_eq!(s.vertices.len(), 1);
+            }
+            other => panic!("expected FlatSchema, got {}", other.type_name()),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn single_leaf_and_directory_hash_distinctly() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::hash::hash_schema_tree;
+
+        let leaf_id = ObjectId::from_bytes([9; 32]);
+
+        let single = SchemaTreeObject::SingleLeaf {
+            file_schema_id: leaf_id,
+        };
+        // A Directory with a single `File` entry carrying the same
+        // leaf id: prior to the typed variants, the two forms could
+        // have collapsed into ambiguous shapes.
+        let dir = SchemaTreeObject::Directory {
+            entries: vec![("only".to_owned(), SchemaTreeEntry::File(leaf_id))],
+        };
+
+        let h_single = hash_schema_tree(&single)?;
+        let h_dir = hash_schema_tree(&dir)?;
+        assert_ne!(
+            h_single, h_dir,
+            "SingleLeaf and Directory must hash to distinct ObjectIds"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn commit_backward_compat_no_theory_ids() -> Result<(), Box<dyn std::error::Error>> {
         // Simulate a commit serialized before theory_ids existed.
         let commit_old = CommitObject::builder(ObjectId::ZERO, "test", "test", "test")

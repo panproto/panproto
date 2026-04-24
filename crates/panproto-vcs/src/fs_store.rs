@@ -402,6 +402,29 @@ mod tests {
     }
 
     #[test]
+    fn flat_schema_put_get_round_trip_fs() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        let id = store.put(&Object::FlatSchema(Box::new(test_schema())))?;
+        match store.get(&id)? {
+            Object::FlatSchema(s) => {
+                assert_eq!(s.vertices.len(), 1);
+            }
+            other => panic!("expected FlatSchema, got {}", other.type_name()),
+        }
+        // After reopen, the object must still deserialize cleanly.
+        let reopened = FsStore::open(dir.path())?;
+        match reopened.get(&id)? {
+            Object::FlatSchema(_) => {}
+            other => panic!(
+                "expected FlatSchema after reopen, got {}",
+                other.type_name()
+            ),
+        }
+        Ok(())
+    }
+
+    #[test]
     fn multi_leaf_schema_tree_round_trips_fs() -> Result<(), Box<dyn std::error::Error>> {
         use crate::object::FileSchemaObject;
         use std::path::PathBuf;

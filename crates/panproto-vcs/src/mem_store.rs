@@ -213,6 +213,52 @@ mod tests {
     }
 
     #[test]
+    fn flat_schema_put_get_round_trip() -> Result<(), VcsError> {
+        let mut store = MemStore::new();
+        let id = store.put(&Object::FlatSchema(Box::new(test_schema())))?;
+        match store.get(&id)? {
+            Object::FlatSchema(s) => {
+                assert_eq!(s.vertices.len(), 1);
+                assert_eq!(s.protocol, "test");
+            }
+            other => panic!("expected FlatSchema, got {}", other.type_name()),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn multi_leaf_schema_tree_round_trip() -> Result<(), VcsError> {
+        use crate::object::FileSchemaObject;
+        use std::path::PathBuf;
+
+        let mut store = MemStore::new();
+
+        let mk = |path: &str| FileSchemaObject {
+            path: path.to_owned(),
+            protocol: "project".to_owned(),
+            schema: test_schema(),
+            cross_file_edges: Vec::new(),
+        };
+
+        let root = crate::tree::build_schema_tree(
+            &mut store,
+            vec![
+                (PathBuf::from("src/a.rs"), mk("src/a.rs")),
+                (PathBuf::from("src/b.rs"), mk("src/b.rs")),
+                (PathBuf::from("c.rs"), mk("c.rs")),
+            ],
+        )?;
+
+        let mut count = 0usize;
+        crate::tree::walk_tree(&store, &root, |_, _| {
+            count += 1;
+            Ok(())
+        })?;
+        assert_eq!(count, 3);
+        Ok(())
+    }
+
+    #[test]
     fn put_idempotent() -> Result<(), VcsError> {
         let mut store = MemStore::new();
         let id1 = crate::tree::store_schema_as_tree(&mut store, test_schema())?;

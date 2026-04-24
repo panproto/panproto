@@ -835,4 +835,45 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn schema_tree_directory_hash_ignores_wire_order() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::object::{SchemaTreeEntry, SchemaTreeObject};
+
+        let a = ObjectId::from_bytes([1; 32]);
+        let b = ObjectId::from_bytes([2; 32]);
+        let c = ObjectId::from_bytes([3; 32]);
+
+        let forward = SchemaTreeObject::Directory {
+            entries: vec![
+                ("a".to_owned(), SchemaTreeEntry::File(a)),
+                ("b".to_owned(), SchemaTreeEntry::Tree(b)),
+                ("c".to_owned(), SchemaTreeEntry::File(c)),
+            ],
+        };
+        let shuffled = SchemaTreeObject::Directory {
+            entries: vec![
+                ("c".to_owned(), SchemaTreeEntry::File(c)),
+                ("a".to_owned(), SchemaTreeEntry::File(a)),
+                ("b".to_owned(), SchemaTreeEntry::Tree(b)),
+            ],
+        };
+        assert_eq!(hash_schema_tree(&forward)?, hash_schema_tree(&shuffled)?);
+        Ok(())
+    }
+
+    #[test]
+    fn flat_schema_hash_stable_across_serde_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        // Serialize a Schema, deserialize it, and confirm the
+        // content-addressed hash is identical to the original. This
+        // guards against canonicalization drift introduced by the
+        // serde round trip.
+        let s = make_schema(&[("alpha", "record"), ("beta", "string")], &[]);
+        let h1 = hash_schema(&s)?;
+        let bytes = rmp_serde::to_vec(&s)?;
+        let s2: Schema = rmp_serde::from_slice(&bytes)?;
+        let h2 = hash_schema(&s2)?;
+        assert_eq!(h1, h2);
+        Ok(())
+    }
 }

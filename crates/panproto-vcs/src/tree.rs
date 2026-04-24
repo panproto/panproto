@@ -1021,6 +1021,56 @@ mod tests {
     }
 
     #[test]
+    fn walk_tree_visits_entries_in_lexicographic_order() {
+        use crate::object::{SchemaTreeEntry, SchemaTreeObject};
+
+        // Build a Directory whose entries are in REVERSE lex order on
+        // the wire. `walk_tree` must still report them in lex order.
+        let mut store = MemStore::new();
+        let leaf_a = store
+            .put(&Object::FileSchema(Box::new(file_schema("a.rs", "av"))))
+            .unwrap();
+        let leaf_m = store
+            .put(&Object::FileSchema(Box::new(file_schema("m.rs", "mv"))))
+            .unwrap();
+        let leaf_z = store
+            .put(&Object::FileSchema(Box::new(file_schema("z.rs", "zv"))))
+            .unwrap();
+
+        let unsorted = SchemaTreeObject::Directory {
+            entries: vec![
+                ("z.rs".to_owned(), SchemaTreeEntry::File(leaf_z)),
+                ("m.rs".to_owned(), SchemaTreeEntry::File(leaf_m)),
+                ("a.rs".to_owned(), SchemaTreeEntry::File(leaf_a)),
+            ],
+        };
+        let root = store.put(&Object::SchemaTree(Box::new(unsorted))).unwrap();
+
+        let mut seen: Vec<String> = Vec::new();
+        walk_tree(&store, &root, |path, _| {
+            seen.push(path.display().to_string());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, vec!["a.rs", "m.rs", "z.rs"]);
+    }
+
+    #[test]
+    fn walk_tree_broken_store_returns_error() {
+        // A `SchemaTree` referencing a leaf id that the store cannot
+        // resolve must surface a `VcsError` rather than panic.
+        use crate::object::{SchemaTreeEntry, SchemaTreeObject};
+        let mut store = MemStore::new();
+        let ghost = ObjectId::from_bytes([255; 32]);
+        let tree = SchemaTreeObject::Directory {
+            entries: vec![("gone.rs".to_owned(), SchemaTreeEntry::File(ghost))],
+        };
+        let root = store.put(&Object::SchemaTree(Box::new(tree))).unwrap();
+        let result = walk_tree(&store, &root, |_, _| Ok(()));
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn assemble_matches_single_file() {
         let mut store = MemStore::new();
         let file = file_schema("lonely.rs", "only");
