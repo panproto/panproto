@@ -48,7 +48,28 @@ let new_instance = lift_wtype(&compiled, &src_schema, &tgt_schema, &old_instance
 | `check_coverage` | Dry-run a migration against a set of records; report which ones succeed and which fail |
 | `CoverageReport` | Coverage statistics: total records, successful, failed, and per-record failure reasons |
 | `PartialReason` | Structured failure reason: `ConstraintViolation`, `MissingRequiredField`, `TypeMismatch`, `ExprEvalFailed` |
-| `MigError` / `ComposeError` / `InvertError` / `LiftError` | Error types |
+| `align::exact_anchors` | Name-and-kind equality anchors (Strict+) |
+| `align::alias_anchors` / `AliasDict` / `default_alias_dict` | English-synonym-cluster anchors (Balanced+) |
+| `align::token_anchors` / `token_similarity` | Token-Jaccard plus character-bigram cosine anchors (Balanced+) |
+| `align::edge_label_anchors` | Anchors derived from incident-edge label multisets (Balanced+) |
+| `align::suffix_anchors` | Anchors keyed on the terminal dotted segment of a namespaced identifier |
+| `align::description_anchors` / `description_similarity` | Anchors from token similarity over vertex descriptions when names diverge |
+| `align::neighborhood_anchors` | Anchors propagated from already-matched neighbors (Lenient+) |
+| `align::wl_anchors` | Weisfeiler-Leman structural-refinement anchors that match graph-locally-isomorphic vertices |
+| `align::embedding_anchors` / `Embedder` / `HashEmbedder` / `cosine_similarity` | Embedding-trait-based cosine anchors (feature-gated on `lm_embeddings`, scaffolded with a hash embedder by default) |
+| `align::type_signature_anchors` | Multiset-overlap anchors on edge-kind signatures with coerced variants |
+| `align::wrap_unwrap_anchors` | Record-flattening/nesting anchors |
+| `align::structural_anchors` | Degree-signature anchors (Exploratory only) |
+| `align::coerce_anchors` / `CoerceAnchor` | Coerced-sort anchors backed by a `SortLensWitness` |
+| `align::resolve_anchors` | Collapse a list of anchor candidates to a final bijection with kind-and-constraint filtering |
+| `align::kinds_compatible` | True if two vertex kinds are compatible (ignoring constraints) |
+| `align::kinds_and_constraints_compatible` | Stricter kinds-compatible that also requires matching constraint sets |
+| `align::vertex_is_required` / `adjust_anchors_by_required_sets` | Required-set tiebreak: prefers anchors that preserve required-vertex sets on both sides |
+| `align::Anchor` | Candidate correspondence carrying source, target, strategy, and score |
+| `StrategyTag` | Priority-ordered strategy tag: `Exact`, `ExactSuffix`, `EdgeLabel`, `Alias`, `TokenSimilarity`, `DescriptionSimilarity`, `TypeSignature`, `WrapUnwrap`, `Coerce`, `Neighborhood`, `WlRefinement`, `Structural` |
+| `coerce::SortLensWitness` / `WitnessLibrary` / `default_witness_library` | Directional sort-to-sort lens witnesses with a verified `CoercionClass` |
+| `coerce::witness_satisfies_lens_laws` / `witness_forward_fails_on` | Property-test helpers for sort coercion witnesses |
+| `MigError` / `ComposeError` / `InvertError` / `LiftError` / `ExistenceError` / `ChaseError` | Error types |
 
 ## License
 
