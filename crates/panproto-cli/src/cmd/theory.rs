@@ -184,9 +184,14 @@ pub fn cmd_theory_recompose(file: &Path, verbose: bool) -> Result<()> {
 /// equation in every theory compiled from `file`.
 ///
 /// Non-zero exit status on any violation; clean (exit 0) otherwise.
-pub fn cmd_theory_check_coercion_laws(file: &Path, json: bool, verbose: bool) -> Result<()> {
+pub fn cmd_theory_check_coercion_laws(
+    file: &Path,
+    json: bool,
+    verbose: bool,
+    var_name: &str,
+) -> Result<()> {
     use panproto_core::lens::coercion_laws::{
-        CoercionSampleRegistry, TheoryCoercionReport, check_theory,
+        CoercionSampleRegistry, TheoryCoercionReport, check_theory_with_var,
     };
 
     let resolver = panproto_theory_dsl::builtin_resolver();
@@ -203,7 +208,7 @@ pub fn cmd_theory_check_coercion_laws(file: &Path, json: bool, verbose: bool) ->
     let mut reports: Vec<(String, TheoryCoercionReport)> = Vec::new();
     for name in &theory_names {
         let theory = &compiled.theories[*name];
-        let report = check_theory(theory, &registry);
+        let report = check_theory_with_var(theory, &registry, var_name);
         reports.push(((*name).clone(), report));
     }
 
@@ -268,6 +273,12 @@ pub fn cmd_theory_check_coercion_laws(file: &Path, json: bool, verbose: bool) ->
             println!("All {} theor(y|ies) clean.", reports.len());
         } else {
             println!("Total violations: {total_violations}");
+            if let Some(suggested) = suggest_var_name_from_reports(&reports, var_name) {
+                println!(
+                    "hint: every equation errored on unbound variable '{suggested}'; \
+                     pass --var-name {suggested} to override the default '{var_name}'"
+                );
+            }
         }
     }
 
@@ -280,5 +291,68 @@ pub fn cmd_theory_check_coercion_laws(file: &Path, json: bool, verbose: bool) ->
         // (report plus a redundant miette bail message). The non-zero
         // exit status still propagates via the `Err` return.
         Err(miette::miette!("coercion law violation(s) detected"))
+    }
+}
+
+/// Inspect the per-theory reports for the "unbound variable X"
+/// anti-pattern: if every violation is a `ForwardEvalError` whose
+/// error message names the same unbound variable (and that variable
+/// is not the current `var_name`), return that variable so the
+/// caller can suggest `--var-name X`. Otherwise return `None`.
+fn suggest_var_name_from_reports(
+    reports: &[(
+        String,
+        panproto_core::lens::coercion_laws::TheoryCoercionReport,
+    )],
+    current_var: &str,
+) -> Option<String> {
+    use panproto_core::lens::coercion_laws::CoercionLawViolation;
+
+    let mut suggested: Option<String> = None;
+    let mut saw_any = false;
+    for (_, report) in reports {
+        for (_, violations) in &report.per_equation {
+            for v in violations {
+                saw_any = true;
+                let (CoercionLawViolation::ForwardEvalError { error, .. }
+                | CoercionLawViolation::InverseEvalError { error, .. }) = v
+                else {
+                    return None;
+                };
+                let name = extract_unbound_variable_name(error)?;
+                match &suggested {
+                    None => suggested = Some(name),
+                    Some(existing) if existing == &name => {}
+                    Some(_) => return None,
+                }
+            }
+        }
+    }
+    if !saw_any {
+        return None;
+    }
+    let name = suggested?;
+    if name == current_var {
+        return None;
+    }
+    Some(name)
+}
+
+/// Parse an error message of the form `"unbound variable <name>"` and
+/// return `<name>` when the pattern matches. Trims surrounding quotes
+/// and whitespace from the extracted name.
+fn extract_unbound_variable_name(error: &str) -> Option<String> {
+    let marker = "unbound variable";
+    let idx = error.find(marker)?;
+    let rest = &error[idx + marker.len()..];
+    let rest = rest.trim_start_matches([' ', ':', '`', '\'', '"']);
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    let name = &rest[..end];
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_owned())
     }
 }

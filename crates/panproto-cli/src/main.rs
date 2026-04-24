@@ -893,6 +893,13 @@ enum TheoryAction {
         /// Output the full report as JSON.
         #[arg(long)]
         json: bool,
+        /// Name under which each sample is bound in the evaluation
+        /// environment. Defaults to `"x"`; override when a theory's
+        /// equations bind a different free variable so the checker
+        /// does not surface "unbound variable" errors on every
+        /// sample.
+        #[arg(long, default_value = "x")]
+        var_name: String,
     },
 }
 
@@ -1533,9 +1540,11 @@ fn dispatch_theory_commands(action: TheoryAction, verbose: bool) -> Result<()> {
             cmd::theory::cmd_theory_check_morphism(&file, verbose)
         }
         TheoryAction::Recompose { file } => cmd::theory::cmd_theory_recompose(&file, verbose),
-        TheoryAction::CheckCoercionLaws { file, json } => {
-            cmd::theory::cmd_theory_check_coercion_laws(&file, json, verbose)
-        }
+        TheoryAction::CheckCoercionLaws {
+            file,
+            json,
+            var_name,
+        } => cmd::theory::cmd_theory_check_coercion_laws(&file, json, verbose, &var_name),
     }
 }
 

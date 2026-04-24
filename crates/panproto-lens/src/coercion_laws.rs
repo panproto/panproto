@@ -524,12 +524,27 @@ impl TheoryCoercionReport {
 ///
 /// Each equation is checked with the default variable binding name
 /// `"x"`. Callers whose equations use a different free variable name
-/// should drive [`check_directed_equation_with_registry`] directly.
+/// should call [`check_theory_with_var`] (or
+/// [`check_directed_equation_with_registry`] directly).
 #[must_use]
 pub fn check_theory(theory: &Theory, registry: &CoercionSampleRegistry) -> TheoryCoercionReport {
+    check_theory_with_var(theory, registry, "x")
+}
+
+/// Variable-name-parameterized [`check_theory`].
+///
+/// Binds each sample under `var_name` instead of the default `"x"`.
+/// Use this when the theory's directed equations share a different
+/// free variable name (for example, `"v"` or a field key).
+#[must_use]
+pub fn check_theory_with_var(
+    theory: &Theory,
+    registry: &CoercionSampleRegistry,
+    var_name: &str,
+) -> TheoryCoercionReport {
     let mut per_equation = Vec::with_capacity(theory.directed_eqs.len());
     for deq in &theory.directed_eqs {
-        let violations = check_directed_equation_with_registry(deq, registry, "x");
+        let violations = check_directed_equation_with_registry(deq, registry, var_name);
         per_equation.push((Arc::clone(&deq.name), violations));
     }
     TheoryCoercionReport { per_equation }

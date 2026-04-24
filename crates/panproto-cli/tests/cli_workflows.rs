@@ -2377,6 +2377,77 @@ fn write_two_theory_bundle(dir: &Path, name: &str) {
     std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
 }
 
+/// Theory whose directed equation binds `v` rather than the default
+/// `x`. Under the default `--var-name x` the checker will surface
+/// `ForwardEvalError { error: "unbound variable: v" }` on every
+/// sample; the CLI must emit a hint suggesting `--var-name v`.
+fn write_theory_binding_alternate_var(dir: &Path, name: &str) {
+    let doc = serde_json::json!({
+        "id": "test.alternate_var",
+        "description": "fixture whose equation binds `v`",
+        "theory": "AltVar",
+        "sorts": [
+            { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+        ],
+        "ops": [],
+        "equations": [],
+        "directed_equations": [
+            {
+                "name": "alt_var_iso",
+                "lhs": "v",
+                "rhs": "v",
+                "impl_expr": "v",
+                "inverse": "v",
+                "source_kind": "string",
+                "target_kind": "string",
+                "coercion_class": "iso"
+            }
+        ],
+        "policies": []
+    });
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+}
+
+#[test]
+fn theory_check_coercion_laws_emits_var_name_hint() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_theory_binding_alternate_var(tmp.path(), "alt.json");
+
+    let output = schema_cmd()
+        .args(["theory", "check-coercion-laws", "alt.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("hint:") && stdout.contains("--var-name v"),
+        "expected unbound-variable hint mentioning `--var-name v`; got stdout:\n{stdout}",
+    );
+}
+
+#[test]
+fn theory_check_coercion_laws_accepts_var_name_override() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_theory_binding_alternate_var(tmp.path(), "alt.json");
+
+    // With `--var-name v` the identity equation round-trips cleanly
+    // and the command must succeed.
+    schema_cmd()
+        .args([
+            "theory",
+            "check-coercion-laws",
+            "alt.json",
+            "--var-name",
+            "v",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+}
+
 #[test]
 fn theory_compile_json_output_is_deterministic_across_runs() {
     let tmp = tempfile::tempdir().unwrap();
