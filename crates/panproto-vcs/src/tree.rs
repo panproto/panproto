@@ -402,30 +402,38 @@ pub fn build_tree_from_leaves<S: Store>(
         Tree(Vec<(String, Self)>),
     }
 
-    fn insert(node: &mut Node, components: &[String], leaf: ObjectId) {
+    fn insert(
+        node: &mut Node,
+        components: &[String],
+        full_path: &str,
+        leaf: ObjectId,
+    ) -> Result<(), VcsError> {
         match node {
-            Node::Leaf(_) => {
-                // Collision: a leaf already occupies this path. In
-                // practice this only happens if the same path is
-                // inserted twice; replace deterministically.
-                *node = Node::Leaf(leaf);
-            }
+            Node::Leaf(_) => Err(VcsError::DuplicatePath {
+                path: full_path.to_owned(),
+            }),
             Node::Tree(entries) => {
                 let Some((head, tail)) = components.split_first() else {
-                    return;
+                    return Ok(());
                 };
                 if let Some(pos) = entries.iter().position(|(n, _)| n == head) {
                     if tail.is_empty() {
-                        entries[pos].1 = Node::Leaf(leaf);
-                    } else {
-                        insert(&mut entries[pos].1, tail, leaf);
+                        // Either a leaf already lives here (duplicate)
+                        // or a subtree lives here whose path prefix
+                        // clashes with a file of the same name.
+                        return Err(VcsError::DuplicatePath {
+                            path: full_path.to_owned(),
+                        });
                     }
+                    insert(&mut entries[pos].1, tail, full_path, leaf)
                 } else if tail.is_empty() {
                     entries.push((head.clone(), Node::Leaf(leaf)));
+                    Ok(())
                 } else {
                     let mut child = Node::Tree(Vec::new());
-                    insert(&mut child, tail, leaf);
+                    insert(&mut child, tail, full_path, leaf)?;
                     entries.push((head.clone(), child));
+                    Ok(())
                 }
             }
         }
@@ -459,10 +467,11 @@ pub fn build_tree_from_leaves<S: Store>(
             .components()
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect();
-        if components.is_empty() {
-            continue;
+        if components.is_empty() || components.iter().any(String::is_empty) {
+            return Err(VcsError::EmptyPath);
         }
-        insert(&mut root, &components, id);
+        let display = path.display().to_string();
+        insert(&mut root, &components, &display, id)?;
     }
 
     let (root_id, _) = emit(store, root)?;
@@ -543,6 +552,29 @@ mod tests {
         let root_a = build_schema_tree(&mut first, files_a).unwrap();
         let root_b = build_schema_tree(&mut second, files_b).unwrap();
         assert_eq!(root_a, root_b);
+    }
+
+    #[test]
+    fn duplicate_path_is_an_error() {
+        let mut store = MemStore::new();
+        let a = file_schema("a.rs", "a");
+        let b = file_schema("a.rs", "a2");
+        let err = build_schema_tree(
+            &mut store,
+            vec![(PathBuf::from("a.rs"), a), (PathBuf::from("a.rs"), b)],
+        )
+        .unwrap_err();
+        assert!(matches!(err, VcsError::DuplicatePath { .. }));
+    }
+
+    #[test]
+    fn empty_path_component_is_an_error() {
+        let mut store = MemStore::new();
+        let leaf_id = ObjectId::ZERO;
+        // An explicitly empty path, and a path containing an empty
+        // component, both must error rather than be silently dropped.
+        let err = build_tree_from_leaves(&mut store, vec![(PathBuf::new(), leaf_id)]).unwrap_err();
+        assert!(matches!(err, VcsError::EmptyPath));
     }
 
     #[test]

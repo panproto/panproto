@@ -139,6 +139,25 @@ pub enum VcsError {
     #[error("io: {0}")]
     IoError(String),
 
+    /// Two leaves were supplied at the same schema-tree path.
+    ///
+    /// Returned by [`crate::tree::build_tree_from_leaves`] when the
+    /// same path appears twice. Surfacing the duplicate lets callers
+    /// decide how to dedupe rather than silently picking a winner.
+    #[error("duplicate schema-tree path: {path}")]
+    DuplicatePath {
+        /// The offending path, displayed with forward slashes.
+        path: String,
+    },
+
+    /// A leaf was supplied with an empty path.
+    ///
+    /// Returned by [`crate::tree::build_tree_from_leaves`] when a path
+    /// has zero components. Empty paths cannot be placed in the
+    /// directory hierarchy and must not be silently dropped.
+    #[error("empty schema-tree path")]
+    EmptyPath,
+
     /// A generic error described by a human-readable string.
     #[error("{0}")]
     Other(String),

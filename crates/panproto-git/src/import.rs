@@ -390,7 +390,11 @@ fn collect_tree_leaves<S: Store>(
     leaves: &mut Vec<(PathBuf, ObjectId)>,
 ) -> Result<(), GitBridgeError> {
     for entry in tree {
-        let name = entry.name().unwrap_or("(unnamed)");
+        let name = entry
+            .name()
+            .ok_or_else(|| GitBridgeError::NonUtf8TreeEntry {
+                parent: prefix.display().to_string(),
+            })?;
         let path = prefix.join(name);
 
         match entry.kind() {
@@ -483,7 +487,11 @@ fn walk_git_tree(
     builder: &mut ProjectBuilder,
 ) -> Result<(), GitBridgeError> {
     for entry in tree {
-        let name = entry.name().unwrap_or("(unnamed)");
+        let name = entry
+            .name()
+            .ok_or_else(|| GitBridgeError::NonUtf8TreeEntry {
+                parent: prefix.display().to_string(),
+            })?;
         let path = prefix.join(name);
 
         match entry.kind() {

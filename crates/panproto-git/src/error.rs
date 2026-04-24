@@ -41,4 +41,16 @@ pub enum GitBridgeError {
         /// The file path.
         path: String,
     },
+
+    /// A git tree entry name is not valid UTF-8.
+    ///
+    /// Panproto protocol detection and cross-file import resolution
+    /// both key on UTF-8 paths, so a non-UTF-8 tree entry is a
+    /// genuine error rather than something to be silently mapped to
+    /// `"(unnamed)"`.
+    #[error("git tree entry name is not valid UTF-8 under parent {parent:?}")]
+    NonUtf8TreeEntry {
+        /// Display of the parent path, using forward slashes.
+        parent: String,
+    },
 }
