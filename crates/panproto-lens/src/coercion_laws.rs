@@ -369,17 +369,6 @@ impl CoercionSampleRegistry {
     /// other kind's samples.
     #[must_use]
     pub fn with_defaults() -> Self {
-        // Fixed iteration order for the `Any` union below; declared
-        // up front to avoid `clippy::items_after_statements`.
-        const KIND_ORDER: [ValueKind; 7] = [
-            ValueKind::Bool,
-            ValueKind::Int,
-            ValueKind::Float,
-            ValueKind::Str,
-            ValueKind::Bytes,
-            ValueKind::Token,
-            ValueKind::Null,
-        ];
         let mut reg = Self::new();
         reg.register(
             ValueKind::Bool,
@@ -426,13 +415,17 @@ impl CoercionSampleRegistry {
         );
 
         // `Any` is the union across every other registered kind.
-        // Iterate `KIND_ORDER` (declared at the top of this function)
-        // rather than the backing `FxHashMap` so the `Any` bucket is
-        // reproducible; the hashmap's iteration order is not stable
-        // and would leak into downstream law-check output.
+        // Iterate `ValueKind::all()` (which excludes nothing but the
+        // `Any` slot itself, handled below) rather than the backing
+        // `FxHashMap` so the `Any` bucket is reproducible; the
+        // hashmap's iteration order is not stable and would leak
+        // into downstream law-check output.
         let mut union: Vec<Literal> = Vec::new();
-        for kind in KIND_ORDER {
-            if let Some(vs) = reg.samples.get(&kind) {
+        for kind in ValueKind::all() {
+            if matches!(kind, ValueKind::Any) {
+                continue;
+            }
+            if let Some(vs) = reg.samples.get(kind) {
                 union.extend(vs.iter().cloned());
             }
         }
@@ -830,19 +823,13 @@ mod tests {
 
     #[test]
     fn registry_defaults_cover_every_primitive_kind() {
+        // `ValueKind::all()` is exhaustiveness-guarded upstream;
+        // iterating it here guarantees a new variant is surfaced as
+        // a test failure rather than silently passing.
         let reg = CoercionSampleRegistry::with_defaults();
-        for kind in [
-            ValueKind::Bool,
-            ValueKind::Int,
-            ValueKind::Float,
-            ValueKind::Str,
-            ValueKind::Bytes,
-            ValueKind::Null,
-            ValueKind::Token,
-            ValueKind::Any,
-        ] {
+        for kind in ValueKind::all() {
             assert!(
-                !reg.samples_for(kind).is_empty(),
+                !reg.samples_for(*kind).is_empty(),
                 "kind {kind:?} must have default samples"
             );
         }
@@ -939,13 +926,9 @@ mod tests {
         let inverse = Some(identity_expr("x"));
         let samples = [Literal::Str("probe".to_owned())];
 
-        for class in [
-            CoercionClass::Iso,
-            CoercionClass::Retraction,
-            CoercionClass::Projection,
-            CoercionClass::Opaque,
-        ] {
-            let violations = check_coercion_laws(&forward, inverse.as_ref(), class, &samples, "x");
+        for class in CoercionClass::all() {
+            let violations =
+                check_coercion_laws(&forward, inverse.as_ref(), *class, &samples, "x");
             for v in &violations {
                 assert!(
                     !matches!(v, CoercionLawViolation::UnknownClass { .. }),
