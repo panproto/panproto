@@ -70,6 +70,12 @@ pub fn mark_reachable(
                 for edit_log_id in commit.edit_log_ids {
                     queue.push(edit_log_id);
                 }
+                for (_, theory_id) in commit.theory_ids {
+                    queue.push(theory_id);
+                }
+                for cst_complement_id in commit.cst_complement_ids {
+                    queue.push(cst_complement_id);
+                }
             }
             Object::Migration { src, tgt, .. } => {
                 queue.push(src);

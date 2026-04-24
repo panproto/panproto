@@ -633,17 +633,27 @@ where
     let rules = resolve::default_rules();
     resolve::resolve_imports(&mut schema, &file_map, &protocols, &rules);
 
-    // Newly added edges are the cross-file import edges; bucket them
-    // by the file whose vertex is their source.
+    let new_edges: Vec<panproto_schema::Edge> = schema
+        .edges
+        .keys()
+        .filter(|e| !before.contains(*e))
+        .cloned()
+        .collect();
+    bucket_new_edges(&new_edges, &file_map)
+}
+
+/// Bucket newly synthesized cross-file import edges by the file whose
+/// vertex list contains each edge's `src`. Surfaces
+/// [`ProjectError::OrphanImportEdge`] if any edge's src matches no file.
+fn bucket_new_edges<H>(
+    new_edges: &[panproto_schema::Edge],
+    file_map: &HashMap<PathBuf, Vec<panproto_gat::Name>, H>,
+) -> Result<HashMap<PathBuf, Vec<panproto_schema::Edge>>, ProjectError>
+where
+    H: std::hash::BuildHasher,
+{
     let mut by_file: HashMap<PathBuf, Vec<panproto_schema::Edge>> = HashMap::new();
-    for edge in schema.edges.keys() {
-        if before.contains(edge) {
-            continue;
-        }
-        // Find the owning file by matching the edge src against the
-        // per-file vertex lists. A src that matches no file is either
-        // a resolver bug or a synthetic-root edge without a home; we
-        // surface it rather than silently dropping the edge.
+    for edge in new_edges {
         let Some(owner) = file_map
             .iter()
             .find(|(_, verts)| verts.iter().any(|v| v == &edge.src))
@@ -656,7 +666,6 @@ where
         };
         by_file.entry(owner).or_default().push(edge.clone());
     }
-
     Ok(by_file)
 }
 
@@ -698,7 +707,12 @@ where
                 .get(path)
                 .cloned()
                 .unwrap_or_else(|| "raw_file".to_owned());
-            let cross = cross_file_edges.get(path).cloned().unwrap_or_default();
+            let mut cross = cross_file_edges.get(path).cloned().unwrap_or_default();
+            // Canonicalize wire order: sort so that the emitted bytes
+            // are stable across input permutations. `hash_file_schema`
+            // also sorts before hashing, but canonicalizing here makes
+            // the stored wire bytes themselves deterministic.
+            cross.sort();
             let file = panproto_vcs::FileSchemaObject {
                 path: path.display().to_string(),
                 protocol,
@@ -933,6 +947,98 @@ mod tests {
         // carry the same structural content as the flat build.
         assert_eq!(flat.vertices.len(), assembled.vertices.len());
         assert_eq!(flat.edges.len(), assembled.edges.len());
+    }
+
+    #[test]
+    fn cross_file_edges_wire_bytes_are_deterministic() {
+        use panproto_gat::Name;
+        use panproto_schema::Edge;
+        use panproto_vcs::FileSchemaObject;
+
+        // Two synthetic edges rooted at the same vertex but ordered
+        // differently in the input Vec. Emitted wire bytes must match.
+        let e1 = Edge {
+            src: Name::from("src/main.ts::importStmt"),
+            tgt: Name::from("src/a.ts::exportA"),
+            kind: Name::from("imports"),
+            name: None,
+        };
+        let e2 = Edge {
+            src: Name::from("src/main.ts::importStmt"),
+            tgt: Name::from("src/b.ts::exportB"),
+            kind: Name::from("imports"),
+            name: None,
+        };
+
+        let mut files_a = HashMap::new();
+        let tiny = panproto_schema::SchemaBuilder::new(&panproto_schema::Protocol {
+            name: "project".into(),
+            ..Default::default()
+        })
+        .vertex("x", "record", None)
+        .unwrap()
+        .build()
+        .unwrap();
+        files_a.insert(PathBuf::from("src/main.ts"), tiny);
+        let mut protocols = HashMap::new();
+        protocols.insert(PathBuf::from("src/main.ts"), "typescript".to_owned());
+        let mut ce_forward = HashMap::new();
+        ce_forward.insert(PathBuf::from("src/main.ts"), vec![e1.clone(), e2.clone()]);
+        let mut ce_reverse = HashMap::new();
+        ce_reverse.insert(PathBuf::from("src/main.ts"), vec![e2, e1]);
+
+        let mut store_a = panproto_vcs::MemStore::new();
+        let mut store_b = panproto_vcs::MemStore::new();
+        let id_a = build_project_tree(&mut store_a, &files_a, &protocols, &ce_forward).unwrap();
+        let id_b = build_project_tree(&mut store_b, &files_a, &protocols, &ce_reverse).unwrap();
+        assert_eq!(
+            id_a, id_b,
+            "FileSchemaObject wire order must be deterministic"
+        );
+
+        // Stronger check: walk each store, find the wrapped
+        // FileSchemaObject, and compare raw serialized bytes.
+        let collect_bytes = |store: &panproto_vcs::MemStore, root: panproto_vcs::ObjectId| {
+            let mut bytes: Vec<u8> = Vec::new();
+            panproto_vcs::walk_tree(store, &root, |_, file: &FileSchemaObject| {
+                bytes = serde_json::to_vec(file).unwrap();
+                Ok(())
+            })
+            .unwrap();
+            bytes
+        };
+        assert_eq!(collect_bytes(&store_a, id_a), collect_bytes(&store_b, id_b));
+    }
+
+    #[test]
+    fn orphan_import_edge_is_surfaced() {
+        use panproto_gat::Name;
+        use panproto_schema::Edge;
+
+        // Forge a new edge whose `src` is not in any file's vertex
+        // list. The bucketing helper must surface OrphanImportEdge
+        // rather than silently drop the edge.
+        let mut file_map: HashMap<PathBuf, Vec<Name>> = HashMap::new();
+        file_map.insert(
+            PathBuf::from("src/a.ts"),
+            vec![Name::from("src/a.ts::real")],
+        );
+
+        let orphan = Edge {
+            src: Name::from("unknown::ghost"),
+            tgt: Name::from("src/a.ts::real"),
+            kind: Name::from("imports"),
+            name: None,
+        };
+
+        let err = bucket_new_edges(&[orphan], &file_map).unwrap_err();
+        match err {
+            ProjectError::OrphanImportEdge { src, tgt } => {
+                assert!(src.contains("ghost"));
+                assert!(tgt.contains("real"));
+            }
+            other => panic!("expected OrphanImportEdge, got {other:?}"),
+        }
     }
 
     #[test]
