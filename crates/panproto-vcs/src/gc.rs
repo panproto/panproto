@@ -323,6 +323,52 @@ mod tests {
     }
 
     #[test]
+    fn gc_marks_theory_ids_and_cst_complements_reachable() -> Result<(), VcsError> {
+        use crate::object::CstComplementObject;
+        use std::collections::BTreeMap;
+
+        let mut store = MemStore::new();
+
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
+
+        // A theory object reached through commit.theory_ids.
+        let theory = panproto_gat::Theory::new(
+            "ThTest",
+            vec![panproto_gat::Sort::simple("Vertex")],
+            vec![],
+            vec![],
+        );
+        let theory_id = store.put(&Object::Theory(Box::new(theory)))?;
+
+        // A CST-complement object reached through commit.cst_complement_ids.
+        let cst = CstComplementObject {
+            data_id: ObjectId::from_bytes([77; 32]),
+            cst_complement: vec![1, 2, 3],
+        };
+        let cst_id = store.put(&Object::CstComplement(cst))?;
+
+        let mut theory_ids = BTreeMap::new();
+        theory_ids.insert("ThTest".to_owned(), theory_id);
+
+        let commit = CommitObject::builder(schema_id, "test", "test", "initial")
+            .timestamp(100)
+            .theory_ids(theory_ids)
+            .cst_complement_ids(vec![cst_id])
+            .build();
+        let commit_id = store.put(&Object::Commit(commit))?;
+        store.set_ref("refs/heads/main", commit_id)?;
+
+        // Before the gc fix, theory_ids and cst_complement_ids were
+        // invisible to reachability and their targets were collected.
+        let report = gc(&mut store)?;
+        assert!(!report.deleted.contains(&theory_id));
+        assert!(!report.deleted.contains(&cst_id));
+        assert!(store.has(&theory_id));
+        assert!(store.has(&cst_id));
+        Ok(())
+    }
+
+    #[test]
     fn gc_marks_data_complement_protocol_reachable() -> Result<(), VcsError> {
         use crate::object::{ComplementObject, DataSetObject};
 
