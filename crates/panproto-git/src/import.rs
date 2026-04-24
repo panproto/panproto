@@ -47,11 +47,9 @@ pub enum BlobCacheLoadError {
 ///
 /// File format: one entry per line,
 /// `<git_blob_oid> <protocol_name> <file_schema_panproto_id>`. Every
-/// entry must carry a protocol slot; the earlier two-column form is
-/// no longer accepted. A cache from before the three-column format
-/// existed is rejected as corrupt so the caller can delete it and
-/// reimport rather than silently round-trip through an empty protocol
-/// slot.
+/// entry carries a non-empty protocol slot; a line with a missing or
+/// empty protocol is rejected as corrupt so the caller can delete the
+/// file and reimport rather than round-trip through an empty slot.
 ///
 /// # Errors
 ///
@@ -84,7 +82,7 @@ pub fn load_blob_cache(path: &Path) -> Result<BlobSchemaCache, BlobCacheLoadErro
             return Err(BlobCacheLoadError::Corrupt {
                 path: path.display().to_string(),
                 line: idx + 1,
-                reason: "missing protocol slot (legacy two-column cache is no longer supported; delete the cache file and reimport)".to_owned(),
+                reason: "missing protocol slot; delete the cache file and reimport".to_owned(),
             });
         };
         let Some(panproto_hex) = parts.next() else {

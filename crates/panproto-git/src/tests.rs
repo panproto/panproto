@@ -214,8 +214,8 @@ fn incremental_import_skips_known_ancestors() {
     assert_eq!(second.oid_map.len(), 1);
     assert_eq!(second.oid_map[0].0, commit_oids[2]);
 
-    // The new HEAD commit should have the previously-imported commit 1 as
-    // its single panproto parent.
+    // The new HEAD commit should have the imported commit 1 as its
+    // single panproto parent.
     let head_obj = store.get(&second.head_id).unwrap();
     match &head_obj {
         panproto_vcs::Object::Commit(c) => {
