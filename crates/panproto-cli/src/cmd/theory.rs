@@ -270,7 +270,11 @@ pub fn cmd_theory_check_coercion_laws(
             }
         }
         if clean {
-            println!("All {} theor(y|ies) clean.", reports.len());
+            if reports.len() == 1 {
+                println!("All 1 theory clean.");
+            } else {
+                println!("All {} theories clean.", reports.len());
+            }
         } else {
             println!("Total violations: {total_violations}");
             if let Some(suggested) = suggest_var_name_from_reports(&reports, var_name) {

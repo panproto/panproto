@@ -579,15 +579,17 @@ fn run_strategies(
         // relax the CSP kind filter conditional on the presence of a
         // registered witness.
         let library = panproto_mig::coerce::default_witness_library();
-        let mut proposals = align::coerce_anchors(src, tgt, &library);
-        if let Some(registry) = config.coercion_law_registry.as_ref() {
+        let raw_proposals = align::coerce_anchors(src, tgt, &library);
+        let proposals = if let Some(registry) = config.coercion_law_registry.as_ref() {
             let (kept, _dropped) = filter_coerce_proposals_by_law_check_with_policy(
-                std::mem::take(&mut proposals),
+                raw_proposals,
                 registry,
                 config.filter_options,
             );
-            proposals = kept;
-        }
+            kept
+        } else {
+            raw_proposals
+        };
         for ca in &proposals {
             anchors.push(ca.anchor.clone());
         }
