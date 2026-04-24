@@ -1,7 +1,7 @@
 //! Sample-based verification of declared coercion classes.
 //!
-//! A [`DirectedEquation`](panproto_gat::DirectedEquation) carries a
-//! [`CoercionClass`](panproto_gat::CoercionClass) that declares the
+//! A [`DirectedEquation`] carries a
+//! [`CoercionClass`] that declares the
 //! round-trip fidelity of its forward (`impl_term`) and backward
 //! (`inverse`) expressions. Nothing in the construction path checks
 //! that the declaration is honest. The functions in this module run a
@@ -43,7 +43,8 @@
 use std::sync::Arc;
 
 use panproto_expr::{Env, EvalConfig, Expr, Literal, eval};
-use panproto_gat::{CoercionClass, DirectedEquation};
+use panproto_gat::{CoercionClass, DirectedEquation, Theory, ValueKind};
+use rustc_hash::FxHashMap;
 
 /// A violation of a declared coercion class's round-trip law on a
 /// single sample input.
@@ -333,6 +334,192 @@ fn check_deterministic(
     }
 }
 
+/// A per-value-kind registry of sample inputs for coercion law checks.
+///
+/// Callers register a set of sample `Literal` values for each
+/// [`ValueKind`] they care about;
+/// [`check_directed_equation_with_registry`] uses the registry entry
+/// matching `deq.source_kind` to supply the sample input.
+#[derive(Debug, Clone)]
+pub struct CoercionSampleRegistry {
+    samples: FxHashMap<ValueKind, Vec<Literal>>,
+}
+
+impl CoercionSampleRegistry {
+    /// Construct an empty registry. Lookups on every value kind return
+    /// the empty slice until [`Self::register`] is called.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            samples: FxHashMap::default(),
+        }
+    }
+
+    /// Construct a registry pre-populated with defaults for every
+    /// primitive [`ValueKind`].
+    ///
+    /// The default samples cover common edge cases:
+    /// `Bool` (both), `Int` (small, large, zero, negative),
+    /// `Float` (zero, small, negative, non-integer),
+    /// `Str` (the six values from
+    /// [`default_samples_for_string_value`]),
+    /// `Bytes` (empty + small), `Null`, and `Token` (short
+    /// identifier-like strings). `Any` receives the union of every
+    /// other kind's samples.
+    #[must_use]
+    pub fn with_defaults() -> Self {
+        let mut reg = Self::new();
+        reg.register(
+            ValueKind::Bool,
+            vec![Literal::Bool(false), Literal::Bool(true)],
+        );
+        reg.register(
+            ValueKind::Int,
+            vec![
+                Literal::Int(0),
+                Literal::Int(1),
+                Literal::Int(-1),
+                Literal::Int(42),
+                Literal::Int(i64::MAX),
+                Literal::Int(i64::MIN),
+            ],
+        );
+        reg.register(
+            ValueKind::Float,
+            vec![
+                Literal::Float(0.0),
+                Literal::Float(1.0),
+                Literal::Float(-1.0),
+                Literal::Float(3.5),
+                Literal::Float(-2.25),
+            ],
+        );
+        reg.register(ValueKind::Str, default_samples_for_string_value());
+        reg.register(
+            ValueKind::Bytes,
+            vec![
+                Literal::Bytes(Vec::new()),
+                Literal::Bytes(b"abc".to_vec()),
+                Literal::Bytes(vec![0, 255, 7]),
+            ],
+        );
+        reg.register(ValueKind::Null, vec![Literal::Null]);
+        reg.register(
+            ValueKind::Token,
+            vec![
+                Literal::Str("token".to_owned()),
+                Literal::Str("id_42".to_owned()),
+                Literal::Str("ns:name".to_owned()),
+            ],
+        );
+
+        // `Any` is the union across every other registered kind.
+        let union: Vec<Literal> = reg
+            .samples
+            .iter()
+            .filter(|(k, _)| !matches!(k, ValueKind::Any))
+            .flat_map(|(_, vs)| vs.iter().cloned())
+            .collect();
+        reg.register(ValueKind::Any, union);
+        reg
+    }
+
+    /// Register `samples` as the sample set for `kind`. Replaces any
+    /// previously registered samples for that kind.
+    pub fn register(&mut self, kind: ValueKind, samples: Vec<Literal>) {
+        self.samples.insert(kind, samples);
+    }
+
+    /// Look up the registered samples for `kind`. Returns an empty
+    /// slice if no samples were registered.
+    #[must_use]
+    pub fn samples_for(&self, kind: ValueKind) -> &[Literal] {
+        self.samples.get(&kind).map_or(&[], Vec::as_slice)
+    }
+
+    /// Indicates whether any samples have been registered.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.samples.values().all(Vec::is_empty)
+    }
+}
+
+impl Default for CoercionSampleRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Check the round-trip laws of `deq`'s declared coercion class using
+/// samples drawn from a [`CoercionSampleRegistry`].
+///
+/// The registry entry for `deq.source_kind` supplies the samples. If
+/// `deq.source_kind` is `None` (untyped equation), the lookup falls
+/// back to the `Any` entry. When neither entry has samples, the
+/// function returns an empty violation list (there is nothing to
+/// test).
+#[must_use]
+pub fn check_directed_equation_with_registry(
+    deq: &DirectedEquation,
+    registry: &CoercionSampleRegistry,
+    var_name: &str,
+) -> Vec<CoercionLawViolation> {
+    let primary = deq
+        .source_kind
+        .map_or(&[] as &[Literal], |k| registry.samples_for(k));
+    let samples: &[Literal] = if primary.is_empty() {
+        registry.samples_for(ValueKind::Any)
+    } else {
+        primary
+    };
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    check_directed_equation_coercion_law(deq, samples, var_name)
+}
+
+/// Report produced by [`check_theory`].
+///
+/// Each entry pairs a directed equation's name with the violations
+/// (if any) surfaced by sample-based law checking.
+#[derive(Debug, Clone, Default)]
+pub struct TheoryCoercionReport {
+    /// One entry per directed equation checked, in theory declaration
+    /// order. An entry with an empty violation vector means the
+    /// equation passed every sample.
+    pub per_equation: Vec<(Arc<str>, Vec<CoercionLawViolation>)>,
+}
+
+impl TheoryCoercionReport {
+    /// Indicates whether every directed equation passed. Equivalent to
+    /// `self.violation_count() == 0`.
+    #[must_use]
+    pub fn is_clean(&self) -> bool {
+        self.per_equation.iter().all(|(_, vs)| vs.is_empty())
+    }
+
+    /// Total number of violations across every directed equation.
+    #[must_use]
+    pub fn violation_count(&self) -> usize {
+        self.per_equation.iter().map(|(_, vs)| vs.len()).sum()
+    }
+}
+
+/// Validate every directed equation in `theory` against `registry`.
+///
+/// Each equation is checked with the default variable binding name
+/// `"x"`. Callers whose equations use a different free variable name
+/// should drive [`check_directed_equation_with_registry`] directly.
+#[must_use]
+pub fn check_theory(theory: &Theory, registry: &CoercionSampleRegistry) -> TheoryCoercionReport {
+    let mut per_equation = Vec::with_capacity(theory.directed_eqs.len());
+    for deq in &theory.directed_eqs {
+        let violations = check_directed_equation_with_registry(deq, registry, "x");
+        per_equation.push((Arc::clone(&deq.name), violations));
+    }
+    TheoryCoercionReport { per_equation }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -518,6 +705,106 @@ mod tests {
         );
         let via_deq = check_directed_equation_coercion_law(&deq, &samples, "x");
         assert_eq!(direct.len(), via_deq.len());
+    }
+
+    fn honest_iso_deq(name: &str) -> DirectedEquation {
+        DirectedEquation {
+            name: Arc::from(name),
+            lhs: panproto_gat::Term::var("x"),
+            rhs: panproto_gat::Term::var("x"),
+            impl_term: identity_expr("x"),
+            inverse: Some(identity_expr("x")),
+            source_kind: Some(ValueKind::Str),
+            target_kind: Some(ValueKind::Str),
+            coercion_class: CoercionClass::Iso,
+        }
+    }
+
+    fn lying_iso_deq(name: &str) -> DirectedEquation {
+        DirectedEquation {
+            name: Arc::from(name),
+            lhs: panproto_gat::Term::var("x"),
+            rhs: panproto_gat::Term::app("upper", vec![panproto_gat::Term::var("x")]),
+            impl_term: upper_expr("x"),
+            inverse: Some(identity_expr("x")),
+            source_kind: Some(ValueKind::Str),
+            target_kind: Some(ValueKind::Str),
+            coercion_class: CoercionClass::Iso,
+        }
+    }
+
+    #[test]
+    fn registry_defaults_cover_every_primitive_kind() {
+        let reg = CoercionSampleRegistry::with_defaults();
+        for kind in [
+            ValueKind::Bool,
+            ValueKind::Int,
+            ValueKind::Float,
+            ValueKind::Str,
+            ValueKind::Bytes,
+            ValueKind::Null,
+            ValueKind::Token,
+            ValueKind::Any,
+        ] {
+            assert!(
+                !reg.samples_for(kind).is_empty(),
+                "kind {kind:?} must have default samples"
+            );
+        }
+        assert!(!reg.is_empty());
+    }
+
+    #[test]
+    fn registry_check_passes_on_honest_iso() {
+        let reg = CoercionSampleRegistry::with_defaults();
+        let deq = honest_iso_deq("honest");
+        let violations = check_directed_equation_with_registry(&deq, &reg, "x");
+        assert!(
+            violations.is_empty(),
+            "honest iso must pass: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn registry_check_flags_lying_iso() {
+        let reg = CoercionSampleRegistry::with_defaults();
+        let deq = lying_iso_deq("lying");
+        let violations = check_directed_equation_with_registry(&deq, &reg, "x");
+        assert!(!violations.is_empty(), "lying iso must be flagged");
+    }
+
+    #[test]
+    fn registry_check_falls_back_to_any_when_kind_missing() {
+        let mut reg = CoercionSampleRegistry::new();
+        reg.register(ValueKind::Any, vec![Literal::Str("Alice".to_owned())]);
+        let mut deq = lying_iso_deq("lying_untyped");
+        deq.source_kind = None;
+        let violations = check_directed_equation_with_registry(&deq, &reg, "x");
+        assert!(!violations.is_empty());
+    }
+
+    #[test]
+    fn check_theory_reports_mixed_honesty() {
+        let theory = Theory::full(
+            "TestCoercionTheory",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![honest_iso_deq("honest"), lying_iso_deq("lying")],
+            Vec::new(),
+        );
+        let reg = CoercionSampleRegistry::with_defaults();
+        let report = check_theory(&theory, &reg);
+        assert!(!report.is_clean());
+        assert_eq!(report.per_equation.len(), 2);
+        let (honest_name, honest_violations) = &report.per_equation[0];
+        assert_eq!(honest_name.as_ref(), "honest");
+        assert!(honest_violations.is_empty());
+        let (lying_name, lying_violations) = &report.per_equation[1];
+        assert_eq!(lying_name.as_ref(), "lying");
+        assert!(!lying_violations.is_empty());
+        assert!(report.violation_count() >= 1);
     }
 
     #[test]
