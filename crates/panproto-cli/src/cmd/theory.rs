@@ -274,9 +274,11 @@ pub fn cmd_theory_check_coercion_laws(file: &Path, json: bool, verbose: bool) ->
     if clean {
         Ok(())
     } else {
-        miette::bail!(
-            "coercion law violation(s) detected: {total_violations} across {} theor(y|ies)",
-            reports.iter().filter(|(_, r)| !r.is_clean()).count(),
-        );
+        // The report printed above already summarises the failure
+        // ("Total violations: N"). Return an un-rendered error so the
+        // user sees one diagnostic (the printed report), not two
+        // (report plus a redundant miette bail message). The non-zero
+        // exit status still propagates via the `Err` return.
+        Err(miette::miette!("coercion law violation(s) detected"))
     }
 }
