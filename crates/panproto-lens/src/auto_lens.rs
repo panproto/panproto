@@ -293,6 +293,13 @@ pub struct AutoLensConfig {
     /// audit the drops. When `None` (default), coerce anchors pass
     /// through without verification (the pre-0.38 behavior).
     pub coercion_law_registry: Option<CoercionSampleRegistry>,
+    /// Controls how unverifiable proposals (unknown witness or no
+    /// registered samples for the source kind) are routed by the
+    /// coerce-anchor filter. Consulted only when
+    /// `coercion_law_registry` is `Some`. Defaults to
+    /// [`UnknownSamplesPolicy::Keep`] which preserves the pre-0.38
+    /// behavior of letting unverifiable proposals through.
+    pub filter_options: FilterOptions,
 }
 
 impl Default for AutoLensConfig {
@@ -304,7 +311,49 @@ impl Default for AutoLensConfig {
             stringency: Stringency::default(),
             alias_dict: default_alias_dict(),
             coercion_law_registry: None,
+            filter_options: FilterOptions::default(),
         }
+    }
+}
+
+/// Policy for the two "unverifiable" paths in the coerce-proposal filter.
+///
+/// Covers a proposal whose witness is absent from the library, and a
+/// proposal whose witness is present but whose `source_kind` has no
+/// registered samples. Both paths used to default asymmetrically
+/// (unknown witness dropped, missing samples kept); this knob makes
+/// the treatment explicit and uniform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnknownSamplesPolicy {
+    /// Keep unverifiable proposals (sound when the caller still
+    /// intends to audit proposals downstream, and the registry is
+    /// intentionally partial).
+    #[default]
+    Keep,
+    /// Drop unverifiable proposals (strict: only proposals whose
+    /// witness exists and whose source kind has at least one sample
+    /// survive).
+    Drop,
+}
+
+/// Filter options for [`filter_coerce_proposals_by_law_check_with_policy`].
+///
+/// The single field today is the unknown-samples / unknown-witness
+/// policy, but this struct exists so future knobs can be added
+/// without churning every call site.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FilterOptions {
+    /// How to treat proposals whose witness cannot be located or
+    /// whose source kind has no registered samples. See
+    /// [`UnknownSamplesPolicy`].
+    pub unknown: UnknownSamplesPolicy,
+}
+
+impl FilterOptions {
+    /// Construct with `unknown` set explicitly.
+    #[must_use]
+    pub const fn with_unknown(unknown: UnknownSamplesPolicy) -> Self {
+        Self { unknown }
     }
 }
 
@@ -314,9 +363,14 @@ impl Default for AutoLensConfig {
 /// Each proposal's witness is looked up in the default witness
 /// library; its declared forward, inverse, and coercion class are
 /// then checked against the samples registered for the witness's
-/// source value kind. Proposals whose witness cannot be located or
-/// whose declared class falsifies the round-trip law are moved to
-/// the dropped list; the others are kept.
+/// source value kind. Proposals whose declared class falsifies the
+/// round-trip law are moved to the dropped list; the others are kept.
+///
+/// Proposals that cannot be verified (witness absent from library,
+/// or witness present but source kind has no samples) are routed by
+/// the current default, [`UnknownSamplesPolicy::Keep`]. Callers that
+/// want strict behavior should invoke
+/// [`filter_coerce_proposals_by_law_check_with_policy`] directly.
 ///
 /// This is exposed separately from `auto_generate` so callers can
 /// audit their proposal streams without running a full lens search.
@@ -325,20 +379,48 @@ pub fn filter_coerce_proposals_by_law_check(
     proposals: Vec<CoerceAnchor>,
     registry: &CoercionSampleRegistry,
 ) -> (Vec<CoerceAnchor>, Vec<(CoerceAnchor, String)>) {
+    filter_coerce_proposals_by_law_check_with_policy(proposals, registry, FilterOptions::default())
+}
+
+/// Filter `proposals` with an explicit [`FilterOptions`].
+///
+/// `options` controls how unverifiable proposals (unknown witness or
+/// absent samples) are routed. Verifiable proposals are subjected to
+/// the witness's declared-class round-trip law exactly as in the
+/// default entry point.
+#[must_use]
+pub fn filter_coerce_proposals_by_law_check_with_policy(
+    proposals: Vec<CoerceAnchor>,
+    registry: &CoercionSampleRegistry,
+    options: FilterOptions,
+) -> (Vec<CoerceAnchor>, Vec<(CoerceAnchor, String)>) {
     let library = panproto_mig::coerce::default_witness_library();
     let mut kept = Vec::with_capacity(proposals.len());
     let mut dropped = Vec::new();
     for proposal in proposals {
         let Some(witness) = library.witness_by_name(&proposal.witness_name) else {
-            dropped.push((proposal, "witness not found in default library".to_owned()));
+            match options.unknown {
+                UnknownSamplesPolicy::Keep => kept.push(proposal),
+                UnknownSamplesPolicy::Drop => {
+                    dropped.push((proposal, "witness not found in default library".to_owned()));
+                }
+            }
             continue;
         };
         let samples = registry.samples_for(witness.source_kind);
         if samples.is_empty() {
-            // No samples to test against: keep by default (the same
-            // behavior as a registry-less run would exhibit for this
-            // kind).
-            kept.push(proposal);
+            match options.unknown {
+                UnknownSamplesPolicy::Keep => kept.push(proposal),
+                UnknownSamplesPolicy::Drop => {
+                    dropped.push((
+                        proposal,
+                        format!(
+                            "no samples registered for source kind {:?}",
+                            witness.source_kind
+                        ),
+                    ));
+                }
+            }
             continue;
         }
         if let Some(reason) = check_witness_backward_law(witness, samples) {
@@ -499,8 +581,11 @@ fn run_strategies(
         let library = panproto_mig::coerce::default_witness_library();
         let mut proposals = align::coerce_anchors(src, tgt, &library);
         if let Some(registry) = config.coercion_law_registry.as_ref() {
-            let (kept, _dropped) =
-                filter_coerce_proposals_by_law_check(std::mem::take(&mut proposals), registry);
+            let (kept, _dropped) = filter_coerce_proposals_by_law_check_with_policy(
+                std::mem::take(&mut proposals),
+                registry,
+                config.filter_options,
+            );
             proposals = kept;
         }
         for ca in &proposals {
@@ -3103,15 +3188,76 @@ mod tests {
     }
 
     #[test]
-    fn filter_coerce_proposals_drops_unknown_witness() {
-        // A witness name that is not in the default library cannot be
-        // validated at all; the filter drops it rather than letting
-        // an unverifiable proposal through.
+    fn filter_coerce_proposals_drops_unknown_witness_under_drop_policy() {
+        // Under the explicit `Drop` policy, a witness name that is
+        // not in the default library is dropped rather than passed
+        // through.
+        let registry = CoercionSampleRegistry::with_defaults();
+        let proposals = vec![synthetic_coerce_anchor("no_such_witness")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check_with_policy(
+            proposals,
+            &registry,
+            FilterOptions::with_unknown(UnknownSamplesPolicy::Drop),
+        );
+        assert!(kept.is_empty());
+        assert_eq!(dropped.len(), 1);
+    }
+
+    #[test]
+    fn filter_coerce_proposals_keeps_unknown_witness_under_keep_policy() {
+        // Under the default `Keep` policy, an unknown-witness proposal
+        // survives; the caller is responsible for downstream audit.
+        let registry = CoercionSampleRegistry::with_defaults();
+        let proposals = vec![synthetic_coerce_anchor("no_such_witness")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check_with_policy(
+            proposals,
+            &registry,
+            FilterOptions::with_unknown(UnknownSamplesPolicy::Keep),
+        );
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
+    }
+
+    #[test]
+    fn filter_coerce_proposals_keeps_missing_samples_under_keep_policy() {
+        // `int_to_str` exists in the default library and expects
+        // `Int` samples. An empty registry has no `Int` samples; the
+        // `Keep` policy passes the proposal through.
+        let registry = CoercionSampleRegistry::new();
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check_with_policy(
+            proposals,
+            &registry,
+            FilterOptions::with_unknown(UnknownSamplesPolicy::Keep),
+        );
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
+    }
+
+    #[test]
+    fn filter_coerce_proposals_drops_missing_samples_under_drop_policy() {
+        // Under `Drop`, the same configuration as above drops the
+        // proposal because the registry has no samples for `Int`.
+        let registry = CoercionSampleRegistry::new();
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check_with_policy(
+            proposals,
+            &registry,
+            FilterOptions::with_unknown(UnknownSamplesPolicy::Drop),
+        );
+        assert!(kept.is_empty());
+        assert_eq!(dropped.len(), 1);
+    }
+
+    #[test]
+    fn filter_coerce_proposals_default_entry_point_uses_keep_policy() {
+        // The no-options entry point now uses `Keep` by default, so
+        // an unknown witness survives the filter.
         let registry = CoercionSampleRegistry::with_defaults();
         let proposals = vec![synthetic_coerce_anchor("no_such_witness")];
         let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
-        assert!(kept.is_empty());
-        assert_eq!(dropped.len(), 1);
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
     }
 
     #[test]

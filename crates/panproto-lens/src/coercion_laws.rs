@@ -865,8 +865,9 @@ mod tests {
         let deq = lying_iso_deq("lying");
         let violations = check_directed_equation_with_registry(&deq, &reg, "x");
         assert!(!violations.is_empty());
-        let result = deq.validate_coercion_law(&reg, "x");
-        let err = result.expect_err("lying iso must yield Err in every build config");
+        let Err(err) = deq.validate_coercion_law(&reg, "x") else {
+            panic!("lying iso must yield Err in every build config");
+        };
         assert!(!err.is_empty(), "Err payload must carry the violations");
     }
 
