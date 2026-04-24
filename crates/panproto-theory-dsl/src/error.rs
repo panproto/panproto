@@ -239,7 +239,7 @@ pub enum TheoryDslError {
 /// [`TheoryDslError::CoercionLawViolation::violations`]. Pairs the
 /// originating equation name with the structured violation the
 /// sample-law checker produced.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CoercionLawViolationDetail {
     /// The directed equation on which the violation fired.
     pub equation: String,

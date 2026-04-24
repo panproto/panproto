@@ -226,11 +226,22 @@ pub fn cmd_theory_check_coercion_laws(
                     "clean": report.is_clean(),
                     "violation_count": report.violation_count(),
                     "equations": report.per_equation.iter().map(|(eq_name, violations)| {
+                        // Serialize structured `CoercionLawViolation`
+                        // values directly rather than stringifying via
+                        // `Debug`. Keeps the `kind` tag and payload
+                        // fields machine-readable for downstream
+                        // consumers.
+                        let vs: Vec<serde_json::Value> = violations.iter()
+                            .map(|v| serde_json::to_value(v)
+                                .unwrap_or_else(|e| serde_json::json!({
+                                    "kind": "SerializationError",
+                                    "error": e.to_string(),
+                                    "debug": format!("{v:?}"),
+                                })))
+                            .collect();
                         serde_json::json!({
                             "name": eq_name.as_ref(),
-                            "violations": violations.iter()
-                                .map(|v| format!("{v:?}"))
-                                .collect::<Vec<_>>(),
+                            "violations": vs,
                         })
                     }).collect::<Vec<_>>(),
                 })

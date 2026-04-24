@@ -48,7 +48,8 @@ use rustc_hash::FxHashMap;
 
 /// A violation of a declared coercion class's round-trip law on a
 /// single sample input.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind")]
 #[non_exhaustive]
 pub enum CoercionLawViolation {
     /// The forward-then-backward law `inverse(forward(s)) == s` failed

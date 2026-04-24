@@ -2341,6 +2341,68 @@ fn theory_check_coercion_laws_json_output_is_valid() {
     assert_eq!(parsed["total_violations"], serde_json::json!(0));
 }
 
+#[test]
+fn theory_check_coercion_laws_json_violations_carry_typed_kind() {
+    // On a lying Iso declaration the JSON payload must surface
+    // structured violations: each entry carries a typed `kind` field
+    // (e.g. "Backward", "Forward") rather than a `Debug`-format
+    // string, so downstream consumers can tree-shake by variant.
+    let tmp = tempfile::tempdir().unwrap();
+    write_lying_iso_theory(tmp.path(), "lying.json");
+
+    let output = schema_cmd()
+        .args(["theory", "check-coercion-laws", "lying.json", "--json"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("stdout was not a single JSON document: {e}\n---\n{stdout}\n---")
+    });
+    assert_eq!(parsed["clean"], serde_json::Value::Bool(false));
+    let theories = parsed["theories"].as_array().unwrap();
+    let mut saw_violation = false;
+    let mut saw_typed_kind = false;
+    for theory in theories {
+        let eqs = theory["equations"].as_array().unwrap();
+        for eq in eqs {
+            let vs = eq["violations"].as_array().unwrap();
+            for v in vs {
+                saw_violation = true;
+                let kind = v["kind"].as_str().unwrap_or_else(|| {
+                    panic!(
+                        "violation must carry a typed `kind` string field, \
+                         got {v}"
+                    )
+                });
+                assert!(
+                    matches!(
+                        kind,
+                        "Backward"
+                            | "Forward"
+                            | "NonDeterministic"
+                            | "MissingInverse"
+                            | "ForwardEvalError"
+                            | "InverseEvalError"
+                            | "UnknownClass"
+                    ),
+                    "unexpected violation kind {kind:?} in {v}"
+                );
+                if kind == "Backward" || kind == "Forward" {
+                    saw_typed_kind = true;
+                }
+            }
+        }
+    }
+    assert!(saw_violation, "expected at least one violation in {parsed}");
+    assert!(
+        saw_typed_kind,
+        "expected at least one Backward or Forward kind in {parsed}"
+    );
+}
+
 /// Write a bundle document containing two theories. The DSL stores
 /// theories in a `HashMap`, so iteration order is not insertion order;
 /// the CLI must sort by theory name before rendering to keep JSON
