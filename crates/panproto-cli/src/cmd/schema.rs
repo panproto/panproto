@@ -1199,6 +1199,12 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
                 println!("  {kind}  {child_id}  {name}");
             }
         }
+        vcs::Object::FlatSchema(schema) => {
+            println!("flat_schema {id}");
+            println!("Protocol: {}", schema.protocol);
+            println!("Vertices: {}", schema.vertices.len());
+            println!("Edges:    {}", schema.edges.len());
+        }
     }
     Ok(())
 }

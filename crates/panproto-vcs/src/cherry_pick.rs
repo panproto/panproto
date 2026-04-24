@@ -93,8 +93,8 @@ pub fn cherry_pick(
     }
 
     // Store the merged schema.
-    let mig_src = crate::hash::hash_schema(&ours_schema)?;
-    let mig_tgt = crate::hash::hash_schema(&result.merged_schema)?;
+    let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
+    let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
     let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema)?;
 
     // Store the migration from ours to merged.
@@ -182,8 +182,8 @@ pub fn cherry_pick_with_options(
         });
     }
 
-    let mig_src = crate::hash::hash_schema(&ours_schema)?;
-    let mig_tgt = crate::hash::hash_schema(&result.merged_schema)?;
+    let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
+    let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
     let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema)?;
 
     if options.no_commit {

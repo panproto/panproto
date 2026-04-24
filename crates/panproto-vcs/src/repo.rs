@@ -16,7 +16,7 @@ use crate::error::VcsError;
 use crate::fs_store::FsStore;
 use crate::gat_validate;
 use crate::gc;
-use crate::hash::{self, ObjectId};
+use crate::hash::ObjectId;
 use crate::index::{Index, StagedData, StagedSchema, ValidationStatus};
 use crate::merge;
 use crate::object::{CommitObject, DataSetObject, Object};
@@ -117,8 +117,12 @@ impl Repository {
                     let gat_diag =
                         gat_validate::validate_migration(&head_schema, schema, &migration);
 
-                    let mig_src_id = hash::hash_schema(&head_schema)?;
-                    let mig_tgt_id = hash::hash_schema(schema)?;
+                    let mig_src_id = self
+                        .store
+                        .put(&Object::FlatSchema(Box::new(head_schema)))?;
+                    let mig_tgt_id = self
+                        .store
+                        .put(&Object::FlatSchema(Box::new(schema.clone())))?;
                     let migration_id = self.store.put(&Object::Migration {
                         src: mig_src_id,
                         tgt: mig_tgt_id,
@@ -333,8 +337,12 @@ impl Repository {
             // Auto-commit the merge.
             let merged_schema_id =
                 crate::tree::store_schema_as_tree(&mut self.store, result.merged_schema.clone())?;
-            let mig_src = hash::hash_schema(&ours_schema)?;
-            let mig_tgt = hash::hash_schema(&result.merged_schema)?;
+            let mig_src = self
+                .store
+                .put(&Object::FlatSchema(Box::new(ours_schema)))?;
+            let mig_tgt = self
+                .store
+                .put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
             let migration_id = self.store.put(&Object::Migration {
                 src: mig_src,
                 tgt: mig_tgt,

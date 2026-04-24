@@ -80,7 +80,8 @@ pub fn mark_reachable(
             | Object::Theory(_)
             | Object::TheoryMorphism(_)
             | Object::CstComplement(_)
-            | Object::FileSchema(_) => {}
+            | Object::FileSchema(_)
+            | Object::FlatSchema(_) => {}
             Object::SchemaTree(tree) => {
                 for (_, entry) in tree.entries {
                     match entry {

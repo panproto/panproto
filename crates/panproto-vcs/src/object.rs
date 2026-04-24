@@ -78,6 +78,19 @@ pub enum Object {
     /// joined by [`Self::SchemaTree`] nodes; see [`crate::tree`].
     FileSchema(Box<FileSchemaObject>),
 
+    /// A flat schema, stored only as a migration endpoint.
+    ///
+    /// [`Object::Migration`] references its source and target schemas
+    /// by [`ObjectId`]. Commits content-address their project schema
+    /// as an [`Object::SchemaTree`] whose leaves are
+    /// [`Object::FileSchema`]s, so a migration between two tree
+    /// roots cannot reuse that addressing: the migration morphism
+    /// speaks of a single flat vertex/edge space, not a tree. This
+    /// variant stores that flat form so that `gc::mark_reachable`
+    /// can find the referenced schema and migration composition has
+    /// an object to load from.
+    FlatSchema(Box<panproto_schema::Schema>),
+
     /// A directory or project root in the schema Merkle tree.
     ///
     /// A sorted list of `(name, ObjectId)` entries where each
@@ -106,6 +119,7 @@ impl Object {
             Self::CstComplement(_) => "cst_complement",
             Self::FileSchema(_) => "file_schema",
             Self::SchemaTree(_) => "schema_tree",
+            Self::FlatSchema(_) => "flat_schema",
         }
     }
 }
