@@ -263,11 +263,9 @@ fn load_head_schema(repo: &vcs::Repository) -> Result<(Schema, String)> {
         miette::bail!("HEAD does not point to a commit");
     };
 
-    let schema_obj = repo.store().get(&head_commit.schema_id).into_diagnostic()?;
-    let schema = match schema_obj {
-        vcs::Object::Schema(s) => *s,
-        _ => miette::bail!("HEAD commit does not reference a schema"),
-    };
+    let proto = vcs::tree::project_coproduct_protocol();
+    let schema = vcs::tree::assemble_schema_dyn(repo.store(), &head_commit.schema_id, &proto)
+        .into_diagnostic()?;
 
     Ok((schema, head_commit.protocol))
 }

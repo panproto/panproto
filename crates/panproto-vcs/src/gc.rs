@@ -75,8 +75,7 @@ pub fn mark_reachable(
                 queue.push(src);
                 queue.push(tgt);
             }
-            Object::Schema(_)
-            | Object::Protocol(_)
+            Object::Protocol(_)
             | Object::Expr(_)
             | Object::Theory(_)
             | Object::TheoryMorphism(_)
@@ -238,7 +237,7 @@ mod tests {
     fn mark_reachable_follows_commits() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
 
         let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
             .timestamp(100)
@@ -262,7 +261,7 @@ mod tests {
     fn gc_deletes_unreachable() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
 
         let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
             .timestamp(100)
@@ -271,7 +270,7 @@ mod tests {
         store.set_ref("refs/heads/main", c0_id)?;
 
         // Add an orphan object not reachable from any ref.
-        let orphan_schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let orphan_schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
         let orphan = CommitObject::builder(orphan_schema_id, "test", "test", "orphan")
             .timestamp(300)
             .build();
@@ -281,7 +280,8 @@ mod tests {
         assert!(store.has(&orphan_id));
 
         let report = gc(&mut store)?;
-        assert_eq!(report.reachable, 2); // c0 + schema
+        // c0 + SchemaTree root + FileSchema leaf = 3.
+        assert_eq!(report.reachable, 3);
         assert!(report.deleted.contains(&orphan_id));
 
         // After GC: orphan is gone.
@@ -293,7 +293,7 @@ mod tests {
     fn gc_report_counts_reachable() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
 
         let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
             .timestamp(100)
@@ -302,7 +302,8 @@ mod tests {
         store.set_ref("refs/heads/main", c0_id)?;
 
         let report = gc_report(&store)?;
-        assert_eq!(report.reachable, 2);
+        // c0 + SchemaTree root + FileSchema leaf = 3.
+        assert_eq!(report.reachable, 3);
         Ok(())
     }
 
@@ -312,7 +313,7 @@ mod tests {
 
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
 
         // Store a protocol.
         let protocol = panproto_schema::Protocol {

@@ -98,10 +98,12 @@ fn replay_one(
         });
     }
 
-    let merged_schema_id = store.put(&Object::Schema(Box::new(result.merged_schema)))?;
+    let mig_src = crate::hash::hash_schema(&ours_schema)?;
+    let mig_tgt = crate::hash::hash_schema(&result.merged_schema)?;
+    let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema)?;
     let migration_id = store.put(&Object::Migration {
-        src: tip_commit.schema_id,
-        tgt: merged_schema_id,
+        src: mig_src,
+        tgt: mig_tgt,
         mapping: result.migration_from_ours,
     })?;
 
@@ -144,13 +146,8 @@ fn load_schema(
     store: &dyn Store,
     schema_id: ObjectId,
 ) -> Result<panproto_schema::Schema, VcsError> {
-    match store.get(&schema_id)? {
-        Object::Schema(s) => Ok(*s),
-        other => Err(VcsError::WrongObjectType {
-            expected: "schema",
-            found: other.type_name(),
-        }),
-    }
+    let proto = crate::tree::project_coproduct_protocol();
+    crate::tree::assemble_schema_dyn(store, &schema_id, &proto)
 }
 
 #[cfg(test)]
@@ -205,7 +202,7 @@ mod tests {
 
         // c0: base
         let s0 = make_schema(&[("a", "object")]);
-        let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
+        let s0_id = crate::tree::store_schema_as_tree(&mut store, s0)?;
         let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
             .timestamp(100)
             .build();
@@ -213,7 +210,7 @@ mod tests {
 
         // c1: main branch adds vertex b
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-        let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
+        let s1_id = crate::tree::store_schema_as_tree(&mut store, s1)?;
         let c1 = CommitObject::builder(s1_id, "test", "alice", "add b")
             .parents(vec![c0_id])
             .timestamp(200)
@@ -222,7 +219,7 @@ mod tests {
 
         // c2: feature branch (off c0) adds vertex c
         let s2 = make_schema(&[("a", "object"), ("c", "integer")]);
-        let s2_id = store.put(&Object::Schema(Box::new(s2)))?;
+        let s2_id = crate::tree::store_schema_as_tree(&mut store, s2)?;
         let c2 = CommitObject::builder(s2_id, "test", "bob", "add c")
             .parents(vec![c0_id])
             .timestamp(300)
@@ -245,15 +242,7 @@ mod tests {
                 });
             }
         };
-        let new_schema = match store.get(&new_commit.schema_id)? {
-            Object::Schema(s) => s,
-            other => {
-                return Err(VcsError::WrongObjectType {
-                    expected: "schema",
-                    found: other.type_name(),
-                });
-            }
-        };
+        let new_schema = crate::tree::resolve_commit_schema(&store, &new_commit)?;
         assert!(new_schema.vertices.contains_key("a"));
         assert!(new_schema.vertices.contains_key("b"));
         assert!(new_schema.vertices.contains_key("c"));

@@ -197,8 +197,11 @@ pub fn import_git_repo_incremental<S: Store, H: BuildHasher>(
             project_builder.build()?.schema
         };
 
-        // Store the schema.
-        let schema_id = panproto_store.put(&Object::Schema(Box::new(project)))?;
+        // Store the schema as a single-leaf tree. This path is only
+        // used by the non-deduped importer variant; production imports
+        // go through `import_git_repo_with_cache` which emits a proper
+        // multi-leaf Merkle tree with blob-OID dedup.
+        let schema_id = panproto_vcs::tree::store_schema_as_tree(panproto_store, project)?;
 
         // Map parent git OIDs to panproto-vcs parent IDs.
         let parents: Vec<ObjectId> = git_commit

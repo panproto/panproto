@@ -105,7 +105,7 @@ mod tests {
             incoming: HashMap::new(),
             between: HashMap::new(),
         };
-        let id = store.put(&Object::Schema(Box::new(schema)))?;
+        let id = crate::tree::store_schema_as_tree(&mut store, schema)?;
         let result = load_expr(&store, &id);
         assert!(matches!(
             result,

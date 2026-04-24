@@ -8,7 +8,7 @@
 //! root need to be rewritten.
 //!
 //! The flat assembled form produced by [`assemble_schema`] is
-//! byte-identical to what [`panproto_project::ProjectBuilder::build`]
+//! byte-identical to what `panproto_project::ProjectBuilder::build`
 //! emits from the same set of per-file schemas, so downstream consumers
 //! of the assembled project schema see no behavioral change.
 
@@ -87,7 +87,7 @@ where
 ///
 /// `protocol` is the coproduct protocol used for the assembled
 /// schema; callers usually pass the "project" protocol that matches
-/// what [`panproto_project::ProjectBuilder::build`] uses.
+/// what `panproto_project::ProjectBuilder::build` uses.
 ///
 /// # Errors
 ///
@@ -111,7 +111,7 @@ pub fn assemble_schema<S: Store>(
 
 /// Assemble a flat project schema from `(path, per_file_schema)` pairs
 /// using the same path-prefixed coproduct convention as
-/// [`panproto_project::ProjectBuilder::build`].
+/// `panproto_project::ProjectBuilder::build`.
 ///
 /// Exposed so that migration tooling can reuse the same assembly path
 /// without storing intermediate objects.
@@ -168,41 +168,116 @@ pub fn assemble_from_files(
         .map_err(|e| VcsError::Other(format!("assemble build: {e}")))
 }
 
-/// Resolve a commit's `schema_id` to a flat [`Schema`] regardless
-/// of whether the stored form is a V1 flat schema object or a V2
-/// schema-tree root.
+/// Resolve a commit's `schema_id` to a flat [`Schema`].
 ///
-/// If the commit points at an [`Object::Schema`], the schema is
-/// returned as-is. If it points at an [`Object::SchemaTree`], the
-/// tree is walked and assembled via [`assemble_schema`] using
-/// [`project_coproduct_protocol`]. Any other target object type
-/// is a [`VcsError::WrongObjectType`].
+/// The `schema_id` must point at an [`Object::SchemaTree`] root.
+/// The tree is walked and assembled via [`assemble_schema`] using
+/// [`project_coproduct_protocol`]. Any other target object type is
+/// a [`VcsError::WrongObjectType`].
 ///
 /// # Errors
 ///
-/// Returns [`VcsError::ObjectNotFound`] if the schema object is
-/// missing, [`VcsError::WrongObjectType`] if the target is neither
-/// `schema` nor `schema_tree`, or a tree-walk error from
-/// [`assemble_schema`] if assembly fails.
+/// Returns [`VcsError::ObjectNotFound`] if the tree root is missing,
+/// [`VcsError::WrongObjectType`] if the target is not a
+/// `schema_tree`, or a tree-walk error from [`assemble_schema`] if
+/// assembly fails.
+pub fn resolve_commit_schema_dyn(
+    store: &dyn Store,
+    commit: &CommitObject,
+) -> Result<Schema, VcsError> {
+    match store.get(&commit.schema_id)? {
+        Object::SchemaTree(_) => {
+            let proto = project_coproduct_protocol();
+            assemble_schema_dyn(store, &commit.schema_id, &proto)
+        }
+        other => Err(VcsError::WrongObjectType {
+            expected: "schema_tree",
+            found: other.type_name(),
+        }),
+    }
+}
+
+/// Like [`assemble_schema`] but accepts a `&dyn Store` for callers
+/// that hold a trait object (e.g., [`crate::rebase`] and
+/// [`crate::cherry_pick`]).
+///
+/// # Errors
+///
+/// See [`assemble_schema`].
+pub fn assemble_schema_dyn(
+    store: &dyn Store,
+    root_id: &ObjectId,
+    protocol: &Protocol,
+) -> Result<Schema, VcsError> {
+    let mut files: Vec<(PathBuf, Schema)> = Vec::new();
+    walk_tree_dyn(store, root_id, &mut PathBuf::new(), &mut |path, file| {
+        files.push((path.to_path_buf(), file.schema.clone()));
+        Ok(())
+    })?;
+    assemble_from_files(protocol, &files)
+}
+
+fn walk_tree_dyn(
+    store: &dyn Store,
+    node_id: &ObjectId,
+    prefix: &mut PathBuf,
+    visit: &mut dyn FnMut(&Path, &FileSchemaObject) -> Result<(), VcsError>,
+) -> Result<(), VcsError> {
+    match store.get(node_id)? {
+        Object::FileSchema(file) => {
+            let path = if prefix.as_os_str().is_empty() {
+                PathBuf::from(&file.path)
+            } else {
+                prefix.clone()
+            };
+            visit(&path, &file)
+        }
+        Object::SchemaTree(tree) => {
+            for (name, entry) in &tree.entries {
+                prefix.push(name);
+                let child_id = match entry {
+                    SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => id,
+                };
+                walk_tree_dyn(store, child_id, prefix, visit)?;
+                prefix.pop();
+            }
+            Ok(())
+        }
+        other => Err(VcsError::WrongObjectType {
+            expected: "file_schema or schema_tree",
+            found: other.type_name(),
+        }),
+    }
+}
+
+/// Resolve a commit's schema-tree root to a flat [`Schema`].
+///
+/// Generic counterpart of [`resolve_commit_schema_dyn`] that takes a
+/// concrete [`Store`] implementation. Prefer this variant when the
+/// caller owns the store directly; use the `_dyn` variant when the
+/// store is behind a `&dyn Store`.
+///
+/// # Errors
+///
+/// See [`resolve_commit_schema_dyn`].
 pub fn resolve_commit_schema<S: Store>(
     store: &S,
     commit: &CommitObject,
 ) -> Result<Schema, VcsError> {
     match store.get(&commit.schema_id)? {
-        Object::Schema(schema) => Ok(*schema),
         Object::SchemaTree(_) => {
             let proto = project_coproduct_protocol();
             assemble_schema(store, &commit.schema_id, &proto)
         }
         other => Err(VcsError::WrongObjectType {
-            expected: "schema or schema_tree",
+            expected: "schema_tree",
             found: other.type_name(),
         }),
     }
 }
 
 /// The standard project-coproduct protocol used by both
-/// [`panproto_project::ProjectBuilder::build`] and [`assemble_schema`].
+/// `panproto_project::ProjectBuilder::build` and [`assemble_schema`].
 #[must_use]
 pub fn project_coproduct_protocol() -> Protocol {
     Protocol {
@@ -225,6 +300,44 @@ pub fn project_coproduct_protocol() -> Protocol {
         has_policies: false,
     }
 }
+
+/// Store a flat [`Schema`] as a single-leaf schema tree.
+///
+/// Used by commit paths that produce a single assembled or merged
+/// [`Schema`] (e.g., merge, rebase, cherry-pick, and the CLI's
+/// single-file `schema commit`). The resulting tree has one
+/// [`FileSchemaObject`] leaf at path [`SINGLE_FILE_LEAF_PATH`], so a
+/// subsequent [`assemble_schema`] call returns the input schema
+/// unchanged (single-file optimization in [`assemble_from_files`]).
+///
+/// # Errors
+///
+/// Returns [`VcsError`] if storing either the leaf or the root tree
+/// fails.
+pub fn store_schema_as_tree(store: &mut dyn Store, schema: Schema) -> Result<ObjectId, VcsError> {
+    let protocol = schema.protocol.clone();
+    let file = FileSchemaObject {
+        path: SINGLE_FILE_LEAF_PATH.to_owned(),
+        protocol,
+        schema,
+    };
+    let leaf_id = store.put(&Object::FileSchema(Box::new(file)))?;
+    let tree = SchemaTreeObject {
+        entries: vec![(
+            SINGLE_FILE_LEAF_PATH.to_owned(),
+            SchemaTreeEntry::File(leaf_id),
+        )],
+    };
+    store.put(&Object::SchemaTree(Box::new(tree)))
+}
+
+/// Path used for the single leaf of a tree produced by
+/// [`store_schema_as_tree`].
+///
+/// A single U+FFFD character is chosen because it is never a valid
+/// source file path component, so it cannot collide with real
+/// project files in mixed-use stores.
+pub const SINGLE_FILE_LEAF_PATH: &str = "\u{fffd}";
 
 /// Build a schema tree from a flat list of path-keyed file schemas.
 ///
@@ -431,24 +544,28 @@ mod tests {
     }
 
     #[test]
-    fn resolve_commit_schema_dispatches_on_object_type() {
+    fn resolve_commit_schema_walks_tree() {
         use crate::object::CommitObject;
 
         let mut store = MemStore::new();
 
-        // V1 flat schema path.
-        let flat = tiny_schema("flat");
-        let flat_id = store.put(&Object::Schema(Box::new(flat.clone()))).unwrap();
-        let flat_commit = CommitObject::builder(flat_id, "p", "a", "m").build();
-        let resolved = resolve_commit_schema(&store, &flat_commit).unwrap();
-        assert_eq!(resolved.vertices.len(), flat.vertices.len());
-
-        // V2 schema-tree path.
         let file = file_schema("only.rs", "only");
         let root = build_schema_tree(&mut store, vec![(PathBuf::from("only.rs"), file)]).unwrap();
         let tree_commit = CommitObject::builder(root, "p", "a", "m").build();
         let resolved = resolve_commit_schema(&store, &tree_commit).unwrap();
         assert_eq!(resolved.vertices.len(), 1);
+    }
+
+    #[test]
+    fn store_schema_as_tree_round_trip() {
+        use crate::object::CommitObject;
+
+        let mut store = MemStore::new();
+        let schema = tiny_schema("round_trip");
+        let root = store_schema_as_tree(&mut store, schema.clone()).unwrap();
+        let commit = CommitObject::builder(root, "p", "a", "m").build();
+        let resolved = resolve_commit_schema(&store, &commit).unwrap();
+        assert_eq!(resolved.vertices.len(), schema.vertices.len());
     }
 
     #[test]

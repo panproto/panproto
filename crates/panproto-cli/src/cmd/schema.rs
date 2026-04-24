@@ -829,19 +829,11 @@ fn cmd_diff_staged(opts: &DiffOptions) -> Result<()> {
     let vcs::Object::Commit(head_commit) = head_obj else {
         miette::bail!("HEAD does not point to a commit")
     };
-    let old_obj = repo.store().get(&head_commit.schema_id).into_diagnostic()?;
-    let old_schema = match old_obj {
-        vcs::Object::Schema(s) => *s,
-        _ => miette::bail!("HEAD commit does not reference a schema"),
-    };
-    let new_obj = repo
-        .store()
-        .get(&staged_entry.schema_id)
+    let proto = vcs::tree::project_coproduct_protocol();
+    let old_schema = vcs::tree::assemble_schema_dyn(repo.store(), &head_commit.schema_id, &proto)
         .into_diagnostic()?;
-    let new_schema = match new_obj {
-        vcs::Object::Schema(s) => *s,
-        _ => miette::bail!("staged entry does not reference a schema"),
-    };
+    let new_schema = vcs::tree::assemble_schema_dyn(repo.store(), &staged_entry.schema_id, &proto)
+        .into_diagnostic()?;
 
     let schema_diff = panproto_core::check::diff::diff(&old_schema, &new_schema);
     print_diff(
@@ -1097,13 +1089,11 @@ fn show_commit(
         if let Some(parent_id) = c.parents.first() {
             let parent_obj = repo.store().get(parent_id).into_diagnostic()?;
             if let vcs::Object::Commit(parent_commit) = parent_obj {
-                let old_obj = repo
-                    .store()
-                    .get(&parent_commit.schema_id)
-                    .into_diagnostic()?;
-                let new_obj = repo.store().get(&c.schema_id).into_diagnostic()?;
-                if let (vcs::Object::Schema(old_s), vcs::Object::Schema(new_s)) = (old_obj, new_obj)
-                {
+                let proto = vcs::tree::project_coproduct_protocol();
+                if let (Ok(old_s), Ok(new_s)) = (
+                    vcs::tree::assemble_schema_dyn(repo.store(), &parent_commit.schema_id, &proto),
+                    vcs::tree::assemble_schema_dyn(repo.store(), &c.schema_id, &proto),
+                ) {
                     let d = panproto_core::check::diff::diff(&old_s, &new_s);
                     println!("\n {}", format::format_diff_stat(&d));
                 }
@@ -1122,12 +1112,6 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
     let object = repo.store().get(&id).into_diagnostic()?;
     match object {
         vcs::Object::Commit(c) => show_commit(&repo, &id, &c, fmt, stat)?,
-        vcs::Object::Schema(s) => {
-            println!("schema {id}");
-            println!("Protocol:  {}", s.protocol);
-            println!("Vertices:  {}", s.vertex_count());
-            println!("Edges:     {}", s.edge_count());
-        }
         vcs::Object::Migration { src, tgt, mapping } => {
             println!("migration {id}");
             println!("Source:    {src}");

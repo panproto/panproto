@@ -190,16 +190,14 @@ pub fn load_commit_obj(store: &dyn vcs::Store, id: vcs::ObjectId) -> Result<vcs:
 }
 
 /// Load a schema object from the store by its ID.
+///
+/// The `id` must point at an [`vcs::Object::SchemaTree`] root; the
+/// flat `Schema` is assembled by walking the Merkle tree.
 pub fn load_schema_from_store(store: &dyn vcs::Store, id: vcs::ObjectId) -> Result<Schema> {
-    let obj = store.get(&id).into_diagnostic()?;
-    match obj {
-        vcs::Object::Schema(s) => Ok(*s),
-        other => miette::bail!(
-            "expected schema at {}, found {}",
-            id.short(),
-            other.type_name()
-        ),
-    }
+    let proto = vcs::tree::project_coproduct_protocol();
+    vcs::tree::assemble_schema_dyn(store, &id, &proto)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to resolve schema at {}", id.short()))
 }
 
 /// Read all *.json files from a directory, sorted by filename.

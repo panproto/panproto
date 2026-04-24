@@ -291,7 +291,6 @@ fn collect_refs_recursive(
 /// Compute the `ObjectId` for any [`Object`].
 fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
     match object {
-        Object::Schema(schema) => hash::hash_schema(schema),
         Object::Migration { src, tgt, mapping } => hash::hash_migration(*src, *tgt, mapping),
         Object::Commit(commit) => hash::hash_commit(commit),
         Object::Tag(tag) => hash::hash_tag(tag),
@@ -384,15 +383,14 @@ mod tests {
     fn put_get_round_trip_fs() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut store = FsStore::init(dir.path())?;
-        let obj = Object::Schema(Box::new(test_schema()));
-        let id = store.put(&obj)?;
+        let id = crate::tree::store_schema_as_tree(&mut store, test_schema())?;
 
         assert!(store.has(&id));
 
         let retrieved = store.get(&id)?;
         match retrieved {
-            Object::Schema(s) => assert_eq!(s.protocol, "test"),
-            _ => panic!("expected Schema object"),
+            Object::SchemaTree(tree) => assert_eq!(tree.entries.len(), 1),
+            _ => panic!("expected SchemaTree object"),
         }
         Ok(())
     }
@@ -401,9 +399,8 @@ mod tests {
     fn put_idempotent_fs() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut store = FsStore::init(dir.path())?;
-        let obj = Object::Schema(Box::new(test_schema()));
-        let id1 = store.put(&obj)?;
-        let id2 = store.put(&obj)?;
+        let id1 = crate::tree::store_schema_as_tree(&mut store, test_schema())?;
+        let id2 = crate::tree::store_schema_as_tree(&mut store, test_schema())?;
         assert_eq!(id1, id2);
         Ok(())
     }

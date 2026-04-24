@@ -517,7 +517,7 @@ mod tests {
         let mut store = MemStore::new();
 
         let schema = make_schema(&[("a", "object")]);
-        let schema_id = store.put(&Object::Schema(Box::new(schema.clone())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, schema.clone())?;
 
         let protocol = default_protocol("test");
         let result = migrate_forward(&mut store, schema_id, &schema, &schema, &protocol);
@@ -525,7 +525,7 @@ mod tests {
         assert!(result.is_err());
         if let Err(VcsError::TypeMismatch { expected, got }) = result {
             assert_eq!(expected, "DataSet");
-            assert_eq!(got, "schema");
+            assert_eq!(got, "schema_tree");
         } else {
             panic!("expected TypeMismatch error variant");
         }

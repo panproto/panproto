@@ -75,7 +75,7 @@ impl Repository {
     ///
     /// Returns an error if the schema cannot be hashed or stored.
     pub fn add(&mut self, schema: &Schema) -> Result<Index, VcsError> {
-        let schema_id = self.store.put(&Object::Schema(Box::new(schema.clone())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut self.store, schema.clone())?;
 
         let (migration_id, auto_derived, validation, gat_diagnostics) =
             match store::resolve_head(&self.store)? {
@@ -118,9 +118,10 @@ impl Repository {
                         gat_validate::validate_migration(&head_schema, schema, &migration);
 
                     let mig_src_id = hash::hash_schema(&head_schema)?;
+                    let mig_tgt_id = hash::hash_schema(schema)?;
                     let migration_id = self.store.put(&Object::Migration {
                         src: mig_src_id,
-                        tgt: schema_id,
+                        tgt: mig_tgt_id,
                         mapping: migration,
                     })?;
 
@@ -330,12 +331,13 @@ impl Repository {
 
         if result.conflicts.is_empty() && !options.no_commit && !options.squash {
             // Auto-commit the merge.
-            let merged_schema_id = self
-                .store
-                .put(&Object::Schema(Box::new(result.merged_schema.clone())))?;
+            let merged_schema_id =
+                crate::tree::store_schema_as_tree(&mut self.store, result.merged_schema.clone())?;
+            let mig_src = hash::hash_schema(&ours_schema)?;
+            let mig_tgt = hash::hash_schema(&result.merged_schema)?;
             let migration_id = self.store.put(&Object::Migration {
-                src: ours_commit.schema_id,
-                tgt: merged_schema_id,
+                src: mig_src,
+                tgt: mig_tgt,
                 mapping: result.migration_from_ours.clone(),
             })?;
 
@@ -683,13 +685,8 @@ impl Repository {
     }
 
     fn load_schema(&self, id: ObjectId) -> Result<Schema, VcsError> {
-        match self.store.get(&id)? {
-            Object::Schema(s) => Ok(*s),
-            other => Err(VcsError::WrongObjectType {
-                expected: "schema",
-                found: other.type_name(),
-            }),
-        }
+        let proto = crate::tree::project_coproduct_protocol();
+        crate::tree::assemble_schema(&self.store, &id, &proto)
     }
 
     fn index_path(&self) -> PathBuf {
@@ -868,9 +865,7 @@ mod tests {
         // Now manually write an index with GAT errors to simulate
         // a staging result that has equation violations.
         let staged_schema = make_schema(&[("a", "object"), ("b", "string")]);
-        let schema_id = repo
-            .store
-            .put(&crate::object::Object::Schema(Box::new(staged_schema)))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut repo.store, staged_schema)?;
 
         let diag = GatDiagnostics {
             type_errors: vec!["sort mismatch: expected Ob, got Hom".to_owned()],
@@ -924,9 +919,7 @@ mod tests {
 
         // Write index where validation is Valid but gat_diagnostics has errors.
         let staged_schema = make_schema(&[("a", "object"), ("c", "number")]);
-        let schema_id = repo
-            .store
-            .put(&crate::object::Object::Schema(Box::new(staged_schema)))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut repo.store, staged_schema)?;
 
         let diag = GatDiagnostics {
             type_errors: vec![],

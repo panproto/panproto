@@ -473,13 +473,8 @@ fn theory_morphism_from_migration(
 
 /// Load a schema from the store by ID.
 fn get_schema(store: &dyn Store, id: ObjectId) -> Result<Schema, VcsError> {
-    match store.get(&id)? {
-        Object::Schema(s) => Ok(*s),
-        other => Err(VcsError::WrongObjectType {
-            expected: "schema",
-            found: other.type_name(),
-        }),
-    }
+    let proto = crate::tree::project_coproduct_protocol();
+    crate::tree::assemble_schema_dyn(store, &id, &proto)
 }
 
 /// Check whether `ancestor` is an ancestor of `descendant` in the DAG.
@@ -856,9 +851,9 @@ mod tests {
         let s1 = make_test_schema(&["a", "b", "c"]);
         let s2 = make_test_schema(&["a", "c", "d"]);
 
-        let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
-        let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
-        let s2_id = store.put(&Object::Schema(Box::new(s2)))?;
+        let s0_id = crate::tree::store_schema_as_tree(&mut store, s0)?;
+        let s1_id = crate::tree::store_schema_as_tree(&mut store, s1)?;
+        let s2_id = crate::tree::store_schema_as_tree(&mut store, s2)?;
 
         // Migration c0 -> c1: identity on a, b.
         let mig01 = Migration {
@@ -969,8 +964,8 @@ mod tests {
         let s_src = make_test_schema(&["a"]);
         let s_tgt = make_test_schema(&["a"]); // only "a" exists
 
-        let s_src_id = store.put(&Object::Schema(Box::new(s_src)))?;
-        let s_tgt_id = store.put(&Object::Schema(Box::new(s_tgt)))?;
+        let s_src_id = crate::tree::store_schema_as_tree(&mut store, s_src)?;
+        let s_tgt_id = crate::tree::store_schema_as_tree(&mut store, s_tgt)?;
 
         // Migration maps a -> nonexistent.
         let bad_mig = Migration {
@@ -1021,8 +1016,8 @@ mod tests {
         let s_src = make_test_schema(&["a", "b"]);
         let s_tgt = make_test_schema(&["a"]);
 
-        let s_src_id = store.put(&Object::Schema(Box::new(s_src)))?;
-        let s_tgt_id = store.put(&Object::Schema(Box::new(s_tgt)))?;
+        let s_src_id = crate::tree::store_schema_as_tree(&mut store, s_src)?;
+        let s_tgt_id = crate::tree::store_schema_as_tree(&mut store, s_tgt)?;
 
         // Migration only maps a, not b.
         let mig = Migration {
@@ -1095,9 +1090,9 @@ mod tests {
         let s1 = make_test_schema(&["a", "c"]);
         let s2 = make_test_schema(&["a", "b"]); // b reappears in target
 
-        let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
-        let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
-        let s2_id = store.put(&Object::Schema(Box::new(s2)))?;
+        let s0_id = crate::tree::store_schema_as_tree(&mut store, s0)?;
+        let s1_id = crate::tree::store_schema_as_tree(&mut store, s1)?;
+        let s2_id = crate::tree::store_schema_as_tree(&mut store, s2)?;
 
         // mig01: a->a, b->c (rename b to c).
         let mig01 = Migration {
@@ -1198,9 +1193,9 @@ mod tests {
         let s1 = make_test_schema(&["a", "p", "q", "r"]);
         let s2 = make_test_schema(&["a", "b", "c", "d"]);
 
-        let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
-        let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
-        let s2_id = store.put(&Object::Schema(Box::new(s2)))?;
+        let s0_id = crate::tree::store_schema_as_tree(&mut store, s0)?;
+        let s1_id = crate::tree::store_schema_as_tree(&mut store, s1)?;
+        let s2_id = crate::tree::store_schema_as_tree(&mut store, s2)?;
 
         let mig01 = Migration {
             vertex_map: HashMap::from([

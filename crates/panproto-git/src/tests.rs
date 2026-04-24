@@ -94,17 +94,12 @@ fn import_multi_file_project() {
         other => panic!("expected commit, got {}", other.type_name()),
     };
 
-    let schema_obj = store.get(&commit.schema_id).unwrap();
-    match &schema_obj {
-        panproto_vcs::Object::Schema(s) => {
-            assert!(
-                s.vertices.len() > 5,
-                "expected rich project schema, got {} vertices",
-                s.vertices.len()
-            );
-        }
-        other => panic!("expected schema, got {}", other.type_name()),
-    }
+    let schema = panproto_vcs::tree::resolve_commit_schema(&store, commit).unwrap();
+    assert!(
+        schema.vertices.len() > 5,
+        "expected rich project schema, got {} vertices",
+        schema.vertices.len()
+    );
 }
 
 #[test]

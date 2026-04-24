@@ -23,7 +23,7 @@ use panproto_schema::{Schema, Vertex};
 use panproto_vcs::gat_validate;
 use panproto_vcs::merge::{MergeConflict, MergeOptions};
 use panproto_vcs::store;
-use panproto_vcs::{CommitOptions, ObjectId, Repository, Store, VcsError, dag, refs};
+use panproto_vcs::{CommitOptions, ObjectId, Repository, VcsError, dag, refs};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -242,9 +242,7 @@ fn commit_blocked_by_equation_violation_then_skip_verify() -> Result<(), Box<dyn
     // Manually write an index with GAT equation errors to simulate
     // a staging result that has equation violations.
     let staged_schema = make_schema(&[("a", "object"), ("b", "string")]);
-    let schema_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(staged_schema)))?;
+    let schema_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), staged_schema)?;
 
     let diag = gat_validate::GatDiagnostics {
         type_errors: vec![],

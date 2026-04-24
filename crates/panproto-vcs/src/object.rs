@@ -1,7 +1,8 @@
 //! Content-addressed objects stored in the VCS.
 //!
-//! The object store contains eleven kinds of objects:
-//! - [`Object::Schema`]: a schema snapshot
+//! The object store contains the following kinds of objects:
+//! - [`Object::FileSchema`]: a per-file schema leaf
+//! - [`Object::SchemaTree`]: an inner node of the project schema Merkle tree
 //! - [`Object::Migration`]: a morphism between two schemas
 //! - [`Object::Commit`]: a point in the schema evolution DAG
 //! - [`Object::Tag`]: an annotated tag pointing to another object
@@ -25,9 +26,6 @@ use crate::ObjectId;
 /// A content-addressed object in the store.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Object {
-    /// A schema snapshot.
-    Schema(Box<Schema>),
-
     /// A migration between two schemas, identified by their object IDs.
     Migration {
         /// Object ID of the source schema.
@@ -95,7 +93,6 @@ impl Object {
     #[must_use]
     pub const fn type_name(&self) -> &'static str {
         match self {
-            Self::Schema(_) => "schema",
             Self::Migration { .. } => "migration",
             Self::Commit(_) => "commit",
             Self::Tag(_) => "tag",
@@ -164,14 +161,13 @@ pub struct SchemaTreeObject {
 pub struct CommitObject {
     /// Object ID of the schema at this commit.
     ///
-    /// This ID may point at either a flat [`Object::Schema`] (the
-    /// V1 storage form) or at an [`Object::SchemaTree`] root whose
-    /// leaves are [`Object::FileSchema`] objects (the V2 storage
-    /// form introduced with per-file content addressing). Callers
-    /// that need a flat [`Schema`] regardless of the stored form
-    /// should go through
-    /// [`resolve_commit_schema`](crate::resolve_commit_schema),
-    /// which dispatches on the stored object type.
+    /// This always points at an [`Object::SchemaTree`] root whose
+    /// leaves are [`Object::FileSchema`] objects. Callers that need
+    /// a flat [`Schema`] should go through
+    /// [`resolve_commit_schema`](crate::resolve_commit_schema) (or
+    /// [`assemble_schema`](crate::assemble_schema) when they already
+    /// hold the tree id), which walks the tree and assembles the
+    /// project-coproduct schema.
     pub schema_id: ObjectId,
 
     /// Parent commit IDs (0 = root, 1 = normal, 2 = merge).

@@ -276,15 +276,11 @@ fn commit_preserves_schema() -> Result<(), Box<dyn std::error::Error>> {
     repo.commit("initial", "alice")?;
 
     let log = repo.log(None)?;
-    let obj = repo.store().get(&log[0].schema_id)?;
-    match obj {
-        panproto_vcs::Object::Schema(stored) => {
-            assert!(stored.vertices.contains_key("a"));
-            assert!(stored.vertices.contains_key("b"));
-            assert_eq!(stored.vertices.len(), 2);
-        }
-        _ => panic!("expected schema object"),
-    }
+    let commit = log[0].clone();
+    let stored = panproto_vcs::tree::resolve_commit_schema(repo.store(), &commit)?;
+    assert!(stored.vertices.contains_key("a"));
+    assert!(stored.vertices.contains_key("b"));
+    assert_eq!(stored.vertices.len(), 2);
     Ok(())
 }
 
@@ -1132,14 +1128,9 @@ fn cherry_pick_applies_change() -> Result<(), Box<dyn std::error::Error>> {
     let obj = repo.store().get(&new_id)?;
     match obj {
         panproto_vcs::Object::Commit(c) => {
-            let schema = repo.store().get(&c.schema_id)?;
-            match schema {
-                panproto_vcs::Object::Schema(s) => {
-                    assert!(s.vertices.contains_key("b"));
-                    assert!(s.vertices.contains_key("a"));
-                }
-                _ => panic!("expected schema"),
-            }
+            let s = panproto_vcs::tree::resolve_commit_schema(repo.store(), &c)?;
+            assert!(s.vertices.contains_key("b"));
+            assert!(s.vertices.contains_key("a"));
         }
         _ => panic!("expected commit"),
     }
@@ -1252,15 +1243,10 @@ fn rebase_diverged_branch() -> Result<(), Box<dyn std::error::Error>> {
     let obj = repo.store().get(&new_tip)?;
     match obj {
         panproto_vcs::Object::Commit(c) => {
-            let schema = repo.store().get(&c.schema_id)?;
-            match schema {
-                panproto_vcs::Object::Schema(s) => {
-                    assert!(s.vertices.contains_key("a"));
-                    assert!(s.vertices.contains_key("b"));
-                    assert!(s.vertices.contains_key("c"));
-                }
-                _ => panic!("expected schema"),
-            }
+            let s = panproto_vcs::tree::resolve_commit_schema(repo.store(), &c)?;
+            assert!(s.vertices.contains_key("a"));
+            assert!(s.vertices.contains_key("b"));
+            assert!(s.vertices.contains_key("c"));
         }
         _ => panic!("expected commit"),
     }
@@ -1293,16 +1279,11 @@ fn rebase_multiple_commits() -> Result<(), Box<dyn std::error::Error>> {
     let obj = repo.store().get(&new_tip)?;
     match obj {
         panproto_vcs::Object::Commit(c) => {
-            let schema = repo.store().get(&c.schema_id)?;
-            match schema {
-                panproto_vcs::Object::Schema(s) => {
-                    assert!(s.vertices.contains_key("a"));
-                    assert!(s.vertices.contains_key("b"));
-                    assert!(s.vertices.contains_key("c"));
-                    assert!(s.vertices.contains_key("d"));
-                }
-                _ => panic!("expected schema"),
-            }
+            let s = panproto_vcs::tree::resolve_commit_schema(repo.store(), &c)?;
+            assert!(s.vertices.contains_key("a"));
+            assert!(s.vertices.contains_key("b"));
+            assert!(s.vertices.contains_key("c"));
+            assert!(s.vertices.contains_key("d"));
         }
         _ => panic!("expected commit"),
     }
@@ -1366,13 +1347,8 @@ fn amend_changes_schema() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(log.len(), 1);
     assert_eq!(log[0].message, "amended with b");
 
-    let schema = repo.store().get(&log[0].schema_id)?;
-    match schema {
-        panproto_vcs::Object::Schema(s) => {
-            assert!(s.vertices.contains_key("b"));
-        }
-        _ => panic!("expected schema"),
-    }
+    let s = panproto_vcs::tree::resolve_commit_schema(repo.store(), &log[0])?;
+    assert!(s.vertices.contains_key("b"));
     Ok(())
 }
 
@@ -1467,8 +1443,7 @@ fn stash_push_pop() -> Result<(), Box<dyn std::error::Error>> {
 
     // Stage a schema to get its ID for stashing.
     let s2 = make_schema(&[("a", "object"), ("b", "string")]);
-    let s2_obj = panproto_vcs::Object::Schema(Box::new(s2));
-    let s2_id = repo.store_mut().put(&s2_obj)?;
+    let s2_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s2)?;
 
     panproto_vcs::stash::stash_push(repo.store_mut(), s2_id, "alice", Some("wip"))?;
     let popped = panproto_vcs::stash::stash_pop(repo.store_mut())?;
@@ -1482,14 +1457,10 @@ fn stash_multiple_lifo() -> Result<(), Box<dyn std::error::Error>> {
     let (mut repo, _c1) = init_with_schema(dir.path(), &[("a", "object")], "init", "alice")?;
 
     let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-    let s1_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(s1)))?;
+    let s1_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s1)?;
 
     let s2 = make_schema(&[("a", "object"), ("c", "integer")]);
-    let s2_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(s2)))?;
+    let s2_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s2)?;
 
     panproto_vcs::stash::stash_push(repo.store_mut(), s1_id, "alice", Some("first"))?;
     panproto_vcs::stash::stash_push(repo.store_mut(), s2_id, "alice", Some("second"))?;
@@ -1516,14 +1487,10 @@ fn stash_list() -> Result<(), Box<dyn std::error::Error>> {
     let (mut repo, _c1) = init_with_schema(dir.path(), &[("a", "object")], "init", "alice")?;
 
     let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-    let s1_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(s1)))?;
+    let s1_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s1)?;
 
     let s2 = make_schema(&[("a", "object"), ("c", "integer")]);
-    let s2_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(s2)))?;
+    let s2_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s2)?;
 
     panproto_vcs::stash::stash_push(repo.store_mut(), s1_id, "alice", Some("first"))?;
     panproto_vcs::stash::stash_push(repo.store_mut(), s2_id, "alice", Some("second"))?;
@@ -1541,9 +1508,7 @@ fn stash_apply_preserves_entry() -> Result<(), Box<dyn std::error::Error>> {
     let (mut repo, _c1) = init_with_schema(dir.path(), &[("a", "object")], "init", "alice")?;
 
     let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-    let s1_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(s1)))?;
+    let s1_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s1)?;
 
     panproto_vcs::stash::stash_push(repo.store_mut(), s1_id, "alice", Some("stashed"))?;
 
@@ -1563,9 +1528,7 @@ fn stash_clear() -> Result<(), Box<dyn std::error::Error>> {
     let (mut repo, _c1) = init_with_schema(dir.path(), &[("a", "object")], "init", "alice")?;
 
     let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-    let s1_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(s1)))?;
+    let s1_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s1)?;
 
     panproto_vcs::stash::stash_push(repo.store_mut(), s1_id, "alice", Some("stash1"))?;
     panproto_vcs::stash::stash_push(repo.store_mut(), s1_id, "alice", Some("stash2"))?;
@@ -1863,16 +1826,10 @@ fn feature_branch_full_workflow() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Verify merged schema.
     let log = repo.log(None)?;
-    let head_schema_id = log[0].schema_id;
-    let schema = repo.store().get(&head_schema_id)?;
-    match schema {
-        panproto_vcs::Object::Schema(s) => {
-            assert!(s.vertices.contains_key("a"));
-            assert!(s.vertices.contains_key("b"));
-            assert!(s.vertices.contains_key("c"));
-        }
-        _ => panic!("expected schema"),
-    }
+    let s = panproto_vcs::tree::resolve_commit_schema(repo.store(), &log[0])?;
+    assert!(s.vertices.contains_key("a"));
+    assert!(s.vertices.contains_key("b"));
+    assert!(s.vertices.contains_key("c"));
 
     // 6. Tag the release.
     let head = store::resolve_head(repo.store())?.unwrap();
@@ -1903,9 +1860,7 @@ fn stash_across_branch_switch() -> Result<(), Box<dyn std::error::Error>> {
 
     // On main, prepare a schema to stash.
     let s_wip = make_schema(&[("a", "object"), ("wip", "string")]);
-    let wip_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(s_wip)))?;
+    let wip_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s_wip)?;
 
     // Stash the WIP.
     panproto_vcs::stash::stash_push(repo.store_mut(), wip_id, "alice", Some("wip on main"))?;
@@ -1958,15 +1913,10 @@ fn rebase_then_fast_forward_merge() -> Result<(), Box<dyn std::error::Error>> {
 
     // Main should now have all vertices.
     let log = repo.log(None)?;
-    let schema = repo.store().get(&log[0].schema_id)?;
-    match schema {
-        panproto_vcs::Object::Schema(s) => {
-            assert!(s.vertices.contains_key("a"));
-            assert!(s.vertices.contains_key("b"));
-            assert!(s.vertices.contains_key("c"));
-        }
-        _ => panic!("expected schema"),
-    }
+    let s = panproto_vcs::tree::resolve_commit_schema(repo.store(), &log[0])?;
+    assert!(s.vertices.contains_key("a"));
+    assert!(s.vertices.contains_key("b"));
+    assert!(s.vertices.contains_key("c"));
     Ok(())
 }
 
@@ -2005,16 +1955,11 @@ fn reset_then_recommit_then_gc() -> Result<(), Box<dyn std::error::Error>> {
     // Verify the schema has "d" but not "b" or "c".
     let log = repo.log(None)?;
     assert_eq!(log.len(), 2);
-    let schema = repo.store().get(&log[0].schema_id)?;
-    match schema {
-        panproto_vcs::Object::Schema(s) => {
-            assert!(s.vertices.contains_key("a"));
-            assert!(s.vertices.contains_key("d"));
-            assert!(!s.vertices.contains_key("b"));
-            assert!(!s.vertices.contains_key("c"));
-        }
-        _ => panic!("expected schema"),
-    }
+    let s = panproto_vcs::tree::resolve_commit_schema(repo.store(), &log[0])?;
+    assert!(s.vertices.contains_key("a"));
+    assert!(s.vertices.contains_key("d"));
+    assert!(!s.vertices.contains_key("b"));
+    assert!(!s.vertices.contains_key("c"));
     Ok(())
 }
 
@@ -2142,14 +2087,10 @@ fn stash_drop_removes_entry() -> Result<(), Box<dyn std::error::Error>> {
     let (mut repo, _c1) = init_with_schema(dir.path(), &[("a", "object")], "init", "alice")?;
 
     let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-    let s1_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(s1)))?;
+    let s1_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s1)?;
 
     let s2 = make_schema(&[("a", "object"), ("c", "integer")]);
-    let s2_id = repo
-        .store_mut()
-        .put(&panproto_vcs::Object::Schema(Box::new(s2)))?;
+    let s2_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), s2)?;
 
     panproto_vcs::stash::stash_push(repo.store_mut(), s1_id, "alice", Some("first"))?;
     panproto_vcs::stash::stash_push(repo.store_mut(), s2_id, "alice", Some("second"))?;

@@ -1587,7 +1587,7 @@ mod tests {
 
         // Put the same schema object once and reuse its ID for both
         // commits so we don't have to build two fixtures.
-        let schema_id = store.put(&VcsObject::Schema(Box::new(schema))).unwrap();
+        let schema_id = panproto_vcs::tree::store_schema_as_tree(&mut store, schema).unwrap();
 
         // Parent commit: LARGE timestamp.
         let parent_commit =
@@ -1652,7 +1652,7 @@ mod tests {
         let cache = cache_tmp.path().join("cache");
         let mut store = open_or_init_cache(&cache).unwrap();
 
-        let schema_id = store.put(&VcsObject::Schema(Box::new(schema))).unwrap();
+        let schema_id = panproto_vcs::tree::store_schema_as_tree(&mut store, schema).unwrap();
 
         // Common root.
         let root_id = store

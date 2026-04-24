@@ -834,14 +834,13 @@ pub fn resolve_schemas_from_range(
         _ => miette::bail!("'{new_ref}' does not resolve to a commit"),
     };
 
-    let old_schema = match repo.store().get(&old_schema_id).into_diagnostic()? {
-        vcs::Object::Schema(s) => *s,
-        _ => miette::bail!("commit '{old_ref}' does not reference a schema"),
-    };
-    let new_schema = match repo.store().get(&new_schema_id).into_diagnostic()? {
-        vcs::Object::Schema(s) => *s,
-        _ => miette::bail!("commit '{new_ref}' does not reference a schema"),
-    };
+    let proto = vcs::tree::project_coproduct_protocol();
+    let old_schema = vcs::tree::assemble_schema_dyn(repo.store(), &old_schema_id, &proto)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("commit '{old_ref}' schema tree could not be resolved"))?;
+    let new_schema = vcs::tree::assemble_schema_dyn(repo.store(), &new_schema_id, &proto)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("commit '{new_ref}' schema tree could not be resolved"))?;
 
     if verbose {
         eprintln!(
