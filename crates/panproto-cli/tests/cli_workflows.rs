@@ -2224,3 +2224,319 @@ fn cli_lens_generate_chain_topn_single_document() {
         "chain-mode root with --top-n must embed `candidates`; got {parsed}"
     );
 }
+
+/// A theory document with a deliberately lying Iso declaration:
+/// `upper` forward, identity inverse, declared `iso`. The sample-based
+/// law check must reject any non-uppercase string sample because
+/// `identity(upper(s)) != s` when `s` has lowercase content.
+fn write_lying_iso_theory(dir: &Path, name: &str) {
+    let doc = serde_json::json!({
+        "id": "test.lying_iso",
+        "description": "fixture with a lying coercion",
+        "theory": "LyingIso",
+        "sorts": [
+            { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+        ],
+        "ops": [
+            { "name": "upper", "input": "Str", "output": "Str" }
+        ],
+        "equations": [],
+        "directed_equations": [
+            {
+                "name": "lying_upper_iso",
+                "lhs": "upper(x)",
+                "rhs": "x",
+                "impl_expr": "upper(x)",
+                "inverse": "x",
+                "source_kind": "string",
+                "target_kind": "string",
+                "coercion_class": "iso"
+            }
+        ],
+        "policies": []
+    });
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+}
+
+fn write_honest_identity_theory(dir: &Path, name: &str) {
+    let doc = serde_json::json!({
+        "id": "test.honest_iso",
+        "description": "fixture with honest identity coercion",
+        "theory": "HonestIso",
+        "sorts": [
+            { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+        ],
+        "ops": [],
+        "equations": [],
+        "directed_equations": [
+            {
+                "name": "identity_iso",
+                "lhs": "x",
+                "rhs": "x",
+                "impl_expr": "x",
+                "inverse": "x",
+                "source_kind": "string",
+                "target_kind": "string",
+                "coercion_class": "iso"
+            }
+        ],
+        "policies": []
+    });
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+}
+
+#[test]
+fn theory_check_coercion_laws_fails_on_lying_iso() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_lying_iso_theory(tmp.path(), "lying.json");
+
+    let output = schema_cmd()
+        .args(["theory", "check-coercion-laws", "lying.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        combined.contains("lying_upper_iso") || combined.contains("violation"),
+        "expected violation output, got:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}",
+    );
+}
+
+#[test]
+fn theory_check_coercion_laws_passes_on_honest_iso() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_honest_identity_theory(tmp.path(), "honest.json");
+
+    schema_cmd()
+        .args(["theory", "check-coercion-laws", "honest.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("clean"));
+}
+
+#[test]
+fn theory_check_coercion_laws_json_output_is_valid() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_honest_identity_theory(tmp.path(), "honest.json");
+
+    let output = schema_cmd()
+        .args(["theory", "check-coercion-laws", "honest.json", "--json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("stdout was not a single JSON document: {e}\n---\n{stdout}\n---")
+    });
+    assert_eq!(parsed["clean"], serde_json::Value::Bool(true));
+    assert_eq!(parsed["total_violations"], serde_json::json!(0));
+}
+
+#[test]
+fn theory_check_coercion_laws_json_violations_carry_typed_kind() {
+    // On a lying Iso declaration the JSON payload must surface
+    // structured violations: each entry carries a typed `kind` field
+    // (e.g. "Backward", "Forward") rather than a `Debug`-format
+    // string, so downstream consumers can tree-shake by variant.
+    let tmp = tempfile::tempdir().unwrap();
+    write_lying_iso_theory(tmp.path(), "lying.json");
+
+    let output = schema_cmd()
+        .args(["theory", "check-coercion-laws", "lying.json", "--json"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("stdout was not a single JSON document: {e}\n---\n{stdout}\n---")
+    });
+    assert_eq!(parsed["clean"], serde_json::Value::Bool(false));
+    let theories = parsed["theories"].as_array().unwrap();
+    let mut saw_violation = false;
+    let mut saw_typed_kind = false;
+    for theory in theories {
+        let eqs = theory["equations"].as_array().unwrap();
+        for eq in eqs {
+            let vs = eq["violations"].as_array().unwrap();
+            for v in vs {
+                saw_violation = true;
+                let kind = v["kind"].as_str().unwrap_or_else(|| {
+                    panic!(
+                        "violation must carry a typed `kind` string field, \
+                         got {v}"
+                    )
+                });
+                assert!(
+                    matches!(
+                        kind,
+                        "Backward"
+                            | "Forward"
+                            | "NonDeterministic"
+                            | "MissingInverse"
+                            | "ForwardEvalError"
+                            | "InverseEvalError"
+                            | "UnknownClass"
+                    ),
+                    "unexpected violation kind {kind:?} in {v}"
+                );
+                if kind == "Backward" || kind == "Forward" {
+                    saw_typed_kind = true;
+                }
+            }
+        }
+    }
+    assert!(saw_violation, "expected at least one violation in {parsed}");
+    assert!(
+        saw_typed_kind,
+        "expected at least one Backward or Forward kind in {parsed}"
+    );
+}
+
+/// Write a bundle document containing two theories. The DSL stores
+/// theories in a `HashMap`, so iteration order is not insertion order;
+/// the CLI must sort by theory name before rendering to keep JSON
+/// output byte-stable across runs.
+fn write_two_theory_bundle(dir: &Path, name: &str) {
+    let doc = serde_json::json!({
+        "id": "test.two_theory_bundle",
+        "description": "two-theory bundle for determinism regression test",
+        "bundle": "Pair",
+        "theories": [
+            {
+                "theory": "BetaTheory",
+                "sorts": [
+                    { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+                ],
+                "ops": [],
+                "equations": [],
+                "directed_equations": [],
+                "policies": []
+            },
+            {
+                "theory": "AlphaTheory",
+                "sorts": [
+                    { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+                ],
+                "ops": [],
+                "equations": [],
+                "directed_equations": [],
+                "policies": []
+            }
+        ]
+    });
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+}
+
+/// Theory whose directed equation binds `v` rather than the default
+/// `x`. Under the default `--var-name x` the checker will surface
+/// `ForwardEvalError { error: "unbound variable: v" }` on every
+/// sample; the CLI must emit a hint suggesting `--var-name v`.
+fn write_theory_binding_alternate_var(dir: &Path, name: &str) {
+    let doc = serde_json::json!({
+        "id": "test.alternate_var",
+        "description": "fixture whose equation binds `v`",
+        "theory": "AltVar",
+        "sorts": [
+            { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+        ],
+        "ops": [],
+        "equations": [],
+        "directed_equations": [
+            {
+                "name": "alt_var_iso",
+                "lhs": "v",
+                "rhs": "v",
+                "impl_expr": "v",
+                "inverse": "v",
+                "source_kind": "string",
+                "target_kind": "string",
+                "coercion_class": "iso"
+            }
+        ],
+        "policies": []
+    });
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+}
+
+#[test]
+fn theory_check_coercion_laws_emits_var_name_hint() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_theory_binding_alternate_var(tmp.path(), "alt.json");
+
+    let output = schema_cmd()
+        .args(["theory", "check-coercion-laws", "alt.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("hint:") && stdout.contains("--var-name v"),
+        "expected unbound-variable hint mentioning `--var-name v`; got stdout:\n{stdout}",
+    );
+}
+
+#[test]
+fn theory_check_coercion_laws_accepts_var_name_override() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_theory_binding_alternate_var(tmp.path(), "alt.json");
+
+    // With `--var-name v` the identity equation round-trips cleanly
+    // and the command must succeed.
+    schema_cmd()
+        .args([
+            "theory",
+            "check-coercion-laws",
+            "alt.json",
+            "--var-name",
+            "v",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+}
+
+#[test]
+fn theory_compile_json_output_is_deterministic_across_runs() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_two_theory_bundle(tmp.path(), "pair.json");
+
+    let run_once = || -> String {
+        let output = schema_cmd()
+            .args(["theory", "compile", "pair.json", "--json"])
+            .current_dir(tmp.path())
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    let first = run_once();
+    // Repeated runs must produce byte-identical stdout. Collect a
+    // handful so a spurious insertion-order coincidence is unlikely to
+    // pass.
+    for _ in 0..5 {
+        assert_eq!(run_once(), first, "theory compile JSON must be stable");
+    }
+    // Theories must appear alphabetically (AlphaTheory before
+    // BetaTheory) regardless of declaration order.
+    let parsed: serde_json::Value = serde_json::from_str(&first).unwrap();
+    let theories = parsed["theories"].as_array().unwrap();
+    let names: Vec<&str> = theories.iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(names, vec!["AlphaTheory", "BetaTheory"]);
+}

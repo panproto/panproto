@@ -30,6 +30,7 @@
 pub mod asymmetric;
 pub mod auto_lens;
 pub mod candidate;
+pub mod coercion_laws;
 pub mod complement_type;
 pub mod compose;
 pub mod cost;

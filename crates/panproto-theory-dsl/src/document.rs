@@ -471,17 +471,25 @@ pub struct CompiledTheorySet {
 }
 
 /// Convenience: display all names in the compiled set.
+///
+/// Emits each inner-map's keys in lexicographic order so the rendered
+/// output is stable across runs regardless of `HashMap` insertion
+/// order. This matters for snapshot tests, diagnostic logs, and any
+/// downstream consumer that treats the `Debug` form as a stable
+/// identifier for a compiled bundle.
 impl std::fmt::Debug for CompiledTheorySet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn sorted<V>(map: &HashMap<String, V>) -> Vec<&String> {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            keys
+        }
         f.debug_struct("CompiledTheorySet")
             .field("id", &self.id)
-            .field("theories", &self.theories.keys().collect::<Vec<_>>())
-            .field("morphisms", &self.morphisms.keys().collect::<Vec<_>>())
-            .field("protocols", &self.protocols.keys().collect::<Vec<_>>())
-            .field(
-                "composition_specs",
-                &self.composition_specs.keys().collect::<Vec<_>>(),
-            )
+            .field("theories", &sorted(&self.theories))
+            .field("morphisms", &sorted(&self.morphisms))
+            .field("protocols", &sorted(&self.protocols))
+            .field("composition_specs", &sorted(&self.composition_specs))
             .finish()
     }
 }

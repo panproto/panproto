@@ -17,6 +17,7 @@ use panproto_mig::hom_search::{
 use panproto_schema::{Protocol, Schema};
 
 use crate::Lens;
+use crate::coercion_laws::CoercionSampleRegistry;
 use crate::error::LensError;
 use crate::protolens::{Protolens, ProtolensChain, elementary};
 
@@ -283,6 +284,22 @@ pub struct AutoLensConfig {
     /// built-in domain-agnostic dictionary; callers may extend it with
     /// protocol-specific cartridges.
     pub alias_dict: AliasDict,
+    /// When `Some`, every [`CoerceAnchor`] proposal emitted by the
+    /// coerce strategy is validated against its declared coercion
+    /// class using this registry. Anchors whose declarations fail
+    /// the sample-law check are dropped from the proposal set; the
+    /// dropped list is available via
+    /// [`filter_coerce_proposals_by_law_check`] when callers need to
+    /// audit the drops. When `None` (default), coerce anchors pass
+    /// through without verification (the pre-0.38 behavior).
+    pub coercion_law_registry: Option<CoercionSampleRegistry>,
+    /// Controls how unverifiable proposals (unknown witness or no
+    /// registered samples for the source kind) are routed by the
+    /// coerce-anchor filter. Consulted only when
+    /// `coercion_law_registry` is `Some`. Defaults to
+    /// [`UnknownSamplesPolicy::Keep`] which preserves the pre-0.38
+    /// behavior of letting unverifiable proposals through.
+    pub filter_options: FilterOptions,
 }
 
 impl Default for AutoLensConfig {
@@ -293,8 +310,180 @@ impl Default for AutoLensConfig {
             try_overlap: false,
             stringency: Stringency::default(),
             alias_dict: default_alias_dict(),
+            coercion_law_registry: None,
+            filter_options: FilterOptions::default(),
         }
     }
+}
+
+/// Policy for the two "unverifiable" paths in the coerce-proposal filter.
+///
+/// Covers a proposal whose witness is absent from the library, and a
+/// proposal whose witness is present but whose `source_kind` has no
+/// registered samples. Both paths used to default asymmetrically
+/// (unknown witness dropped, missing samples kept); this knob makes
+/// the treatment explicit and uniform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnknownSamplesPolicy {
+    /// Keep unverifiable proposals (sound when the caller still
+    /// intends to audit proposals downstream, and the registry is
+    /// intentionally partial).
+    #[default]
+    Keep,
+    /// Drop unverifiable proposals (strict: only proposals whose
+    /// witness exists and whose source kind has at least one sample
+    /// survive).
+    Drop,
+}
+
+/// Filter options for [`filter_coerce_proposals_by_law_check_with_policy`].
+///
+/// The single field today is the unknown-samples / unknown-witness
+/// policy, but this struct exists so future knobs can be added
+/// without churning every call site.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FilterOptions {
+    /// How to treat proposals whose witness cannot be located or
+    /// whose source kind has no registered samples. See
+    /// [`UnknownSamplesPolicy`].
+    pub unknown: UnknownSamplesPolicy,
+}
+
+impl FilterOptions {
+    /// Construct with `unknown` set explicitly.
+    #[must_use]
+    pub const fn with_unknown(unknown: UnknownSamplesPolicy) -> Self {
+        Self { unknown }
+    }
+}
+
+/// Partition `proposals` into a kept list and a dropped list based on
+/// sample-based coercion law checks.
+///
+/// Each proposal's witness is looked up in the default witness
+/// library; its declared forward, inverse, and coercion class are
+/// then checked against the samples registered for the witness's
+/// source value kind. Proposals whose declared class falsifies the
+/// round-trip law are moved to the dropped list; the others are kept.
+///
+/// Proposals that cannot be verified (witness absent from library,
+/// or witness present but source kind has no samples) are routed by
+/// the current default, [`UnknownSamplesPolicy::Keep`]. Callers that
+/// want strict behavior should invoke
+/// [`filter_coerce_proposals_by_law_check_with_policy`] directly.
+///
+/// This is exposed separately from `auto_generate` so callers can
+/// audit their proposal streams without running a full lens search.
+#[must_use]
+pub fn filter_coerce_proposals_by_law_check(
+    proposals: Vec<CoerceAnchor>,
+    registry: &CoercionSampleRegistry,
+) -> (Vec<CoerceAnchor>, Vec<(CoerceAnchor, String)>) {
+    filter_coerce_proposals_by_law_check_with_policy(proposals, registry, FilterOptions::default())
+}
+
+/// Filter `proposals` with an explicit [`FilterOptions`].
+///
+/// `options` controls how unverifiable proposals (unknown witness or
+/// absent samples) are routed. Verifiable proposals are subjected to
+/// the witness's declared-class round-trip law exactly as in the
+/// default entry point.
+#[must_use]
+pub fn filter_coerce_proposals_by_law_check_with_policy(
+    proposals: Vec<CoerceAnchor>,
+    registry: &CoercionSampleRegistry,
+    options: FilterOptions,
+) -> (Vec<CoerceAnchor>, Vec<(CoerceAnchor, String)>) {
+    let library = panproto_mig::coerce::default_witness_library();
+    let mut kept = Vec::with_capacity(proposals.len());
+    let mut dropped = Vec::new();
+    for proposal in proposals {
+        let Some(witness) = library.witness_by_name(&proposal.witness_name) else {
+            match options.unknown {
+                UnknownSamplesPolicy::Keep => kept.push(proposal),
+                UnknownSamplesPolicy::Drop => {
+                    dropped.push((proposal, "witness not found in default library".to_owned()));
+                }
+            }
+            continue;
+        };
+        let samples = registry.samples_for(witness.source_kind);
+        if samples.is_empty() {
+            match options.unknown {
+                UnknownSamplesPolicy::Keep => kept.push(proposal),
+                UnknownSamplesPolicy::Drop => {
+                    dropped.push((
+                        proposal,
+                        format!(
+                            "no samples registered for source kind {:?}",
+                            witness.source_kind
+                        ),
+                    ));
+                }
+            }
+            continue;
+        }
+        if let Some(reason) = check_witness_backward_law(witness, samples) {
+            dropped.push((proposal, reason));
+        } else {
+            kept.push(proposal);
+        }
+    }
+    (kept, dropped)
+}
+
+/// Run the Retraction/Iso backward law (`inverse(forward(s)) == s`)
+/// against `samples` using the witness's own `forward_param` and
+/// `inverse_param`. Returns `None` when every sample round-trips;
+/// returns `Some(reason)` on the first violating sample.
+///
+/// Different from [`crate::coercion_laws::check_coercion_laws`] in
+/// two ways: it threads the witness's two distinct parameter names
+/// through the evaluator (a `DirectedEquation` binds a single
+/// variable, a witness binds two), and it short-circuits at the
+/// first violation because the caller only needs a yes/no verdict
+/// for the filter.
+fn check_witness_backward_law(
+    witness: &panproto_mig::coerce::SortLensWitness,
+    samples: &[panproto_expr::Literal],
+) -> Option<String> {
+    use panproto_expr::{Env, EvalConfig, eval};
+
+    let config = EvalConfig::default();
+    let inverse = witness.inverse.as_ref();
+    let inverse_param = witness.inverse_param.as_ref();
+    for sample in samples {
+        let forward_env = Env::new().extend(Arc::clone(&witness.forward_param), sample.clone());
+        let forward_result = match eval(&witness.forward, &forward_env, &config) {
+            Ok(v) => v,
+            Err(e) => {
+                return Some(format!("forward eval failed on {sample:?}: {e}"));
+            }
+        };
+        let Some(inv) = inverse else {
+            return Some(format!(
+                "witness declares {:?} without an inverse",
+                witness.class
+            ));
+        };
+        let Some(inv_param) = inverse_param else {
+            return Some("witness has inverse expression but no inverse_param".to_owned());
+        };
+        let inverse_env = Env::new().extend(Arc::clone(inv_param), forward_result);
+        match eval(inv, &inverse_env, &config) {
+            Ok(round_trip) => {
+                if &round_trip != sample {
+                    return Some(format!(
+                        "round-trip mismatch on {sample:?}: got {round_trip:?}"
+                    ));
+                }
+            }
+            Err(e) => {
+                return Some(format!("inverse eval failed on {sample:?}: {e}"));
+            }
+        }
+    }
+    None
 }
 
 /// Run the alignment strategies enabled by `config.stringency`, returning
@@ -390,7 +579,17 @@ fn run_strategies(
         // relax the CSP kind filter conditional on the presence of a
         // registered witness.
         let library = panproto_mig::coerce::default_witness_library();
-        let proposals = align::coerce_anchors(src, tgt, &library);
+        let raw_proposals = align::coerce_anchors(src, tgt, &library);
+        let proposals = if let Some(registry) = config.coercion_law_registry.as_ref() {
+            let (kept, _dropped) = filter_coerce_proposals_by_law_check_with_policy(
+                raw_proposals,
+                registry,
+                config.filter_options,
+            );
+            kept
+        } else {
+            raw_proposals
+        };
         for ca in &proposals {
             anchors.push(ca.anchor.clone());
         }
@@ -473,6 +672,154 @@ fn sources_without_compatible_targets(src: &Schema, tgt: &Schema) -> Vec<Name> {
     out
 }
 
+/// Identify source vertices that cannot participate in any naturality-
+/// consistent morphism given the currently-seeded anchors.
+///
+/// Strictly stronger than [`sources_without_compatible_targets`]: a
+/// source `s` passes this test only when there is at least one target
+/// `t` such that every outgoing edge `s --kind--> s'` in the source has
+/// a corresponding outgoing edge `t --kind'--> t'` in the target where
+/// the child target respects the anchor (when `s'` is already anchored)
+/// or is kind-compatible with `s'` (when it is not).
+///
+/// Excluding the sources returned here lets the CSP find a morphism
+/// on the anchored sub-schema even when the full source has sparse
+/// overlap with the target. The naturality-feasibility test is sound
+/// (never excludes a source that could participate in a valid
+/// morphism) because a source whose outgoing-edge set has no feasible
+/// counterpart cannot satisfy naturality against any target choice.
+fn sources_without_naturality_compatible_targets(
+    src: &Schema,
+    tgt: &Schema,
+    anchors: &HashMap<Name, Name>,
+    strict_edge_names: bool,
+) -> Vec<Name> {
+    // Precompute each target vertex's outgoing edges bucketed by edge
+    // kind. Without this, `naturality_feasible` iterates every source
+    // edge against every target edge of every target vertex for every
+    // source vertex, giving `O(|V_s| * |V_t| * |E_s| * |E_t|)`. With
+    // a kind-keyed lookup, the inner edge match is `O(1)` hash
+    // probe plus the usually-small number of edges sharing a kind.
+    let target_edge_index = build_target_edge_index(tgt);
+    let mut out: Vec<Name> = src
+        .vertices
+        .keys()
+        .filter(|s| {
+            !tgt.vertices.keys().any(|t| {
+                naturality_feasible(
+                    src,
+                    s,
+                    tgt,
+                    t,
+                    anchors,
+                    strict_edge_names,
+                    &target_edge_index,
+                )
+            })
+        })
+        .cloned()
+        .collect();
+    out.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    out
+}
+
+/// Map each target vertex to a sub-map keyed by edge `kind`, listing
+/// the outgoing edges with that kind. Used by
+/// [`naturality_feasible`] to replace the per-source inner
+/// `O(|E_t|)` scan with an `O(1)` hash lookup that narrows to the
+/// edges whose kind can possibly match.
+fn build_target_edge_index<'a>(
+    tgt: &'a Schema,
+) -> rustc_hash::FxHashMap<&'a Name, rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>>>
+{
+    let mut index: rustc_hash::FxHashMap<
+        &'a Name,
+        rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>>,
+    > = rustc_hash::FxHashMap::default();
+    for t in tgt.vertices.keys() {
+        let mut bucket: rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>> =
+            rustc_hash::FxHashMap::default();
+        for edge in tgt.outgoing_edges(t.as_str()) {
+            bucket.entry(&edge.kind).or_default().push(edge);
+        }
+        index.insert(t, bucket);
+    }
+    index
+}
+
+/// Return `true` when mapping `s ↦ t` is consistent with naturality
+/// for every outgoing edge of `s` given the existing anchor set.
+///
+/// For each edge `s --kind--> s'` the target must have at least one
+/// edge `t --kind'--> t'` satisfying:
+///
+/// - kinds agree (`kind == kind'`),
+/// - labels agree when `strict_edge_names` is on,
+/// - if `s'` is anchored to `t''`, `t' == t''`; otherwise `t'`'s
+///   vertex kind is compatible with `s'`'s.
+///
+/// The check ignores incoming edges: the CSP validates the incoming
+/// side of naturality during the main search, and a source whose only
+/// problem is incoming-side naturality can still be assigned within
+/// the CSP.
+///
+/// `target_edge_index` is a precomputed map of every target vertex to
+/// its outgoing edges bucketed by edge kind; callers in a loop (e.g.
+/// [`sources_without_naturality_compatible_targets`]) build the index
+/// once and pass it to every invocation so each inner lookup is a
+/// hash probe rather than a linear scan over the target vertex's full
+/// outgoing-edge set.
+fn naturality_feasible<'a>(
+    src: &Schema,
+    s: &Name,
+    tgt: &Schema,
+    t: &Name,
+    anchors: &HashMap<Name, Name>,
+    strict_edge_names: bool,
+    target_edge_index: &rustc_hash::FxHashMap<
+        &'a Name,
+        rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>>,
+    >,
+) -> bool {
+    // Source and target must themselves be kind-compatible before
+    // naturality-feasibility makes sense to evaluate.
+    if !align::kinds_compatible(src, s, tgt, t) {
+        return false;
+    }
+    let empty_bucket: rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>> =
+        rustc_hash::FxHashMap::default();
+    let by_kind = target_edge_index.get(t).unwrap_or(&empty_bucket);
+    src.outgoing_edges(s.as_str()).iter().all(|se| {
+        let Some(candidates) = by_kind.get(&se.kind) else {
+            return false;
+        };
+        candidates.iter().any(|te| {
+            (!strict_edge_names || edge_labels_compatible(se, te))
+                && child_target_respects_anchor(src, se, tgt, te, anchors)
+        })
+    })
+}
+
+fn edge_labels_compatible(se: &panproto_schema::Edge, te: &panproto_schema::Edge) -> bool {
+    match (&se.name, &te.name) {
+        (None, _) | (_, None) => true,
+        (Some(a), Some(b)) => a == b,
+    }
+}
+
+fn child_target_respects_anchor(
+    src: &Schema,
+    se: &panproto_schema::Edge,
+    tgt: &Schema,
+    te: &panproto_schema::Edge,
+    anchors: &HashMap<Name, Name>,
+) -> bool {
+    anchors.get(&se.tgt).map_or_else(
+        || align::kinds_compatible(src, &se.tgt, tgt, &te.tgt),
+        |anchored| &te.tgt == anchored,
+    )
+}
+
 /// Generate a protolens chain and concrete lens from two schemas.
 ///
 /// # Pipeline
@@ -516,10 +863,16 @@ pub fn auto_generate(
     }
 
     // Span search: at Lenient+, pre-exclude source vertices with no
-    // kind-compatible target. Excluded vertices surface as `DropSort`
-    // endofunctors in the factorized chain — the left leg of the span
-    // `A ←f− C −g→ B`.
-    let span_constraints = span_exclusions_at_lenient(src, tgt, config.stringency);
+    // naturality-feasible target given the already-resolved anchor
+    // set. Excluded vertices surface as `DropSort` endofunctors in the
+    // factorized chain: the left leg of the span `A ←f− C −g→ B`.
+    let span_constraints = span_exclusions_at_lenient(
+        src,
+        tgt,
+        config.stringency,
+        &resolved,
+        !search_opts.relax_edge_name_pruning,
+    );
 
     let result = run_search(
         src,
@@ -682,7 +1035,21 @@ pub fn auto_generate_with_hints(
     // dropping a hinted source would surface as "CSP ignored my
     // hint" from the caller's perspective.
     let mut merged_domain = domain_constraints.clone();
-    if let Some(span) = span_exclusions_at_lenient(src, tgt, config.stringency) {
+    // Combine user hints with strategy anchors for the feasibility
+    // check: a richer anchor set lets the naturality predicate rule
+    // out more sources that cannot participate in a consistent
+    // morphism.
+    let mut feasibility_anchors: HashMap<Name, Name> = resolved_strategy.clone();
+    for (s, t) in anchors {
+        feasibility_anchors.insert(s.clone(), t.clone());
+    }
+    if let Some(span) = span_exclusions_at_lenient(
+        src,
+        tgt,
+        config.stringency,
+        &feasibility_anchors,
+        !search_opts.relax_edge_name_pruning,
+    ) {
         for src_v in span.excluded_sources {
             if anchors.contains_key(&src_v) {
                 continue;
@@ -951,9 +1318,16 @@ pub fn auto_generate_candidates(
     search_opts.max_results = n;
 
     // Span search: at Lenient+ pre-exclude source vertices with no
-    // kind-compatible target so the CSP can still find a morphism on
-    // the shared subschema.
-    let span_constraints = span_exclusions_at_lenient(src, tgt, config.stringency);
+    // naturality-feasible target given the resolved anchor set, so
+    // the CSP searches the anchored sub-schema rather than failing on
+    // full-source coverage.
+    let span_constraints = span_exclusions_at_lenient(
+        src,
+        tgt,
+        config.stringency,
+        &resolved,
+        !search_opts.relax_edge_name_pruning,
+    );
 
     candidates_from_search(
         src,
@@ -970,15 +1344,32 @@ pub fn auto_generate_candidates(
 /// Build `DomainConstraints` with auto-derived `excluded_sources` for
 /// span search. Returns `None` at tiers where spans are not allowed or
 /// when every source vertex has a compatible target.
+///
+/// When `anchors` is non-empty, the stronger naturality-feasibility
+/// predicate is used: a source is excluded if no target vertex admits
+/// a naturality-consistent assignment given the anchor set. This
+/// catches cases where a source vertex has some kind-compatible
+/// target but no *naturality-compatible* one, which otherwise forces
+/// the CSP to fail on schemas with sparse overlap.
+///
+/// When `anchors` is empty, falls back to the kind-only predicate so
+/// the pre-alignment path (where no anchors exist yet) is not starved
+/// of exclusions.
 fn span_exclusions_at_lenient(
     src: &Schema,
     tgt: &Schema,
     stringency: Stringency,
+    anchors: &HashMap<Name, Name>,
+    strict_edge_names: bool,
 ) -> Option<DomainConstraints> {
     if !stringency.allow_spans() {
         return None;
     }
-    let to_drop = sources_without_compatible_targets(src, tgt);
+    let to_drop = if anchors.is_empty() {
+        sources_without_compatible_targets(src, tgt)
+    } else {
+        sources_without_naturality_compatible_targets(src, tgt, anchors, strict_edge_names)
+    };
     if to_drop.is_empty() {
         return None;
     }
@@ -1027,7 +1418,17 @@ pub fn auto_generate_candidates_with_hints(
     // this guard the CSP silently drops user-hinted sources, surfacing
     // as a "CSP ignored my hint" bug.
     let mut merged_domain = domain_constraints.clone();
-    if let Some(span) = span_exclusions_at_lenient(src, tgt, config.stringency) {
+    let mut feasibility_anchors: HashMap<Name, Name> = resolved_strategy.clone();
+    for (s, t) in anchors {
+        feasibility_anchors.insert(s.clone(), t.clone());
+    }
+    if let Some(span) = span_exclusions_at_lenient(
+        src,
+        tgt,
+        config.stringency,
+        &feasibility_anchors,
+        !search_opts.relax_edge_name_pruning,
+    ) {
         for src_v in span.excluded_sources {
             if anchors.contains_key(&src_v) {
                 continue;
@@ -2556,8 +2957,9 @@ mod tests {
         // Directly exercise the merge logic: build the span set and
         // the user-hint set, and confirm the hinted source is kept in
         // the CSP domain (not excluded).
-        let span = span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient)
-            .expect("Lenient should auto-exclude r.flag");
+        let span =
+            span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient, &HashMap::new(), false)
+                .expect("Lenient should auto-exclude r.flag");
         assert!(
             span.excluded_sources.contains(&Name::from("r.flag")),
             "span auto-exclusion must name r.flag"
@@ -2655,8 +3057,9 @@ mod tests {
             .unwrap();
 
         // Prove the span logic wants to exclude `r.flag`.
-        let span = span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient)
-            .expect("Lenient should auto-exclude r.flag");
+        let span =
+            span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient, &HashMap::new(), false)
+                .expect("Lenient should auto-exclude r.flag");
         assert!(
             span.excluded_sources.contains(&Name::from("r.flag")),
             "span auto-exclusion must name r.flag"
@@ -2698,6 +3101,374 @@ mod tests {
             &anchors,
             &DomainConstraints::default(),
             1,
+        );
+    }
+
+    /// Naturality-aware exclusion catches sources whose outgoing
+    /// edges have no corresponding counterpart in the target, even
+    /// when the source vertex kind happens to appear somewhere in the
+    /// target. Under the old kind-only predicate, a `record` source
+    /// with an incompatible outgoing-edge structure would be retained
+    /// in the CSP scope and block every candidate solution. The
+    /// stronger predicate excludes it so the CSP searches only the
+    /// anchored subschema.
+    #[test]
+    fn naturality_feasibility_excludes_sources_with_unmatchable_outgoing_edges() {
+        let protocol = test_protocol();
+
+        // Source: a record with a `blob` child via the "blob" edge
+        // kind. Target has no "blob" edges at all, only "prop" edges.
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.media", "array", None::<&str>)
+            .unwrap()
+            .edge("post", "post.media", "blob", Some("media"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Target carries records, strings, and objects, none linked by
+        // a "blob" edge. The source record's kind (`record`) matches
+        // both target records, so the kind-only predicate retains
+        // `post`. Naturality-feasibility rejects it because no target
+        // record offers a `blob` outgoing edge.
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("doc", "record", None::<&str>)
+            .unwrap()
+            .vertex("doc.title", "string", None::<&str>)
+            .unwrap()
+            .edge("doc", "doc.title", "prop", Some("title"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let anchors: HashMap<Name, Name> = HashMap::new();
+        let kind_only = sources_without_compatible_targets(&src, &tgt);
+        assert!(
+            !kind_only.contains(&Name::from("post")),
+            "kind-only predicate retains `post` because target also has a record kind",
+        );
+
+        let naturality = sources_without_naturality_compatible_targets(
+            &src, &tgt, &anchors, /* strict_edge_names = */ false,
+        );
+        assert!(
+            naturality.contains(&Name::from("post")),
+            "naturality predicate must exclude `post`: no target record has a `blob` \
+             outgoing edge, so no naturality-consistent mapping exists (got {naturality:?})",
+        );
+    }
+
+    /// A schema pair where every source vertex has a kind-compatible
+    /// target but only one source has a naturality-compatible one.
+    /// Under the old predicate the CSP retains all sources and fails
+    /// to find a total morphism; under the stronger predicate the
+    /// unmatchable sources are excluded and the CSP succeeds on the
+    /// remaining anchored sub-schema.
+    #[test]
+    fn stronger_predicate_unblocks_csp_when_kind_only_retains_unmatchable_sources() {
+        let protocol = test_protocol();
+
+        // Source has two records. `recA` has a `prop` outgoing; `recB`
+        // has a `blob` outgoing that the target cannot fulfil. The
+        // kind-only predicate keeps both because both are records.
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("recA", "record", None::<&str>)
+            .unwrap()
+            .vertex("recA.name", "string", None::<&str>)
+            .unwrap()
+            .vertex("recB", "record", None::<&str>)
+            .unwrap()
+            .vertex("recB.media", "array", None::<&str>)
+            .unwrap()
+            .edge("recA", "recA.name", "prop", Some("name"))
+            .unwrap()
+            .edge("recB", "recB.media", "blob", Some("media"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("rec", "record", None::<&str>)
+            .unwrap()
+            .vertex("rec.name", "string", None::<&str>)
+            .unwrap()
+            .edge("rec", "rec.name", "prop", Some("name"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut anchors: HashMap<Name, Name> = HashMap::new();
+        anchors.insert(Name::from("recA"), Name::from("rec"));
+        anchors.insert(Name::from("recA.name"), Name::from("rec.name"));
+
+        let naturality = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
+        assert!(
+            naturality.contains(&Name::from("recB")),
+            "recB must be excluded: its `blob` outgoing edge has no target counterpart \
+             (got {naturality:?})",
+        );
+        assert!(
+            !naturality.contains(&Name::from("recA")),
+            "recA must survive: its outgoing `prop` edge aligns with the target's \
+             outgoing `prop` edge on the anchored `rec` vertex (got {naturality:?})",
+        );
+    }
+
+    fn synthetic_coerce_anchor(witness_name: &str) -> CoerceAnchor {
+        use panproto_mig::align::StrategyTag;
+        CoerceAnchor {
+            anchor: Anchor {
+                src: Name::from("src_v"),
+                tgt: Name::from("tgt_v"),
+                confidence: 0.5,
+                strategy: StrategyTag::Coerce,
+                explanation: format!("synthetic coerce anchor for {witness_name}"),
+            },
+            witness_name: witness_name.to_owned(),
+            witness_class: panproto_gat::CoercionClass::Retraction,
+        }
+    }
+
+    #[test]
+    fn filter_coerce_proposals_keeps_honest_witness() {
+        // `int_to_str` is a real, honest Retraction witness in the
+        // default library. With the default registry, every sampled
+        // Int round-trips cleanly so the proposal is kept.
+        let registry = CoercionSampleRegistry::with_defaults();
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
+    }
+
+    #[test]
+    fn filter_coerce_proposals_drops_unknown_witness_under_drop_policy() {
+        // Under the explicit `Drop` policy, a witness name that is
+        // not in the default library is dropped rather than passed
+        // through.
+        let registry = CoercionSampleRegistry::with_defaults();
+        let proposals = vec![synthetic_coerce_anchor("no_such_witness")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check_with_policy(
+            proposals,
+            &registry,
+            FilterOptions::with_unknown(UnknownSamplesPolicy::Drop),
+        );
+        assert!(kept.is_empty());
+        assert_eq!(dropped.len(), 1);
+    }
+
+    #[test]
+    fn filter_coerce_proposals_keeps_unknown_witness_under_keep_policy() {
+        // Under the default `Keep` policy, an unknown-witness proposal
+        // survives; the caller is responsible for downstream audit.
+        let registry = CoercionSampleRegistry::with_defaults();
+        let proposals = vec![synthetic_coerce_anchor("no_such_witness")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check_with_policy(
+            proposals,
+            &registry,
+            FilterOptions::with_unknown(UnknownSamplesPolicy::Keep),
+        );
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
+    }
+
+    #[test]
+    fn filter_coerce_proposals_keeps_missing_samples_under_keep_policy() {
+        // `int_to_str` exists in the default library and expects
+        // `Int` samples. An empty registry has no `Int` samples; the
+        // `Keep` policy passes the proposal through.
+        let registry = CoercionSampleRegistry::new();
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check_with_policy(
+            proposals,
+            &registry,
+            FilterOptions::with_unknown(UnknownSamplesPolicy::Keep),
+        );
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
+    }
+
+    #[test]
+    fn filter_coerce_proposals_drops_missing_samples_under_drop_policy() {
+        // Under `Drop`, the same configuration as above drops the
+        // proposal because the registry has no samples for `Int`.
+        let registry = CoercionSampleRegistry::new();
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check_with_policy(
+            proposals,
+            &registry,
+            FilterOptions::with_unknown(UnknownSamplesPolicy::Drop),
+        );
+        assert!(kept.is_empty());
+        assert_eq!(dropped.len(), 1);
+    }
+
+    #[test]
+    fn filter_coerce_proposals_default_entry_point_uses_keep_policy() {
+        // The no-options entry point now uses `Keep` by default, so
+        // an unknown witness survives the filter.
+        let registry = CoercionSampleRegistry::with_defaults();
+        let proposals = vec![synthetic_coerce_anchor("no_such_witness")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
+    }
+
+    #[test]
+    fn filter_coerce_proposals_drops_on_law_violation() {
+        // Register wrong-typed samples for Int so `int_to_str`'s
+        // forward expression errors on every sample: the filter
+        // records ForwardEvalError violations and drops the
+        // proposal.
+        let mut registry = CoercionSampleRegistry::new();
+        registry.register(
+            panproto_gat::ValueKind::Int,
+            vec![panproto_expr::Literal::Str("not an int".to_owned())],
+        );
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
+        assert!(kept.is_empty());
+        assert_eq!(dropped.len(), 1);
+    }
+
+    #[test]
+    fn filter_coerce_proposals_no_registry_path_is_identity() {
+        // Sanity: calling the filter with an empty registry keeps
+        // every proposal whose witness exists (no samples means
+        // nothing to check, so the proposal passes through).
+        let registry = CoercionSampleRegistry::new();
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
+    }
+
+    /// Leaf-source regression: a source vertex with zero outgoing
+    /// edges satisfies the universal quantifier over its outgoing
+    /// edges vacuously, so it must not be excluded by
+    /// `sources_without_naturality_compatible_targets` as long as the
+    /// target has at least one vertex of a compatible kind. Conversely,
+    /// when no such target vertex exists the kind-compatibility gate
+    /// alone excludes the leaf.
+    #[test]
+    fn leaf_source_is_kept_when_kind_compatible_target_exists() {
+        let protocol = test_protocol();
+
+        // Source is a single leaf of kind `string` with no outgoing
+        // edges.
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("leaf", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Target has a `string` vertex among others.
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("doc", "record", None::<&str>)
+            .unwrap()
+            .vertex("doc.title", "string", None::<&str>)
+            .unwrap()
+            .edge("doc", "doc.title", "prop", Some("title"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let anchors: HashMap<Name, Name> = HashMap::new();
+        let excluded = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
+        assert!(
+            !excluded.contains(&Name::from("leaf")),
+            "leaf source with zero outgoing edges must not be excluded when a \
+             kind-compatible target exists (got {excluded:?})",
+        );
+    }
+
+    #[test]
+    fn leaf_source_is_excluded_when_no_kind_compatible_target_exists() {
+        let protocol = test_protocol();
+
+        // Leaf source kind `string`.
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("leaf", "string", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Target has no `string` vertex, only `record` and `array`.
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("doc", "record", None::<&str>)
+            .unwrap()
+            .vertex("items", "array", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let anchors: HashMap<Name, Name> = HashMap::new();
+        let excluded = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
+        assert!(
+            excluded.contains(&Name::from("leaf")),
+            "leaf source must be excluded when no target vertex has a compatible kind \
+             (got {excluded:?})",
+        );
+    }
+
+    /// Regression guard for the cached edge-index optimization:
+    /// `sources_without_naturality_compatible_targets` must remain
+    /// fast on moderately-sized schemas. Before the cache the inner
+    /// loop was `O(|V_s|*|V_t|*|E_s|*|E_t|)` and would linger on a
+    /// 30x30-vertex pair; with the cache the same input is an
+    /// `O(|V_s|*|V_t|*|E_s|)` hash-probe loop.
+    #[test]
+    fn sources_without_naturality_compatible_targets_scales_on_larger_schemas() {
+        let protocol = test_protocol();
+        let size: usize = 30;
+
+        let mut src_builder = SchemaBuilder::new(&protocol);
+        for i in 0..size {
+            src_builder = src_builder
+                .vertex(&format!("src_rec_{i}"), "record", None::<&str>)
+                .unwrap()
+                .vertex(&format!("src_rec_{i}.name"), "string", None::<&str>)
+                .unwrap()
+                .edge(
+                    &format!("src_rec_{i}"),
+                    &format!("src_rec_{i}.name"),
+                    "prop",
+                    Some("name"),
+                )
+                .unwrap();
+        }
+        let src = src_builder.build().unwrap();
+
+        let mut tgt_builder = SchemaBuilder::new(&protocol);
+        for i in 0..size {
+            tgt_builder = tgt_builder
+                .vertex(&format!("tgt_rec_{i}"), "record", None::<&str>)
+                .unwrap()
+                .vertex(&format!("tgt_rec_{i}.name"), "string", None::<&str>)
+                .unwrap()
+                .edge(
+                    &format!("tgt_rec_{i}"),
+                    &format!("tgt_rec_{i}.name"),
+                    "prop",
+                    Some("name"),
+                )
+                .unwrap();
+        }
+        let tgt = tgt_builder.build().unwrap();
+
+        let anchors: HashMap<Name, Name> = HashMap::new();
+        let excluded = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
+        // Every source record has a compatible target record (both
+        // carry one `prop` outgoing edge to a `string` child), so the
+        // record vertices themselves must not be excluded. The
+        // `.name` leaves have no outgoing edges and therefore every
+        // kind-compatible target satisfies the vacuous universal
+        // quantifier; they must survive too.
+        assert!(
+            excluded.is_empty(),
+            "no source should be excluded on a symmetric schema pair; got {excluded:?}",
         );
     }
 }

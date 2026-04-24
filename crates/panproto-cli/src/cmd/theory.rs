@@ -32,13 +32,25 @@ pub fn cmd_theory_compile(file: &Path, json: bool, verbose: bool) -> Result<()> 
     let compiled =
         panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
 
+    // Theory, morphism, protocol, and composition maps are `HashMap`s
+    // keyed on name; iterate in a sorted order so CLI output (both
+    // human-readable and JSON) is byte-stable across runs.
+    let mut theory_names: Vec<&String> = compiled.theories.keys().collect();
+    theory_names.sort();
+    let mut morphism_names: Vec<&String> = compiled.morphisms.keys().collect();
+    morphism_names.sort();
+    let mut protocol_names: Vec<&String> = compiled.protocols.keys().collect();
+    protocol_names.sort();
+    let mut composition_names: Vec<&String> = compiled.composition_specs.keys().collect();
+    composition_names.sort();
+
     if json {
         let summary = serde_json::json!({
             "id": compiled.id,
-            "theories": compiled.theories.keys().collect::<Vec<_>>(),
-            "morphisms": compiled.morphisms.keys().collect::<Vec<_>>(),
-            "protocols": compiled.protocols.keys().collect::<Vec<_>>(),
-            "compositions": compiled.composition_specs.keys().collect::<Vec<_>>(),
+            "theories": theory_names,
+            "morphisms": morphism_names,
+            "protocols": protocol_names,
+            "compositions": composition_names,
         });
         println!(
             "{}",
@@ -46,7 +58,8 @@ pub fn cmd_theory_compile(file: &Path, json: bool, verbose: bool) -> Result<()> 
         );
     } else {
         println!("Document: {}", compiled.id);
-        for (name, theory) in &compiled.theories {
+        for name in &theory_names {
+            let theory = &compiled.theories[*name];
             println!(
                 "  theory {name}: {} sorts, {} ops, {} eqs",
                 theory.sorts.len(),
@@ -62,10 +75,10 @@ pub fn cmd_theory_compile(file: &Path, json: bool, verbose: bool) -> Result<()> 
                 }
             }
         }
-        for name in compiled.morphisms.keys() {
+        for name in &morphism_names {
             println!("  morphism {name}");
         }
-        for name in compiled.protocols.keys() {
+        for name in &protocol_names {
             println!("  protocol {name}");
         }
     }
@@ -123,7 +136,11 @@ pub fn cmd_theory_check_morphism(file: &Path, verbose: bool) -> Result<()> {
     if compiled.morphisms.is_empty() {
         eprintln!("warning: no morphisms in document");
     } else {
-        for name in compiled.morphisms.keys() {
+        // `compiled.morphisms` is a `HashMap`; sort by name so the
+        // verbose report is byte-stable across runs.
+        let mut names: Vec<&String> = compiled.morphisms.keys().collect();
+        names.sort();
+        for name in names {
             eprintln!("morphism '{name}' is valid");
         }
     }
@@ -137,7 +154,11 @@ pub fn cmd_theory_recompose(file: &Path, verbose: bool) -> Result<()> {
     let compiled =
         panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
 
-    for (name, theory) in &compiled.theories {
+    // Iterate in sorted name order so output is stable across runs.
+    let mut theory_names: Vec<&String> = compiled.theories.keys().collect();
+    theory_names.sort();
+    for name in &theory_names {
+        let theory = &compiled.theories[*name];
         println!(
             "theory {name}: {} sorts, {} ops, {} eqs",
             theory.sorts.len(),
@@ -154,8 +175,303 @@ pub fn cmd_theory_recompose(file: &Path, verbose: bool) -> Result<()> {
         }
     }
 
-    if let Some((name, spec)) = compiled.composition_specs.iter().next() {
+    let mut composition_names: Vec<&String> = compiled.composition_specs.keys().collect();
+    composition_names.sort();
+    if let Some(name) = composition_names.first() {
+        let spec = &compiled.composition_specs[*name];
         println!("composition '{name}': {} steps", spec.steps.len());
     }
     Ok(())
+}
+
+/// Run sample-based coercion law checks over every directed
+/// equation in every theory compiled from `file`.
+///
+/// Non-zero exit status on any violation; clean (exit 0) otherwise.
+pub fn cmd_theory_check_coercion_laws(
+    file: &Path,
+    json: bool,
+    verbose: bool,
+    var_name: &str,
+) -> Result<()> {
+    use panproto_core::lens::coercion_laws::{
+        CoercionSampleRegistry, TheoryCoercionReport, check_theory_with_var,
+    };
+
+    let resolver = panproto_theory_dsl::builtin_resolver();
+    let doc = panproto_theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
+    let compiled =
+        panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
+
+    let registry = CoercionSampleRegistry::with_defaults();
+    // Compile's `theories` is a `HashMap`; iterate in sorted name order
+    // so reports (and the emitted JSON / text output) are byte-stable
+    // across runs.
+    let mut theory_names: Vec<&String> = compiled.theories.keys().collect();
+    theory_names.sort();
+    let mut reports: Vec<(String, TheoryCoercionReport)> = Vec::new();
+    for name in &theory_names {
+        let theory = &compiled.theories[*name];
+        let report = check_theory_with_var(theory, &registry, var_name);
+        reports.push(((*name).clone(), report));
+    }
+
+    let total_violations: usize = reports.iter().map(|(_, r)| r.violation_count()).sum();
+    let clean = total_violations == 0;
+
+    if json {
+        let payload = serde_json::json!({
+            "document": compiled.id,
+            "clean": clean,
+            "total_violations": total_violations,
+            "theories": reports.iter().map(|(name, report)| {
+                serde_json::json!({
+                    "name": name,
+                    "clean": report.is_clean(),
+                    "violation_count": report.violation_count(),
+                    "equations": report.per_equation.iter().map(|(eq_name, violations)| {
+                        // Serialize structured `CoercionLawViolation`
+                        // values directly rather than stringifying via
+                        // `Debug`. Keeps the `kind` tag and payload
+                        // fields machine-readable for downstream
+                        // consumers.
+                        let vs: Vec<serde_json::Value> = violations.iter()
+                            .map(|v| serde_json::to_value(v)
+                                .unwrap_or_else(|e| serde_json::json!({
+                                    "kind": "SerializationError",
+                                    "error": e.to_string(),
+                                    "debug": format!("{v:?}"),
+                                })))
+                            .collect();
+                        serde_json::json!({
+                            "name": eq_name.as_ref(),
+                            "violations": vs,
+                        })
+                    }).collect::<Vec<_>>(),
+                })
+            }).collect::<Vec<_>>(),
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&payload).map_err(|e| miette::miette!("{e}"))?
+        );
+    } else {
+        println!("Document: {}", compiled.id);
+        for (name, report) in &reports {
+            if report.is_clean() {
+                println!(
+                    "  theory {name}: clean ({} equations checked)",
+                    report.per_equation.len()
+                );
+                if verbose {
+                    for (eq, _) in &report.per_equation {
+                        println!("    equation {eq}: ok");
+                    }
+                }
+            } else {
+                println!(
+                    "  theory {name}: {} violation(s) across {} equation(s)",
+                    report.violation_count(),
+                    report.per_equation.len(),
+                );
+                for (eq, violations) in &report.per_equation {
+                    if !violations.is_empty() {
+                        println!("    equation {eq}: {} violation(s)", violations.len());
+                        for v in violations {
+                            println!("      {v:?}");
+                        }
+                    }
+                }
+            }
+        }
+        if clean {
+            let n = reports.len();
+            let msg = match n {
+                0 => "No theories to check.".to_owned(),
+                1 => "All 1 theory clean.".to_owned(),
+                _ => format!("All {n} theories clean."),
+            };
+            println!("{msg}");
+        } else {
+            println!("Total violations: {total_violations}");
+            if let Some(suggested) = suggest_var_name_from_reports(&reports, var_name) {
+                println!(
+                    "hint: every equation errored on unbound variable '{suggested}'; \
+                     pass --var-name {suggested} to override the default '{var_name}'"
+                );
+            }
+        }
+    }
+
+    if clean {
+        Ok(())
+    } else {
+        // The report printed above already summarises the failure
+        // ("Total violations: N"). Return an un-rendered error so the
+        // user sees one diagnostic (the printed report), not two
+        // (report plus a redundant miette bail message). The non-zero
+        // exit status still propagates via the `Err` return.
+        Err(miette::miette!("coercion law violation(s) detected"))
+    }
+}
+
+/// Inspect the per-theory reports for the "unbound variable X"
+/// anti-pattern. Returns the suggested name when at least 75% of
+/// violations are eval errors that name the same unbound variable
+/// (and that variable is not the current `var_name`); otherwise
+/// returns `None`.
+///
+/// The ratio is deliberately loose so a single unrelated violation
+/// (e.g. one genuine `Backward` law failure) does not suppress the
+/// hint when the dominant signal is still "every equation is using
+/// the wrong free variable".
+fn suggest_var_name_from_reports(
+    reports: &[(
+        String,
+        panproto_core::lens::coercion_laws::TheoryCoercionReport,
+    )],
+    current_var: &str,
+) -> Option<String> {
+    use panproto_core::lens::coercion_laws::CoercionLawViolation;
+
+    let mut total: usize = 0;
+    let mut matching: usize = 0;
+    let mut suggested: Option<String> = None;
+    for (_, report) in reports {
+        for (_, violations) in &report.per_equation {
+            for v in violations {
+                total += 1;
+                let (CoercionLawViolation::ForwardEvalError { error, .. }
+                | CoercionLawViolation::InverseEvalError { error, .. }) = v
+                else {
+                    continue;
+                };
+                let Some(name) = extract_unbound_variable_name(error) else {
+                    continue;
+                };
+                match &suggested {
+                    None => {
+                        suggested = Some(name);
+                        matching += 1;
+                    }
+                    Some(existing) if existing == &name => {
+                        matching += 1;
+                    }
+                    // A different unbound-variable name was seen. The
+                    // extracted name is no longer unanimous among
+                    // matching violations; bail out rather than emit
+                    // an ambiguous hint.
+                    Some(_) => return None,
+                }
+            }
+        }
+    }
+    if total == 0 {
+        return None;
+    }
+    // Require at least 75% of all violations to be matching
+    // unbound-variable eval errors sharing the same name. Integer
+    // comparison: `4 * matching >= 3 * total` avoids floating point.
+    if matching.saturating_mul(4) < total.saturating_mul(3) {
+        return None;
+    }
+    let name = suggested?;
+    if name == current_var {
+        return None;
+    }
+    Some(name)
+}
+
+/// Parse an error message of the form `"unbound variable <name>"` and
+/// return `<name>` when the pattern matches. Trims surrounding quotes
+/// and whitespace from the extracted name.
+fn extract_unbound_variable_name(error: &str) -> Option<String> {
+    let marker = "unbound variable";
+    let idx = error.find(marker)?;
+    let rest = &error[idx + marker.len()..];
+    let rest = rest.trim_start_matches([' ', ':', '`', '\'', '"']);
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    let name = &rest[..end];
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use panproto_core::lens::coercion_laws::{CoercionLawViolation, TheoryCoercionReport};
+    use panproto_expr::Literal;
+    use std::sync::Arc;
+
+    fn eval_err(name: &str) -> CoercionLawViolation {
+        CoercionLawViolation::ForwardEvalError {
+            input: Literal::Str("probe".to_owned()),
+            error: format!("unbound variable: {name}"),
+        }
+    }
+
+    fn backward_err() -> CoercionLawViolation {
+        CoercionLawViolation::Backward {
+            input: Literal::Str("a".to_owned()),
+            forward_result: Literal::Str("A".to_owned()),
+            round_tripped: Literal::Str("A".to_owned()),
+        }
+    }
+
+    fn single_report(violations: Vec<CoercionLawViolation>) -> Vec<(String, TheoryCoercionReport)> {
+        let report = TheoryCoercionReport {
+            per_equation: vec![(Arc::from("eq"), violations)],
+        };
+        vec![("T".to_owned(), report)]
+    }
+
+    #[test]
+    fn hint_fires_when_one_backward_and_five_unbound() {
+        let mut vs = vec![backward_err()];
+        for _ in 0..5 {
+            vs.push(eval_err("v"));
+        }
+        let reports = single_report(vs);
+        // 5/6 ≈ 83% are matching; above the 75% threshold.
+        assert_eq!(
+            suggest_var_name_from_reports(&reports, "x"),
+            Some("v".to_owned()),
+        );
+    }
+
+    #[test]
+    fn hint_suppressed_when_one_unbound_and_six_backward() {
+        let mut vs = vec![eval_err("v")];
+        for _ in 0..6 {
+            vs.push(backward_err());
+        }
+        let reports = single_report(vs);
+        // 1/7 ≈ 14%; well below the 75% threshold.
+        assert_eq!(suggest_var_name_from_reports(&reports, "x"), None);
+    }
+
+    #[test]
+    fn hint_suppressed_when_names_disagree() {
+        let vs = vec![eval_err("v"), eval_err("w"), eval_err("v"), eval_err("v")];
+        let reports = single_report(vs);
+        assert_eq!(suggest_var_name_from_reports(&reports, "x"), None);
+    }
+
+    #[test]
+    fn hint_suppressed_when_suggested_equals_current() {
+        let vs = vec![eval_err("x"), eval_err("x"), eval_err("x"), eval_err("x")];
+        let reports = single_report(vs);
+        assert_eq!(suggest_var_name_from_reports(&reports, "x"), None);
+    }
+
+    #[test]
+    fn hint_suppressed_when_no_violations() {
+        let reports: Vec<(String, TheoryCoercionReport)> = Vec::new();
+        assert_eq!(suggest_var_name_from_reports(&reports, "x"), None);
+    }
 }
