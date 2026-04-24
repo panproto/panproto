@@ -17,6 +17,7 @@ use panproto_mig::hom_search::{
 use panproto_schema::{Protocol, Schema};
 
 use crate::Lens;
+use crate::coercion_laws::CoercionSampleRegistry;
 use crate::error::LensError;
 use crate::protolens::{Protolens, ProtolensChain, elementary};
 
@@ -283,6 +284,15 @@ pub struct AutoLensConfig {
     /// built-in domain-agnostic dictionary; callers may extend it with
     /// protocol-specific cartridges.
     pub alias_dict: AliasDict,
+    /// When `Some`, every [`CoerceAnchor`] proposal emitted by the
+    /// coerce strategy is validated against its declared coercion
+    /// class using this registry. Anchors whose declarations fail
+    /// the sample-law check are dropped from the proposal set; the
+    /// dropped list is available via
+    /// [`filter_coerce_proposals_by_law_check`] when callers need to
+    /// audit the drops. When `None` (default), coerce anchors pass
+    /// through without verification (the pre-0.38 behavior).
+    pub coercion_law_registry: Option<CoercionSampleRegistry>,
 }
 
 impl Default for AutoLensConfig {
@@ -293,8 +303,105 @@ impl Default for AutoLensConfig {
             try_overlap: false,
             stringency: Stringency::default(),
             alias_dict: default_alias_dict(),
+            coercion_law_registry: None,
         }
     }
+}
+
+/// Partition `proposals` into a kept list and a dropped list based on
+/// sample-based coercion law checks.
+///
+/// Each proposal's witness is looked up in the default witness
+/// library; its declared forward, inverse, and coercion class are
+/// then checked against the samples registered for the witness's
+/// source value kind. Proposals whose witness cannot be located or
+/// whose declared class falsifies the round-trip law are moved to
+/// the dropped list; the others are kept.
+///
+/// This is exposed separately from `auto_generate` so callers can
+/// audit their proposal streams without running a full lens search.
+#[must_use]
+pub fn filter_coerce_proposals_by_law_check(
+    proposals: Vec<CoerceAnchor>,
+    registry: &CoercionSampleRegistry,
+) -> (Vec<CoerceAnchor>, Vec<(CoerceAnchor, String)>) {
+    let library = panproto_mig::coerce::default_witness_library();
+    let mut kept = Vec::with_capacity(proposals.len());
+    let mut dropped = Vec::new();
+    for proposal in proposals {
+        let Some(witness) = library.witness_by_name(&proposal.witness_name) else {
+            dropped.push((proposal, "witness not found in default library".to_owned()));
+            continue;
+        };
+        let samples = registry.samples_for(witness.source_kind);
+        if samples.is_empty() {
+            // No samples to test against: keep by default (the same
+            // behavior as a registry-less run would exhibit for this
+            // kind).
+            kept.push(proposal);
+            continue;
+        }
+        if let Some(reason) = check_witness_backward_law(witness, samples) {
+            dropped.push((proposal, reason));
+        } else {
+            kept.push(proposal);
+        }
+    }
+    (kept, dropped)
+}
+
+/// Run the Retraction/Iso backward law (`inverse(forward(s)) == s`)
+/// against `samples` using the witness's own `forward_param` and
+/// `inverse_param`. Returns `None` when every sample round-trips;
+/// returns `Some(reason)` on the first violating sample.
+///
+/// Different from [`crate::coercion_laws::check_coercion_laws`] in
+/// two ways: it threads the witness's two distinct parameter names
+/// through the evaluator (a `DirectedEquation` binds a single
+/// variable, a witness binds two), and it short-circuits at the
+/// first violation because the caller only needs a yes/no verdict
+/// for the filter.
+fn check_witness_backward_law(
+    witness: &panproto_mig::coerce::SortLensWitness,
+    samples: &[panproto_expr::Literal],
+) -> Option<String> {
+    use panproto_expr::{Env, EvalConfig, eval};
+
+    let config = EvalConfig::default();
+    let inverse = witness.inverse.as_ref();
+    let inverse_param = witness.inverse_param.as_ref();
+    for sample in samples {
+        let forward_env = Env::new().extend(Arc::clone(&witness.forward_param), sample.clone());
+        let forward_result = match eval(&witness.forward, &forward_env, &config) {
+            Ok(v) => v,
+            Err(e) => {
+                return Some(format!("forward eval failed on {sample:?}: {e}"));
+            }
+        };
+        let Some(inv) = inverse else {
+            return Some(format!(
+                "witness declares {:?} without an inverse",
+                witness.class
+            ));
+        };
+        let Some(inv_param) = inverse_param else {
+            return Some("witness has inverse expression but no inverse_param".to_owned());
+        };
+        let inverse_env = Env::new().extend(Arc::clone(inv_param), forward_result);
+        match eval(inv, &inverse_env, &config) {
+            Ok(round_trip) => {
+                if &round_trip != sample {
+                    return Some(format!(
+                        "round-trip mismatch on {sample:?}: got {round_trip:?}"
+                    ));
+                }
+            }
+            Err(e) => {
+                return Some(format!("inverse eval failed on {sample:?}: {e}"));
+            }
+        }
+    }
+    None
 }
 
 /// Run the alignment strategies enabled by `config.stringency`, returning
@@ -390,7 +497,12 @@ fn run_strategies(
         // relax the CSP kind filter conditional on the presence of a
         // registered witness.
         let library = panproto_mig::coerce::default_witness_library();
-        let proposals = align::coerce_anchors(src, tgt, &library);
+        let mut proposals = align::coerce_anchors(src, tgt, &library);
+        if let Some(registry) = config.coercion_law_registry.as_ref() {
+            let (kept, _dropped) =
+                filter_coerce_proposals_by_law_check(std::mem::take(&mut proposals), registry);
+            proposals = kept;
+        }
         for ca in &proposals {
             anchors.push(ca.anchor.clone());
         }
@@ -2961,5 +3073,73 @@ mod tests {
             "recA must survive: its outgoing `prop` edge aligns with the target's \
              outgoing `prop` edge on the anchored `rec` vertex (got {naturality:?})",
         );
+    }
+
+    fn synthetic_coerce_anchor(witness_name: &str) -> CoerceAnchor {
+        use panproto_mig::align::StrategyTag;
+        CoerceAnchor {
+            anchor: Anchor {
+                src: Name::from("src_v"),
+                tgt: Name::from("tgt_v"),
+                confidence: 0.5,
+                strategy: StrategyTag::Coerce,
+                explanation: format!("synthetic coerce anchor for {witness_name}"),
+            },
+            witness_name: witness_name.to_owned(),
+            witness_class: panproto_gat::CoercionClass::Retraction,
+        }
+    }
+
+    #[test]
+    fn filter_coerce_proposals_keeps_honest_witness() {
+        // `int_to_str` is a real, honest Retraction witness in the
+        // default library. With the default registry, every sampled
+        // Int round-trips cleanly so the proposal is kept.
+        let registry = CoercionSampleRegistry::with_defaults();
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
+    }
+
+    #[test]
+    fn filter_coerce_proposals_drops_unknown_witness() {
+        // A witness name that is not in the default library cannot be
+        // validated at all; the filter drops it rather than letting
+        // an unverifiable proposal through.
+        let registry = CoercionSampleRegistry::with_defaults();
+        let proposals = vec![synthetic_coerce_anchor("no_such_witness")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
+        assert!(kept.is_empty());
+        assert_eq!(dropped.len(), 1);
+    }
+
+    #[test]
+    fn filter_coerce_proposals_drops_on_law_violation() {
+        // Register wrong-typed samples for Int so `int_to_str`'s
+        // forward expression errors on every sample: the filter
+        // records ForwardEvalError violations and drops the
+        // proposal.
+        let mut registry = CoercionSampleRegistry::new();
+        registry.register(
+            panproto_gat::ValueKind::Int,
+            vec![panproto_expr::Literal::Str("not an int".to_owned())],
+        );
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
+        assert!(kept.is_empty());
+        assert_eq!(dropped.len(), 1);
+    }
+
+    #[test]
+    fn filter_coerce_proposals_no_registry_path_is_identity() {
+        // Sanity: calling the filter with an empty registry keeps
+        // every proposal whose witness exists (no samples means
+        // nothing to check, so the proposal passes through).
+        let registry = CoercionSampleRegistry::new();
+        let proposals = vec![synthetic_coerce_anchor("int_to_str")];
+        let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
+        assert_eq!(kept.len(), 1);
+        assert!(dropped.is_empty());
     }
 }
