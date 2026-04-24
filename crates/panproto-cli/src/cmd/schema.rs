@@ -1213,6 +1213,9 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
             println!("Vertices: {}", schema.vertices.len());
             println!("Edges:    {}", schema.edges.len());
         }
+        other => {
+            println!("{} {id}", other.type_name());
+        }
     }
     Ok(())
 }

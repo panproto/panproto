@@ -24,6 +24,11 @@ use serde::{Deserialize, Serialize};
 use crate::ObjectId;
 
 /// A content-addressed object in the store.
+///
+/// Marked `#[non_exhaustive]` so that adding new variants downstream
+/// (new on-disk object kinds, new enrichments) does not silently break
+/// exhaustive `match` expressions in consumers of this crate.
+#[non_exhaustive]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Object {
     /// A migration between two schemas, identified by their object IDs.
