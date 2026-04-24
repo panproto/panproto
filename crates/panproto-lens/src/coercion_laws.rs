@@ -414,12 +414,25 @@ impl CoercionSampleRegistry {
         );
 
         // `Any` is the union across every other registered kind.
-        let union: Vec<Literal> = reg
-            .samples
-            .iter()
-            .filter(|(k, _)| !matches!(k, ValueKind::Any))
-            .flat_map(|(_, vs)| vs.iter().cloned())
-            .collect();
+        // Iterate a fixed slice of `ValueKind` variants rather than the
+        // backing `FxHashMap` so the `Any` bucket is reproducible; the
+        // hashmap's iteration order is not stable and would leak into
+        // downstream law-check output.
+        const KIND_ORDER: [ValueKind; 7] = [
+            ValueKind::Bool,
+            ValueKind::Int,
+            ValueKind::Float,
+            ValueKind::Str,
+            ValueKind::Bytes,
+            ValueKind::Token,
+            ValueKind::Null,
+        ];
+        let mut union: Vec<Literal> = Vec::new();
+        for kind in KIND_ORDER {
+            if let Some(vs) = reg.samples.get(&kind) {
+                union.extend(vs.iter().cloned());
+            }
+        }
         reg.register(ValueKind::Any, union);
         reg
     }
@@ -774,6 +787,27 @@ mod tests {
             target_kind: Some(ValueKind::Str),
             coercion_class: CoercionClass::Iso,
         }
+    }
+
+    #[test]
+    fn registry_defaults_any_union_is_deterministic() {
+        // The `Any` bucket must be byte-identical across repeated
+        // constructions; without the explicit kind-order iteration it
+        // would inherit `FxHashMap`'s nondeterministic iteration.
+        let first = CoercionSampleRegistry::with_defaults();
+        let first_any: Vec<Literal> = first.samples_for(ValueKind::Any).to_vec();
+        for _ in 0..8 {
+            let next = CoercionSampleRegistry::with_defaults();
+            let next_any: Vec<Literal> = next.samples_for(ValueKind::Any).to_vec();
+            assert_eq!(
+                first_any, next_any,
+                "Any-union must be stable across with_defaults invocations",
+            );
+        }
+        // Leading samples must come from the declared ordering
+        // (Bool first): sanity check that the fixed iteration is
+        // actually in effect.
+        assert!(matches!(first_any.first(), Some(Literal::Bool(false))));
     }
 
     #[test]
