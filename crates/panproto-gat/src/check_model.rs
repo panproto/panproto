@@ -185,6 +185,34 @@ fn eval_term(
                 .collect::<Result<Vec<_>, _>>()?;
             model.eval(op, &arg_vals)
         }
+
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            // Model evaluation of a case term: evaluate the scrutinee
+            // and match against branches by constructor-tagged
+            // model values. Set-theoretic models return a
+            // ModelValue::Constructor variant when appropriate. Since
+            // the current Model runtime does not carry constructor
+            // tags, we surface this as an unsupported-in-model error;
+            // the typechecker still verifies well-formedness
+            // independently.
+            let _ = (scrutinee, branches);
+            Err(GatError::ModelError(
+                "case terms are not yet supported in set-theoretic model evaluation".to_string(),
+            ))
+        }
+
+        Term::Hole { .. } => Err(GatError::ModelError(
+            "typed holes cannot be evaluated in a set-theoretic model".to_string(),
+        )),
+        Term::Let { name, bound, body } => {
+            let v = eval_term(bound, assignment, model)?;
+            let mut extended = assignment.clone();
+            extended.insert(Arc::clone(name), v);
+            eval_term(body, &extended, model)
+        }
     }
 }
 

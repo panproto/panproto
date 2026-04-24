@@ -37,6 +37,7 @@ mod op;
 mod pullback;
 mod quotient;
 pub mod refinement;
+pub mod rewriting;
 mod schema_functor;
 mod sort;
 mod theory;
@@ -51,8 +52,8 @@ pub use composition::{CompositionSpec, CompositionStep, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
 pub use eq::{
-    DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation, compose_subst,
-    match_pattern, normalize,
+    CaseBranch, DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation,
+    compose_subst, match_pattern, normalize,
 };
 pub use error::GatError;
 pub use free_model::{FreeModelConfig, FreeModelResult, free_model};
@@ -63,20 +64,26 @@ pub use nat_transform::{
     NaturalTransformation, check_interchange, check_natural_transformation, horizontal_compose,
     vertical_compose,
 };
-pub use op::Operation;
+pub use op::{Implicit, Operation};
 pub use pullback::{PullbackResult, pullback};
 pub use quotient::quotient;
 pub use schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
 pub use sort::{
-    CoercionClass, Sort, SortExpr, SortKind, SortParam, ValueKind, classify_builtin_coercion,
-    positional_param_rename, signatures_equivalent_modulo_param_rename,
+    CoercionClass, Sort, SortClosure, SortExpr, SortKind, SortParam, ValueKind,
+    classify_builtin_coercion, positional_param_rename, signatures_equivalent_modulo_param_rename,
     sort_params_equivalent_modulo_rename,
 };
 pub use theory::{ConflictPolicy, ConflictStrategy, Theory, resolve_theory, th_editable_structure};
 pub use typecheck::{
-    VarContext, infer_var_sorts, typecheck_equation, typecheck_term, typecheck_theory,
+    HoleReport, SortScheme, VarContext, infer_var_sorts, typecheck_equation,
+    typecheck_equation_modulo_rewrites, typecheck_term, typecheck_term_with_holes,
+    typecheck_theory,
 };
 
 pub use alg_struct::{AlgStruct, StructField, StructParam};
 pub use refinement::{RefinedSort, RefinementConstraint, RefinementError};
+pub use rewriting::{
+    ConfluenceReport, CriticalPair, OpPrecedence, RuleViolation, TerminationReport,
+    check_local_confluence, check_termination_via_lpo, lpo_greater,
+};
 pub use witness::{EqWitness, WitnessJustification};

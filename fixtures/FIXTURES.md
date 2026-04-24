@@ -25,6 +25,18 @@ Fetched from `github.com/bluesky-social/atproto` at commit
 
 License: MIT / Apache-2.0 (bluesky-social/atproto is dual-licensed).
 
+Additionally, the following non-Bluesky lexicon was fetched from
+`lexicon.garden` on 2026-04-23 for the cross-NSID alignment regression test:
+
+| File | Source URL |
+| --- | --- |
+| `site.standard.document.json` | `https://lexicon.garden/lexicon/did:plc:re3ebnp5v7ffagz6rb6xfei4/site.standard.document` |
+
+Published by the `did:plc:re3ebnp5v7ffagz6rb6xfei4` authoring account as part
+of the `site.standard.*` lexicon family. Included so the suffix-anchor
+strategy can be regression-tested against the exact schemas cited in
+panproto/panproto#48.
+
 ### records/
 
 Live responses captured from the public Bluesky AppView

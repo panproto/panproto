@@ -113,6 +113,38 @@ impl SortExpr {
         self.head() == other.head() && self.args() == other.args()
     }
 
+    /// Definitional equality modulo a directed-rewrite system.
+    ///
+    /// Normalizes both sides by rewriting every argument term with
+    /// [`crate::eq::normalize`] under `rules` and a bounded step budget,
+    /// then compares the normalized sort expressions with
+    /// [`Self::alpha_eq`]. Heads must agree; if they do not, no amount
+    /// of rewriting closes the gap and the function returns `false`
+    /// immediately. Callers that want the strict structural equality
+    /// should continue to use [`Self::alpha_eq`].
+    #[must_use]
+    pub fn alpha_eq_modulo_rewrites(
+        &self,
+        other: &Self,
+        rules: &[crate::eq::DirectedEquation],
+        step_limit: usize,
+    ) -> bool {
+        if self.head() != other.head() {
+            return false;
+        }
+        if self.args().len() != other.args().len() {
+            return false;
+        }
+        let normalize_all = |args: &[Term]| -> Vec<Term> {
+            args.iter()
+                .map(|t| crate::eq::normalize(t, rules, step_limit))
+                .collect()
+        };
+        let left = normalize_all(self.args());
+        let right = normalize_all(other.args());
+        left == right
+    }
+
     /// Rename the head (sort name) via `sort_map`, leaving arguments
     /// unchanged.
     #[must_use]
@@ -194,19 +226,22 @@ where
 /// other this function returns `false`.
 #[must_use]
 pub fn signatures_equivalent_modulo_param_rename(
-    lhs_inputs: &[(Arc<str>, SortExpr)],
+    lhs_inputs: &[(Arc<str>, SortExpr, crate::op::Implicit)],
     lhs_output: &SortExpr,
-    rhs_inputs: &[(Arc<str>, SortExpr)],
+    rhs_inputs: &[(Arc<str>, SortExpr, crate::op::Implicit)],
     rhs_output: &SortExpr,
 ) -> bool {
     if lhs_inputs.len() != rhs_inputs.len() {
         return false;
     }
     let rename = positional_param_rename(
-        lhs_inputs.iter().map(|(n, _)| Arc::clone(n)),
-        rhs_inputs.iter().map(|(n, _)| Arc::clone(n)),
+        lhs_inputs.iter().map(|(n, _, _)| Arc::clone(n)),
+        rhs_inputs.iter().map(|(n, _, _)| Arc::clone(n)),
     );
-    for ((_, lhs_sort), (_, rhs_sort)) in lhs_inputs.iter().zip(rhs_inputs.iter()) {
+    for ((_, lhs_sort, l_imp), (_, rhs_sort, r_imp)) in lhs_inputs.iter().zip(rhs_inputs.iter()) {
+        if l_imp != r_imp {
+            return false;
+        }
         if !lhs_sort.subst(&rename).alpha_eq(rhs_sort) {
             return false;
         }
@@ -308,6 +343,33 @@ impl std::fmt::Display for Term {
                     write!(f, "{a}")?;
                 }
                 f.write_str(")")
+            }
+            Self::Hole { name } => match name {
+                Some(n) => write!(f, "?{n}"),
+                None => f.write_str("?"),
+            },
+            Self::Let { name, bound, body } => {
+                write!(f, "let {name} = {bound} in {body}")
+            }
+            Self::Case {
+                scrutinee,
+                branches,
+            } => {
+                write!(f, "case {scrutinee} of ")?;
+                for (i, b) in branches.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(" | ")?;
+                    }
+                    write!(f, "{}(", b.constructor)?;
+                    for (j, binder) in b.binders.iter().enumerate() {
+                        if j > 0 {
+                            f.write_str(", ")?;
+                        }
+                        f.write_str(binder)?;
+                    }
+                    write!(f, ") => {}", b.body)?;
+                }
+                f.write_str(" end")
             }
         }
     }
@@ -608,16 +670,37 @@ pub struct SortParam {
     pub sort: SortExpr,
 }
 
+/// Closure attribute on a [`Sort`].
+///
+/// An open sort may be inhabited by any operation whose output head
+/// names this sort. A closed sort enumerates the exhaustive set of
+/// constructor operations, enabling pattern matching via `Term::Case`
+/// and exhaustiveness checking at theory-declaration time.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum SortClosure {
+    /// Open sort: any operation with this output head may produce an
+    /// inhabitant. No exhaustiveness check applies.
+    #[default]
+    Open,
+    /// Closed sort: the listed op names form the complete set of
+    /// introduction forms. Pattern matches over this sort must cover
+    /// every listed constructor exactly once.
+    Closed(Vec<Arc<str>>),
+}
+
 /// A sort declaration in a GAT.
 ///
 /// Sorts are the types of a GAT. They may be simple (no parameters)
-/// or dependent (parameterized by terms of other sorts).
+/// or dependent (parameterized by terms of other sorts). A sort may
+/// additionally be declared closed against an enumerated set of
+/// constructors, enabling exhaustive pattern matching.
 ///
 /// # Examples
 ///
 /// - Simple sort: `Vertex` (no params)
 /// - Dependent sort: `Hom(a: Ob, b: Ob)` (two params of sort `Ob`)
 /// - Dependent sort: `Constraint(v: Vertex)` (one param of sort `Vertex`)
+/// - Closed inductive sort: `Nat` closed against `[zero, succ]`
 ///
 /// Based on the formal definition of GAT sorts from Cartmell (1986).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -629,36 +712,65 @@ pub struct Sort {
     /// The kind of this sort (structural, value, coercion, or merger).
     #[serde(default)]
     pub kind: SortKind,
+    /// Closure attribute. Defaults to [`SortClosure::Open`].
+    #[serde(default)]
+    pub closure: SortClosure,
 }
 
 impl Sort {
-    /// Create a simple (non-dependent) sort with structural kind.
+    /// Create a simple (non-dependent) sort with structural kind and
+    /// open closure.
     #[must_use]
     pub fn simple(name: impl Into<Arc<str>>) -> Self {
         Self {
             name: name.into(),
             params: Vec::new(),
             kind: SortKind::default(),
+            closure: SortClosure::Open,
         }
     }
 
-    /// Create a dependent sort with the given parameters and structural kind.
+    /// Create a dependent sort with the given parameters, structural
+    /// kind, and open closure.
     #[must_use]
     pub fn dependent(name: impl Into<Arc<str>>, params: Vec<SortParam>) -> Self {
         Self {
             name: name.into(),
             params,
             kind: SortKind::default(),
+            closure: SortClosure::Open,
         }
     }
 
-    /// Create a simple sort with a specific kind.
+    /// Create a simple sort with a specific kind and open closure.
     #[must_use]
     pub fn with_kind(name: impl Into<Arc<str>>, kind: SortKind) -> Self {
         Self {
             name: name.into(),
             params: Vec::new(),
             kind,
+            closure: SortClosure::Open,
+        }
+    }
+
+    /// Create a closed simple sort with the given constructor op names.
+    ///
+    /// The closure declares these ops as the exhaustive set of
+    /// constructors for this sort. A `Term::Case` over the sort must
+    /// cover every listed constructor exactly once; adding a new
+    /// constructor elsewhere in the theory without updating the
+    /// closure fails `typecheck_theory`.
+    #[must_use]
+    pub fn closed<I, S>(name: impl Into<Arc<str>>, params: Vec<SortParam>, constructors: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<Arc<str>>,
+    {
+        Self {
+            name: name.into(),
+            params,
+            kind: SortKind::default(),
+            closure: SortClosure::Closed(constructors.into_iter().map(Into::into).collect()),
         }
     }
 
@@ -1151,13 +1263,14 @@ mod tests {
 
     #[test]
     fn signature_equivalence_accepts_alpha_variant() {
+        use crate::op::Implicit;
         // (a : Ob) -> Hom(a, a) vs (x : Ob) -> Hom(x, x)
-        let lhs_inputs = vec![(Arc::from("a"), SortExpr::from("Ob"))];
+        let lhs_inputs = vec![(Arc::from("a"), SortExpr::from("Ob"), Implicit::No)];
         let lhs_output = SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var("a"), Term::var("a")],
         };
-        let rhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"))];
+        let rhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"), Implicit::No)];
         let rhs_output = SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var("x"), Term::var("x")],
@@ -1172,14 +1285,15 @@ mod tests {
 
     #[test]
     fn signature_equivalence_rejects_swap() {
+        use crate::op::Implicit;
         // (x, y : Ob) -> Hom(x, y) vs (x, y : Ob) -> Hom(y, x)
         let hom = |a: &str, b: &str| SortExpr::App {
             name: Arc::from("Hom"),
             args: vec![Term::var(a), Term::var(b)],
         };
         let lhs_inputs = vec![
-            (Arc::from("x"), SortExpr::from("Ob")),
-            (Arc::from("y"), SortExpr::from("Ob")),
+            (Arc::from("x"), SortExpr::from("Ob"), Implicit::No),
+            (Arc::from("y"), SortExpr::from("Ob"), Implicit::No),
         ];
         let rhs_inputs = lhs_inputs.clone();
         assert!(!signatures_equivalent_modulo_param_rename(
@@ -1192,8 +1306,9 @@ mod tests {
 
     #[test]
     fn signature_equivalence_rejects_arity_mismatch() {
-        let lhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"))];
-        let rhs_inputs: Vec<(Arc<str>, SortExpr)> = Vec::new();
+        use crate::op::Implicit;
+        let lhs_inputs = vec![(Arc::from("x"), SortExpr::from("Ob"), Implicit::No)];
+        let rhs_inputs: Vec<(Arc<str>, SortExpr, Implicit)> = Vec::new();
         assert!(!signatures_equivalent_modulo_param_rename(
             &lhs_inputs,
             &SortExpr::from("Ob"),
@@ -1340,12 +1455,16 @@ mod tests {
 
             #[test]
             fn sig_equivalence_is_reflexive(
-                inputs in prop::collection::vec(
+                raw_inputs in prop::collection::vec(
                     (prop::sample::select(&["x", "y", "z"][..]).prop_map(Arc::from), arb_sort_expr()),
                     0..=3,
                 ),
                 output in arb_sort_expr(),
             ) {
+                let inputs: Vec<(Arc<str>, SortExpr, crate::op::Implicit)> = raw_inputs
+                    .into_iter()
+                    .map(|(n, s)| (n, s, crate::op::Implicit::No))
+                    .collect();
                 prop_assert!(signatures_equivalent_modulo_param_rename(
                     &inputs, &output, &inputs, &output,
                 ));
@@ -1360,14 +1479,20 @@ mod tests {
                 // Build signature `(first : sort_name) -> App { sort_name, [first] }`
                 // and its alpha variant `(replacement : sort_name) -> App { sort_name, [replacement] }`.
                 // Both should be signature-equivalent under the positional rename.
-                let lhs_inputs: Vec<(Arc<str>, SortExpr)> =
-                    vec![(Arc::clone(&first), SortExpr::Name(Arc::clone(&sort_name)))];
+                let lhs_inputs: Vec<(Arc<str>, SortExpr, crate::op::Implicit)> = vec![(
+                    Arc::clone(&first),
+                    SortExpr::Name(Arc::clone(&sort_name)),
+                    crate::op::Implicit::No,
+                )];
                 let lhs_output = SortExpr::App {
                     name: Arc::clone(&sort_name),
                     args: vec![Term::Var(Arc::clone(&first))],
                 };
-                let rhs_inputs: Vec<(Arc<str>, SortExpr)> =
-                    vec![(Arc::clone(&replacement), SortExpr::Name(Arc::clone(&sort_name)))];
+                let rhs_inputs: Vec<(Arc<str>, SortExpr, crate::op::Implicit)> = vec![(
+                    Arc::clone(&replacement),
+                    SortExpr::Name(Arc::clone(&sort_name)),
+                    crate::op::Implicit::No,
+                )];
                 let rhs_output = SortExpr::App {
                     name: sort_name,
                     args: vec![Term::Var(replacement)],

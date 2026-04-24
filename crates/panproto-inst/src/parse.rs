@@ -551,9 +551,9 @@ mod tests {
 
     #[test]
     fn parse_array_with_items_edge_kind() {
-        // Regression test for panproto/panproto#20:
-        // protocols define array edge kind as "items" (plural), but
-        // parse_array only matched "item" (singular).
+        // Protocols declare the array edge kind as "items" (plural);
+        // the parser must match that spelling rather than the singular
+        // "item", which is a plausible typo.
         let proto = Protocol {
             name: "test".into(),
             schema_theory: "ThTest".into(),
@@ -667,10 +667,10 @@ mod tests {
 
     #[test]
     fn to_json_empty_list_vertex_renders_as_empty_json_array() {
-        // The empty list case: a list-vertex with zero children.
-        // Before the fix, a node with no arcs and no value would render
-        // as `{}` even for an array; now the schema-based rule kicks in
-        // before we count children and correctly picks `[]`.
+        // A list-vertex with zero children must render as `[]`. The
+        // schema-based rule for picking array vs object renderings has
+        // to run before the child-count check, otherwise an empty list
+        // renders as `{}`.
         let schema = list_schema_with_kind("collection");
         let input = json!({"items": []});
         let inst = parse_json(&schema, "root", &input).unwrap();
@@ -735,10 +735,10 @@ mod tests {
 
     #[test]
     fn to_json_extra_field_array_round_trips_via_value_list() {
-        // This is the exact regression for panproto/panproto#27:
-        // a field that lands in `extra_fields` (no matching schema edge)
-        // carries a JSON array, and the output must still be a JSON
-        // array. Previously it was emitted as `{"0": "en"}`.
+        // A field that lands in `extra_fields` (no matching schema
+        // edge) carries a JSON array. The emitter must preserve the
+        // array shape rather than flatten it to a stringly-keyed
+        // object like `{"0": "en"}`.
         let schema = test_schema();
         let input = json!({
             "text": "Hello",

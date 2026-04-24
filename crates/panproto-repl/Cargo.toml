@@ -1,0 +1,22 @@
+[package]
+name = "panproto-repl"
+description = "Interactive REPL for panproto theories, terms, and morphisms."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "panproto-repl"
+path = "src/main.rs"
+
+[dependencies]
+panproto-gat = { workspace = true }
+panproto-theory-dsl = { workspace = true }
+rustyline = "14"
+miette = { workspace = true }
+clap = { workspace = true }
+
+[lints]
+workspace = true

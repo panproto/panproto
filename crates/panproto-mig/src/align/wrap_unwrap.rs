@@ -114,8 +114,9 @@ fn detect_one_direction(flat: &Schema, wrapped: &Schema, swap: bool) -> Vec<Anch
                 let denom = flat_group
                     .len()
                     .max(match_count_children(wrapped, &intermediate));
-                #[allow(clippy::cast_precision_loss)]
-                let coverage = matched as f64 / denom as f64;
+                let matched_f = f64::from(u32::try_from(matched).unwrap_or(u32::MAX));
+                let denom_f = f64::from(u32::try_from(denom).unwrap_or(u32::MAX));
+                let coverage = matched_f / denom_f;
                 let confidence = 0.4f64.mul_add(coverage, 0.6).clamp(0.4, 0.95);
 
                 // Parent ↔ parent anchor: flat_parent ↔ wrap_parent.

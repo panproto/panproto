@@ -834,8 +834,8 @@ fn compute_pullback_overlap(
             if let (Some(ours_op), Some(theirs_op)) = (ours_op, theirs_op) {
                 if ours_op.output == theirs_op.output {
                     // Find the source sort names.
-                    let ours_src = ours_op.inputs.first().map(|(_, s)| s);
-                    let theirs_src = theirs_op.inputs.first().map(|(_, s)| s);
+                    let ours_src = ours_op.inputs.first().map(|(_, s, _)| s);
+                    let theirs_src = theirs_op.inputs.first().map(|(_, s, _)| s);
                     if let (Some(os), Some(ts)) = (ours_src, theirs_src) {
                         if os == ts {
                             shared_edges.insert((os.to_string(), ours_op.output.to_string()));

@@ -354,9 +354,9 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         // (so fields dropped by the forward pass and lossy computed
         // fields are restored exactly), then propagate any view edits
         // back through the inverse of each forward transform. This
-        // preserves user edits in the view (see panproto/panproto#40)
-        // while still honoring the snapshot as the source of truth for
-        // information that the forward pass threw away.
+        // preserves user edits in the view while still honoring the
+        // snapshot as the source of truth for information that the
+        // forward pass threw away.
         //
         // When there is no snapshot (externally constructed complements
         // or composed lenses that did not propagate one), fall back to

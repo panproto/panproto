@@ -25,7 +25,10 @@
 //! ```
 
 pub mod compile;
+pub mod compile_class;
 pub mod compile_compose;
+pub mod compile_inductive;
+pub mod compile_instance;
 pub mod compile_morphism;
 pub mod compile_protocol;
 pub mod compile_theory;
@@ -35,7 +38,7 @@ pub mod eval;
 
 use std::path::Path;
 
-pub use compile::{builtin_resolver, compile_bundle};
+pub use compile::{builtin_resolver, compile_bundle, compile_with_source};
 pub use document::{BundleSpec, CompiledTheorySet, TheoryBody, TheoryDocument, TheorySpec};
 pub use error::TheoryDslError;
 

@@ -26,6 +26,7 @@ let Merger = fun kind => { type = "merger", value_kind = kind } in
 let ParamSpec = {
   name | String,
   sort | String,
+  implicit | Bool | optional,
 } in
 
 let SortKindSpec = {
@@ -140,6 +141,24 @@ let Bundle = {
   morphisms | Array { morphism | String, .. } | default = [],
   compositions | Array { result | String, .. } | default = [],
   protocols | Array { protocol | String, .. } | default = [],
+} in
+
+let Class = {
+  id | String,
+  description | String,
+  class | String,
+  params | Array String,
+  signatures | Array OpSpec,
+  axioms | Array EquationSpec | default = [],
+} in
+
+let Instance = {
+  id | String,
+  description | String,
+  instance | String,
+  class | String,
+  target | String,
+  bindings | { _ : String },
 } in
 
 # ═══════════════════════════════════════════════════════════════════
@@ -269,6 +288,8 @@ let edge_rule = fun edge_kind src_kind tgt_kind => {
   Composition,
   Protocol,
   Bundle,
+  Class,
+  Instance,
 
   # Sort combinators
   simple,

@@ -1,0 +1,5 @@
+error: class declaration requires a `<Param, ...>` sort-parameter list
+ --> tests/ui/class_missing_params.rs:4:10
+  |
+4 |     ThEq {
+  |          ^

@@ -9,20 +9,63 @@ use std::collections::HashMap;
 
 use panproto_gat::Theory;
 
+use crate::compile_class::compile_class;
 use crate::compile_compose::compile_composition;
+use crate::compile_inductive::compile_inductive;
+use crate::compile_instance::compile_instance;
 use crate::compile_morphism::compile_morphism;
 use crate::compile_protocol::compile_protocol;
-use crate::compile_theory::compile_theory;
 use crate::document::{
-    BundleSpec, CompiledTheorySet, CompositionBody, MorphismSpec, ProtocolSpec, TheoryBody,
-    TheoryDocument, TheorySpec,
+    BundleSpec, ClassSpec, CompiledTheorySet, CompositionBody, InductiveSpec, InstanceSpec,
+    MorphismSpec, ProtocolSpec, TheoryBody, TheoryDocument, TheorySpec,
 };
 use crate::error::TheoryDslError;
 
-/// Compile a [`TheoryDocument`] into theories, morphisms, and protocols.
+/// Compile a document with source text on hand, producing spanned
+/// diagnostics when typechecking fails.
 ///
-/// The `resolver` provides lookup for externally-defined theories (e.g.
-/// built-in theories like `ThWType`, or theories from other packages).
+/// This is the variant callers use when they want miette-rendered
+/// errors pointing at the offending location in the original source.
+/// Currently populates spans only for JSON and YAML surfaces; Nickel
+/// sources fall through to the un-spanned path because evaluation
+/// loses the original text positions.
+///
+/// # Errors
+///
+/// Same as [`compile`], except that typecheck failures are upgraded
+/// to [`TheoryDslError::TypeCheckSpanned`] when a span can be located
+/// in the original source.
+pub fn compile_with_source(
+    doc: &TheoryDocument,
+    source: &str,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    match compile(doc, resolver) {
+        Ok(set) => Ok(set),
+        Err(TheoryDslError::TypeCheck { theory, message }) => {
+            // Find the first occurrence of the theory name as a JSON
+            // field or string value; this locates the offending
+            // declaration for miette's renderer.
+            let span = find_name_span(source, &theory).unwrap_or_else(|| (0, 0).into());
+            Err(TheoryDslError::TypeCheckSpanned {
+                theory,
+                message,
+                src: source.to_owned(),
+                span,
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn find_name_span(source: &str, name: &str) -> Option<miette::SourceSpan> {
+    let needle = format!("\"{name}\"");
+    source
+        .find(&needle)
+        .map(|i| miette::SourceSpan::new(i.into(), needle.len()))
+}
+
+/// Compile a [`TheoryDocument`] without source-span tracking.
 ///
 /// # Errors
 ///
@@ -33,12 +76,32 @@ pub fn compile(
     resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
     match &doc.body {
-        TheoryBody::Theory(spec) => compile_single_theory(&doc.id, spec),
+        TheoryBody::Theory(spec) => compile_single_theory(&doc.id, spec, resolver),
         TheoryBody::Morphism(spec) => compile_single_morphism(&doc.id, spec, resolver),
         TheoryBody::Composition(body) => compile_single_composition(&doc.id, body, resolver),
         TheoryBody::Protocol(spec) => compile_single_protocol(&doc.id, spec, resolver),
         TheoryBody::Bundle(spec) => compile_bundle_inner(&doc.id, spec, resolver),
+        TheoryBody::Class(spec) => compile_single_class(&doc.id, spec),
+        TheoryBody::Instance(spec) => compile_single_instance(&doc.id, spec, resolver),
+        TheoryBody::Inductive(spec) => compile_single_inductive(&doc.id, spec),
     }
+}
+
+fn compile_single_inductive(
+    doc_id: &str,
+    spec: &InductiveSpec,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    let theory = compile_inductive(spec)?;
+    let name = theory.name.to_string();
+    let mut theories = HashMap::new();
+    theories.insert(name, theory);
+    Ok(CompiledTheorySet {
+        id: doc_id.to_owned(),
+        theories,
+        morphisms: HashMap::new(),
+        protocols: HashMap::new(),
+        composition_specs: HashMap::new(),
+    })
 }
 
 /// Compile a [`BundleSpec`] with dependency ordering.
@@ -89,8 +152,9 @@ pub fn builtin_resolver() -> impl Fn(&str) -> Option<Theory> {
 fn compile_single_theory(
     doc_id: &str,
     spec: &TheorySpec,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
-    let theory = compile_theory(spec)?;
+    let theory = crate::compile_theory::compile_theory_with_resolver(spec, resolver)?;
     let name = theory.name.to_string();
     let mut theories = HashMap::new();
     theories.insert(name, theory);
@@ -161,6 +225,41 @@ fn compile_single_protocol(
     })
 }
 
+fn compile_single_class(
+    doc_id: &str,
+    spec: &ClassSpec,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    let theory = compile_class(spec)?;
+    let name = theory.name.to_string();
+    let mut theories = HashMap::new();
+    theories.insert(name, theory);
+    Ok(CompiledTheorySet {
+        id: doc_id.to_owned(),
+        theories,
+        morphisms: HashMap::new(),
+        protocols: HashMap::new(),
+        composition_specs: HashMap::new(),
+    })
+}
+
+fn compile_single_instance(
+    doc_id: &str,
+    spec: &InstanceSpec,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    let morphism = compile_instance(spec, resolver)?;
+    let name = morphism.name.to_string();
+    let mut morphisms = HashMap::new();
+    morphisms.insert(name, morphism);
+    Ok(CompiledTheorySet {
+        id: doc_id.to_owned(),
+        theories: HashMap::new(),
+        morphisms,
+        protocols: HashMap::new(),
+        composition_specs: HashMap::new(),
+    })
+}
+
 fn compile_bundle_inner(
     doc_id: &str,
     bundle: &BundleSpec,
@@ -179,7 +278,10 @@ fn compile_bundle_inner(
                 name: spec.theory.clone(),
             });
         }
-        let theory = compile_theory(spec)?;
+        let combined = |name: &str| -> Option<Theory> {
+            theories.get(name).cloned().or_else(|| resolver(name))
+        };
+        let theory = crate::compile_theory::compile_theory_with_resolver(spec, &combined)?;
         theories.insert(spec.theory.clone(), theory);
     }
 

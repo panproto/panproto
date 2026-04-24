@@ -301,6 +301,7 @@ fn rename_sort_refs(
         name: Arc::clone(&sort.name),
         params,
         kind: sort.kind.clone(),
+        closure: sort.closure.clone(),
     }
 }
 
@@ -312,13 +313,13 @@ fn rename_op_sort_refs(
     op: &crate::op::Operation,
     sort_rename: &HashMap<Arc<str>, Arc<str>>,
 ) -> crate::op::Operation {
-    let inputs: Vec<(Arc<str>, crate::sort::SortExpr)> = op
+    let inputs: Vec<(Arc<str>, crate::sort::SortExpr, crate::op::Implicit)> = op
         .inputs
         .iter()
-        .map(|(name, sort)| (Arc::clone(name), sort.rename_head(sort_rename)))
+        .map(|(name, sort, imp)| (Arc::clone(name), sort.rename_head(sort_rename), *imp))
         .collect();
     let output = op.output.rename_head(sort_rename);
-    crate::op::Operation::new(Arc::clone(&op.name), inputs, output)
+    crate::op::Operation::with_implicit(Arc::clone(&op.name), inputs, output)
 }
 
 fn merge_equations(

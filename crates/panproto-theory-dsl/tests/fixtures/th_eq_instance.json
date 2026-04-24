@@ -1,0 +1,13 @@
+{
+  "id": "dev.panproto.th_eq_instance",
+  "description": "An instance of ThEq at the integer sort.",
+  "instance": "EqInt",
+  "class": "ThEq",
+  "target": "ThArith",
+  "bindings": {
+    "A": "Int",
+    "Bool": "Bool",
+    "eq": "int_eq",
+    "neq": "int_neq"
+  }
+}

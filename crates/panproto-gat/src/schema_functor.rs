@@ -241,7 +241,7 @@ fn apply_drop_sort(theory: &Theory, name: &Arc<str>) -> Theory {
     let ops: Vec<_> = theory
         .ops
         .iter()
-        .filter(|o| o.output.head() != name && o.inputs.iter().all(|(_, s)| s.head() != name))
+        .filter(|o| o.output.head() != name && o.inputs.iter().all(|(_, s, _)| s.head() != name))
         .cloned()
         .collect();
     let eqs = filter_eqs_by_remaining_ops(&theory.eqs, &ops);
@@ -259,6 +259,7 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
                     name: Arc::clone(new),
                     params: s.params.clone(),
                     kind: s.kind.clone(),
+                    closure: s.closure.clone(),
                 }
             } else {
                 let mut rename_map = std::collections::HashMap::new();
@@ -275,6 +276,7 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
                     name: Arc::clone(&s.name),
                     params,
                     kind: s.kind.clone(),
+                    closure: s.closure.clone(),
                 }
             }
         })
@@ -288,7 +290,7 @@ fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory 
             let inputs = o
                 .inputs
                 .iter()
-                .map(|(n, s)| (Arc::clone(n), s.rename_head(&rename_map)))
+                .map(|(n, s, imp)| (Arc::clone(n), s.rename_head(&rename_map), *imp))
                 .collect();
             let output = o.output.rename_head(&rename_map);
             Operation {
@@ -371,7 +373,7 @@ fn reachable_sorts_from(theory: &Theory, start: &str) -> FxHashSet<Arc<str>> {
     while let Some(current) = queue.pop_front() {
         for op in &theory.ops {
             // If any input sort is the current sort, the output sort is reachable.
-            let has_current_as_input = op.inputs.iter().any(|(_, s)| **s.head() == *current);
+            let has_current_as_input = op.inputs.iter().any(|(_, s, _)| **s.head() == *current);
             if has_current_as_input && reachable.insert(Arc::clone(op.output.head())) {
                 queue.push_back(Arc::clone(op.output.head()));
             }
@@ -420,6 +422,7 @@ fn apply_merge_sorts(
                     name: Arc::clone(merged_name),
                     params: s.params.clone(),
                     kind: s.kind.clone(),
+                    closure: s.closure.clone(),
                 })
             } else if s.name == *sort_b {
                 None
@@ -438,7 +441,7 @@ fn apply_merge_sorts(
             let inputs: Vec<_> = o
                 .inputs
                 .iter()
-                .map(|(n, s)| (Arc::clone(n), s.rename_head(&rename_map)))
+                .map(|(n, s, imp)| (Arc::clone(n), s.rename_head(&rename_map), *imp))
                 .collect();
             let output = o.output.rename_head(&rename_map);
             Operation {
@@ -622,6 +625,7 @@ fn apply_coerce_sort(
                     name: Arc::clone(&s.name),
                     params: s.params.clone(),
                     kind: SortKind::Val(target_kind),
+                    closure: s.closure.clone(),
                 }
             } else {
                 s.clone()
@@ -830,11 +834,25 @@ fn collect_ops_in_equation(eq: &Equation) -> Vec<Arc<str>> {
 
 fn collect_ops_in_term(term: &Term, ops: &mut Vec<Arc<str>>) {
     match term {
-        Term::Var(_) => {}
+        Term::Var(_) | Term::Hole { .. } => {}
+        Term::Let { bound, body, .. } => {
+            collect_ops_in_term(bound, ops);
+            collect_ops_in_term(body, ops);
+        }
         Term::App { op, args } => {
             ops.push(Arc::clone(op));
             for arg in args {
                 collect_ops_in_term(arg, ops);
+            }
+        }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            collect_ops_in_term(scrutinee, ops);
+            for b in branches {
+                ops.push(Arc::clone(&b.constructor));
+                collect_ops_in_term(&b.body, ops);
             }
         }
     }

@@ -95,6 +95,28 @@ pub enum TheoryDslError {
         message: String,
     },
 
+    /// Type-checking a theory failed, with a source-pointed diagnostic.
+    ///
+    /// Populated when the DSL compiler has the original source text on
+    /// hand and can locate a span corresponding to the failing element
+    /// (the theory name, an op name, etc.). Nickel-loaded theories
+    /// currently fall back to the un-spanned [`Self::TypeCheck`] variant
+    /// because spans are lost through Nickel evaluation.
+    #[error("type error in theory '{theory}': {message}")]
+    #[diagnostic(code(panproto_theory_dsl::typecheck_spanned))]
+    TypeCheckSpanned {
+        /// The theory that failed typechecking.
+        theory: String,
+        /// Human-readable type error.
+        message: String,
+        /// Source text, used by miette for rendering.
+        #[source_code]
+        src: String,
+        /// Span into `src` pointing at the failing element.
+        #[label("in this theory")]
+        span: miette::SourceSpan,
+    },
+
     /// Morphism validation failed.
     #[error("morphism check failed for '{morphism}': {message}")]
     #[diagnostic(code(panproto_theory_dsl::morphism_check))]
@@ -142,4 +164,44 @@ pub enum TheoryDslError {
     #[error("GAT engine error: {0}")]
     #[diagnostic(code(panproto_theory_dsl::gat))]
     Gat(#[from] panproto_gat::GatError),
+
+    /// A value-kind string in a theory spec is not one of the recognised
+    /// kinds.
+    #[error(
+        "unknown value kind '{kind}': expected one of boolean/bool, \
+         integer/int, float/number, string/str, bytes, token, null, or any"
+    )]
+    #[diagnostic(code(panproto_theory_dsl::unknown_value_kind))]
+    UnknownValueKind {
+        /// The offending kind string.
+        kind: String,
+    },
+
+    /// A coercion-class string in a theory spec is not one of the
+    /// recognised classes.
+    #[error(
+        "unknown coercion class '{class}': expected one of iso, \
+         retraction, projection, or opaque"
+    )]
+    #[diagnostic(code(panproto_theory_dsl::unknown_coercion_class))]
+    UnknownCoercionClass {
+        /// The offending class string.
+        class: String,
+    },
+
+    /// An instance binding names a key that is neither a sort param nor
+    /// an operation of the class theory.
+    #[error(
+        "instance '{instance}' has binding '{name}' that is not a sort param \
+         or operation of class '{class}'"
+    )]
+    #[diagnostic(code(panproto_theory_dsl::instance_binding))]
+    InstanceBinding {
+        /// The instance name.
+        instance: String,
+        /// The class theory name.
+        class: String,
+        /// The offending binding key.
+        name: String,
+    },
 }

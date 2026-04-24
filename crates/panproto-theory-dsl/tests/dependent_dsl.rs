@@ -73,17 +73,20 @@ fn parse_applied_sort_expr_produces_app_variant() {
         inputs: Some(vec![ParamSpec {
             name: "x".to_owned(),
             sort: "Ob".to_owned(),
+            implicit: false,
         }]),
         output: "Hom(x, x)".to_owned(),
     };
     let theory_spec = panproto_theory_dsl::document::TheorySpec {
         theory: "Cat".to_owned(),
         extends: vec![],
+        imports: vec![],
         sorts: vec![
             panproto_theory_dsl::document::SortSpec {
                 name: "Ob".to_owned(),
                 params: vec![],
                 kind: panproto_theory_dsl::document::SortKindSpec::Structural,
+                closed: None,
             },
             panproto_theory_dsl::document::SortSpec {
                 name: "Hom".to_owned(),
@@ -91,13 +94,16 @@ fn parse_applied_sort_expr_produces_app_variant() {
                     ParamSpec {
                         name: "a".to_owned(),
                         sort: "Ob".to_owned(),
+                        implicit: false,
                     },
                     ParamSpec {
                         name: "b".to_owned(),
                         sort: "Ob".to_owned(),
+                        implicit: false,
                     },
                 ],
                 kind: panproto_theory_dsl::document::SortKindSpec::Structural,
+                closed: None,
             },
         ],
         ops: vec![spec],
@@ -126,16 +132,19 @@ fn compile_rejects_dsl_theory_with_ill_typed_equation() {
     let spec = TheorySpec {
         theory: "Bad".to_owned(),
         extends: vec![],
+        imports: vec![],
         sorts: vec![
             SortSpec {
                 name: "A".to_owned(),
                 params: vec![],
                 kind: SortKindSpec::Structural,
+                closed: None,
             },
             SortSpec {
                 name: "B".to_owned(),
                 params: vec![],
                 kind: SortKindSpec::Structural,
+                closed: None,
             },
         ],
         ops: vec![

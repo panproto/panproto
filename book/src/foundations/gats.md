@@ -63,6 +63,24 @@ Equations introduce one extra wrinkle. The free variables in an equation are uni
 
 The free-model generator organises its carrier sets by instantiated sort rather than by head name. A fiber of $\mathrm{Tm}(\Gamma, A)$ is indexed by the pair $(\Gamma, A)$, and terms are filed under the fiber determined by their instantiated output sort. The upshot is that a theory with two parallel generators $f, g : \mathrm{Hom}(a, b)$ produces $\{\mathrm{id}(a), \mathrm{id}(b), f, g\}$ rather than the Cartesian product of candidates a head-indexed generator would produce, because `compose(f, g)` would require the middle object to be both `b` and `a` at once. The fiber matching rules out the non-composite.
 
+Three further features were added to the representation in the 0.37 release. The first is the `Implicit` tag on each operation input, which marks a parameter as recoverable at the call site by unification rather than supplied explicitly; an operation whose first three inputs are implicit is written `app(f, x)` at the use site even though its declaration reads `app : (G, A, B, f : Tm(G, arrow(A, B)), x : Tm(G, A)) -> Tm(G, B)`. The second is the `SortClosure` attribute on each `Sort`, which marks a sort as closed with a fixed constructor list. The third is [`Term::Case`](https://docs.rs/panproto-gat/latest/panproto_gat/eq/enum.Term.html), the case-analysis term whose coverage the typechecker verifies against the scrutinee's closure. The three features sit alongside the dependent-sort machinery above and are what make the encodings of Part II read the way a textbook writes them.
+
+### Pattern matching on closed sorts
+
+A closed sort names every inhabitant its model can produce: the theory of natural numbers closes $\mathbb{N}$ with $\{\mathrm{zero}, \mathrm{succ}\}$; the theory of booleans closes $\mathrm{Bool}$ with $\{\mathrm{true}, \mathrm{false}\}$; the theory of an inductive list closes $\mathrm{List}(A)$ with $\{\mathrm{nil}, \mathrm{cons}\}$. Once a sort is closed, a case analysis on an inhabitant is decidable: every inhabitant is one of finitely many constructors, and a case expression lists one branch per constructor.
+
+`panproto-gat` represents a case expression as a `Term::Case { scrutinee, branches }` whose `branches` field is a `Vec<CaseBranch>`. Each `CaseBranch` names the constructor it handles, binds one local name per input of that constructor, and carries a body term. The typechecker checks two conditions. Coverage: the branch list contains exactly the constructors of the scrutinee's closure, each one exactly once. Uniformity: every branch body typechecks to the same output sort, under a context extended by the branch's own binders. An incomplete branch list, a duplicated constructor, or two branches with mismatched output sorts are all errors surfaced at the `Case` site. This is the feature the inductive-type shorthand in `panproto-theory-dsl` and the `inductive!` macro in `panproto-gat-macros` are built on: the shorthand closes a new sort with its constructor list, and every case expression against that sort is now a well-posed question about coverage rather than a pattern-matching guess.
+
+### Local let bindings
+
+The third feature added to the term syntax in 0.37 is [`Term::Let { name, bound, body }`](https://docs.rs/panproto-gat/latest/panproto_gat/eq/enum.Term.html), which binds the value of a term to a local name in the body. A let binding is the term-level analogue of the type-theoretic `let x = e in b` construct: the name `x` is in scope in `b` and nowhere else. The typechecker infers the bound term's sort, records it in a `SortScheme` that carries both a sort expression and a list of quantified sort metavariables, and extends the local context with the pair $(x, \text{scheme})$ before typechecking the body.
+
+GAT signatures are first-order and their sorts have no free sort-metavariables, so the scheme recorded at a let site in the 0.37 release is always monomorphic: the `metavars` list is empty and the scheme is a single sort expression wearing polymorphic clothes. The type-level machinery is in place so that a later pass that introduces sort-level metavariables at the signature level can populate the scheme nontrivially without reshaping the term syntax. Until that pass lands, a let binding is a readability aid that saves the user from writing the same term twice; it is not yet a polymorphism primitive.
+
+### Directed equations
+
+The engine also carries a third layer of equations, independent of the undirected equation list the theory declares: a list of [`DirectedEquation`](https://docs.rs/panproto-gat/latest/panproto_gat/rewriting/struct.DirectedEquation.html) values, each an oriented LHS-to-RHS rewrite used for coercion round-trips, for the REPL's `:normalize` command, and for the `typecheck_equation_modulo_rewrites` path that accepts an equation whose two sides share a normal form under the directed system. Directed equations need guarantees an undirected equation list does not: termination (so normalization halts) and confluence (so the normal form is unique). [Rewriting, confluence, and termination](./rewriting.md) is the chapter that works out what those guarantees mean and what the engine checks to supply them.
+
 ## Models and morphisms
 
 With GATs in hand, we can state the categorical facts about schemas and migrations the rest of the book will use.
@@ -99,4 +117,4 @@ For GATs specifically, @cartmell1986generalised is the foundational journal pape
 
 ## Closing
 
-Part I closes here. The next chapter opens Part II with **protocols as theories, schemas as instances**, and translates the equation of this chapter into working Rust.
+One foundations chapter remains: [Rewriting, confluence, and termination](./rewriting.md) covers the directed-equation machinery that closes out Part I. Part II then opens with **protocols as theories, schemas as instances**, which translates the equation of the present chapter into working Rust.

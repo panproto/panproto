@@ -65,7 +65,7 @@ fn diff_two_lexicons(bencher: divan::Bencher) {
 }
 
 // ---------------------------------------------------------------------------
-// atproto string-refinement change detection (panproto/panproto#42)
+// atproto string-refinement change detection
 // ---------------------------------------------------------------------------
 
 /// Flip a `format` constraint on every string vertex that has one —

@@ -46,13 +46,17 @@ impl TheoryMorphism {
 
     /// Apply this morphism to a term, renaming operations.
     ///
-    /// **Limitation**: This only renames operation names in the term via
-    /// `op_map`. It does not rename sort annotations because the current
-    /// [`Term`] representation is untyped (`Var` / `App`). For theories
-    /// with dependent sorts, sort-level information is carried implicitly
-    /// through operation signatures, which `check_morphism` validates
-    /// separately. If `Term` is later extended with sort annotations,
-    /// this method must also apply `sort_map`.
+    /// Walks every op-bearing position of the term and substitutes the
+    /// mapped op name where `op_map` has an entry. This covers the
+    /// `App` head, every [`Term::Case`] branch's `constructor`, and
+    /// recursively the scrutinee and branch bodies. Bindings, variable
+    /// names, and hole identifiers pass through unchanged.
+    ///
+    /// **Limitation**: `Term` is untyped at the sort level, so this
+    /// method does not apply `sort_map`. Sort-level information is
+    /// carried implicitly through operation signatures, which
+    /// `check_morphism` validates separately. If `Term` ever acquires
+    /// sort annotations, this method must also rename sorts.
     #[must_use]
     pub fn apply_to_term(&self, term: &Term) -> Term {
         term.rename_ops(&self.op_map)
@@ -240,6 +244,9 @@ pub fn check_morphism(
                 });
             }
         }
+
+        // 3c. Closure preservation.
+        check_closure_preservation(sort, target_sort, m)?;
     }
 
     // 2. All domain ops must be mapped.
@@ -273,11 +280,11 @@ pub fn check_morphism(
         // `f : (a : A) -> Hom(a, a)` to `f : (x : A) -> Hom(x, x)` is
         // accepted.
         let op_param_rename = positional_param_rename(
-            op.inputs.iter().map(|(n, _)| Arc::clone(n)),
-            target_op.inputs.iter().map(|(n, _)| Arc::clone(n)),
+            op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
+            target_op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
         );
 
-        for (i, (_, sort_expr)) in op.inputs.iter().enumerate() {
+        for (i, (_, sort_expr, _)) in op.inputs.iter().enumerate() {
             // The head of every input sort must have a mapping (this is
             // a structural prerequisite); argument-term renames flow
             // through the op_map.
@@ -287,7 +294,7 @@ pub fn check_morphism(
             let mapped_sort = sort_expr
                 .apply_maps(&m.sort_map, &m.op_map)
                 .subst(&op_param_rename);
-            let (_, target_sort) = &target_op.inputs[i];
+            let (_, target_sort, _) = &target_op.inputs[i];
             if !mapped_sort.alpha_eq(target_sort) {
                 return Err(GatError::OpTypeMismatch {
                     op: op.name.to_string(),
@@ -317,6 +324,35 @@ pub fn check_morphism(
     check_equations_preserved(m, domain, codomain)?;
     check_directed_equations_preserved(m, domain, codomain)?;
 
+    Ok(())
+}
+
+/// A closed sort in the domain must map to a closed sort in the
+/// codomain whose constructor list equals the image of the domain
+/// constructors under the morphism's `op_map` (as a set).
+fn check_closure_preservation(
+    sort: &crate::sort::Sort,
+    target_sort: &crate::sort::Sort,
+    m: &TheoryMorphism,
+) -> Result<(), GatError> {
+    let crate::sort::SortClosure::Closed(dom_ctors) = &sort.closure else {
+        return Ok(());
+    };
+    let expected_image: std::collections::BTreeSet<Arc<str>> = dom_ctors
+        .iter()
+        .map(|c| m.op_map.get(c).cloned().unwrap_or_else(|| Arc::clone(c)))
+        .collect();
+    let actual: std::collections::BTreeSet<Arc<str>> = match &target_sort.closure {
+        crate::sort::SortClosure::Closed(cs) => cs.iter().cloned().collect(),
+        crate::sort::SortClosure::Open => std::collections::BTreeSet::new(),
+    };
+    if expected_image != actual {
+        return Err(GatError::MorphismClosureMismatch {
+            sort: sort.name.to_string(),
+            expected: expected_image.iter().map(ToString::to_string).collect(),
+            got: actual.iter().map(ToString::to_string).collect(),
+        });
+    }
     Ok(())
 }
 
@@ -1678,13 +1714,13 @@ mod tests {
             for op in &theory.ops {
                 let new_name: Arc<str> = Arc::from(format!("{}_{suffix}", op.name));
                 op_map.insert(Arc::clone(&op.name), Arc::clone(&new_name));
-                let new_inputs: Vec<(Arc<str>, crate::sort::SortExpr)> = op
+                let new_inputs: Vec<(Arc<str>, crate::sort::SortExpr, crate::op::Implicit)> = op
                     .inputs
                     .iter()
-                    .map(|(p, s)| (Arc::clone(p), s.apply_maps(&sort_map, &op_map)))
+                    .map(|(p, s, imp)| (Arc::clone(p), s.apply_maps(&sort_map, &op_map), *imp))
                     .collect();
                 let new_output = op.output.apply_maps(&sort_map, &op_map);
-                new_ops.push(Operation::new(&*new_name, new_inputs, new_output));
+                new_ops.push(Operation::with_implicit(&*new_name, new_inputs, new_output));
             }
 
             // Rename equations.

@@ -1,15 +1,19 @@
-//! Regression test for panproto/panproto#35.
+//! Primary-entry inference for atproto lexicons with an optional `ref`
+//! property targeting a sibling sub-def.
 //!
-//! End-to-end: parse an `ATProto` lexicon with an optional `ref` property
-//! pointing at a sibling sub-def, infer the parse root via the pointed-
-//! schema basepoint, parse a canonical instance, and validate it.
-//! Before the fix, the root-inference heuristic deterministically
-//! selected the referenced sub-def (`#replyRef`) as the instance root,
-//! anchoring the instance at a sort whose required-edge predicate
-//! demanded `root` and `parent` — fields the canonical post does not
-//! carry. After the fix, `#replyRef` has an incoming `ref` edge and
-//! the lexicon's pointed schema declares the record as the sole entry,
-//! so the instance is rooted correctly and validation is empty.
+//! The test lexicon mirrors `app.bsky.feed.post`: a `main` record with
+//! a required `text` and `createdAt` plus an optional `reply` ref into
+//! a `#replyRef` sub-def that itself requires `root` and `parent`. A
+//! naive "fallback to whichever sub-def has the most required fields"
+//! root-inference heuristic selects `#replyRef` as the primary entry,
+//! at which point a canonical reply-less post fails required-edge
+//! validation because `root` and `parent` are missing.
+//!
+//! `parse_lexicon` must place an incoming `ref` edge on `#replyRef` so
+//! that `primary_entry` prefers the `main` record over it, and the
+//! lexicon's pointed schema must declare the record as the sole entry.
+//! Two checks below: a canonical post without `reply` validates clean,
+//! and `primary_entry` resolves to the record rather than the sub-def.
 
 #![allow(clippy::expect_used)]
 #![allow(clippy::unwrap_used)]
@@ -49,7 +53,7 @@ fn lexicon() -> serde_json::Value {
 
 /// A canonical post without a `reply` must validate against the
 /// lexicon's main record: absence of an optional ref sub-object is
-/// well-formed, so the required-edge predicate at the *root* anchor
+/// well-formed, so the required-edge predicate at the root anchor
 /// reports no violations.
 #[test]
 fn canonical_post_without_reply_validates() {
@@ -69,8 +73,8 @@ fn canonical_post_without_reply_validates() {
     );
 }
 
-/// Primary entry must be the record vertex, not the sub-def that had
-/// been the deterministic fallback choice under the old heuristic.
+/// Primary entry must be the record vertex, not the `#replyRef`
+/// sub-def that a naive sub-def-preference heuristic would select.
 #[test]
 fn primary_entry_is_the_record_not_the_replyref() {
     let schema = parse_lexicon(&lexicon()).expect("parse lexicon");

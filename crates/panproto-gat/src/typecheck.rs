@@ -11,10 +11,72 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use crate::eq::{Equation, Term};
+use crate::eq::{CaseBranch, Equation, Term};
 use crate::error::GatError;
-use crate::sort::SortExpr;
+use crate::op::{Implicit, Operation};
+use crate::sort::{SortClosure, SortExpr};
 use crate::theory::Theory;
+
+/// A sort scheme: a sort expression universally quantified over a list
+/// of metavariable names.
+///
+/// Retained for future extension. GAT signatures are first-order and
+/// have no free sort-metavariables, so [`typecheck_term`] never
+/// constructs a non-empty `metavars` list at the present time; every
+/// scheme encountered in practice is monomorphic.
+#[derive(Debug, Clone)]
+pub struct SortScheme {
+    /// Universally-quantified metavariable names.
+    pub metavars: Vec<Arc<str>>,
+    /// The scheme's body.
+    pub body: SortExpr,
+}
+
+impl SortScheme {
+    /// Build a monomorphic scheme from a sort expression.
+    #[must_use]
+    pub const fn mono(body: SortExpr) -> Self {
+        Self {
+            metavars: Vec::new(),
+            body,
+        }
+    }
+
+    /// Instantiate the scheme by freshening each metavariable and
+    /// substituting the fresh name into the scheme's body.
+    ///
+    /// Fresh names are derived by suffixing `counter` to each
+    /// metavariable, so two calls with different counters produce
+    /// distinct sort expressions.
+    #[must_use]
+    pub fn instantiate(&self, counter: usize) -> SortExpr {
+        if self.metavars.is_empty() {
+            return self.body.clone();
+        }
+        let mut subst: FxHashMap<Arc<str>, crate::eq::Term> = FxHashMap::default();
+        for mv in &self.metavars {
+            let fresh: Arc<str> = Arc::from(format!("{mv}_inst_{counter}"));
+            subst.insert(Arc::clone(mv), crate::eq::Term::Var(fresh));
+        }
+        self.body.subst(&subst)
+    }
+}
+
+/// A report generated for each typed hole encountered by
+/// [`typecheck_term_with_holes`].
+#[derive(Debug, Clone)]
+pub struct HoleReport {
+    /// The hole's optional name (from `?name` syntax).
+    pub name: Option<Arc<str>>,
+    /// The sort expected at this hole site. For holes whose sort is not
+    /// constrained by the surrounding context, this is a fresh
+    /// metavariable sort.
+    pub expected: SortExpr,
+    /// The variable context in scope at the hole.
+    pub context: VarContext,
+    /// Optional source span (populated by the DSL when available).
+    pub position: Option<miette::SourceSpan>,
+}
 
 /// A variable typing context.
 ///
@@ -53,39 +115,318 @@ pub fn typecheck_term(
             .cloned()
             .ok_or_else(|| GatError::UnboundVariable(name.to_string())),
 
+        Term::Hole { name } => {
+            // In strict mode (no hole collector), a hole typechecks to a
+            // fresh metavariable sort whose name is `?<name>` (or
+            // `?hole` for anonymous holes). This string does not
+            // round-trip through the DSL parser: callers that serialize
+            // a term for re-parsing must use `typecheck_term_with_holes`
+            // to collect hole reports and fill in their expected sorts
+            // before emitting. Use `typecheck_term_with_holes` to
+            // collect hole reports.
+            let mv: Arc<str> = Arc::from(format!("?{}", name.as_deref().unwrap_or("hole")));
+            Ok(SortExpr::Name(mv))
+        }
+
         Term::App { op, args } => {
             let operation = theory
                 .find_op(op)
                 .ok_or_else(|| GatError::OpNotFound(op.to_string()))?;
 
-            if args.len() != operation.inputs.len() {
-                return Err(GatError::TermArityMismatch {
-                    op: op.to_string(),
-                    expected: operation.inputs.len(),
-                    got: args.len(),
-                });
+            let has_implicits = operation
+                .inputs
+                .iter()
+                .any(|(_, _, imp)| matches!(imp, Implicit::Yes));
+            if has_implicits {
+                typecheck_app_with_implicits(op, args, operation, ctx, theory)
+            } else {
+                typecheck_app_explicit(op, args, operation, ctx, theory)
             }
+        }
 
-            let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
-            for (i, (arg, (param_name, declared_sort))) in
-                args.iter().zip(operation.inputs.iter()).enumerate()
-            {
-                let arg_sort = typecheck_term(arg, ctx, theory)?;
-                let expected = declared_sort.subst(&theta);
-                if !arg_sort.alpha_eq(&expected) {
-                    return Err(GatError::ArgTypeMismatch {
-                        op: op.to_string(),
-                        arg_index: i,
-                        expected: expected.to_string(),
-                        got: arg_sort.to_string(),
-                    });
-                }
-                theta.insert(Arc::clone(param_name), arg.clone());
-            }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => typecheck_case(scrutinee, branches, ctx, theory),
 
-            Ok(operation.output.subst(&theta))
+        Term::Let { name, bound, body } => {
+            // Typecheck the bound term, extend the context with the
+            // resulting sort, then typecheck the body. GAT sorts are
+            // first-order with no free sort-metavariables, so there is
+            // nothing to generalize over: the binding is always
+            // monomorphic and the [`SortScheme`] produced at a
+            // hypothetical generalization step always has an empty
+            // `metavars` list. We therefore bind the inferred sort
+            // directly rather than constructing a trivial scheme.
+            let bound_sort = typecheck_term(bound, ctx, theory)?;
+            let mut extended = ctx.clone();
+            extended.insert(Arc::clone(name), bound_sort);
+            typecheck_term(body, &extended, theory)
         }
     }
+}
+
+/// Typecheck a [`Term::Case`] expression.
+fn typecheck_case(
+    scrutinee: &Term,
+    branches: &[CaseBranch],
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<SortExpr, GatError> {
+    let scrutinee_sort = typecheck_term(scrutinee, ctx, theory)?;
+    let sort_name = scrutinee_sort.head();
+    let sort_decl = theory
+        .find_sort(sort_name)
+        .ok_or_else(|| GatError::SortNotFound(sort_name.to_string()))?;
+    let constructors = match &sort_decl.closure {
+        SortClosure::Open => {
+            return Err(GatError::CaseOnOpenSort {
+                sort: sort_name.to_string(),
+            });
+        }
+        SortClosure::Closed(cs) => cs.clone(),
+    };
+
+    // Exhaustiveness: every constructor appears exactly once, and no
+    // branch names an unknown constructor. Build both checks in one
+    // pass.
+    let mut seen: rustc_hash::FxHashSet<Arc<str>> = rustc_hash::FxHashSet::default();
+    for b in branches {
+        if !constructors.contains(&b.constructor) {
+            return Err(GatError::UnknownCaseConstructor {
+                sort: sort_name.to_string(),
+                constructor: b.constructor.to_string(),
+            });
+        }
+        if !seen.insert(Arc::clone(&b.constructor)) {
+            return Err(GatError::RedundantCaseBranch {
+                sort: sort_name.to_string(),
+                constructor: b.constructor.to_string(),
+            });
+        }
+    }
+    if seen.len() < constructors.len() {
+        let missing: Vec<String> = constructors
+            .iter()
+            .filter(|c| !seen.contains(*c))
+            .map(ToString::to_string)
+            .collect();
+        return Err(GatError::NonExhaustiveCase {
+            sort: sort_name.to_string(),
+            missing,
+        });
+    }
+
+    // Typecheck each branch body; all must produce alpha-equivalent
+    // output sorts. The first branch's output sort is the case
+    // expression's sort.
+    let mut branch_sort: Option<SortExpr> = None;
+    for b in branches {
+        let constructor_op = theory
+            .find_op(&b.constructor)
+            .ok_or_else(|| GatError::OpNotFound(b.constructor.to_string()))?;
+        if constructor_op.inputs.len() != b.binders.len() {
+            return Err(GatError::TermArityMismatch {
+                op: b.constructor.to_string(),
+                expected: constructor_op.inputs.len(),
+                got: b.binders.len(),
+            });
+        }
+        // Unify constructor's declared output sort with the actual
+        // scrutinee sort to instantiate the constructor's parameter
+        // vars.
+        let unify_eqs: Vec<(Term, Term)> = constructor_op
+            .output
+            .args()
+            .iter()
+            .zip(scrutinee_sort.args().iter())
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect();
+        if constructor_op.output.head() != scrutinee_sort.head()
+            || constructor_op.output.args().len() != scrutinee_sort.args().len()
+        {
+            return Err(GatError::OpTypeMismatch {
+                op: b.constructor.to_string(),
+                detail: format!(
+                    "constructor output sort {} does not match scrutinee sort {scrutinee_sort}",
+                    constructor_op.output
+                ),
+            });
+        }
+        let subst = unify_all(unify_eqs)?;
+        let mut extended = ctx.clone();
+        for ((_, declared_sort, _), binder) in constructor_op.inputs.iter().zip(b.binders.iter()) {
+            let binder_sort = declared_sort.subst(&subst);
+            extended.insert(Arc::clone(binder), binder_sort);
+        }
+        let body_sort = typecheck_term(&b.body, &extended, theory)?;
+        match &branch_sort {
+            None => branch_sort = Some(body_sort),
+            Some(existing) => {
+                if !existing.alpha_eq(&body_sort) {
+                    return Err(GatError::EquationSortMismatch {
+                        equation: "case".to_string(),
+                        lhs_sort: existing.to_string(),
+                        rhs_sort: body_sort.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    branch_sort.ok_or_else(|| GatError::NonExhaustiveCase {
+        sort: sort_name.to_string(),
+        missing: constructors.iter().map(ToString::to_string).collect(),
+    })
+}
+
+/// Typecheck an `App` against an operation with every input marked
+/// explicit. Uses the existing sequential-theta-propagation path: each
+/// argument's inferred sort must alpha-equal the expected input sort
+/// under the running substitution theta.
+fn typecheck_app_explicit(
+    op: &Arc<str>,
+    args: &[Term],
+    operation: &Operation,
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<SortExpr, GatError> {
+    if args.len() != operation.inputs.len() {
+        return Err(GatError::TermArityMismatch {
+            op: op.to_string(),
+            expected: operation.inputs.len(),
+            got: args.len(),
+        });
+    }
+
+    let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+    for (i, (arg, (param_name, declared_sort, _))) in
+        args.iter().zip(operation.inputs.iter()).enumerate()
+    {
+        let arg_sort = typecheck_term(arg, ctx, theory)?;
+        let expected = declared_sort.subst(&theta);
+        if !arg_sort.alpha_eq(&expected) {
+            return Err(GatError::ArgTypeMismatch {
+                op: op.to_string(),
+                arg_index: i,
+                expected: expected.to_string(),
+                got: arg_sort.to_string(),
+            });
+        }
+        theta.insert(Arc::clone(param_name), arg.clone());
+    }
+
+    Ok(operation.output.subst(&theta))
+}
+
+/// Typecheck an `App` against an operation that declares one or more
+/// implicit inputs.
+///
+/// Implicit parameters are fresh-renamed to unique metavariables to
+/// avoid clashing with context variables. Explicit argument sorts are
+/// then unified against the declared input sorts via first-order
+/// Robinson unification; the MGU recovers the implicit params and the
+/// output sort follows by substitution.
+fn typecheck_app_with_implicits(
+    op: &Arc<str>,
+    args: &[Term],
+    operation: &Operation,
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<SortExpr, GatError> {
+    let explicit_count = operation.explicit_arity();
+    if args.len() != explicit_count {
+        return Err(GatError::TermArityMismatch {
+            op: op.to_string(),
+            expected: explicit_count,
+            got: args.len(),
+        });
+    }
+
+    // Fresh-rename every implicit param name to a unique metavariable.
+    let mut fresh_rename: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+    for (idx, (pname, _, imp)) in operation.inputs.iter().enumerate() {
+        if matches!(imp, Implicit::Yes) {
+            let mv: Arc<str> = Arc::from(format!("?{pname}_{idx}"));
+            fresh_rename.insert(Arc::clone(pname), Term::Var(mv));
+        }
+    }
+
+    // Walk explicit args, typecheck each, and push unification constraints
+    // matching declared input sort against inferred sort. Running theta
+    // also records explicit-arg values for later positions (dependent
+    // signatures).
+    let mut theta: FxHashMap<Arc<str>, Term> = fresh_rename.clone();
+    let mut term_eqs: Vec<(Term, Term)> = Vec::new();
+    let mut explicit_iter = args.iter();
+    for (pname, declared_sort, imp) in &operation.inputs {
+        match imp {
+            Implicit::Yes => {
+                // Nothing to do at this slot: the value is recovered by
+                // unification.
+            }
+            Implicit::No => {
+                let Some(arg) = explicit_iter.next() else {
+                    return Err(GatError::TermArityMismatch {
+                        op: op.to_string(),
+                        expected: explicit_count,
+                        got: args.len(),
+                    });
+                };
+                let arg_sort = typecheck_term(arg, ctx, theory)?;
+                let expected = declared_sort.subst(&theta);
+                push_sort_expr_eqs_into(&expected, &arg_sort, op, &mut term_eqs)?;
+                theta.insert(Arc::clone(pname), arg.clone());
+            }
+        }
+    }
+
+    let mgu = unify_all(term_eqs).map_err(|e| match e {
+        GatError::SortUnificationFailure { reason } => GatError::SortUnificationFailure {
+            reason: format!("implicit inference for {op}: {reason}"),
+        },
+        other => other,
+    })?;
+
+    // Compose mgu with theta to get the final substitution for the
+    // output sort.
+    let mut final_subst = theta.clone();
+    for (k, v) in &mgu {
+        final_subst.insert(Arc::clone(k), v.clone());
+    }
+    // Apply mgu to the running bindings so metavariables resolve.
+    let final_subst: FxHashMap<Arc<str>, Term> = final_subst
+        .into_iter()
+        .map(|(k, v)| (k, v.substitute(&mgu)))
+        .collect();
+
+    Ok(operation.output.subst(&final_subst))
+}
+
+/// Push head-agreement + pairwise-arg-term constraints for two sort
+/// expressions into a unification queue.
+///
+/// Heads must agree; on head mismatch this returns
+/// [`GatError::ArgTypeMismatch`] naming the two sorts. Argument terms
+/// are pushed pairwise onto `term_eqs` for later unification.
+fn push_sort_expr_eqs_into(
+    expected: &SortExpr,
+    actual: &SortExpr,
+    op: &Arc<str>,
+    term_eqs: &mut Vec<(Term, Term)>,
+) -> Result<(), GatError> {
+    if expected.head() != actual.head() || expected.args().len() != actual.args().len() {
+        return Err(GatError::ArgTypeMismatch {
+            op: op.to_string(),
+            arg_index: 0,
+            expected: expected.to_string(),
+            got: actual.to_string(),
+        });
+    }
+    for (x, y) in expected.args().iter().zip(actual.args().iter()) {
+        term_eqs.push((x.clone(), y.clone()));
+    }
+    Ok(())
 }
 
 /// Infer variable sorts from an equation's term structure.
@@ -129,8 +470,24 @@ fn collect_constraints(
     ctx: &mut VarContext,
     term_eqs: &mut Vec<(Term, Term)>,
 ) -> Result<(), GatError> {
-    let Term::App { op, args } = term else {
-        return Ok(());
+    let (op, args) = match term {
+        Term::App { op, args } => (op, args),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            collect_constraints(scrutinee, theory, ctx, term_eqs)?;
+            for b in branches {
+                collect_constraints(&b.body, theory, ctx, term_eqs)?;
+            }
+            return Ok(());
+        }
+        Term::Let { bound, body, .. } => {
+            collect_constraints(bound, theory, ctx, term_eqs)?;
+            collect_constraints(body, theory, ctx, term_eqs)?;
+            return Ok(());
+        }
+        Term::Var(_) | Term::Hole { .. } => return Ok(()),
     };
     let operation = theory
         .find_op(op)
@@ -145,7 +502,7 @@ fn collect_constraints(
     }
 
     let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
-    for (arg, (param_name, declared_sort)) in args.iter().zip(operation.inputs.iter()) {
+    for (arg, (param_name, declared_sort, _)) in args.iter().zip(operation.inputs.iter()) {
         let expected = declared_sort.subst(&theta);
         match arg {
             Term::Var(var_name) => {
@@ -155,7 +512,7 @@ fn collect_constraints(
                     ctx.insert(Arc::clone(var_name), expected);
                 }
             }
-            Term::App { .. } => {
+            Term::App { .. } | Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => {
                 collect_constraints(arg, theory, ctx, term_eqs)?;
             }
         }
@@ -259,6 +616,11 @@ fn unify_all(mut eqs: Vec<(Term, Term)>) -> Result<FxHashMap<Arc<str>, Term>, Ga
                     eqs.push(pair);
                 }
             }
+            (lhs, rhs) => {
+                return Err(GatError::SortUnificationFailure {
+                    reason: format!("cannot unify {lhs} with {rhs}"),
+                });
+            }
         }
     }
 
@@ -275,8 +637,242 @@ fn apply_subst(term: &Term, subst: &FxHashMap<Arc<str>, Term>) -> Term {
 fn occurs_in(var: &Arc<str>, term: &Term) -> bool {
     match term {
         Term::Var(v) => v == var,
+        Term::Hole { .. } => false,
+        Term::Let { name, bound, body } => {
+            occurs_in(var, bound) || (name != var && occurs_in(var, body))
+        }
         Term::App { args, .. } => args.iter().any(|a| occurs_in(var, a)),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            occurs_in(var, scrutinee)
+                || branches
+                    .iter()
+                    .any(|b| !b.binders.contains(var) && occurs_in(var, &b.body))
+        }
     }
+}
+
+/// Typecheck a term, collecting a [`HoleReport`] at every [`Term::Hole`]
+/// site.
+///
+/// Unlike [`typecheck_term`], which treats holes as fresh metavariable
+/// sorts and lets the caller discard the information, this walker
+/// propagates the surrounding context's expected sort into each hole.
+/// When the enclosing operation's input sort constrains the hole, the
+/// report carries that sort exactly; otherwise the report carries a
+/// fresh metavariable sort.
+///
+/// # Errors
+///
+/// Returns any error from [`typecheck_term`] except that hole
+/// encounters never fail.
+pub fn typecheck_term_with_holes(
+    term: &Term,
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<(SortExpr, Vec<HoleReport>), GatError> {
+    let mut reports: Vec<HoleReport> = Vec::new();
+    let sort = typecheck_with_expected(term, None, ctx, theory, &mut reports)?;
+    Ok((sort, reports))
+}
+
+fn typecheck_with_expected(
+    term: &Term,
+    expected: Option<&SortExpr>,
+    ctx: &VarContext,
+    theory: &Theory,
+    reports: &mut Vec<HoleReport>,
+) -> Result<SortExpr, GatError> {
+    match term {
+        Term::Hole { name } => {
+            let sort = expected.cloned().unwrap_or_else(|| {
+                SortExpr::Name(Arc::from(format!("?{}", name.as_deref().unwrap_or("hole"))))
+            });
+            reports.push(HoleReport {
+                name: name.clone(),
+                expected: sort.clone(),
+                context: ctx.clone(),
+                position: None,
+            });
+            Ok(sort)
+        }
+        Term::Var(n) => ctx
+            .get(n)
+            .cloned()
+            .ok_or_else(|| GatError::UnboundVariable(n.to_string())),
+        Term::App { op, args } => {
+            let operation = theory
+                .find_op(op)
+                .ok_or_else(|| GatError::OpNotFound(op.to_string()))?;
+            let has_implicits = operation
+                .inputs
+                .iter()
+                .any(|(_, _, imp)| matches!(imp, Implicit::Yes));
+            if has_implicits {
+                // Implicit-inference path: thread the expected sort
+                // through each explicit arg so that holes attach to the
+                // right expected sort, then recover the implicit
+                // parameter values via the same unification machinery
+                // as typecheck_term.
+                typecheck_app_with_implicits_collecting_holes(
+                    op, args, operation, ctx, theory, reports,
+                )
+            } else {
+                if args.len() != operation.inputs.len() {
+                    return Err(GatError::TermArityMismatch {
+                        op: op.to_string(),
+                        expected: operation.inputs.len(),
+                        got: args.len(),
+                    });
+                }
+                let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+                for (i, (arg, (param_name, declared_sort, _))) in
+                    args.iter().zip(operation.inputs.iter()).enumerate()
+                {
+                    let expected_sort = declared_sort.subst(&theta);
+                    let arg_sort =
+                        typecheck_with_expected(arg, Some(&expected_sort), ctx, theory, reports)?;
+                    // Holes produce the expected sort by construction,
+                    // so alpha_eq holds trivially. For non-hole terms,
+                    // enforce the usual alpha_eq check.
+                    if !term_contains_hole(arg) && !arg_sort.alpha_eq(&expected_sort) {
+                        return Err(GatError::ArgTypeMismatch {
+                            op: op.to_string(),
+                            arg_index: i,
+                            expected: expected_sort.to_string(),
+                            got: arg_sort.to_string(),
+                        });
+                    }
+                    theta.insert(Arc::clone(param_name), arg.clone());
+                }
+                Ok(operation.output.subst(&theta))
+            }
+        }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => typecheck_case_with_holes(scrutinee, branches, ctx, theory, reports),
+        Term::Let { name, bound, body } => {
+            let bound_sort = typecheck_with_expected(bound, None, ctx, theory, reports)?;
+            let mut extended = ctx.clone();
+            extended.insert(Arc::clone(name), bound_sort);
+            typecheck_with_expected(body, None, &extended, theory, reports)
+        }
+    }
+}
+
+fn typecheck_case_with_holes(
+    scrutinee: &Term,
+    branches: &[CaseBranch],
+    ctx: &VarContext,
+    theory: &Theory,
+    reports: &mut Vec<HoleReport>,
+) -> Result<SortExpr, GatError> {
+    let scrutinee_sort = typecheck_with_expected(scrutinee, None, ctx, theory, reports)?;
+    check_case_exhaustiveness_soft(&scrutinee_sort, branches, theory)?;
+    let mut branch_sort: Option<SortExpr> = None;
+    for b in branches {
+        let constructor_op = theory
+            .find_op(&b.constructor)
+            .ok_or_else(|| GatError::OpNotFound(b.constructor.to_string()))?;
+        if constructor_op.inputs.len() != b.binders.len() {
+            return Err(GatError::TermArityMismatch {
+                op: b.constructor.to_string(),
+                expected: constructor_op.inputs.len(),
+                got: b.binders.len(),
+            });
+        }
+        // Mirror the strict path: unify the constructor's declared
+        // output sort with the scrutinee's actual sort, apply the
+        // resulting subst to each declared binder input sort, and
+        // extend the context with the substituted sorts.
+        if constructor_op.output.head() != scrutinee_sort.head()
+            || constructor_op.output.args().len() != scrutinee_sort.args().len()
+        {
+            return Err(GatError::OpTypeMismatch {
+                op: b.constructor.to_string(),
+                detail: format!(
+                    "constructor output sort {} does not match scrutinee sort {scrutinee_sort}",
+                    constructor_op.output
+                ),
+            });
+        }
+        let unify_eqs: Vec<(Term, Term)> = constructor_op
+            .output
+            .args()
+            .iter()
+            .zip(scrutinee_sort.args().iter())
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect();
+        let subst = unify_all(unify_eqs)?;
+        let mut extended = ctx.clone();
+        for ((_, declared_sort, _), binder) in constructor_op.inputs.iter().zip(b.binders.iter()) {
+            let binder_sort = declared_sort.subst(&subst);
+            extended.insert(Arc::clone(binder), binder_sort);
+        }
+        let body_sort = typecheck_with_expected(&b.body, None, &extended, theory, reports)?;
+        match &branch_sort {
+            None => branch_sort = Some(body_sort),
+            Some(existing) => {
+                // Require every branch body to produce an
+                // alpha-equivalent output sort. Mirror the strict
+                // typecheck_case behaviour.
+                if !existing.alpha_eq(&body_sort) {
+                    return Err(GatError::EquationSortMismatch {
+                        equation: "case".to_string(),
+                        lhs_sort: existing.to_string(),
+                        rhs_sort: body_sort.to_string(),
+                    });
+                }
+            }
+        }
+    }
+    branch_sort.ok_or_else(|| GatError::NonExhaustiveCase {
+        sort: scrutinee_sort.head().to_string(),
+        missing: Vec::new(),
+    })
+}
+
+fn check_case_exhaustiveness_soft(
+    scrutinee_sort: &SortExpr,
+    branches: &[CaseBranch],
+    theory: &Theory,
+) -> Result<(), GatError> {
+    let Some(sort_decl) = theory.find_sort(scrutinee_sort.head()) else {
+        return Ok(());
+    };
+    let SortClosure::Closed(ctors) = &sort_decl.closure else {
+        return Ok(());
+    };
+    let mut seen: rustc_hash::FxHashSet<Arc<str>> = rustc_hash::FxHashSet::default();
+    for b in branches {
+        if !ctors.contains(&b.constructor) {
+            return Err(GatError::UnknownCaseConstructor {
+                sort: scrutinee_sort.head().to_string(),
+                constructor: b.constructor.to_string(),
+            });
+        }
+        if !seen.insert(Arc::clone(&b.constructor)) {
+            return Err(GatError::RedundantCaseBranch {
+                sort: scrutinee_sort.head().to_string(),
+                constructor: b.constructor.to_string(),
+            });
+        }
+    }
+    if seen.len() < ctors.len() {
+        let missing: Vec<String> = ctors
+            .iter()
+            .filter(|c| !seen.contains(*c))
+            .map(ToString::to_string)
+            .collect();
+        return Err(GatError::NonExhaustiveCase {
+            sort: scrutinee_sort.head().to_string(),
+            missing,
+        });
+    }
+    Ok(())
 }
 
 /// Typecheck an equation: infer variable sorts, typecheck both sides,
@@ -288,6 +884,13 @@ fn occurs_in(var: &Arc<str>, term: &Term) -> bool {
 /// different sorts, or any error from [`typecheck_term`] or
 /// [`infer_var_sorts`].
 pub fn typecheck_equation(eq: &Equation, theory: &Theory) -> Result<(), GatError> {
+    let hole_count = count_holes(&eq.lhs) + count_holes(&eq.rhs);
+    if hole_count > 0 {
+        return Err(GatError::HolesInEquation {
+            equation: eq.name.to_string(),
+            count: hole_count,
+        });
+    }
     let ctx = infer_var_sorts(eq, theory)?;
     let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
     let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
@@ -301,16 +904,265 @@ pub fn typecheck_equation(eq: &Equation, theory: &Theory) -> Result<(), GatError
     Ok(())
 }
 
+/// Typecheck an equation with sort equality relaxed modulo a set of
+/// directed rewrite rules.
+///
+/// Differs from [`typecheck_equation`] only in the final comparison
+/// step: the inferred LHS and RHS sorts are considered equal when they
+/// match under [`SortExpr::alpha_eq_modulo_rewrites`] with the given
+/// rules and step budget. Useful in dependent-type settings where
+/// judgmental equality holds modulo the theory's own rewrite system.
+///
+/// # Errors
+///
+/// Same as [`typecheck_equation`] except that the mismatch check uses
+/// the relaxed equality.
+pub fn typecheck_equation_modulo_rewrites(
+    eq: &Equation,
+    theory: &Theory,
+    rules: &[crate::eq::DirectedEquation],
+    step_limit: usize,
+) -> Result<(), GatError> {
+    let hole_count = count_holes(&eq.lhs) + count_holes(&eq.rhs);
+    if hole_count > 0 {
+        return Err(GatError::HolesInEquation {
+            equation: eq.name.to_string(),
+            count: hole_count,
+        });
+    }
+    let ctx = infer_var_sorts(eq, theory)?;
+    let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
+    let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
+    if !lhs_sort.alpha_eq_modulo_rewrites(&rhs_sort, rules, step_limit) {
+        return Err(GatError::EquationSortMismatch {
+            equation: eq.name.to_string(),
+            lhs_sort: lhs_sort.to_string(),
+            rhs_sort: rhs_sort.to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Typecheck all equations in a theory.
+///
+/// Also verifies, for every operation, that every implicit parameter's
+/// name occurs in at least one explicit input sort or the output sort.
+/// An implicit parameter that never appears in a position where
+/// first-order unification can pin it down is rejected with
+/// [`GatError::NonInferrableImplicit`].
 ///
 /// # Errors
 ///
 /// Returns the first type error encountered.
 pub fn typecheck_theory(theory: &Theory) -> Result<(), GatError> {
+    for op in &theory.ops {
+        check_implicits_inferrable(op)?;
+    }
+    check_closed_sorts(theory)?;
     for eq in &theory.eqs {
         typecheck_equation(eq, theory)?;
     }
     Ok(())
+}
+
+/// Verify every [`SortClosure::Closed`] sort's constructor list against
+/// the theory's op table.
+///
+/// For a sort `S` closed against `[c1, ..., cn]`:
+/// - each `ci` must be an op in the theory,
+/// - each `ci`'s output head must equal `S`,
+/// - no op outside `[c1, ..., cn]` produces `S`.
+fn check_closed_sorts(theory: &Theory) -> Result<(), GatError> {
+    for sort in &theory.sorts {
+        let SortClosure::Closed(ctors) = &sort.closure else {
+            continue;
+        };
+        let ctor_set: rustc_hash::FxHashSet<Arc<str>> = ctors.iter().map(Arc::clone).collect();
+        for ctor in ctors {
+            let op =
+                theory
+                    .find_op(ctor)
+                    .ok_or_else(|| GatError::InvalidClosedSortConstructor {
+                        sort: sort.name.to_string(),
+                        constructor: ctor.to_string(),
+                        detail: "op does not exist in the theory".to_string(),
+                    })?;
+            if op.output.head() != &sort.name {
+                return Err(GatError::InvalidClosedSortConstructor {
+                    sort: sort.name.to_string(),
+                    constructor: ctor.to_string(),
+                    detail: format!(
+                        "op output head is {}, expected {}",
+                        op.output.head(),
+                        sort.name
+                    ),
+                });
+            }
+        }
+        for op in &theory.ops {
+            if op.output.head() == &sort.name && !ctor_set.contains(&op.name) {
+                return Err(GatError::InvalidClosedSortConstructor {
+                    sort: sort.name.to_string(),
+                    constructor: op.name.to_string(),
+                    detail: "op produces the closed sort but is not listed in its closure"
+                        .to_string(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Verify that every implicit parameter of `op` occurs as a `Term::Var`
+/// in at least one explicit input sort or in the output sort.
+fn check_implicits_inferrable(op: &Operation) -> Result<(), GatError> {
+    for (pname, _, imp) in &op.inputs {
+        if !matches!(imp, Implicit::Yes) {
+            continue;
+        }
+        let mut found = false;
+        for (_, sort_expr, other_imp) in &op.inputs {
+            if matches!(other_imp, Implicit::No) && sort_expr_mentions_var(sort_expr, pname) {
+                found = true;
+                break;
+            }
+        }
+        if !found && sort_expr_mentions_var(&op.output, pname) {
+            found = true;
+        }
+        if !found {
+            return Err(GatError::NonInferrableImplicit {
+                op: op.name.to_string(),
+                param: pname.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Returns `true` if `name` appears as a [`Term::Var`] anywhere in the
+/// argument terms of `sort`.
+fn sort_expr_mentions_var(sort: &SortExpr, name: &Arc<str>) -> bool {
+    sort.args().iter().any(|t| term_mentions_var(t, name))
+}
+
+/// Hole-collecting variant of [`typecheck_app_with_implicits`]. Walks
+/// explicit args through [`typecheck_with_expected`] so that holes
+/// attach to the correct expected sort (before implicit-inference
+/// unification pins anything down), then recovers the output sort via
+/// the same unification pipeline as the non-collecting path.
+fn typecheck_app_with_implicits_collecting_holes(
+    op: &Arc<str>,
+    args: &[Term],
+    operation: &Operation,
+    ctx: &VarContext,
+    theory: &Theory,
+    reports: &mut Vec<HoleReport>,
+) -> Result<SortExpr, GatError> {
+    let explicit_count = operation.explicit_arity();
+    if args.len() != explicit_count {
+        return Err(GatError::TermArityMismatch {
+            op: op.to_string(),
+            expected: explicit_count,
+            got: args.len(),
+        });
+    }
+
+    let mut fresh_rename: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+    for (idx, (pname, _, imp)) in operation.inputs.iter().enumerate() {
+        if matches!(imp, Implicit::Yes) {
+            let mv: Arc<str> = Arc::from(format!("?{pname}_{idx}"));
+            fresh_rename.insert(Arc::clone(pname), Term::Var(mv));
+        }
+    }
+
+    let mut theta: FxHashMap<Arc<str>, Term> = fresh_rename.clone();
+    let mut term_eqs: Vec<(Term, Term)> = Vec::new();
+    let mut explicit_iter = args.iter();
+    for (pname, declared_sort, imp) in &operation.inputs {
+        match imp {
+            Implicit::Yes => {}
+            Implicit::No => {
+                let Some(arg) = explicit_iter.next() else {
+                    return Err(GatError::TermArityMismatch {
+                        op: op.to_string(),
+                        expected: explicit_count,
+                        got: args.len(),
+                    });
+                };
+                let expected = declared_sort.subst(&theta);
+                let arg_sort = typecheck_with_expected(arg, Some(&expected), ctx, theory, reports)?;
+                push_sort_expr_eqs_into(&expected, &arg_sort, op, &mut term_eqs)?;
+                theta.insert(Arc::clone(pname), arg.clone());
+            }
+        }
+    }
+
+    let mgu = unify_all(term_eqs).map_err(|e| match e {
+        GatError::SortUnificationFailure { reason } => GatError::SortUnificationFailure {
+            reason: format!("implicit inference for {op}: {reason}"),
+        },
+        other => other,
+    })?;
+
+    let mut final_subst = theta.clone();
+    for (k, v) in &mgu {
+        final_subst.insert(Arc::clone(k), v.clone());
+    }
+    let final_subst: FxHashMap<Arc<str>, Term> = final_subst
+        .into_iter()
+        .map(|(k, v)| (k, v.substitute(&mgu)))
+        .collect();
+
+    Ok(operation.output.subst(&final_subst))
+}
+
+fn count_holes(t: &Term) -> usize {
+    match t {
+        Term::Hole { .. } => 1,
+        Term::Var(_) => 0,
+        Term::App { args, .. } => args.iter().map(count_holes).sum(),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => count_holes(scrutinee) + branches.iter().map(|b| count_holes(&b.body)).sum::<usize>(),
+        Term::Let { bound, body, .. } => count_holes(bound) + count_holes(body),
+    }
+}
+
+fn term_contains_hole(t: &Term) -> bool {
+    match t {
+        Term::Hole { .. } => true,
+        Term::Var(_) => false,
+        Term::Let { bound, body, .. } => term_contains_hole(bound) || term_contains_hole(body),
+        Term::App { args, .. } => args.iter().any(term_contains_hole),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => term_contains_hole(scrutinee) || branches.iter().any(|b| term_contains_hole(&b.body)),
+    }
+}
+
+fn term_mentions_var(t: &Term, name: &Arc<str>) -> bool {
+    match t {
+        Term::Var(v) => v == name,
+        Term::Hole { .. } => false,
+        Term::Let {
+            name: binder,
+            bound,
+            body,
+        } => term_mentions_var(bound, name) || (binder != name && term_mentions_var(body, name)),
+        Term::App { args, .. } => args.iter().any(|a| term_mentions_var(a, name)),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            term_mentions_var(scrutinee, name)
+                || branches
+                    .iter()
+                    .any(|b| !b.binders.contains(name) && term_mentions_var(&b.body, name))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1123,6 +1975,467 @@ mod tests {
         );
     }
 
+    // --- closed sorts and case terms (1.2) ---
+
+    /// Theory with closed sort `Nat` and constructors `zero`, `succ`.
+    fn nat_theory() -> Theory {
+        let nat = Sort::closed(
+            "Nat",
+            Vec::new(),
+            [Arc::from("zero") as Arc<str>, Arc::from("succ")],
+        );
+        let zero = Operation::nullary("zero", "Nat");
+        let succ = Operation::unary("succ", "n", "Nat", "Nat");
+        Theory::new("NatTh", vec![nat], vec![zero, succ], Vec::new())
+    }
+
+    #[test]
+    fn closed_sort_exhaustive_case_typechecks() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = nat_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![
+                CaseBranch {
+                    constructor: Arc::from("zero"),
+                    binders: Vec::new(),
+                    body: Term::constant("zero"),
+                },
+                CaseBranch {
+                    constructor: Arc::from("succ"),
+                    binders: vec![Arc::from("m")],
+                    body: Term::var("m"),
+                },
+            ],
+        };
+        let sort = typecheck_term(&term, &ctx, &theory)?;
+        assert_eq!(&**sort.head(), "Nat");
+        Ok(())
+    }
+
+    #[test]
+    fn closed_sort_missing_branch_rejected() {
+        let theory = nat_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![CaseBranch {
+                constructor: Arc::from("zero"),
+                binders: Vec::new(),
+                body: Term::constant("zero"),
+            }],
+        };
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::NonExhaustiveCase { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn closed_sort_redundant_branch_rejected() {
+        let theory = nat_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![
+                CaseBranch {
+                    constructor: Arc::from("zero"),
+                    binders: Vec::new(),
+                    body: Term::constant("zero"),
+                },
+                CaseBranch {
+                    constructor: Arc::from("zero"),
+                    binders: Vec::new(),
+                    body: Term::constant("zero"),
+                },
+            ],
+        };
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::RedundantCaseBranch { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn case_on_open_sort_rejected() {
+        // Use a plain open sort `Vertex` with a `v0` nullary.
+        let v = Sort::simple("Vertex");
+        let v0 = Operation::nullary("v0", "Vertex");
+        let theory = Theory::new("Open", vec![v], vec![v0], Vec::new());
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("x"), SortExpr::from("Vertex"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("x")),
+            branches: vec![CaseBranch {
+                constructor: Arc::from("v0"),
+                binders: Vec::new(),
+                body: Term::constant("v0"),
+            }],
+        };
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::CaseOnOpenSort { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn case_unknown_constructor_rejected() {
+        let theory = nat_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![
+                CaseBranch {
+                    constructor: Arc::from("nope"),
+                    binders: Vec::new(),
+                    body: Term::constant("zero"),
+                },
+                CaseBranch {
+                    constructor: Arc::from("succ"),
+                    binders: vec![Arc::from("m")],
+                    body: Term::var("m"),
+                },
+            ],
+        };
+        let result = typecheck_term(&term, &ctx, &theory);
+        assert!(
+            matches!(result, Err(GatError::UnknownCaseConstructor { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn closed_sort_rejects_external_constructor() {
+        // A sort closed against [zero] but another op also produces Nat:
+        // typecheck_theory must reject this.
+        let nat = Sort::closed("Nat", Vec::new(), [Arc::from("zero") as Arc<str>]);
+        let zero = Operation::nullary("zero", "Nat");
+        let sneaky = Operation::nullary("sneaky", "Nat");
+        let theory = Theory::new("BadClosure", vec![nat], vec![zero, sneaky], Vec::new());
+        let result = typecheck_theory(&theory);
+        assert!(
+            matches!(result, Err(GatError::InvalidClosedSortConstructor { .. })),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn morphism_preserves_closure_constructors() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::morphism::{TheoryMorphism, check_morphism};
+        use std::collections::HashMap;
+
+        let nat1 = nat_theory();
+        // Codomain theory: Nat' closed against [zero', succ']
+        let nat_prime = Sort::closed(
+            "Nat",
+            Vec::new(),
+            [Arc::from("zero2") as Arc<str>, Arc::from("succ2")],
+        );
+        let zero2 = Operation::nullary("zero2", "Nat");
+        let succ2 = Operation::unary("succ2", "n", "Nat", "Nat");
+        let nat2 = Theory::new("NatTh2", vec![nat_prime], vec![zero2, succ2], Vec::new());
+
+        let mut sort_map = HashMap::new();
+        sort_map.insert(Arc::from("Nat"), Arc::from("Nat"));
+        let mut op_map = HashMap::new();
+        op_map.insert(Arc::from("zero"), Arc::from("zero2"));
+        op_map.insert(Arc::from("succ"), Arc::from("succ2"));
+        let m = TheoryMorphism::new("m", "NatTh", "NatTh2", sort_map, op_map);
+        check_morphism(&m, &nat1, &nat2)?;
+
+        // Now swap succ2 to an unrelated op in the codomain closure and
+        // verify the morphism check fails.
+        let nat_prime_bad = Sort::closed(
+            "Nat",
+            Vec::new(),
+            [Arc::from("zero2") as Arc<str>, Arc::from("other")],
+        );
+        let other = Operation::unary("other", "n", "Nat", "Nat");
+        let nat2_bad = Theory::new(
+            "NatTh2",
+            vec![nat_prime_bad],
+            vec![Operation::nullary("zero2", "Nat"), other],
+            Vec::new(),
+        );
+        let result = check_morphism(&m, &nat1, &nat2_bad);
+        assert!(
+            matches!(result, Err(GatError::MorphismClosureMismatch { .. })),
+            "got {result:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn case_term_substitution_respects_binder_shadow() {
+        // case n of zero => m | succ(m) => m end
+        // Under substitution [m := succ(zero())], the zero branch's
+        // body becomes succ(zero()), but the succ branch's body is
+        // shadowed by its binder `m` and remains `m`.
+        let term = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![
+                CaseBranch {
+                    constructor: Arc::from("zero"),
+                    binders: Vec::new(),
+                    body: Term::var("m"),
+                },
+                CaseBranch {
+                    constructor: Arc::from("succ"),
+                    binders: vec![Arc::from("m")],
+                    body: Term::var("m"),
+                },
+            ],
+        };
+        let mut subst = FxHashMap::default();
+        subst.insert(
+            Arc::from("m"),
+            Term::app("succ", vec![Term::constant("zero")]),
+        );
+        let result = term.substitute(&subst);
+        let Term::Case { branches, .. } = &result else {
+            panic!("expected Case, got {result:?}");
+        };
+        assert_eq!(
+            branches[0].body,
+            Term::app("succ", vec![Term::constant("zero")]),
+            "zero branch body should be substituted"
+        );
+        assert_eq!(
+            branches[1].body,
+            Term::var("m"),
+            "succ branch body must be shadowed, body stays `m`"
+        );
+    }
+
+    // --- implicit arg inference (1.1) ---
+
+    /// Build a minimal lambda-calculus-style theory with an `app`
+    /// operation whose first two arguments are implicit type witnesses.
+    ///
+    /// Sorts: `Ty` (simple), `Tm(t : Ty)` (dependent).
+    /// Ops:
+    /// - `arrow : (a : Ty, b : Ty) -> Ty`
+    /// - `app : {a : Ty}{b : Ty}(f : Tm(arrow(a, b)), x : Tm(a)) -> Tm(b)`
+    fn lambda_theory() -> Theory {
+        use crate::op::Implicit;
+        let ty = Sort::simple("Ty");
+        let tm = Sort::dependent("Tm", vec![SortParam::new("t", "Ty")]);
+        let arrow = Operation::new(
+            "arrow",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty")),
+                (Arc::from("b"), SortExpr::from("Ty")),
+            ],
+            "Ty",
+        );
+        let tm_a = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("a")],
+        };
+        let tm_b = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("b")],
+        };
+        let tm_arrow = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::app("arrow", vec![Term::var("a"), Term::var("b")])],
+        };
+        let app = Operation::with_implicit(
+            "app",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty"), Implicit::Yes),
+                (Arc::from("b"), SortExpr::from("Ty"), Implicit::Yes),
+                (Arc::from("f"), tm_arrow, Implicit::No),
+                (Arc::from("x"), tm_a, Implicit::No),
+            ],
+            tm_b,
+        );
+        Theory::new("Lambda", vec![ty, tm], vec![arrow, app], Vec::new())
+    }
+
+    #[test]
+    fn app_with_inferred_implicit_types() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = lambda_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("A"), SortExpr::from("Ty"));
+        ctx.insert(Arc::from("B"), SortExpr::from("Ty"));
+        ctx.insert(
+            Arc::from("f"),
+            SortExpr::App {
+                name: Arc::from("Tm"),
+                args: vec![Term::app("arrow", vec![Term::var("A"), Term::var("B")])],
+            },
+        );
+        ctx.insert(
+            Arc::from("x"),
+            SortExpr::App {
+                name: Arc::from("Tm"),
+                args: vec![Term::var("A")],
+            },
+        );
+        // Call `app(f, x)` without the implicit type witnesses.
+        let result = typecheck_term(
+            &Term::app("app", vec![Term::var("f"), Term::var("x")]),
+            &ctx,
+            &theory,
+        )?;
+        let expected = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("B")],
+        };
+        assert!(result.alpha_eq(&expected), "got {result}");
+        Ok(())
+    }
+
+    #[test]
+    fn implicit_inference_rejects_overconstrained_call() {
+        use crate::op::Implicit;
+        // Build a theory extended with two ground `Ty` constants
+        // `first_ty` and `second_ty`. A call to `app(f, x)` where f's
+        // domain is the first but x's type is the second must fail
+        // unification of the implicit `a`.
+        let type_decl = Sort::simple("Ty");
+        let term_decl = Sort::dependent("Tm", vec![SortParam::new("t", "Ty")]);
+        let first_ty = Operation::nullary("tyA", "Ty");
+        let second_ty = Operation::nullary("tyB", "Ty");
+        let arrow = Operation::new(
+            "arrow",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty")),
+                (Arc::from("b"), SortExpr::from("Ty")),
+            ],
+            "Ty",
+        );
+        let tm_of_a = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("a")],
+        };
+        let tm_of_b = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::var("b")],
+        };
+        let tm_of_arrow = SortExpr::App {
+            name: Arc::from("Tm"),
+            args: vec![Term::app("arrow", vec![Term::var("a"), Term::var("b")])],
+        };
+        let app = Operation::with_implicit(
+            "app",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty"), Implicit::Yes),
+                (Arc::from("b"), SortExpr::from("Ty"), Implicit::Yes),
+                (Arc::from("f"), tm_of_arrow, Implicit::No),
+                (Arc::from("x"), tm_of_a, Implicit::No),
+            ],
+            tm_of_b,
+        );
+        let theory = Theory::new(
+            "LambdaGround",
+            vec![type_decl, term_decl],
+            vec![first_ty, second_ty, arrow, app],
+            Vec::new(),
+        );
+
+        let mut ctx = VarContext::default();
+        ctx.insert(
+            Arc::from("f"),
+            SortExpr::App {
+                name: Arc::from("Tm"),
+                args: vec![Term::app(
+                    "arrow",
+                    vec![Term::constant("tyA"), Term::constant("tyB")],
+                )],
+            },
+        );
+        ctx.insert(
+            Arc::from("x"),
+            SortExpr::App {
+                name: Arc::from("Tm"),
+                args: vec![Term::constant("tyB")],
+            },
+        );
+        let result = typecheck_term(
+            &Term::app("app", vec![Term::var("f"), Term::var("x")]),
+            &ctx,
+            &theory,
+        );
+        assert!(
+            matches!(result, Err(GatError::SortUnificationFailure { .. })),
+            "overconstrained implicit inference must fail: got {result:?}",
+        );
+    }
+
+    #[test]
+    fn implicit_declaration_rejected_when_not_inferrable() {
+        use crate::op::Implicit;
+        // Op with implicit param `c` that appears in neither any
+        // explicit input sort nor the output sort: not inferrable.
+        let foo = Operation::with_implicit(
+            "foo",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ty"), Implicit::No),
+                (Arc::from("c"), SortExpr::from("Ty"), Implicit::Yes),
+            ],
+            SortExpr::from("Ty"),
+        );
+        let theory = Theory::new(
+            "BadImplicit",
+            vec![Sort::simple("Ty")],
+            vec![foo],
+            Vec::new(),
+        );
+        let result = typecheck_theory(&theory);
+        assert!(
+            matches!(result, Err(GatError::NonInferrableImplicit { .. })),
+            "non-inferrable implicit must be rejected: got {result:?}",
+        );
+    }
+
+    #[test]
+    fn app_without_implicits_still_typechecks() -> Result<(), Box<dyn std::error::Error>> {
+        // Sanity check that operations with no implicit inputs still
+        // traverse the old explicit-theta path.
+        let theory = category_theory();
+        let mut ctx = VarContext::default();
+        ctx.insert(Arc::from("x"), SortExpr::from("Ob"));
+        let result = typecheck_term(&Term::app("id", vec![Term::var("x")]), &ctx, &theory)?;
+        assert_eq!(&**result.head(), "Hom");
+        Ok(())
+    }
+
+    #[test]
+    fn monomorphic_let_typechecks() -> Result<(), Box<dyn std::error::Error>> {
+        // let x = unit in mul(x, x) : Carrier.
+        let theory = monoid_theory();
+        let ctx = VarContext::default();
+        let t = Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(Term::constant("unit")),
+            body: Box::new(Term::app("mul", vec![Term::var("x"), Term::var("x")])),
+        };
+        let sort = typecheck_term(&t, &ctx, &theory)?;
+        assert_eq!(&**sort.head(), "Carrier");
+        Ok(())
+    }
+
+    #[test]
+    fn equation_with_hole_is_rejected() {
+        let theory = monoid_theory();
+        let eq = Equation::new(
+            "bad",
+            Term::app("mul", vec![Term::var("a"), Term::Hole { name: None }]),
+            Term::var("a"),
+        );
+        let result = typecheck_equation(&eq, &theory);
+        assert!(matches!(result, Err(GatError::HolesInEquation { .. })));
+    }
+
     // --- proptest property tests ---
 
     mod property {
@@ -1169,8 +2482,67 @@ mod tests {
             })
         }
 
+        /// Generate a closed `Nat` theory plus a random list of
+        /// constructor names chosen from `{zero, succ}` as branch
+        /// constructors, possibly with missing/duplicate/unknown ones.
+        fn arb_case_on_nat() -> impl Strategy<Value = (Theory, Vec<Arc<str>>)> {
+            let nat = Sort::closed(
+                "Nat",
+                Vec::new(),
+                [Arc::from("zero") as Arc<str>, Arc::from("succ")],
+            );
+            let zero = Operation::nullary("zero", "Nat");
+            let succ = Operation::unary("succ", "n", "Nat", "Nat");
+            let theory = Theory::new("NatTh", vec![nat], vec![zero, succ], Vec::new());
+            (
+                Just(theory),
+                prop::collection::vec(
+                    prop::sample::select(vec![
+                        Arc::from("zero"),
+                        Arc::from("succ"),
+                        Arc::from("bogus"),
+                    ] as Vec<Arc<str>>),
+                    0..=3,
+                ),
+            )
+        }
+
         proptest! {
             #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn case_on_closed_sort_never_panics(
+                (theory, ctors) in arb_case_on_nat()
+            ) {
+                let mut ctx = VarContext::default();
+                ctx.insert(Arc::from("n"), SortExpr::from("Nat"));
+                let branches: Vec<CaseBranch> = ctors
+                    .into_iter()
+                    .map(|c| CaseBranch {
+                        constructor: c,
+                        binders: Vec::new(),
+                        body: Term::constant("zero"),
+                    })
+                    .collect();
+                let term = Term::Case {
+                    scrutinee: Box::new(Term::var("n")),
+                    branches,
+                };
+                // Must return a well-typed sort or a specific GatError
+                // variant; it must not panic.
+                let r = typecheck_term(&term, &ctx, &theory);
+                match r {
+                    Ok(_)
+                    | Err(
+                        GatError::NonExhaustiveCase { .. }
+                        | GatError::RedundantCaseBranch { .. }
+                        | GatError::UnknownCaseConstructor { .. }
+                        | GatError::OpTypeMismatch { .. }
+                        | GatError::TermArityMismatch { .. },
+                    ) => {}
+                    other => prop_assert!(false, "unexpected result: {other:?}"),
+                }
+            }
 
             #[test]
             fn typecheck_is_idempotent(t in arb_well_typed_theory()) {
@@ -1185,6 +2557,85 @@ mod tests {
                     typecheck_theory(&t).is_ok(),
                     "well-typed theory should pass typecheck",
                 );
+            }
+
+            #[test]
+            fn implicit_inference_stable_across_names(
+                a_name in prop::sample::select(&["A", "B", "C", "P", "Q"][..]).prop_map(Arc::from),
+                b_name in prop::sample::select(&["A", "B", "C", "P", "Q"][..]).prop_map(Arc::from),
+            ) {
+                use crate::op::Implicit;
+                // Theory with `arrow` and implicit-argument `app`. For
+                // any choice of two ground `Ty` constants in ctx, the
+                // inferred output sort is `Tm(b)` with `b` bound to the
+                // codomain of the function's declared arrow. Running
+                // typecheck twice yields the same sort.
+                let ty = Sort::simple("Ty");
+                let tm = Sort::dependent("Tm", vec![SortParam::new("t", "Ty")]);
+                let arrow = Operation::new(
+                    "arrow",
+                    vec![
+                        (Arc::from("a"), SortExpr::from("Ty")),
+                        (Arc::from("b"), SortExpr::from("Ty")),
+                    ],
+                    "Ty",
+                );
+                let tm_a = SortExpr::App {
+                    name: Arc::from("Tm"),
+                    args: vec![Term::var("a")],
+                };
+                let tm_b = SortExpr::App {
+                    name: Arc::from("Tm"),
+                    args: vec![Term::var("b")],
+                };
+                let tm_arrow = SortExpr::App {
+                    name: Arc::from("Tm"),
+                    args: vec![Term::app(
+                        "arrow",
+                        vec![Term::var("a"), Term::var("b")],
+                    )],
+                };
+                let app = Operation::with_implicit(
+                    "app",
+                    vec![
+                        (Arc::from("a"), SortExpr::from("Ty"), Implicit::Yes),
+                        (Arc::from("b"), SortExpr::from("Ty"), Implicit::Yes),
+                        (Arc::from("f"), tm_arrow, Implicit::No),
+                        (Arc::from("x"), tm_a, Implicit::No),
+                    ],
+                    tm_b,
+                );
+                let theory = Theory::new("Lambda", vec![ty, tm], vec![arrow, app], Vec::new());
+
+                let mut ctx = VarContext::default();
+                ctx.insert(Arc::clone(&a_name), SortExpr::from("Ty"));
+                if a_name != b_name {
+                    ctx.insert(Arc::clone(&b_name), SortExpr::from("Ty"));
+                }
+                ctx.insert(
+                    Arc::from("f"),
+                    SortExpr::App {
+                        name: Arc::from("Tm"),
+                        args: vec![Term::app(
+                            "arrow",
+                            vec![Term::Var(Arc::clone(&a_name)), Term::Var(Arc::clone(&b_name))],
+                        )],
+                    },
+                );
+                ctx.insert(
+                    Arc::from("x"),
+                    SortExpr::App {
+                        name: Arc::from("Tm"),
+                        args: vec![Term::Var(Arc::clone(&a_name))],
+                    },
+                );
+                let call = Term::app("app", vec![Term::var("f"), Term::var("x")]);
+                let s1 = typecheck_term(&call, &ctx, &theory);
+                let s2 = typecheck_term(&call, &ctx, &theory);
+                prop_assert_eq!(s1.is_ok(), s2.is_ok());
+                if let (Ok(a), Ok(b)) = (&s1, &s2) {
+                    prop_assert!(a.alpha_eq(b));
+                }
             }
 
             #[test]

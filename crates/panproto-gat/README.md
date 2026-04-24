@@ -34,10 +34,10 @@ let result = colimit(&graph, &other_theory, &morphism)?;
 | Item | What it does |
 |------|-------------|
 | `Theory` | Named collection of sorts, operations, equations, and conflict policies |
-| `Sort` / `SortKind` | Type declarations; kinds classify sorts as structural, value, coercion, or merger |
-| `Operation` | Named function with typed inputs and a typed output |
-| `Equation` / `Term` | Equality rules that every model of the theory must satisfy |
-| `DirectedEquation` | Rewrite rule with an optional inverse (used for coercion round-trips) |
+| `Sort` / `SortKind` / `SortClosure` | Type declarations; kinds classify sorts as structural, value, coercion, or merger; closure marks a sort as `Open` or `Closed` with a fixed constructor list |
+| `Operation` / `Implicit` | Named function with typed inputs and a typed output; `Implicit` tags an input as inferred at the call site rather than supplied explicitly |
+| `Equation` / `Term` / `CaseBranch` | Equality rules that every model of the theory must satisfy; `Term::Case` pattern-matches a closed-sort scrutinee with one branch per constructor; `Term::Hole` is a typed placeholder; `Term::Let` introduces a local binding |
+| `DirectedEquation` | Rewrite rule with an optional inverse (used for coercion round-trips and for normalization) |
 | `TheoryMorphism` | Structure-preserving map from one theory to another |
 | `check_morphism` | Validate that a morphism respects all sorts, operations, and equations |
 | `colimit` | Combine two theories over explicit shared structure; returns inclusion morphisms |
@@ -49,8 +49,20 @@ let result = colimit(&graph, &other_theory, &morphism)?;
 | `Model` / `ModelValue` | Concrete interpretation of a theory (assigns sets to sorts, functions to operations) |
 | `migrate_model` | Transport a model along a morphism to a different theory |
 | `typecheck_term` | Infer and verify the output sort of a term |
+| `typecheck_term_with_holes` | Like `typecheck_term` but accepts `Term::Hole` sites and returns one `HoleReport` per hole |
+| `HoleReport` | Per-hole record carrying the hole name, expected sort, and surrounding context |
+| `VarContext` / `SortScheme` | Inferred sort assignments for free variables; `SortScheme` carries the (currently empty) metavariable list for a let-bound identifier |
+| `infer_var_sorts` | Collect free-variable sort assignments for an equation by unification |
+| `typecheck_equation` | Type-check a single equation in a theory |
+| `typecheck_equation_modulo_rewrites` | Type-check an equation with both sides joined under a directed-equation rewrite system |
 | `typecheck_theory` | Type-check all equations in a theory at once |
+| `positional_param_rename` | Build the positional alpha-rename that compares two signatures modulo bound-parameter names |
+| `signatures_equivalent_modulo_param_rename` | True if two op signatures differ only in bound-parameter names |
+| `sort_params_equivalent_modulo_rename` | True if two sort-parameter lists differ only in bound names |
 | `free_model` | Build the smallest model by enumerating closed terms up to a depth bound |
+| `ConfluenceReport` / `CriticalPair` / `check_local_confluence` | Compute critical pairs of a directed-equation system and report any that do not join |
+| `TerminationReport` / `OpPrecedence` / `check_termination_via_lpo` / `lpo_greater` | Verify termination of a directed-equation system via the lexicographic path order |
+| `RuleViolation` | Per-rule diagnostic attached to a failing `TerminationReport` |
 | `TheoryEndofunctor` | Single-step theory transform used as a building block for protolenses |
 | `TheoryTransform` | 16 named transform variants: add/remove/rename sort or op, coerce, merge, add default, and more |
 | `factorize` | Decompose a morphism into an ordered sequence of elementary endofunctors |

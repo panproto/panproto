@@ -61,6 +61,66 @@ impl Stringency {
         !matches!(self, Self::Strict)
     }
 
+    /// Whether the description-similarity strategy is consulted at this
+    /// tier. Enabled on Balanced and above; disabled on Strict because
+    /// description text is a soft signal that can misfire when two
+    /// unrelated props share generic phrasing.
+    #[must_use]
+    pub const fn uses_description_similarity(self) -> bool {
+        !matches!(self, Self::Strict)
+    }
+
+    /// Minimum description-similarity score required to emit an anchor
+    /// at this tier. Irrelevant at `Strict` where the strategy is
+    /// disabled.
+    #[must_use]
+    pub const fn description_similarity_threshold(self) -> f64 {
+        match self {
+            Self::Strict => 1.0,
+            Self::Balanced => 0.55,
+            Self::Lenient => 0.45,
+            Self::Exploratory => 0.35,
+        }
+    }
+
+    /// Whether the neighborhood-propagation strategy runs at this tier.
+    /// Enabled at `Lenient` and `Exploratory`; the signal is too soft
+    /// for `Strict` or `Balanced`, where child-pair alignment should
+    /// come from direct name or label evidence instead.
+    #[must_use]
+    pub const fn uses_neighborhood_propagation(self) -> bool {
+        matches!(self, Self::Lenient | Self::Exploratory)
+    }
+
+    /// Threshold for the neighborhood propagation score. Tighter at
+    /// Lenient, looser at Exploratory.
+    #[must_use]
+    pub const fn neighborhood_threshold(self) -> f64 {
+        match self {
+            Self::Lenient => 0.6,
+            Self::Exploratory => 0.45,
+            _ => 1.0,
+        }
+    }
+
+    /// Whether Weisfeiler-Leman color refinement runs at this tier.
+    /// Enabled at `Lenient` and above; color refinement is a refined
+    /// form of structural matching and shares its tier profile.
+    #[must_use]
+    pub const fn uses_wl_refinement(self) -> bool {
+        matches!(self, Self::Lenient | Self::Exploratory)
+    }
+
+    /// Number of WL refinement iterations at this tier. More
+    /// iterations distinguish deeper neighborhood structure.
+    #[must_use]
+    pub const fn wl_iterations(self) -> usize {
+        match self {
+            Self::Exploratory => 3,
+            _ => 2,
+        }
+    }
+
     /// Whether the alias dictionary is consulted at this tier.
     #[must_use]
     pub const fn uses_alias_dict(self) -> bool {
@@ -244,6 +304,19 @@ impl Default for AutoLensConfig {
 ///
 /// User-supplied anchors (`config.search_opts.initial`) are not consulted
 /// here; callers merge them in on top of the strategy output.
+/// Test-only view of `run_strategies` used by regression tests that
+/// need to inspect the raw anchor output without running the CSP.
+/// Available in integration-test builds only.
+#[doc(hidden)]
+#[must_use]
+pub fn run_strategies_for_tests(
+    src: &Schema,
+    tgt: &Schema,
+    config: &AutoLensConfig,
+) -> (Vec<Anchor>, Vec<CoerceAnchor>) {
+    run_strategies(src, tgt, config)
+}
+
 fn run_strategies(
     src: &Schema,
     tgt: &Schema,
@@ -254,6 +327,20 @@ fn run_strategies(
     // Exact name equality is consulted at every tier.
     anchors.extend(align::exact_anchors(src, tgt));
 
+    // Terminal dot-segment equality fills the cross-namespace gap that
+    // exact and token strategies miss on schemas whose identifiers are
+    // namespace-prefixed under disjoint prefixes. Runs unconditionally:
+    // the CSP's naturality check discards any proposal that violates
+    // edge preservation, so a spurious suffix collision is cheap.
+    anchors.extend(align::suffix_anchors(src, tgt));
+
+    // Same-label same-kind edge matching: anchors children reached by
+    // labeled edges that agree on both the label and the edge kind,
+    // regardless of the parent identifier. Complementary to suffix
+    // (which keys on vertex-id tails) on schemas whose label semantics
+    // don't flow through dotted identifiers.
+    anchors.extend(align::edge_label_anchors(src, tgt));
+
     if config.stringency.uses_alias_dict() {
         anchors.extend(align::alias_anchors(src, tgt, &config.alias_dict));
     }
@@ -261,6 +348,11 @@ fn run_strategies(
     if config.stringency.uses_token_similarity() {
         let threshold = config.stringency.token_similarity_threshold();
         anchors.extend(align::token_anchors(src, tgt, threshold));
+    }
+
+    if config.stringency.uses_description_similarity() {
+        let threshold = config.stringency.description_similarity_threshold();
+        anchors.extend(align::description_anchors(src, tgt, threshold));
     }
 
     if config.stringency.uses_wrap_unwrap() {
@@ -275,6 +367,11 @@ fn run_strategies(
     if config.stringency.uses_structural() {
         let threshold = config.stringency.structural_threshold();
         anchors.extend(align::structural_anchors(src, tgt, threshold));
+    }
+
+    if config.stringency.uses_wl_refinement() {
+        let iterations = config.stringency.wl_iterations();
+        anchors.extend(align::wl_anchors(src, tgt, iterations));
     }
 
     let coerce_proposals = if config.stringency.uses_coerce() {
@@ -301,6 +398,23 @@ fn run_strategies(
     } else {
         Vec::new()
     };
+
+    // Required-set correspondence tiebreak: a small delta that breaks
+    // ties among equal-confidence anchors targeting required-vs-optional
+    // vertices. Runs after every strategy has emitted so that the
+    // adjustment applies uniformly to the anchor pool.
+    align::adjust_anchors_by_required_sets(&mut anchors, src, tgt);
+
+    // Neighborhood propagation: re-resolve the first-pass anchors to
+    // obtain a seed map and propagate child anchors from each seeded
+    // pair. The second-pass anchors are merged back into the pool and
+    // the caller's `resolve_anchors` later picks winners overall.
+    if config.stringency.uses_neighborhood_propagation() {
+        let seeds = align::resolve_anchors(&anchors, false);
+        let threshold = config.stringency.neighborhood_threshold();
+        let neighborhood = align::neighborhood_anchors(src, tgt, &seeds, threshold);
+        anchors.extend(neighborhood);
+    }
 
     (anchors, coerce_proposals)
 }
@@ -732,7 +846,10 @@ fn derive_field_transforms(
                 // name through as a phantom field key.
                 let Some(key) = (match &deq.lhs {
                     panproto_gat::Term::App { op, .. } => Some(op.to_string()),
-                    panproto_gat::Term::Var(_) => None,
+                    panproto_gat::Term::Var(_)
+                    | panproto_gat::Term::Case { .. }
+                    | panproto_gat::Term::Hole { .. }
+                    | panproto_gat::Term::Let { .. } => None,
                 }) else {
                     continue;
                 };
@@ -1210,7 +1327,7 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
             // silently corrupts downstream factorization. Surface it as a
             // real error so callers can add an explicit input sort or
             // reroute constants through `AddSortWithDefault`.
-            let Some((_, input_sort)) = op.inputs.first() else {
+            let Some((_, input_sort, _)) = op.inputs.first() else {
                 return Err(LensError::ProtolensError(format!(
                     "AddOp '{}' has no inputs; elementary add_op requires a source sort. \
                      Supply an explicit input sort or route constants through AddSortWithDefault.",

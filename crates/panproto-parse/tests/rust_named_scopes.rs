@@ -1,11 +1,12 @@
-//! Regression test for panproto/panproto#34: Rust `fn` items were invisible
-//! to named-scope detection because the hardcoded `SCOPE_INTRODUCING_KINDS`
-//! list didn't include `function_item`. With grammar-driven detection via
-//! `tree-sitter-tags`, every Rust function appears as a named scope.
+//! Named-scope detection for Rust sources via the `tree-sitter-tags`
+//! query bundled with each grammar.
 //!
-//! This test reproduces the exact scenario from the issue using the
-//! `push_auth.rs` shape (a small file with an enum, a struct, and two
-//! functions including the `verify_push` named in the bug report).
+//! Functions, structs, and enums must all appear as named scopes in
+//! the extracted schema. A hardcoded list of scope-introducing node
+//! kinds would miss at least one of these (`function_item` in
+//! particular), so detection runs through the grammar-supplied
+//! `tags.scm` query and stays in sync with whichever node kinds the
+//! Rust grammar assigns to definition tags.
 
 #![cfg(feature = "grammars")]
 
@@ -104,8 +105,8 @@ fn rust_functions_structs_enums_appear_as_named_scopes() -> Result<(), Box<dyn s
     let schema = parse_and_walk(&grammar, PUSH_AUTH_SNIPPET, "push_auth.rs")?;
     let ids: Vec<String> = schema.vertices.keys().map(ToString::to_string).collect();
 
-    // The regression: before the fix, verify_push and extract_basic_auth
-    // would never appear here. After the fix, both are named scopes.
+    // Every top-level `fn`, `struct`, and `enum` in the snippet must
+    // surface as a named scope.
     for expected in [
         "verify_push",
         "extract_basic_auth",

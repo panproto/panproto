@@ -114,7 +114,7 @@ pub fn check_natural_transformation(
 
         // RHS: G(op)(alpha_{S1}[x:=x0], ..., alpha_{Sn}[x:=xn-1])
         let mut rhs_args = Vec::with_capacity(op.inputs.len());
-        for (i, (_, input_sort)) in op.inputs.iter().enumerate() {
+        for (i, (_, input_sort, _)) in op.inputs.iter().enumerate() {
             let input_head = input_sort.head();
             let alpha_input = nt
                 .components
@@ -191,13 +191,33 @@ fn full_rewrite_rules(theory: &Theory) -> Vec<crate::eq::DirectedEquation> {
 /// Recursively validate that all operations used in a term exist in the codomain theory.
 fn validate_term_ops(term: &Term, codomain: &Theory) -> Result<(), String> {
     match term {
-        Term::Var(_) => Ok(()),
+        Term::Var(_) | Term::Hole { .. } => Ok(()),
+        Term::Let { bound, body, .. } => {
+            validate_term_ops(bound, codomain)?;
+            validate_term_ops(body, codomain)
+        }
         Term::App { op, args } => {
             if !codomain.has_op(op) {
                 return Err(format!("operation {op} not found in codomain"));
             }
             for arg in args {
                 validate_term_ops(arg, codomain)?;
+            }
+            Ok(())
+        }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            validate_term_ops(scrutinee, codomain)?;
+            for b in branches {
+                if !codomain.has_op(&b.constructor) {
+                    return Err(format!(
+                        "case constructor {} not found in codomain",
+                        b.constructor
+                    ));
+                }
+                validate_term_ops(&b.body, codomain)?;
             }
             Ok(())
         }

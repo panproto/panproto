@@ -1,0 +1,5 @@
+error: expected `in` between the class arguments and the target theory name
+ --> tests/ui/instance_missing_target.rs:4:22
+  |
+4 |     EqInt: ThEq<Int> {
+  |                      ^

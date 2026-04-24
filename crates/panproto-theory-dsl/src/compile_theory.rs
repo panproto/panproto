@@ -21,13 +21,238 @@ use crate::error::TheoryDslError;
 ///
 /// Parses all sorts, operations, equations, directed equations, and
 /// policies from spec types into GAT engine types, constructs the
-/// theory via [`Theory::full`], and runs typechecking.
+/// theory via [`Theory::full`], and runs typechecking. When the spec
+/// declares imports, the importing crate must call
+/// [`compile_theory_with_resolver`] so the imports can be resolved.
 ///
 /// # Errors
 ///
 /// Returns errors for parse failures, unknown value kinds, or
 /// typechecking violations.
 pub fn compile_theory(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
+    compile_theory_with_resolver(spec, &|_name| None)
+}
+
+/// Compile a [`TheorySpec`] with support for imports.
+///
+/// # Errors
+///
+/// Same as [`compile_theory`], plus [`TheoryDslError::TheoryNotFound`]
+/// when an import names a theory the resolver cannot find.
+pub fn compile_theory_with_resolver(
+    spec: &TheorySpec,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<Theory, TheoryDslError> {
+    let spec = if spec.imports.is_empty() {
+        spec.clone()
+    } else {
+        resolve_imports(spec, resolver)?
+    };
+    compile_theory_inner(&spec)
+}
+
+fn resolve_imports(
+    spec: &TheorySpec,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<TheorySpec, TheoryDslError> {
+    let mut out = spec.clone();
+    out.imports = Vec::new();
+    for imp in &spec.imports {
+        let imported = resolver(&imp.from).ok_or_else(|| TheoryDslError::TheoryNotFound {
+            name: imp.from.clone(),
+            context: format!("import in theory '{}'", spec.theory),
+        })?;
+        let expose_set: std::collections::HashSet<String> = imp.expose.iter().cloned().collect();
+        let mut name_rewrite: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let rename =
+            |name: &str| canonical_name(name, &imp.from, imp.alias.as_deref(), &expose_set);
+        for s in &imported.sorts {
+            let canonical = rename(&s.name);
+            record_rewrite(
+                &mut name_rewrite,
+                &s.name,
+                &canonical,
+                imp.alias.as_deref(),
+                &expose_set,
+                &imp.from,
+            );
+            out.sorts.insert(0, imported_sort_to_spec(s, canonical));
+        }
+        for op in &imported.ops {
+            let canonical = rename(&op.name);
+            record_rewrite(
+                &mut name_rewrite,
+                &op.name,
+                &canonical,
+                imp.alias.as_deref(),
+                &expose_set,
+                &imp.from,
+            );
+            out.ops
+                .insert(0, imported_op_to_spec(op, canonical, &name_rewrite));
+        }
+        rewrite_inplace(&mut out, &name_rewrite);
+    }
+    Ok(out)
+}
+
+fn canonical_name(
+    name: &str,
+    from: &str,
+    alias: Option<&str>,
+    expose: &std::collections::HashSet<String>,
+) -> String {
+    if expose.contains(name) {
+        name.to_string()
+    } else if let Some(a) = alias {
+        format!("{a}_{name}")
+    } else {
+        format!("{from}_{name}")
+    }
+}
+
+fn record_rewrite(
+    rewrite: &mut std::collections::HashMap<String, String>,
+    original: &str,
+    canonical: &str,
+    alias: Option<&str>,
+    expose: &std::collections::HashSet<String>,
+    from: &str,
+) {
+    // Always populate the fully-qualified form so that references like
+    // `<importee_id>.Foo` resolve regardless of alias or expose
+    // settings.
+    rewrite.insert(format!("{from}.{original}"), canonical.to_string());
+    if let Some(a) = alias {
+        rewrite.insert(format!("{a}.{original}"), canonical.to_string());
+    }
+    if expose.contains(original) {
+        rewrite.insert(original.to_string(), canonical.to_string());
+    }
+    // For no-alias, no-expose imports, let the bare name still resolve
+    // to the canonical name: callers frequently write `Foo` expecting
+    // the importee's sort to be reachable, and the canonical rename
+    // already disambiguates when two imports collide.
+    if alias.is_none() && !expose.contains(original) {
+        rewrite
+            .entry(original.to_string())
+            .or_insert_with(|| canonical.to_string());
+    }
+}
+
+fn imported_sort_to_spec(s: &Sort, canonical: String) -> SortSpec {
+    SortSpec {
+        name: canonical,
+        params: s
+            .params
+            .iter()
+            .map(|p| crate::document::ParamSpec {
+                name: p.name.to_string(),
+                sort: p.sort.to_string(),
+                implicit: false,
+            })
+            .collect(),
+        kind: match &s.kind {
+            panproto_gat::SortKind::Structural => crate::document::SortKindSpec::Structural,
+            panproto_gat::SortKind::Val(vk) => crate::document::SortKindSpec::Val {
+                value_kind: vk.as_str().to_string(),
+            },
+            panproto_gat::SortKind::Coercion { from, to, class } => {
+                crate::document::SortKindSpec::Coercion {
+                    from: from.as_str().to_string(),
+                    to: to.as_str().to_string(),
+                    class: format!("{class:?}"),
+                }
+            }
+            panproto_gat::SortKind::Merger(vk) => crate::document::SortKindSpec::Merger {
+                value_kind: vk.as_str().to_string(),
+            },
+        },
+        closed: match &s.closure {
+            panproto_gat::SortClosure::Open => None,
+            panproto_gat::SortClosure::Closed(cs) => {
+                Some(cs.iter().map(ToString::to_string).collect())
+            }
+        },
+    }
+}
+
+fn imported_op_to_spec(
+    op: &Operation,
+    canonical: String,
+    name_rewrite: &std::collections::HashMap<String, String>,
+) -> OpSpec {
+    OpSpec {
+        name: canonical,
+        input: None,
+        inputs: Some(
+            op.inputs
+                .iter()
+                .map(|(n, s, _)| crate::document::ParamSpec {
+                    name: n.to_string(),
+                    sort: rewrite_sort_string(&s.to_string(), name_rewrite),
+                    implicit: false,
+                })
+                .collect(),
+        ),
+        output: rewrite_sort_string(&op.output.to_string(), name_rewrite),
+    }
+}
+
+fn rewrite_inplace(out: &mut TheorySpec, name_rewrite: &std::collections::HashMap<String, String>) {
+    for sort in &mut out.sorts {
+        for p in &mut sort.params {
+            p.sort = rewrite_sort_string(&p.sort, name_rewrite);
+        }
+    }
+    for op in &mut out.ops {
+        op.output = rewrite_sort_string(&op.output, name_rewrite);
+        if let Some(ins) = &mut op.inputs {
+            for p in ins {
+                p.sort = rewrite_sort_string(&p.sort, name_rewrite);
+            }
+        }
+        if let Some(i) = &mut op.input {
+            *i = rewrite_sort_string(i, name_rewrite);
+        }
+    }
+}
+
+fn rewrite_sort_string(s: &str, rewrite: &std::collections::HashMap<String, String>) -> String {
+    // Replace `Alias.Name` (or bare exposed names) with their canonical
+    // form. We match tokens separated by non-identifier characters so
+    // that `Foo.Bar(x)` rewrites to the canonical `Foo_Bar(x)` and a
+    // bare `Bar` in the `expose` list rewrites the same way.
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if c.is_ascii_alphabetic() || c == '_' {
+            let start = i;
+            while i < bytes.len() {
+                let cc = bytes[i] as char;
+                if cc.is_ascii_alphanumeric() || cc == '_' || cc == '.' {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let tok = &s[start..i];
+            match rewrite.get(tok) {
+                Some(canonical) => result.push_str(canonical),
+                None => result.push_str(tok),
+            }
+        } else {
+            result.push(c);
+            i += 1;
+        }
+    }
+    result
+}
+
+fn compile_theory_inner(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
     let sorts: Vec<Sort> = spec
         .sorts
         .iter()
@@ -94,23 +319,27 @@ fn compile_sort(spec: &SortSpec, theory_name: &str) -> Result<Sort, TheoryDslErr
 
     let kind = match &spec.kind {
         SortKindSpec::Structural => SortKind::Structural,
-        SortKindSpec::Val { value_kind } => SortKind::Val(parse_value_kind(value_kind)),
+        SortKindSpec::Val { value_kind } => SortKind::Val(parse_value_kind(value_kind)?),
         SortKindSpec::Coercion { from, to, class } => SortKind::Coercion {
-            from: parse_value_kind(from),
-            to: parse_value_kind(to),
-            class: parse_coercion_class(class),
+            from: parse_value_kind(from)?,
+            to: parse_value_kind(to)?,
+            class: parse_coercion_class(class)?,
         },
-        SortKindSpec::Merger { value_kind } => SortKind::Merger(parse_value_kind(value_kind)),
+        SortKindSpec::Merger { value_kind } => SortKind::Merger(parse_value_kind(value_kind)?),
     };
 
-    Ok(if params.is_empty() {
-        Sort::with_kind(spec.name.as_str(), kind)
-    } else {
-        Sort {
-            name: Arc::from(spec.name.as_str()),
-            params,
-            kind,
-        }
+    let closure = spec
+        .closed
+        .as_ref()
+        .map_or(panproto_gat::SortClosure::Open, |ctors| {
+            panproto_gat::SortClosure::Closed(ctors.iter().map(|c| Arc::from(c.as_str())).collect())
+        });
+
+    Ok(Sort {
+        name: Arc::from(spec.name.as_str()),
+        params,
+        kind,
+        closure,
     })
 }
 
@@ -127,7 +356,14 @@ fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslEr
     })?;
     Ok(match (&spec.input, &spec.inputs) {
         (Some(input_sort), _) => {
-            let param_name = input_sort[..1].to_ascii_lowercase();
+            // Take the first character safely: byte slicing with [..1]
+            // would panic on a multi-byte UTF-8 boundary. Fall back to a
+            // conventional placeholder when the sort name is empty or
+            // starts with a non-ASCII character (giving it a readable
+            // default rather than an empty string).
+            let first_char = input_sort.chars().next().filter(char::is_ascii_alphabetic);
+            let param_name: String =
+                first_char.map_or_else(|| "x".to_string(), |c| c.to_ascii_lowercase().to_string());
             let input = parse_sort_expr(input_sort).map_err(|msg| TheoryDslError::TermParse {
                 context: op_context("input sort"),
                 message: msg,
@@ -135,35 +371,43 @@ fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslEr
             Operation::unary(spec.name.as_str(), param_name.as_str(), input, output)
         }
         (None, Some(inputs)) => {
-            let input_pairs: Vec<(Arc<str>, SortExpr)> = inputs
+            let input_triples: Vec<(Arc<str>, SortExpr, panproto_gat::Implicit)> = inputs
                 .iter()
                 .map(|p| {
                     parse_sort_expr(&p.sort)
-                        .map(|sort| (Arc::from(p.name.as_str()), sort))
+                        .map(|sort| {
+                            let imp = if p.implicit {
+                                panproto_gat::Implicit::Yes
+                            } else {
+                                panproto_gat::Implicit::No
+                            };
+                            (Arc::from(p.name.as_str()), sort, imp)
+                        })
                         .map_err(|msg| TheoryDslError::TermParse {
                             context: op_context(&format!("input '{pname}'", pname = p.name)),
                             message: msg,
                         })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Operation::new(spec.name.as_str(), input_pairs, output)
+            Operation::with_implicit(spec.name.as_str(), input_triples, output)
         }
         (None, None) => Operation::nullary(spec.name.as_str(), output),
     })
 }
 
-/// Parse a sort string into a [`SortExpr`]. A bare identifier parses as
-/// [`SortExpr::Name`]; `Ident(arg1, arg2, ...)` parses as a
-/// [`SortExpr::App`] with the argument list parsed as terms via
-/// [`parse_term`]. An `Ident()` input with no arguments normalizes to
-/// [`SortExpr::Name`] via the smart constructor.
+/// Parse a sort string into a [`SortExpr`].
+///
+/// A bare identifier parses as [`SortExpr::Name`]; `Ident(arg1, arg2, ...)`
+/// parses as a [`SortExpr::App`] with the argument list parsed as terms
+/// via [`parse_term`]. An `Ident()` input with no arguments normalizes
+/// to [`SortExpr::Name`] via the smart constructor.
 ///
 /// # Errors
 ///
 /// Returns an error describing the problem for: empty input, malformed
 /// identifiers, unclosed parentheses, unexpected trailing input, or any
 /// error propagated from parsing an argument term.
-pub(crate) fn parse_sort_expr(s: &str) -> Result<SortExpr, String> {
+pub fn parse_sort_expr(s: &str) -> Result<SortExpr, String> {
     let trimmed = s.trim();
     if trimmed.is_empty() {
         return Err("empty sort expression".to_owned());
@@ -237,9 +481,17 @@ fn compile_directed_eq(
         .map(|inv| parse_expr(inv, &ctx))
         .transpose()?;
 
-    let source_kind = spec.source_kind.as_deref().map(parse_value_kind);
-    let target_kind = spec.target_kind.as_deref().map(parse_value_kind);
-    let coercion_class = parse_coercion_class(&spec.coercion_class);
+    let source_kind = spec
+        .source_kind
+        .as_deref()
+        .map(parse_value_kind)
+        .transpose()?;
+    let target_kind = spec
+        .target_kind
+        .as_deref()
+        .map(parse_value_kind)
+        .transpose()?;
+    let coercion_class = parse_coercion_class(&spec.coercion_class)?;
 
     Ok(DirectedEquation {
         name: Arc::from(spec.name.as_str()),
@@ -270,7 +522,7 @@ fn compile_policy(spec: &PolicySpec, theory_name: &str) -> Result<ConflictPolicy
 
     Ok(ConflictPolicy {
         name: Arc::from(spec.name.as_str()),
-        value_kind: parse_value_kind(&spec.value_kind),
+        value_kind: parse_value_kind(&spec.value_kind)?,
         strategy,
     })
 }
@@ -279,25 +531,31 @@ fn compile_policy(spec: &PolicySpec, theory_name: &str) -> Result<ConflictPolicy
 // Parsing helpers
 // ═══════════════════════════════════════════════════════════════════
 
-fn parse_value_kind(s: &str) -> ValueKind {
+fn parse_value_kind(s: &str) -> Result<ValueKind, TheoryDslError> {
     match s {
-        "boolean" | "bool" => ValueKind::Bool,
-        "integer" | "int" => ValueKind::Int,
-        "float" | "number" => ValueKind::Float,
-        "string" | "str" => ValueKind::Str,
-        "bytes" => ValueKind::Bytes,
-        "token" => ValueKind::Token,
-        "null" => ValueKind::Null,
-        _ => ValueKind::Any,
+        "boolean" | "bool" => Ok(ValueKind::Bool),
+        "integer" | "int" => Ok(ValueKind::Int),
+        "float" | "number" => Ok(ValueKind::Float),
+        "string" | "str" => Ok(ValueKind::Str),
+        "bytes" => Ok(ValueKind::Bytes),
+        "token" => Ok(ValueKind::Token),
+        "null" => Ok(ValueKind::Null),
+        "any" => Ok(ValueKind::Any),
+        other => Err(TheoryDslError::UnknownValueKind {
+            kind: other.to_owned(),
+        }),
     }
 }
 
-fn parse_coercion_class(s: &str) -> CoercionClass {
+fn parse_coercion_class(s: &str) -> Result<CoercionClass, TheoryDslError> {
     match s {
-        "iso" => CoercionClass::Iso,
-        "retraction" => CoercionClass::Retraction,
-        "projection" => CoercionClass::Projection,
-        _ => CoercionClass::Opaque,
+        "iso" => Ok(CoercionClass::Iso),
+        "retraction" => Ok(CoercionClass::Retraction),
+        "projection" => Ok(CoercionClass::Projection),
+        "opaque" => Ok(CoercionClass::Opaque),
+        other => Err(TheoryDslError::UnknownCoercionClass {
+            class: other.to_owned(),
+        }),
     }
 }
 
@@ -331,10 +589,35 @@ fn parse_expr(expr_str: &str, context: &str) -> Result<panproto_expr::Expr, Theo
 ///          | ident                              -- variable
 /// ident ::= [a-zA-Z_][a-zA-Z0-9_]*
 /// ```
-pub(crate) fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
+///
+/// # Errors
+///
+/// Returns a descriptive message for parse failures: empty input,
+/// malformed identifiers, unclosed parentheses, missing keywords, or
+/// errors propagated from nested term parses.
+pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
     let s = s.trim();
     if s.is_empty() {
         return Err("empty term string".to_owned());
+    }
+
+    if let Some(rest) = s.strip_prefix("case ") {
+        return parse_case_term(rest);
+    }
+
+    if let Some(rest) = s.strip_prefix("let ") {
+        return parse_let_term(rest);
+    }
+
+    if let Some(rest) = s.strip_prefix('?') {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return Ok(panproto_gat::Term::Hole { name: None });
+        }
+        validate_identifier(rest, "hole name")?;
+        return Ok(panproto_gat::Term::Hole {
+            name: Some(Arc::from(rest)),
+        });
     }
 
     match s.find('(') {
@@ -365,6 +648,167 @@ pub(crate) fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
             })
         }
     }
+}
+
+/// Parse the body of a `let` term, given the text following the
+/// leading `let ` keyword.
+///
+/// Grammar:
+///
+/// ```text
+/// let_body ::= ident '=' term 'in' term
+/// ```
+fn parse_let_term(rest: &str) -> Result<panproto_gat::Term, String> {
+    let rest = rest.trim();
+    let eq_pos = rest
+        .find('=')
+        .ok_or_else(|| format!("let term missing `=`: {rest:?}"))?;
+    let name_part = rest[..eq_pos].trim();
+    validate_identifier(name_part, "let binder")?;
+    let after_eq = &rest[eq_pos + 1..];
+    let in_pos = find_top_level_keyword(after_eq, "in")
+        .ok_or_else(|| format!("let term missing `in`: {rest:?}"))?;
+    let bound_str = after_eq[..in_pos].trim();
+    let body_str = after_eq[in_pos + 2..].trim();
+    let bound = parse_term(bound_str)?;
+    let body = parse_term(body_str)?;
+    Ok(panproto_gat::Term::Let {
+        name: Arc::from(name_part),
+        bound: Box::new(bound),
+        body: Box::new(body),
+    })
+}
+
+/// Parse the body of a `case` term, given the text following the
+/// leading `case ` keyword.
+///
+/// Grammar:
+///
+/// ```text
+/// case_body ::= scrutinee 'of' branch ('|' branch)* 'end'
+/// branch    ::= ctor '(' binder (',' binder)* ')' '=>' body
+/// ```
+fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
+    let rest = rest.trim();
+    let stripped = rest
+        .strip_suffix("end")
+        .ok_or_else(|| format!("case term missing trailing `end`: {rest:?}"))?
+        .trim_end();
+    let of_pos = find_top_level_keyword(stripped, "of")
+        .ok_or_else(|| format!("case term missing `of` keyword: {rest:?}"))?;
+    let scrutinee_str = stripped[..of_pos].trim();
+    let branches_str = stripped[of_pos + 2..].trim();
+    let scrutinee = parse_term(scrutinee_str)?;
+
+    let branch_parts = split_top_level_pipes(branches_str);
+    if branch_parts.is_empty() {
+        return Err(format!("case term has no branches: {rest:?}"));
+    }
+    let branches = branch_parts
+        .into_iter()
+        .map(parse_case_branch)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(panproto_gat::Term::Case {
+        scrutinee: Box::new(scrutinee),
+        branches,
+    })
+}
+
+fn parse_case_branch(s: &str) -> Result<panproto_gat::CaseBranch, String> {
+    let s = s.trim();
+    let arrow = s
+        .find("=>")
+        .ok_or_else(|| format!("case branch missing `=>`: {s:?}"))?;
+    let head = s[..arrow].trim();
+    let body_str = s[arrow + 2..].trim();
+    let body = parse_term(body_str)?;
+
+    let paren_pos = head
+        .find('(')
+        .ok_or_else(|| format!("case branch constructor missing `(`: {head:?}"))?;
+    let ctor_name = head[..paren_pos].trim();
+    validate_identifier(ctor_name, "case branch constructor")?;
+    let inner = &head[paren_pos + 1..];
+    let close = find_matching_paren(inner)
+        .ok_or_else(|| format!("unclosed paren in case branch: {head:?}"))?;
+    let trailing = inner[close + 1..].trim();
+    if !trailing.is_empty() {
+        return Err(format!(
+            "unexpected trailing input in case branch {head:?}: {trailing:?}"
+        ));
+    }
+    let binders_str = &inner[..close];
+    let binders = if binders_str.trim().is_empty() {
+        Vec::new()
+    } else {
+        split_top_level_commas(binders_str)
+            .into_iter()
+            .map(|b| {
+                let b = b.trim();
+                validate_identifier(b, "case branch binder")?;
+                Ok::<Arc<str>, String>(Arc::from(b))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    Ok(panproto_gat::CaseBranch {
+        constructor: Arc::from(ctor_name),
+        binders,
+        body,
+    })
+}
+
+/// Find a whitespace-delimited occurrence of `keyword` at the top level
+/// (not inside parens). Returns the byte offset of the keyword start.
+fn find_top_level_keyword(s: &str, keyword: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let klen = keyword.len();
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0
+            && i + klen <= bytes.len()
+            && &s[i..i + klen] == keyword
+            && (i == 0 || (bytes[i - 1] as char).is_whitespace())
+            && (i + klen == bytes.len() || (bytes[i + klen] as char).is_whitespace())
+        {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Split by `|` at the top level (not inside parens).
+fn split_top_level_pipes(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            '|' if depth == 0 => {
+                let p = s[start..i].trim();
+                if !p.is_empty() {
+                    parts.push(p);
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let tail = s[start..].trim();
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+    parts
 }
 
 /// Validate a parsed identifier: non-empty, starts with `_` or a letter,
@@ -473,6 +917,7 @@ mod tests {
             name: "Vertex".to_owned(),
             params: vec![],
             kind: SortKindSpec::Structural,
+            closed: None,
         };
         let sort = compile_sort(&spec, "Th")?;
         assert_eq!(&*sort.name, "Vertex");
@@ -571,6 +1016,7 @@ mod tests {
             inputs: Some(vec![crate::document::ParamSpec {
                 name: "x".to_owned(),
                 sort: "Ob".to_owned(),
+                implicit: false,
             }]),
             output: "Hom(x, x)".to_owned(),
         };
@@ -590,16 +1036,19 @@ mod tests {
         let spec = TheorySpec {
             theory: "ThTest".to_owned(),
             extends: vec![],
+            imports: vec![],
             sorts: vec![
                 SortSpec {
                     name: "Vertex".to_owned(),
                     params: vec![],
                     kind: SortKindSpec::Structural,
+                    closed: None,
                 },
                 SortSpec {
                     name: "Edge".to_owned(),
                     params: vec![],
                     kind: SortKindSpec::Structural,
+                    closed: None,
                 },
             ],
             ops: vec![OpSpec {

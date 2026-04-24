@@ -276,7 +276,7 @@ fn extend_op_tuples(
         new_terms.entry(output_fiber).or_default().push(term);
         return;
     }
-    let (param_name, declared_sort) = &op.inputs[slot];
+    let (param_name, declared_sort, _implicit) = &op.inputs[slot];
     let expected_fiber = declared_sort.subst(theta);
     let Some(candidates) = terms_by_fiber.get(&expected_fiber) else {
         return;
@@ -462,6 +462,18 @@ fn congruence_closure_pass(
 ///
 /// This must be used consistently for both carrier set values and
 /// operation results to ensure that `check_model` can match them.
+/// Check whether a term is built entirely from `Var` and `App` nodes.
+/// The free-model generator only produces App-only terms, so this
+/// invariant holds on every term that reaches `build_model`'s
+/// stringification path and makes `term_to_string` injective.
+fn is_app_only(term: &Term) -> bool {
+    match term {
+        Term::Var(_) => true,
+        Term::App { args, .. } => args.iter().all(is_app_only),
+        Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => false,
+    }
+}
+
 fn term_to_string(term: &Term) -> String {
     match term {
         Term::Var(name) => name.to_string(),
@@ -470,6 +482,40 @@ fn term_to_string(term: &Term) -> String {
             let arg_strs: Vec<String> = args.iter().map(term_to_string).collect();
             format!("{op}({})", arg_strs.join(", "))
         }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            let branch_strs: Vec<String> = branches
+                .iter()
+                .map(|b| {
+                    let binders = b
+                        .binders
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>();
+                    format!(
+                        "{}({}) => {}",
+                        b.constructor,
+                        binders.join(", "),
+                        term_to_string(&b.body)
+                    )
+                })
+                .collect();
+            format!(
+                "case {} of {} end",
+                term_to_string(scrutinee),
+                branch_strs.join(" | ")
+            )
+        }
+        Term::Hole { name } => name
+            .as_ref()
+            .map_or_else(|| "?".to_string(), |n| format!("?{n}")),
+        Term::Let { name, bound, body } => format!(
+            "let {name} = {} in {}",
+            term_to_string(bound),
+            term_to_string(body)
+        ),
     }
 }
 
@@ -481,24 +527,32 @@ fn build_model(
 ) -> Model {
     let mut model = Model::new(&*theory.name);
 
-    // Build a lookup table: term_string → representative_string.
-    // This ensures operation results land in the carrier set.
-    let mut term_string_to_rep: FxHashMap<String, String> = FxHashMap::default();
+    // String-keyed representative lookup. Safe because the free-model
+    // generator emits only `Term::App` nodes via `extend_op_tuples`;
+    // `term_to_string` is injective on App-only terms with App-only
+    // arguments, so stringification does not collide across terms.
+    // The debug assertion guards the invariant: every term seen here
+    // must be App-only (holes, case terms, and let bindings are
+    // produced by user input to the typechecker, never by the free
+    // model enumerator).
     let mut class_rep_string: FxHashMap<usize, String> = FxHashMap::default();
+    let mut string_to_rep: FxHashMap<String, String> = FxHashMap::default();
     for (sort, terms) in terms_by_sort {
         let indices = &term_to_global[sort];
         let mut seen_classes: FxHashSet<usize> = FxHashSet::default();
 
         for (i, term) in terms.iter().enumerate() {
+            debug_assert!(
+                is_app_only(term),
+                "free-model generator emitted a non-App term: {term:?}",
+            );
             let rep = uf.find(indices[i]);
-            let ts = term_to_string(term);
             if seen_classes.insert(rep) {
                 // First term in this class becomes the representative string.
-                class_rep_string.insert(rep, ts.clone());
+                class_rep_string.insert(rep, term_to_string(term));
             }
-            // Map every term string to its class representative string.
             let rep_str = class_rep_string[&rep].clone();
-            term_string_to_rep.insert(ts, rep_str);
+            string_to_rep.insert(term_to_string(term), rep_str);
         }
     }
 
@@ -519,7 +573,7 @@ fn build_model(
 
     // Build operation interpretations that map carrier → carrier.
     // The lookup table is shared via Arc for the closures.
-    let lookup = Arc::new(term_string_to_rep);
+    let lookup = Arc::new(string_to_rep);
 
     for op in &theory.ops {
         let op_name = op.name.to_string();
@@ -532,13 +586,21 @@ fn build_model(
                     args.len()
                 )));
             }
-            let arg_strs: Vec<&str> = args
-                .iter()
-                .map(|a| match a {
-                    ModelValue::Str(s) => s.as_str(),
-                    _ => "?",
-                })
-                .collect();
+            // Carrier values are always ModelValue::Str here because
+            // free_model emits string carriers via term_to_string. A
+            // non-string argument indicates a caller bug; surface it
+            // rather than silently rendering as "?".
+            let mut arg_strs: Vec<String> = Vec::with_capacity(args.len());
+            for (i, a) in args.iter().enumerate() {
+                match a {
+                    ModelValue::Str(s) => arg_strs.push(s.clone()),
+                    other => {
+                        return Err(GatError::ModelError(format!(
+                            "operation '{op_name}' received non-string argument at index {i}: {other:?}"
+                        )));
+                    }
+                }
+            }
             let result_str = format!("{op_name}({})", arg_strs.join(", "));
 
             // Look up the result in the term table. If found, return the

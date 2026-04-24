@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
-use super::{Anchor, StrategyTag, kinds_compatible};
+use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 
 /// Emit structural-match anchors at `Exploratory` tier.
 ///
@@ -57,7 +57,7 @@ pub fn structural_anchors(src: &Schema, tgt: &Schema, confidence_floor: f64) -> 
 
         let mut best: Option<(Name, f64)> = None;
         for tgt_id in tgt_ids.iter().copied() {
-            if !kinds_compatible(src, src_id, tgt, tgt_id) {
+            if !kinds_and_constraints_compatible(src, src_id, tgt, tgt_id) {
                 continue;
             }
             let Some(tgt_p) = tgt_profiles.get(tgt_id) else {
@@ -136,10 +136,9 @@ fn degree_similarity(a: usize, b: usize) -> f64 {
     }
     let max = a.max(b);
     let min = a.min(b);
-    #[allow(clippy::cast_precision_loss)]
-    {
-        min as f64 / max as f64
-    }
+    let max_f = f64::from(u32::try_from(max).unwrap_or(u32::MAX));
+    let min_f = f64::from(u32::try_from(min).unwrap_or(u32::MAX));
+    min_f / max_f
 }
 
 fn multiset_jaccard(a: &HashMap<String, usize>, b: &HashMap<String, usize>) -> f64 {
@@ -158,10 +157,9 @@ fn multiset_jaccard(a: &HashMap<String, usize>, b: &HashMap<String, usize>) -> f
     if union == 0 {
         1.0
     } else {
-        #[allow(clippy::cast_precision_loss)]
-        {
-            intersection as f64 / union as f64
-        }
+        let inter_f = f64::from(u32::try_from(intersection).unwrap_or(u32::MAX));
+        let union_f = f64::from(u32::try_from(union).unwrap_or(u32::MAX));
+        inter_f / union_f
     }
 }
 
@@ -386,7 +384,12 @@ mod tests {
             &[("r", "r.x", "prop", "x")],
         );
         for anchor in structural_anchors(&src, &tgt, 0.5) {
-            assert!(kinds_compatible(&src, &anchor.src, &tgt, &anchor.tgt));
+            assert!(super::super::kinds_compatible(
+                &src,
+                &anchor.src,
+                &tgt,
+                &anchor.tgt
+            ));
         }
     }
 

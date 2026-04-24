@@ -111,6 +111,7 @@ fn build_sorts(t1: &Theory, sort_triples: &[Triple]) -> Vec<Sort> {
                 name: Arc::clone(pb_name),
                 params: pb_params,
                 kind: s1.kind.clone(),
+                closure: crate::sort::SortClosure::Open,
             })
         })
         .collect()
@@ -147,7 +148,7 @@ fn pair_ops(
                 .inputs
                 .iter()
                 .zip(&op2.inputs)
-                .map(|((param, s1_sort), (_, s2_sort))| {
+                .map(|((param, s1_sort, _), (_, s2_sort, _))| {
                     sort_pair_map
                         .get(&(Arc::clone(s1_sort.head()), Arc::clone(s2_sort.head())))
                         .map(|pb| {

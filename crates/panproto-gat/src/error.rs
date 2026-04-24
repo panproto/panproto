@@ -268,6 +268,152 @@ pub enum GatError {
     CyclicSortDependency(Vec<String>),
 
     // --- Quotient errors ---
+    /// A case expression fails to cover every constructor of its
+    /// scrutinee's closed sort.
+    #[error("case on sort {sort} missing branches for: {missing:?}")]
+    NonExhaustiveCase {
+        /// The scrutinee's sort name.
+        sort: String,
+        /// Constructor names not covered.
+        missing: Vec<String>,
+    },
+
+    /// A case expression has two branches for the same constructor.
+    #[error("case on sort {sort} has a redundant branch for constructor {constructor}")]
+    RedundantCaseBranch {
+        /// The scrutinee's sort name.
+        sort: String,
+        /// The duplicated constructor name.
+        constructor: String,
+    },
+
+    /// A case branch names a constructor that is not in the scrutinee's
+    /// closed-sort constructor list.
+    #[error("case on sort {sort} references unknown constructor {constructor}")]
+    UnknownCaseConstructor {
+        /// The scrutinee's sort name.
+        sort: String,
+        /// The offending constructor name.
+        constructor: String,
+    },
+
+    /// A case expression's scrutinee has an open sort; pattern
+    /// matching requires a closed sort.
+    #[error("case scrutinee has open sort {sort}; pattern matching requires a closed sort")]
+    CaseOnOpenSort {
+        /// The scrutinee's sort name.
+        sort: String,
+    },
+
+    /// A closed sort's constructor list references an op that either
+    /// does not exist, does not produce this sort, or conflicts with
+    /// another op producing the sort.
+    #[error("closed sort {sort} has invalid constructor {constructor}: {detail}")]
+    InvalidClosedSortConstructor {
+        /// The closed sort name.
+        sort: String,
+        /// The offending constructor op name.
+        constructor: String,
+        /// Details about the problem.
+        detail: String,
+    },
+
+    /// A morphism does not preserve a domain sort's closure: the
+    /// image of the constructor list under the op map is not the
+    /// codomain sort's constructor list.
+    #[error(
+        "morphism fails closure preservation for sort {sort}: expected closure {expected:?}, got {got:?}"
+    )]
+    MorphismClosureMismatch {
+        /// The domain sort name.
+        sort: String,
+        /// Expected constructor set (domain closure image under `op_map`).
+        expected: Vec<String>,
+        /// Actual constructor set in the codomain sort.
+        got: Vec<String>,
+    },
+
+    /// An operation declares an implicit parameter whose value cannot
+    /// be recovered from the explicit inputs at a call site.
+    ///
+    /// An implicit parameter must occur as a `Term::Var` somewhere in
+    /// the sort expression of at least one explicit input or in the
+    /// output sort, so that first-order unification of the declared
+    /// input sorts against the call site's actual sorts pins down the
+    /// parameter's value. Implicit parameters that do not appear in
+    /// such a position are rejected at theory-declaration time.
+    #[error(
+        "operation {op} declares implicit parameter {param} that does not occur in any explicit input sort or the output sort"
+    )]
+    NonInferrableImplicit {
+        /// The operation name.
+        op: String,
+        /// The implicit parameter name.
+        param: String,
+    },
+
+    /// An instance-style binding names a key that is neither a sort
+    /// parameter nor an operation of the class theory. Produced by the
+    /// `instance!` proc-macro when validating its bindings.
+    #[error(
+        "instance {instance} binds unknown name {name} which is neither a sort nor an op of class {class}"
+    )]
+    InstanceBindingUnknown {
+        /// The instance name.
+        instance: String,
+        /// The class theory name.
+        class: String,
+        /// The offending binding key.
+        name: String,
+    },
+
+    /// An instance-style declaration passes more type arguments than the
+    /// class theory has sort parameters.
+    #[error(
+        "instance {instance} passes {passed} type arguments to class {class} which declares {declared} sort(s)"
+    )]
+    InstanceTypeArgsArity {
+        /// The instance name.
+        instance: String,
+        /// The class theory name.
+        class: String,
+        /// Number of type arguments passed.
+        passed: usize,
+        /// Number of sort parameters declared by the class.
+        declared: usize,
+    },
+
+    /// A rewrite position is invalid: the path descends through a term
+    /// variant that does not have the requested child index.
+    #[error("invalid rewrite position {path:?}: node is {node_kind}")]
+    InvalidRewritePosition {
+        /// The path that was requested.
+        path: Vec<usize>,
+        /// The kind of node that could not be descended into.
+        node_kind: &'static str,
+    },
+
+    /// An equation (or directed equation) contains one or more typed
+    /// holes on its LHS or RHS. Holes are only meaningful inside terms
+    /// being typechecked for completion, not in equations that must
+    /// hold in every model.
+    #[error("equation {equation} contains {count} hole(s); holes are not permitted in equations")]
+    HolesInEquation {
+        /// The equation name.
+        equation: String,
+        /// The number of holes encountered across both sides.
+        count: usize,
+    },
+
+    /// An LPO termination check encountered a rewrite rule that contains
+    /// a hole on one of its sides. Holes in rewrite rules are not
+    /// meaningful for LPO comparison.
+    #[error("LPO: rule {rule} contains a hole; holes are not comparable under LPO")]
+    LpoHoleInRule {
+        /// The offending rule name.
+        rule: String,
+    },
+
     /// Identified elements are incompatible for quotienting.
     #[error("cannot identify {name_a} and {name_b}: {detail}")]
     QuotientIncompatible {

@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 /// A term in a GAT expression.
 ///
-/// Terms are built from variables and operation applications.
-/// They form the language in which equations are expressed.
-///
+/// Terms are built from variables, operation applications, and case
+/// analyses on closed-sort scrutinees. The `Case` variant is
+/// exhaustiveness-checked at `typecheck_term` time; the scrutinee's
+/// head sort must carry [`crate::sort::SortClosure::Closed`] with a
+/// complete list of constructors.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Term {
     /// A variable reference (e.g., `x`, `a`).
@@ -16,6 +18,59 @@ pub enum Term {
         /// The argument terms.
         args: Vec<Self>,
     },
+    /// A case analysis on a closed-sort scrutinee.
+    ///
+    /// Every branch binds one name per argument of its constructor.
+    /// Typechecking verifies exhaustiveness (every constructor listed
+    /// in the scrutinee's closure appears exactly once) and that all
+    /// branch bodies produce the same output sort.
+    Case {
+        /// The term being case-analysed.
+        scrutinee: Box<Self>,
+        /// One branch per constructor of the scrutinee's closed sort.
+        branches: Vec<CaseBranch>,
+    },
+    /// A typed hole: a placeholder with an optional name. Typechecking
+    /// assigns a fresh metavariable sort and records a [`crate::typecheck::HoleReport`]
+    /// so callers can inspect the expected sort at each hole site.
+    Hole {
+        /// Optional name for the hole (e.g. `?foo`); `None` for an
+        /// anonymous `?`.
+        name: Option<Arc<str>>,
+    },
+    /// A local `let`-binding: `let name = bound in body`.
+    ///
+    /// GAT signatures are first-order and their sorts have no free
+    /// sort-metavariables; there is nothing to generalize over. The
+    /// bound term's inferred sort is therefore bound monomorphically
+    /// into the context when typechecking the body. The
+    /// [`crate::typecheck::SortScheme`] type is retained for future
+    /// extension, but `typecheck_term` currently always produces a
+    /// scheme with an empty `metavars` list at a Let site.
+    Let {
+        /// Bound name.
+        name: Arc<str>,
+        /// The bound term.
+        bound: Box<Self>,
+        /// The body in which `name` is in scope.
+        body: Box<Self>,
+    },
+}
+
+/// One branch of a [`Term::Case`] expression.
+///
+/// The `constructor` field must be an op whose output head matches the
+/// scrutinee's sort; `binders` supplies one local name per input of
+/// that op. The body typechecks in an extended context that binds
+/// each binder to the corresponding input sort.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct CaseBranch {
+    /// Constructor op name.
+    pub constructor: Arc<str>,
+    /// Local binders; one per input of `constructor`.
+    pub binders: Vec<Arc<str>>,
+    /// The branch body.
+    pub body: Term,
 }
 
 impl Term {
@@ -44,14 +99,93 @@ impl Term {
     }
 
     /// Apply a substitution (variable name → term) to this term.
+    ///
+    /// Under [`Self::Case`], branch binders shadow the outer scope: a
+    /// binding in `subst` for a name that a branch also binds is
+    /// dropped from the substitution when descending into that
+    /// branch's body. Variables inside the scrutinee are always
+    /// substituted (the scrutinee is in the outer scope).
     #[must_use]
     pub fn substitute(&self, subst: &rustc_hash::FxHashMap<Arc<str>, Self>) -> Self {
         match self {
             Self::Var(name) => subst.get(name).cloned().unwrap_or_else(|| self.clone()),
+            Self::Hole { .. } => self.clone(),
             Self::App { op, args } => Self::App {
                 op: Arc::clone(op),
                 args: args.iter().map(|a| a.substitute(subst)).collect(),
             },
+            Self::Case {
+                scrutinee,
+                branches,
+            } => {
+                let new_scrutinee = Box::new(scrutinee.substitute(subst));
+                let new_branches = branches
+                    .iter()
+                    .map(|b| {
+                        let mut inner = subst.clone();
+                        for binder in &b.binders {
+                            inner.remove(binder);
+                        }
+                        CaseBranch {
+                            constructor: Arc::clone(&b.constructor),
+                            binders: b.binders.clone(),
+                            body: b.body.substitute(&inner),
+                        }
+                    })
+                    .collect();
+                Self::Case {
+                    scrutinee: new_scrutinee,
+                    branches: new_branches,
+                }
+            }
+            Self::Let { name, bound, body } => {
+                let new_bound = Box::new(bound.substitute(subst));
+                let mut inner = subst.clone();
+                inner.remove(name);
+                // Capture avoidance: if any term in `inner` (restricted
+                // to vars that are free in `body`) has `name` as a free
+                // variable, alpha-rename the binder to a fresh name.
+                let body_free = body.free_vars();
+                let mut captures = false;
+                let mut taken: rustc_hash::FxHashSet<Arc<str>> = rustc_hash::FxHashSet::default();
+                for (k, v) in &inner {
+                    if body_free.contains(k) {
+                        let fv = v.free_vars();
+                        if fv.contains(name) {
+                            captures = true;
+                        }
+                        for n in fv {
+                            taken.insert(n);
+                        }
+                    }
+                }
+                if captures {
+                    // Choose a fresh name disjoint from `taken`, from
+                    // free vars of body, and from the old name.
+                    let mut fresh = format!("{name}'");
+                    while taken.contains::<str>(fresh.as_str())
+                        || body_free.contains::<str>(fresh.as_str())
+                        || &*fresh == name.as_ref()
+                    {
+                        fresh.push('\'');
+                    }
+                    let fresh_name: Arc<str> = Arc::from(fresh);
+                    let mut rename = rustc_hash::FxHashMap::default();
+                    rename.insert(Arc::clone(name), Self::Var(Arc::clone(&fresh_name)));
+                    let renamed_body = body.substitute(&rename);
+                    Self::Let {
+                        name: fresh_name,
+                        bound: new_bound,
+                        body: Box::new(renamed_body.substitute(&inner)),
+                    }
+                } else {
+                    Self::Let {
+                        name: Arc::clone(name),
+                        bound: new_bound,
+                        body: Box::new(body.substitute(&inner)),
+                    }
+                }
+            }
         }
     }
 
@@ -68,22 +202,73 @@ impl Term {
             Self::Var(name) => {
                 vars.insert(Arc::clone(name));
             }
+            Self::Hole { .. } => {}
             Self::App { args, .. } => {
                 for arg in args {
                     arg.collect_vars(vars);
                 }
             }
+            Self::Case {
+                scrutinee,
+                branches,
+            } => {
+                scrutinee.collect_vars(vars);
+                for b in branches {
+                    // Branch binders shadow outer names inside the
+                    // body; compute the body's free vars locally and
+                    // subtract the binders before merging.
+                    let mut local = rustc_hash::FxHashSet::default();
+                    b.body.collect_vars(&mut local);
+                    for binder in &b.binders {
+                        local.remove(binder);
+                    }
+                    vars.extend(local);
+                }
+            }
+            Self::Let { name, bound, body } => {
+                bound.collect_vars(vars);
+                let mut local = rustc_hash::FxHashSet::default();
+                body.collect_vars(&mut local);
+                local.remove(name);
+                vars.extend(local);
+            }
         }
     }
 
     /// Apply an operation renaming to this term.
+    ///
+    /// A [`Self::Case`] branch's constructor op is also renamed via
+    /// `op_map`; branch binders and the scrutinee term are recursed
+    /// into.
     #[must_use]
     pub fn rename_ops(&self, op_map: &std::collections::HashMap<Arc<str>, Arc<str>>) -> Self {
         match self {
-            Self::Var(_) => self.clone(),
+            Self::Var(_) | Self::Hole { .. } => self.clone(),
             Self::App { op, args } => Self::App {
                 op: op_map.get(op).cloned().unwrap_or_else(|| Arc::clone(op)),
                 args: args.iter().map(|a| a.rename_ops(op_map)).collect(),
+            },
+            Self::Case {
+                scrutinee,
+                branches,
+            } => Self::Case {
+                scrutinee: Box::new(scrutinee.rename_ops(op_map)),
+                branches: branches
+                    .iter()
+                    .map(|b| CaseBranch {
+                        constructor: op_map
+                            .get(&b.constructor)
+                            .cloned()
+                            .unwrap_or_else(|| Arc::clone(&b.constructor)),
+                        binders: b.binders.clone(),
+                        body: b.body.rename_ops(op_map),
+                    })
+                    .collect(),
+            },
+            Self::Let { name, bound, body } => Self::Let {
+                name: Arc::clone(name),
+                bound: Box::new(bound.rename_ops(op_map)),
+                body: Box::new(body.rename_ops(op_map)),
             },
         }
     }
@@ -232,21 +417,7 @@ struct AlphaChecker {
 impl AlphaChecker {
     fn check(&mut self, t1: &Term, t2: &Term) -> bool {
         match (t1, t2) {
-            (Term::Var(a), Term::Var(b)) => {
-                if let Some(mapped) = self.forward.get(a) {
-                    if mapped != b {
-                        return false;
-                    }
-                } else if let Some(mapped_back) = self.backward.get(b) {
-                    if mapped_back != a {
-                        return false;
-                    }
-                } else {
-                    self.forward.insert(Arc::clone(a), Arc::clone(b));
-                    self.backward.insert(Arc::clone(b), Arc::clone(a));
-                }
-                true
-            }
+            (Term::Var(a), Term::Var(b)) => self.check_vars(a, b),
             (
                 Term::App {
                     op: op1,
@@ -264,8 +435,107 @@ impl AlphaChecker {
                         .zip(args2.iter())
                         .all(|(a1, a2)| self.check(a1, a2))
             }
-            _ => false,
+            (
+                Term::Case {
+                    scrutinee: s1,
+                    branches: b1,
+                },
+                Term::Case {
+                    scrutinee: s2,
+                    branches: b2,
+                },
+            ) => {
+                if !self.check(s1, s2) {
+                    return false;
+                }
+                if b1.len() != b2.len() {
+                    return false;
+                }
+                for (br1, br2) in b1.iter().zip(b2.iter()) {
+                    if br1.constructor != br2.constructor || br1.binders.len() != br2.binders.len()
+                    {
+                        return false;
+                    }
+                    // Extend bijection with branch binders, check body,
+                    // then roll back.
+                    let saved_forward = self.forward.clone();
+                    let saved_backward = self.backward.clone();
+                    let mut ok = true;
+                    for (a, b) in br1.binders.iter().zip(br2.binders.iter()) {
+                        self.forward.insert(Arc::clone(a), Arc::clone(b));
+                        self.backward.insert(Arc::clone(b), Arc::clone(a));
+                    }
+                    if !self.check(&br1.body, &br2.body) {
+                        ok = false;
+                    }
+                    self.forward = saved_forward;
+                    self.backward = saved_backward;
+                    if !ok {
+                        return false;
+                    }
+                }
+                true
+            }
+            (Term::Hole { name: n1 }, Term::Hole { name: n2 }) => n1 == n2,
+            (
+                Term::Let {
+                    name: n1,
+                    bound: b1,
+                    body: body1,
+                },
+                Term::Let {
+                    name: n2,
+                    bound: b2,
+                    body: body2,
+                },
+            ) => self.check_let(n1, b1, body1, n2, b2, body2),
+            (
+                Term::Var(_)
+                | Term::App { .. }
+                | Term::Case { .. }
+                | Term::Hole { .. }
+                | Term::Let { .. },
+                _,
+            ) => false,
         }
+    }
+
+    fn check_vars(&mut self, a: &Arc<str>, b: &Arc<str>) -> bool {
+        if let Some(mapped) = self.forward.get(a) {
+            if mapped != b {
+                return false;
+            }
+        } else if let Some(mapped_back) = self.backward.get(b) {
+            if mapped_back != a {
+                return false;
+            }
+        } else {
+            self.forward.insert(Arc::clone(a), Arc::clone(b));
+            self.backward.insert(Arc::clone(b), Arc::clone(a));
+        }
+        true
+    }
+
+    fn check_let(
+        &mut self,
+        n1: &Arc<str>,
+        b1: &Term,
+        body1: &Term,
+        n2: &Arc<str>,
+        b2: &Term,
+        body2: &Term,
+    ) -> bool {
+        if !self.check(b1, b2) {
+            return false;
+        }
+        let saved_forward = self.forward.clone();
+        let saved_backward = self.backward.clone();
+        self.forward.insert(Arc::clone(n1), Arc::clone(n2));
+        self.backward.insert(Arc::clone(n2), Arc::clone(n1));
+        let ok = self.check(body1, body2);
+        self.forward = saved_forward;
+        self.backward = saved_backward;
+        ok
     }
 }
 
@@ -315,7 +585,65 @@ fn match_pattern_inner(
                         .zip(t_args.iter())
                         .all(|(p, t)| match_pattern_inner(p, t, subst))
             }
-            Term::Var(_) => false,
+            Term::Var(_) | Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => false,
+        },
+        Term::Case {
+            scrutinee: p_s,
+            branches: p_b,
+        } => match term {
+            Term::Case {
+                scrutinee: t_s,
+                branches: t_b,
+            } => {
+                if p_b.len() != t_b.len() || !match_pattern_inner(p_s, t_s, subst) {
+                    return false;
+                }
+                for (pb, tb) in p_b.iter().zip(t_b.iter()) {
+                    if pb.constructor != tb.constructor || pb.binders.len() != tb.binders.len() {
+                        return false;
+                    }
+                    // Save the subst, extend it with positional binder
+                    // renamings p_binders[i] := Var(t_binders[i]), match
+                    // the branch body, then restore the outer subst.
+                    // Binder names are branch-local and must not leak.
+                    let saved = subst.clone();
+                    for (pb_b, tb_b) in pb.binders.iter().zip(tb.binders.iter()) {
+                        subst.insert(Arc::clone(pb_b), Term::Var(Arc::clone(tb_b)));
+                    }
+                    let ok = match_pattern_inner(&pb.body, &tb.body, subst);
+                    *subst = saved;
+                    if !ok {
+                        return false;
+                    }
+                }
+                true
+            }
+            Term::Var(_) | Term::App { .. } | Term::Hole { .. } | Term::Let { .. } => false,
+        },
+        Term::Hole { name } => match term {
+            Term::Hole { name: n2 } => name == n2,
+            Term::Var(_) | Term::App { .. } | Term::Case { .. } | Term::Let { .. } => false,
+        },
+        Term::Let {
+            name: p_n,
+            bound: p_b,
+            body: p_body,
+        } => match term {
+            Term::Let {
+                name: t_n,
+                bound: t_b,
+                body: t_body,
+            } => {
+                if !match_pattern_inner(p_b, t_b, subst) {
+                    return false;
+                }
+                let saved = subst.clone();
+                subst.insert(Arc::clone(p_n), Term::Var(Arc::clone(t_n)));
+                let ok = match_pattern_inner(p_body, t_body, subst);
+                *subst = saved;
+                ok
+            }
+            Term::Var(_) | Term::App { .. } | Term::Case { .. } | Term::Hole { .. } => false,
         },
     }
 }
@@ -351,7 +679,16 @@ fn normalize_once(
 
     // Innermost first: normalize subterms before trying root.
     let normalized_subterms = match term {
-        Term::Var(_) => term.clone(),
+        Term::Var(_) | Term::Hole { .. } => term.clone(),
+        Term::Let { name, bound, body } => {
+            let new_bound = normalize_once(bound, directed_eqs, steps, max_steps);
+            // Substitute the normalized bound into the body and
+            // continue normalization.
+            let mut subst = rustc_hash::FxHashMap::default();
+            subst.insert(Arc::clone(name), new_bound);
+            let substituted = body.substitute(&subst);
+            return normalize_once(&substituted, directed_eqs, steps, max_steps);
+        }
         Term::App { op, args } => {
             let new_args: Vec<Term> = args
                 .iter()
@@ -360,6 +697,40 @@ fn normalize_once(
             Term::App {
                 op: Arc::clone(op),
                 args: new_args,
+            }
+        }
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            let new_scrut = Box::new(normalize_once(scrutinee, directed_eqs, steps, max_steps));
+            // If the normalized scrutinee is a fully-applied
+            // constructor matching one of the branches, contract the
+            // case to that branch with its binders substituted by the
+            // constructor's argument terms.
+            if let Term::App { op, args } = new_scrut.as_ref() {
+                if let Some(branch) = branches.iter().find(|b| &b.constructor == op) {
+                    if branch.binders.len() == args.len() {
+                        let mut subst = rustc_hash::FxHashMap::default();
+                        for (binder, arg) in branch.binders.iter().zip(args.iter()) {
+                            subst.insert(Arc::clone(binder), arg.clone());
+                        }
+                        let body = branch.body.substitute(&subst);
+                        return normalize_once(&body, directed_eqs, steps, max_steps);
+                    }
+                }
+            }
+            let new_branches = branches
+                .iter()
+                .map(|b| CaseBranch {
+                    constructor: Arc::clone(&b.constructor),
+                    binders: b.binders.clone(),
+                    body: normalize_once(&b.body, directed_eqs, steps, max_steps),
+                })
+                .collect();
+            Term::Case {
+                scrutinee: new_scrut,
+                branches: new_branches,
             }
         }
     };
@@ -878,6 +1249,42 @@ mod tests {
             ) {
                 // reflexivity + transitivity via chain t ~ t ~ t.
                 prop_assert!(alpha_equivalent(&t, &t));
+            }
+
+            #[test]
+            fn let_substitute_does_not_capture(
+                _dummy in arb_name(),
+            ) {
+                // let x = a in f(x, y): substitute y := g(x).
+                // Naive substitution would capture the x bound by the
+                // let; capture-avoiding substitution renames the let's
+                // binder.
+                let body = Term::app("f", vec![Term::Var(Arc::from("x")), Term::Var(Arc::from("y"))]);
+                let t = Term::Let {
+                    name: Arc::from("x"),
+                    bound: Box::new(Term::constant("a")),
+                    body: Box::new(body),
+                };
+                let mut subst = rustc_hash::FxHashMap::default();
+                subst.insert(
+                    Arc::from("y"),
+                    Term::app("g", vec![Term::Var(Arc::from("x"))]),
+                );
+                let result = t.substitute(&subst);
+                if let Term::Let { name, body, .. } = result {
+                    // The outer free `x` (inside g(x)) must not be
+                    // captured by the let binder: the binder must be
+                    // alpha-renamed away from `x`.
+                    prop_assert_ne!(&*name, "x");
+                    if let Term::App { args, .. } = *body {
+                        let is_g = matches!(&args[1], Term::App { op, .. } if &**op == "g");
+                        prop_assert!(is_g);
+                    } else {
+                        prop_assert!(false, "expected App body");
+                    }
+                } else {
+                    prop_assert!(false, "expected Let result");
+                }
             }
 
             #[test]

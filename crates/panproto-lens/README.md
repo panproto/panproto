@@ -47,6 +47,10 @@ let lens_v3 = result.chain.instantiate(&v3_src, &v3_tgt)?;
 | `Protolens` | A reusable lens template parameterized by schema |
 | `ProtolensChain` | A sequence of protolenses that composes as a single unit |
 | `auto_generate` | Derive a `ProtolensChain` and `Lens` from two schemas |
+| `auto_generate_candidates` | Return a ranked list of candidate protolens chains with per-step confidence and provenance |
+| `Stringency` | Alignment tier: `Strict`, `Balanced`, `Lenient`, `Exploratory`; `uses_*` methods expose per-strategy participation |
+| `AutoLensConfig` / `HintSpec` | Configuration for auto-lens generation, carrying a `Stringency` tier and optional hints |
+| `run_strategies_for_tests` | Test-only entry point that runs the configured alignment strategies without going through the full candidate pipeline |
 | `combinators::rename_field` | Rename a field's property key (Iso) |
 | `combinators::remove_field` | Drop a field, capturing it in the complement (Lens) |
 | `combinators::add_field` | Add a field with a default value (Lens) |

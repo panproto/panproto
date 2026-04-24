@@ -45,6 +45,30 @@ Concretely, applying `app` to a well-chosen argument tuple reduces to a substitu
 
 The integration test at `tests/integration/tests/stlc_gat.rs` exercises exactly this flow, end to end, including the $\beta$ equation and a deliberate ill-typed rejection.
 
+## Implicit type arguments
+
+The signature listed above is the canonical one, and it is the signature the typechecker accepts. It is also awkward to write at a use site. A working developer wants `app(f, x)`, not `app(G, A, B, f, x)`: the three context-and-type arguments are recoverable from the sorts of `f` and `x` by unification, and asking the user to spell them out is redundant.
+
+The 0.37 release added an `Implicit::Yes` tag on each operation input, which marks a parameter as recoverable at the call site rather than supplied explicitly. The STLC fixture marks `G`, `A`, `B` implicit on `lam`, `app`, and `subst`, and the signatures now read
+
+```text
+lam      : (G, A, B {implicit}, body : Tm(extend(G, A), B)) -> Tm(G, arrow(A, B))
+app      : (G, A, B {implicit}, f : Tm(G, arrow(A, B)), x : Tm(G, A)) -> Tm(G, B)
+subst    : (G, A, B {implicit}, body : Tm(extend(G, A), B), x : Tm(G, A)) -> Tm(G, B)
+```
+
+with an associated convention that the three implicit positions are filled by unifying the explicit argument sorts against the declared input sorts. A call `app(f, x)` typechecks by solving $\mathrm{Tm}(\Gamma, \mathrm{arrow}(A, B))$ for $\Gamma$, $A$, $B$ given `f`'s sort and $\mathrm{Tm}(\Gamma, A)$ for the same three given `x`'s sort; the two solutions agree, the implicit inputs are bound, and the output sort $\mathrm{Tm}(\Gamma, B)$ is returned. The original five-argument spelling is still legal, which matters for backward compatibility: every theory that passed 0.36 continues to pass 0.37 without edits.
+
+The mechanism is not specific to STLC. Any operation whose early inputs are determined by the sorts of its later inputs is a candidate for implicit tagging, and the typical signature in a protocol theory has at least one such input. The reward is that the worked examples of Part IV now look the way the working developer would write them rather than the way the theory demands them.
+
+## Closed sorts and total case analysis
+
+STLC has no closed sort in the 0.37 sense, because its type sort $\mathsf{Ty}$ is open: a theory author can always extend the set of types by declaring a new `ty_` operation. Protocol theories of practical interest, however, often do pick a fixed constructor list up front. A protocol that emits Stan programs from a statistical schema, for instance, carries a sort $\mathsf{Distr}$ whose inhabitants are exactly the Stan distribution primitives ($\mathrm{normal}$, $\mathrm{beta}$, $\mathrm{gamma}$, and the remaining few dozen), and that list does not grow.
+
+Before 0.37 the emitter for such a protocol had to be a partial function: given a `Distr` it pattern-matched on the head name and fell through to an `unreachable!` clause the engine could not prove was never taken. With closed sorts and `Term::Case`, the same emitter is a total case expression. The sort declaration carries a `SortClosure::Closed(vec!["normal", "beta", "gamma", ...])`, the emitter is a `Case` whose branches cover exactly that list, and the typechecker verifies coverage at the declaration site rather than deferring the obligation to runtime. The `unreachable!` is gone and the engine can prove it was never needed.
+
+The feature generalises. Any protocol whose theory picks a fixed constructor list for some sort — the SQL type system's primitives, the Avro primitive-type set, the ATProto lexicon primitive list — is now expressible as a closed sort, and any transform that dispatches on that sort is now a total `Case` rather than a string-keyed lookup table. [How panproto-gat represents dependent sorts](../foundations/gats.md#pattern-matching-on-closed-sorts) states the typechecker conditions; this chapter's purpose is to say that the feature applies to the protocols in Part IV and not only to the small inductive types.
+
 ## Why this encoding sidesteps capture-avoiding substitution
 
 The textbook concern with encoding $\lambda$-calculus as an algebraic theory is that naive substitution captures free variables: substituting a term with a free `x` into a context that already binds `x` silently changes the term's meaning. The usual remedies are de Bruijn indices, nominal sets, higher-order abstract syntax, or ad-hoc freshness side conditions. Each remedy has its own costs and complexities.

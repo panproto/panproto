@@ -1,0 +1,31 @@
+{
+  "id": "dev.panproto.th_eq_class",
+  "description": "The equality typeclass as a panproto class document.",
+  "class": "ThEq",
+  "params": ["A", "Bool"],
+  "signatures": [
+    {
+      "name": "eq",
+      "inputs": [
+        { "name": "x", "sort": "A" },
+        { "name": "y", "sort": "A" }
+      ],
+      "output": "Bool"
+    },
+    {
+      "name": "neq",
+      "inputs": [
+        { "name": "x", "sort": "A" },
+        { "name": "y", "sort": "A" }
+      ],
+      "output": "Bool"
+    }
+  ],
+  "axioms": [
+    {
+      "name": "sym",
+      "lhs": "eq(x, y)",
+      "rhs": "eq(y, x)"
+    }
+  ]
+}

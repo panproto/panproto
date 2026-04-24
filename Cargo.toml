@@ -26,6 +26,8 @@ members = [
     "crates/panproto-jit",
     "crates/panproto-lens-dsl",
     "crates/panproto-theory-dsl",
+    "crates/panproto-gat-macros",
+    "crates/panproto-repl",
     "tests/integration",
 ]
 
@@ -87,6 +89,7 @@ tree-sitter-tags = "0.25"
 
 # Workspace crates
 panproto-gat = { version = "0.36.0", path = "crates/panproto-gat" }
+panproto-gat-macros = { version = "0.36.0", path = "crates/panproto-gat-macros" }
 panproto-schema = { version = "0.36.0", path = "crates/panproto-schema" }
 panproto-inst = { version = "0.36.0", path = "crates/panproto-inst" }
 panproto-mig = { version = "0.36.0", path = "crates/panproto-mig" }

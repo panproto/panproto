@@ -40,6 +40,91 @@ pub enum TheoryBody {
     Protocol(Box<ProtocolSpec>),
     /// Bundle: multiple theories, morphisms, and compositions in one file.
     Bundle(Box<BundleSpec>),
+    /// Typeclass-style class declaration. Compiles to a theory whose sorts
+    /// are the listed `params` and whose operations are the `signatures`.
+    Class(ClassSpec),
+    /// Typeclass-style instance declaration. Compiles to a theory morphism
+    /// from the class theory to the target theory.
+    Instance(InstanceSpec),
+    /// Inductive-type declaration. Compiles to a theory with one closed
+    /// sort and one constructor op per entry.
+    Inductive(InductiveSpec),
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// InductiveSpec
+// ═══════════════════════════════════════════════════════════════════
+
+/// Concise inductive-type declaration. Expands to a theory with one
+/// closed sort (whose constructor list is `constructors.map(|c| c.name)`)
+/// and one operation per constructor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InductiveSpec {
+    /// Sort name to introduce.
+    pub inductive: String,
+    /// Optional description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Parameters of the inductive type (for dependent inductive types
+    /// like `List<A>`). Each parameter becomes both a sort parameter of
+    /// the inductive sort and an argument position on every constructor
+    /// whose output sort is the inductive applied to these parameters.
+    #[serde(default)]
+    pub params: Vec<ParamSpec>,
+    /// Constructor declarations.
+    pub constructors: Vec<ConstructorSpec>,
+}
+
+/// One constructor of an [`InductiveSpec`]. The output sort is implicit:
+/// it is the inductive sort applied to the surrounding spec's `params`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstructorSpec {
+    /// Constructor op name.
+    pub name: String,
+    /// Constructor inputs. May reference the inductive type itself
+    /// (for recursive constructors like `succ`).
+    #[serde(default)]
+    pub inputs: Vec<ParamSpec>,
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ClassSpec and InstanceSpec
+// ═══════════════════════════════════════════════════════════════════
+
+/// Typeclass-style class declaration: a theory whose sorts are the named
+/// parameters and whose operations are the listed signatures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassSpec {
+    /// Class name, used as the theory name.
+    pub class: String,
+    /// Sort parameter names (e.g. `["A"]`). Each becomes a simple
+    /// structural sort in the compiled theory.
+    pub params: Vec<String>,
+    /// Operation signatures declared by the class.
+    pub signatures: Vec<OpSpec>,
+    /// Equational axioms over the class operations.
+    #[serde(default)]
+    pub axioms: Vec<EquationSpec>,
+}
+
+/// Typeclass-style instance declaration.
+///
+/// An instance desugars to a theory morphism from the class theory to the
+/// target theory. The `bindings` map carries both sort-to-sort entries
+/// (for each class `param`) and op-to-op entries (for each class
+/// signature).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstanceSpec {
+    /// Instance name.
+    pub instance: String,
+    /// The class theory name (morphism domain).
+    pub class: String,
+    /// The target theory name (morphism codomain).
+    pub target: String,
+    /// Name bindings from class-side names to target-side names. Entries
+    /// whose domain key is one of the class's sort params become the
+    /// `sort_map`; remaining entries become the `op_map`.
+    pub bindings: HashMap<String, String>,
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -54,6 +139,9 @@ pub struct TheorySpec {
     /// Parent theories this theory extends.
     #[serde(default)]
     pub extends: Vec<String>,
+    /// Imports from other theories, optionally namespaced.
+    #[serde(default)]
+    pub imports: Vec<ImportSpec>,
     /// Sort declarations.
     #[serde(default)]
     pub sorts: Vec<SortSpec>,
@@ -71,6 +159,26 @@ pub struct TheorySpec {
     pub policies: Vec<PolicySpec>,
 }
 
+/// Import directive: pull sorts and ops from another theory into this
+/// theory's namespace.
+///
+/// The compiler treats each import as a pushout along the identity
+/// morphism from the imported theory, renaming public symbols according
+/// to `alias` and `expose`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportSpec {
+    /// The imported theory's name, as understood by the resolver.
+    pub from: String,
+    /// Optional namespace alias. When present, imported symbols are
+    /// referred to as `Alias.Name` in this theory's sort/op expressions.
+    #[serde(default)]
+    pub alias: Option<String>,
+    /// Names to expose without any alias prefix; each listed symbol can
+    /// be referenced as the bare name in this theory.
+    #[serde(default)]
+    pub expose: Vec<String>,
+}
+
 /// Sort declaration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SortSpec {
@@ -82,6 +190,10 @@ pub struct SortSpec {
     /// Sort kind (defaults to structural).
     #[serde(default = "default_structural")]
     pub kind: SortKindSpec,
+    /// Closure: `None` means open; `Some(constructors)` declares the
+    /// sort closed against those constructor op names.
+    #[serde(default)]
+    pub closed: Option<Vec<String>>,
 }
 
 /// Named parameter for dependent sorts and operations.
@@ -91,6 +203,10 @@ pub struct ParamSpec {
     pub name: String,
     /// Sort this parameter ranges over.
     pub sort: String,
+    /// Whether this parameter is implicit (inferred at call sites by
+    /// unification against explicit arguments). Defaults to `false`.
+    #[serde(default)]
+    pub implicit: bool,
 }
 
 /// Sort kind classification.

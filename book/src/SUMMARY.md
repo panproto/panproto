@@ -14,11 +14,13 @@
 - [Universal properties](foundations/universal-properties.md)
 - [Colimits and pushouts](foundations/colimits.md)
 - [Algebraic and generalized algebraic theories](foundations/gats.md)
+- [Rewriting, confluence, and termination](foundations/rewriting.md)
 
 # Core constructions
 
 - [Protocols as theories, schemas as instances](core/schemas-as-instances.md)
 - [Dependent sorts in practice](core/dependent-sorts.md)
+- [Typeclasses as theory morphisms](core/typeclasses.md)
 - [Theory morphisms and instance migration](core/morphisms-and-migration.md)
 - [The restrict/lift pipeline](core/restrict-lift.md)
 - [Bidirectional lenses](core/lenses.md)

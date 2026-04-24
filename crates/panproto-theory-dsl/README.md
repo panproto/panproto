@@ -49,13 +49,19 @@ A minimal JSON spec for a theory looks like:
 | `load` | Load a `.ncl`, `.json`, `.yaml`, or `.yml` file into a `TheoryDocument` |
 | `load_dir` | Load all spec files from a directory, returning successes and per-file errors separately |
 | `compile` | Compile a `TheoryDocument` to a `CompiledTheorySet` via a resolver callback |
+| `compile_with_source` | Compile with the original source text retained so errors carry miette source-span diagnostics |
 | `load_and_compile` | Load and compile in one call |
 | `compile_bundle` | Compile a `BundleSpec` in dependency order |
 | `builtin_resolver` | Resolver for panproto's 11 built-in theories (ThGraph, ThConstraint, etc.) |
 | `TheoryDocument` | Deserialized spec with `id`, `description`, and one body variant |
-| `TheoryBody` | The body: `theory`, `morphism`, `compose`, `protocol`, or `bundle` |
+| `TheoryBody` | The body: `theory`, `morphism`, `compose`, `protocol`, `bundle`, `class`, `instance`, or `inductive` |
+| `TheorySpec` | The body of a `theory` document; carries sorts, ops, equations, policies, and imports |
+| `ClassSpec` | Typeclass-style class document: compiles to a theory whose sorts are the class's type parameters and whose ops are its signatures |
+| `InstanceSpec` | Typeclass-style instance document: compiles to a theory morphism from the class theory to the target theory |
+| `InductiveSpec` | Inductive-type shorthand: compiles to a theory with one closed sort and one constructor op per entry |
+| `ImportSpec` | Declares that the enclosing theory imports named sorts and ops from another theory under an optional namespace prefix |
 | `CompiledTheorySet` | Output: theories, morphisms, protocols, and composition specs |
-| `TheoryDslError` | Diagnostics for eval failures, term parse errors, morphism validation |
+| `TheoryDslError` | Diagnostics for eval failures, term parse errors, morphism validation; includes `TypeCheckSpanned` (miette source-span-aware), `UnknownValueKind`, `UnknownCoercionClass` |
 | `LoadDirResult` | Holds both successfully loaded documents and per-file errors |
 
 ## License
