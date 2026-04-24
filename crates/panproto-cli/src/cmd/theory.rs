@@ -136,7 +136,11 @@ pub fn cmd_theory_check_morphism(file: &Path, verbose: bool) -> Result<()> {
     if compiled.morphisms.is_empty() {
         eprintln!("warning: no morphisms in document");
     } else {
-        for name in compiled.morphisms.keys() {
+        // `compiled.morphisms` is a `HashMap`; sort by name so the
+        // verbose report is byte-stable across runs.
+        let mut names: Vec<&String> = compiled.morphisms.keys().collect();
+        names.sort();
+        for name in names {
             eprintln!("morphism '{name}' is valid");
         }
     }
