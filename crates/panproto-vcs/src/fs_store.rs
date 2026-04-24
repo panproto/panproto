@@ -397,6 +397,51 @@ mod tests {
     }
 
     #[test]
+    fn multi_leaf_schema_tree_round_trips_fs() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::object::FileSchemaObject;
+        use std::path::PathBuf;
+
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+
+        let mk_file = |path: &str| FileSchemaObject {
+            path: path.to_owned(),
+            protocol: "project".to_owned(),
+            schema: test_schema(),
+            cross_file_edges: Vec::new(),
+        };
+
+        let root = crate::tree::build_schema_tree(
+            &mut store,
+            vec![
+                (PathBuf::from("src/a.rs"), mk_file("src/a.rs")),
+                (PathBuf::from("src/b.rs"), mk_file("src/b.rs")),
+                (PathBuf::from("c.rs"), mk_file("c.rs")),
+            ],
+        )?;
+
+        // Assemble back via walk; the tree must carry all three leaves.
+        let mut count = 0usize;
+        crate::tree::walk_tree(&store, &root, |_, _| {
+            count += 1;
+            Ok(())
+        })?;
+        assert_eq!(count, 3);
+
+        // Re-open the store from disk and confirm the tree is still
+        // intact: this catches serialization bugs that only show up
+        // after a round-trip through FsStore.
+        let reopened = FsStore::open(dir.path())?;
+        let mut recount = 0usize;
+        crate::tree::walk_tree(&reopened, &root, |_, _| {
+            recount += 1;
+            Ok(())
+        })?;
+        assert_eq!(recount, 3);
+        Ok(())
+    }
+
+    #[test]
     fn put_idempotent_fs() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut store = FsStore::init(dir.path())?;
