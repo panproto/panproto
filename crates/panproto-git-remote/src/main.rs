@@ -643,8 +643,12 @@ fn push_import_stage(
     };
 
     // Incrementally import: only git commits whose OID is not already in
-    // `known` are walked, parsed, and stored as panproto objects.
-    let import_result = panproto_git::import_git_repo_incremental(git_repo, store, src, &known)?;
+    // `known` are walked, parsed, and stored as panproto objects. The
+    // persistent blob-to-schema cache lives next to the marks file in
+    // the per-remote cache directory so unchanged files deduplicate
+    // across pushes without re-parsing.
+    let import_result =
+        panproto_git::import_git_repo_persistent(git_repo, store, src, &known, cache_dir)?;
 
     // Persist the new mappings so the next push is also incremental. This
     // includes entries we merged from the warm cache — they now belong to
@@ -728,8 +732,9 @@ fn cmd_warm(revspec: &str) -> Result<usize, Box<dyn std::error::Error>> {
     let mut store = open_or_init_cache(&warm_dir)?;
     let marks_path = marks_path(&warm_dir);
     let known = load_marks(&marks_path);
-    let import_result =
-        panproto_git::import_git_repo_incremental(&git_repo, &mut store, revspec, &known)?;
+    let import_result = panproto_git::import_git_repo_persistent(
+        &git_repo, &mut store, revspec, &known, &warm_dir,
+    )?;
     if !import_result.oid_map.is_empty() {
         append_marks(&marks_path, &import_result.oid_map)?;
     }

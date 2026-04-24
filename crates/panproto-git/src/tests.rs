@@ -9,7 +9,8 @@ use panproto_vcs::{MemStore, Store};
 
 use crate::export::export_to_git;
 use crate::import::{
-    BlobSchemaCache, import_git_repo, import_git_repo_incremental, import_git_repo_with_cache,
+    BlobSchemaCache, import_git_repo, import_git_repo_incremental, import_git_repo_persistent,
+    import_git_repo_with_cache, load_blob_cache, save_blob_cache,
 };
 
 /// Create a temporary git repository with a single commit containing
@@ -474,6 +475,47 @@ fn create_dedup_history() -> (tempfile::TempDir, git2::Repository, Vec<git2::Oid
     }
 
     (dir, repo, commit_oids)
+}
+
+#[test]
+fn import_persistent_roundtrips_cache() {
+    let (_dir, repo, _oids) = create_dedup_history();
+    let mut store = MemStore::new();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let known: rustc_hash::FxHashMap<git2::Oid, panproto_vcs::ObjectId> =
+        rustc_hash::FxHashMap::default();
+
+    let r1 =
+        import_git_repo_persistent(&repo, &mut store, "HEAD", &known, cache_dir.path()).unwrap();
+    assert_eq!(r1.commit_count, 3);
+
+    // The cache file must exist and be non-empty; a second import
+    // with the same revspec and matching marks must be a no-op.
+    let cache_path = cache_dir.path().join(crate::import::BLOB_CACHE_FILE);
+    assert!(cache_path.is_file());
+    let loaded = load_blob_cache(&cache_path).unwrap();
+    assert_eq!(loaded.len(), 7);
+
+    // Atomic save: writing a new cache must replace, not leak tmp.
+    save_blob_cache(&cache_path, &loaded).unwrap();
+    let tmp = cache_path.with_extension("tmp");
+    assert!(!tmp.exists(), "save_blob_cache must rename atomically");
+}
+
+#[test]
+fn blob_cache_rejects_corrupt_file() {
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("corrupt");
+    std::fs::write(&cache_path, "not a valid cache entry\n").unwrap();
+    let err = load_blob_cache(&cache_path).unwrap_err();
+    assert!(format!("{err}").contains("corrupt"));
+}
+
+#[test]
+fn blob_cache_missing_is_empty() {
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache = load_blob_cache(&cache_dir.path().join("missing")).unwrap();
+    assert!(cache.is_empty());
 }
 
 #[test]

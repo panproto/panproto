@@ -42,6 +42,15 @@ pub enum GitBridgeError {
         path: String,
     },
 
+    /// An on-disk blob cache failed to load or save.
+    ///
+    /// Distinct from a missing cache file, which is treated as an
+    /// empty map: this variant is emitted only for genuine corruption
+    /// or I/O failure. Callers with a `--reset-blob-cache` flag can
+    /// match on this and delete the file before retrying.
+    #[error("blob cache error: {0}")]
+    BlobCache(String),
+
     /// A git tree entry name is not valid UTF-8.
     ///
     /// Panproto protocol detection and cross-file import resolution

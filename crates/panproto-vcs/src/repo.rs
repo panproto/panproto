@@ -117,9 +117,7 @@ impl Repository {
                     let gat_diag =
                         gat_validate::validate_migration(&head_schema, schema, &migration);
 
-                    let mig_src_id = self
-                        .store
-                        .put(&Object::FlatSchema(Box::new(head_schema)))?;
+                    let mig_src_id = self.store.put(&Object::FlatSchema(Box::new(head_schema)))?;
                     let mig_tgt_id = self
                         .store
                         .put(&Object::FlatSchema(Box::new(schema.clone())))?;
@@ -337,9 +335,7 @@ impl Repository {
             // Auto-commit the merge.
             let merged_schema_id =
                 crate::tree::store_schema_as_tree(&mut self.store, result.merged_schema.clone())?;
-            let mig_src = self
-                .store
-                .put(&Object::FlatSchema(Box::new(ours_schema)))?;
+            let mig_src = self.store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
             let mig_tgt = self
                 .store
                 .put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;

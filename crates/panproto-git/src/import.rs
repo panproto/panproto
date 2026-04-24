@@ -18,64 +18,145 @@ use crate::error::GitBridgeError;
 /// [`ObjectId`] cache.
 pub const BLOB_CACHE_FILE: &str = "blob_to_schema";
 
+/// Error loading a blob-to-schema cache.
+#[derive(Debug, thiserror::Error)]
+pub enum BlobCacheLoadError {
+    /// The cache file exists but could not be parsed.
+    #[error("blob cache at {path} is corrupt at line {line}: {reason}")]
+    Corrupt {
+        /// Display of the cache file path.
+        path: String,
+        /// 1-based line number of the first malformed entry.
+        line: usize,
+        /// What went wrong on that line.
+        reason: String,
+    },
+
+    /// An I/O error occurred while reading the cache.
+    #[error("blob cache at {path}: {source}")]
+    Io {
+        /// Display of the cache file path.
+        path: String,
+        /// The underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
+}
+
 /// Load a blob-to-schema cache from a plain-text file.
 ///
-/// File format: one entry per line, `<git_blob_oid> <file_schema_panproto_id>`.
-/// Missing or malformed files yield an empty map so the next import
-/// acts as a cold start.
-#[must_use]
-pub fn load_blob_cache(path: &Path) -> BlobSchemaCache {
-    let mut map = BlobSchemaCache::default();
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return map;
+/// File format: one entry per line,
+/// `<git_blob_oid> <protocol_name> <file_schema_panproto_id>`.
+///
+/// A legacy two-column format (`<git_blob_oid>
+/// <file_schema_panproto_id>`) is still accepted and is treated as
+/// an empty protocol slot so mixed-format files round-trip without
+/// losing entries; the next save rewrites everything in the current
+/// format.
+///
+/// # Errors
+///
+/// Returns [`BlobCacheLoadError::Io`] for I/O problems other than a
+/// missing file (missing yields an empty cache), and
+/// [`BlobCacheLoadError::Corrupt`] if any line cannot be parsed.
+pub fn load_blob_cache(path: &Path) -> Result<BlobSchemaCache, BlobCacheLoadError> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(BlobSchemaCache::default());
+        }
+        Err(source) => {
+            return Err(BlobCacheLoadError::Io {
+                path: path.display().to_string(),
+                source,
+            });
+        }
     };
-    for line in content.lines() {
+    let mut map = BlobSchemaCache::default();
+    for (idx, line) in content.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
         let mut parts = line.split_whitespace();
         let Some(blob_hex) = parts.next() else {
             continue;
         };
-        let Some(panproto_hex) = parts.next() else {
-            continue;
+        let second = parts.next();
+        let third = parts.next();
+        let (protocol, panproto_hex) = match (second, third) {
+            (Some(proto), Some(id_hex)) => (proto.to_owned(), id_hex),
+            (Some(id_hex), None) => (String::new(), id_hex),
+            _ => {
+                return Err(BlobCacheLoadError::Corrupt {
+                    path: path.display().to_string(),
+                    line: idx + 1,
+                    reason: "missing fields".to_owned(),
+                });
+            }
         };
-        let Ok(blob_oid) = git2::Oid::from_str(blob_hex) else {
-            continue;
-        };
-        let Ok(panproto_id) = panproto_hex.parse::<ObjectId>() else {
-            continue;
-        };
-        map.insert(blob_oid, panproto_id);
+        let blob_oid = git2::Oid::from_str(blob_hex).map_err(|e| BlobCacheLoadError::Corrupt {
+            path: path.display().to_string(),
+            line: idx + 1,
+            reason: format!("bad git oid: {e}"),
+        })?;
+        let panproto_id =
+            panproto_hex
+                .parse::<ObjectId>()
+                .map_err(|e| BlobCacheLoadError::Corrupt {
+                    path: path.display().to_string(),
+                    line: idx + 1,
+                    reason: format!("bad panproto id: {e}"),
+                })?;
+        map.insert((blob_oid, protocol), panproto_id);
     }
-    map
+    Ok(map)
 }
 
-/// Persist a blob-to-schema cache by rewriting `path` in full.
+/// Persist a blob-to-schema cache atomically.
+///
+/// Writes to `<path>.tmp` and renames into place, so a crash mid-write
+/// cannot leave a partial file that would later parse as corrupt.
 ///
 /// # Errors
 ///
 /// Returns any I/O error encountered while creating parent
-/// directories or writing the file.
+/// directories, writing, or renaming.
 pub fn save_blob_cache(path: &Path, cache: &BlobSchemaCache) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let mut lines: Vec<String> = cache
         .iter()
-        .map(|(blob, id)| format!("{blob} {id}"))
+        .map(|((blob, protocol), id)| {
+            let proto_slot = if protocol.is_empty() { "-" } else { protocol };
+            format!("{blob} {proto_slot} {id}")
+        })
         .collect();
     lines.sort();
-    std::fs::write(path, lines.join("\n") + "\n")
+    let body = lines.join("\n") + "\n";
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, body)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }
 
-/// Cache mapping a git blob OID to the content-addressed
-/// [`ObjectId`] of the [`FileSchemaObject`] produced by parsing it.
+/// Cache mapping a `(git blob OID, protocol)` pair to the
+/// content-addressed [`ObjectId`] of the [`FileSchemaObject`]
+/// produced by parsing it.
+///
+/// Keying on the protocol avoids a cross-protocol collision: the
+/// same bytes appearing as `a.py` and `a.txt` parse to different
+/// per-file schemas and therefore must hash to different
+/// [`ObjectId`]s, which means they must occupy different cache
+/// slots.
 ///
 /// A [`BlobSchemaCache`] is the key to making incremental tree-based
 /// imports cheap: when a new git commit only changes one file, every
-/// other file's blob OID is already in the cache, so the importer
-/// reuses the existing `FileSchema` [`ObjectId`] and only has to
-/// rewrite the tree-node objects on the path from the changed file
-/// to the project root.
-pub type BlobSchemaCache = FxHashMap<git2::Oid, ObjectId>;
+/// other `(blob, protocol)` pair is already in the cache, so the
+/// importer reuses the existing [`ObjectId`] and only has to rewrite
+/// the tree-node objects on the path from the changed file to the
+/// project root.
+pub type BlobSchemaCache = FxHashMap<(git2::Oid, String), ObjectId>;
 
 /// Result of importing a git repository.
 #[derive(Debug)]
@@ -114,6 +195,37 @@ pub fn import_git_repo<S: Store>(
     import_git_repo_incremental(git_repo, panproto_store, revspec, &FxHashMap::default())
 }
 
+/// Import a git repository, persisting the blob-to-schema cache
+/// under `cache_dir/<BLOB_CACHE_FILE>` so subsequent imports
+/// deduplicate unchanged files without re-parsing them.
+///
+/// This is the production entry point: `cache_dir` is usually the
+/// per-remote panproto cache directory
+/// (`$GIT_DIR/panproto-cache/<remote>/`). Pass an empty `known` map
+/// for a full import, or the existing git-to-panproto marks for an
+/// incremental one.
+///
+/// # Errors
+///
+/// Returns [`GitBridgeError`] if git operations, parsing, or VCS
+/// operations fail. The cache file is loaded best-effort; a corrupt
+/// cache propagates as [`GitBridgeError::BlobCache`] so the caller
+/// can choose to delete-and-restart rather than silently re-import.
+pub fn import_git_repo_persistent<S: Store, H: BuildHasher>(
+    git_repo: &git2::Repository,
+    panproto_store: &mut S,
+    revspec: &str,
+    known: &HashMap<git2::Oid, ObjectId, H>,
+    cache_dir: &Path,
+) -> Result<ImportResult, GitBridgeError> {
+    let cache_path = cache_dir.join(BLOB_CACHE_FILE);
+    let mut cache =
+        load_blob_cache(&cache_path).map_err(|e| GitBridgeError::BlobCache(e.to_string()))?;
+    let result = import_git_repo_with_cache(git_repo, panproto_store, revspec, known, &mut cache)?;
+    save_blob_cache(&cache_path, &cache).map_err(|e| GitBridgeError::BlobCache(e.to_string()))?;
+    Ok(result)
+}
+
 /// Incrementally import a range of git commits into a panproto-vcs store.
 ///
 /// Like [`import_git_repo`], but skips commits whose git OID appears in
@@ -144,107 +256,13 @@ pub fn import_git_repo_incremental<S: Store, H: BuildHasher>(
     revspec: &str,
     known: &HashMap<git2::Oid, ObjectId, H>,
 ) -> Result<ImportResult, GitBridgeError> {
-    // Resolve the revspec to a commit.
-    let obj = git_repo.revparse_single(revspec)?;
-    let head_commit = obj
-        .peel_to_commit()
-        .map_err(|e| GitBridgeError::ObjectRead {
-            oid: obj.id().to_string(),
-            reason: format!("not a commit: {e}"),
-        })?;
-    let head_git_oid = head_commit.id();
-
-    // Collect new commits in topological order (parents before children),
-    // skipping any commit reachable from a `known` entry.
-    let mut commits = Vec::new();
-    collect_new_ancestors(git_repo, head_git_oid, known, &mut commits)?;
-
-    // Seed the git→panproto map with already-known entries so that new
-    // commits can resolve parents that live on the "known" side of the cut.
-    let mut git_to_panproto: FxHashMap<git2::Oid, ObjectId> =
-        known.iter().map(|(&k, &v)| (k, v)).collect();
-    let mut oid_map: Vec<(git2::Oid, ObjectId)> = Vec::new();
-    let mut last_id = ObjectId::ZERO;
-
-    for git_oid in &commits {
-        let git_commit = git_repo.find_commit(*git_oid)?;
-        let tree = git_commit.tree()?;
-
-        // Parse all files in the tree into a project schema.
-        let mut project_builder = ProjectBuilder::new();
-        walk_git_tree(git_repo, &tree, &PathBuf::new(), &mut project_builder)?;
-
-        // Build the project schema.
-        let project = if project_builder.file_count() == 0 {
-            // Empty tree (initial commit with no files). Create a minimal schema.
-            let proto = panproto_protocols::raw_file::protocol();
-            let builder = panproto_schema::SchemaBuilder::new(&proto);
-
-            builder
-                .vertex("root", "file", None)
-                .map_err(|e| {
-                    GitBridgeError::Project(panproto_project::ProjectError::CoproductFailed {
-                        reason: format!("empty tree schema: {e}"),
-                    })
-                })?
-                .build()
-                .map_err(|e| {
-                    GitBridgeError::Project(panproto_project::ProjectError::CoproductFailed {
-                        reason: format!("empty tree build: {e}"),
-                    })
-                })?
-        } else {
-            project_builder.build()?.schema
-        };
-
-        // Store the schema as a single-leaf tree. This path is only
-        // used by the non-deduped importer variant; production imports
-        // go through `import_git_repo_with_cache` which emits a proper
-        // multi-leaf Merkle tree with blob-OID dedup.
-        let schema_id = panproto_vcs::tree::store_schema_as_tree(panproto_store, project)?;
-
-        // Map parent git OIDs to panproto-vcs parent IDs.
-        let parents: Vec<ObjectId> = git_commit
-            .parent_ids()
-            .filter_map(|parent_oid| git_to_panproto.get(&parent_oid).copied())
-            .collect();
-
-        // Extract author info.
-        let author_sig = git_commit.author();
-        let author = author_sig.name().unwrap_or("unknown").to_owned();
-        let timestamp = u64::try_from(author_sig.when().seconds()).unwrap_or(0);
-        let message = git_commit.message().unwrap_or("(no message)").to_owned();
-
-        // Create panproto-vcs commit.
-        let commit = CommitObject::builder(schema_id, "project", &author, &message)
-            .parents(parents)
-            .timestamp(timestamp)
-            .build();
-
-        let commit_id = panproto_store.put(&Object::Commit(commit))?;
-
-        git_to_panproto.insert(*git_oid, commit_id);
-        oid_map.push((*git_oid, commit_id));
-        last_id = commit_id;
-    }
-
-    // Determine the head panproto ID. If no new commits were imported,
-    // the requested head must already live in `known`; fall back to that.
-    if commits.is_empty() {
-        if let Some(&id) = known.get(&head_git_oid) {
-            last_id = id;
-        }
-    }
-
-    // Note: this function does not set any local refs. Naming the result
-    // (e.g. `refs/heads/<branch>`) is the caller's responsibility because
-    // only the caller knows which branch it is importing.
-
-    Ok(ImportResult {
-        commit_count: commits.len(),
-        head_id: last_id,
-        oid_map,
-    })
+    // Delegate to the cache-aware path with an in-memory cache so
+    // every call still gets within-import dedup: two commits that
+    // reference the same git blob share a single FileSchemaObject.
+    // Production callers that want cross-call dedup should go through
+    // [`import_git_repo_persistent`] with a real cache directory.
+    let mut cache = BlobSchemaCache::default();
+    import_git_repo_with_cache(git_repo, panproto_store, revspec, known, &mut cache)
 }
 
 /// Import a git repository using per-file content addressing.
@@ -401,22 +419,37 @@ fn collect_tree_leaves<S: Store>(
         match entry.kind() {
             Some(git2::ObjectType::Blob) => {
                 let blob_oid = entry.id();
-                let leaf_id = if let Some(&cached) = blob_cache.get(&blob_oid) {
-                    cached
-                } else {
-                    let blob = repo.find_blob(blob_oid)?;
-                    let content = blob.content();
-                    let (schema, protocol) = parse_single_blob(&path, content)?;
-                    let file = FileSchemaObject {
-                        path: path.display().to_string(),
-                        protocol,
-                        schema,
-                        cross_file_edges: Vec::new(),
+                // Probe the cache before parsing; we need the
+                // protocol to key the cache, so detect it first.
+                let protocol_guess = panproto_project::detect::detect_language(
+                    &path,
+                    &panproto_parse::ParserRegistry::new(),
+                )
+                .map_or_else(String::new, ToOwned::to_owned);
+                let leaf_id =
+                    if let Some(&cached) = blob_cache.get(&(blob_oid, protocol_guess.clone())) {
+                        cached
+                    } else {
+                        let blob = repo.find_blob(blob_oid)?;
+                        let content = blob.content();
+                        let (schema, protocol) = parse_single_blob(&path, content)?;
+                        let file = FileSchemaObject {
+                            path: path.display().to_string(),
+                            protocol: protocol.clone(),
+                            schema,
+                            cross_file_edges: Vec::new(),
+                        };
+                        let id = store.put(&Object::FileSchema(Box::new(file)))?;
+                        // Record under the protocol actually used so a
+                        // second cache probe for the same (blob, proto)
+                        // pair hits even when detection and the parser
+                        // disagree (e.g., raw_file fallback).
+                        blob_cache.insert((blob_oid, protocol.clone()), id);
+                        if protocol != protocol_guess {
+                            blob_cache.insert((blob_oid, protocol_guess), id);
+                        }
+                        id
                     };
-                    let id = store.put(&Object::FileSchema(Box::new(file)))?;
-                    blob_cache.insert(blob_oid, id);
-                    id
-                };
                 leaves.push((path, leaf_id));
             }
             Some(git2::ObjectType::Tree) => {
@@ -476,40 +509,6 @@ fn collect_new_ancestors<H: BuildHasher>(
 
     for oid_result in revwalk {
         result.push(oid_result?);
-    }
-
-    Ok(())
-}
-
-/// Recursively walk a git tree, adding each file to the project builder.
-fn walk_git_tree(
-    repo: &git2::Repository,
-    tree: &git2::Tree<'_>,
-    prefix: &std::path::Path,
-    builder: &mut ProjectBuilder,
-) -> Result<(), GitBridgeError> {
-    for entry in tree {
-        let name = entry
-            .name()
-            .ok_or_else(|| GitBridgeError::NonUtf8TreeEntry {
-                parent: prefix.display().to_string(),
-            })?;
-        let path = prefix.join(name);
-
-        match entry.kind() {
-            Some(git2::ObjectType::Blob) => {
-                let blob = repo.find_blob(entry.id())?;
-                let content = blob.content();
-                builder.add_file(&path, content)?;
-            }
-            Some(git2::ObjectType::Tree) => {
-                let subtree = repo.find_tree(entry.id())?;
-                walk_git_tree(repo, &subtree, &path, builder)?;
-            }
-            _ => {
-                // Skip submodules, symbolic links, etc.
-            }
-        }
     }
 
     Ok(())
