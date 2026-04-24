@@ -404,9 +404,7 @@ fn extract_unbound_variable_name(error: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use panproto_core::lens::coercion_laws::{
-        CoercionLawViolation, TheoryCoercionReport,
-    };
+    use panproto_core::lens::coercion_laws::{CoercionLawViolation, TheoryCoercionReport};
     use panproto_expr::Literal;
     use std::sync::Arc;
 

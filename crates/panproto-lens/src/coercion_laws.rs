@@ -936,8 +936,7 @@ mod tests {
         let samples = [Literal::Str("probe".to_owned())];
 
         for class in CoercionClass::all() {
-            let violations =
-                check_coercion_laws(&forward, inverse.as_ref(), *class, &samples, "x");
+            let violations = check_coercion_laws(&forward, inverse.as_ref(), *class, &samples, "x");
             for v in &violations {
                 assert!(
                     !matches!(v, CoercionLawViolation::UnknownClass { .. }),

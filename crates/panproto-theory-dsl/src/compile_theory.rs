@@ -74,8 +74,7 @@ pub fn compile_theory_with_law_check_and_var(
     var_name: &str,
 ) -> Result<Theory, TheoryDslError> {
     let theory = compile_theory(spec)?;
-    let report =
-        panproto_lens::coercion_laws::check_theory_with_var(&theory, registry, var_name);
+    let report = panproto_lens::coercion_laws::check_theory_with_var(&theory, registry, var_name);
     if report.is_clean() {
         return Ok(theory);
     }
