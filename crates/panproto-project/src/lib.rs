@@ -641,13 +641,18 @@ where
             continue;
         }
         // Find the owning file by matching the edge src against the
-        // per-file vertex lists.
+        // per-file vertex lists. A src that matches no file is either
+        // a resolver bug or a synthetic-root edge without a home; we
+        // surface it rather than silently dropping the edge.
         let Some(owner) = file_map
             .iter()
             .find(|(_, verts)| verts.iter().any(|v| v == &edge.src))
             .map(|(path, _)| path.clone())
         else {
-            continue;
+            return Err(ProjectError::OrphanImportEdge {
+                src: edge.src.to_string(),
+                tgt: edge.tgt.to_string(),
+            });
         };
         by_file.entry(owner).or_default().push(edge.clone());
     }
