@@ -2224,3 +2224,119 @@ fn cli_lens_generate_chain_topn_single_document() {
         "chain-mode root with --top-n must embed `candidates`; got {parsed}"
     );
 }
+
+/// A theory document with a deliberately lying Iso declaration:
+/// `upper` forward, identity inverse, declared `iso`. The sample-based
+/// law check must reject any non-uppercase string sample because
+/// `identity(upper(s)) != s` when `s` has lowercase content.
+fn write_lying_iso_theory(dir: &Path, name: &str) {
+    let doc = serde_json::json!({
+        "id": "test.lying_iso",
+        "description": "fixture with a lying coercion",
+        "theory": "LyingIso",
+        "sorts": [
+            { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+        ],
+        "ops": [
+            { "name": "upper", "input": "Str", "output": "Str" }
+        ],
+        "equations": [],
+        "directed_equations": [
+            {
+                "name": "lying_upper_iso",
+                "lhs": "upper(x)",
+                "rhs": "x",
+                "impl_expr": "upper(x)",
+                "inverse": "x",
+                "source_kind": "string",
+                "target_kind": "string",
+                "coercion_class": "iso"
+            }
+        ],
+        "policies": []
+    });
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+}
+
+fn write_honest_identity_theory(dir: &Path, name: &str) {
+    let doc = serde_json::json!({
+        "id": "test.honest_iso",
+        "description": "fixture with honest identity coercion",
+        "theory": "HonestIso",
+        "sorts": [
+            { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
+        ],
+        "ops": [],
+        "equations": [],
+        "directed_equations": [
+            {
+                "name": "identity_iso",
+                "lhs": "x",
+                "rhs": "x",
+                "impl_expr": "x",
+                "inverse": "x",
+                "source_kind": "string",
+                "target_kind": "string",
+                "coercion_class": "iso"
+            }
+        ],
+        "policies": []
+    });
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+}
+
+#[test]
+fn theory_check_coercion_laws_fails_on_lying_iso() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_lying_iso_theory(tmp.path(), "lying.json");
+
+    let output = schema_cmd()
+        .args(["theory", "check-coercion-laws", "lying.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        combined.contains("lying_upper_iso") || combined.contains("violation"),
+        "expected violation output, got:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}",
+    );
+}
+
+#[test]
+fn theory_check_coercion_laws_passes_on_honest_iso() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_honest_identity_theory(tmp.path(), "honest.json");
+
+    schema_cmd()
+        .args(["theory", "check-coercion-laws", "honest.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("clean"));
+}
+
+#[test]
+fn theory_check_coercion_laws_json_output_is_valid() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_honest_identity_theory(tmp.path(), "honest.json");
+
+    let output = schema_cmd()
+        .args(["theory", "check-coercion-laws", "honest.json", "--json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("stdout was not a single JSON document: {e}\n---\n{stdout}\n---")
+    });
+    assert_eq!(parsed["clean"], serde_json::Value::Bool(true));
+    assert_eq!(parsed["total_violations"], serde_json::json!(0));
+}
