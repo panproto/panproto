@@ -36,6 +36,10 @@ pub fn compile_theory(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
 /// Compile a [`TheorySpec`] and then run sample-based coercion law
 /// checks on every directed equation using `registry`.
 ///
+/// Binds each sample under the default variable name `"x"`. Theories
+/// whose directed equations use a different free variable name
+/// should call [`compile_theory_with_law_check_and_var`] directly.
+///
 /// Produces the same [`Theory`] as [`compile_theory`] when every
 /// declared coercion class is consistent with the sample evidence.
 /// Otherwise returns
@@ -52,8 +56,26 @@ pub fn compile_theory_with_law_check(
     spec: &TheorySpec,
     registry: &panproto_lens::coercion_laws::CoercionSampleRegistry,
 ) -> Result<Theory, TheoryDslError> {
+    compile_theory_with_law_check_and_var(spec, registry, "x")
+}
+
+/// Variable-name-parameterized [`compile_theory_with_law_check`].
+///
+/// Binds each sample under `var_name` instead of the default `"x"`.
+/// Use this when the theory's directed equations share a different
+/// free variable name (for example, `"v"` or a field key).
+///
+/// # Errors
+///
+/// Same as [`compile_theory_with_law_check`].
+pub fn compile_theory_with_law_check_and_var(
+    spec: &TheorySpec,
+    registry: &panproto_lens::coercion_laws::CoercionSampleRegistry,
+    var_name: &str,
+) -> Result<Theory, TheoryDslError> {
     let theory = compile_theory(spec)?;
-    let report = panproto_lens::coercion_laws::check_theory(&theory, registry);
+    let report =
+        panproto_lens::coercion_laws::check_theory_with_var(&theory, registry, var_name);
     if report.is_clean() {
         return Ok(theory);
     }
