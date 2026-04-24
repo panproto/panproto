@@ -1196,6 +1196,24 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
             println!("Data ID:         {}", cst_comp.data_id);
             println!("Complement size: {} bytes", cst_comp.cst_complement.len());
         }
+        vcs::Object::FileSchema(file) => {
+            println!("file_schema {id}");
+            println!("Path:     {}", file.path);
+            println!("Protocol: {}", file.protocol);
+            println!("Vertices: {}", file.schema.vertices.len());
+            println!("Edges:    {}", file.schema.edges.len());
+        }
+        vcs::Object::SchemaTree(tree) => {
+            println!("schema_tree {id}");
+            println!("Entries:  {}", tree.entries.len());
+            for (name, entry) in &tree.entries {
+                let (kind, child_id) = match entry {
+                    vcs::SchemaTreeEntry::File(child) => ("file", child),
+                    vcs::SchemaTreeEntry::Tree(child) => ("tree", child),
+                };
+                println!("  {kind}  {child_id}  {name}");
+            }
+        }
     }
     Ok(())
 }

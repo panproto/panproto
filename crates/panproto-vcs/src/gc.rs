@@ -80,7 +80,16 @@ pub fn mark_reachable(
             | Object::Expr(_)
             | Object::Theory(_)
             | Object::TheoryMorphism(_)
-            | Object::CstComplement(_) => {}
+            | Object::CstComplement(_)
+            | Object::FileSchema(_) => {}
+            Object::SchemaTree(tree) => {
+                for (_, entry) in tree.entries {
+                    match entry {
+                        crate::object::SchemaTreeEntry::File(id)
+                        | crate::object::SchemaTreeEntry::Tree(id) => queue.push(id),
+                    }
+                }
+            }
             Object::Tag(tag) => {
                 queue.push(tag.target);
             }

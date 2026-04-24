@@ -71,6 +71,23 @@ pub enum Object {
     /// enabling byte-identical reconstruction of the original file
     /// formatting after schema migration.
     CstComplement(CstComplementObject),
+
+    /// A schema for a single file.
+    ///
+    /// Content-addressed independently so that unchanged files
+    /// deduplicate across commits. The project-level schema is
+    /// assembled by walking a tree of [`Self::FileSchema`] leaves
+    /// joined by [`Self::SchemaTree`] nodes; see [`crate::tree`].
+    FileSchema(Box<FileSchemaObject>),
+
+    /// A directory or project root in the schema Merkle tree.
+    ///
+    /// A sorted list of `(name, ObjectId)` entries where each
+    /// [`ObjectId`] points at either an [`Self::FileSchema`] leaf or
+    /// another [`Self::SchemaTree`]. Mirrors git's tree object
+    /// model: sibling entries are sorted lexicographically so the
+    /// resulting [`ObjectId`] is deterministic.
+    SchemaTree(Box<SchemaTreeObject>),
 }
 
 impl Object {
@@ -90,8 +107,53 @@ impl Object {
             Self::Theory(_) => "theory",
             Self::TheoryMorphism(_) => "theory_morphism",
             Self::CstComplement(_) => "cst_complement",
+            Self::FileSchema(_) => "file_schema",
+            Self::SchemaTree(_) => "schema_tree",
         }
     }
+}
+
+/// A per-file schema leaf in the project schema Merkle tree.
+///
+/// Carries the full parsed [`Schema`] for one file alongside the
+/// file's path and the protocol used to parse it. Stored as an
+/// [`Object::FileSchema`] so its [`ObjectId`] depends only on the
+/// per-file content.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileSchemaObject {
+    /// Path of the file within the project, using forward slashes.
+    pub path: String,
+    /// Protocol used to parse this file (e.g., `"typescript"`,
+    /// `"raw_file"`).
+    pub protocol: String,
+    /// The per-file schema as produced by the protocol's parser.
+    pub schema: Schema,
+}
+
+/// An entry in a [`SchemaTreeObject`].
+///
+/// Distinguishes leaf (`File`, pointing at a [`FileSchemaObject`])
+/// from inner (`Tree`, pointing at another [`SchemaTreeObject`]) so
+/// the tree walker does not need to re-fetch objects just to
+/// classify them.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SchemaTreeEntry {
+    /// A file-schema leaf.
+    File(ObjectId),
+    /// A subtree.
+    Tree(ObjectId),
+}
+
+/// An inner node of the project schema Merkle tree.
+///
+/// Entries are sorted lexicographically by name. The sort order is
+/// part of the serialized form, so two trees containing the same
+/// `(name, entry)` set hash to the same [`ObjectId`] regardless of
+/// how they were constructed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SchemaTreeObject {
+    /// Child entries sorted lexicographically by name.
+    pub entries: Vec<(String, SchemaTreeEntry)>,
 }
 
 /// A commit in the schema evolution DAG.

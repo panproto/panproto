@@ -138,6 +138,10 @@ pub enum VcsError {
     /// `std::io::Error` is not directly available).
     #[error("io: {0}")]
     IoError(String),
+
+    /// A generic error described by a human-readable string.
+    #[error("{0}")]
+    Other(String),
 }
 
 /// Wrapper for serialization errors from rmp-serde.

@@ -303,6 +303,8 @@ fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
         Object::Theory(theory) => hash::hash_theory(theory),
         Object::TheoryMorphism(morphism) => hash::hash_theory_morphism(morphism),
         Object::CstComplement(cst_comp) => hash::hash_cst_complement(cst_comp),
+        Object::FileSchema(file) => hash::hash_file_schema(file),
+        Object::SchemaTree(tree) => hash::hash_schema_tree(tree),
     }
 }
 

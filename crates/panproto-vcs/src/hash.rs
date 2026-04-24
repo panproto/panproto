@@ -536,6 +536,47 @@ pub fn hash_edit_log(edit_log: &EditLogObject) -> Result<ObjectId, VcsError> {
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
+/// Compute the content-addressed ID of a per-file schema leaf.
+///
+/// Hashes the file path, protocol, and canonical form of the
+/// per-file `Schema`. Two files with the same path, protocol, and
+/// schema hash to the same [`ObjectId`].
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_file_schema(file: &crate::object::FileSchemaObject) -> Result<ObjectId, VcsError> {
+    let schema_id = hash_schema(&file.schema)?;
+    let canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
+        ("path", rmp_serde::to_vec(&file.path)?),
+        ("protocol", rmp_serde::to_vec(&file.protocol)?),
+        ("schema_id", rmp_serde::to_vec(&schema_id)?),
+    ]);
+    let bytes = rmp_serde::to_vec(&canonical)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
+/// Compute the content-addressed ID of a schema-tree inner node.
+///
+/// Serializes the sorted list of `(name, entry)` pairs canonically
+/// so the resulting [`ObjectId`] depends only on the tree's entry set
+/// and not on construction order.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_schema_tree(tree: &crate::object::SchemaTreeObject) -> Result<ObjectId, VcsError> {
+    // Entries are already expected to be sorted; sort defensively to
+    // make the hash order-independent.
+    let mut sorted = tree.entries.clone();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    let bytes = rmp_serde::to_vec(&sorted)?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"schema_tree:");
+    hasher.update(&bytes);
+    Ok(ObjectId(hasher.finalize().into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
