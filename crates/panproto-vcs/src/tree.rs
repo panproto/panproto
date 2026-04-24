@@ -201,6 +201,11 @@ pub fn assemble_from_file_objects(
                     VcsError::Other(format!("edge {prefixed_src} -> {prefixed_tgt}: {e}"))
                 })?;
         }
+
+        // Propagate the per-file pointing to the assembled schema.
+        for entry in &schema.entries {
+            builder = builder.entry(&format!("{prefix}::{entry}"));
+        }
     }
 
     // Cross-file edges carry vertex names already prefixed with
@@ -221,9 +226,148 @@ pub fn assemble_from_file_objects(
         }
     }
 
-    builder
+    let mut schema = builder
         .build()
-        .map_err(|e| VcsError::Other(format!("assemble build: {e}")))
+        .map_err(|e| VcsError::Other(format!("assemble build: {e}")))?;
+
+    // SchemaBuilder only accepts the core (vertices, edges,
+    // constraints, entries) plumbing; the remaining fields of the
+    // per-file schemas are stitched in here so the round-trip
+    // preserves every semantically meaningful field.
+    merge_enrichment_fields(&mut schema, files);
+
+    Ok(schema)
+}
+
+/// Copy per-file enrichment fields into the assembled flat schema,
+/// rewriting every vertex-id reference with the `<path>::<name>`
+/// prefix convention used for the assembled vertices.
+fn merge_enrichment_fields(
+    out: &mut Schema,
+    files: &[(PathBuf, Schema, Vec<panproto_schema::Edge>)],
+) {
+    use panproto_gat::Name;
+    use panproto_schema::{Edge, HyperEdge, RecursionPoint, Span, UsageMode, Variant};
+
+    let name = |prefix: &str, n: &Name| -> Name { Name::from(format!("{prefix}::{n}").as_str()) };
+
+    let prefixed_edge = |prefix: &str, e: &Edge| -> Edge {
+        Edge {
+            src: name(prefix, &e.src),
+            tgt: name(prefix, &e.tgt),
+            kind: e.kind.clone(),
+            name: e.name.as_ref().map(|n| name(prefix, n)),
+        }
+    };
+
+    for (path, schema, _cross) in files {
+        let prefix = path.display().to_string();
+
+        // hyper_edges: id and signature vertex-id values are
+        // schema-local, so rewrite both.
+        for (id, he) in &schema.hyper_edges {
+            let new_id = name(&prefix, id);
+            let signature = he
+                .signature
+                .iter()
+                .map(|(lbl, vid)| (lbl.clone(), name(&prefix, vid)))
+                .collect();
+            out.hyper_edges.insert(
+                new_id.clone(),
+                HyperEdge {
+                    id: new_id,
+                    kind: he.kind.clone(),
+                    signature,
+                    parent_label: he.parent_label.clone(),
+                },
+            );
+        }
+
+        // required: key is a vertex id, values are edges.
+        for (vid, edges) in &schema.required {
+            let key = name(&prefix, vid);
+            let rewritten: Vec<Edge> = edges.iter().map(|e| prefixed_edge(&prefix, e)).collect();
+            out.required.entry(key).or_default().extend(rewritten);
+        }
+
+        // nsids: key is a vertex id, value is the nsid itself (not a vertex id).
+        for (vid, nsid) in &schema.nsids {
+            out.nsids.insert(name(&prefix, vid), nsid.clone());
+        }
+
+        // variants: key is the parent vertex id.
+        for (vid, variants) in &schema.variants {
+            let key = name(&prefix, vid);
+            let rewritten: Vec<Variant> = variants
+                .iter()
+                .map(|v| Variant {
+                    id: name(&prefix, &v.id),
+                    parent_vertex: name(&prefix, &v.parent_vertex),
+                    tag: v.tag.clone(),
+                })
+                .collect();
+            out.variants.entry(key).or_default().extend(rewritten);
+        }
+
+        // orderings: keys are edges.
+        for (edge, pos) in &schema.orderings {
+            out.orderings.insert(prefixed_edge(&prefix, edge), *pos);
+        }
+
+        // recursion_points: mu_id and target_vertex are both vertex ids.
+        for (mu, rp) in &schema.recursion_points {
+            let new_mu = name(&prefix, mu);
+            out.recursion_points.insert(
+                new_mu.clone(),
+                RecursionPoint {
+                    mu_id: new_mu,
+                    target_vertex: name(&prefix, &rp.target_vertex),
+                },
+            );
+        }
+
+        // spans: id is a span id, left/right are vertex ids.
+        for (id, span) in &schema.spans {
+            let new_id = name(&prefix, id);
+            out.spans.insert(
+                new_id.clone(),
+                Span {
+                    id: new_id,
+                    left: name(&prefix, &span.left),
+                    right: name(&prefix, &span.right),
+                },
+            );
+        }
+
+        // usage_modes: keys are edges.
+        for (edge, mode) in &schema.usage_modes {
+            let cloned: UsageMode = mode.clone();
+            out.usage_modes.insert(prefixed_edge(&prefix, edge), cloned);
+        }
+
+        // nominal: keys are vertex ids.
+        for (vid, flag) in &schema.nominal {
+            out.nominal.insert(name(&prefix, vid), *flag);
+        }
+
+        // coercions: keys are (kind, kind) not vertex ids.
+        for (key, spec) in &schema.coercions {
+            out.coercions.insert(key.clone(), spec.clone());
+        }
+
+        // mergers / defaults: keys are vertex ids.
+        for (vid, expr) in &schema.mergers {
+            out.mergers.insert(name(&prefix, vid), expr.clone());
+        }
+        for (vid, expr) in &schema.defaults {
+            out.defaults.insert(name(&prefix, vid), expr.clone());
+        }
+
+        // policies: keys are sort names (not vertex ids).
+        for (sort, expr) in &schema.policies {
+            out.policies.insert(sort.clone(), expr.clone());
+        }
+    }
 }
 
 /// Resolve a commit's `schema_id` to a flat [`Schema`].
@@ -699,6 +843,172 @@ mod tests {
         let sorted = round.sorted_entries();
         assert_eq!(sorted[0].0, "a");
         assert_eq!(sorted[1].0, "z");
+    }
+
+    fn base_schema(v: &str) -> Schema {
+        use panproto_gat::Name;
+        use std::collections::HashMap;
+        let mut verts = HashMap::new();
+        verts.insert(
+            Name::from(v),
+            panproto_schema::Vertex {
+                id: Name::from(v),
+                kind: Name::from("record"),
+                nsid: None,
+            },
+        );
+        Schema {
+            protocol: "project".into(),
+            vertices: verts,
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            entries: Vec::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        }
+    }
+
+    fn rich_schema_a() -> Schema {
+        use panproto_gat::Name;
+        use panproto_schema::{
+            CoercionSpec, Edge, HyperEdge, RecursionPoint, Span, UsageMode, Variant,
+        };
+        let mut s = base_schema("a");
+        s.entries.push(Name::from("a"));
+        s.hyper_edges.insert(
+            Name::from("he"),
+            HyperEdge {
+                id: Name::from("he"),
+                kind: Name::from("hedge"),
+                signature: std::iter::once((Name::from("lbl"), Name::from("a"))).collect(),
+                parent_label: Name::from("lbl"),
+            },
+        );
+        s.nsids.insert(Name::from("a"), Name::from("ns.a"));
+        s.variants.insert(
+            Name::from("a"),
+            vec![Variant {
+                id: Name::from("a_v1"),
+                parent_vertex: Name::from("a"),
+                tag: Some(Name::from("v1")),
+            }],
+        );
+        s.recursion_points.insert(
+            Name::from("a"),
+            RecursionPoint {
+                mu_id: Name::from("a"),
+                target_vertex: Name::from("a"),
+            },
+        );
+        s.spans.insert(
+            Name::from("sp"),
+            Span {
+                id: Name::from("sp"),
+                left: Name::from("a"),
+                right: Name::from("a"),
+            },
+        );
+        s.nominal.insert(Name::from("a"), true);
+        s.coercions.insert(
+            (Name::from("int"), Name::from("str")),
+            CoercionSpec {
+                forward: panproto_expr::Expr::Lit(panproto_expr::Literal::Int(0)),
+                inverse: None,
+                class: panproto_gat::CoercionClass::Iso,
+            },
+        );
+        s.mergers.insert(
+            Name::from("a"),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Int(1)),
+        );
+        s.defaults.insert(
+            Name::from("a"),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Int(2)),
+        );
+        s.policies.insert(
+            Name::from("p1"),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Int(3)),
+        );
+        let edge_a = Edge {
+            src: Name::from("a"),
+            tgt: Name::from("a"),
+            kind: Name::from("loop"),
+            name: None,
+        };
+        s.orderings.insert(edge_a.clone(), 7);
+        s.usage_modes.insert(edge_a.clone(), UsageMode::Linear);
+        s.required.insert(Name::from("a"), vec![edge_a]);
+        s
+    }
+
+    #[test]
+    fn assemble_preserves_every_schema_field() {
+        use panproto_gat::Name;
+
+        let s_a = rich_schema_a();
+        let s_b = base_schema("b");
+
+        let file_a = FileSchemaObject {
+            path: "x.rs".to_owned(),
+            protocol: "project".to_owned(),
+            schema: s_a,
+            cross_file_edges: Vec::new(),
+        };
+        let file_b = FileSchemaObject {
+            path: "y.rs".to_owned(),
+            protocol: "project".to_owned(),
+            schema: s_b,
+            cross_file_edges: Vec::new(),
+        };
+
+        let mut store = MemStore::new();
+        let root = build_schema_tree(
+            &mut store,
+            vec![
+                (PathBuf::from("x.rs"), file_a),
+                (PathBuf::from("y.rs"), file_b),
+            ],
+        )
+        .unwrap();
+
+        let proto = project_coproduct_protocol();
+        let flat = assemble_schema(&store, &root, &proto).unwrap();
+
+        // Every enrichment field survives with prefixed keys.
+        assert!(flat.entries.iter().any(|n| n.as_ref() == "x.rs::a"));
+        assert!(flat.hyper_edges.contains_key(&Name::from("x.rs::he")));
+        assert_eq!(
+            flat.nsids.get(&Name::from("x.rs::a")).map(Name::as_ref),
+            Some("ns.a")
+        );
+        assert!(flat.variants.contains_key(&Name::from("x.rs::a")));
+        assert!(flat.recursion_points.contains_key(&Name::from("x.rs::a")));
+        assert!(flat.spans.contains_key(&Name::from("x.rs::sp")));
+        assert_eq!(flat.nominal.get(&Name::from("x.rs::a")), Some(&true));
+        assert!(
+            flat.coercions
+                .contains_key(&(Name::from("int"), Name::from("str")))
+        );
+        assert!(flat.mergers.contains_key(&Name::from("x.rs::a")));
+        assert!(flat.defaults.contains_key(&Name::from("x.rs::a")));
+        assert!(flat.policies.contains_key(&Name::from("p1")));
+        assert!(flat.required.contains_key(&Name::from("x.rs::a")));
+        assert!(!flat.orderings.is_empty());
+        assert!(!flat.usage_modes.is_empty());
     }
 
     #[test]
