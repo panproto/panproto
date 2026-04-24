@@ -343,6 +343,40 @@ impl ProjectBuilder {
         self.file_schemas.len()
     }
 
+    /// Access the per-file parsed schemas without consuming the builder.
+    #[must_use]
+    pub const fn file_schemas(&self) -> &FxHashMap<PathBuf, Schema> {
+        &self.file_schemas
+    }
+
+    /// Access the per-file protocol names without consuming the builder.
+    #[must_use]
+    pub const fn protocol_map_ref(&self) -> &FxHashMap<PathBuf, String> {
+        &self.protocol_map
+    }
+
+    /// Build the project as a Merkle tree of per-file schemas rather
+    /// than a flat coproduct schema.
+    ///
+    /// The tree is stored incrementally in `store`; see
+    /// [`build_project_tree`] for the standalone function form.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProjectError::CoproductFailed`] if the underlying
+    /// store rejects an object write.
+    pub fn build_tree<S>(self, store: &mut S) -> Result<ProjectSchemaTree, ProjectError>
+    where
+        S: panproto_vcs::Store,
+    {
+        let root_id = build_project_tree(store, &self.file_schemas, &self.protocol_map)?;
+        let protocol_map: HashMap<PathBuf, String> = self.protocol_map.into_iter().collect();
+        Ok(ProjectSchemaTree {
+            root_id,
+            protocol_map,
+        })
+    }
+
     /// Build the project schema by constructing the coproduct of all file schemas.
     ///
     /// Each file's vertices are prefixed with the file path to ensure uniqueness
@@ -477,6 +511,70 @@ impl Default for ProjectBuilder {
     }
 }
 
+/// A project schema stored as a Merkle tree of per-file schemas.
+///
+/// The root [`panproto_vcs::ObjectId`] points at a
+/// [`panproto_vcs::SchemaTreeObject`] whose leaves are
+/// [`panproto_vcs::FileSchemaObject`]s. Consumers that want the
+/// assembled flat [`Schema`] call
+/// [`panproto_vcs::assemble_schema`] with this root.
+#[derive(Debug, Clone)]
+pub struct ProjectSchemaTree {
+    /// Object ID of the root [`panproto_vcs::SchemaTreeObject`].
+    pub root_id: panproto_vcs::ObjectId,
+    /// Mapping from file path to the protocol used to parse it.
+    pub protocol_map: HashMap<PathBuf, String>,
+}
+
+/// Build a project schema tree and store it in `store`.
+///
+/// Each `(path, schema)` pair in `files` becomes a
+/// [`panproto_vcs::FileSchemaObject`]; the path components induce a
+/// directory hierarchy of
+/// [`panproto_vcs::SchemaTreeObject`]s stored bottom up. The returned
+/// [`panproto_vcs::ObjectId`] is stable across input-order
+/// permutations because sibling entries are sorted lexicographically.
+///
+/// `protocols` carries the per-file protocol names so the stored
+/// leaves can record how each file was parsed; missing entries fall
+/// back to `"raw_file"`.
+///
+/// # Errors
+///
+/// Returns [`ProjectError::CoproductFailed`] if the underlying store
+/// rejects an object write.
+pub fn build_project_tree<S, H1, H2>(
+    store: &mut S,
+    files: &std::collections::HashMap<PathBuf, panproto_schema::Schema, H1>,
+    protocols: &std::collections::HashMap<PathBuf, String, H2>,
+) -> Result<panproto_vcs::ObjectId, ProjectError>
+where
+    S: panproto_vcs::Store,
+    H1: std::hash::BuildHasher,
+    H2: std::hash::BuildHasher,
+{
+    let mut leaves: Vec<(PathBuf, panproto_vcs::FileSchemaObject)> = files
+        .iter()
+        .map(|(path, schema)| {
+            let protocol = protocols
+                .get(path)
+                .cloned()
+                .unwrap_or_else(|| "raw_file".to_owned());
+            let file = panproto_vcs::FileSchemaObject {
+                path: path.display().to_string(),
+                protocol,
+                schema: schema.clone(),
+            };
+            (path.clone(), file)
+        })
+        .collect();
+    leaves.sort_by(|a, b| a.0.cmp(&b.0));
+
+    panproto_vcs::build_schema_tree(store, leaves).map_err(|e| ProjectError::CoproductFailed {
+        reason: format!("build_schema_tree: {e}"),
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -586,6 +684,62 @@ mod tests {
         let builder = ProjectBuilder::new();
         let result = builder.build();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_tree_stable_across_insertion_order() {
+        use panproto_vcs::MemStore;
+
+        let build = |paths: Vec<(&str, &[u8])>| -> panproto_vcs::ObjectId {
+            let mut builder = ProjectBuilder::new();
+            for (p, c) in paths {
+                builder.add_file(Path::new(p), c).unwrap();
+            }
+            let mut store = MemStore::new();
+            let tree = builder.build_tree(&mut store).unwrap();
+            tree.root_id
+        };
+
+        let forward = build(vec![
+            ("src/a.rs", b"pub fn a() {}"),
+            ("src/b.rs", b"pub fn b() {}"),
+        ]);
+        let reverse = build(vec![
+            ("src/b.rs", b"pub fn b() {}"),
+            ("src/a.rs", b"pub fn a() {}"),
+        ]);
+        assert_eq!(forward, reverse);
+    }
+
+    #[test]
+    fn build_tree_assembles_back_to_flat_schema() {
+        use panproto_vcs::MemStore;
+
+        let mut builder = ProjectBuilder::new();
+        builder
+            .add_file(Path::new("x.rs"), b"pub fn x() {}")
+            .unwrap();
+        builder
+            .add_file(Path::new("y.rs"), b"pub fn y() {}")
+            .unwrap();
+        let flat = builder.build().unwrap().schema;
+
+        let mut builder = ProjectBuilder::new();
+        builder
+            .add_file(Path::new("x.rs"), b"pub fn x() {}")
+            .unwrap();
+        builder
+            .add_file(Path::new("y.rs"), b"pub fn y() {}")
+            .unwrap();
+        let mut store = MemStore::new();
+        let tree = builder.build_tree(&mut store).unwrap();
+        let proto = panproto_vcs::project_coproduct_protocol();
+        let assembled = panproto_vcs::assemble_schema(&store, &tree.root_id, &proto).unwrap();
+
+        // Match on vertex and edge counts; the assembled form must
+        // carry the same structural content as the flat build.
+        assert_eq!(flat.vertices.len(), assembled.vertices.len());
+        assert_eq!(flat.edges.len(), assembled.edges.len());
     }
 
     #[test]

@@ -2219,6 +2219,7 @@ dependencies = [
  "panproto-parse",
  "panproto-protocols",
  "panproto-schema",
+ "panproto-vcs",
  "proptest",
  "rustc-hash",
  "serde",
