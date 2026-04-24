@@ -125,6 +125,16 @@ pub struct FileSchemaObject {
     pub protocol: String,
     /// The per-file schema as produced by the protocol's parser.
     pub schema: Schema,
+    /// Cross-file import edges rooted at a vertex in this file.
+    ///
+    /// Each edge carries vertex names already prefixed with the
+    /// owning file's project path (`<src_path>::<src_name>` and
+    /// `<tgt_path>::<tgt_name>`), so flat assembly can add them
+    /// without re-prefixing. Populated by
+    /// `panproto_project::ProjectBuilder::build_tree`; empty
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cross_file_edges: Vec<panproto_schema::Edge>,
 }
 
 /// An entry in a [`SchemaTreeObject`].

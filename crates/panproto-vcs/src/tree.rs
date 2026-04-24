@@ -114,14 +114,18 @@ pub fn assemble_schema<S: Store>(
     root_id: &ObjectId,
     protocol: &Protocol,
 ) -> Result<Schema, VcsError> {
-    // Collect (path, schema) pairs in tree-walk order.
-    let mut files: Vec<(PathBuf, Schema)> = Vec::new();
+    // Collect (path, schema, cross_file_edges) triples in tree-walk order.
+    let mut files: Vec<(PathBuf, Schema, Vec<panproto_schema::Edge>)> = Vec::new();
     walk_tree(store, root_id, |path, file| {
-        files.push((path.to_path_buf(), file.schema.clone()));
+        files.push((
+            path.to_path_buf(),
+            file.schema.clone(),
+            file.cross_file_edges.clone(),
+        ));
         Ok(())
     })?;
 
-    assemble_from_files(protocol, &files)
+    assemble_from_file_objects(protocol, &files)
 }
 
 /// Assemble a flat project schema from `(path, per_file_schema)` pairs
@@ -139,13 +143,34 @@ pub fn assemble_from_files(
     protocol: &Protocol,
     files: &[(PathBuf, Schema)],
 ) -> Result<Schema, VcsError> {
+    let triples: Vec<(PathBuf, Schema, Vec<panproto_schema::Edge>)> = files
+        .iter()
+        .map(|(p, s)| (p.clone(), s.clone(), Vec::new()))
+        .collect();
+    assemble_from_file_objects(protocol, &triples)
+}
+
+/// Assemble a flat project schema from per-file triples.
+///
+/// Each triple is `(path, per_file_schema, cross_file_edges)`; the
+/// already-prefixed cross-file edges are added verbatim after per-file
+/// vertices and edges have been prefixed and inserted.
+///
+/// # Errors
+///
+/// Returns [`VcsError::Other`] if the coproduct-schema builder rejects
+/// an input vertex or edge.
+pub fn assemble_from_file_objects(
+    protocol: &Protocol,
+    files: &[(PathBuf, Schema, Vec<panproto_schema::Edge>)],
+) -> Result<Schema, VcsError> {
     // Single-file optimization matches ProjectBuilder::build.
-    if files.len() == 1 {
+    if files.len() == 1 && files[0].2.is_empty() {
         return Ok(files[0].1.clone());
     }
 
     let mut builder = SchemaBuilder::new(protocol);
-    for (path, schema) in files {
+    for (path, schema, _cross) in files {
         let prefix = path.display().to_string();
 
         for (name, vertex) in &schema.vertices {
@@ -174,6 +199,24 @@ pub fn assemble_from_files(
                 )
                 .map_err(|e| {
                     VcsError::Other(format!("edge {prefixed_src} -> {prefixed_tgt}: {e}"))
+                })?;
+        }
+    }
+
+    // Cross-file edges carry vertex names already prefixed with
+    // their owning file, so they are added verbatim after the
+    // per-file passes ensure both endpoints exist.
+    for (_path, _schema, cross) in files {
+        for edge in cross {
+            builder = builder
+                .edge(
+                    edge.src.as_ref(),
+                    edge.tgt.as_ref(),
+                    edge.kind.as_ref(),
+                    edge.name.as_deref(),
+                )
+                .map_err(|e| {
+                    VcsError::Other(format!("cross-file edge {} -> {}: {e}", edge.src, edge.tgt))
                 })?;
         }
     }
@@ -224,12 +267,16 @@ pub fn assemble_schema_dyn(
     root_id: &ObjectId,
     protocol: &Protocol,
 ) -> Result<Schema, VcsError> {
-    let mut files: Vec<(PathBuf, Schema)> = Vec::new();
+    let mut files: Vec<(PathBuf, Schema, Vec<panproto_schema::Edge>)> = Vec::new();
     walk_tree_dyn(store, root_id, &mut PathBuf::new(), &mut |path, file| {
-        files.push((path.to_path_buf(), file.schema.clone()));
+        files.push((
+            path.to_path_buf(),
+            file.schema.clone(),
+            file.cross_file_edges.clone(),
+        ));
         Ok(())
     })?;
-    assemble_from_files(protocol, &files)
+    assemble_from_file_objects(protocol, &files)
 }
 
 fn walk_tree_dyn(
@@ -343,6 +390,7 @@ pub fn store_schema_as_tree(store: &mut dyn Store, schema: Schema) -> Result<Obj
         path: String::new(),
         protocol,
         schema,
+        cross_file_edges: Vec::new(),
     };
     let leaf_id = store.put(&Object::FileSchema(Box::new(file)))?;
     let tree = SchemaTreeObject {
@@ -499,6 +547,7 @@ mod tests {
             path: path.to_owned(),
             protocol: "project".to_owned(),
             schema: tiny_schema(vertex),
+            cross_file_edges: Vec::new(),
         }
     }
 

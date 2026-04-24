@@ -331,6 +331,7 @@ where
                 path: "__empty__".to_owned(),
                 protocol: "raw_file".to_owned(),
                 schema,
+                cross_file_edges: Vec::new(),
             };
             let leaf_id = panproto_store.put(&Object::FileSchema(Box::new(file)))?;
             panproto_vcs::build_tree_from_leaves(
@@ -410,6 +411,7 @@ fn collect_tree_leaves<S: Store>(
                         path: path.display().to_string(),
                         protocol,
                         schema,
+                        cross_file_edges: Vec::new(),
                     };
                     let id = store.put(&Object::FileSchema(Box::new(file)))?;
                     blob_cache.insert(blob_oid, id);

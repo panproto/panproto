@@ -547,10 +547,13 @@ pub fn hash_edit_log(edit_log: &EditLogObject) -> Result<ObjectId, VcsError> {
 /// Returns an error if serialization fails.
 pub fn hash_file_schema(file: &crate::object::FileSchemaObject) -> Result<ObjectId, VcsError> {
     let schema_id = hash_schema(&file.schema)?;
+    let mut sorted_cross = file.cross_file_edges.clone();
+    sorted_cross.sort();
     let canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
         ("path", rmp_serde::to_vec(&file.path)?),
         ("protocol", rmp_serde::to_vec(&file.protocol)?),
         ("schema_id", rmp_serde::to_vec(&schema_id)?),
+        ("cross_file_edges", rmp_serde::to_vec(&sorted_cross)?),
     ]);
     let bytes = rmp_serde::to_vec(&canonical)?;
     Ok(ObjectId(blake3::hash(&bytes).into()))

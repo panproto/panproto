@@ -369,7 +369,18 @@ impl ProjectBuilder {
     where
         S: panproto_vcs::Store,
     {
-        let root_id = build_project_tree(store, &self.file_schemas, &self.protocol_map)?;
+        // Mirror the flat build path: resolve cross-file imports so
+        // the per-file schemas persisted under the tree carry the
+        // same edges the flat coproduct would. Without this step,
+        // tree-built projects silently drop every cross-file import
+        // edge that the flat build path records.
+        let cross_file_edges = resolve_per_file_imports(&self.file_schemas, &self.protocol_map);
+        let root_id = build_project_tree(
+            store,
+            &self.file_schemas,
+            &self.protocol_map,
+            &cross_file_edges,
+        )?;
         let protocol_map: HashMap<PathBuf, String> = self.protocol_map.into_iter().collect();
         Ok(ProjectSchemaTree {
             root_id,
@@ -526,6 +537,122 @@ pub struct ProjectSchemaTree {
     pub protocol_map: HashMap<PathBuf, String>,
 }
 
+/// Run the cross-file import resolver against the flat coproduct of
+/// the given per-file schemas and bucket the resulting import edges
+/// by the file that owns the importing vertex.
+///
+/// Returned edges carry vertex names already prefixed with their
+/// owning file's project path (`<path>::<name>`), matching the
+/// convention used by [`ProjectBuilder::build`], so that flat
+/// assembly (`panproto_vcs::assemble_schema`) can add them verbatim
+/// without re-prefixing.
+fn resolve_per_file_imports<H1, H2>(
+    file_schemas: &std::collections::HashMap<PathBuf, panproto_schema::Schema, H1>,
+    protocol_map: &std::collections::HashMap<PathBuf, String, H2>,
+) -> std::collections::HashMap<PathBuf, Vec<panproto_schema::Edge>>
+where
+    H1: std::hash::BuildHasher,
+    H2: std::hash::BuildHasher,
+{
+    if file_schemas.len() <= 1 {
+        return HashMap::new();
+    }
+
+    // Rebuild the flat coproduct just like `ProjectBuilder::build`
+    // does. The duplicated loop body is what makes the flat and tree
+    // paths agree on edge composition; factoring it out across the
+    // two would tangle `build_tree`'s lifetime with `build`'s.
+    let coproduct_protocol = panproto_schema::Protocol {
+        name: "project".into(),
+        schema_theory: "ThProjectSchema".into(),
+        instance_theory: "ThProjectInstance".into(),
+        schema_composition: None,
+        instance_composition: None,
+        edge_rules: vec![],
+        obj_kinds: vec![],
+        constraint_sorts: vec![],
+        has_order: true,
+        has_coproducts: false,
+        has_recursion: false,
+        has_causal: false,
+        nominal_identity: false,
+        has_defaults: false,
+        has_coercions: false,
+        has_mergers: false,
+        has_policies: false,
+    };
+
+    let mut builder = panproto_schema::SchemaBuilder::new(&coproduct_protocol);
+    let mut file_map: HashMap<PathBuf, Vec<panproto_gat::Name>> = HashMap::new();
+
+    for (path, schema) in file_schemas {
+        let prefix = path.display().to_string();
+        let mut file_vertices = Vec::new();
+        for (name, vertex) in &schema.vertices {
+            let prefixed_name = format!("{prefix}::{name}");
+            let Ok(next) = builder.vertex(&prefixed_name, vertex.kind.as_ref(), None) else {
+                return HashMap::new();
+            };
+            builder = next;
+            file_vertices.push(panproto_gat::Name::from(prefixed_name.as_str()));
+            if let Some(constraints) = schema.constraints.get(name) {
+                for c in constraints {
+                    builder = builder.constraint(&prefixed_name, c.sort.as_ref(), &c.value);
+                }
+            }
+        }
+        for edge in schema.edges.keys() {
+            let prefixed_src = format!("{prefix}::{}", edge.src);
+            let prefixed_tgt = format!("{prefix}::{}", edge.tgt);
+            let edge_name = edge.name.as_ref().map(|n| format!("{prefix}::{n}"));
+            let Ok(next) = builder.edge(
+                &prefixed_src,
+                &prefixed_tgt,
+                edge.kind.as_ref(),
+                edge_name.as_deref(),
+            ) else {
+                return HashMap::new();
+            };
+            builder = next;
+        }
+        file_map.insert(path.clone(), file_vertices);
+    }
+
+    let Ok(mut schema) = builder.build() else {
+        return HashMap::new();
+    };
+    let protocols: HashMap<PathBuf, String> = protocol_map
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    let before: std::collections::HashSet<panproto_schema::Edge> =
+        schema.edges.keys().cloned().collect();
+    let rules = resolve::default_rules();
+    resolve::resolve_imports(&mut schema, &file_map, &protocols, &rules);
+
+    // Newly added edges are the cross-file import edges; bucket them
+    // by the file whose vertex is their source.
+    let mut by_file: HashMap<PathBuf, Vec<panproto_schema::Edge>> = HashMap::new();
+    for edge in schema.edges.keys() {
+        if before.contains(edge) {
+            continue;
+        }
+        // Find the owning file by matching the edge src against the
+        // per-file vertex lists.
+        let Some(owner) = file_map
+            .iter()
+            .find(|(_, verts)| verts.iter().any(|v| v == &edge.src))
+            .map(|(path, _)| path.clone())
+        else {
+            continue;
+        };
+        by_file.entry(owner).or_default().push(edge.clone());
+    }
+
+    by_file
+}
+
 /// Build a project schema tree and store it in `store`.
 ///
 /// Each `(path, schema)` pair in `files` becomes a
@@ -537,21 +664,25 @@ pub struct ProjectSchemaTree {
 ///
 /// `protocols` carries the per-file protocol names so the stored
 /// leaves can record how each file was parsed; missing entries fall
-/// back to `"raw_file"`.
+/// back to `"raw_file"`. `cross_file_edges` carries the already-
+/// prefixed cross-file import edges rooted at each file; pass an
+/// empty map to skip cross-file resolution.
 ///
 /// # Errors
 ///
 /// Returns [`ProjectError::CoproductFailed`] if the underlying store
 /// rejects an object write.
-pub fn build_project_tree<S, H1, H2>(
+pub fn build_project_tree<S, H1, H2, H3>(
     store: &mut S,
     files: &std::collections::HashMap<PathBuf, panproto_schema::Schema, H1>,
     protocols: &std::collections::HashMap<PathBuf, String, H2>,
+    cross_file_edges: &std::collections::HashMap<PathBuf, Vec<panproto_schema::Edge>, H3>,
 ) -> Result<panproto_vcs::ObjectId, ProjectError>
 where
     S: panproto_vcs::Store,
     H1: std::hash::BuildHasher,
     H2: std::hash::BuildHasher,
+    H3: std::hash::BuildHasher,
 {
     let mut leaves: Vec<(PathBuf, panproto_vcs::FileSchemaObject)> = files
         .iter()
@@ -560,10 +691,12 @@ where
                 .get(path)
                 .cloned()
                 .unwrap_or_else(|| "raw_file".to_owned());
+            let cross = cross_file_edges.get(path).cloned().unwrap_or_default();
             let file = panproto_vcs::FileSchemaObject {
                 path: path.display().to_string(),
                 protocol,
                 schema: schema.clone(),
+                cross_file_edges: cross,
             };
             (path.clone(), file)
         })
@@ -709,6 +842,59 @@ mod tests {
             ("src/a.rs", b"pub fn a() {}"),
         ]);
         assert_eq!(forward, reverse);
+    }
+
+    #[test]
+    fn build_tree_preserves_cross_file_imports() {
+        use panproto_vcs::MemStore;
+
+        // Two-file TypeScript project with an import: assembled flat
+        // schema from the tree must have the same edge count as the
+        // flat `build()` result.
+        let build_flat = || -> Schema {
+            let mut builder = ProjectBuilder::new();
+            builder
+                .add_file(
+                    Path::new("src/utils.ts"),
+                    b"export function add(a: number, b: number): number { return a + b; }\n",
+                )
+                .unwrap();
+            builder
+                .add_file(
+                    Path::new("src/main.ts"),
+                    b"import { add } from './utils';\nadd(1, 2);\n",
+                )
+                .unwrap();
+            builder.build().unwrap().schema
+        };
+
+        let build_tree_flat = || -> Schema {
+            let mut builder = ProjectBuilder::new();
+            builder
+                .add_file(
+                    Path::new("src/utils.ts"),
+                    b"export function add(a: number, b: number): number { return a + b; }\n",
+                )
+                .unwrap();
+            builder
+                .add_file(
+                    Path::new("src/main.ts"),
+                    b"import { add } from './utils';\nadd(1, 2);\n",
+                )
+                .unwrap();
+            let mut store = MemStore::new();
+            let tree = builder.build_tree(&mut store).unwrap();
+            let proto = panproto_vcs::project_coproduct_protocol();
+            panproto_vcs::assemble_schema(&store, &tree.root_id, &proto).unwrap()
+        };
+
+        let flat = build_flat();
+        let assembled = build_tree_flat();
+        assert_eq!(
+            flat.edges.len(),
+            assembled.edges.len(),
+            "tree-built project drops edges; cross-file imports are likely missing"
+        );
     }
 
     #[test]
