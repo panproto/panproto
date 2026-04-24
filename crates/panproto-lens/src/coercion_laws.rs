@@ -520,6 +520,54 @@ pub fn check_theory(theory: &Theory, registry: &CoercionSampleRegistry) -> Theor
     TheoryCoercionReport { per_equation }
 }
 
+/// Extension trait adding coercion-law validation to
+/// [`DirectedEquation`].
+///
+/// Implemented only in `panproto-lens` to keep `panproto-gat` free of
+/// lens-specific dependencies. Callers bring the method into scope
+/// with `use panproto_lens::coercion_laws::CoercionLawValidation;`.
+pub trait CoercionLawValidation {
+    /// Validate the declared coercion class against samples drawn from
+    /// `registry`.
+    ///
+    /// Returns `Ok(())` when every sample satisfies the declared
+    /// laws. Returns `Err(violations)` otherwise. In debug builds a
+    /// non-empty violation list additionally triggers `debug_assert!`
+    /// so construction-time misuse fails fast during tests.
+    ///
+    /// # Errors
+    ///
+    /// Returns the full list of sample-level violations when the
+    /// declared coercion class cannot be verified on the supplied
+    /// samples.
+    fn validate_coercion_law(
+        &self,
+        registry: &CoercionSampleRegistry,
+        var_name: &str,
+    ) -> Result<(), Vec<CoercionLawViolation>>;
+}
+
+impl CoercionLawValidation for DirectedEquation {
+    fn validate_coercion_law(
+        &self,
+        registry: &CoercionSampleRegistry,
+        var_name: &str,
+    ) -> Result<(), Vec<CoercionLawViolation>> {
+        let violations = check_directed_equation_with_registry(self, registry, var_name);
+        debug_assert!(
+            violations.is_empty(),
+            "coercion law violation in directed equation '{}': {:?}",
+            self.name,
+            violations,
+        );
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(violations)
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -805,6 +853,30 @@ mod tests {
         assert_eq!(lying_name.as_ref(), "lying");
         assert!(!lying_violations.is_empty());
         assert!(report.violation_count() >= 1);
+    }
+
+    #[test]
+    fn coercion_law_validation_trait_succeeds_on_honest() {
+        let reg = CoercionSampleRegistry::with_defaults();
+        let deq = honest_iso_deq("honest");
+        assert!(deq.validate_coercion_law(&reg, "x").is_ok());
+    }
+
+    #[test]
+    fn coercion_law_validation_trait_flags_lying_in_release() {
+        // The trait's `debug_assert!` would panic on a lying equation
+        // in debug builds, which defeats the point of the Err return
+        // path. Exercise the underlying registry check directly so
+        // both profiles stay green, and only invoke the trait method
+        // under `cfg(not(debug_assertions))`.
+        let reg = CoercionSampleRegistry::with_defaults();
+        let deq = lying_iso_deq("lying");
+        let violations = check_directed_equation_with_registry(&deq, &reg, "x");
+        assert!(!violations.is_empty());
+        if cfg!(not(debug_assertions)) {
+            let result = deq.validate_coercion_law(&reg, "x");
+            assert!(result.is_err());
+        }
     }
 
     #[test]
