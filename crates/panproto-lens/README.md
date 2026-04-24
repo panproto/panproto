@@ -65,6 +65,10 @@ let lens_v3 = result.chain.instantiate(&v3_src, &v3_tgt)?;
 | `check_laws` / `check_get_put` / `check_put_get` | Verify round-trip laws on a test instance |
 | `LensGraph` | Weighted graph of lenses with shortest-path queries |
 | `diff_to_protolens` | Derive a protolens chain from a structural schema diff |
+| `coercion_laws::CoercionSampleRegistry` | Per-`ValueKind` sample inputs for coercion law checks; `with_defaults()` covers every primitive kind |
+| `coercion_laws::check_theory` | Run sample-based round-trip checks on every directed equation in a theory, returning a `TheoryCoercionReport` |
+| `coercion_laws::CoercionLawValidation` | Extension trait adding `validate_coercion_law` to `DirectedEquation`; `debug_assert!`s on failure in debug builds |
+| `auto_lens::filter_coerce_proposals_by_law_check` | Partition coerce proposals into kept/dropped by running their witnesses against a sample registry |
 
 For declarative lens specifications in Nickel, JSON, or YAML, see [`panproto-lens-dsl`](../panproto-lens-dsl).
 

@@ -4,6 +4,14 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **panproto-lens (coercion sample registry)**: `CoercionSampleRegistry` is a per-`ValueKind` table of sample inputs for coercion law checks, pre-populated by `with_defaults()` for every primitive kind (`Bool`, `Int`, `Float`, `Str`, `Bytes`, `Null`, `Token`, and an `Any` union). `check_directed_equation_with_registry` runs the declared round-trip laws of a single equation against the samples registered for its source kind; `check_theory` sweeps every directed equation in a theory and returns a `TheoryCoercionReport` with a per-equation violation list. A directed equation whose declared class is falsified by any sample surfaces as an entry in that report rather than silently passing. The existing `check_coercion_laws` / `check_directed_equation_coercion_law` / `default_samples_for_string_value` entry points stay in place.
+- **panproto-lens (coercion law validation trait)**: `CoercionLawValidation` is an extension trait implemented for `DirectedEquation` in the lens crate (keeping `panproto-gat` free of lens dependencies). `deq.validate_coercion_law(&registry, var)` returns `Ok(())` when the declared class holds on every sample and `Err(violations)` otherwise; in debug builds a non-empty violation list also fires `debug_assert!` so construction-time misuse fails fast in tests.
+- **panproto-lens (auto lens law gate)**: `AutoLensConfig::coercion_law_registry` is a new `Option<CoercionSampleRegistry>` field. When `Some`, every `CoerceAnchor` proposal emitted by the coerce strategy is validated against its witness's declared round-trip law on the sampled domain and dropped from the proposal set on failure. The filtering is exposed publicly as `filter_coerce_proposals_by_law_check(proposals, registry)` for callers that want to audit the drops outside of `auto_generate`. The default remains `None`, preserving the pre-0.38 unvalidated behavior.
+- **panproto-theory-dsl (compile-time law check)**: `compile_theory_with_law_check(spec, registry)` compiles the spec the same way as `compile_theory` and then runs `check_theory` on the result. Sample-level violations are returned through a new `TheoryDslError::CoercionLawViolation` variant carrying the theory name and (equation name, rendered violation) pairs. `compile_theory` itself stays unchanged, so existing callers retain the pre-0.38 behavior.
+- **panproto-cli (theory check-coercion-laws verb)**: `schema theory check-coercion-laws <file>` loads a theory document, runs `check_theory` against a default sample registry, prints a per-theory / per-equation report (human-readable or `--json`), and exits non-zero on any violation. Intended to run in CI as a lightweight gate against dishonest `Iso` / `Retraction` declarations.
+
 ## [0.37.0] - 2026-04-23
 
 ### Added

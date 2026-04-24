@@ -65,6 +65,7 @@ schema git import ./my-git-repo
 | `schema expr eval` | Evaluate a panproto expression |
 | `schema expr repl` | Start an interactive expression REPL |
 | `schema theory` | Compile and check GAT theory definitions |
+| `schema theory check-coercion-laws` | Run sample-based coercion law checks over every directed equation in a theory document; non-zero exit on any violation |
 
 ## Installation
 

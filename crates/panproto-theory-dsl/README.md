@@ -52,6 +52,7 @@ A minimal JSON spec for a theory looks like:
 | `compile_with_source` | Compile with the original source text retained so errors carry miette source-span diagnostics |
 | `load_and_compile` | Load and compile in one call |
 | `compile_bundle` | Compile a `BundleSpec` in dependency order |
+| `compile_theory_with_law_check` | Compile a `TheorySpec` and run sample-based coercion law checks; surfaces violations via `TheoryDslError::CoercionLawViolation` |
 | `builtin_resolver` | Resolver for panproto's 11 built-in theories (ThGraph, ThConstraint, etc.) |
 | `TheoryDocument` | Deserialized spec with `id`, `description`, and one body variant |
 | `TheoryBody` | The body: `theory`, `morphism`, `compose`, `protocol`, `bundle`, `class`, `instance`, or `inductive` |
