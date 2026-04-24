@@ -24,6 +24,10 @@ allow = [
     # malachite crates are transitive deps of nickel-lang (arbitrary-precision
     # arithmetic in the Nickel evaluator). Dynamically linked per Rust default.
     "LGPL-3.0-only",
+    # clipboard-win and error-code (windows-only transitive deps of rustyline,
+    # which is used by panproto-repl) ship under the Boost Software License,
+    # a permissive MIT-compatible license.
+    "BSL-1.0",
 ]
 
 [bans]
