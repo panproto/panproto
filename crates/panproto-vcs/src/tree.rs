@@ -18,7 +18,7 @@ use panproto_schema::{Protocol, Schema, SchemaBuilder};
 
 use crate::error::VcsError;
 use crate::hash::ObjectId;
-use crate::object::{FileSchemaObject, Object, SchemaTreeEntry, SchemaTreeObject};
+use crate::object::{CommitObject, FileSchemaObject, Object, SchemaTreeEntry, SchemaTreeObject};
 use crate::store::Store;
 
 /// Walk a schema tree rooted at `root_id` depth-first, invoking
@@ -166,6 +166,39 @@ pub fn assemble_from_files(
     builder
         .build()
         .map_err(|e| VcsError::Other(format!("assemble build: {e}")))
+}
+
+/// Resolve a commit's `schema_id` to a flat [`Schema`] regardless
+/// of whether the stored form is a V1 flat schema object or a V2
+/// schema-tree root.
+///
+/// If the commit points at an [`Object::Schema`], the schema is
+/// returned as-is. If it points at an [`Object::SchemaTree`], the
+/// tree is walked and assembled via [`assemble_schema`] using
+/// [`project_coproduct_protocol`]. Any other target object type
+/// is a [`VcsError::WrongObjectType`].
+///
+/// # Errors
+///
+/// Returns [`VcsError::ObjectNotFound`] if the schema object is
+/// missing, [`VcsError::WrongObjectType`] if the target is neither
+/// `schema` nor `schema_tree`, or a tree-walk error from
+/// [`assemble_schema`] if assembly fails.
+pub fn resolve_commit_schema<S: Store>(
+    store: &S,
+    commit: &CommitObject,
+) -> Result<Schema, VcsError> {
+    match store.get(&commit.schema_id)? {
+        Object::Schema(schema) => Ok(*schema),
+        Object::SchemaTree(_) => {
+            let proto = project_coproduct_protocol();
+            assemble_schema(store, &commit.schema_id, &proto)
+        }
+        other => Err(VcsError::WrongObjectType {
+            expected: "schema or schema_tree",
+            found: other.type_name(),
+        }),
+    }
 }
 
 /// The standard project-coproduct protocol used by both
@@ -395,6 +428,27 @@ mod tests {
             Object::SchemaTree(t) => assert!(t.entries.is_empty()),
             other => panic!("expected schema_tree, got {}", other.type_name()),
         }
+    }
+
+    #[test]
+    fn resolve_commit_schema_dispatches_on_object_type() {
+        use crate::object::CommitObject;
+
+        let mut store = MemStore::new();
+
+        // V1 flat schema path.
+        let flat = tiny_schema("flat");
+        let flat_id = store.put(&Object::Schema(Box::new(flat.clone()))).unwrap();
+        let flat_commit = CommitObject::builder(flat_id, "p", "a", "m").build();
+        let resolved = resolve_commit_schema(&store, &flat_commit).unwrap();
+        assert_eq!(resolved.vertices.len(), flat.vertices.len());
+
+        // V2 schema-tree path.
+        let file = file_schema("only.rs", "only");
+        let root = build_schema_tree(&mut store, vec![(PathBuf::from("only.rs"), file)]).unwrap();
+        let tree_commit = CommitObject::builder(root, "p", "a", "m").build();
+        let resolved = resolve_commit_schema(&store, &tree_commit).unwrap();
+        assert_eq!(resolved.vertices.len(), 1);
     }
 
     #[test]

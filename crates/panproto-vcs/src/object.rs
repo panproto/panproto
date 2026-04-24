@@ -163,6 +163,15 @@ pub struct SchemaTreeObject {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommitObject {
     /// Object ID of the schema at this commit.
+    ///
+    /// This ID may point at either a flat [`Object::Schema`] (the
+    /// V1 storage form) or at an [`Object::SchemaTree`] root whose
+    /// leaves are [`Object::FileSchema`] objects (the V2 storage
+    /// form introduced with per-file content addressing). Callers
+    /// that need a flat [`Schema`] regardless of the stored form
+    /// should go through
+    /// [`resolve_commit_schema`](crate::resolve_commit_schema),
+    /// which dispatches on the stored object type.
     pub schema_id: ObjectId,
 
     /// Parent commit IDs (0 = root, 1 = normal, 2 = merge).

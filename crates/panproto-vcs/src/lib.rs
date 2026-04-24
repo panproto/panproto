@@ -68,5 +68,5 @@ pub use repo::{CommitOptions, Repository};
 pub use store::{HeadState, ReflogEntry, Store};
 pub use tree::{
     assemble_from_files, assemble_schema, build_schema_tree, build_tree_from_leaves,
-    project_coproduct_protocol, walk_tree,
+    project_coproduct_protocol, resolve_commit_schema, walk_tree,
 };
