@@ -531,9 +531,10 @@ pub trait CoercionLawValidation {
     /// `registry`.
     ///
     /// Returns `Ok(())` when every sample satisfies the declared
-    /// laws. Returns `Err(violations)` otherwise. In debug builds a
-    /// non-empty violation list additionally triggers `debug_assert!`
-    /// so construction-time misuse fails fast during tests.
+    /// laws. Returns `Err(violations)` otherwise. The `Result` is the
+    /// sole contract: debug and release builds behave identically, so
+    /// callers can rely on the `Err` path being exercised by their
+    /// test suite.
     ///
     /// # Errors
     ///
@@ -554,12 +555,6 @@ impl CoercionLawValidation for DirectedEquation {
         var_name: &str,
     ) -> Result<(), Vec<CoercionLawViolation>> {
         let violations = check_directed_equation_with_registry(self, registry, var_name);
-        debug_assert!(
-            violations.is_empty(),
-            "coercion law violation in directed equation '{}': {:?}",
-            self.name,
-            violations,
-        );
         if violations.is_empty() {
             Ok(())
         } else {
@@ -863,20 +858,16 @@ mod tests {
     }
 
     #[test]
-    fn coercion_law_validation_trait_flags_lying_in_release() {
-        // The trait's `debug_assert!` would panic on a lying equation
-        // in debug builds, which defeats the point of the Err return
-        // path. Exercise the underlying registry check directly so
-        // both profiles stay green, and only invoke the trait method
-        // under `cfg(not(debug_assertions))`.
+    fn coercion_law_validation_trait_flags_lying() {
+        // The trait method's sole contract is the `Result`; both
+        // debug and release builds return `Err` on a lying declaration.
         let reg = CoercionSampleRegistry::with_defaults();
         let deq = lying_iso_deq("lying");
         let violations = check_directed_equation_with_registry(&deq, &reg, "x");
         assert!(!violations.is_empty());
-        if cfg!(not(debug_assertions)) {
-            let result = deq.validate_coercion_law(&reg, "x");
-            assert!(result.is_err());
-        }
+        let result = deq.validate_coercion_law(&reg, "x");
+        let err = result.expect_err("lying iso must yield Err in every build config");
+        assert!(!err.is_empty(), "Err payload must carry the violations");
     }
 
     #[test]
