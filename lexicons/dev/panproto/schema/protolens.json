@@ -21,6 +21,7 @@
               "empty",
               "droppedSortData",
               "droppedOpData",
+              "droppedEdge",
               "natTransKernel",
               "addedElement",
               "coercedSortData",

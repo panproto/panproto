@@ -1,0 +1,43 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.listTheories",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Lists the theories attached to a commit, returning a name + objectHash entry for each. The blob behind each theory can be fetched via getObject.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "commit"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "commit": { "type": "string", "maxLength": 64 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commit", "theories"],
+          "properties": {
+            "commit": { "type": "string", "maxLength": 64 },
+            "theories": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#theoryRef" }
+            }
+          }
+        }
+      }
+    },
+    "theoryRef": {
+      "type": "object",
+      "required": ["name", "objectHash"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 256 },
+        "objectHash": { "type": "string", "maxLength": 64 },
+        "sortCount": { "type": "integer" },
+        "opCount": { "type": "integer" },
+        "eqCount": { "type": "integer" }
+      }
+    }
+  }
+}

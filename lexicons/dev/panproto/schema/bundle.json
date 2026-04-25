@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "dev.panproto.schema.expr",
+  "id": "dev.panproto.schema.bundle",
   "defs": {
     "main": {
       "type": "record",
@@ -11,13 +11,12 @@
         "properties": {
           "name": { "type": "string", "maxLength": 256 },
           "description": { "type": "string", "maxLength": 2560 },
-          "exprType": {
-            "type": "string",
-            "knownValues": ["bool", "int", "float", "str", "bytes", "token", "null", "any"]
-          },
-          "source": { "type": "string", "maxLength": 65536 },
+          "theoryCount": { "type": "integer" },
+          "morphismCount": { "type": "integer" },
+          "compositionCount": { "type": "integer" },
+          "protocolCount": { "type": "integer" },
           "objectHash": { "type": "string", "maxLength": 64 },
-          "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 1048576 },
+          "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 2097152 },
           "createdAt": { "type": "string", "format": "datetime" }
         }
       }

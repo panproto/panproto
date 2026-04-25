@@ -1,0 +1,23 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.vcs.editLog",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["schemaId", "dataId", "objectHash", "editCount", "finalComplement", "createdAt"],
+        "properties": {
+          "schemaId": { "type": "string", "maxLength": 64 },
+          "dataId": { "type": "string", "maxLength": 64 },
+          "objectHash": { "type": "string", "maxLength": 64 },
+          "editCount": { "type": "integer" },
+          "finalComplement": { "type": "string", "maxLength": 64 },
+          "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 8388608 },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

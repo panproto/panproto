@@ -1,21 +1,20 @@
 {
   "lexicon": 1,
-  "id": "dev.panproto.schema.expr",
+  "id": "dev.panproto.schema.instance",
   "defs": {
     "main": {
       "type": "record",
       "key": "tid",
       "record": {
         "type": "object",
-        "required": ["name", "objectHash", "createdAt"],
+        "required": ["name", "class", "target", "objectHash", "createdAt"],
         "properties": {
           "name": { "type": "string", "maxLength": 256 },
           "description": { "type": "string", "maxLength": 2560 },
-          "exprType": {
-            "type": "string",
-            "knownValues": ["bool", "int", "float", "str", "bytes", "token", "null", "any"]
-          },
-          "source": { "type": "string", "maxLength": 65536 },
+          "class": { "type": "string", "maxLength": 256 },
+          "target": { "type": "string", "maxLength": 256 },
+          "sortBindingCount": { "type": "integer" },
+          "opBindingCount": { "type": "integer" },
           "objectHash": { "type": "string", "maxLength": 64 },
           "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 1048576 },
           "createdAt": { "type": "string", "format": "datetime" }

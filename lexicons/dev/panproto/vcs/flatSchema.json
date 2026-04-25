@@ -1,0 +1,23 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.vcs.flatSchema",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["objectHash", "createdAt"],
+        "properties": {
+          "objectHash": { "type": "string", "maxLength": 64 },
+          "treeId": { "type": "string", "maxLength": 64 },
+          "vertexCount": { "type": "integer" },
+          "edgeCount": { "type": "integer" },
+          "constraintCount": { "type": "integer" },
+          "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 16777216 },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

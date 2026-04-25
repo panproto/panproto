@@ -1,0 +1,82 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.listAlignments",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Lists the alignment anchors that produced a migration, grouped by strategy. The full anchor record includes source/target vertex names, confidence, and explanation.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "migration"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "migration": { "type": "string", "maxLength": 64 },
+          "strategy": {
+            "type": "string",
+            "knownValues": [
+              "user_hint",
+              "exact",
+              "exact_suffix",
+              "edge_label",
+              "alias",
+              "token_similarity",
+              "description_similarity",
+              "type_signature",
+              "wrap_unwrap",
+              "coerce",
+              "neighborhood",
+              "wl_refinement",
+              "structural",
+              "llm"
+            ]
+          },
+          "minConfidence": { "type": "number" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 200 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["migration", "anchors"],
+          "properties": {
+            "migration": { "type": "string", "maxLength": 64 },
+            "anchors": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#anchor" }
+            }
+          }
+        }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "required": ["src", "tgt", "confidence", "strategy"],
+      "properties": {
+        "src": { "type": "string", "maxLength": 512 },
+        "tgt": { "type": "string", "maxLength": 512 },
+        "confidence": { "type": "number" },
+        "strategy": {
+          "type": "string",
+          "knownValues": [
+            "user_hint",
+            "exact",
+            "exact_suffix",
+            "edge_label",
+            "alias",
+            "token_similarity",
+            "description_similarity",
+            "type_signature",
+            "wrap_unwrap",
+            "coerce",
+            "neighborhood",
+            "wl_refinement",
+            "structural",
+            "llm"
+          ]
+        },
+        "explanation": { "type": "string", "maxLength": 1024 }
+      }
+    }
+  }
+}

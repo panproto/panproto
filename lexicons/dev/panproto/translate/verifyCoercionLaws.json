@@ -1,0 +1,107 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.translate.verifyCoercionLaws",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Validate the round-trip laws of a coercion (forward/inverse pair under a declared CoercionClass) against a registered sample set. Returns one violation per failing sample, or an empty list when the laws hold on every sample. An empty list does not prove the declaration holds in general.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["class", "forwardExpr", "varName", "valueKind"],
+          "properties": {
+            "class": {
+              "type": "string",
+              "knownValues": ["iso", "retraction", "projection", "opaque"]
+            },
+            "forwardExpr": { "type": "string", "maxLength": 65536 },
+            "inverseExpr": { "type": "string", "maxLength": 65536 },
+            "varName": { "type": "string", "maxLength": 256 },
+            "valueKind": {
+              "type": "string",
+              "knownValues": ["bool", "int", "float", "str", "bytes", "token", "null", "any"]
+            },
+            "samples": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#literal" },
+              "maxLength": 1024
+            },
+            "filter": { "type": "ref", "ref": "#filterOptions" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["sampleCount", "violations"],
+          "properties": {
+            "sampleCount": { "type": "integer" },
+            "violations": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#coercionLawViolation" }
+            }
+          }
+        }
+      }
+    },
+    "literal": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "knownValues": ["bool", "int", "float", "str", "bytes", "token", "null"]
+        },
+        "bool": { "type": "boolean" },
+        "int": { "type": "integer" },
+        "float": { "type": "number" },
+        "str": { "type": "string" },
+        "bytes": { "type": "string", "description": "base64-encoded byte sequence" },
+        "token": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "filterOptions": {
+      "type": "object",
+      "properties": {
+        "unknown": {
+          "type": "string",
+          "knownValues": ["keep", "drop"],
+          "default": "keep",
+          "description": "Policy for proposals whose witness cannot be located or whose source kind has no registered samples."
+        }
+      }
+    },
+    "coercionLawViolation": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "knownValues": [
+            "Backward",
+            "Forward",
+            "NonDeterministic",
+            "MissingInverse",
+            "ForwardEvalError",
+            "InverseEvalError",
+            "UnknownClass"
+          ]
+        },
+        "input": { "type": "ref", "ref": "#literal" },
+        "forwardResult": { "type": "ref", "ref": "#literal" },
+        "inverseResult": { "type": "ref", "ref": "#literal" },
+        "roundTripped": { "type": "ref", "ref": "#literal" },
+        "first": { "type": "ref", "ref": "#literal" },
+        "second": { "type": "ref", "ref": "#literal" },
+        "class": {
+          "type": "string",
+          "knownValues": ["iso", "retraction", "projection", "opaque"]
+        },
+        "error": { "type": "string", "maxLength": 4096 },
+        "debugRepr": { "type": "string", "maxLength": 1024 }
+      }
+    }
+  }
+}

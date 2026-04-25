@@ -1,0 +1,49 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.node.getSchemaTree",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Returns one node of the project schema Merkle tree. The node is either a SingleLeaf (wrapping one FileSchema) or a Directory of named entries pointing at child trees and file schemas.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "treeId"],
+        "properties": {
+          "repo": { "type": "string", "maxLength": 256 },
+          "treeId": { "type": "string", "maxLength": 64 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["treeId", "kind"],
+          "properties": {
+            "treeId": { "type": "string", "maxLength": 64 },
+            "kind": {
+              "type": "string",
+              "knownValues": ["singleLeaf", "directory"]
+            },
+            "fileSchemaId": { "type": "string", "maxLength": 64 },
+            "entries": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#entry" }
+            }
+          }
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "required": ["name", "entryKind", "objectId"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 512 },
+        "entryKind": {
+          "type": "string",
+          "knownValues": ["file", "tree"]
+        },
+        "objectId": { "type": "string", "maxLength": 64 }
+      }
+    }
+  }
+}

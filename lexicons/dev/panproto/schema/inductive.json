@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "dev.panproto.schema.expr",
+  "id": "dev.panproto.schema.inductive",
   "defs": {
     "main": {
       "type": "record",
@@ -11,15 +11,25 @@
         "properties": {
           "name": { "type": "string", "maxLength": 256 },
           "description": { "type": "string", "maxLength": 2560 },
-          "exprType": {
-            "type": "string",
-            "knownValues": ["bool", "int", "float", "str", "bytes", "token", "null", "any"]
+          "paramCount": { "type": "integer" },
+          "constructors": {
+            "type": "array",
+            "items": { "type": "ref", "ref": "#constructorSummary" },
+            "maxLength": 256
           },
-          "source": { "type": "string", "maxLength": 65536 },
           "objectHash": { "type": "string", "maxLength": 64 },
           "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 1048576 },
           "createdAt": { "type": "string", "format": "datetime" }
         }
+      }
+    },
+    "constructorSummary": {
+      "type": "object",
+      "required": ["name", "arity"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 256 },
+        "arity": { "type": "integer" },
+        "isRecursive": { "type": "boolean" }
       }
     }
   }

@@ -1,21 +1,25 @@
 {
   "lexicon": 1,
-  "id": "dev.panproto.schema.expr",
+  "id": "dev.panproto.schema.conflictPolicy",
   "defs": {
     "main": {
       "type": "record",
       "key": "tid",
       "record": {
         "type": "object",
-        "required": ["name", "objectHash", "createdAt"],
+        "required": ["name", "valueKind", "strategy", "objectHash", "createdAt"],
         "properties": {
           "name": { "type": "string", "maxLength": 256 },
           "description": { "type": "string", "maxLength": 2560 },
-          "exprType": {
+          "valueKind": {
             "type": "string",
             "knownValues": ["bool", "int", "float", "str", "bytes", "token", "null", "any"]
           },
-          "source": { "type": "string", "maxLength": 65536 },
+          "strategy": {
+            "type": "string",
+            "knownValues": ["keep_left", "keep_right", "fail", "custom"]
+          },
+          "customExpr": { "type": "string", "maxLength": 65536 },
           "objectHash": { "type": "string", "maxLength": 64 },
           "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 1048576 },
           "createdAt": { "type": "string", "format": "datetime" }

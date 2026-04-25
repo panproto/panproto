@@ -15,9 +15,41 @@
           "vertexMapSize": { "type": "integer" },
           "edgeMapSize": { "type": "integer" },
           "hasExprResolvers": { "type": "boolean" },
+          "alignmentStrategies": {
+            "type": "array",
+            "items": { "type": "ref", "ref": "#strategySummary" },
+            "maxLength": 64
+          },
           "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 1048576 },
           "createdAt": { "type": "string", "format": "datetime" }
         }
+      }
+    },
+    "strategySummary": {
+      "type": "object",
+      "required": ["strategy", "anchorCount"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "knownValues": [
+            "user_hint",
+            "exact",
+            "exact_suffix",
+            "edge_label",
+            "alias",
+            "token_similarity",
+            "description_similarity",
+            "type_signature",
+            "wrap_unwrap",
+            "coerce",
+            "neighborhood",
+            "wl_refinement",
+            "structural",
+            "llm"
+          ]
+        },
+        "anchorCount": { "type": "integer" },
+        "meanConfidence": { "type": "number" }
       }
     }
   }
