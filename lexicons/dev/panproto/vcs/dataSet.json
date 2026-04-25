@@ -1,0 +1,21 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.vcs.dataSet",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["schemaId", "objectHash", "recordCount", "createdAt"],
+        "properties": {
+          "schemaId": { "type": "string", "maxLength": 64 },
+          "objectHash": { "type": "string", "maxLength": 64 },
+          "recordCount": { "type": "integer" },
+          "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 16777216 },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

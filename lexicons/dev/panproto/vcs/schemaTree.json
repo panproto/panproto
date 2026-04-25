@@ -1,0 +1,41 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.vcs.schemaTree",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["kind", "objectHash", "createdAt"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "knownValues": ["singleLeaf", "directory"]
+          },
+          "objectHash": { "type": "string", "maxLength": 64 },
+          "fileSchemaId": { "type": "string", "maxLength": 64 },
+          "entries": {
+            "type": "array",
+            "items": { "type": "ref", "ref": "#entry" },
+            "maxLength": 65536
+          },
+          "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 4194304 },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "required": ["name", "entryKind", "objectId"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 512 },
+        "entryKind": {
+          "type": "string",
+          "knownValues": ["file", "tree"]
+        },
+        "objectId": { "type": "string", "maxLength": 64 }
+      }
+    }
+  }
+}

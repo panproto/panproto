@@ -1,0 +1,21 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.vcs.tag",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["target", "tagger", "message", "objectHash", "createdAt"],
+        "properties": {
+          "target": { "type": "string", "maxLength": 64 },
+          "tagger": { "type": "string", "maxLength": 256 },
+          "message": { "type": "string", "maxLength": 100000 },
+          "objectHash": { "type": "string", "maxLength": 64 },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

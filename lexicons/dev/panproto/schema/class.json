@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "dev.panproto.schema.expr",
+  "id": "dev.panproto.schema.class",
   "defs": {
     "main": {
       "type": "record",
@@ -11,11 +11,13 @@
         "properties": {
           "name": { "type": "string", "maxLength": 256 },
           "description": { "type": "string", "maxLength": 2560 },
-          "exprType": {
-            "type": "string",
-            "knownValues": ["bool", "int", "float", "str", "bytes", "token", "null", "any"]
+          "params": {
+            "type": "array",
+            "items": { "type": "string", "maxLength": 128 },
+            "maxLength": 32
           },
-          "source": { "type": "string", "maxLength": 65536 },
+          "signatureCount": { "type": "integer" },
+          "axiomCount": { "type": "integer" },
           "objectHash": { "type": "string", "maxLength": 64 },
           "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 1048576 },
           "createdAt": { "type": "string", "format": "datetime" }

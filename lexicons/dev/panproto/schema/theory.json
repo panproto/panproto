@@ -18,6 +18,12 @@
           "sortCount": { "type": "integer" },
           "opCount": { "type": "integer" },
           "eqCount": { "type": "integer" },
+          "directedEqCount": { "type": "integer" },
+          "policyCount": { "type": "integer" },
+          "morphismCount": { "type": "integer" },
+          "classCount": { "type": "integer" },
+          "instanceCount": { "type": "integer" },
+          "inductiveCount": { "type": "integer" },
           "objectHash": { "type": "string", "maxLength": 64 },
           "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 1048576 },
           "createdAt": { "type": "string", "format": "datetime" }

@@ -1,0 +1,41 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.schema.composition",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["name", "objectHash", "createdAt"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 256 },
+          "description": { "type": "string", "maxLength": 2560 },
+          "bases": {
+            "type": "array",
+            "items": { "type": "string", "maxLength": 256 },
+            "maxLength": 64
+          },
+          "steps": {
+            "type": "array",
+            "items": { "type": "ref", "ref": "#colimitStep" },
+            "maxLength": 64
+          },
+          "objectHash": { "type": "string", "maxLength": 64 },
+          "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 1048576 },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    },
+    "colimitStep": {
+      "type": "object",
+      "required": ["left", "right"],
+      "properties": {
+        "left": { "type": "string", "maxLength": 256 },
+        "right": { "type": "string", "maxLength": 256 },
+        "sharedSortCount": { "type": "integer" },
+        "sharedOpCount": { "type": "integer" }
+      }
+    }
+  }
+}

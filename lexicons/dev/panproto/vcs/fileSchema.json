@@ -1,0 +1,25 @@
+{
+  "lexicon": 1,
+  "id": "dev.panproto.vcs.fileSchema",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["path", "protocol", "objectHash", "createdAt"],
+        "properties": {
+          "path": { "type": "string", "maxLength": 1024 },
+          "protocol": { "type": "string", "maxLength": 128 },
+          "objectHash": { "type": "string", "maxLength": 64 },
+          "vertexCount": { "type": "integer" },
+          "edgeCount": { "type": "integer" },
+          "constraintCount": { "type": "integer" },
+          "crossFileEdgeCount": { "type": "integer" },
+          "blob": { "type": "blob", "accept": ["application/x-msgpack"], "maxSize": 1048576 },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}
