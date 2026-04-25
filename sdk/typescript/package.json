@@ -37,7 +37,7 @@
     "@msgpack/msgpack": "^3.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^25.6.0",
     "oxlint": "^1.60.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.8",
