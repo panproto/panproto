@@ -42,4 +42,8 @@ mod tests;
 pub use error::GitBridgeError;
 pub use export::ExportResult;
 pub use export::export_to_git;
-pub use import::{ImportResult, import_git_repo, import_git_repo_incremental};
+pub use import::{
+    BLOB_CACHE_FILE, BlobCacheLoadError, BlobSchemaCache, ImportResult, import_git_repo,
+    import_git_repo_incremental, import_git_repo_persistent, import_git_repo_with_cache,
+    load_blob_cache, save_blob_cache,
+};

@@ -97,14 +97,9 @@ fn walk_blame(
             }
         };
 
-        let schema = match store.get(&commit.schema_id)? {
-            Object::Schema(s) => *s,
-            other => {
-                return Err(VcsError::WrongObjectType {
-                    expected: "schema",
-                    found: other.type_name(),
-                });
-            }
+        let schema = {
+            let proto = crate::tree::project_coproduct_protocol();
+            crate::tree::assemble_schema_dyn(store, &commit.schema_id, &proto)?
         };
 
         if predicate(&schema) {
@@ -191,7 +186,7 @@ mod tests {
     fn blame_vertex_in_root() -> Result<(), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
         let s = make_schema(&[("a", "object")]);
-        let schema_id = store.put(&Object::Schema(Box::new(s)))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, s)?;
         let commit = CommitObject::builder(schema_id, "test", "alice", "initial")
             .timestamp(100)
             .build();
@@ -209,7 +204,7 @@ mod tests {
 
         // c0: only vertex "a"
         let s0 = make_schema(&[("a", "object")]);
-        let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
+        let s0_id = crate::tree::store_schema_as_tree(&mut store, s0)?;
         let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
             .timestamp(100)
             .build();
@@ -217,7 +212,7 @@ mod tests {
 
         // c1: adds vertex "b"
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-        let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
+        let s1_id = crate::tree::store_schema_as_tree(&mut store, s1)?;
         let c1 = CommitObject::builder(s1_id, "test", "bob", "add b")
             .parents(vec![c0_id])
             .timestamp(200)
@@ -235,7 +230,7 @@ mod tests {
     fn blame_vertex_not_found() -> Result<(), Box<dyn std::error::Error>> {
         let mut store = MemStore::new();
         let s = make_schema(&[("a", "object")]);
-        let schema_id = store.put(&Object::Schema(Box::new(s)))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, s)?;
         let commit = CommitObject::builder(schema_id, "test", "alice", "initial")
             .timestamp(100)
             .build();

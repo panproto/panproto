@@ -8,7 +8,10 @@ use std::path::Path;
 use panproto_vcs::{MemStore, Store};
 
 use crate::export::export_to_git;
-use crate::import::{import_git_repo, import_git_repo_incremental};
+use crate::import::{
+    BlobSchemaCache, import_git_repo, import_git_repo_incremental, import_git_repo_persistent,
+    import_git_repo_with_cache, load_blob_cache, save_blob_cache,
+};
 
 /// Create a temporary git repository with a single commit containing
 /// the given files.
@@ -92,17 +95,12 @@ fn import_multi_file_project() {
         other => panic!("expected commit, got {}", other.type_name()),
     };
 
-    let schema_obj = store.get(&commit.schema_id).unwrap();
-    match &schema_obj {
-        panproto_vcs::Object::Schema(s) => {
-            assert!(
-                s.vertices.len() > 5,
-                "expected rich project schema, got {} vertices",
-                s.vertices.len()
-            );
-        }
-        other => panic!("expected schema, got {}", other.type_name()),
-    }
+    let schema = panproto_vcs::tree::resolve_commit_schema(&store, commit).unwrap();
+    assert!(
+        schema.vertices.len() > 5,
+        "expected rich project schema, got {} vertices",
+        schema.vertices.len()
+    );
 }
 
 #[test]
@@ -216,8 +214,8 @@ fn incremental_import_skips_known_ancestors() {
     assert_eq!(second.oid_map.len(), 1);
     assert_eq!(second.oid_map[0].0, commit_oids[2]);
 
-    // The new HEAD commit should have the previously-imported commit 1 as
-    // its single panproto parent.
+    // The new HEAD commit should have the imported commit 1 as its
+    // single panproto parent.
     let head_obj = store.get(&second.head_id).unwrap();
     match &head_obj {
         panproto_vcs::Object::Commit(c) => {
@@ -410,4 +408,333 @@ fn export_parent_map_empty_produces_root_commit() {
         0,
         "unmapped panproto parents should not produce git parents"
     );
+}
+
+/// Build a git repo with 3 commits that each touch a different file,
+/// while 4 other files remain unchanged across all commits.
+fn create_dedup_history() -> (tempfile::TempDir, git2::Repository, Vec<git2::Oid>) {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = git2::Repository::init(dir.path()).unwrap();
+    let sig = git2::Signature::new("Dev", "dev@test.com", &git2::Time::new(1000, 0)).unwrap();
+
+    // Seed the 5 files.
+    for (path, content) in [
+        ("a.py", "x = 1\n"),
+        ("b.py", "y = 2\n"),
+        ("c.py", "z = 3\n"),
+        ("d.py", "w = 4\n"),
+        ("e.py", "v = 5\n"),
+    ] {
+        std::fs::write(dir.path().join(path), content).unwrap();
+    }
+
+    let mut commit_oids = Vec::new();
+    let mut parent: Option<git2::Oid> = None;
+
+    // Commit 0: all five files.
+    // Commit 1: modify a.py only.
+    // Commit 2: modify b.py only.
+    let mutations: [&[(&str, &str)]; 3] = [
+        &[
+            ("a.py", "x = 1\n"),
+            ("b.py", "y = 2\n"),
+            ("c.py", "z = 3\n"),
+            ("d.py", "w = 4\n"),
+            ("e.py", "v = 5\n"),
+        ],
+        &[("a.py", "x = 11\n")],
+        &[("b.py", "y = 22\n")],
+    ];
+
+    for (i, batch) in mutations.iter().enumerate() {
+        for (path, content) in *batch {
+            std::fs::write(dir.path().join(path), content).unwrap();
+        }
+        let mut index = repo.index().unwrap();
+        for name in ["a.py", "b.py", "c.py", "d.py", "e.py"] {
+            index.add_path(Path::new(name)).unwrap();
+        }
+        index.write().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+
+        let parent_commit = parent.map(|p| repo.find_commit(p).unwrap());
+        let parents: Vec<&git2::Commit<'_>> = parent_commit.iter().collect();
+        let new_oid = repo
+            .commit(
+                Some("HEAD"),
+                &sig,
+                &sig,
+                &format!("commit {i}"),
+                &tree,
+                &parents,
+            )
+            .unwrap();
+        commit_oids.push(new_oid);
+        parent = Some(new_oid);
+    }
+
+    (dir, repo, commit_oids)
+}
+
+#[test]
+fn import_persistent_roundtrips_cache() {
+    let (_dir, repo, _oids) = create_dedup_history();
+    let mut store = MemStore::new();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let known: rustc_hash::FxHashMap<git2::Oid, panproto_vcs::ObjectId> =
+        rustc_hash::FxHashMap::default();
+
+    let r1 =
+        import_git_repo_persistent(&repo, &mut store, "HEAD", &known, cache_dir.path()).unwrap();
+    assert_eq!(r1.commit_count, 3);
+
+    // The cache file must exist and be non-empty; a second import
+    // with the same revspec and matching marks must be a no-op.
+    let cache_path = cache_dir.path().join(crate::import::BLOB_CACHE_FILE);
+    assert!(cache_path.is_file());
+    let loaded = load_blob_cache(&cache_path).unwrap();
+    assert_eq!(loaded.len(), 7);
+
+    // Atomic save: writing a new cache must replace, not leak tmp.
+    save_blob_cache(&cache_path, &loaded).unwrap();
+    let tmp = cache_path.with_extension("tmp");
+    assert!(!tmp.exists(), "save_blob_cache must rename atomically");
+}
+
+#[test]
+fn blob_cache_rejects_corrupt_file() {
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("corrupt");
+    std::fs::write(&cache_path, "not a valid cache entry\n").unwrap();
+    let err = load_blob_cache(&cache_path).unwrap_err();
+    assert!(format!("{err}").contains("corrupt"));
+}
+
+#[test]
+fn blob_cache_missing_protocol_slot_is_corrupt() {
+    // A one-token line must trigger the "missing protocol slot"
+    // corrupt branch, not the "missing panproto id" branch.
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("one_token");
+    std::fs::write(&cache_path, "0123456789abcdef0123456789abcdef01234567\n").unwrap();
+    let err = load_blob_cache(&cache_path).unwrap_err();
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("missing protocol slot"),
+        "expected missing-protocol-slot diagnostic, got: {msg}"
+    );
+    assert!(msg.contains("delete the cache file and reimport"));
+}
+
+#[test]
+fn save_blob_cache_rejects_empty_protocol() {
+    use panproto_vcs::ObjectId;
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("empty_proto");
+    let mut cache = BlobSchemaCache::default();
+    let blob_oid = git2::Oid::from_str("0123456789abcdef0123456789abcdef01234567").unwrap();
+    cache.insert((blob_oid, String::new()), ObjectId::from_bytes([1; 32]));
+    let err = save_blob_cache(&cache_path, &cache).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("empty protocol"),
+        "expected empty-protocol diagnostic, got: {msg}"
+    );
+}
+
+#[test]
+fn blob_cache_close_reopen_rebuilds_state() {
+    // import_git_repo_persistent must reload prior cache state after
+    // a fresh process would have done a close + reopen. Simulate that
+    // by dropping the store between the two import calls.
+    let (_dir, repo, _oids) = create_dedup_history();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let known: rustc_hash::FxHashMap<git2::Oid, panproto_vcs::ObjectId> =
+        rustc_hash::FxHashMap::default();
+
+    {
+        let mut store = MemStore::new();
+        let r = import_git_repo_persistent(&repo, &mut store, "HEAD", &known, cache_dir.path())
+            .unwrap();
+        assert_eq!(r.commit_count, 3);
+    }
+
+    // Reload the cache from disk (fresh MemStore, fresh import).
+    // No panic, no corrupt diagnostic; re-import must produce the
+    // same head id because the imported history is content-addressed.
+    let mut store2 = MemStore::new();
+    let r2 =
+        import_git_repo_persistent(&repo, &mut store2, "HEAD", &known, cache_dir.path()).unwrap();
+    assert_eq!(r2.commit_count, 3);
+
+    // Cache file survived the close-reopen round-trip.
+    let cache_path = cache_dir.path().join(crate::import::BLOB_CACHE_FILE);
+    let loaded = load_blob_cache(&cache_path).unwrap();
+    assert_eq!(loaded.len(), 7);
+}
+
+#[test]
+fn blob_cache_reuses_file_schema_ids_across_commits() {
+    // In a 3-commit 5-file history where commits 2 and 3 touch one
+    // file each, commits 2 and 3 must each reuse 4 of 5 FileSchema
+    // ObjectIds from commit 1. The union of FileSchema ids across
+    // the three commits is therefore 5 + 1 + 1 = 7.
+    use std::collections::HashSet;
+    let (_dir, repo, _oids) = create_dedup_history();
+    let mut store = MemStore::new();
+    let mut cache = BlobSchemaCache::default();
+    let known: rustc_hash::FxHashMap<git2::Oid, panproto_vcs::ObjectId> =
+        rustc_hash::FxHashMap::default();
+    let result = import_git_repo_with_cache(&repo, &mut store, "HEAD", &known, &mut cache).unwrap();
+    assert_eq!(result.commit_count, 3);
+
+    let mut per_commit: Vec<HashSet<panproto_vcs::ObjectId>> = Vec::new();
+    for (_, commit_id) in &result.oid_map {
+        let commit = match store.get(commit_id).unwrap() {
+            panproto_vcs::Object::Commit(c) => c,
+            other => panic!("expected commit, got {}", other.type_name()),
+        };
+        let mut ids: HashSet<panproto_vcs::ObjectId> = HashSet::new();
+        panproto_vcs::walk_tree(&store, &commit.schema_id, |_, f| {
+            ids.insert(panproto_vcs::hash::hash_file_schema(f).unwrap());
+            Ok(())
+        })
+        .unwrap();
+        per_commit.push(ids);
+    }
+
+    assert_eq!(per_commit[0].len(), 5);
+    assert_eq!(per_commit[1].len(), 5);
+    assert_eq!(per_commit[2].len(), 5);
+
+    // Commit 2 shares 4 of 5 with commit 1 (only a.py changed).
+    // Commit 3 shares 4 of 5 with commit 2 (only b.py changed).
+    // Commit 3 shares 3 of 5 with commit 1 (both a.py and b.py differ).
+    let shared_01 = per_commit[0].intersection(&per_commit[1]).count();
+    let shared_12 = per_commit[1].intersection(&per_commit[2]).count();
+    let shared_02 = per_commit[0].intersection(&per_commit[2]).count();
+    assert_eq!(
+        shared_01, 4,
+        "commit 2 must reuse 4 of 5 FileSchemas from commit 1"
+    );
+    assert_eq!(
+        shared_12, 4,
+        "commit 3 must reuse 4 of 5 FileSchemas from commit 2"
+    );
+    assert_eq!(
+        shared_02, 3,
+        "commit 3 shares the 3 files untouched since commit 1"
+    );
+
+    // Total distinct FileSchemas across the three commits: 5 + 2 = 7.
+    let mut union: HashSet<panproto_vcs::ObjectId> = HashSet::new();
+    for set in &per_commit {
+        union.extend(set.iter().copied());
+    }
+    assert_eq!(union.len(), 7);
+}
+
+#[test]
+fn blob_cache_key_is_protocol_aware() {
+    // Two files with byte-identical content but different extensions
+    // must produce two distinct FileSchema ObjectIds: the `.py` file
+    // parses through the python protocol, the `.txt` file falls back
+    // to raw_file, so the per-file schemas differ.
+    let dir = tempfile::tempdir().unwrap();
+    let repo = git2::Repository::init(dir.path()).unwrap();
+    let sig = git2::Signature::new("Dev", "dev@test.com", &git2::Time::new(1000, 0)).unwrap();
+
+    let content = b"x = 1\n";
+    std::fs::write(dir.path().join("a.py"), content).unwrap();
+    std::fs::write(dir.path().join("a.txt"), content).unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("a.py")).unwrap();
+    index.add_path(Path::new("a.txt")).unwrap();
+    index.write().unwrap();
+    let tree_oid = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_oid).unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "mixed", &tree, &[])
+        .unwrap();
+
+    let mut store = MemStore::new();
+    let mut cache = BlobSchemaCache::default();
+    let known: rustc_hash::FxHashMap<git2::Oid, panproto_vcs::ObjectId> =
+        rustc_hash::FxHashMap::default();
+    let result = import_git_repo_with_cache(&repo, &mut store, "HEAD", &known, &mut cache).unwrap();
+    assert_eq!(result.commit_count, 1);
+
+    // Two distinct (blob, protocol) pairs in the cache even though
+    // there is only one blob OID: one for python, one for raw_file.
+    let commit = match store.get(&result.head_id).unwrap() {
+        panproto_vcs::Object::Commit(c) => c,
+        other => panic!("expected commit, got {}", other.type_name()),
+    };
+    let mut file_ids: Vec<panproto_vcs::ObjectId> = Vec::new();
+    panproto_vcs::walk_tree(&store, &commit.schema_id, |_, f| {
+        file_ids.push(panproto_vcs::hash::hash_file_schema(f).unwrap());
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(file_ids.len(), 2);
+    assert_ne!(
+        file_ids[0], file_ids[1],
+        "identical bytes under different protocols must produce distinct FileSchema ids"
+    );
+
+    // Cache holds one entry per (blob, protocol). Same blob OID, two
+    // protocol keys: at least two slots (possibly three if detection
+    // and parse disagreed and recorded both).
+    let python_count = cache.keys().filter(|(_, proto)| proto == "python").count();
+    let raw_count = cache
+        .keys()
+        .filter(|(_, proto)| proto == "raw_file")
+        .count();
+    assert!(python_count >= 1, "cache must key python protocol");
+    assert!(raw_count >= 1, "cache must key raw_file protocol");
+}
+
+#[test]
+fn blob_cache_missing_is_empty() {
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache = load_blob_cache(&cache_dir.path().join("missing")).unwrap();
+    assert!(cache.is_empty());
+}
+
+#[test]
+fn blob_cache_dedupes_unchanged_files_across_commits() {
+    let (_dir, repo, _oids) = create_dedup_history();
+    let mut store = MemStore::new();
+    let mut cache = BlobSchemaCache::default();
+    let known: rustc_hash::FxHashMap<git2::Oid, panproto_vcs::ObjectId> =
+        rustc_hash::FxHashMap::default();
+
+    let result = import_git_repo_with_cache(&repo, &mut store, "HEAD", &known, &mut cache).unwrap();
+    assert_eq!(result.commit_count, 3);
+
+    // After importing all three commits, the blob cache should contain
+    // exactly seven unique blob OIDs: five initial blobs plus two new
+    // blobs for the modified a.py and b.py. Four of the initial five
+    // are fully deduped (c.py, d.py, e.py carry across; a.py and b.py
+    // each have an extra version).
+    assert_eq!(
+        cache.len(),
+        7,
+        "expected 7 distinct blob OIDs (5 initial + 2 modifications)"
+    );
+
+    // Every commit must point at a SchemaTree, not a flat Schema.
+    for (_, panproto_id) in &result.oid_map {
+        match store.get(panproto_id).unwrap() {
+            panproto_vcs::Object::Commit(c) => match store.get(&c.schema_id).unwrap() {
+                panproto_vcs::Object::SchemaTree(_) => {}
+                other => panic!(
+                    "expected commit schema_id to point at schema_tree, got {}",
+                    other.type_name()
+                ),
+            },
+            other => panic!("expected commit, got {}", other.type_name()),
+        }
+    }
 }

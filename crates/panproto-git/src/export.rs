@@ -57,17 +57,14 @@ pub fn export_to_git<S: Store, H: std::hash::BuildHasher>(
         }
     };
 
-    // Load the schema.
-    let schema_obj = panproto_store.get(&commit.schema_id)?;
-    let schema = match &schema_obj {
-        Object::Schema(s) => s,
-        other => {
-            return Err(GitBridgeError::ObjectRead {
+    // Assemble the project schema by walking the Merkle tree.
+    let schema =
+        panproto_vcs::tree::resolve_commit_schema(panproto_store, commit).map_err(|e| {
+            GitBridgeError::ObjectRead {
                 oid: commit.schema_id.to_string(),
-                reason: format!("expected schema, got {}", other.type_name()),
-            });
-        }
-    };
+                reason: format!("failed to resolve commit schema tree: {e}"),
+            }
+        })?;
 
     // Build the git tree.
     // The schema is serialized as JSON, which is the authoritative structural
@@ -77,7 +74,7 @@ pub fn export_to_git<S: Store, H: std::hash::BuildHasher>(
 
     // Serialize the schema as pretty-printed JSON.
     let schema_json =
-        serde_json::to_vec_pretty(schema.as_ref()).map_err(|e| GitBridgeError::ObjectRead {
+        serde_json::to_vec_pretty(&schema).map_err(|e| GitBridgeError::ObjectRead {
             oid: commit.schema_id.to_string(),
             reason: format!("JSON serialization failed: {e}"),
         })?;
@@ -95,7 +92,7 @@ pub fn export_to_git<S: Store, H: std::hash::BuildHasher>(
     tree_builder.insert("commit.json", commit_blob, 0o100_644)?;
     file_count += 1;
 
-    let files_fragments = collect_file_fragments(schema);
+    let files_fragments = collect_file_fragments(&schema);
     let mut file_blobs: FxHashMap<String, git2::Oid> = FxHashMap::default();
 
     // Write reconstructed source files.

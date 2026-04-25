@@ -42,9 +42,10 @@ pub fn vcs_add(repo: u32, schema: u32) -> Result<Vec<u8>, JsError> {
     // Then mutably access the repo.
     let result = slab::with_resource_mut(repo, |r| {
         let store = slab::as_vcs_repo_mut(r)?;
-        let obj = vcs::Object::Schema(Box::new(schema_val));
-        let schema_id = store.put(&obj).map_err(|e| WasmError::VcsError {
-            reason: e.to_string(),
+        let schema_id = vcs::tree::store_schema_as_tree(store, schema_val).map_err(|e| {
+            WasmError::VcsError {
+                reason: e.to_string(),
+            }
         })?;
 
         Ok(VcsAddResult {

@@ -70,17 +70,40 @@ pub fn mark_reachable(
                 for edit_log_id in commit.edit_log_ids {
                     queue.push(edit_log_id);
                 }
+                for (_, theory_id) in commit.theory_ids {
+                    queue.push(theory_id);
+                }
+                for cst_complement_id in commit.cst_complement_ids {
+                    queue.push(cst_complement_id);
+                }
             }
             Object::Migration { src, tgt, .. } => {
                 queue.push(src);
                 queue.push(tgt);
             }
-            Object::Schema(_)
-            | Object::Protocol(_)
+            Object::Protocol(_)
             | Object::Expr(_)
             | Object::Theory(_)
             | Object::TheoryMorphism(_)
-            | Object::CstComplement(_) => {}
+            | Object::CstComplement(_)
+            | Object::FileSchema(_)
+            | Object::FlatSchema(_) => {}
+            Object::SchemaTree(tree) => match tree.as_ref() {
+                crate::object::SchemaTreeObject::SingleLeaf { file_schema_id } => {
+                    queue.push(*file_schema_id);
+                }
+                crate::object::SchemaTreeObject::Directory { .. } => {
+                    // Route every consumer through `sorted_entries`
+                    // so the invariant that GC observes canonical
+                    // iteration order holds regardless of wire order.
+                    for (_, entry) in tree.sorted_entries() {
+                        match entry {
+                            crate::object::SchemaTreeEntry::File(id)
+                            | crate::object::SchemaTreeEntry::Tree(id) => queue.push(*id),
+                        }
+                    }
+                }
+            },
             Object::Tag(tag) => {
                 queue.push(tag.target);
             }
@@ -229,7 +252,7 @@ mod tests {
     fn mark_reachable_follows_commits() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
 
         let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
             .timestamp(100)
@@ -253,7 +276,7 @@ mod tests {
     fn gc_deletes_unreachable() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
 
         let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
             .timestamp(100)
@@ -262,7 +285,7 @@ mod tests {
         store.set_ref("refs/heads/main", c0_id)?;
 
         // Add an orphan object not reachable from any ref.
-        let orphan_schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let orphan_schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
         let orphan = CommitObject::builder(orphan_schema_id, "test", "test", "orphan")
             .timestamp(300)
             .build();
@@ -272,7 +295,8 @@ mod tests {
         assert!(store.has(&orphan_id));
 
         let report = gc(&mut store)?;
-        assert_eq!(report.reachable, 2); // c0 + schema
+        // c0 + SchemaTree root + FileSchema leaf = 3.
+        assert_eq!(report.reachable, 3);
         assert!(report.deleted.contains(&orphan_id));
 
         // After GC: orphan is gone.
@@ -284,7 +308,7 @@ mod tests {
     fn gc_report_counts_reachable() -> Result<(), VcsError> {
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
 
         let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
             .timestamp(100)
@@ -293,7 +317,54 @@ mod tests {
         store.set_ref("refs/heads/main", c0_id)?;
 
         let report = gc_report(&store)?;
-        assert_eq!(report.reachable, 2);
+        // c0 + SchemaTree root + FileSchema leaf = 3.
+        assert_eq!(report.reachable, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn gc_marks_theory_ids_and_cst_complements_reachable() -> Result<(), VcsError> {
+        use crate::object::CstComplementObject;
+        use std::collections::BTreeMap;
+
+        let mut store = MemStore::new();
+
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
+
+        // A theory object reached through commit.theory_ids.
+        let theory = panproto_gat::Theory::new(
+            "ThTest",
+            vec![panproto_gat::Sort::simple("Vertex")],
+            vec![],
+            vec![],
+        );
+        let theory_id = store.put(&Object::Theory(Box::new(theory)))?;
+
+        // A CST-complement object reached through commit.cst_complement_ids.
+        let cst = CstComplementObject {
+            data_id: ObjectId::from_bytes([77; 32]),
+            cst_complement: vec![1, 2, 3],
+        };
+        let cst_id = store.put(&Object::CstComplement(cst))?;
+
+        let mut theory_ids = BTreeMap::new();
+        theory_ids.insert("ThTest".to_owned(), theory_id);
+
+        let commit = CommitObject::builder(schema_id, "test", "test", "initial")
+            .timestamp(100)
+            .theory_ids(theory_ids)
+            .cst_complement_ids(vec![cst_id])
+            .build();
+        let commit_id = store.put(&Object::Commit(commit))?;
+        store.set_ref("refs/heads/main", commit_id)?;
+
+        // Before the gc fix, theory_ids and cst_complement_ids were
+        // invisible to reachability and their targets were collected.
+        let report = gc(&mut store)?;
+        assert!(!report.deleted.contains(&theory_id));
+        assert!(!report.deleted.contains(&cst_id));
+        assert!(store.has(&theory_id));
+        assert!(store.has(&cst_id));
         Ok(())
     }
 
@@ -303,7 +374,7 @@ mod tests {
 
         let mut store = MemStore::new();
 
-        let schema_id = store.put(&Object::Schema(Box::new(empty_schema())))?;
+        let schema_id = crate::tree::store_schema_as_tree(&mut store, empty_schema())?;
 
         // Store a protocol.
         let protocol = panproto_schema::Protocol {

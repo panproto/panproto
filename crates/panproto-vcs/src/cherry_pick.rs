@@ -66,25 +66,8 @@ pub fn cherry_pick(
     };
 
     // Load schemas.
-    let base_schema = match store.get(&parent_commit.schema_id)? {
-        Object::Schema(s) => *s,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "schema",
-                found: other.type_name(),
-            });
-        }
-    };
-
-    let theirs_schema = match store.get(&commit.schema_id)? {
-        Object::Schema(s) => *s,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "schema",
-                found: other.type_name(),
-            });
-        }
-    };
+    let base_schema = load_schema_dyn(store, &parent_commit.schema_id)?;
+    let theirs_schema = load_schema_dyn(store, &commit.schema_id)?;
 
     // Load HEAD's schema.
     let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
@@ -99,15 +82,7 @@ pub fn cherry_pick(
             });
         }
     };
-    let ours_schema = match store.get(&head_commit.schema_id)? {
-        Object::Schema(s) => *s,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "schema",
-                found: other.type_name(),
-            });
-        }
-    };
+    let ours_schema = load_schema_dyn(store, &head_commit.schema_id)?;
 
     // Three-way merge.
     let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
@@ -118,12 +93,14 @@ pub fn cherry_pick(
     }
 
     // Store the merged schema.
-    let merged_schema_id = store.put(&Object::Schema(Box::new(result.merged_schema)))?;
+    let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
+    let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
+    let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema)?;
 
     // Store the migration from ours to merged.
     let migration_id = store.put(&Object::Migration {
-        src: head_commit.schema_id,
-        tgt: merged_schema_id,
+        src: mig_src,
+        tgt: mig_tgt,
         mapping: result.migration_from_ours,
     })?;
 
@@ -181,25 +158,8 @@ pub fn cherry_pick_with_options(
         }
     };
 
-    let base_schema = match store.get(&parent_commit.schema_id)? {
-        Object::Schema(s) => *s,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "schema",
-                found: other.type_name(),
-            });
-        }
-    };
-
-    let theirs_schema = match store.get(&commit.schema_id)? {
-        Object::Schema(s) => *s,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "schema",
-                found: other.type_name(),
-            });
-        }
-    };
+    let base_schema = load_schema_dyn(store, &parent_commit.schema_id)?;
+    let theirs_schema = load_schema_dyn(store, &commit.schema_id)?;
 
     let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
         name: "HEAD".to_owned(),
@@ -213,15 +173,7 @@ pub fn cherry_pick_with_options(
             });
         }
     };
-    let ours_schema = match store.get(&head_commit.schema_id)? {
-        Object::Schema(s) => *s,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "schema",
-                found: other.type_name(),
-            });
-        }
-    };
+    let ours_schema = load_schema_dyn(store, &head_commit.schema_id)?;
 
     let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
     if !result.conflicts.is_empty() {
@@ -230,15 +182,17 @@ pub fn cherry_pick_with_options(
         });
     }
 
-    let merged_schema_id = store.put(&Object::Schema(Box::new(result.merged_schema)))?;
+    let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
+    let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
+    let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema)?;
 
     if options.no_commit {
         return Ok(merged_schema_id);
     }
 
     let migration_id = store.put(&Object::Migration {
-        src: head_commit.schema_id,
-        tgt: merged_schema_id,
+        src: mig_src,
+        tgt: mig_tgt,
         mapping: result.migration_from_ours,
     })?;
 
@@ -305,6 +259,14 @@ pub(crate) fn advance_head(
     Ok(())
 }
 
+fn load_schema_dyn(
+    store: &dyn Store,
+    schema_id: &ObjectId,
+) -> Result<panproto_schema::Schema, VcsError> {
+    let proto = crate::tree::project_coproduct_protocol();
+    crate::tree::assemble_schema_dyn(store, schema_id, &proto)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,7 +319,7 @@ mod tests {
 
         // c0: base with vertex a
         let s0 = make_schema(&[("a", "object")]);
-        let s0_id = store.put(&Object::Schema(Box::new(s0)))?;
+        let s0_id = crate::tree::store_schema_as_tree(&mut store, s0)?;
         let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
             .timestamp(100)
             .build();
@@ -365,7 +327,7 @@ mod tests {
 
         // c1: adds vertex b (on a separate branch)
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
-        let s1_id = store.put(&Object::Schema(Box::new(s1)))?;
+        let s1_id = crate::tree::store_schema_as_tree(&mut store, s1)?;
         let c1 = CommitObject::builder(s1_id, "test", "bob", "add b")
             .parents(vec![c0_id])
             .timestamp(200)
@@ -388,15 +350,7 @@ mod tests {
                 });
             }
         };
-        let new_schema = match store.get(&new_commit.schema_id)? {
-            Object::Schema(s) => *s,
-            other => {
-                return Err(VcsError::WrongObjectType {
-                    expected: "schema",
-                    found: other.type_name(),
-                });
-            }
-        };
+        let new_schema = crate::tree::resolve_commit_schema(&store, &new_commit)?;
         assert!(new_schema.vertices.contains_key("b"));
         assert!(new_schema.vertices.contains_key("a"));
         assert!(new_commit.message.contains("cherry-pick"));

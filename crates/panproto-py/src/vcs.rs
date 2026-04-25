@@ -2,7 +2,7 @@
 
 use pyo3::prelude::*;
 
-use panproto_core::vcs::{MemStore, Object, Store};
+use panproto_core::vcs::{MemStore, Store};
 
 use crate::convert;
 use crate::schema::PySchema;
@@ -33,11 +33,11 @@ impl PyVcsRepository {
     /// str
     ///     The content-addressed object ID (blake3 hash).
     fn add(&mut self, schema: &PySchema) -> PyResult<String> {
-        let object = Object::Schema(Box::new(schema.inner.as_ref().clone()));
-        let id = self
-            .store
-            .put(&object)
-            .map_err(|e| crate::error::VcsError::new_err(format!("add failed: {e}")))?;
+        let id = panproto_core::vcs::tree::store_schema_as_tree(
+            &mut self.store,
+            schema.inner.as_ref().clone(),
+        )
+        .map_err(|e| crate::error::VcsError::new_err(format!("add failed: {e}")))?;
         Ok(id.to_string())
     }
 

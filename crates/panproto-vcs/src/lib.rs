@@ -49,6 +49,7 @@ pub mod reset;
 pub mod stash;
 pub mod status;
 pub mod store;
+pub mod tree;
 
 // Re-exports for convenience.
 pub use data_mig::{StaleData, detect_staleness, migrate_backward, migrate_forward};
@@ -60,8 +61,12 @@ pub use hash::ObjectId;
 pub use index::Index;
 pub use mem_store::MemStore;
 pub use object::{
-    CommitObject, CommitObjectBuilder, ComplementObject, DataSetObject, EditLogObject, Object,
-    TagObject,
+    CommitObject, CommitObjectBuilder, ComplementObject, DataSetObject, EditLogObject,
+    FileSchemaObject, Object, SchemaTreeEntry, SchemaTreeObject, TagObject,
 };
 pub use repo::{CommitOptions, Repository};
 pub use store::{HeadState, ReflogEntry, Store};
+pub use tree::{
+    assemble_from_files, assemble_schema, build_schema_tree, build_tree_from_leaves,
+    project_coproduct_protocol, resolve_commit_schema, walk_tree,
+};

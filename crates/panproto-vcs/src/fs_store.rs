@@ -291,7 +291,6 @@ fn collect_refs_recursive(
 /// Compute the `ObjectId` for any [`Object`].
 fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
     match object {
-        Object::Schema(schema) => hash::hash_schema(schema),
         Object::Migration { src, tgt, mapping } => hash::hash_migration(*src, *tgt, mapping),
         Object::Commit(commit) => hash::hash_commit(commit),
         Object::Tag(tag) => hash::hash_tag(tag),
@@ -303,6 +302,9 @@ fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
         Object::Theory(theory) => hash::hash_theory(theory),
         Object::TheoryMorphism(morphism) => hash::hash_theory_morphism(morphism),
         Object::CstComplement(cst_comp) => hash::hash_cst_complement(cst_comp),
+        Object::FileSchema(file) => hash::hash_file_schema(file),
+        Object::SchemaTree(tree) => hash::hash_schema_tree(tree),
+        Object::FlatSchema(schema) => hash::hash_schema(schema),
     }
 }
 
@@ -382,16 +384,88 @@ mod tests {
     fn put_get_round_trip_fs() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut store = FsStore::init(dir.path())?;
-        let obj = Object::Schema(Box::new(test_schema()));
-        let id = store.put(&obj)?;
+        let id = crate::tree::store_schema_as_tree(&mut store, test_schema())?;
 
         assert!(store.has(&id));
 
         let retrieved = store.get(&id)?;
         match retrieved {
-            Object::Schema(s) => assert_eq!(s.protocol, "test"),
-            _ => panic!("expected Schema object"),
+            Object::SchemaTree(tree) => match *tree {
+                crate::object::SchemaTreeObject::SingleLeaf { .. } => {}
+                crate::object::SchemaTreeObject::Directory { .. } => {
+                    panic!("expected SingleLeaf wrapper, got Directory")
+                }
+            },
+            _ => panic!("expected SchemaTree object"),
         }
+        Ok(())
+    }
+
+    #[test]
+    fn flat_schema_put_get_round_trip_fs() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        let id = store.put(&Object::FlatSchema(Box::new(test_schema())))?;
+        match store.get(&id)? {
+            Object::FlatSchema(s) => {
+                assert_eq!(s.vertices.len(), 1);
+            }
+            other => panic!("expected FlatSchema, got {}", other.type_name()),
+        }
+        // After reopen, the object must still deserialize cleanly.
+        let reopened = FsStore::open(dir.path())?;
+        match reopened.get(&id)? {
+            Object::FlatSchema(_) => {}
+            other => panic!(
+                "expected FlatSchema after reopen, got {}",
+                other.type_name()
+            ),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn multi_leaf_schema_tree_round_trips_fs() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::object::FileSchemaObject;
+        use std::path::PathBuf;
+
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+
+        let mk_file = |path: &str| FileSchemaObject {
+            path: path.to_owned(),
+            protocol: "project".to_owned(),
+            schema: test_schema(),
+            cross_file_edges: Vec::new(),
+        };
+
+        let root = crate::tree::build_schema_tree(
+            &mut store,
+            vec![
+                (PathBuf::from("src/a.rs"), mk_file("src/a.rs")),
+                (PathBuf::from("src/b.rs"), mk_file("src/b.rs")),
+                (PathBuf::from("c.rs"), mk_file("c.rs")),
+            ],
+        )?;
+
+        // Assemble back via walk; the tree must carry all three leaves.
+        let mut count = 0usize;
+        crate::tree::walk_tree(&store, &root, |_, _| {
+            count += 1;
+            Ok(())
+        })?;
+        assert_eq!(count, 3);
+
+        // Re-open the store from disk and confirm the tree is still
+        // intact: this catches serialization bugs that only show up
+        // after a round-trip through FsStore.
+        let reopened = FsStore::open(dir.path())?;
+        let mut recount = 0usize;
+        crate::tree::walk_tree(&reopened, &root, |_, _| {
+            recount += 1;
+            Ok(())
+        })?;
+        assert_eq!(recount, 3);
         Ok(())
     }
 
@@ -399,9 +473,8 @@ mod tests {
     fn put_idempotent_fs() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut store = FsStore::init(dir.path())?;
-        let obj = Object::Schema(Box::new(test_schema()));
-        let id1 = store.put(&obj)?;
-        let id2 = store.put(&obj)?;
+        let id1 = crate::tree::store_schema_as_tree(&mut store, test_schema())?;
+        let id2 = crate::tree::store_schema_as_tree(&mut store, test_schema())?;
         assert_eq!(id1, id2);
         Ok(())
     }

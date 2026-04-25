@@ -4,6 +4,42 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **panproto-vcs (per-file content addressing)**: `Object::FileSchema` carries the parsed schema for a single project file. `Object::SchemaTree` is a typed enum with two shapes: `SingleLeaf { file_schema_id }` for one-file projects and staged-or-merged single-schema callsites, and `Directory { entries }` for multi-file projects whose entries are stored sorted by name so the root `ObjectId` is independent of insertion order. The project schema for a commit is a Merkle tree rooted at a `SchemaTree`. `tree::assemble_schema` (generic over `Store`) and `tree::assemble_schema_dyn` (behind `&dyn Store`) walk the tree and return the flat `Schema`, preserving every field the per-file schemas carry: vertices, edges, constraints, hyper edges, required predicates, NSIDs, variants, orderings, recursion points, spans, usage modes, nominal classifiers, coercions, mergers, defaults, policies, and entry sets. `tree::walk_tree` exposes the depth-first traversal in lexicographic order. `tree::resolve_commit_schema` / `_dyn` dispatch on a `CommitObject`. `tree::store_schema_as_tree` wraps a single assembled `Schema` as a `SingleLeaf` for code paths that produce one merged or staged schema at a time. `tree::build_schema_tree` and `tree::build_tree_from_leaves` emit the multi-leaf `Directory` shape used by project-level imports.
+- **panproto-vcs (FlatSchema for migrations)**: `Object::FlatSchema` carries the flat-schema content that `Migration::src` and `Migration::tgt` reference, so `gc::mark_reachable` finds the targets of every stored migration. Cherry-pick, rebase, and the merge codepath store the flat-schema object alongside the tree-based commit so migration composition remains sound.
+- **panproto-project (tree emitter)**: `build_project_tree` walks the parsed per-file schemas, runs `resolve_imports` for cross-file edges, sorts each file's `cross_file_edges` Vec to canonicalize wire order, and emits a Merkle tree of `FileSchemaObject` leaves joined by `SchemaTreeObject` nodes. Returns the root `ObjectId` ready to attach to a `CommitObject.schema_id`.
+- **panproto-git (production blob-OID cache)**: `import_git_repo_persistent` is the entry point used by every `panproto-git-remote` and `panproto-cli git` import. It loads a persisted `BlobSchemaCache` keyed by `(git2::Oid, String)` (the second slot is the protocol the file is parsed under, so the same blob bytes parsed as `.py` and as `.txt` get distinct cache entries), reuses an unchanged file's `FileSchema` ObjectId, and persists the cache atomically (write to `<path>.tmp`, fsync the file, rename, fsync the parent directory) under `$GIT_DIR/panproto-cache/<remote>/blob_to_schema`. `load_blob_cache` distinguishes a missing file (returns an empty cache) from a corrupt file (returns `BlobCacheLoadError::Corrupt` with the offending line and reason). Imports see linear-in-distinct-file-versions object growth.
+- **panproto-vcs (`#[non_exhaustive]` on `Object`)**: future variant additions no longer silently break downstream exhaustive matches.
+
+### Changed
+
+- **panproto-vcs (monolithic schema objects replaced)**: the `Object::Schema(Box<Schema>)` variant is gone. Every `CommitObject.schema_id` points at an `Object::SchemaTree` root whose leaves are `Object::FileSchema` objects. Callers that matched on `Object::Schema` go through `tree::resolve_commit_schema` (or `_dyn`). Callers that stored a flat schema via `store.put(&Object::Schema(Box::new(s)))` go through `tree::store_schema_as_tree`. Existing VCS repos produced by 0.38 and earlier are incompatible and must be rebuilt; no migration tool is provided.
+- **panproto-git (import defaults to tree)**: `import_git_repo`, `import_git_repo_incremental`, `import_git_repo_persistent`, and `import_git_repo_with_cache` all emit `SchemaTree` roots. `export_to_git` assembles the flat schema from the tree before serializing, so the JSON shape in the git tree is unchanged.
+- **panproto-py, panproto-wasm, panproto-cli (internal rewires)**: every call path that embedded a flat `Schema` in the store now routes through the tree helpers. Public Python and WASM APIs keep their existing shapes; the returned ids address `SchemaTree` objects.
+- **panproto-vcs (`gc::mark_reachable` follows every commit-carried id)**: the reachability walk on `CommitObject` follows `theory_ids` and `cst_complement_ids` in addition to the schema, parent, and migration ids. Theory and CST-complement objects referenced from commits are correctly preserved during garbage collection.
+
+### Fixed
+
+- **panproto-vcs (`SchemaTreeObject` canonicity)**: an adversarial peer cannot construct two semantically-equivalent trees that hash differently. The `SingleLeaf` variant carries no name slot; the `Directory` variant's entries are sorted before hashing and consumption (`sorted_entries`).
+- **panproto-vcs (`assemble_schema` field preservation)**: the assembler reconstructs every field of the flat `Schema` with consistent path-prefix rewriting on every vertex-id-valued entry.
+- **panproto-vcs (single-leaf path collision)**: the single-leaf tree shape is a distinct enum variant with no path field, so it cannot collide with a real filename.
+- **panproto-project (tree-built imports)**: `build_tree` runs `resolve_imports` and surfaces coproduct-builder errors via `ProjectError::CoproductFailed`. Cross-file import edges are canonically sorted before storage.
+- **panproto-project (orphan import edges surface as errors)**: `ProjectError::OrphanImportEdge { src, tgt }` fires when an import edge points at a vertex that is not in any file's vertex list, rather than dropping it silently.
+- **panproto-git (durable cache persistence)**: `save_blob_cache` writes through a `.tmp` companion, syncs the file to disk, atomically renames into place, and fsyncs the parent directory so a crash mid-save cannot produce a half-written cache.
+- **panproto-git (non-UTF-8 git tree entries surface as errors)**: a tree entry whose name is not valid UTF-8 returns `GitBridgeError::NonUtf8TreeEntry { path, oid }` with the offending entry's blob oid.
+- **panproto-vcs (`build_tree_from_leaves` invariants)**: duplicate paths return `VcsError::DuplicatePath`; empty path components return `VcsError::EmptyPath`.
+
+### Removed
+
+- **panproto-vcs**: `Object::Schema` and its canonical hashing, GC, and store-dispatch cases. The store has exactly three schema-bearing object kinds: `FileSchema` leaves, `SchemaTree` inner nodes, and `FlatSchema` migration domain/codomain references.
+
+### Notes
+
+- **Storage impact (measured target)**: a 492-file 213-commit project repository previously produced a ~20 GB local cache and ~9 GB of objects on the remote. Raw git for the same content is 14 MB. The file-level Merkle decomposition plus blob-OID dedup is expected to drop the panproto-vcs footprint under 100 MB, within an order of magnitude of git's number. Formal measurement against a real-world baseline is out of scope for this changelog entry and will be reported when the next push lands.
+- **Breaking, by design**: this is a clean break. Existing VCS repos produced by panproto 0.38 and earlier cannot be read by the new object store and must be rebuilt (reimport from the git mirror, or rerun the project-builder path against the working tree). No migration command ships.
+- **Test coverage**: 2384 tests passing. Every changed file has unit-test coverage of its public API, including all new error variants, every `SchemaTreeObject` variant, the `(blob_oid, protocol)` cache key, atomic cache persistence with reopen, the `OrphanImportEdge` path, the `cross_file_edges` order canonicalization, and the GC walk through theory and CST complement ids on commits.
+
 ## [0.38.0] - 2026-04-24
 
 ### Added

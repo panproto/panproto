@@ -536,6 +536,65 @@ pub fn hash_edit_log(edit_log: &EditLogObject) -> Result<ObjectId, VcsError> {
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
+/// Compute the content-addressed ID of a per-file schema leaf.
+///
+/// Hashes the file path, protocol, and canonical form of the
+/// per-file `Schema`. Two files with the same path, protocol, and
+/// schema hash to the same [`ObjectId`].
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_file_schema(file: &crate::object::FileSchemaObject) -> Result<ObjectId, VcsError> {
+    let schema_id = hash_schema(&file.schema)?;
+    let mut sorted_cross = file.cross_file_edges.clone();
+    sorted_cross.sort();
+    let canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
+        ("path", rmp_serde::to_vec(&file.path)?),
+        ("protocol", rmp_serde::to_vec(&file.protocol)?),
+        ("schema_id", rmp_serde::to_vec(&schema_id)?),
+        ("cross_file_edges", rmp_serde::to_vec(&sorted_cross)?),
+    ]);
+    let bytes = rmp_serde::to_vec(&canonical)?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
+/// Compute the content-addressed ID of a schema-tree inner node.
+///
+/// Serializes the sorted list of `(name, entry)` pairs canonically
+/// so the resulting [`ObjectId`] depends only on the tree's entry set
+/// and not on construction order.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_schema_tree(tree: &crate::object::SchemaTreeObject) -> Result<ObjectId, VcsError> {
+    // A `SingleLeaf` has a distinct object shape with no name slot and
+    // hashes over its `file_schema_id` alone. A `Directory` hashes
+    // over its entries in canonical sorted order so the id is
+    // independent of wire order.
+    use crate::object::SchemaTreeObject;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"schema_tree:");
+    match tree {
+        SchemaTreeObject::SingleLeaf { file_schema_id } => {
+            hasher.update(b"single:");
+            hasher.update(file_schema_id.as_bytes());
+        }
+        SchemaTreeObject::Directory { .. } => {
+            let sorted: Vec<(String, crate::object::SchemaTreeEntry)> = tree
+                .sorted_entries()
+                .into_iter()
+                .map(|(n, e)| (n.to_owned(), e.clone()))
+                .collect();
+            let bytes = rmp_serde::to_vec(&sorted)?;
+            hasher.update(b"dir:");
+            hasher.update(&bytes);
+        }
+    }
+    Ok(ObjectId(hasher.finalize().into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -774,6 +833,47 @@ mod tests {
             h1, h2,
             "different expressions should produce different hashes"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn schema_tree_directory_hash_ignores_wire_order() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::object::{SchemaTreeEntry, SchemaTreeObject};
+
+        let a = ObjectId::from_bytes([1; 32]);
+        let b = ObjectId::from_bytes([2; 32]);
+        let c = ObjectId::from_bytes([3; 32]);
+
+        let forward = SchemaTreeObject::Directory {
+            entries: vec![
+                ("a".to_owned(), SchemaTreeEntry::File(a)),
+                ("b".to_owned(), SchemaTreeEntry::Tree(b)),
+                ("c".to_owned(), SchemaTreeEntry::File(c)),
+            ],
+        };
+        let shuffled = SchemaTreeObject::Directory {
+            entries: vec![
+                ("c".to_owned(), SchemaTreeEntry::File(c)),
+                ("a".to_owned(), SchemaTreeEntry::File(a)),
+                ("b".to_owned(), SchemaTreeEntry::Tree(b)),
+            ],
+        };
+        assert_eq!(hash_schema_tree(&forward)?, hash_schema_tree(&shuffled)?);
+        Ok(())
+    }
+
+    #[test]
+    fn flat_schema_hash_stable_across_serde_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        // Serialize a Schema, deserialize it, and confirm the
+        // content-addressed hash is identical to the original. This
+        // guards against canonicalization drift introduced by the
+        // serde round trip.
+        let s = make_schema(&[("alpha", "record"), ("beta", "string")], &[]);
+        let h1 = hash_schema(&s)?;
+        let bytes = rmp_serde::to_vec(&s)?;
+        let s2: Schema = rmp_serde::from_slice(&bytes)?;
+        let h2 = hash_schema(&s2)?;
+        assert_eq!(h1, h2);
         Ok(())
     }
 }

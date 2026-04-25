@@ -63,4 +63,14 @@ pub enum ProjectError {
     /// A parse error propagated from panproto-parse.
     #[error(transparent)]
     Parse(#[from] panproto_parse::ParseError),
+
+    /// A cross-file import edge has a source vertex that does not
+    /// belong to any file in the project.
+    #[error("orphan import edge: {src} -> {tgt}")]
+    OrphanImportEdge {
+        /// The source vertex name, which did not match any file.
+        src: String,
+        /// The target vertex name.
+        tgt: String,
+    },
 }

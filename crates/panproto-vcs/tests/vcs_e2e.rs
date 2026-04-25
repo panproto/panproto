@@ -529,10 +529,7 @@ fn load_commit(store: &dyn Store, id: ObjectId) -> CommitObject {
 
 fn load_schema_from_commit(store: &dyn Store, commit_id: ObjectId) -> Schema {
     let commit = load_commit(store, commit_id);
-    match store.get(&commit.schema_id).unwrap() {
-        Object::Schema(s) => *s,
-        other => panic!("expected Schema, got {}", other.type_name()),
-    }
+    panproto_vcs::tree::resolve_commit_schema_dyn(store, &commit).unwrap()
 }
 
 fn load_migration_from_commit(store: &dyn Store, commit_id: ObjectId) -> Migration {
@@ -927,7 +924,7 @@ fn stash_and_cherry_pick() -> Result<(), Box<dyn std::error::Error>> {
     // Simulate WIP: stage v3 schema but "stash" it before committing.
     // We store the v3 schema as an object in the store and stash its ID.
     let v3 = blog_v3();
-    let v3_schema_id = repo.store_mut().put(&Object::Schema(Box::new(v3)))?;
+    let v3_schema_id = panproto_vcs::tree::store_schema_as_tree(repo.store_mut(), v3)?;
     let stash_id = panproto_vcs::stash::stash_push(
         repo.store_mut(),
         v3_schema_id,
@@ -963,10 +960,9 @@ fn stash_and_cherry_pick() -> Result<(), Box<dyn std::error::Error>> {
     assert!(stash_ref.is_none(), "stash ref should be removed after pop");
 
     // Verify the recovered schema is indeed v3.
-    let recovered_schema = match repo.store().get(&popped_schema_id)? {
-        Object::Schema(s) => *s,
-        other => panic!("expected Schema, got {}", other.type_name()),
-    };
+    let proto = panproto_vcs::tree::project_coproduct_protocol();
+    let recovered_schema =
+        panproto_vcs::tree::assemble_schema_dyn(repo.store(), &popped_schema_id, &proto)?;
     assert!(
         recovered_schema.has_vertex("Post.content"),
         "recovered stash schema should have Post.content (v3 rename)"
