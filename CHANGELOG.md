@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-04-25
+
 ### Added
 
 - **lexicons (DSL coverage)**: new `dev.panproto.schema.{class, instance, inductive, composition, bundle, conflictPolicy}` records cover the theory-DSL body variants. `dev.panproto.vcs.{fileSchema, schemaTree, flatSchema, dataSet, editLog, cstComplement, tag}` cover the Merkle-tree object kinds. `dev.panproto.node.{getSchemaTree, listTheories, listAlignments}` walk the new VCS structure. `dev.panproto.translate.verifyCoercionLaws` exposes the coercion-law sample-checker with `#coercionLawViolation` and `#filterOptions` defs.
