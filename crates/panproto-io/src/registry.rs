@@ -122,6 +122,24 @@ impl ProtocolRegistry {
         );
     }
 
+    /// Register a codec produced by a fallible constructor, skipping
+    /// registration on `Err`.
+    ///
+    /// Intended for grammar-gated codecs: a binary built without the
+    /// underlying tree-sitter feature returns `Err(MissingGrammar)` from
+    /// the codec constructor, and the resulting codec is silently absent
+    /// from the registry rather than aborting registration of the rest.
+    /// The constructor's error is returned so callers that want to
+    /// surface a diagnostic can; the common pattern is to ignore it.
+    pub fn try_register<C, E>(&mut self, codec: Result<C, E>) -> Result<(), E>
+    where
+        C: ProtocolCodec + 'static,
+    {
+        let codec = codec?;
+        self.register(codec);
+        Ok(())
+    }
+
     /// Look up the native representation for a protocol.
     ///
     /// # Errors

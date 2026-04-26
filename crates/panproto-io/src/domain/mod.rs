@@ -19,10 +19,10 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
-        registry.register(UnifiedCodec::json("geojson"));
-        registry.register(UnifiedCodec::json("fhir"));
-        registry.register(UnifiedCodec::json("vcard_ical"));
-        registry.register(UnifiedCodec::xml("rss_atom"));
+        let _ = registry.try_register(UnifiedCodec::json("geojson"));
+        let _ = registry.try_register(UnifiedCodec::json("fhir"));
+        let _ = registry.try_register(UnifiedCodec::json("vcard_ical"));
+        let _ = registry.try_register(UnifiedCodec::xml("rss_atom"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

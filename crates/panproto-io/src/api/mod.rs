@@ -10,10 +10,10 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
-        registry.register(UnifiedCodec::json("openapi"));
-        registry.register(UnifiedCodec::json("asyncapi"));
-        registry.register(UnifiedCodec::json("jsonapi"));
-        registry.register(UnifiedCodec::json("raml"));
+        let _ = registry.try_register(UnifiedCodec::json("openapi"));
+        let _ = registry.try_register(UnifiedCodec::json("asyncapi"));
+        let _ = registry.try_register(UnifiedCodec::json("jsonapi"));
+        let _ = registry.try_register(UnifiedCodec::json("raml"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

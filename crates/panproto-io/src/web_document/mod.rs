@@ -11,9 +11,9 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
-        registry.register(UnifiedCodec::json("atproto"));
-        registry.register(UnifiedCodec::xml("docx"));
-        registry.register(UnifiedCodec::xml("odf"));
+        let _ = registry.try_register(UnifiedCodec::json("atproto"));
+        let _ = registry.try_register(UnifiedCodec::xml("docx"));
+        let _ = registry.try_register(UnifiedCodec::xml("odf"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {
