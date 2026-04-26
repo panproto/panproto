@@ -1,0 +1,3881 @@
+[
+  {
+    "type": "argument_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "arr_dims",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "array_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "assignment_op",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "assignment_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "assignment_op",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "lhs",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "basic_type",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "block_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "assignment_statement",
+          "named": true
+        },
+        {
+          "type": "block_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "empty_statement",
+          "named": true
+        },
+        {
+          "type": "fatal_error_statement",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "function_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "jacobian_statement",
+          "named": true
+        },
+        {
+          "type": "log_prob_statement",
+          "named": true
+        },
+        {
+          "type": "print_statement",
+          "named": true
+        },
+        {
+          "type": "profile_statement",
+          "named": true
+        },
+        {
+          "type": "reject_statement",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "sampling_statement",
+          "named": true
+        },
+        {
+          "type": "target_statement",
+          "named": true
+        },
+        {
+          "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "break_statement",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "colon_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "conditional_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "continue_statement",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "distr_argument_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "distr_expression",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "distr_argument_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "empty_statement",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "empty_truncation",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "exp_literal",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "integer_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "fatal_error_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "for_statement",
+    "named": true,
+    "fields": {
+      "loopvar": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "assignment_statement",
+          "named": true
+        },
+        {
+          "type": "block_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "empty_statement",
+          "named": true
+        },
+        {
+          "type": "fatal_error_statement",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "function_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "jacobian_statement",
+          "named": true
+        },
+        {
+          "type": "log_prob_statement",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "print_statement",
+          "named": true
+        },
+        {
+          "type": "profile_statement",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "reject_statement",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "sampling_statement",
+          "named": true
+        },
+        {
+          "type": "target_statement",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_declarator",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "parameter_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "assignment_statement",
+            "named": true
+          },
+          {
+            "type": "block_statement",
+            "named": true
+          },
+          {
+            "type": "break_statement",
+            "named": true
+          },
+          {
+            "type": "continue_statement",
+            "named": true
+          },
+          {
+            "type": "empty_statement",
+            "named": true
+          },
+          {
+            "type": "fatal_error_statement",
+            "named": true
+          },
+          {
+            "type": "for_statement",
+            "named": true
+          },
+          {
+            "type": "function_statement",
+            "named": true
+          },
+          {
+            "type": "if_statement",
+            "named": true
+          },
+          {
+            "type": "jacobian_statement",
+            "named": true
+          },
+          {
+            "type": "log_prob_statement",
+            "named": true
+          },
+          {
+            "type": "print_statement",
+            "named": true
+          },
+          {
+            "type": "profile_statement",
+            "named": true
+          },
+          {
+            "type": "reject_statement",
+            "named": true
+          },
+          {
+            "type": "return_statement",
+            "named": true
+          },
+          {
+            "type": "sampling_statement",
+            "named": true
+          },
+          {
+            "type": "target_statement",
+            "named": true
+          },
+          {
+            "type": "while_statement",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "function_declarator",
+          "named": true
+        },
+        {
+          "type": "return_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_expression",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "argument_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_statement",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "argument_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "if_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "assignment_statement",
+          "named": true
+        },
+        {
+          "type": "block_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "empty_statement",
+          "named": true
+        },
+        {
+          "type": "fatal_error_statement",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "function_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "jacobian_statement",
+          "named": true
+        },
+        {
+          "type": "log_prob_statement",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "print_statement",
+          "named": true
+        },
+        {
+          "type": "profile_statement",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "reject_statement",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "sampling_statement",
+          "named": true
+        },
+        {
+          "type": "target_statement",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "imag_literal",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "index",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "colon_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "left_colon_expression",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "right_colon_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "indexed_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "index",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "indexed_lhs",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "index",
+          "named": true
+        },
+        {
+          "type": "lhs",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "infix_op_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "jacobian_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "left_colon_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "lhs",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "indexed_lhs",
+          "named": true
+        },
+        {
+          "type": "tuple_pack_lhs",
+          "named": true
+        },
+        {
+          "type": "tuple_proj_lhs",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "log_prob_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "lower_truncation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "lower_upper_truncation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameter_declaration",
+    "named": true,
+    "fields": {
+      "parameter": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "unsized_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameter_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "parameter_declaration",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parenthized_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "postfix_op_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "prefix_op_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "preproc_include",
+    "named": true,
+    "extra": true,
+    "fields": {
+      "directive": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "#include",
+            "named": false
+          }
+        ]
+      },
+      "file": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "preproc_file",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "print_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "profile_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "assignment_statement",
+          "named": true
+        },
+        {
+          "type": "block_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "empty_statement",
+          "named": true
+        },
+        {
+          "type": "fatal_error_statement",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "function_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "jacobian_statement",
+          "named": true
+        },
+        {
+          "type": "log_prob_statement",
+          "named": true
+        },
+        {
+          "type": "print_statement",
+          "named": true
+        },
+        {
+          "type": "profile_statement",
+          "named": true
+        },
+        {
+          "type": "reject_statement",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "sampling_statement",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        },
+        {
+          "type": "target_statement",
+          "named": true
+        },
+        {
+          "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "program",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "function_definition",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "real_literal",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "exp_literal",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "reject_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "return_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "return_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "unsized_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "right_colon_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "sampling_statement",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "empty_truncation",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "lower_truncation",
+          "named": true
+        },
+        {
+          "type": "lower_upper_truncation",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "upper_truncation",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "sized_basic_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "sized_tuple_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "arr_dims",
+          "named": true
+        },
+        {
+          "type": "sized_basic_type",
+          "named": true
+        },
+        {
+          "type": "sized_tuple_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "target_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "tuple_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "tuple_pack_lhs",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "lhs",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "tuple_proj_lhs",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "lhs",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "tuple_projection",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unsized_dims",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "unsized_tuple_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "unsized_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unsized_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "basic_type",
+          "named": true
+        },
+        {
+          "type": "unsized_dims",
+          "named": true
+        },
+        {
+          "type": "unsized_tuple_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "upper_truncation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "var_decl",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "arr_dims",
+          "named": true
+        },
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "sized_basic_type",
+          "named": true
+        },
+        {
+          "type": "sized_tuple_type",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "variable_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "vector_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "while_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "array_expression",
+          "named": true
+        },
+        {
+          "type": "assignment_statement",
+          "named": true
+        },
+        {
+          "type": "block_statement",
+          "named": true
+        },
+        {
+          "type": "break_statement",
+          "named": true
+        },
+        {
+          "type": "conditional_expression",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "distr_expression",
+          "named": true
+        },
+        {
+          "type": "empty_statement",
+          "named": true
+        },
+        {
+          "type": "fatal_error_statement",
+          "named": true
+        },
+        {
+          "type": "for_statement",
+          "named": true
+        },
+        {
+          "type": "function_expression",
+          "named": true
+        },
+        {
+          "type": "function_statement",
+          "named": true
+        },
+        {
+          "type": "if_statement",
+          "named": true
+        },
+        {
+          "type": "imag_literal",
+          "named": true
+        },
+        {
+          "type": "indexed_expression",
+          "named": true
+        },
+        {
+          "type": "infix_op_expression",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "jacobian_statement",
+          "named": true
+        },
+        {
+          "type": "log_prob_statement",
+          "named": true
+        },
+        {
+          "type": "parenthized_expression",
+          "named": true
+        },
+        {
+          "type": "postfix_op_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_op_expression",
+          "named": true
+        },
+        {
+          "type": "print_statement",
+          "named": true
+        },
+        {
+          "type": "profile_statement",
+          "named": true
+        },
+        {
+          "type": "real_literal",
+          "named": true
+        },
+        {
+          "type": "reject_statement",
+          "named": true
+        },
+        {
+          "type": "return_statement",
+          "named": true
+        },
+        {
+          "type": "sampling_statement",
+          "named": true
+        },
+        {
+          "type": "target_statement",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
+          "named": true
+        },
+        {
+          "type": "tuple_projection",
+          "named": true
+        },
+        {
+          "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "variable_expression",
+          "named": true
+        },
+        {
+          "type": "vector_expression",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "!",
+    "named": false
+  },
+  {
+    "type": "!=",
+    "named": false
+  },
+  {
+    "type": "#include",
+    "named": false
+  },
+  {
+    "type": "%",
+    "named": false
+  },
+  {
+    "type": "%/%",
+    "named": false
+  },
+  {
+    "type": "&&",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "*=",
+    "named": false
+  },
+  {
+    "type": "+",
+    "named": false
+  },
+  {
+    "type": "+=",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": "-=",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": ".*",
+    "named": false
+  },
+  {
+    "type": ".*=",
+    "named": false
+  },
+  {
+    "type": ".+",
+    "named": false
+  },
+  {
+    "type": ".-",
+    "named": false
+  },
+  {
+    "type": "./",
+    "named": false
+  },
+  {
+    "type": "./=",
+    "named": false
+  },
+  {
+    "type": ".^",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": "/=",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "<",
+    "named": false
+  },
+  {
+    "type": "<=",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "==",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": ">=",
+    "named": false
+  },
+  {
+    "type": "?",
+    "named": false
+  },
+  {
+    "type": "T",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "\\",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "^",
+    "named": false
+  },
+  {
+    "type": "array",
+    "named": false
+  },
+  {
+    "type": "break",
+    "named": false
+  },
+  {
+    "type": "comment",
+    "named": true,
+    "extra": true
+  },
+  {
+    "type": "complex",
+    "named": false
+  },
+  {
+    "type": "complex_matrix",
+    "named": false
+  },
+  {
+    "type": "complex_row_vector",
+    "named": false
+  },
+  {
+    "type": "complex_vector",
+    "named": false
+  },
+  {
+    "type": "continue",
+    "named": false
+  },
+  {
+    "type": "data",
+    "named": false
+  },
+  {
+    "type": "else",
+    "named": false
+  },
+  {
+    "type": "fatal_error",
+    "named": false
+  },
+  {
+    "type": "for",
+    "named": false
+  },
+  {
+    "type": "i",
+    "named": false
+  },
+  {
+    "type": "identifier",
+    "named": true
+  },
+  {
+    "type": "if",
+    "named": false
+  },
+  {
+    "type": "in",
+    "named": false
+  },
+  {
+    "type": "increment_log_prob",
+    "named": false
+  },
+  {
+    "type": "int",
+    "named": false
+  },
+  {
+    "type": "integer_literal",
+    "named": true
+  },
+  {
+    "type": "jacobian",
+    "named": false
+  },
+  {
+    "type": "matrix",
+    "named": false
+  },
+  {
+    "type": "preproc_file",
+    "named": true
+  },
+  {
+    "type": "print",
+    "named": false
+  },
+  {
+    "type": "profile",
+    "named": false
+  },
+  {
+    "type": "real",
+    "named": false
+  },
+  {
+    "type": "reject",
+    "named": false
+  },
+  {
+    "type": "return",
+    "named": false
+  },
+  {
+    "type": "row_vector",
+    "named": false
+  },
+  {
+    "type": "string_literal",
+    "named": true
+  },
+  {
+    "type": "target",
+    "named": false
+  },
+  {
+    "type": "tuple",
+    "named": false
+  },
+  {
+    "type": "vector",
+    "named": false
+  },
+  {
+    "type": "void",
+    "named": false
+  },
+  {
+    "type": "while",
+    "named": false
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "|",
+    "named": false
+  },
+  {
+    "type": "||",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  },
+  {
+    "type": "~",
+    "named": false
+  }
+]
