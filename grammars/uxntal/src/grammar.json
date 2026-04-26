@@ -1,0 +1,1452 @@
+{
+  "name": "uxntal",
+  "word": "identifier",
+  "rules": {
+    "program": {
+      "type": "REPEAT",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "macro"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "include"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "memory_execution"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "subroutine"
+          }
+        ]
+      }
+    },
+    "memory_execution": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "absolute_pad_operation"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_non_toplevel_statement"
+          }
+        }
+      ]
+    },
+    "subroutine": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "label"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_non_toplevel_statement"
+          }
+        }
+      ]
+    },
+    "_non_toplevel_statement": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "relative_pad_operation"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "opcode"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "raw_ascii"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "rune"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "hex_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "sublabel_reference"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "brackets"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "number"
+        }
+      ]
+    },
+    "macro": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "%"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "identifier"
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "PATTERN",
+                "value": "[\\da-f*/][a-zA-Z-_\\d*/]*"
+              },
+              "named": true,
+              "value": "identifier"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "{"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_non_toplevel_statement"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "}"
+        }
+      ]
+    },
+    "include": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "~"
+        },
+        {
+          "type": "PATTERN",
+          "value": "[a-zA-Z_./][a-zA-Z0-9_./\\-]*"
+        }
+      ]
+    },
+    "opcode": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "BRK"
+        },
+        {
+          "type": "STRING",
+          "value": "INC"
+        },
+        {
+          "type": "STRING",
+          "value": "POP"
+        },
+        {
+          "type": "STRING",
+          "value": "NIP"
+        },
+        {
+          "type": "STRING",
+          "value": "SWP"
+        },
+        {
+          "type": "STRING",
+          "value": "ROT"
+        },
+        {
+          "type": "STRING",
+          "value": "DUP"
+        },
+        {
+          "type": "STRING",
+          "value": "OVR"
+        },
+        {
+          "type": "STRING",
+          "value": "EQU"
+        },
+        {
+          "type": "STRING",
+          "value": "NEQ"
+        },
+        {
+          "type": "STRING",
+          "value": "GTH"
+        },
+        {
+          "type": "STRING",
+          "value": "LTH"
+        },
+        {
+          "type": "STRING",
+          "value": "JMP"
+        },
+        {
+          "type": "STRING",
+          "value": "JCN"
+        },
+        {
+          "type": "STRING",
+          "value": "JSR"
+        },
+        {
+          "type": "STRING",
+          "value": "STH"
+        },
+        {
+          "type": "STRING",
+          "value": "LDZ"
+        },
+        {
+          "type": "STRING",
+          "value": "STZ"
+        },
+        {
+          "type": "STRING",
+          "value": "LDR"
+        },
+        {
+          "type": "STRING",
+          "value": "STR"
+        },
+        {
+          "type": "STRING",
+          "value": "LDA"
+        },
+        {
+          "type": "STRING",
+          "value": "STA"
+        },
+        {
+          "type": "STRING",
+          "value": "DEI"
+        },
+        {
+          "type": "STRING",
+          "value": "DEO"
+        },
+        {
+          "type": "STRING",
+          "value": "ADD"
+        },
+        {
+          "type": "STRING",
+          "value": "SUB"
+        },
+        {
+          "type": "STRING",
+          "value": "MUL"
+        },
+        {
+          "type": "STRING",
+          "value": "DIV"
+        },
+        {
+          "type": "STRING",
+          "value": "AND"
+        },
+        {
+          "type": "STRING",
+          "value": "ORA"
+        },
+        {
+          "type": "STRING",
+          "value": "EOR"
+        },
+        {
+          "type": "STRING",
+          "value": "SFT"
+        },
+        {
+          "type": "STRING",
+          "value": "JCI"
+        },
+        {
+          "type": "STRING",
+          "value": "INC2"
+        },
+        {
+          "type": "STRING",
+          "value": "POP2"
+        },
+        {
+          "type": "STRING",
+          "value": "NIP2"
+        },
+        {
+          "type": "STRING",
+          "value": "SWP2"
+        },
+        {
+          "type": "STRING",
+          "value": "ROT2"
+        },
+        {
+          "type": "STRING",
+          "value": "DUP2"
+        },
+        {
+          "type": "STRING",
+          "value": "OVR2"
+        },
+        {
+          "type": "STRING",
+          "value": "EQU2"
+        },
+        {
+          "type": "STRING",
+          "value": "NEQ2"
+        },
+        {
+          "type": "STRING",
+          "value": "GTH2"
+        },
+        {
+          "type": "STRING",
+          "value": "LTH2"
+        },
+        {
+          "type": "STRING",
+          "value": "JMP2"
+        },
+        {
+          "type": "STRING",
+          "value": "JCN2"
+        },
+        {
+          "type": "STRING",
+          "value": "JSR2"
+        },
+        {
+          "type": "STRING",
+          "value": "STH2"
+        },
+        {
+          "type": "STRING",
+          "value": "LDZ2"
+        },
+        {
+          "type": "STRING",
+          "value": "STZ2"
+        },
+        {
+          "type": "STRING",
+          "value": "LDR2"
+        },
+        {
+          "type": "STRING",
+          "value": "STR2"
+        },
+        {
+          "type": "STRING",
+          "value": "LDA2"
+        },
+        {
+          "type": "STRING",
+          "value": "STA2"
+        },
+        {
+          "type": "STRING",
+          "value": "DEI2"
+        },
+        {
+          "type": "STRING",
+          "value": "DEO2"
+        },
+        {
+          "type": "STRING",
+          "value": "ADD2"
+        },
+        {
+          "type": "STRING",
+          "value": "SUB2"
+        },
+        {
+          "type": "STRING",
+          "value": "MUL2"
+        },
+        {
+          "type": "STRING",
+          "value": "DIV2"
+        },
+        {
+          "type": "STRING",
+          "value": "AND2"
+        },
+        {
+          "type": "STRING",
+          "value": "ORA2"
+        },
+        {
+          "type": "STRING",
+          "value": "EOR2"
+        },
+        {
+          "type": "STRING",
+          "value": "SFT2"
+        },
+        {
+          "type": "STRING",
+          "value": "JMI"
+        },
+        {
+          "type": "STRING",
+          "value": "INCr"
+        },
+        {
+          "type": "STRING",
+          "value": "POPr"
+        },
+        {
+          "type": "STRING",
+          "value": "NIPr"
+        },
+        {
+          "type": "STRING",
+          "value": "SWPr"
+        },
+        {
+          "type": "STRING",
+          "value": "ROTr"
+        },
+        {
+          "type": "STRING",
+          "value": "DUPr"
+        },
+        {
+          "type": "STRING",
+          "value": "OVRr"
+        },
+        {
+          "type": "STRING",
+          "value": "EQUr"
+        },
+        {
+          "type": "STRING",
+          "value": "NEQr"
+        },
+        {
+          "type": "STRING",
+          "value": "GTHr"
+        },
+        {
+          "type": "STRING",
+          "value": "LTHr"
+        },
+        {
+          "type": "STRING",
+          "value": "JMPr"
+        },
+        {
+          "type": "STRING",
+          "value": "JCNr"
+        },
+        {
+          "type": "STRING",
+          "value": "JSRr"
+        },
+        {
+          "type": "STRING",
+          "value": "STHr"
+        },
+        {
+          "type": "STRING",
+          "value": "LDZr"
+        },
+        {
+          "type": "STRING",
+          "value": "STZr"
+        },
+        {
+          "type": "STRING",
+          "value": "LDRr"
+        },
+        {
+          "type": "STRING",
+          "value": "STRr"
+        },
+        {
+          "type": "STRING",
+          "value": "LDAr"
+        },
+        {
+          "type": "STRING",
+          "value": "STAr"
+        },
+        {
+          "type": "STRING",
+          "value": "DEIr"
+        },
+        {
+          "type": "STRING",
+          "value": "DEOr"
+        },
+        {
+          "type": "STRING",
+          "value": "ADDr"
+        },
+        {
+          "type": "STRING",
+          "value": "SUBr"
+        },
+        {
+          "type": "STRING",
+          "value": "MULr"
+        },
+        {
+          "type": "STRING",
+          "value": "DIVr"
+        },
+        {
+          "type": "STRING",
+          "value": "ANDr"
+        },
+        {
+          "type": "STRING",
+          "value": "ORAr"
+        },
+        {
+          "type": "STRING",
+          "value": "EORr"
+        },
+        {
+          "type": "STRING",
+          "value": "SFTr"
+        },
+        {
+          "type": "STRING",
+          "value": "JSI"
+        },
+        {
+          "type": "STRING",
+          "value": "INC2r"
+        },
+        {
+          "type": "STRING",
+          "value": "POP2r"
+        },
+        {
+          "type": "STRING",
+          "value": "NIP2r"
+        },
+        {
+          "type": "STRING",
+          "value": "SWP2r"
+        },
+        {
+          "type": "STRING",
+          "value": "ROT2r"
+        },
+        {
+          "type": "STRING",
+          "value": "DUP2r"
+        },
+        {
+          "type": "STRING",
+          "value": "OVR2r"
+        },
+        {
+          "type": "STRING",
+          "value": "EQU2r"
+        },
+        {
+          "type": "STRING",
+          "value": "NEQ2r"
+        },
+        {
+          "type": "STRING",
+          "value": "GTH2r"
+        },
+        {
+          "type": "STRING",
+          "value": "LTH2r"
+        },
+        {
+          "type": "STRING",
+          "value": "JMP2r"
+        },
+        {
+          "type": "STRING",
+          "value": "JCN2r"
+        },
+        {
+          "type": "STRING",
+          "value": "JSR2r"
+        },
+        {
+          "type": "STRING",
+          "value": "STH2r"
+        },
+        {
+          "type": "STRING",
+          "value": "LDZ2r"
+        },
+        {
+          "type": "STRING",
+          "value": "STZ2r"
+        },
+        {
+          "type": "STRING",
+          "value": "LDR2r"
+        },
+        {
+          "type": "STRING",
+          "value": "STR2r"
+        },
+        {
+          "type": "STRING",
+          "value": "LDA2r"
+        },
+        {
+          "type": "STRING",
+          "value": "STA2r"
+        },
+        {
+          "type": "STRING",
+          "value": "DEI2r"
+        },
+        {
+          "type": "STRING",
+          "value": "DEO2r"
+        },
+        {
+          "type": "STRING",
+          "value": "ADD2r"
+        },
+        {
+          "type": "STRING",
+          "value": "SUB2r"
+        },
+        {
+          "type": "STRING",
+          "value": "MUL2r"
+        },
+        {
+          "type": "STRING",
+          "value": "DIV2r"
+        },
+        {
+          "type": "STRING",
+          "value": "AND2r"
+        },
+        {
+          "type": "STRING",
+          "value": "ORA2r"
+        },
+        {
+          "type": "STRING",
+          "value": "EOR2r"
+        },
+        {
+          "type": "STRING",
+          "value": "SFT2r"
+        },
+        {
+          "type": "STRING",
+          "value": "LIT"
+        },
+        {
+          "type": "STRING",
+          "value": "INCk"
+        },
+        {
+          "type": "STRING",
+          "value": "POPk"
+        },
+        {
+          "type": "STRING",
+          "value": "NIPk"
+        },
+        {
+          "type": "STRING",
+          "value": "SWPk"
+        },
+        {
+          "type": "STRING",
+          "value": "ROTk"
+        },
+        {
+          "type": "STRING",
+          "value": "DUPk"
+        },
+        {
+          "type": "STRING",
+          "value": "OVRk"
+        },
+        {
+          "type": "STRING",
+          "value": "EQUk"
+        },
+        {
+          "type": "STRING",
+          "value": "NEQk"
+        },
+        {
+          "type": "STRING",
+          "value": "GTHk"
+        },
+        {
+          "type": "STRING",
+          "value": "LTHk"
+        },
+        {
+          "type": "STRING",
+          "value": "JMPk"
+        },
+        {
+          "type": "STRING",
+          "value": "JCNk"
+        },
+        {
+          "type": "STRING",
+          "value": "JSRk"
+        },
+        {
+          "type": "STRING",
+          "value": "STHk"
+        },
+        {
+          "type": "STRING",
+          "value": "LDZk"
+        },
+        {
+          "type": "STRING",
+          "value": "STZk"
+        },
+        {
+          "type": "STRING",
+          "value": "LDRk"
+        },
+        {
+          "type": "STRING",
+          "value": "STRk"
+        },
+        {
+          "type": "STRING",
+          "value": "LDAk"
+        },
+        {
+          "type": "STRING",
+          "value": "STAk"
+        },
+        {
+          "type": "STRING",
+          "value": "DEIk"
+        },
+        {
+          "type": "STRING",
+          "value": "DEOk"
+        },
+        {
+          "type": "STRING",
+          "value": "ADDk"
+        },
+        {
+          "type": "STRING",
+          "value": "SUBk"
+        },
+        {
+          "type": "STRING",
+          "value": "MULk"
+        },
+        {
+          "type": "STRING",
+          "value": "DIVk"
+        },
+        {
+          "type": "STRING",
+          "value": "ANDk"
+        },
+        {
+          "type": "STRING",
+          "value": "ORAk"
+        },
+        {
+          "type": "STRING",
+          "value": "EORk"
+        },
+        {
+          "type": "STRING",
+          "value": "SFTk"
+        },
+        {
+          "type": "STRING",
+          "value": "LIT2"
+        },
+        {
+          "type": "STRING",
+          "value": "INC2k"
+        },
+        {
+          "type": "STRING",
+          "value": "POP2k"
+        },
+        {
+          "type": "STRING",
+          "value": "NIP2k"
+        },
+        {
+          "type": "STRING",
+          "value": "SWP2k"
+        },
+        {
+          "type": "STRING",
+          "value": "ROT2k"
+        },
+        {
+          "type": "STRING",
+          "value": "DUP2k"
+        },
+        {
+          "type": "STRING",
+          "value": "OVR2k"
+        },
+        {
+          "type": "STRING",
+          "value": "EQU2k"
+        },
+        {
+          "type": "STRING",
+          "value": "NEQ2k"
+        },
+        {
+          "type": "STRING",
+          "value": "GTH2k"
+        },
+        {
+          "type": "STRING",
+          "value": "LTH2k"
+        },
+        {
+          "type": "STRING",
+          "value": "JMP2k"
+        },
+        {
+          "type": "STRING",
+          "value": "JCN2k"
+        },
+        {
+          "type": "STRING",
+          "value": "JSR2k"
+        },
+        {
+          "type": "STRING",
+          "value": "STH2k"
+        },
+        {
+          "type": "STRING",
+          "value": "LDZ2k"
+        },
+        {
+          "type": "STRING",
+          "value": "STZ2k"
+        },
+        {
+          "type": "STRING",
+          "value": "LDR2k"
+        },
+        {
+          "type": "STRING",
+          "value": "STR2k"
+        },
+        {
+          "type": "STRING",
+          "value": "LDA2k"
+        },
+        {
+          "type": "STRING",
+          "value": "STA2k"
+        },
+        {
+          "type": "STRING",
+          "value": "DEI2k"
+        },
+        {
+          "type": "STRING",
+          "value": "DEO2k"
+        },
+        {
+          "type": "STRING",
+          "value": "ADD2k"
+        },
+        {
+          "type": "STRING",
+          "value": "SUB2k"
+        },
+        {
+          "type": "STRING",
+          "value": "MUL2k"
+        },
+        {
+          "type": "STRING",
+          "value": "DIV2k"
+        },
+        {
+          "type": "STRING",
+          "value": "AND2k"
+        },
+        {
+          "type": "STRING",
+          "value": "ORA2k"
+        },
+        {
+          "type": "STRING",
+          "value": "EOR2k"
+        },
+        {
+          "type": "STRING",
+          "value": "SFT2k"
+        },
+        {
+          "type": "STRING",
+          "value": "LITr"
+        },
+        {
+          "type": "STRING",
+          "value": "INCkr"
+        },
+        {
+          "type": "STRING",
+          "value": "POPkr"
+        },
+        {
+          "type": "STRING",
+          "value": "NIPkr"
+        },
+        {
+          "type": "STRING",
+          "value": "SWPkr"
+        },
+        {
+          "type": "STRING",
+          "value": "ROTkr"
+        },
+        {
+          "type": "STRING",
+          "value": "DUPkr"
+        },
+        {
+          "type": "STRING",
+          "value": "OVRkr"
+        },
+        {
+          "type": "STRING",
+          "value": "EQUkr"
+        },
+        {
+          "type": "STRING",
+          "value": "NEQkr"
+        },
+        {
+          "type": "STRING",
+          "value": "GTHkr"
+        },
+        {
+          "type": "STRING",
+          "value": "LTHkr"
+        },
+        {
+          "type": "STRING",
+          "value": "JMPkr"
+        },
+        {
+          "type": "STRING",
+          "value": "JCNkr"
+        },
+        {
+          "type": "STRING",
+          "value": "JSRkr"
+        },
+        {
+          "type": "STRING",
+          "value": "STHkr"
+        },
+        {
+          "type": "STRING",
+          "value": "LDZkr"
+        },
+        {
+          "type": "STRING",
+          "value": "STZkr"
+        },
+        {
+          "type": "STRING",
+          "value": "LDRkr"
+        },
+        {
+          "type": "STRING",
+          "value": "STRkr"
+        },
+        {
+          "type": "STRING",
+          "value": "LDAkr"
+        },
+        {
+          "type": "STRING",
+          "value": "STAkr"
+        },
+        {
+          "type": "STRING",
+          "value": "DEIkr"
+        },
+        {
+          "type": "STRING",
+          "value": "DEOkr"
+        },
+        {
+          "type": "STRING",
+          "value": "ADDkr"
+        },
+        {
+          "type": "STRING",
+          "value": "SUBkr"
+        },
+        {
+          "type": "STRING",
+          "value": "MULkr"
+        },
+        {
+          "type": "STRING",
+          "value": "DIVkr"
+        },
+        {
+          "type": "STRING",
+          "value": "ANDkr"
+        },
+        {
+          "type": "STRING",
+          "value": "ORAkr"
+        },
+        {
+          "type": "STRING",
+          "value": "EORkr"
+        },
+        {
+          "type": "STRING",
+          "value": "SFTkr"
+        },
+        {
+          "type": "STRING",
+          "value": "LIT2r"
+        },
+        {
+          "type": "STRING",
+          "value": "INC2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "POP2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "NIP2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "SWP2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "ROT2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "DUP2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "OVR2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "EQU2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "NEQ2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "GTH2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "LTH2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "JMP2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "JCN2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "JSR2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "STH2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "LDZ2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "STZ2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "LDR2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "STR2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "LDA2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "STA2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "DEI2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "DEO2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "ADD2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "SUB2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "MUL2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "DIV2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "AND2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "ORA2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "EOR2kr"
+        },
+        {
+          "type": "STRING",
+          "value": "SFT2kr"
+        }
+      ]
+    },
+    "absolute_pad_operation": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "|"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "number"
+        }
+      ]
+    },
+    "relative_pad_operation": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "$"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "number"
+        }
+      ]
+    },
+    "hex_literal": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "#"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "PATTERN",
+            "value": "[\\da-f]{2}|[\\da-f]{4}"
+          },
+          "named": true,
+          "value": "hex_lit_value"
+        }
+      ]
+    },
+    "label": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "@"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        }
+      ]
+    },
+    "sublabel_reference": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "STRING",
+          "value": "/"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        }
+      ]
+    },
+    "rune": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "rune_start",
+          "content": {
+            "type": "SYMBOL",
+            "name": "rune_char"
+          }
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "rune_char"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "identifier"
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "PATTERN",
+                "value": "[\\d*/]{1,4}"
+              },
+              "named": true,
+              "value": "identifier"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "sublabel_reference"
+            }
+          ]
+        }
+      ]
+    },
+    "rune_char": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "relative",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": ","
+              },
+              {
+                "type": "STRING",
+                "value": "_"
+              }
+            ]
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "zero_page",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "."
+              },
+              {
+                "type": "STRING",
+                "value": "-"
+              }
+            ]
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "absolute",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": ";"
+              },
+              {
+                "type": "STRING",
+                "value": "="
+              }
+            ]
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "immediate",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "!"
+              },
+              {
+                "type": "STRING",
+                "value": "?"
+              }
+            ]
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "sublabel",
+          "content": {
+            "type": "STRING",
+            "value": "&"
+          }
+        }
+      ]
+    },
+    "brackets": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "["
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_non_toplevel_statement"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "]"
+        }
+      ]
+    },
+    "raw_ascii": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "\""
+        },
+        {
+          "type": "PATTERN",
+          "value": "[^\\s]+"
+        }
+      ]
+    },
+    "number": {
+      "type": "PATTERN",
+      "value": "[\\da-f]{1,4}\\s"
+    },
+    "identifier": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": -1,
+        "content": {
+          "type": "PATTERN",
+          "value": "[0-9]?[a-zA-Z_:*/][/]*[a-zA-Z0-9_:#*\\-]*"
+        }
+      }
+    }
+  },
+  "extras": [
+    {
+      "type": "SYMBOL",
+      "name": "comment"
+    },
+    {
+      "type": "PATTERN",
+      "value": "\\s"
+    }
+  ],
+  "conflicts": [],
+  "precedences": [],
+  "externals": [
+    {
+      "type": "SYMBOL",
+      "name": "comment"
+    }
+  ],
+  "inline": [],
+  "supertypes": []
+}

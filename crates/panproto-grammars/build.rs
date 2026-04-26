@@ -48,6 +48,7 @@ fn main() {
             \x20   pub language_fn_ptr: *const (),\n\
             \x20   pub node_types: &'static [u8],\n\
             \x20   pub tags_query: Option<&'static str>,\n\
+            \x20   pub grammar_json: Option<&'static [u8]>,\n\
             }\n\
             unsafe impl Send for GrammarEntry {}\n\
             unsafe impl Sync for GrammarEntry {}\n\
@@ -438,6 +439,7 @@ fn resolve_tags_inner(
     prefix
 }
 
+#[allow(clippy::too_many_lines)]
 fn generate_rust_bindings(
     enabled: &[&(String, GrammarSpec)],
     grammars_dir: &Path,
@@ -477,6 +479,27 @@ fn generate_rust_bindings(
             "const {const_name}_NODE_TYPES: &[u8] = include_bytes!(\"{path_str}\");\n",
         ));
 
+        // Embed the grammar's grammar.json (production rules) when present.
+        // The panproto-parse `emit_pretty` machinery reads these bytes
+        // lazily to drive de-novo source emission. Languages that lack
+        // grammar.json fall back to `None`, and `emit_pretty` returns
+        // `Err(EmitFailed { reason: "grammar.json missing" })`.
+        let grammar_json_path = lang_dir.join("grammar.json");
+        if grammar_json_path.exists() {
+            println!("cargo:rerun-if-changed={}", grammar_json_path.display());
+            let abs_gj = grammar_json_path
+                .canonicalize()
+                .unwrap_or_else(|_| grammar_json_path.clone());
+            let gj_str = abs_gj.display().to_string().replace('\\', "/");
+            code.push_str(&format!(
+                "const {const_name}_GRAMMAR_JSON: Option<&[u8]> = Some(include_bytes!(\"{gj_str}\"));\n",
+            ));
+        } else {
+            code.push_str(&format!(
+                "const {const_name}_GRAMMAR_JSON: Option<&[u8]> = None;\n",
+            ));
+        }
+
         // Embed the grammar's tags.scm query if fetch-grammars.py vendored
         // one alongside src/. tags.scm is the canonical tree-sitter primitive
         // for named-scope detection (@definition.function, @name, etc.),
@@ -513,6 +536,7 @@ fn generate_rust_bindings(
     code.push_str("    pub language_fn_ptr: *const (),\n");
     code.push_str("    pub node_types: &'static [u8],\n");
     code.push_str("    pub tags_query: Option<&'static str>,\n");
+    code.push_str("    pub grammar_json: Option<&'static [u8]>,\n");
     code.push_str("}\n\n");
     code.push_str("unsafe impl Send for GrammarEntry {}\n");
     code.push_str("unsafe impl Sync for GrammarEntry {}\n");
@@ -538,6 +562,7 @@ fn generate_rust_bindings(
              \x20       language_fn_ptr: tree_sitter_{c_symbol} as *const (),\n\
              \x20       node_types: {const_name}_NODE_TYPES,\n\
              \x20       tags_query: {const_name}_TAGS_QUERY,\n\
+             \x20       grammar_json: {const_name}_GRAMMAR_JSON,\n\
              \x20   }});\n"
         ));
     }

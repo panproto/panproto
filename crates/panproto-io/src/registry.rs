@@ -131,6 +131,10 @@ impl ProtocolRegistry {
     /// from the registry rather than aborting registration of the rest.
     /// The constructor's error is returned so callers that want to
     /// surface a diagnostic can; the common pattern is to ignore it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the constructor's error verbatim when `codec` is `Err`.
     pub fn try_register<C, E>(&mut self, codec: Result<C, E>) -> Result<(), E>
     where
         C: ProtocolCodec + 'static,

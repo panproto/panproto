@@ -51,6 +51,9 @@ pub mod languages;
 /// Parser registry mapping protocol names to implementations.
 pub mod registry;
 
+/// De-novo source emission from by-construction schemas.
+pub mod emit_pretty;
+
 pub use error::ParseError;
 pub use id_scheme::IdGenerator;
 pub use registry::{AstParser, ParserRegistry};

@@ -4,6 +4,15 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **panproto-parse (`AstParser::emit_pretty`)**: a new trait method that renders a by-construction `Schema` (one with no parse-recovered byte positions or interstitials) to source bytes by walking the language's tree-sitter `grammar.json` production rules. The walker handles `STRING`, `PATTERN`, `SYMBOL`, `BLANK`, `SEQ`, `CHOICE`, `REPEAT`, `REPEAT1`, `OPTIONAL`, `FIELD`, `ALIAS`, `TOKEN`, `IMMEDIATE_TOKEN`, and `PREC*` nodes. CHOICE alternatives are dispatched cursor-first against unconsumed children, with a hidden-rule (`_`-prefixed) inline-expansion path so `_value`-style anonymous dispatchers resolve correctly. A `FormatPolicy` carries default whitespace and indent rules (one space between adjacent tokens, newline after `;` / `{` / `}`, indent on `{` / `}` boundaries). Output is *syntactically valid* on JSON's smoke test (the included reference target). The four other smoke tests (Rust, Python, Go, TOML, YAML) ship as `#[ignore]`d entry points so the per-language work can drop the `#[ignore]` line by line in follow-up branches; idiomatic-formatting polish is explicit follow-up. Closes #41 (the trait + walker shipped; per-language coverage is tracked separately).
+- **panproto-grammars (`grammar.json` vendoring)**: the build script now embeds each grammar's `grammar.json` alongside `node-types.json` and the compiled `parser.c`. `tools/fetch-grammar-json.py` populates the missing 240 grammar.json files from upstream tree-sitter-* repositories (regenerating via `tree-sitter generate` for grammars whose upstream repo ships only `grammar.js`). The new `panproto_grammars::Grammar.grammar_json` field exposes the bytes; `LanguageParser::from_language_with_grammar_json` accepts them. All 248 grammars now ship `grammar.json`.
+
+### Changed
+
+- **panproto-io (`UnifiedCodec` constructors return `Result`)**: pre-1.0 breaking change. `UnifiedCodec::{new, json, xml, yaml, toml, csv, tsv}` now return `Result<Self, UnifiedCodecError>` with `MissingGrammar` and `ParserInit` variants, replacing the two `unwrap_or_else` panic paths in `unified_codec.rs`. The 46 register sites under `panproto-io/src/{serialization, annotation, api, config, database, data_schema, data_science, domain, web_document}/mod.rs` are converted to a new `ProtocolRegistry::try_register` helper that takes a `Result<Codec, _>` and skips registration on `Err`, so binaries built without a given `lang-*` feature silently omit the codec rather than abort. Closes #52.
+
 ## [0.39.0] - 2026-04-25
 
 ### Added

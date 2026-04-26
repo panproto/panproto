@@ -38,6 +38,30 @@ pub trait AstParser: Send + Sync {
 
     /// The auto-derived theory metadata for this language.
     fn theory_meta(&self) -> &ExtractedTheoryMeta;
+
+    /// Render a by-construction [`Schema`] (one with no parse-recovered
+    /// byte positions or interstitials) to source bytes.
+    ///
+    /// Unlike [`emit`](Self::emit), which reconstructs source from
+    /// byte-position fragments stored on the schema during `parse`,
+    /// `emit_pretty` walks tree-sitter `grammar.json` production rules
+    /// to render schemas built from scratch via `SchemaBuilder`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::EmitFailed`] when the language has no
+    /// vendored `grammar.json`, when a vertex's kind is not a grammar
+    /// rule, or when a required field has no corresponding schema edge.
+    fn emit_pretty(&self, schema: &Schema) -> Result<Vec<u8>, ParseError> {
+        let _ = schema;
+        Err(ParseError::EmitFailed {
+            protocol: self.protocol_name().to_owned(),
+            reason: format!(
+                "emit_pretty not implemented for protocol '{}'",
+                self.protocol_name()
+            ),
+        })
+    }
 }
 
 /// Registry of all full-AST parsers, keyed by protocol name.
@@ -69,16 +93,18 @@ impl ParserRegistry {
         #[cfg(feature = "grammars")]
         for grammar in panproto_grammars::grammars() {
             let config = crate::languages::walker_configs::walker_config_for(grammar.name);
-            match crate::languages::common::LanguageParser::from_language(
+            match crate::languages::common::LanguageParser::from_language_with_grammar_json(
                 grammar.name,
                 grammar.extensions.to_vec(),
                 grammar.language,
                 grammar.node_types,
                 grammar.tags_query,
                 config,
+                grammar.grammar_json,
             ) {
                 Ok(p) => registry.register(Box::new(p)),
                 Err(err) => {
+                    let _ = err;
                     #[cfg(debug_assertions)]
                     eprintln!(
                         "warning: grammar '{}' theory extraction failed: {err}",
@@ -171,6 +197,28 @@ impl ParserRegistry {
             })?;
 
         parser.emit(schema)
+    }
+
+    /// Render a by-construction schema using the named protocol.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::UnknownLanguage`] if the protocol is not
+    /// registered, or [`ParseError::EmitFailed`] from the underlying
+    /// parser's `emit_pretty`.
+    pub fn emit_pretty_with_protocol(
+        &self,
+        protocol: &str,
+        schema: &Schema,
+    ) -> Result<Vec<u8>, ParseError> {
+        let parser = self
+            .parsers
+            .get(protocol)
+            .ok_or_else(|| ParseError::UnknownLanguage {
+                extension: protocol.to_owned(),
+            })?;
+
+        parser.emit_pretty(schema)
     }
 
     /// Get the theory metadata for a specific protocol.

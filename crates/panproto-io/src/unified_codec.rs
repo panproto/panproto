@@ -133,13 +133,14 @@ impl UnifiedCodec {
             })?;
 
         let config = panproto_parse::languages::walker_configs::walker_config_for(grammar_name);
-        let lang_parser = LanguageParser::from_language(
+        let lang_parser = LanguageParser::from_language_with_grammar_json(
             grammar_name,
             grammar.extensions.to_vec(),
             grammar.language,
             grammar.node_types,
             grammar.tags_query,
             config,
+            grammar.grammar_json,
         )
         .map_err(|e| UnifiedCodecError::ParserInit {
             format: grammar_name.to_owned(),

@@ -1,0 +1,183 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
+  "name": "printf",
+  "rules": {
+    "format_string": {
+      "type": "REPEAT",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "_text"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "format"
+          },
+          {
+            "type": "STRING",
+            "value": "%%"
+          }
+        ]
+      }
+    },
+    "format": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "%"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "flags"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "width"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "precision"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "size"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "type"
+        }
+      ]
+    },
+    "type": {
+      "type": "PATTERN",
+      "value": "[a-zA-Z]"
+    },
+    "flags": {
+      "type": "PATTERN",
+      "value": "[-#0 +'I]"
+    },
+    "width": {
+      "type": "PATTERN",
+      "value": "0?[0-9]+|\\*"
+    },
+    "precision": {
+      "type": "PATTERN",
+      "value": "\\.([0-9]*|\\*)"
+    },
+    "size": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": 1,
+        "content": {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "hh"
+            },
+            {
+              "type": "STRING",
+              "value": "h"
+            },
+            {
+              "type": "STRING",
+              "value": "l"
+            },
+            {
+              "type": "STRING",
+              "value": "ll"
+            },
+            {
+              "type": "STRING",
+              "value": "L"
+            },
+            {
+              "type": "STRING",
+              "value": "j"
+            },
+            {
+              "type": "STRING",
+              "value": "z"
+            },
+            {
+              "type": "STRING",
+              "value": "t"
+            },
+            {
+              "type": "STRING",
+              "value": "I"
+            },
+            {
+              "type": "STRING",
+              "value": "I32"
+            },
+            {
+              "type": "STRING",
+              "value": "I64"
+            },
+            {
+              "type": "STRING",
+              "value": "w"
+            }
+          ]
+        }
+      }
+    },
+    "_text": {
+      "type": "PREC",
+      "value": -1,
+      "content": {
+        "type": "PATTERN",
+        "value": "[^%]+"
+      }
+    }
+  },
+  "extras": [
+    {
+      "type": "PATTERN",
+      "value": "\\s"
+    }
+  ],
+  "conflicts": [],
+  "precedences": [],
+  "externals": [],
+  "inline": [],
+  "supertypes": [],
+  "reserved": {}
+}
