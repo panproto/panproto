@@ -1094,4 +1094,191 @@ mod tests {
         let s = std::str::from_utf8(&bytes).expect("ascii output");
         assert!(s.starts_with("foo();"), "got {s:?}");
     }
+
+    #[test]
+    fn grammar_from_bytes_rejects_malformed_input() {
+        let result = Grammar::from_bytes("malformed", b"not json");
+        let err = result.expect_err("malformed bytes must yield Err");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("malformed"),
+            "error message should name the protocol: {msg:?}"
+        );
+    }
+
+    #[test]
+    fn output_indents_after_open_brace() {
+        let policy = FormatPolicy::default();
+        let mut out = Output::new(&policy);
+        out.token("fn");
+        out.token("foo");
+        out.token("(");
+        out.token(")");
+        out.token("{");
+        out.token("body");
+        out.token("}");
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert!(s.contains("{\n"), "newline after opening brace: {s:?}");
+        assert!(s.contains("body"), "body inside block: {s:?}");
+        assert!(s.ends_with("}\n"), "newline after closing brace: {s:?}");
+    }
+
+    #[test]
+    fn output_no_space_between_word_and_dot() {
+        let policy = FormatPolicy::default();
+        let mut out = Output::new(&policy);
+        out.token("foo");
+        out.token(".");
+        out.token("bar");
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert!(s.starts_with("foo.bar"), "no space around dot: {s:?}");
+    }
+
+    #[test]
+    fn output_snapshot_restore_truncates_bytes() {
+        let policy = FormatPolicy::default();
+        let mut out = Output::new(&policy);
+        out.token("keep");
+        let snap = out.snapshot();
+        out.token("drop");
+        out.token("more");
+        out.restore(snap);
+        out.token("after");
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert!(s.contains("keep"), "kept token survives: {s:?}");
+        assert!(s.contains("after"), "post-restore token visible: {s:?}");
+        assert!(!s.contains("drop"), "rolled-back token removed: {s:?}");
+        assert!(!s.contains("more"), "rolled-back token removed: {s:?}");
+    }
+
+    #[test]
+    fn child_cursor_take_field_consumes_once() {
+        let edges_owned: Vec<Edge> = vec![Edge {
+            src: panproto_gat::Name::from("p"),
+            tgt: panproto_gat::Name::from("c"),
+            kind: panproto_gat::Name::from("name"),
+            name: None,
+        }];
+        let edges: Vec<&Edge> = edges_owned.iter().collect();
+        let mut cursor = ChildCursor::new(&edges);
+        let first = cursor.take_field("name");
+        let second = cursor.take_field("name");
+        assert!(first.is_some(), "first take returns the edge");
+        assert!(
+            second.is_none(),
+            "second take returns None (already consumed)"
+        );
+    }
+
+    #[test]
+    fn child_cursor_take_matching_predicate() {
+        let edges_owned: Vec<Edge> = vec![
+            Edge {
+                src: "p".into(),
+                tgt: "c1".into(),
+                kind: "child_of".into(),
+                name: None,
+            },
+            Edge {
+                src: "p".into(),
+                tgt: "c2".into(),
+                kind: "key".into(),
+                name: None,
+            },
+        ];
+        let edges: Vec<&Edge> = edges_owned.iter().collect();
+        let mut cursor = ChildCursor::new(&edges);
+        assert!(cursor.has_matching(|e| e.kind.as_ref() == "key"));
+        let taken = cursor.take_matching(|e| e.kind.as_ref() == "key");
+        assert!(taken.is_some());
+        assert!(
+            !cursor.has_matching(|e| e.kind.as_ref() == "key"),
+            "consumed edge no longer matches"
+        );
+        assert!(
+            cursor.has_matching(|e| e.kind.as_ref() == "child_of"),
+            "the other edge is still available"
+        );
+    }
+
+    #[test]
+    fn kind_satisfies_symbol_direct_match() {
+        let bytes = br#"{
+            "name": "tiny",
+            "rules": {
+                "x": {"type": "STRING", "value": "x"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("valid grammar");
+        assert!(kind_satisfies_symbol(&g, Some("x"), "x"));
+        assert!(!kind_satisfies_symbol(&g, Some("y"), "x"));
+        assert!(!kind_satisfies_symbol(&g, None, "x"));
+    }
+
+    #[test]
+    fn kind_satisfies_symbol_through_hidden_rule() {
+        let bytes = br#"{
+            "name": "tiny",
+            "rules": {
+                "_value": {
+                    "type": "CHOICE",
+                    "members": [
+                        {"type": "SYMBOL", "name": "object"},
+                        {"type": "SYMBOL", "name": "number"}
+                    ]
+                },
+                "object": {"type": "STRING", "value": "{}"},
+                "number": {"type": "PATTERN", "value": "[0-9]+"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("valid grammar");
+        assert!(
+            kind_satisfies_symbol(&g, Some("number"), "_value"),
+            "number is reachable from _value via CHOICE"
+        );
+        assert!(
+            kind_satisfies_symbol(&g, Some("object"), "_value"),
+            "object is reachable from _value via CHOICE"
+        );
+        assert!(
+            !kind_satisfies_symbol(&g, Some("string"), "_value"),
+            "string is NOT among the alternatives"
+        );
+    }
+
+    #[test]
+    fn first_symbol_skips_string_terminals() {
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "SEQ",
+                "members": [
+                    {"type": "STRING", "value": "{"},
+                    {"type": "SYMBOL", "name": "body"},
+                    {"type": "STRING", "value": "}"}
+                ]
+            }"#,
+        )
+        .expect("valid SEQ");
+        assert_eq!(first_symbol(&prod), Some("body"));
+    }
+
+    #[test]
+    fn placeholder_for_pattern_routes_by_regex_class() {
+        assert_eq!(placeholder_for_pattern("[0-9]+"), "0");
+        assert_eq!(placeholder_for_pattern("[a-zA-Z_]\\w*"), "_x");
+        assert_eq!(placeholder_for_pattern("\"[^\"]*\""), "\"\"");
+        assert_eq!(placeholder_for_pattern("\\d+\\.\\d+"), "0");
+    }
+
+    #[test]
+    fn format_policy_default_breaks_after_semicolon() {
+        let policy = FormatPolicy::default();
+        assert!(policy.line_break_after.iter().any(|t| t == ";"));
+        assert!(policy.indent_open.iter().any(|t| t == "{"));
+        assert!(policy.indent_close.iter().any(|t| t == "}"));
+        assert_eq!(policy.indent_width, 2);
+    }
 }

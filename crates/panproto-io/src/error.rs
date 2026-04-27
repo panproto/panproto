@@ -127,3 +127,36 @@ pub enum UnifiedCodecError {
         source: Box<panproto_parse::error::ParseError>,
     },
 }
+
+#[cfg(all(test, feature = "tree-sitter"))]
+mod unified_codec_error_tests {
+    use super::UnifiedCodecError;
+
+    #[test]
+    fn missing_grammar_message_names_format_and_feature() {
+        let err = UnifiedCodecError::MissingGrammar {
+            format: "json".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("json"), "format name in message: {msg:?}");
+        assert!(
+            msg.contains("panproto-grammars/lang-json"),
+            "feature hint in message: {msg:?}"
+        );
+    }
+
+    #[test]
+    fn parser_init_carries_source_chain() {
+        use std::error::Error as _;
+        let inner = panproto_parse::error::ParseError::TheoryExtraction {
+            reason: "synthetic test".to_owned(),
+        };
+        let err = UnifiedCodecError::ParserInit {
+            format: "yaml".into(),
+            source: Box::new(inner),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("yaml"), "format name in message: {msg:?}");
+        assert!(err.source().is_some(), "source chain must be exposed");
+    }
+}

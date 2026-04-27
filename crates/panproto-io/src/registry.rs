@@ -306,3 +306,54 @@ impl Default for ProtocolRegistry {
         Self::new()
     }
 }
+
+#[cfg(test)]
+#[allow(deprecated)]
+mod try_register_tests {
+    use super::*;
+    use crate::json_codec::JsonCodec;
+
+    #[test]
+    fn try_register_ok_inserts_codec() {
+        let mut registry = ProtocolRegistry::new();
+        #[allow(deprecated)]
+        let codec: Result<JsonCodec, &'static str> = Ok(JsonCodec::new("ok-protocol"));
+        let outcome = registry.try_register(codec);
+        assert!(outcome.is_ok(), "Ok constructor should register");
+        assert!(
+            registry.protocol_names().any(|n| n == "ok-protocol"),
+            "the codec should be visible in protocol_names"
+        );
+    }
+
+    #[test]
+    fn try_register_err_skips_and_propagates() {
+        let mut registry = ProtocolRegistry::new();
+        let before: usize = registry.protocol_names().count();
+        let codec: Result<JsonCodec, &'static str> = Err("missing grammar");
+        let outcome = registry.try_register(codec);
+        assert_eq!(outcome, Err("missing grammar"));
+        let after: usize = registry.protocol_names().count();
+        assert_eq!(
+            before, after,
+            "registry size must not change when constructor returns Err"
+        );
+    }
+
+    #[test]
+    fn try_register_multiple_mixed_outcomes() {
+        let mut registry = ProtocolRegistry::new();
+        #[allow(deprecated)]
+        let _ = registry.try_register::<JsonCodec, &'static str>(Ok(JsonCodec::new("a")));
+        let _ = registry.try_register::<JsonCodec, &'static str>(Err("nope"));
+        #[allow(deprecated)]
+        let _ = registry.try_register::<JsonCodec, &'static str>(Ok(JsonCodec::new("b")));
+        let names: std::collections::BTreeSet<&str> = registry.protocol_names().collect();
+        assert!(names.contains("a"), "Ok codec 'a' must be present");
+        assert!(names.contains("b"), "Ok codec 'b' must be present");
+        assert!(
+            !names.contains("nope"),
+            "Err codec must not pollute the registry"
+        );
+    }
+}
