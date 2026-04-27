@@ -20,6 +20,27 @@ use crate::value::{FieldPresence, Value};
 /// key starts with `$` so it cannot collide with any user field name.
 pub const LIST_MARKER: &str = "$list";
 
+/// Annotation key carrying the original XML tag name when the node's
+/// anchor does not preserve it.
+///
+/// Open-schema XML extraction anchors every node at the schema's root
+/// vertex (typically `"root"`); without recording the tag the emitter
+/// would write back `<root>...</root>` and lose the document's actual
+/// shape. The CST extractor sets
+/// `node.annotations[XML_TAG_MARKER] = Str("NAF")` and `emit_xml_bytes`
+/// prefers it over the anchor.
+pub const XML_TAG_MARKER: &str = "$xml_tag";
+
+/// Annotation key marking a node as an inline XML text segment.
+///
+/// Mixed XML content (`<p>text<em>more</em>tail</p>`) requires
+/// preserving the order of text and child elements; the CST extractor
+/// emits each text run as a leaf node anchored at `"{parent}:text"`
+/// with `value = Str(...)` and `annotations[XML_TEXT_SEGMENT_MARKER] =
+/// Bool(true)`. `emit_xml_bytes` writes such nodes as bare text
+/// without wrapping start/end tags.
+pub const XML_TEXT_SEGMENT_MARKER: &str = "$xml_text";
+
 /// A node in a W-type instance tree.
 ///
 /// Each node is anchored to a schema vertex and carries optional

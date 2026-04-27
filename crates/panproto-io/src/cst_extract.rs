@@ -97,7 +97,7 @@ impl ExtractState {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-use panproto_inst::metadata::LIST_MARKER;
+use panproto_inst::metadata::{LIST_MARKER, XML_TAG_MARKER, XML_TEXT_SEGMENT_MARKER};
 
 /// Get the `literal-value` constraint from a CST vertex.
 fn literal_value(cst: &Schema, vertex_id: &str) -> Option<String> {
@@ -158,12 +158,102 @@ fn cst_vertex_kind(cst: &Schema, vertex_id: &str) -> Option<String> {
 
 /// Get the `string_content` literal from a CST `string` vertex.
 fn json_string_value(cst: &Schema, string_vertex: &str) -> Option<String> {
-    for edge in cst.outgoing_edges(string_vertex) {
-        if cst_vertex_kind(cst, &edge.tgt).as_deref() == Some("string_content") {
-            return literal_value(cst, &edge.tgt);
+    let edges = cst.outgoing_edges(string_vertex);
+    if edges.is_empty() {
+        return None;
+    }
+
+    // Walk every child of the string vertex in source order. Tree-sitter
+    // splits an escaped JSON string into a sequence of `string_content`
+    // text fragments and `escape_sequence` nodes; the first non-empty
+    // child carries only the prefix before the first escape, so the
+    // previous "first child only" lookup truncated every string with
+    // an escape in it.
+    //
+    // Unicode escapes (` `) are split further by the grammar:
+    // `escape_sequence` captures only the first two bytes (`\u`) and
+    // the four hex digits land in the next `string_content` text
+    // segment. We peek-ahead in that case, decode the codepoint, and
+    // skip the consumed prefix.
+    let mut children: Vec<&panproto_schema::Edge> = edges.iter().collect();
+    children.sort_by_key(|e| {
+        cst.constraints
+            .get(&e.tgt)
+            .and_then(|cs| {
+                cs.iter()
+                    .find(|c| c.sort.as_ref() == "start-byte")
+                    .and_then(|c| c.value.parse::<usize>().ok())
+            })
+            .unwrap_or(0)
+    });
+
+    let mut out = String::new();
+    let mut saw_content = false;
+    let mut hex_skip: usize = 0;
+    for edge in children {
+        match cst_vertex_kind(cst, &edge.tgt).as_deref() {
+            Some("string_content") => {
+                if let Some(text) = literal_value(cst, &edge.tgt) {
+                    let body = if hex_skip > 0 && hex_skip <= text.len() {
+                        let consumed = &text[..hex_skip];
+                        if let Some(c) = u32::from_str_radix(consumed, 16)
+                            .ok()
+                            .and_then(char::from_u32)
+                        {
+                            out.push(c);
+                        }
+                        &text[hex_skip..]
+                    } else {
+                        text.as_str()
+                    };
+                    hex_skip = 0;
+                    out.push_str(body);
+                    saw_content = true;
+                }
+            }
+            Some("escape_sequence") => {
+                if let Some(raw) = literal_value(cst, &edge.tgt) {
+                    let bytes = raw.as_bytes();
+                    if bytes.len() == 2 && bytes[0] == b'\\' && bytes[1] == b'u' {
+                        // Defer emission until the next string_content
+                        // child contributes the four hex digits.
+                        hex_skip = 4;
+                    } else {
+                        out.push_str(&decode_json_escape(&raw));
+                    }
+                    saw_content = true;
+                }
+            }
+            _ => {}
         }
     }
-    None
+    if saw_content { Some(out) } else { None }
+}
+
+/// Decode a JSON escape sequence (the raw bytes captured by
+/// tree-sitter, e.g. `\n`, `\"`) to the escaped character.
+///
+/// `\uXXXX` escapes are NOT handled here because the JSON tree-sitter
+/// grammar splits them across an `escape_sequence` (just `\u`) and a
+/// trailing `string_content` text segment carrying the four hex
+/// digits; [`json_string_value`] handles that join with lookahead.
+/// Unrecognised forms fall back to the original bytes.
+fn decode_json_escape(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'\\' {
+        return raw.to_owned();
+    }
+    match bytes[1] {
+        b'"' => "\"".to_owned(),
+        b'\\' => "\\".to_owned(),
+        b'/' => "/".to_owned(),
+        b'b' => "\u{0008}".to_owned(),
+        b'f' => "\u{000C}".to_owned(),
+        b'n' => "\n".to_owned(),
+        b'r' => "\r".to_owned(),
+        b't' => "\t".to_owned(),
+        _ => raw.to_owned(),
+    }
 }
 
 /// Parse a numeric string to a `Value`.
@@ -549,12 +639,32 @@ fn extract_json_array(
         .iter()
         .find(|e| *e.kind == *"item" || e.name.as_deref() == Some("item"));
 
+    let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
     if let Some(edge) = item_edge {
-        let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
+        // Domain schema declares the item slot: walk children with the
+        // declared item-target kind so type-aware routing kicks in.
         for child_name in children {
             let child_id = state.alloc_id();
             extract_json_value(cst, domain_schema, child_name, &edge.tgt, child_id, state)?;
             state.arcs.push((node_id, child_id, edge.clone()));
+        }
+    } else {
+        // Open / partial schema: synthesise an `item` edge per child
+        // and recurse through the open extractor. Without this branch
+        // a top-level JSON array (or any array reaching a domain
+        // vertex with no declared item edge) silently parsed to an
+        // empty list because no children were collected.
+        for child_name in &children {
+            let child_anchor = format!("{domain_vertex}:items");
+            let child_id = state.alloc_id();
+            extract_json_value_open(cst, child_name, &child_anchor, child_id, state)?;
+            let synth_edge = Edge {
+                src: Name::from(domain_vertex),
+                tgt: Name::from(child_anchor.as_str()),
+                kind: "item".into(),
+                name: Some("item".into()),
+            };
+            state.arcs.push((node_id, child_id, synth_edge));
         }
     }
 
@@ -766,6 +876,7 @@ fn find_first_element_child(cst: &Schema, parent: &str) -> Option<Name> {
     None
 }
 
+#[allow(clippy::too_many_lines)]
 fn extract_xml_element(
     cst: &Schema,
     domain_schema: &Schema,
@@ -788,29 +899,105 @@ fn extract_xml_element(
         }
     }
 
+    if let Some(tag) = extract_xml_tag_name(cst, cst_vertex) {
+        node.annotations
+            .insert(XML_TAG_MARKER.to_owned(), Value::Str(tag));
+    }
+
     if let Some(ref stag) = stag_vertex {
         extract_xml_attributes(cst, stag, &mut node);
     }
 
     if let Some(ref content) = content_vertex {
-        if let Some(text) = extract_xml_text_content(cst, content) {
-            if !text.trim().is_empty() {
-                node.value = Some(FieldPresence::Present(Value::Str(text)));
-                // Record the CharData vertex for injection
-                for edge in cst.outgoing_edges(content) {
-                    if cst_vertex_kind(cst, &edge.tgt).as_deref() == Some("CharData") {
-                        state.node_to_cst_value.insert(node_id, edge.tgt.clone());
-                        break;
+        let content_children = ordered_content_children(cst, content);
+        let has_elements = content_children.iter().any(|(kind, _)| kind == "element");
+        let has_nonempty_text = content_children.iter().any(|(kind, name)| {
+            kind == "CharData"
+                && !literal_value(cst, name)
+                    .unwrap_or_default()
+                    .trim()
+                    .is_empty()
+        });
+        let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
+
+        if !has_elements {
+            // Pure text content: collapse to node.value (existing
+            // semantics; preserves the leaf-element fast path where a
+            // round-trip just stores the captured text).
+            if let Some(text) = extract_xml_text_content(cst, content) {
+                if !text.trim().is_empty() {
+                    node.value = Some(FieldPresence::Present(Value::Str(text)));
+                    for edge in cst.outgoing_edges(content) {
+                        if cst_vertex_kind(cst, &edge.tgt).as_deref() == Some("CharData") {
+                            state.node_to_cst_value.insert(node_id, edge.tgt.clone());
+                            break;
+                        }
                     }
                 }
             }
+        } else if has_nonempty_text {
+            // Mixed content: walk content in source order, emitting a
+            // text-segment leaf for each non-blank CharData and a
+            // regular element child for each `element`. Preserves the
+            // original interleaving so `<p>x<em>y</em>z</p>` round-trips
+            // through emit without losing the trailing text run.
+            for (kind, child_vertex) in &content_children {
+                if kind == "CharData" {
+                    let text = literal_value(cst, child_vertex).unwrap_or_default();
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                    let seg_anchor = format!("{domain_vertex}:text");
+                    let seg_id = state.alloc_id();
+                    let mut seg_node = Node::new(seg_id, seg_anchor.as_str());
+                    seg_node.value = Some(FieldPresence::Present(Value::Str(text)));
+                    seg_node
+                        .annotations
+                        .insert(XML_TEXT_SEGMENT_MARKER.to_owned(), Value::Bool(true));
+                    state.nodes.insert(seg_id, seg_node);
+                    state.node_to_cst_value.insert(seg_id, child_vertex.clone());
+                    let edge = Edge {
+                        src: Name::from(domain_vertex),
+                        tgt: Name::from(seg_anchor.as_str()),
+                        kind: "prop".into(),
+                        name: Some(Name::from("$xml_text")),
+                    };
+                    state.arcs.push((node_id, seg_id, edge));
+                } else if kind == "element" {
+                    let tag =
+                        extract_xml_tag_name(cst, child_vertex).unwrap_or_else(|| "child".into());
+                    let child_anchor = format!("{domain_vertex}:{tag}");
+                    let child_id = state.alloc_id();
+                    extract_xml_element(
+                        cst,
+                        domain_schema,
+                        child_vertex,
+                        &child_anchor,
+                        child_id,
+                        state,
+                    )?;
+                    let synth_edge = Edge {
+                        src: Name::from(domain_vertex),
+                        tgt: Name::from(child_anchor.as_str()),
+                        kind: "prop".into(),
+                        name: Some(Name::from(tag.as_str())),
+                    };
+                    state.arcs.push((node_id, child_id, synth_edge));
+                }
+            }
+            state.nodes.insert(node_id, node);
+            return Ok(());
         }
 
-        let child_elements = find_child_elements(cst, content);
-        let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
+        let child_elements: Vec<Name> = content_children
+            .iter()
+            .filter(|(kind, _)| kind == "element")
+            .map(|(_, name)| name.clone())
+            .collect();
 
         if domain_edges.is_empty() {
-            // Open schema: extract ALL child elements
+            // Open schema: extract ALL child elements (text-only, so
+            // ordering relative to text segments is moot).
             for child_name in &child_elements {
                 let tag = extract_xml_tag_name(cst, child_name).unwrap_or_else(|| "child".into());
                 let child_anchor = format!("{domain_vertex}:{tag}");
@@ -941,11 +1128,32 @@ fn extract_xml_tag_name(cst: &Schema, element_vertex: &Name) -> Option<String> {
     None
 }
 
-fn find_child_elements(cst: &Schema, content_vertex: &Name) -> Vec<Name> {
-    cst.outgoing_edges(content_vertex)
+/// Walk an XML `content` vertex's children in source order, returning
+/// `(kind, vertex_id)` pairs for `CharData` text runs and `element`
+/// children. Used by [`extract_xml_element`] to preserve the
+/// interleaving order of mixed XML content.
+fn ordered_content_children(cst: &Schema, content_vertex: &Name) -> Vec<(String, Name)> {
+    let mut entries: Vec<(usize, String, Name)> = cst
+        .outgoing_edges(content_vertex)
         .iter()
-        .filter(|e| cst_vertex_kind(cst, &e.tgt).as_deref() == Some("element"))
-        .map(|e| e.tgt.clone())
+        .filter_map(|e| {
+            let kind = cst_vertex_kind(cst, &e.tgt)?;
+            let pos = cst
+                .constraints
+                .get(&e.tgt)
+                .and_then(|cs| {
+                    cs.iter()
+                        .find(|c| c.sort.as_ref() == "start-byte")
+                        .and_then(|c| c.value.parse::<usize>().ok())
+                })
+                .unwrap_or(0);
+            Some((pos, kind, e.tgt.clone()))
+        })
+        .collect();
+    entries.sort_by_key(|(pos, _, _)| *pos);
+    entries
+        .into_iter()
+        .map(|(_, kind, name)| (kind, name))
         .collect()
 }
 

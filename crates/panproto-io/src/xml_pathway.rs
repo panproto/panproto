@@ -164,10 +164,38 @@ pub fn emit_xml_bytes(
                 message: format!("node {node_id} not found"),
             })?;
 
-        // Determine tag name from anchor (use last segment after ':').
-        let tag = node.anchor.rsplit(':').next().unwrap_or(&node.anchor);
+        // Inline text segment from mixed-content XML: emit just the
+        // text without surrounding start/end tags.
+        if node
+            .annotations
+            .contains_key(panproto_inst::XML_TEXT_SEGMENT_MARKER)
+        {
+            if let Some(FieldPresence::Present(Value::Str(ref text))) = node.value {
+                writer
+                    .write_event(Event::Text(BytesText::new(text)))
+                    .map_err(|e| EmitInstanceError::Emit {
+                        protocol: String::new(),
+                        message: format!("XML write error: {e}"),
+                    })?;
+            }
+            return Ok(());
+        }
 
-        let mut elem = BytesStart::new(tag);
+        // Prefer the original XML tag name captured at parse time
+        // (panproto_inst::XML_TAG_MARKER annotation); fall back to the
+        // anchor's last `:`-segment for instances that bypass the CST
+        // extractor (e.g. hand-built `WInstance` for codegen).
+        let anchor_tag = node.anchor.rsplit(':').next().unwrap_or(&node.anchor);
+        let stored_tag = node
+            .annotations
+            .get(panproto_inst::XML_TAG_MARKER)
+            .and_then(|v| match v {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            });
+        let tag: String = stored_tag.unwrap_or_else(|| anchor_tag.to_owned());
+
+        let mut elem = BytesStart::new(&tag);
 
         // Write extra_fields as XML attributes.
         for (key, val) in &node.extra_fields {
@@ -201,7 +229,7 @@ pub fn emit_xml_bytes(
         }
 
         writer
-            .write_event(Event::End(BytesEnd::new(tag)))
+            .write_event(Event::End(BytesEnd::new(tag.as_str())))
             .map_err(|e| EmitInstanceError::Emit {
                 protocol: String::new(),
                 message: format!("XML write error: {e}"),
