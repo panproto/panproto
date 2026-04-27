@@ -560,3 +560,130 @@ fn all_protocols_report_correct_native_repr() {
         );
     }
 }
+
+// ── Structural array round-trip tests ──────────────────────────────────
+//
+// The macro-generated tests above check `node_count` equality, which
+// is satisfied even when arrays collapse to `{"item": x}` objects on
+// emit (the node count survives, only the JSON structure breaks). The
+// tests below assert the *bytes* round-trip parses back to the same
+// `serde_json::Value`, catching regressions where empty / singleton /
+// many-element arrays drop, collapse, or wrap into objects.
+
+#[cfg(feature = "tree-sitter")]
+fn parse_emit_parse_json(protocol: &str, input: &[u8]) -> serde_json::Value {
+    let reg = registry();
+    let schema = open_schema(protocol);
+    let inst = reg
+        .parse_wtype(protocol, &schema, input)
+        .expect("parse should succeed");
+    let emitted = reg
+        .emit_wtype(protocol, &schema, &inst)
+        .expect("emit should succeed");
+    serde_json::from_slice(&emitted).expect("emitted bytes must be valid JSON")
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn json_array_with_many_elements_survives_round_trip() {
+    let v = parse_emit_parse_json("openapi", br#"{"items":["a","b","c"]}"#);
+    assert_eq!(
+        v.pointer("/items"),
+        Some(&serde_json::json!(["a", "b", "c"])),
+        "many-element array must round-trip as a JSON array; got {v}"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn json_singleton_array_survives_round_trip() {
+    let v = parse_emit_parse_json("openapi", br#"{"langs":["en"]}"#);
+    assert_eq!(
+        v.pointer("/langs"),
+        Some(&serde_json::json!(["en"])),
+        "singleton array must stay an array, not collapse to {{\"item\": x}}; got {v}"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn json_empty_array_survives_round_trip() {
+    let v = parse_emit_parse_json("openapi", br#"{"errors":[]}"#);
+    assert_eq!(
+        v.pointer("/errors"),
+        Some(&serde_json::json!([])),
+        "empty array must stay an empty array, not become {{}}; got {v}"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn json_array_of_objects_survives_round_trip() {
+    let v = parse_emit_parse_json("openapi", br#"{"facets":[{"id":1},{"id":2}]}"#);
+    assert_eq!(
+        v.pointer("/facets"),
+        Some(&serde_json::json!([{"id": 1}, {"id": 2}])),
+        "array of objects must round-trip element-for-element; got {v}"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn json_nested_arrays_survive_round_trip() {
+    let v = parse_emit_parse_json("openapi", br#"{"matrix":[[1,2],[3,4]]}"#);
+    assert_eq!(
+        v.pointer("/matrix"),
+        Some(&serde_json::json!([[1, 2], [3, 4]])),
+        "nested arrays must round-trip; got {v}"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn tsv_header_and_rows_survive_round_trip() {
+    let reg = registry();
+    let schema = tabular_schema("amr");
+    let input = b"variable\tconcept\nb\tboy\nw\twant-01\n" as &[u8];
+    let inst = reg
+        .parse_functor("amr", &schema, input)
+        .expect("parse should succeed");
+    let rows = inst
+        .tables
+        .get("amr_graph")
+        .expect("amr_graph table present");
+    assert_eq!(rows.len(), 2);
+    let row0 = &rows[0];
+    let row1 = &rows[1];
+    let names: std::collections::BTreeSet<&str> = row0.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        std::collections::BTreeSet::from(["variable", "concept"]),
+        "TSV column names must be the literal header text, not empty strings"
+    );
+    assert!(matches!(
+        row0.get("variable"),
+        Some(panproto_inst::Value::Str(s)) if s == "b"
+    ));
+    assert!(matches!(
+        row1.get("concept"),
+        Some(panproto_inst::Value::Str(s)) if s == "want-01"
+    ));
+    let emitted = reg
+        .emit_functor("amr", &schema, &inst)
+        .expect("emit should succeed");
+    let inst2 = reg
+        .parse_functor("amr", &schema, &emitted)
+        .expect("re-parse should succeed");
+    let rows2 = inst2
+        .tables
+        .get("amr_graph")
+        .expect("re-parsed table present");
+    assert_eq!(
+        rows.len(),
+        rows2.len(),
+        "row count must match after round-trip"
+    );
+    for (a, b) in rows.iter().zip(rows2.iter()) {
+        assert_eq!(a, b, "row content must match after round-trip");
+    }
+}

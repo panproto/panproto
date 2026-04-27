@@ -10,7 +10,7 @@ use panproto_schema::{Edge, Schema};
 use serde_json::json;
 
 use crate::error::ParseError;
-use crate::metadata::Node;
+use crate::metadata::{LIST_MARKER, Node};
 use crate::value::{FieldPresence, Value};
 use crate::wtype::WInstance;
 
@@ -264,23 +264,22 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
     }
 
     // List (ordered-collection) node. We treat a node as a list when
-    // either:
+    // any of three signals fires:
     //
     // 1. The schema marks the anchor vertex as a list (its outgoing
     //    edges are nonempty and all anonymous), or
-    // 2. The instance carries multiple outgoing arcs that share the
-    //    same `(kind, name)` pair.
-    //
-    // Rule (2) catches the open-schema case where the parser
-    // synthesises edges (e.g. `extract_json_array` emits arcs with
-    // kind/name `"item"` for every array element). JSON objects forbid
-    // duplicate keys, so any node with ≥2 same-named arcs is
-    // semantically a list and must be serialised as a JSON array;
-    // otherwise the to-JSON map insert collapses the duplicates and
-    // the round-trip drops every element except the last.
+    // 2. The node carries the `$list` annotation set by the CST
+    //    extractor at parse time (catches empty and singleton arrays
+    //    that the instance-arc heuristic cannot distinguish from
+    //    plain `{ "item": x }` objects), or
+    // 3. The instance carries multiple outgoing arcs that share the
+    //    same `(kind, name)` pair (recovers list shape when the
+    //    annotation is absent, e.g. instances built by callers that
+    //    bypass the CST extraction path).
     let list_via_schema = is_list_vertex(schema, &node.anchor);
+    let list_via_annotation = node.annotations.contains_key(LIST_MARKER);
     let list_via_instance_arcs = is_list_via_instance_arcs(instance, node_id);
-    if list_via_schema || list_via_instance_arcs {
+    if list_via_schema || list_via_annotation || list_via_instance_arcs {
         let children = instance.children(node_id);
         let items: Vec<serde_json::Value> = children
             .iter()

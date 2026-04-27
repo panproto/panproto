@@ -97,6 +97,8 @@ impl ExtractState {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
+use panproto_inst::metadata::LIST_MARKER;
+
 /// Get the `literal-value` constraint from a CST vertex.
 fn literal_value(cst: &Schema, vertex_id: &str) -> Option<String> {
     cst.constraints.get(vertex_id).and_then(|cs| {
@@ -461,7 +463,9 @@ fn extract_json_value_open(
             Ok(())
         }
         "array" => {
-            let node = Node::new(node_id, anchor);
+            let mut node = Node::new(node_id, anchor);
+            node.annotations
+                .insert(LIST_MARKER.to_owned(), Value::Bool(true));
             state.nodes.insert(node_id, node);
             let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
             for child_name in &children {
@@ -535,7 +539,9 @@ fn extract_json_array(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
-    let node = Node::new(node_id, domain_vertex);
+    let mut node = Node::new(node_id, domain_vertex);
+    node.annotations
+        .insert(LIST_MARKER.to_owned(), Value::Bool(true));
     state.nodes.insert(node_id, node);
 
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
@@ -603,12 +609,12 @@ fn extract_json_generic_value(cst: &Schema, cst_vertex: &Name) -> Value {
             Value::Unknown(fields)
         }
         "array" => {
-            let mut fields = HashMap::new();
             let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
-            for (i, child_name) in children.iter().enumerate() {
-                fields.insert(i.to_string(), extract_json_generic_value(cst, child_name));
-            }
-            Value::Unknown(fields)
+            let items: Vec<Value> = children
+                .iter()
+                .map(|child_name| extract_json_generic_value(cst, child_name))
+                .collect();
+            Value::List(items)
         }
         _ => Value::Str(literal_value(cst, cst_vertex).unwrap_or_default()),
     }
@@ -1224,7 +1230,9 @@ fn extract_yaml_sequence(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
-    let node = Node::new(node_id, domain_vertex);
+    let mut node = Node::new(node_id, domain_vertex);
+    node.annotations
+        .insert(LIST_MARKER.to_owned(), Value::Bool(true));
     state.nodes.insert(node_id, node);
 
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();

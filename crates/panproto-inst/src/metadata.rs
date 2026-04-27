@@ -10,6 +10,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::{FieldPresence, Value};
 
+/// Annotation key for nodes that represent ordered collections
+/// (JSON arrays, YAML sequences) where the schema cannot or does not
+/// declare the anchor as a list vertex.
+///
+/// The CST extractors set `node.annotations[LIST_MARKER] = Bool(true)`
+/// so downstream serialisers (`to_json`, etc.) emit the node as a
+/// JSON array even when only zero or one child arcs are present. The
+/// key starts with `$` so it cannot collide with any user field name.
+pub const LIST_MARKER: &str = "$list";
+
 /// A node in a W-type instance tree.
 ///
 /// Each node is anchored to a schema vertex and carries optional
