@@ -106,6 +106,32 @@ fn literal_value(cst: &Schema, vertex_id: &str) -> Option<String> {
     })
 }
 
+/// Get the text content of a CST vertex, descending through anonymous
+/// child wrappers when the vertex itself carries no `literal-value`
+/// constraint.
+///
+/// Tree-sitter grammars routinely model a token as a wrapper node
+/// whose only purpose is to anchor a `text`-typed leaf child (TSV
+/// `field → text`, JSON `string → string_content`, etc.). Callers that
+/// just want "the captured bytes for this token" should not have to
+/// know that detail; this helper walks the structural `child_of` chain
+/// until it finds a `literal-value`, returning the empty string only
+/// when no descendant carries one.
+fn literal_text_deep(cst: &Schema, vertex_id: &str) -> String {
+    if let Some(text) = literal_value(cst, vertex_id) {
+        return text;
+    }
+    let mut buf = String::new();
+    for child in cst_children_by_edge_kind(cst, vertex_id, "child_of") {
+        if let Some(text) = literal_value(cst, child) {
+            buf.push_str(&text);
+        } else {
+            buf.push_str(&literal_text_deep(cst, child));
+        }
+    }
+    buf
+}
+
 /// Find a child of `parent` with the given edge kind in the CST.
 fn cst_child_by_edge_kind<'a>(cst: &'a Schema, parent: &str, edge_kind: &str) -> Option<&'a Name> {
     cst.outgoing_edges(parent)
@@ -1399,7 +1425,7 @@ pub fn extract_tabular_cst(
     let header_fields = cst_children_by_edge_kind(cst, row_vertices[0], "child_of");
     let headers: Vec<String> = header_fields
         .iter()
-        .map(|f| literal_value(cst, f).unwrap_or_default())
+        .map(|f| literal_text_deep(cst, f))
         .collect();
 
     // Track CST vertex for each cell: keyed by (row_index, col_index)
@@ -1416,7 +1442,7 @@ pub fn extract_tabular_cst(
                 .get(col_idx)
                 .cloned()
                 .unwrap_or_else(|| col_idx.to_string());
-            let text = literal_value(cst, field_name).unwrap_or_default();
+            let text = literal_text_deep(cst, field_name);
             row.insert(col, Value::Str(text));
             // Encode (row_idx, col_idx) as a u32 key for the complement mapping.
             #[allow(clippy::cast_possible_truncation)]

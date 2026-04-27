@@ -17,28 +17,34 @@ use panproto_parse::languages::walker_configs::walker_config_for;
 use panproto_parse::registry::AstParser;
 use panproto_schema::SchemaBuilder;
 
-fn json_grammar() -> Grammar {
-    panproto_grammars::grammars()
-        .into_iter()
-        .find(|g| g.name == "json")
-        .expect("lang-json must be enabled in this test build")
+/// Pick any vendored grammar at random (the first by name). The test
+/// is grammar-agnostic: it only needs a real `Language` so the parser
+/// can construct, and then drives the no-grammar.json carve-out path.
+fn any_grammar() -> Option<Grammar> {
+    panproto_grammars::grammars().into_iter().next()
 }
 
 #[test]
 fn emit_pretty_without_grammar_json_returns_typed_error() {
-    let grammar = json_grammar();
+    let Some(grammar) = any_grammar() else {
+        // No grammars enabled in this test build (e.g. someone built
+        // panproto-parse with `--no-default-features`). The carve-out
+        // path is unreachable without at least one grammar; skip.
+        return;
+    };
+    let protocol_name = grammar.name;
     let parser = LanguageParser::from_language_with_grammar_json(
-        grammar.name,
+        protocol_name,
         grammar.extensions.to_vec(),
         grammar.language,
         grammar.node_types,
         grammar.tags_query,
-        walker_config_for(grammar.name),
+        walker_config_for(protocol_name),
         None, // intentionally absent
     )
     .expect("parser construction should succeed without grammar.json");
 
-    let protocol = build_minimal_protocol();
+    let protocol = build_minimal_protocol(protocol_name);
     let schema = SchemaBuilder::new(&protocol)
         .vertex("v0", "any", None)
         .expect("any-kind vertex builds")
@@ -50,7 +56,7 @@ fn emit_pretty_without_grammar_json_returns_typed_error() {
         .expect_err("missing grammar.json must return Err");
     match err {
         ParseError::EmitFailed { protocol, reason } => {
-            assert_eq!(protocol, "json");
+            assert_eq!(protocol, protocol_name);
             assert!(
                 reason.contains("grammar.json"),
                 "reason should mention grammar.json: {reason:?}"
@@ -60,11 +66,11 @@ fn emit_pretty_without_grammar_json_returns_typed_error() {
     }
 }
 
-fn build_minimal_protocol() -> panproto_schema::Protocol {
+fn build_minimal_protocol(name: &str) -> panproto_schema::Protocol {
     panproto_schema::Protocol {
-        name: "json".into(),
-        schema_theory: "ThJsonFullAST".into(),
-        instance_theory: "ThJsonFullASTInstance".into(),
+        name: name.into(),
+        schema_theory: format!("Th{name}FullAST"),
+        instance_theory: format!("Th{name}FullASTInstance"),
         schema_composition: None,
         instance_composition: None,
         obj_kinds: vec![],
