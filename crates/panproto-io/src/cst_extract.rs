@@ -751,6 +751,28 @@ pub fn inject_json_cst(
     for (&node_id, node) in &instance.nodes {
         if let Some(ref presence) = node.value {
             if let Some(cst_vertex) = complement.node_to_cst_value.get(&node_id) {
+                // For strings the CST may store the value across multiple
+                // child segments (text + escape_sequence + ...). The
+                // tracked `node_to_cst_value` points at the first
+                // segment only; updating it with the fully decoded text
+                // would either truncate (when the new text is shorter
+                // than the original token) or lose escape style (when
+                // it is the same value but written ` ` vs
+                // literally). When the parsed string still matches the
+                // instance value, skip the inject so the original
+                // bytes survive untouched.
+                if let Value::Str(s) = match presence {
+                    FieldPresence::Present(v) => v,
+                    _ => &Value::Null,
+                } {
+                    if let Some(struct_vertex) = complement.node_to_cst_struct.get(&node_id) {
+                        if let Some(original) = json_string_value(&cst, struct_vertex) {
+                            if &original == s {
+                                continue;
+                            }
+                        }
+                    }
+                }
                 let new_text = field_presence_to_json_text(presence);
                 update_literal_value(&mut cst, cst_vertex, &new_text);
             }
@@ -761,16 +783,72 @@ pub fn inject_json_cst(
 }
 
 /// Convert a `FieldPresence` to the JSON text representation.
+///
+/// Used by [`inject_json_cst`] to overwrite `literal-value` constraints
+/// on a CST leaf when the instance has changed. The produced text must
+/// match the wire format of a JSON token bit-for-bit so the
+/// format-preserving emitter is byte-identity for unchanged instances:
+///
+/// - `Str(s)` is JSON-encoded (escapes restored, no surrounding quotes
+///   because tree-sitter's `string_content` constraint covers only the
+///   inner bytes).
+/// - `Float(f)` always renders with a decimal point, so `6.0` round-trips
+///   as `"6.0"` rather than `"6"` (the default `f64::Display`).
+/// - `Null` / `Present(Null)` render as the literal token `null`.
 fn field_presence_to_json_text(presence: &FieldPresence) -> String {
     match presence {
-        FieldPresence::Present(Value::Str(s)) => s.clone(),
+        FieldPresence::Present(Value::Str(s)) => json_encode_string_content(s),
         FieldPresence::Present(Value::Int(i)) => i.to_string(),
-        FieldPresence::Present(Value::Float(f)) => f.to_string(),
+        FieldPresence::Present(Value::Float(f)) => json_format_float(*f),
         FieldPresence::Present(Value::Bool(b)) => b.to_string(),
-        FieldPresence::Null | FieldPresence::Present(Value::Null) | FieldPresence::Absent => {
-            String::new()
-        }
+        FieldPresence::Null | FieldPresence::Present(Value::Null) => "null".into(),
+        FieldPresence::Absent => String::new(),
         FieldPresence::Present(other) => format!("{other:?}"),
+    }
+}
+
+/// Encode a Rust string as the JSON `string_content` body (between the
+/// surrounding quotes, with `"`, `\`, control characters, and forward
+/// slash escapes restored). Mirrors the inverse of `decode_json_escape`
+/// + the lookahead that joins `\u` with its four-hex tail.
+fn json_encode_string_content(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000C}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Format an `f64` as a JSON numeric token that always carries either a
+/// decimal point or an exponent. `format!("{f}")` collapses
+/// integer-valued floats to `"6"`, which round-trips through the
+/// JSON parser as an integer rather than a float; appending `.0` keeps
+/// the original lexical category.
+fn json_format_float(f: f64) -> String {
+    if f.is_finite() {
+        let s = f.to_string();
+        if s.contains('.') || s.contains('e') || s.contains('E') {
+            s
+        } else {
+            format!("{s}.0")
+        }
+    } else {
+        // JSON has no syntax for NaN/Infinity; fall back to `null` so
+        // the inject does not produce unparseable bytes.
+        "null".into()
     }
 }
 

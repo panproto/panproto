@@ -536,3 +536,250 @@ xml_structural!(
     "odf",
     "../fixtures/web_document/odf_content.xml"
 );
+
+// ── Preserving (CST-complement) round-trip ─────────────────────────────
+//
+// Format-preserving emission with the CST complement should produce
+// byte-identical output for an unmodified instance. The complement
+// holds the original whitespace / comments / interstitials, so the
+// parser → emitter round-trip is the identity functor when nothing
+// in the instance changed between calls.
+
+fn assert_preserving_byte_equal(protocol: &str, input: &[u8]) {
+    let reg = registry();
+    let schema = open_schema(protocol);
+    let (inst, comp) = reg
+        .parse_wtype_preserving(protocol, &schema, input)
+        .unwrap_or_else(|e| panic!("{protocol}: parse_wtype_preserving failed: {e}"));
+    let emitted = reg
+        .emit_wtype_preserving(protocol, &schema, &inst, comp.as_ref())
+        .unwrap_or_else(|e| panic!("{protocol}: emit_wtype_preserving failed: {e}"));
+    if emitted != input {
+        let preview_orig = std::str::from_utf8(input).unwrap_or("<non-utf8>");
+        let preview_emit = std::str::from_utf8(&emitted).unwrap_or("<non-utf8>");
+        let mut first_diff = 0;
+        for (i, (a, b)) in input.iter().zip(emitted.iter()).enumerate() {
+            if a != b {
+                first_diff = i;
+                break;
+            }
+        }
+        let lo = first_diff.saturating_sub(40);
+        let hi_o = (first_diff + 40).min(input.len());
+        let hi_e = (first_diff + 40).min(emitted.len());
+        panic!(
+            "{protocol}: preserving emit not byte-identical
+\
+             input len {}, emitted len {}, first diff at byte {}
+\
+             input ctx: {:?}
+\
+             emitted ctx: {:?}",
+            preview_orig.len(),
+            preview_emit.len(),
+            first_diff,
+            std::str::from_utf8(&input[lo..hi_o]).unwrap_or("<non-utf8>"),
+            std::str::from_utf8(&emitted[lo..hi_e]).unwrap_or("<non-utf8>"),
+        );
+    }
+}
+
+macro_rules! preserving_byte_equal {
+    ($name:ident, $protocol:expr, $fixture:expr) => {
+        #[test]
+        fn $name() {
+            let input: &[u8] = include_bytes!($fixture);
+            assert_preserving_byte_equal($protocol, input);
+        }
+    };
+}
+
+preserving_byte_equal!(
+    pres_openapi,
+    "openapi",
+    "../fixtures/api/openapi_response.json"
+);
+preserving_byte_equal!(
+    pres_asyncapi,
+    "asyncapi",
+    "../fixtures/api/asyncapi_event.json"
+);
+preserving_byte_equal!(
+    pres_jsonapi,
+    "jsonapi",
+    "../fixtures/api/jsonapi_response.json"
+);
+preserving_byte_equal!(pres_raml, "raml", "../fixtures/api/raml_response.json");
+preserving_byte_equal!(
+    pres_cddl,
+    "cddl",
+    "../fixtures/data_schema/cddl_instance.json"
+);
+preserving_byte_equal!(
+    pres_bson,
+    "bson",
+    "../fixtures/data_schema/bson_instance.json"
+);
+preserving_byte_equal!(
+    pres_mongodb,
+    "mongodb",
+    "../fixtures/database/mongodb_document.json"
+);
+preserving_byte_equal!(
+    pres_dynamodb,
+    "dynamodb",
+    "../fixtures/database/dynamodb_item.json"
+);
+preserving_byte_equal!(
+    pres_cassandra,
+    "cassandra",
+    "../fixtures/database/cassandra_rows.json"
+);
+preserving_byte_equal!(
+    pres_neo4j,
+    "neo4j",
+    "../fixtures/database/neo4j_result.json"
+);
+preserving_byte_equal!(
+    pres_cloudformation,
+    "cloudformation",
+    "../fixtures/config/cloudformation_template.json"
+);
+preserving_byte_equal!(
+    pres_ansible,
+    "ansible",
+    "../fixtures/config/ansible_playbook.json"
+);
+preserving_byte_equal!(pres_k8s, "k8s_crd", "../fixtures/config/k8s_crd.json");
+preserving_byte_equal!(
+    pres_dataframe,
+    "dataframe",
+    "../fixtures/data_science/dataframe_instance.json"
+);
+preserving_byte_equal!(
+    pres_parquet,
+    "parquet",
+    "../fixtures/data_science/parquet_record.json"
+);
+preserving_byte_equal!(
+    pres_arrow,
+    "arrow",
+    "../fixtures/data_science/arrow_batch.json"
+);
+preserving_byte_equal!(
+    pres_geojson,
+    "geojson",
+    "../fixtures/domain/geojson_features.json"
+);
+preserving_byte_equal!(pres_fhir, "fhir", "../fixtures/domain/fhir_patient.json");
+preserving_byte_equal!(
+    pres_vcard,
+    "vcard_ical",
+    "../fixtures/domain/vcard_contact.json"
+);
+preserving_byte_equal!(
+    pres_avro,
+    "avro",
+    "../fixtures/serialization/avro_record.json"
+);
+preserving_byte_equal!(
+    pres_flatbuffers,
+    "flatbuffers",
+    "../fixtures/serialization/flatbuffers_table.json"
+);
+preserving_byte_equal!(
+    pres_asn1,
+    "asn1",
+    "../fixtures/serialization/asn1_cert.json"
+);
+preserving_byte_equal!(
+    pres_bond,
+    "bond",
+    "../fixtures/serialization/bond_struct.json"
+);
+preserving_byte_equal!(
+    pres_msgpack,
+    "msgpack_schema",
+    "../fixtures/serialization/msgpack_data.json"
+);
+preserving_byte_equal!(
+    pres_atproto,
+    "atproto",
+    "../fixtures/web_document/atproto_record.json"
+);
+preserving_byte_equal!(
+    pres_brat,
+    "brat",
+    "../fixtures/annotation/brat_annotation.json"
+);
+preserving_byte_equal!(
+    pres_decomp,
+    "decomp",
+    "../fixtures/annotation/decomp_annotation.json"
+);
+preserving_byte_equal!(
+    pres_ucca,
+    "ucca",
+    "../fixtures/annotation/ucca_passage.json"
+);
+preserving_byte_equal!(
+    pres_fovea,
+    "fovea",
+    "../fixtures/annotation/fovea_annotation.json"
+);
+preserving_byte_equal!(
+    pres_bead,
+    "bead",
+    "../fixtures/annotation/bead_experiment.json"
+);
+preserving_byte_equal!(
+    pres_web_annotation,
+    "web_annotation",
+    "../fixtures/annotation/web_annotation.json"
+);
+preserving_byte_equal!(
+    pres_concrete,
+    "concrete",
+    "../fixtures/annotation/concrete_comm.json"
+);
+preserving_byte_equal!(pres_nif, "nif", "../fixtures/annotation/nif_document.json");
+preserving_byte_equal!(pres_naf, "naf", "../fixtures/annotation/naf_document.xml");
+preserving_byte_equal!(pres_uima, "uima", "../fixtures/annotation/uima_cas.xml");
+preserving_byte_equal!(
+    pres_folia,
+    "folia",
+    "../fixtures/annotation/folia_document.xml"
+);
+preserving_byte_equal!(pres_tei, "tei", "../fixtures/annotation/tei_document.xml");
+preserving_byte_equal!(
+    pres_timeml,
+    "timeml",
+    "../fixtures/annotation/timeml_document.xml"
+);
+preserving_byte_equal!(
+    pres_elan,
+    "elan",
+    "../fixtures/annotation/elan_annotation.xml"
+);
+preserving_byte_equal!(
+    pres_iso_space,
+    "iso_space",
+    "../fixtures/annotation/iso_space_document.xml"
+);
+preserving_byte_equal!(
+    pres_paula,
+    "paula",
+    "../fixtures/annotation/paula_annotation.xml"
+);
+preserving_byte_equal!(
+    pres_laf_graf,
+    "laf_graf",
+    "../fixtures/annotation/laf_graf_annotation.xml"
+);
+preserving_byte_equal!(pres_rss_atom, "rss_atom", "../fixtures/domain/rss_feed.xml");
+preserving_byte_equal!(
+    pres_docx,
+    "docx",
+    "../fixtures/web_document/docx_content.xml"
+);
+preserving_byte_equal!(pres_odf, "odf", "../fixtures/web_document/odf_content.xml");
