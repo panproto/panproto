@@ -65,7 +65,14 @@ from panproto._native import (
     parse_expr,
     pretty_print_expr,
     # VCS
+    BisectState,
+    Repository,
     VcsRepository,
+    # Parse + ParseEmitLens
+    AstParserRegistry,
+    ParseEmitLens,
+    available_grammars,
+    parse_source_file,
 )
 
 # Deprecated alias
@@ -134,7 +141,14 @@ __all__ = [
     "parse_expr",
     "pretty_print_expr",
     # VCS
+    "BisectState",
+    "Repository",
     "VcsRepository",
+    # Parse + ParseEmitLens
+    "AstParserRegistry",
+    "ParseEmitLens",
+    "available_grammars",
+    "parse_source_file",
     # Meta
     "__version__",
 ]

@@ -14,7 +14,7 @@ The `ProtocolRegistry` holds one parser and one emitter for each registered prot
 
 With the `tree-sitter` feature enabled, the `UnifiedCodec` provides format-preserving round-trips for JSON, XML, YAML, TOML, CSV, and TSV: `emit(parse(bytes)) == bytes` exactly, including whitespace, comments, and original key ordering. This works by storing a CST complement alongside the abstract instance and using it during emission.
 
-`UnifiedCodec::new` and the per-format constructors (`json`, `xml`, `yaml`, `toml`, `csv`, `tsv`) return `Result<Self, UnifiedCodecError>`: construction can fail with `MissingGrammar` (the requested grammar was not compiled into `panproto-grammars`) or `ParserInit` (tree-sitter rejected the grammar's language version). Use `ProtocolRegistry::try_register` to surface those errors when wiring a registry.
+`UnifiedCodec::new` and the per-format constructors (`json`, `xml`, `yaml`, `toml`, `csv`, `tsv`) return `Result<Self, UnifiedCodecError>`: construction can fail with `MissingGrammar` (the requested grammar was not compiled into `panproto-grammars`) or `ParserInit` (tree-sitter rejected the grammar's language version). Wire codecs into a registry with `ProtocolRegistry::register_optional`, which silently skips `MissingGrammar` (the expected case when a `lang-*` feature is disabled) and logs `ParserInit` to stderr before skipping (a build-system regression that should never be silenced). Use `try_register` instead when the caller wants to handle the error explicitly.
 
 ## Quick example
 
@@ -43,7 +43,8 @@ let output = registry.emit_wtype("openapi", &schema, &instance)?;
 | `EmitInstanceError` | Error type for emit failures |
 | `UnifiedCodec` | Format-preserving codec for JSON, XML, YAML, TOML, CSV, TSV (requires `tree-sitter` feature); constructors return `Result<Self, UnifiedCodecError>` |
 | `UnifiedCodecError` | Error type for codec construction: `MissingGrammar`, `ParserInit` |
-| `ProtocolRegistry::try_register` | Register a codec whose construction is fallible, surfacing `UnifiedCodecError` |
+| `ProtocolRegistry::register_optional` | Register a fallible codec; silently skip `MissingGrammar`, log `ParserInit` to stderr |
+| `ProtocolRegistry::try_register` | Register a fallible codec and propagate the error to the caller |
 | `cst_extract` | CST-to-instance extraction lens for format-preserving round-trips |
 
 ## Protocol coverage
