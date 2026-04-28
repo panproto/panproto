@@ -1579,4 +1579,137 @@ mod tests {
         assert!(policy.indent_close.iter().any(|t| t == "}"));
         assert_eq!(policy.indent_width, 2);
     }
+
+    #[test]
+    fn placeholder_decodes_literal_pattern_separators() {
+        // PATTERN regexes that match a single literal byte sequence
+        // (newline, semicolon, comma) emit the bytes verbatim instead
+        // of falling through to the `_` catch-all.
+        assert_eq!(placeholder_for_pattern("\\n"), "\n");
+        assert_eq!(placeholder_for_pattern("\\r\\n"), "\r\n");
+        assert_eq!(placeholder_for_pattern(";"), ";");
+        // Patterns with character classes / alternation still route
+        // through the heuristic.
+        assert_eq!(placeholder_for_pattern("[0-9]+"), "0");
+        assert_eq!(placeholder_for_pattern("a|b"), "_");
+    }
+
+    #[test]
+    fn supertypes_decode_from_grammar_json_strings() {
+        // Tree-sitter older grammars list supertypes as bare strings.
+        let bytes = br#"{
+            "name": "tiny",
+            "supertypes": ["expression"],
+            "rules": {
+                "expression": {
+                    "type": "CHOICE",
+                    "members": [
+                        {"type": "SYMBOL", "name": "binary_expression"},
+                        {"type": "SYMBOL", "name": "identifier"}
+                    ]
+                },
+                "binary_expression": {"type": "STRING", "value": "x"},
+                "identifier": {"type": "PATTERN", "value": "[a-z]+"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("parse");
+        assert!(g.supertypes.contains("expression"));
+        // identifier matches the supertype `expression`.
+        assert!(kind_satisfies_symbol(&g, Some("identifier"), "expression"));
+        // unrelated kinds do not.
+        assert!(!kind_satisfies_symbol(&g, Some("string"), "expression"));
+    }
+
+    #[test]
+    fn supertypes_decode_from_grammar_json_objects() {
+        // Recent grammars list supertypes as `{type: SYMBOL, name: ...}`
+        // entries instead of bare strings.
+        let bytes = br#"{
+            "name": "tiny",
+            "supertypes": [{"type": "SYMBOL", "name": "stmt"}],
+            "rules": {
+                "stmt": {
+                    "type": "CHOICE",
+                    "members": [
+                        {"type": "SYMBOL", "name": "while_stmt"},
+                        {"type": "SYMBOL", "name": "if_stmt"}
+                    ]
+                },
+                "while_stmt": {"type": "STRING", "value": "while"},
+                "if_stmt": {"type": "STRING", "value": "if"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("parse");
+        assert!(g.supertypes.contains("stmt"));
+        assert!(kind_satisfies_symbol(&g, Some("while_stmt"), "stmt"));
+    }
+
+    #[test]
+    fn alias_value_matches_kind() {
+        // A named ALIAS rewrites the parser-visible kind to `value`;
+        // `kind_satisfies_symbol` should accept that rewritten kind
+        // when looking up the original SYMBOL.
+        let bytes = br#"{
+            "name": "tiny",
+            "rules": {
+                "_package_identifier": {
+                    "type": "ALIAS",
+                    "named": true,
+                    "value": "package_identifier",
+                    "content": {"type": "SYMBOL", "name": "identifier"}
+                },
+                "identifier": {"type": "PATTERN", "value": "[a-z]+"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("parse");
+        assert!(kind_satisfies_symbol(
+            &g,
+            Some("package_identifier"),
+            "_package_identifier"
+        ));
+    }
+
+    #[test]
+    fn referenced_symbols_walks_nested_seq() {
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "SEQ",
+                "members": [
+                    {"type": "CHOICE", "members": [
+                        {"type": "SYMBOL", "name": "attribute_item"},
+                        {"type": "BLANK"}
+                    ]},
+                    {"type": "SYMBOL", "name": "parameter"},
+                    {"type": "REPEAT", "content": {
+                        "type": "SEQ",
+                        "members": [
+                            {"type": "STRING", "value": ","},
+                            {"type": "SYMBOL", "name": "parameter"}
+                        ]
+                    }}
+                ]
+            }"#,
+        )
+        .expect("seq");
+        let symbols = referenced_symbols(&prod);
+        assert!(symbols.contains(&"attribute_item"));
+        assert!(symbols.contains(&"parameter"));
+    }
+
+    #[test]
+    fn literal_strings_collects_choice_members() {
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "CHOICE",
+                "members": [
+                    {"type": "STRING", "value": "+"},
+                    {"type": "STRING", "value": "-"},
+                    {"type": "STRING", "value": "*"}
+                ]
+            }"#,
+        )
+        .expect("choice");
+        let strings = literal_strings(&prod);
+        assert_eq!(strings, vec!["+", "-", "*"]);
+    }
 }
