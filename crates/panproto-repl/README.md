@@ -14,7 +14,7 @@ The binary (`panproto-repl`) wires `rustyline` to the `Repl::handle_line` entry 
 
 Bare input (no leading `:`) is parsed as a term and typechecked in the active theory. Every other command starts with a colon. The command set is small and intentionally Haskell-GHCi-shaped: load a file, list what is loaded, switch the active theory, inspect its sorts and ops, type a term, normalize it, browse the free model, compile an instance, quit.
 
-## Usage
+## Quick example
 
 ```text
 $ panproto-repl --load theories/th_arith.json

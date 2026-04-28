@@ -1,6 +1,9 @@
 # panproto-git-remote
 
-Git remote helper for `panproto://` URLs. Ships the `git-remote-panproto` binary.
+[![crates.io](https://img.shields.io/crates/v/panproto-git-remote.svg)](https://crates.io/crates/panproto-git-remote)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
+
+Git remote helper for `panproto://` URLs; ships the `git-remote-panproto` binary.
 
 ## What it does
 

@@ -1,5 +1,7 @@
 # panproto-grammars
 
+[![crates.io](https://img.shields.io/crates/v/panproto-grammars.svg)](https://crates.io/crates/panproto-grammars)
+[![docs.rs](https://docs.rs/panproto-grammars/badge.svg)](https://docs.rs/panproto-grammars)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
 Pre-compiled tree-sitter grammars for 250 programming languages, used by `panproto-parse`.
@@ -8,7 +10,7 @@ Pre-compiled tree-sitter grammars for 250 programming languages, used by `panpro
 
 This crate bundles tree-sitter grammar sources for up to 250 languages and compiles them from C at build time. Each `Grammar` value provides the tree-sitter `Language` object needed for parsing, the raw `node-types.json` bytes needed for theory extraction, the optional `grammar.json` production-rule table (used by `panproto-parse`'s `emit_pretty` to render by-construction schemas), and the file extensions the grammar handles.
 
-This crate is `publish = false` and is not on crates.io: the vendored C sources weigh roughly 500MB, well above crates.io's 10MB limit. You get these grammars through `panproto-parse`, which depends on this crate when its `grammars` feature is enabled (the default). There is no reason to depend on this crate directly.
+The crate is published to crates.io with zero vendored grammars: the C sources weigh roughly 500MB, well above the 10MB package limit. The published version exposes the API surface so downstream crates compile, and consumers register individual grammar crates against `panproto_parse::ParserRegistry`. Inside the workspace, `build.rs` compiles all vendored grammars, so the in-tree build of `panproto-parse` (with the default `grammars` feature) gets the full set.
 
 Each language is gated behind a `lang-{name}` feature flag. Group features enable sets of languages at once. The default group (`group-core`) includes Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust.
 
