@@ -229,15 +229,7 @@ mod tests {
     use super::*;
 
     fn test_node(id: u32, anchor: &str) -> Node {
-        Node {
-            id,
-            anchor: Name::from(anchor),
-            value: None,
-            discriminator: None,
-            extra_fields: HashMap::new(),
-            position: None,
-            annotations: HashMap::new(),
-        }
+        Node::new(id, anchor)
     }
 
     /// Helper: build a minimal `WInstance` from a list of (parent, child) pairs.

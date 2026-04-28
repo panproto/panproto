@@ -75,7 +75,7 @@ pub use ginstance::{GInstance, graph_extend, graph_restrict};
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use instance::Instance;
 pub use instance_env::{eval_with_element_ops, eval_with_instance};
-pub use metadata::{LIST_MARKER, Node, XML_TAG_MARKER, XML_TEXT_SEGMENT_MARKER};
+pub use metadata::{Node, NodeShape};
 pub use parse::{parse_json, to_json};
 pub use pi::{functor_pi, wtype_pi};
 pub use poly::{

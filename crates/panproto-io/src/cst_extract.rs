@@ -97,7 +97,7 @@ impl ExtractState {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-use panproto_inst::metadata::{LIST_MARKER, XML_TAG_MARKER, XML_TEXT_SEGMENT_MARKER};
+use panproto_inst::NodeShape;
 
 /// Get the `literal-value` constraint from a CST vertex.
 fn literal_value(cst: &Schema, vertex_id: &str) -> Option<String> {
@@ -554,8 +554,7 @@ fn extract_json_value_open(
         }
         "array" => {
             let mut node = Node::new(node_id, anchor);
-            node.annotations
-                .insert(LIST_MARKER.to_owned(), Value::Bool(true));
+            node.shape = NodeShape::List;
             state.nodes.insert(node_id, node);
             let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
             for child_name in &children {
@@ -630,8 +629,7 @@ fn extract_json_array(
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
     let mut node = Node::new(node_id, domain_vertex);
-    node.annotations
-        .insert(LIST_MARKER.to_owned(), Value::Bool(true));
+    node.shape = NodeShape::List;
     state.nodes.insert(node_id, node);
 
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
@@ -978,8 +976,9 @@ fn extract_xml_element(
     }
 
     if let Some(tag) = extract_xml_tag_name(cst, cst_vertex) {
-        node.annotations
-            .insert(XML_TAG_MARKER.to_owned(), Value::Str(tag));
+        node.shape = NodeShape::XmlElement {
+            tag: panproto_gat::Name::from(tag.as_str()),
+        };
     }
 
     if let Some(ref stag) = stag_vertex {
@@ -1029,9 +1028,7 @@ fn extract_xml_element(
                     let seg_id = state.alloc_id();
                     let mut seg_node = Node::new(seg_id, seg_anchor.as_str());
                     seg_node.value = Some(FieldPresence::Present(Value::Str(text)));
-                    seg_node
-                        .annotations
-                        .insert(XML_TEXT_SEGMENT_MARKER.to_owned(), Value::Bool(true));
+                    seg_node.shape = NodeShape::XmlTextSegment;
                     state.nodes.insert(seg_id, seg_node);
                     state.node_to_cst_value.insert(seg_id, child_vertex.clone());
                     let edge = Edge {
@@ -1517,8 +1514,7 @@ fn extract_yaml_sequence(
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
     let mut node = Node::new(node_id, domain_vertex);
-    node.annotations
-        .insert(LIST_MARKER.to_owned(), Value::Bool(true));
+    node.shape = NodeShape::List;
     state.nodes.insert(node_id, node);
 
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();

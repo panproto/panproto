@@ -54,8 +54,16 @@ pub mod registry;
 /// De-novo source emission from by-construction schemas.
 pub mod emit_pretty;
 
+/// The parse / emit pair as a verified asymmetric lens with explicit
+/// law-checkers (retraction in the image of the parser).
+pub mod parse_emit_lens;
+
 pub use error::ParseError;
 pub use id_scheme::IdGenerator;
+pub use parse_emit_lens::{
+    LawViolation as ParseEmitLawViolation, ParseEmitLens, check_emit_parse, check_parse_emit,
+    kind_multiset, strip_complement,
+};
 pub use registry::{AstParser, ParserRegistry};
 pub use scope_detector::{NamedScope, ScopeDetector, ScopeKind};
 pub use theory_extract::{ExtractedTheoryMeta, extract_theory_from_node_types};

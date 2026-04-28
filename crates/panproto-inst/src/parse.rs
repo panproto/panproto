@@ -10,7 +10,7 @@ use panproto_schema::{Edge, Schema};
 use serde_json::json;
 
 use crate::error::ParseError;
-use crate::metadata::{LIST_MARKER, Node};
+use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
 use crate::wtype::WInstance;
 
@@ -277,7 +277,7 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
     //    annotation is absent, e.g. instances built by callers that
     //    bypass the CST extraction path).
     let list_via_schema = is_list_vertex(schema, &node.anchor);
-    let list_via_annotation = node.annotations.contains_key(LIST_MARKER);
+    let list_via_annotation = node.is_list();
     let list_via_instance_arcs = is_list_via_instance_arcs(instance, node_id);
     if list_via_schema || list_via_annotation || list_via_instance_arcs {
         let children = instance.children(node_id);

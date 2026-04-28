@@ -166,10 +166,7 @@ pub fn emit_xml_bytes(
 
         // Inline text segment from mixed-content XML: emit just the
         // text without surrounding start/end tags.
-        if node
-            .annotations
-            .contains_key(panproto_inst::XML_TEXT_SEGMENT_MARKER)
-        {
+        if node.is_xml_text_segment() {
             if let Some(FieldPresence::Present(Value::Str(ref text))) = node.value {
                 writer
                     .write_event(Event::Text(BytesText::new(text)))
@@ -182,18 +179,13 @@ pub fn emit_xml_bytes(
         }
 
         // Prefer the original XML tag name captured at parse time
-        // (panproto_inst::XML_TAG_MARKER annotation); fall back to the
-        // anchor's last `:`-segment for instances that bypass the CST
+        // via [`NodeShape::XmlElement`]; fall back to the anchor's
+        // last `:`-segment for instances that bypass the CST
         // extractor (e.g. hand-built `WInstance` for codegen).
         let anchor_tag = node.anchor.rsplit(':').next().unwrap_or(&node.anchor);
-        let stored_tag = node
-            .annotations
-            .get(panproto_inst::XML_TAG_MARKER)
-            .and_then(|v| match v {
-                Value::Str(s) => Some(s.clone()),
-                _ => None,
-            });
-        let tag: String = stored_tag.unwrap_or_else(|| anchor_tag.to_owned());
+        let tag: String = node
+            .xml_tag()
+            .map_or_else(|| anchor_tag.to_owned(), ToString::to_string);
 
         let mut elem = BytesStart::new(&tag);
 
@@ -282,6 +274,7 @@ fn ingest_xml_element(
         discriminator: None,
         extra_fields,
         position: None,
+        shape: panproto_inst::NodeShape::Plain,
         annotations: HashMap::new(),
     };
     state.nodes.insert(node_id, node);

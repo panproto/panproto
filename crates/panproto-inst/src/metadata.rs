@@ -10,36 +10,45 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::{FieldPresence, Value};
 
-/// Annotation key for nodes that represent ordered collections
-/// (JSON arrays, YAML sequences) where the schema cannot or does not
-/// declare the anchor as a list vertex.
+/// Sum type discriminating the structural shape of a node beyond its
+/// schema anchor.
 ///
-/// The CST extractors set `node.annotations[LIST_MARKER] = Bool(true)`
-/// so downstream serialisers (`to_json`, etc.) emit the node as a
-/// JSON array even when only zero or one child arcs are present. The
-/// key starts with `$` so it cannot collide with any user field name.
-pub const LIST_MARKER: &str = "$list";
-
-/// Annotation key carrying the original XML tag name when the node's
-/// anchor does not preserve it.
+/// The schema anchor identifies which vertex of the protocol schema
+/// the node sits over; this sum captures categorical information
+/// orthogonal to that, namely whether the node is the source of a
+/// free-monoid (list) structure, a renamed element from XML aliasing,
+/// or an inline text segment in mixed-content XML. Encoding these as
+/// typed variants rather than reserved-string entries on
+/// [`Node::annotations`] gives the type system jurisdiction over
+/// "marker only on the right node shape" and removes the collision
+/// risk with user-supplied annotation keys.
 ///
-/// Open-schema XML extraction anchors every node at the schema's root
-/// vertex (typically `"root"`); without recording the tag the emitter
-/// would write back `<root>...</root>` and lose the document's actual
-/// shape. The CST extractor sets
-/// `node.annotations[XML_TAG_MARKER] = Str("NAF")` and `emit_xml_bytes`
-/// prefers it over the anchor.
-pub const XML_TAG_MARKER: &str = "$xml_tag";
-
-/// Annotation key marking a node as an inline XML text segment.
-///
-/// Mixed XML content (`<p>text<em>more</em>tail</p>`) requires
-/// preserving the order of text and child elements; the CST extractor
-/// emits each text run as a leaf node anchored at `"{parent}:text"`
-/// with `value = Str(...)` and `annotations[XML_TEXT_SEGMENT_MARKER] =
-/// Bool(true)`. `emit_xml_bytes` writes such nodes as bare text
-/// without wrapping start/end tags.
-pub const XML_TEXT_SEGMENT_MARKER: &str = "$xml_text";
+/// `Default` is `Plain`: a regular schema-anchored node with no
+/// extra structural shape.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum NodeShape {
+    /// Regular schema-anchored node. The default.
+    #[default]
+    Plain,
+    /// Node is the source of an ordered collection (free-monoid /
+    /// list functor). Used by `to_json` and friends to emit a JSON
+    /// array even when zero or one child arcs are present.
+    List,
+    /// Node was produced by an XML ALIAS that renamed the parser's
+    /// internal kind to the carried tag. Carries the original XML
+    /// element name so emitters can write back `<NAF>...</NAF>`
+    /// rather than the schema anchor.
+    XmlElement {
+        /// The XML tag name as it appeared in the source document.
+        tag: Name,
+    },
+    /// Inline text run inside a mixed-content XML element. Emitters
+    /// write `node.value` as bare text without surrounding start /
+    /// end tags so `<p>x<em>y</em>z</p>` round-trips with text and
+    /// element children interleaved in source order.
+    XmlTextSegment,
+}
 
 /// A node in a W-type instance tree.
 ///
@@ -61,9 +70,22 @@ pub struct Node {
     /// Position in an ordered collection (if any).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position: Option<u32>,
+    /// Structural shape of the node, orthogonal to the schema anchor.
+    ///
+    /// Defaults to [`NodeShape::Plain`]. Set to [`NodeShape::List`],
+    /// [`NodeShape::XmlElement`], or [`NodeShape::XmlTextSegment`] by
+    /// the CST extractors when they recover a list / aliased
+    /// element / inline text run from a parsed document; consumed by
+    /// the corresponding emitters to drive serialisation choices.
+    #[serde(default, skip_serializing_if = "node_shape_is_default")]
+    pub shape: NodeShape,
     /// Out-of-band annotations (metadata distinct from data).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub annotations: HashMap<String, Value>,
+}
+
+const fn node_shape_is_default(shape: &NodeShape) -> bool {
+    matches!(shape, NodeShape::Plain)
 }
 
 impl Node {
@@ -77,7 +99,39 @@ impl Node {
             discriminator: None,
             extra_fields: HashMap::new(),
             position: None,
+            shape: NodeShape::Plain,
             annotations: HashMap::new(),
+        }
+    }
+
+    /// Set the node's structural shape.
+    #[must_use]
+    pub fn with_shape(mut self, shape: NodeShape) -> Self {
+        self.shape = shape;
+        self
+    }
+
+    /// Returns `true` iff the node represents an ordered collection
+    /// (the source of a free-monoid structure). Equivalent to
+    /// `matches!(self.shape, NodeShape::List)`.
+    #[must_use]
+    pub const fn is_list(&self) -> bool {
+        matches!(self.shape, NodeShape::List)
+    }
+
+    /// Returns `true` iff the node is an inline XML text segment.
+    #[must_use]
+    pub const fn is_xml_text_segment(&self) -> bool {
+        matches!(self.shape, NodeShape::XmlTextSegment)
+    }
+
+    /// Returns the original XML tag name when the node was produced
+    /// by an aliased XML element; `None` otherwise.
+    #[must_use]
+    pub const fn xml_tag(&self) -> Option<&Name> {
+        match &self.shape {
+            NodeShape::XmlElement { tag } => Some(tag),
+            _ => None,
         }
     }
 

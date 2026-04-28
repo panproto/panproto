@@ -290,6 +290,16 @@ impl<'a> AstWalker<'a> {
     }
 
     /// Walk named children, capturing interstitial text between them.
+    ///
+    /// Also computes a `chose-alt-fingerprint` constraint by trimming
+    /// and joining every non-empty interstitial run. This is the
+    /// categorical discriminator for the parent vertex's CHOICE alt:
+    /// it survives the byte-position-stripping that
+    /// `emit_pretty_roundtrip`'s by-construction simulation applies,
+    /// so the CHOICE picker can dispatch deterministically against
+    /// the recorded alternative even after interstitials are removed.
+    /// A by-construction schema can populate this constraint directly
+    /// to control which alternative the emitter picks.
     fn walk_children_with_interstitials(
         &self,
         node: tree_sitter::Node<'_>,
@@ -301,6 +311,7 @@ impl<'a> AstWalker<'a> {
         let children: Vec<_> = node.named_children(cursor).collect();
         let mut interstitial_idx = 0;
         let mut prev_end = node.start_byte();
+        let mut fingerprint_parts: Vec<String> = Vec::new();
 
         for child in &children {
             let gap_start = prev_end;
@@ -311,6 +322,7 @@ impl<'a> AstWalker<'a> {
                 gap_start,
                 gap_end,
                 &mut interstitial_idx,
+                &mut fingerprint_parts,
             );
             builder = self.walk_node(*child, builder, id_gen, Some(vertex_id))?;
             prev_end = child.end_byte();
@@ -323,7 +335,16 @@ impl<'a> AstWalker<'a> {
             prev_end,
             node.end_byte(),
             &mut interstitial_idx,
+            &mut fingerprint_parts,
         );
+
+        if !fingerprint_parts.is_empty() {
+            builder = builder.constraint(
+                vertex_id,
+                "chose-alt-fingerprint",
+                &fingerprint_parts.join(" "),
+            );
+        }
 
         Ok(builder)
     }
@@ -336,6 +357,7 @@ impl<'a> AstWalker<'a> {
         gap_start: usize,
         gap_end: usize,
         idx: &mut usize,
+        fingerprint: &mut Vec<String>,
     ) -> SchemaBuilder {
         if gap_end > gap_start && gap_end <= self.source.len() {
             if let Ok(gap_text) = std::str::from_utf8(&self.source[gap_start..gap_end]) {
@@ -348,6 +370,10 @@ impl<'a> AstWalker<'a> {
                         &gap_start.to_string(),
                     );
                     *idx += 1;
+                    let trimmed = gap_text.trim();
+                    if !trimmed.is_empty() {
+                        fingerprint.push(trimmed.to_owned());
+                    }
                 }
             }
         }

@@ -166,11 +166,11 @@ server:
 fn rust_roundtrip() {
     round_trip(
         "rust",
-        br#"
+        br"
 fn add(a: i32, b: i32) -> i32 {
     a + b
 }
-"#,
+",
     );
 }
 
@@ -179,10 +179,10 @@ fn add(a: i32, b: i32) -> i32 {
 fn python_roundtrip() {
     round_trip(
         "python",
-        br#"
+        br"
 def add(a, b):
     return a + b
-"#,
+",
     );
 }
 
@@ -191,11 +191,11 @@ def add(a, b):
 fn go_roundtrip() {
     round_trip(
         "go",
-        br#"package main
+        br"package main
 
 func Add(a int, b int) int {
     return a + b
 }
-"#,
+",
     );
 }

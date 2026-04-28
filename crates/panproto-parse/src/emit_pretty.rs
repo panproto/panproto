@@ -254,6 +254,21 @@ pub struct Grammar {
     /// supertype name when a SYMBOL references it.
     #[serde(default, deserialize_with = "deserialize_supertypes")]
     pub supertypes: std::collections::HashSet<String>,
+    /// Precomputed subtyping closure: `subtypes[symbol_name]` is the
+    /// set of vertex kinds that satisfy a SYMBOL `symbol_name`
+    /// reference on the schema side.
+    ///
+    /// Built once at [`Grammar::from_bytes`] time by walking each
+    /// hidden rule (`_`-prefixed), declared supertype, and named
+    /// `ALIAS { value: K, ... }` production to its leaf SYMBOLs and
+    /// recording the closure. This replaces the prior heuristic
+    /// `kind_satisfies_symbol` that walked the rule body on every
+    /// query: lookups are now O(1) and the relation is exactly the
+    /// transitive closure of "is reachable via hidden / supertype /
+    /// alias dispatch", with no over-expansion through non-hidden
+    /// non-supertype rule references.
+    #[serde(skip)]
+    pub subtypes: std::collections::HashMap<String, std::collections::HashSet<String>>,
 }
 
 fn deserialize_supertypes<'de, D>(
@@ -283,16 +298,205 @@ where
 impl Grammar {
     /// Parse a grammar's `grammar.json` bytes.
     ///
+    /// Builds the subtyping closure as part of construction so every
+    /// downstream lookup is O(1). The closure is the least relation
+    /// containing `(K, K)` for every rule key `K` and closed under:
+    ///
+    /// - hidden-rule expansion: if `S` is hidden and a SYMBOL `S` may
+    ///   reach SYMBOL `K`, then `K ⊑ S`.
+    /// - supertype expansion: if `S` is in the grammar's supertypes
+    ///   block and `K` is one of `S`'s alternatives, then `K ⊑ S`.
+    /// - alias renaming: if a rule body contains
+    ///   `ALIAS { content: SYMBOL R, value: A, named: true }` where
+    ///   `R` reaches kind `K` (or `K = R` when no further hop), then
+    ///   `A ⊑ R` and `K ⊑ A`.
+    ///
     /// # Errors
     ///
     /// Returns [`ParseError::EmitFailed`] when the bytes are not a
     /// valid `grammar.json` document.
     pub fn from_bytes(protocol: &str, bytes: &[u8]) -> Result<Self, ParseError> {
-        serde_json::from_slice(bytes).map_err(|e| ParseError::EmitFailed {
-            protocol: protocol.to_owned(),
-            reason: format!("grammar.json deserialization failed: {e}"),
-        })
+        let mut grammar: Self =
+            serde_json::from_slice(bytes).map_err(|e| ParseError::EmitFailed {
+                protocol: protocol.to_owned(),
+                reason: format!("grammar.json deserialization failed: {e}"),
+            })?;
+        grammar.subtypes = compute_subtype_closure(&grammar);
+        Ok(grammar)
     }
+}
+
+/// Compute the subtyping relation as a forward-indexed map from a
+/// SYMBOL name to the set of vertex kinds that satisfy that SYMBOL.
+fn compute_subtype_closure(
+    grammar: &Grammar,
+) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+    use std::collections::{HashMap, HashSet};
+    // Edges of the "kind X satisfies SYMBOL Y" relation. `K ⊑ Y` is
+    // recorded whenever Y is reached by walking the grammar's
+    // ALIAS / hidden-rule / supertype dispatch from a position where
+    // K is the actual vertex kind.
+    let mut subtypes: HashMap<String, HashSet<String>> = HashMap::new();
+    for name in grammar.rules.keys() {
+        subtypes
+            .entry(name.clone())
+            .or_default()
+            .insert(name.clone());
+    }
+
+    // First pass: collect the immediate "satisfies" edges from each
+    // expandable rule (hidden, supertype) to the kinds reachable by
+    // walking its body, plus alias edges.
+    fn walk<'g>(
+        grammar: &'g Grammar,
+        production: &'g Production,
+        visited: &mut HashSet<&'g str>,
+        out: &mut HashSet<String>,
+    ) {
+        match production {
+            Production::Symbol { name } => {
+                // Direct subtype.
+                out.insert(name.clone());
+                // Continue expansion through hidden / supertype rules
+                // so the closure traverses pass-through dispatch.
+                let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
+                if expand && visited.insert(name.as_str()) {
+                    if let Some(rule) = grammar.rules.get(name) {
+                        walk(grammar, rule, visited, out);
+                    }
+                }
+            }
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    walk(grammar, m, visited, out);
+                }
+            }
+            Production::Alias {
+                content,
+                named,
+                value,
+            } => {
+                if *named && !value.is_empty() {
+                    out.insert(value.clone());
+                }
+                walk(grammar, content, visited, out);
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => {
+                walk(grammar, content, visited, out);
+            }
+            _ => {}
+        }
+    }
+
+    for (name, rule) in &grammar.rules {
+        let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
+        if !expand {
+            continue;
+        }
+        let mut visited: HashSet<&str> = HashSet::new();
+        visited.insert(name.as_str());
+        let mut reachable: HashSet<String> = HashSet::new();
+        walk(grammar, rule, &mut visited, &mut reachable);
+        for kind in &reachable {
+            subtypes
+                .entry(kind.clone())
+                .or_default()
+                .insert(name.clone());
+        }
+    }
+
+    // Aliases: scan every rule body for ALIAS { content, value }
+    // declarations. The kinds reachable from `content` satisfy
+    // `value`, AND (by construction) `value` satisfies the
+    // surrounding rule. Walking the ENTIRE grammar once captures
+    // every alias site, irrespective of which rule introduces it.
+    fn collect_aliases<'g>(production: &'g Production, out: &mut Vec<(String, &'g Production)>) {
+        match production {
+            Production::Alias {
+                content,
+                named,
+                value,
+            } => {
+                if *named && !value.is_empty() {
+                    out.push((value.clone(), content.as_ref()));
+                }
+                collect_aliases(content, out);
+            }
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    collect_aliases(m, out);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => {
+                collect_aliases(content, out);
+            }
+            _ => {}
+        }
+    }
+    let mut aliases: Vec<(String, &Production)> = Vec::new();
+    for rule in grammar.rules.values() {
+        collect_aliases(rule, &mut aliases);
+    }
+    for (alias_value, content) in aliases {
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut reachable: HashSet<String> = HashSet::new();
+        walk(grammar, content, &mut visited, &mut reachable);
+        // Aliased value satisfies itself and is satisfied by every
+        // kind its content can reach.
+        subtypes
+            .entry(alias_value.clone())
+            .or_default()
+            .insert(alias_value.clone());
+        for kind in reachable {
+            subtypes
+                .entry(kind)
+                .or_default()
+                .insert(alias_value.clone());
+        }
+    }
+
+    // Transitive close: `K ⊑ A` and `A ⊑ B` implies `K ⊑ B`. Iterate
+    // a few rounds; the relation is small so a quick fixed-point
+    // suffices in practice.
+    for _ in 0..8 {
+        let snapshot = subtypes.clone();
+        let mut changed = false;
+        for (kind, supers) in &snapshot {
+            let extra: HashSet<String> = supers
+                .iter()
+                .flat_map(|s| snapshot.get(s).cloned().unwrap_or_default())
+                .collect();
+            let entry = subtypes.entry(kind.clone()).or_default();
+            for s in extra {
+                if entry.insert(s) {
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    subtypes
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -498,16 +702,47 @@ impl<'a> ChildCursor<'a> {
 
 thread_local! {
     static EMIT_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    /// Set of `(vertex_id, rule_name)` pairs the current emit call
-    /// stack is already walking. A SYMBOL that resolves to a rule
-    /// already on this stack, with no cursor consumption between the
-    /// two visits, is a true grammar cycle (e.g. YAML's `block_node`
-    /// → `_b_blk_*` chain that loops back through SYMBOL
-    /// references). Returning `Ok` at the second visit breaks the
-    /// loop without aborting; any tokens that depend on a deeper
-    /// expansion are simply skipped.
-    static EMIT_VISIT: std::cell::RefCell<std::collections::HashSet<(String, String)>> =
+    /// Set of `(vertex_id, rule_name)` pairs that are currently being
+    /// walked by the recursion. A SYMBOL that resolves to a rule
+    /// already on this stack closes a μ-binder cycle: in the
+    /// coinductive reading, the rule walk at any vertex is the least
+    /// fixed point of `body[μ X . body / X]`, which unfolds at most
+    /// once, with the second visit returning the empty sequence (the
+    /// unit of the free token monoid). Examples that trigger this:
+    /// YAML's `stream` ⊃ `_b_blk_*` mutually-recursive chain, Rust's
+    /// `_expression` ⊃ `binary_expression` ⊃ `_expression`.
+    static EMIT_MU_FRAMES: std::cell::RefCell<std::collections::HashSet<(String, String)>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Walk a rule at a vertex inside a μ-binder. The wrapping frame is
+/// pushed before recursion and popped after, so any SYMBOL inside
+/// `rule` that re-enters the same `(vertex_id, rule_name)` pair
+/// returns the empty sequence (μ X . body unfolds once).
+fn walk_in_mu_frame(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    vertex_id: &panproto_gat::Name,
+    rule_name: &str,
+    rule: &Production,
+    cursor: &mut ChildCursor<'_>,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    let key = (vertex_id.to_string(), rule_name.to_owned());
+    let inserted = EMIT_MU_FRAMES.with(|frames| frames.borrow_mut().insert(key.clone()));
+    if !inserted {
+        // We are already walking this rule at this vertex deeper in
+        // the call stack. The coinductive μ-fixed-point reading
+        // returns the empty sequence here; the surrounding
+        // production resumes after the SYMBOL.
+        return Ok(());
+    }
+    let result = emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out);
+    EMIT_MU_FRAMES.with(|frames| {
+        frames.borrow_mut().remove(&key);
+    });
+    result
 }
 
 fn emit_production(
@@ -573,8 +808,16 @@ fn emit_production_inner(
                 // hidden rule and discarding the rest of the body
                 // (which would drop tokens like `=` and the trailing
                 // value SYMBOL inside e.g. TOML's `_inline_pair`).
+                //
+                // Wrapped in a μ-frame so a hidden rule that
+                // references its own kind cyclically (or another
+                // hidden rule that closes the cycle) unfolds once
+                // and then collapses to the empty sequence at the
+                // second visit, rather than blowing the stack.
                 if let Some(rule) = grammar.rules.get(name) {
-                    emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out)
+                    walk_in_mu_frame(
+                        protocol, schema, grammar, vertex_id, name, rule, cursor, out,
+                    )
                 } else {
                     // External hidden rule (declared in the
                     // grammar's `externals` block, scanned by C code,
@@ -594,6 +837,16 @@ fn emit_production_inner(
                     Ok(())
                 }
             } else if let Some(edge) = take_symbol_match(grammar, schema, cursor, name) {
+                // For supertype / hidden-rule dispatch the child's
+                // own kind names the actual production to walk
+                // (`child.kind` IS the subtype). For ALIAS the
+                // dependent-optic context is carried by the
+                // surrounding `Production::Alias` branch, which calls
+                // `emit_aliased_child` directly; we don't reach here
+                // for that case. So walking `grammar.rules[child.kind]`
+                // via `emit_vertex` is correct: the dependent-optic
+                // path is preserved at every site where it actually
+                // diverges from `child.kind`.
                 emit_vertex(protocol, schema, grammar, &edge.tgt, out)
             } else if vertex_id_kind(schema, vertex_id) == Some(name.as_str()) {
                 let rule = grammar
@@ -603,23 +856,11 @@ fn emit_production_inner(
                         protocol: protocol.to_owned(),
                         reason: format!("no production for SYMBOL '{name}'"),
                     })?;
-                // Cycle guard: if we are about to walk a rule we
-                // are already walking on this same vertex, the
-                // grammar has a self-reference (`X = ... SYMBOL X
-                // ...`) and re-entering would loop until the depth
-                // limit. Skip silently; the surrounding production
-                // continues with whatever follows the cyclic SYMBOL.
-                let key = (vertex_id.to_string(), name.clone());
-                let inserted = EMIT_VISIT.with(|v| v.borrow_mut().insert(key.clone()));
-                if !inserted {
-                    return Ok(());
-                }
-                let result =
-                    emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out);
-                EMIT_VISIT.with(|v| {
-                    v.borrow_mut().remove(&key);
-                });
-                result
+                // Self-reference (`X = ... SYMBOL X ...`): wrap in a
+                // μ-frame so re-entry collapses to the empty sequence.
+                walk_in_mu_frame(
+                    protocol, schema, grammar, vertex_id, name, rule, cursor, out,
+                )
             } else {
                 // Named rule with no matching child: emit nothing and
                 // let the surrounding CHOICE / OPTIONAL / REPEAT
@@ -750,93 +991,26 @@ fn take_symbol_match<'a>(
     })
 }
 
+/// Decide whether a schema vertex of kind `target_kind` satisfies a
+/// SYMBOL `name` reference in the grammar.
+///
+/// Operates as an O(1) lookup against the precomputed subtype
+/// closure built at [`Grammar::from_bytes`]. The semantic content is
+/// "K satisfies SYMBOL S iff K is reachable from S by walking the
+/// grammar's hidden, supertype, and named-alias dispatch": this is
+/// exactly the relation tree-sitter induces on `(parser-visible kind,
+/// rule-position)` pairs.
 fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &str) -> bool {
-    if target_kind == Some(name) {
+    let Some(target) = target_kind else {
+        return false;
+    };
+    if target == name {
         return true;
     }
-    // Inline-expand:
-    //
-    // - Hidden rules (`_`-prefixed) — tree-sitter's pass-through
-    //   rules whose alternatives become the actual node kinds.
-    // - Declared supertypes — rules listed in the grammar's
-    //   `supertypes` block, whose subtypes (the SYMBOL alternatives)
-    //   are what the parser reports as the actual node kind. A
-    //   reference to `parameter` should match an `identifier` on the
-    //   schema side because identifier is one of parameter's
-    //   subtypes.
-    //
-    // A regular non-hidden, non-supertype rule reference like
-    // `dotted_key` still requires exact kind match on the schema
-    // side; otherwise `kind_satisfies_symbol` becomes a transitive
-    // closure that accepts every leaf the rule can produce, and
-    // CHOICE dispatch picks the wrong alternative (e.g. choosing
-    // `dotted_key` for a single bare key).
-    let allow_expand = name.starts_with('_') || grammar.supertypes.contains(name);
-    if !allow_expand {
-        return false;
-    }
-    let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    fn walk<'g>(
-        grammar: &'g Grammar,
-        production: &'g Production,
-        target_kind: Option<&str>,
-        visited: &mut std::collections::HashSet<&'g str>,
-    ) -> bool {
-        match production {
-            Production::Symbol { name } => {
-                if Some(name.as_str()) == target_kind {
-                    return true;
-                }
-                // Continue expansion through hidden rules or declared
-                // supertypes only; a regular rule reference must match
-                // by kind on the schema side.
-                if !name.starts_with('_') && !grammar.supertypes.contains(name.as_str()) {
-                    return false;
-                }
-                if visited.insert(name.as_str()) {
-                    if let Some(rule) = grammar.rules.get(name) {
-                        return walk(grammar, rule, target_kind, visited);
-                    }
-                }
-                false
-            }
-            Production::Choice { members } | Production::Seq { members } => members
-                .iter()
-                .any(|m| walk(grammar, m, target_kind, visited)),
-            Production::Alias {
-                content,
-                named,
-                value,
-            } => {
-                // ALIAS rewrites the parser-visible kind: a node that
-                // structurally is the inner `content` is reported as
-                // `value` when `named`. The schema's vertex kind is
-                // therefore `value`, and the walker should treat that
-                // as a match for the surrounding SYMBOL.
-                if *named && Some(value.as_str()) == target_kind {
-                    return true;
-                }
-                walk(grammar, content, target_kind, visited)
-            }
-            Production::Repeat { content }
-            | Production::Repeat1 { content }
-            | Production::Optional { content }
-            | Production::Field { content, .. }
-            | Production::Token { content }
-            | Production::ImmediateToken { content }
-            | Production::Prec { content, .. }
-            | Production::PrecLeft { content, .. }
-            | Production::PrecRight { content, .. }
-            | Production::PrecDynamic { content, .. } => {
-                walk(grammar, content, target_kind, visited)
-            }
-            _ => false,
-        }
-    }
-    if let Some(rule) = grammar.rules.get(name) {
-        return walk(grammar, rule, target_kind, &mut visited);
-    }
-    false
+    grammar
+        .subtypes
+        .get(target)
+        .is_some_and(|set| set.contains(name))
 }
 
 /// Emit a child reached through an ALIAS production using the
@@ -850,6 +1024,28 @@ fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &st
 /// either fail (the renamed kind has no top-level rule, e.g. YAML's
 /// `block_mapping_pair`) or pick an arbitrary same-kinded rule from
 /// elsewhere in the grammar.
+///
+/// Walk-context invariant. The dependent-optic shape of `emit_pretty`
+/// says: the production walked at any vertex is determined by the
+/// path from the root through the grammar, not by the vertex kind in
+/// isolation. Two dispatch sites realise that invariant:
+///
+/// * [`emit_vertex`] looks up `grammar.rules[child.kind]` and walks
+///   it. Correct for supertype / hidden-rule dispatch: the child's
+///   kind on the schema IS the subtype tree-sitter selected, so its
+///   top-level rule is the right production to walk.
+/// * `emit_aliased_child` threads the parent rule's `Production`
+///   directly (the inner `content` of `Production::Alias`) and walks
+///   it on the child's children. Correct for ALIAS dispatch: the
+///   child's kind on the schema is the alias's `value` (a renamed
+///   kind that may have no top-level rule), and the production to
+///   walk is the alias's content body, supplied by the parent.
+///
+/// Together these cover every site where the rule-walked-at-child
+/// diverges from `grammar.rules[child.kind]`; the recursion site for
+/// plain SYMBOL therefore correctly delegates to `emit_vertex`, and
+/// we do not need a richer `WalkContext` value passed by reference.
+/// The grammar dependency is the thread.
 fn emit_aliased_child(
     protocol: &str,
     schema: &Schema,
@@ -944,29 +1140,44 @@ fn pick_choice_with_cursor<'a>(
     cursor: &ChildCursor<'_>,
     alternatives: &'a [Production],
 ) -> Option<&'a Production> {
-    // Constraint-driven dispatch (highest priority): when the
-    // alternatives differ by literal STRING tokens (the canonical
-    // shape of binary_expression operator alternatives:
-    // `CHOICE { SEQ { left, "+", right }, SEQ { left, "&&", right }, ... }`
-    // the operator captured by the walker as an interstitial picks
-    // out the right alt unambiguously. Without this, the fallback
-    // takes the first non-BLANK alt and loses the operator entirely.
+    // Discriminator-driven dispatch (highest priority): when the
+    // walker recorded a `chose-alt-fingerprint` constraint at parse
+    // time, dispatch directly against that. This is the categorical
+    // discriminator: it survives stripping of byte-position
+    // constraints (so by-construction round-trips work) and is the
+    // explicit witness of which CHOICE alternative the parser took.
+    //
+    // Falls back to the live `interstitial-*` substring blob when no
+    // fingerprint is present (e.g. instances built by callers that
+    // bypass the AstWalker). Both blobs are scored by the longest
+    // STRING-literal token in an alternative that matches; the
+    // length tiebreak prefers `&&` over `&`, `==` over `=`, etc.
     let constraint_blob = schema
         .constraints
         .get(vertex_id)
         .map(|cs| {
-            cs.iter()
-                .filter(|c| {
-                    let s = c.sort.as_ref();
-                    s.starts_with("interstitial-") && !s.ends_with("-start-byte")
-                })
-                .map(|c| c.value.as_str())
-                .collect::<Vec<&str>>()
-                .join(" ")
+            let fingerprint: Option<&str> = cs
+                .iter()
+                .find(|c| c.sort.as_ref() == "chose-alt-fingerprint")
+                .map(|c| c.value.as_str());
+            if let Some(fp) = fingerprint {
+                fp.to_owned()
+            } else {
+                cs.iter()
+                    .filter(|c| {
+                        let s = c.sort.as_ref();
+                        s.starts_with("interstitial-") && !s.ends_with("-start-byte")
+                    })
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<&str>>()
+                    .join(" ")
+            }
         })
         .unwrap_or_default();
     if !constraint_blob.is_empty() {
-        let mut best: Option<(usize, &Production)> = None;
+        let mut best_score: usize = 0;
+        let mut best_alt: Option<&Production> = None;
+        let mut tied = false;
         for alt in alternatives {
             let strings = literal_strings(alt);
             if strings.is_empty() {
@@ -977,12 +1188,27 @@ fn pick_choice_with_cursor<'a>(
                 .filter(|s| constraint_blob.contains(s.as_str()))
                 .map(String::len)
                 .sum::<usize>();
-            if score > 0 && best.is_none_or(|(s, _)| score > s) {
-                best = Some((score, alt));
+            if score == 0 {
+                continue;
+            }
+            if score > best_score {
+                best_score = score;
+                best_alt = Some(alt);
+                tied = false;
+            } else if score == best_score {
+                tied = true;
             }
         }
-        if let Some((_, alt)) = best {
-            return Some(alt);
+        // Only commit to an alt when the fingerprint discriminates it
+        // uniquely. A tie means the alts share the same literal token
+        // set (e.g. JSON's `string = CHOICE { SEQ { '"', '"' }, SEQ {
+        // '"', _string_content, '"' } }` — both alts contain just the
+        // two `"` tokens). In that case fall through to cursor-based
+        // dispatch, which uses the actual edge structure.
+        if let Some(alt) = best_alt {
+            if !tied {
+                return Some(alt);
+            }
         }
     }
 
@@ -1275,32 +1501,45 @@ fn decode_simple_pattern_literal(pattern: &str) -> Option<String> {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Output buffer with whitespace policy
+// Token list output with Spacing algebra
 // ═══════════════════════════════════════════════════════════════════
+//
+// Emit produces a free monoid over `Token`. Layout (spaces, newlines,
+// indentation) is a homomorphism `Vec<Token> -> Vec<u8>` parameterised
+// by `FormatPolicy`. Separating the structural output from the layout
+// decision means each phase has one job: emit walks the grammar and
+// pushes tokens; layout is a single fold, locally driven by adjacent
+// pairs and a depth counter. Snapshot/restore is just `tokens.len()`.
+
+#[derive(Clone)]
+enum Token {
+    /// A user-visible terminal contributed by the grammar.
+    Lit(String),
+    /// `indent_open` marker emitted when a `Lit` matched the policy's
+    /// open list. Carried as a separate token so layout can decide to
+    /// break + indent without re-scanning.
+    IndentOpen,
+    /// `indent_close` marker emitted before a closer-`Lit`.
+    IndentClose,
+    /// "Break a line here if not already at line start" — used after
+    /// statements/declarations and after open braces.
+    LineBreak,
+}
 
 struct Output<'a> {
-    bytes: Vec<u8>,
-    last_token: Option<String>,
-    indent: usize,
-    at_line_start: bool,
+    tokens: Vec<Token>,
     policy: &'a FormatPolicy,
 }
 
 #[derive(Clone)]
 struct OutputSnapshot {
-    bytes_len: usize,
-    last_token: Option<String>,
-    indent: usize,
-    at_line_start: bool,
+    tokens_len: usize,
 }
 
 impl<'a> Output<'a> {
     fn new(policy: &'a FormatPolicy) -> Self {
         Self {
-            bytes: Vec::new(),
-            last_token: None,
-            indent: 0,
-            at_line_start: true,
+            tokens: Vec::new(),
             policy,
         }
     }
@@ -1310,100 +1549,112 @@ impl<'a> Output<'a> {
             return;
         }
 
-        let close_first = self.policy.indent_close.iter().any(|t| t == value);
-        if close_first && self.indent > 0 {
-            self.indent -= 1;
-            if !self.at_line_start {
-                self.newline();
-            }
+        if self.policy.indent_close.iter().any(|t| t == value) {
+            self.tokens.push(Token::IndentClose);
         }
 
-        if self.at_line_start {
-            self.write_indent();
-        } else if self.needs_space_before(value) {
-            self.bytes.push(b' ');
-        }
-
-        self.bytes.extend_from_slice(value.as_bytes());
-        self.at_line_start = false;
-        self.last_token = Some(value.to_owned());
+        self.tokens.push(Token::Lit(value.to_owned()));
 
         if self.policy.indent_open.iter().any(|t| t == value) {
-            self.indent += 1;
-            self.newline();
+            self.tokens.push(Token::IndentOpen);
+            self.tokens.push(Token::LineBreak);
         } else if self.policy.line_break_after.iter().any(|t| t == value) {
-            self.newline();
+            self.tokens.push(Token::LineBreak);
         }
     }
 
     fn newline(&mut self) {
-        if !self.at_line_start {
-            self.bytes.push(b'\n');
-            self.at_line_start = true;
-        }
-    }
-
-    fn write_indent(&mut self) {
-        for _ in 0..(self.indent * self.policy.indent_width) {
-            self.bytes.push(b' ');
-        }
-    }
-
-    fn needs_space_before(&self, next: &str) -> bool {
-        let last = match &self.last_token {
-            Some(t) => t.as_str(),
-            None => return false,
-        };
-        if last.is_empty() || next.is_empty() {
-            return false;
-        }
-        if is_punct_open(last) || is_punct_open(next) {
-            // No space inside `(`, `[`, `{` and no space before `(`/`[`
-            // when calling/indexing.
-            return false;
-        }
-        if is_punct_close(next) {
-            return false;
-        }
-        if is_punct_close(last) && is_punct_punctuation(next) {
-            return false;
-        }
-        if last == "." || next == "." {
-            return false;
-        }
-        if last_is_word_like(last) && first_is_word_like(next) {
-            return true;
-        }
-        if last_ends_with_alnum(last) && first_is_alnum_or_underscore(next) {
-            return true;
-        }
-        // Adjacent operator runs: keep them apart so the lexer doesn't
-        // glue `>` and `=` into `>=` unintentionally.
-        true
+        self.tokens.push(Token::LineBreak);
     }
 
     fn snapshot(&self) -> OutputSnapshot {
         OutputSnapshot {
-            bytes_len: self.bytes.len(),
-            last_token: self.last_token.clone(),
-            indent: self.indent,
-            at_line_start: self.at_line_start,
+            tokens_len: self.tokens.len(),
         }
     }
 
     fn restore(&mut self, snap: OutputSnapshot) {
-        self.bytes.truncate(snap.bytes_len);
-        self.last_token = snap.last_token;
-        self.indent = snap.indent;
-        self.at_line_start = snap.at_line_start;
+        self.tokens.truncate(snap.tokens_len);
     }
 
-    fn finish(mut self) -> Vec<u8> {
-        if !self.at_line_start {
-            self.bytes.push(b'\n');
-        }
-        self.bytes
+    fn finish(self) -> Vec<u8> {
+        layout(&self.tokens, self.policy)
     }
+}
+
+/// Fold a token list into bytes. The algebra:
+/// * adjacent `Lit`s get a single space iff `needs_space_between(a, b)`,
+/// * `IndentOpen` / `IndentClose` adjust a depth counter,
+/// * `LineBreak` writes `\n` if not already at line start, then the
+///   next `Lit` writes `indent * indent_width` spaces of indent.
+fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut indent: usize = 0;
+    let mut at_line_start = true;
+    let mut last_lit: Option<&str> = None;
+
+    for tok in tokens {
+        match tok {
+            Token::IndentOpen => indent += 1,
+            Token::IndentClose => {
+                indent = indent.saturating_sub(1);
+                if !at_line_start {
+                    bytes.push(b'\n');
+                    at_line_start = true;
+                }
+            }
+            Token::LineBreak => {
+                if !at_line_start {
+                    bytes.push(b'\n');
+                    at_line_start = true;
+                }
+            }
+            Token::Lit(value) => {
+                if at_line_start {
+                    bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
+                } else if let Some(prev) = last_lit {
+                    if needs_space_between(prev, value) {
+                        bytes.push(b' ');
+                    }
+                }
+                bytes.extend_from_slice(value.as_bytes());
+                at_line_start = false;
+                last_lit = Some(value.as_str());
+            }
+        }
+    }
+
+    if !at_line_start {
+        bytes.push(b'\n');
+    }
+    bytes
+}
+
+fn needs_space_between(last: &str, next: &str) -> bool {
+    if last.is_empty() || next.is_empty() {
+        return false;
+    }
+    if is_punct_open(last) || is_punct_open(next) {
+        return false;
+    }
+    if is_punct_close(next) {
+        return false;
+    }
+    if is_punct_close(last) && is_punct_punctuation(next) {
+        return false;
+    }
+    if last == "." || next == "." {
+        return false;
+    }
+    if last_is_word_like(last) && first_is_word_like(next) {
+        return true;
+    }
+    if last_ends_with_alnum(last) && first_is_alnum_or_underscore(next) {
+        return true;
+    }
+    // Adjacent operator runs: keep them apart so the lexer doesn't glue
+    // `>` and `=` into `>=` unintentionally.
+    true
 }
 
 fn is_punct_open(s: &str) -> bool {
