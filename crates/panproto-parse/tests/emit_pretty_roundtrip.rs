@@ -148,7 +148,7 @@ port = 8080
 
 #[cfg(feature = "lang-yaml")]
 #[test]
-#[ignore = "yaml grammar uses ALIAS extensively; same kind appears under many parent rules so reverse-lookup picks the wrong production. needs YAML-specific routing or grammar.json's `inline` table"]
+#[ignore = "yaml grammar's stream/document rules form deep cycles via SYMBOL self-references; even with dependent-optic ALIAS routing the walker recurses past 500 frames before producing a complete output. needs cycle-detection on (vertex_id, rule_name) pairs in the dispatch loop"]
 fn yaml_roundtrip() {
     round_trip(
         "yaml",

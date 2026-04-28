@@ -498,6 +498,16 @@ impl<'a> ChildCursor<'a> {
 
 thread_local! {
     static EMIT_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Set of `(vertex_id, rule_name)` pairs the current emit call
+    /// stack is already walking. A SYMBOL that resolves to a rule
+    /// already on this stack, with no cursor consumption between the
+    /// two visits, is a true grammar cycle (e.g. YAML's `block_node`
+    /// → `_b_blk_*` chain that loops back through SYMBOL
+    /// references). Returning `Ok` at the second visit breaks the
+    /// loop without aborting; any tokens that depend on a deeper
+    /// expansion are simply skipped.
+    static EMIT_VISIT: std::cell::RefCell<std::collections::HashSet<(String, String)>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
 }
 
 fn emit_production(
@@ -593,7 +603,23 @@ fn emit_production_inner(
                         protocol: protocol.to_owned(),
                         reason: format!("no production for SYMBOL '{name}'"),
                     })?;
-                emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out)
+                // Cycle guard: if we are about to walk a rule we
+                // are already walking on this same vertex, the
+                // grammar has a self-reference (`X = ... SYMBOL X
+                // ...`) and re-entering would loop until the depth
+                // limit. Skip silently; the surrounding production
+                // continues with whatever follows the cyclic SYMBOL.
+                let key = (vertex_id.to_string(), name.clone());
+                let inserted = EMIT_VISIT.with(|v| v.borrow_mut().insert(key.clone()));
+                if !inserted {
+                    return Ok(());
+                }
+                let result =
+                    emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out);
+                EMIT_VISIT.with(|v| {
+                    v.borrow_mut().remove(&key);
+                });
+                result
             } else {
                 // Named rule with no matching child: emit nothing and
                 // let the surrounding CHOICE / OPTIONAL / REPEAT
@@ -675,9 +701,17 @@ fn emit_production_inner(
             // A named ALIAS rewrites the parser-visible kind to
             // `value`. If the cursor has an unconsumed child whose
             // kind matches that alias name, take it and emit the
-            // alias body in the child's context — without this branch
-            // the inner `SYMBOL identifier` would walk on the parent
-            // cursor and never see the renamed child.
+            // child using the alias's INNER content as the rule
+            // (e.g. `ALIAS { SYMBOL real_rule, value: "kind_x" }`
+            // means a `kind_x` vertex on the schema should be walked
+            // through `real_rule`'s body, not through whatever rule
+            // happens to be keyed under `kind_x`). This is the
+            // dependent-optic shape: the rule the emitter walks at a
+            // child position is determined by the parent's chosen
+            // alias, not by the child kind alone — without it,
+            // grammars like YAML that introduce the same kind through
+            // many ALIAS sites lose the parent context the moment
+            // emit_vertex is called.
             if *named && !value.is_empty() {
                 if let Some(edge) = cursor.take_matching(|edge| {
                     schema
@@ -686,7 +720,7 @@ fn emit_production_inner(
                         .map(|v| v.kind.as_ref() == value.as_str())
                         .unwrap_or(false)
                 }) {
-                    return emit_vertex(protocol, schema, grammar, &edge.tgt, out);
+                    return emit_aliased_child(protocol, schema, grammar, &edge.tgt, content, out);
                 }
             }
             emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
@@ -803,6 +837,60 @@ fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &st
         return walk(grammar, rule, target_kind, &mut visited);
     }
     false
+}
+
+/// Emit a child reached through an ALIAS production using the
+/// alias's inner content as the rule, not `grammar.rules[child.kind]`.
+///
+/// This carries the dependent-optic context across the ALIAS edge:
+/// at the parent rule's site we know which underlying production the
+/// alias wraps (typically `SYMBOL real_rule`), and that's the
+/// production that should drive the emit walk on the child's
+/// children. Looking up `grammar.rules.get(child.kind)` instead would
+/// either fail (the renamed kind has no top-level rule, e.g. YAML's
+/// `block_mapping_pair`) or pick an arbitrary same-kinded rule from
+/// elsewhere in the grammar.
+fn emit_aliased_child(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    child_id: &panproto_gat::Name,
+    content: &Production,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    // Leaf shortcut: if the child has a literal-value and no
+    // structural children, emit the captured text. Identifiers and
+    // similar terminals reach here when an ALIAS wraps a SYMBOL that
+    // resolves to a PATTERN.
+    if let Some(literal) = literal_value(schema, child_id) {
+        if children_for(schema, child_id).is_empty() {
+            out.token(literal);
+            return Ok(());
+        }
+    }
+
+    // Resolve `content` to a rule when it's a SYMBOL (the dominant
+    // shape: `ALIAS { content: SYMBOL real_rule, value: "kind_x" }`).
+    if let Production::Symbol { name } = content {
+        if let Some(rule) = grammar.rules.get(name) {
+            let edges = children_for(schema, child_id);
+            let mut cursor = ChildCursor::new(&edges);
+            return emit_production(protocol, schema, grammar, child_id, rule, &mut cursor, out);
+        }
+    }
+
+    // Other ALIAS contents (CHOICE, SEQ, literals) walk in place.
+    let edges = children_for(schema, child_id);
+    let mut cursor = ChildCursor::new(&edges);
+    emit_production(
+        protocol,
+        schema,
+        grammar,
+        child_id,
+        content,
+        &mut cursor,
+        out,
+    )
 }
 
 fn emit_in_child_context(
