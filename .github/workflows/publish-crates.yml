@@ -138,13 +138,16 @@ jobs:
           # Level 8 — depends on schema, mig, check, lens, gat, inst,
           # expr, protocols
           publish_one panproto-vcs
-          # Level 9 — depend on vcs (xrpc, project, core)
+          # Level 9 — depend on vcs (xrpc, project)
           publish_one panproto-xrpc
           publish_one panproto-project
-          publish_one panproto-core
-          # Level 10 — depend on project (git), core (wasm, cli)
+          # Level 10 — depends on project + vcs
           publish_one panproto-git
+          # Level 11 — facade; has optional `git` feature that pulls
+          # in panproto-git, so core must publish AFTER git
+          publish_one panproto-core
+          # Level 12 — depend on core (wasm, cli) and on git/xrpc/vcs
+          # (git-remote)
           publish_one panproto-wasm
           publish_one panproto-cli
-          # Level 11 — depends on git, xrpc, vcs, protocols, schema
           publish_one panproto-git-remote
