@@ -148,7 +148,7 @@ port = 8080
 
 #[cfg(feature = "lang-yaml")]
 #[test]
-#[ignore = "indent-sensitive grammar; default FormatPolicy needs per-language overrides"]
+#[ignore = "yaml grammar uses ALIAS extensively; same kind appears under many parent rules so reverse-lookup picks the wrong production. needs YAML-specific routing or grammar.json's `inline` table"]
 fn yaml_roundtrip() {
     round_trip(
         "yaml",
@@ -176,7 +176,6 @@ fn add(a: i32, b: i32) -> i32 {
 
 #[cfg(feature = "lang-python")]
 #[test]
-#[ignore = "indent / NEWLINE / DEDENT tokens are anonymous; need per-language emission"]
 fn python_roundtrip() {
     round_trip(
         "python",
@@ -189,7 +188,6 @@ def add(a, b):
 
 #[cfg(feature = "lang-go")]
 #[test]
-#[ignore = "anonymous CHOICE alternatives in statement-level dispatch; needs per-language work"]
 fn go_roundtrip() {
     round_trip(
         "go",

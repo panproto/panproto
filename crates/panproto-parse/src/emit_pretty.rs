@@ -245,6 +245,39 @@ pub struct Grammar {
     /// production. Entries are kept in lexical order so iteration
     /// is deterministic.
     pub rules: BTreeMap<String, Production>,
+    /// Supertypes declared in the grammar's `supertypes` field. A
+    /// supertype is a rule whose body is a `CHOICE` of `SYMBOL`
+    /// references; tree-sitter parsers report a node's kind as one
+    /// of the subtypes (e.g. `identifier`, `typed_parameter`) rather
+    /// than the supertype name (`parameter`), so the emitter needs to
+    /// know that a child kind in a subtype set should match the
+    /// supertype name when a SYMBOL references it.
+    #[serde(default, deserialize_with = "deserialize_supertypes")]
+    pub supertypes: std::collections::HashSet<String>,
+}
+
+fn deserialize_supertypes<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::HashSet<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries: Vec<serde_json::Value> = Vec::deserialize(deserializer)?;
+    let mut out = std::collections::HashSet::new();
+    for entry in entries {
+        match entry {
+            serde_json::Value::String(s) => {
+                out.insert(s);
+            }
+            serde_json::Value::Object(map) => {
+                if let Some(serde_json::Value::String(name)) = map.get("name") {
+                    out.insert(name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
 }
 
 impl Grammar {
@@ -397,20 +430,22 @@ fn emit_vertex(
     }
 
     let kind = vertex.kind.as_ref();
-    let rule = grammar
-        .rules
-        .get(kind)
-        .ok_or_else(|| ParseError::EmitFailed {
-            protocol: protocol.to_owned(),
-            reason: format!(
-                "no production for vertex kind '{kind}' (is grammar.json out of sync \
-                     with the parser?)"
-            ),
-        })?;
-
     let edges = children_for(schema, vertex_id);
-    let mut cursor = ChildCursor::new(&edges);
-    emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)
+    if let Some(rule) = grammar.rules.get(kind) {
+        let mut cursor = ChildCursor::new(&edges);
+        return emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out);
+    }
+
+    // No rule for this kind. The parser produced it via an ALIAS
+    // (tree-sitter's `alias($.something, $.actual_kind)`) or via an
+    // external scanner (e.g. YAML's `document` root). Fall back to
+    // walking the children directly so the inner content survives;
+    // surrounding tokens — whose only source is the missing rule —
+    // are necessarily absent.
+    for edge in &edges {
+        emit_vertex(protocol, schema, grammar, &edge.tgt, out)?;
+    }
+    Ok(())
 }
 
 /// Linear cursor over a vertex's outgoing edges, used to thread
@@ -632,8 +667,31 @@ fn emit_production_inner(
                 Ok(())
             }
         }
-        Production::Alias { content, .. }
-        | Production::Token { content }
+        Production::Alias {
+            content,
+            named,
+            value,
+        } => {
+            // A named ALIAS rewrites the parser-visible kind to
+            // `value`. If the cursor has an unconsumed child whose
+            // kind matches that alias name, take it and emit the
+            // alias body in the child's context — without this branch
+            // the inner `SYMBOL identifier` would walk on the parent
+            // cursor and never see the renamed child.
+            if *named && !value.is_empty() {
+                if let Some(edge) = cursor.take_matching(|edge| {
+                    schema
+                        .vertices
+                        .get(&edge.tgt)
+                        .map(|v| v.kind.as_ref() == value.as_str())
+                        .unwrap_or(false)
+                }) {
+                    return emit_vertex(protocol, schema, grammar, &edge.tgt, out);
+                }
+            }
+            emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
+        }
+        Production::Token { content }
         | Production::ImmediateToken { content }
         | Production::Prec { content, .. }
         | Production::PrecLeft { content, .. }
@@ -662,16 +720,25 @@ fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &st
     if target_kind == Some(name) {
         return true;
     }
-    // Only inline-expand hidden rules (`_`-prefixed): these are
-    // tree-sitter's pass-through rules whose alternatives become the
-    // actual node kinds. A non-hidden rule reference like `dotted_key`
-    // should match exactly that kind on the schema side, not any of
-    // the kinds reachable by following its production body — otherwise
-    // `kind_satisfies_symbol` becomes a transitive closure that
-    // accepts every leaf the rule can produce, and CHOICE dispatch
-    // picks the wrong alternative (e.g. choosing the `dotted_key`
-    // branch for a single bare key).
-    if !name.starts_with('_') {
+    // Inline-expand:
+    //
+    // - Hidden rules (`_`-prefixed) — tree-sitter's pass-through
+    //   rules whose alternatives become the actual node kinds.
+    // - Declared supertypes — rules listed in the grammar's
+    //   `supertypes` block, whose subtypes (the SYMBOL alternatives)
+    //   are what the parser reports as the actual node kind. A
+    //   reference to `parameter` should match an `identifier` on the
+    //   schema side because identifier is one of parameter's
+    //   subtypes.
+    //
+    // A regular non-hidden, non-supertype rule reference like
+    // `dotted_key` still requires exact kind match on the schema
+    // side; otherwise `kind_satisfies_symbol` becomes a transitive
+    // closure that accepts every leaf the rule can produce, and
+    // CHOICE dispatch picks the wrong alternative (e.g. choosing
+    // `dotted_key` for a single bare key).
+    let allow_expand = name.starts_with('_') || grammar.supertypes.contains(name);
+    if !allow_expand {
         return false;
     }
     let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -686,8 +753,10 @@ fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &st
                 if Some(name.as_str()) == target_kind {
                     return true;
                 }
-                // Continue expansion only through more hidden rules.
-                if !name.starts_with('_') {
+                // Continue expansion through hidden rules or declared
+                // supertypes only; a regular rule reference must match
+                // by kind on the schema side.
+                if !name.starts_with('_') && !grammar.supertypes.contains(name.as_str()) {
                     return false;
                 }
                 if visited.insert(name.as_str()) {
@@ -700,11 +769,25 @@ fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &st
             Production::Choice { members } | Production::Seq { members } => members
                 .iter()
                 .any(|m| walk(grammar, m, target_kind, visited)),
+            Production::Alias {
+                content,
+                named,
+                value,
+            } => {
+                // ALIAS rewrites the parser-visible kind: a node that
+                // structurally is the inner `content` is reported as
+                // `value` when `named`. The schema's vertex kind is
+                // therefore `value`, and the walker should treat that
+                // as a match for the surrounding SYMBOL.
+                if *named && Some(value.as_str()) == target_kind {
+                    return true;
+                }
+                walk(grammar, content, target_kind, visited)
+            }
             Production::Repeat { content }
             | Production::Repeat1 { content }
             | Production::Optional { content }
             | Production::Field { content, .. }
-            | Production::Alias { content, .. }
             | Production::Token { content }
             | Production::ImmediateToken { content }
             | Production::Prec { content, .. }
@@ -1047,13 +1130,18 @@ fn literal_value<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Opti
 }
 
 fn placeholder_for_pattern(pattern: &str) -> String {
-    // Heuristic placeholder for unconstrained PATTERN terminals. The
-    // grammar's regex covers the surface form (`[A-Za-z_]\w*` for
-    // identifiers, `[0-9]+` for integers, etc.); we emit a string
-    // that matches the most common dialects of those regexes so the
-    // surrounding tokens still parse cleanly. Callers that demand
-    // deterministic output should populate `literal-value` on every
-    // PATTERN-typed vertex before calling [`emit_pretty`].
+    // Heuristic placeholder for unconstrained PATTERN terminals.
+    //
+    // First handle the "the regex IS a literal escape" cases that
+    // tree-sitter grammars use as separators (`\n`, `\r\n`, `;`,
+    // etc.); emitting the matching character is always preferable
+    // to a `_x` identifier-like placeholder when the surrounding
+    // grammar expects a separator.
+    let simple_lit = decode_simple_pattern_literal(pattern);
+    if let Some(lit) = simple_lit {
+        return lit;
+    }
+
     if pattern.contains("[0-9]") || pattern.contains("\\d") {
         "0".into()
     } else if pattern.contains("[a-zA-Z_]") || pattern.contains("\\w") {
@@ -1063,6 +1151,39 @@ fn placeholder_for_pattern(pattern: &str) -> String {
     } else {
         "_".into()
     }
+}
+
+/// Decode a tree-sitter PATTERN whose regex is a simple literal
+/// (newline, semicolon, comma, etc.) to the byte sequence it matches.
+/// Returns `None` for patterns with character classes, alternations,
+/// or quantifiers; the caller falls back to the heuristic placeholder.
+fn decode_simple_pattern_literal(pattern: &str) -> Option<String> {
+    // Skip patterns containing regex metachars that would broaden the
+    // match beyond a single literal byte sequence.
+    if pattern
+        .chars()
+        .any(|c| matches!(c, '[' | ']' | '(' | ')' | '*' | '+' | '?' | '|' | '{' | '}'))
+    {
+        return None;
+    }
+    let mut out = String::new();
+    let mut chars = pattern.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
+                Some('t') => out.push('\t'),
+                Some('\\') => out.push('\\'),
+                Some('/') => out.push('/'),
+                Some(other) => out.push(other),
+                None => return None,
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Some(out)
 }
 
 // ═══════════════════════════════════════════════════════════════════
