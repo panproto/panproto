@@ -89,14 +89,19 @@ jobs:
           publish_one() {
             local crate="$1"
             echo "::group::publish $crate"
-            if cargo publish -p "$crate" --locked --no-verify; then
+            local out
+            if out=$(cargo publish -p "$crate" --locked --no-verify 2>&1); then
+              echo "$out"
               echo "$crate $VERSION published"
             else
               local code=$?
-              # Idempotent re-runs: crates.io returns 400 for an
-              # already-published exact version. Detect that case via
-              # `cargo search` and continue rather than failing.
-              if cargo search "$crate" | grep -q "^$crate = \"$VERSION\""; then
+              echo "$out"
+              # Idempotent re-runs: cargo publish prints
+              # "crate <name>@<version> already exists on crates.io index"
+              # when the exact version is already on the registry. Match
+              # that message directly rather than running a separate
+              # `cargo search` (whose output format is unreliable in CI).
+              if echo "$out" | grep -q "already exists on crates.io index"; then
                 echo "$crate $VERSION already published; continuing"
               else
                 echo "::error::cargo publish $crate failed with code $code"
