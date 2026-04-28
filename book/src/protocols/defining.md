@@ -55,7 +55,7 @@ Both are expected to respect the theory they are registered against. A parser re
 
 Most parsers aim to satisfy a round-trip law: emit after parse is the identity on the original bytes. The exact form of the law depends on the protocol. For protocols with unambiguous surface syntax the law is literal. For human-edited formats — YAML, SQL DDL, source code — the law is weakened to "parse-then-emit is the identity up to whitespace and comment layout", and the `panproto-io` crate supplies a *CST complement* that captures the remaining bytes outside the theory's grip. The machinery is developed separately; the parser/emitter trait itself does not require it.
 
-Parsers for the shipped protocols are implemented by hand against each protocol's specification. Parsers for programming languages — Python, Rust, TypeScript, and the other 245 tree-sitter-supported languages — are auto-derived from tree-sitter grammars, a process [the tree-sitter chapter](./tree-sitter.md) develops in full.
+Parsers for the shipped protocols are implemented by hand against each protocol's specification. Parsers for programming languages — Python, Rust, TypeScript, and the other 247 tree-sitter-supported languages — are auto-derived from tree-sitter grammars, a process [the tree-sitter chapter](./tree-sitter.md) develops in full.
 
 ## A real protocol
 

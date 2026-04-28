@@ -857,6 +857,16 @@ extensions = ["squirrel", "nut"]
 repo = "https://github.com/ObserverOfTime/tree-sitter-ssh-config"
 extensions = []
 
+[stan]
+repo = "https://github.com/WardBrian/tree-sitter-stan"
+extensions = ["stan"]
+directory = "grammars/stan"
+
+[stanfunctions]
+repo = "https://github.com/WardBrian/tree-sitter-stan"
+extensions = ["stanfunctions"]
+directory = "grammars/stanfunctions"
+
 [starlark]
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-starlark"
 extensions = ["star", "bzl"]

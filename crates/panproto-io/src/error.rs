@@ -88,3 +88,75 @@ pub enum EmitInstanceError {
     #[error("JSON emit error: {0}")]
     Json(String),
 }
+
+/// Errors that can occur when constructing a [`UnifiedCodec`](super::unified_codec::UnifiedCodec).
+///
+/// Returned by `UnifiedCodec::new` and the format-specific convenience
+/// constructors (`json`, `xml`, `yaml`, `toml`, `csv`, `tsv`) when the
+/// requested tree-sitter grammar is not available at runtime or when
+/// the grammar's parser-init machinery rejects it.
+#[cfg(feature = "tree-sitter")]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum UnifiedCodecError {
+    /// The tree-sitter grammar for the requested format is not compiled in.
+    ///
+    /// Enable the corresponding `panproto-grammars/lang-<format>` feature
+    /// (transitively via `panproto-io/tree-sitter`) to make the codec
+    /// available.
+    #[error(
+        "tree-sitter grammar '{format}' not available; \
+         enable panproto-grammars/lang-{format}"
+    )]
+    MissingGrammar {
+        /// Grammar / format name (`json`, `xml`, `yaml`, `toml`, `csv`, `tsv`).
+        format: String,
+    },
+
+    /// The grammar is compiled in but its parser failed to initialize.
+    ///
+    /// Typical causes: malformed bundled `node-types.json`, a `tags.scm`
+    /// query that fails to compile against the grammar, or a tree-sitter
+    /// version mismatch between the compiled grammar and the runtime.
+    #[error("failed to initialize grammar '{format}': {source}")]
+    ParserInit {
+        /// Grammar / format name.
+        format: String,
+        /// Underlying parse-error from `LanguageParser::from_language`.
+        #[source]
+        source: Box<panproto_parse::error::ParseError>,
+    },
+}
+
+#[cfg(all(test, feature = "tree-sitter"))]
+mod unified_codec_error_tests {
+    use super::UnifiedCodecError;
+
+    #[test]
+    fn missing_grammar_message_names_format_and_feature() {
+        let err = UnifiedCodecError::MissingGrammar {
+            format: "json".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("json"), "format name in message: {msg:?}");
+        assert!(
+            msg.contains("panproto-grammars/lang-json"),
+            "feature hint in message: {msg:?}"
+        );
+    }
+
+    #[test]
+    fn parser_init_carries_source_chain() {
+        use std::error::Error as _;
+        let inner = panproto_parse::error::ParseError::TheoryExtraction {
+            reason: "synthetic test".to_owned(),
+        };
+        let err = UnifiedCodecError::ParserInit {
+            format: "yaml".into(),
+            source: Box::new(inner),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("yaml"), "format name in message: {msg:?}");
+        assert!(err.source().is_some(), "source chain must be exposed");
+    }
+}

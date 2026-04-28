@@ -122,6 +122,65 @@ impl ProtocolRegistry {
         );
     }
 
+    /// Register a codec produced by a fallible constructor, skipping
+    /// registration on `Err`.
+    ///
+    /// Intended for grammar-gated codecs: a binary built without the
+    /// underlying tree-sitter feature returns `Err(MissingGrammar)` from
+    /// the codec constructor, and the resulting codec is silently absent
+    /// from the registry rather than aborting registration of the rest.
+    /// The constructor's error is returned so callers that want to
+    /// surface a diagnostic can; the common pattern is to ignore it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the constructor's error verbatim when `codec` is `Err`.
+    pub fn try_register<C, E>(&mut self, codec: Result<C, E>) -> Result<(), E>
+    where
+        C: ProtocolCodec + 'static,
+    {
+        let codec = codec?;
+        self.register(codec);
+        Ok(())
+    }
+
+    /// Register a codec built by a `UnifiedCodec` constructor, distinguishing
+    /// expected from unexpected failures.
+    ///
+    /// * `Ok(codec)` → register normally.
+    /// * `Err(MissingGrammar)` → silently skip (the corresponding
+    ///   `lang-*` cargo feature is disabled in this build, an
+    ///   expected configuration).
+    /// * `Err(ParserInit { source })` → log to stderr and skip.
+    ///   A bundled grammar that fails parser-init is a build-system
+    ///   bug rather than a runtime condition; logging surfaces the
+    ///   regression without aborting the host process. Panicking here
+    ///   would violate the WASM "no panics across the boundary"
+    ///   contract and break web/Python/Node hosts whenever a single
+    ///   bundled grammar regresses.
+    ///
+    /// Use this in place of `let _ = registry.try_register(...)` so
+    /// that `ParserInit` failures are surfaced (loudly to stderr) and
+    /// not silently swallowed.
+    #[cfg(feature = "tree-sitter")]
+    pub fn register_optional<C: ProtocolCodec + 'static>(
+        &mut self,
+        codec: Result<C, crate::error::UnifiedCodecError>,
+    ) {
+        match codec {
+            Ok(codec) => self.register(codec),
+            Err(crate::error::UnifiedCodecError::MissingGrammar { .. }) => {
+                // Expected: grammar feature disabled.
+            }
+            Err(err @ crate::error::UnifiedCodecError::ParserInit { .. }) => {
+                eprintln!(
+                    "panproto-io: bundled grammar failed parser initialisation; \
+                     skipping registration: {err}"
+                );
+            }
+        }
+    }
+
     /// Look up the native representation for a protocol.
     ///
     /// # Errors
@@ -282,5 +341,104 @@ impl ProtocolRegistry {
 impl Default for ProtocolRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+#[allow(deprecated)]
+mod try_register_tests {
+    use super::*;
+    use crate::json_codec::JsonCodec;
+
+    #[test]
+    fn try_register_ok_inserts_codec() {
+        let mut registry = ProtocolRegistry::new();
+        #[allow(deprecated)]
+        let codec: Result<JsonCodec, &'static str> = Ok(JsonCodec::new("ok-protocol"));
+        let outcome = registry.try_register(codec);
+        assert!(outcome.is_ok(), "Ok constructor should register");
+        assert!(
+            registry.protocol_names().any(|n| n == "ok-protocol"),
+            "the codec should be visible in protocol_names"
+        );
+    }
+
+    #[test]
+    fn try_register_err_skips_and_propagates() {
+        let mut registry = ProtocolRegistry::new();
+        let before: usize = registry.protocol_names().count();
+        let codec: Result<JsonCodec, &'static str> = Err("missing grammar");
+        let outcome = registry.try_register(codec);
+        assert_eq!(outcome, Err("missing grammar"));
+        let after: usize = registry.protocol_names().count();
+        assert_eq!(
+            before, after,
+            "registry size must not change when constructor returns Err"
+        );
+    }
+
+    #[test]
+    fn try_register_multiple_mixed_outcomes() {
+        let mut registry = ProtocolRegistry::new();
+        #[allow(deprecated)]
+        let _ = registry.try_register::<JsonCodec, &'static str>(Ok(JsonCodec::new("a")));
+        let _ = registry.try_register::<JsonCodec, &'static str>(Err("nope"));
+        #[allow(deprecated)]
+        let _ = registry.try_register::<JsonCodec, &'static str>(Ok(JsonCodec::new("b")));
+        let names: std::collections::BTreeSet<&str> = registry.protocol_names().collect();
+        assert!(names.contains("a"), "Ok codec 'a' must be present");
+        assert!(names.contains("b"), "Ok codec 'b' must be present");
+        assert!(
+            !names.contains("nope"),
+            "Err codec must not pollute the registry"
+        );
+    }
+
+    #[cfg(feature = "tree-sitter")]
+    #[test]
+    fn register_optional_missing_grammar_silently_skips() {
+        use crate::error::UnifiedCodecError;
+        let mut registry = ProtocolRegistry::new();
+        let before: usize = registry.protocol_names().count();
+        let codec: Result<JsonCodec, UnifiedCodecError> = Err(UnifiedCodecError::MissingGrammar {
+            format: "json".into(),
+        });
+        registry.register_optional(codec);
+        let after: usize = registry.protocol_names().count();
+        assert_eq!(
+            before, after,
+            "MissingGrammar must skip registration without diagnostic noise"
+        );
+    }
+
+    #[cfg(feature = "tree-sitter")]
+    #[test]
+    fn register_optional_parser_init_skips_with_stderr_log() {
+        use crate::error::UnifiedCodecError;
+        let mut registry = ProtocolRegistry::new();
+        let inner = panproto_parse::error::ParseError::TheoryExtraction {
+            reason: "synthetic for test".to_owned(),
+        };
+        let codec: Result<JsonCodec, UnifiedCodecError> = Err(UnifiedCodecError::ParserInit {
+            format: "yaml".into(),
+            source: Box::new(inner),
+        });
+        registry.register_optional(codec);
+        assert!(
+            registry.protocol_names().count() == 0,
+            "ParserInit must skip registration; the eprintln diagnostic surfaces the regression \
+             without aborting the host process (WASM-safe contract)"
+        );
+    }
+
+    #[cfg(feature = "tree-sitter")]
+    #[test]
+    fn register_optional_ok_inserts_codec() {
+        use crate::error::UnifiedCodecError;
+        let mut registry = ProtocolRegistry::new();
+        #[allow(deprecated)]
+        let codec: Result<JsonCodec, UnifiedCodecError> = Ok(JsonCodec::new("ok"));
+        registry.register_optional(codec);
+        assert!(registry.protocol_names().any(|n| n == "ok"));
     }
 }

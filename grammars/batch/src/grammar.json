@@ -1,0 +1,797 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
+  "name": "batch",
+  "rules": {
+    "program": {
+      "type": "REPEAT",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "echooff"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "comment"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "variable_declaration"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "variable_reference"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "keyword"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "function_definition"
+          }
+        ]
+      }
+    },
+    "echooff": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "@"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "echo off"
+        }
+      ]
+    },
+    "comment": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "@"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "STRING",
+              "value": "::"
+            },
+            {
+              "type": "PATTERN",
+              "value": ".*"
+            }
+          ]
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "@"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "STRING",
+              "value": "REM"
+            },
+            {
+              "type": "PATTERN",
+              "value": ".*"
+            }
+          ]
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "@"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "STRING",
+              "value": "Rem"
+            },
+            {
+              "type": "PATTERN",
+              "value": ".*"
+            }
+          ]
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "@"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "STRING",
+              "value": "rem"
+            },
+            {
+              "type": "PATTERN",
+              "value": ".*"
+            }
+          ]
+        }
+      ]
+    },
+    "variable_declaration": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "@"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "SET"
+            },
+            {
+              "type": "STRING",
+              "value": "Set"
+            },
+            {
+              "type": "STRING",
+              "value": "set"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "/A"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "STRING",
+          "value": "="
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "string"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "number"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "variable_reference"
+            }
+          ]
+        }
+      ]
+    },
+    "variable_reference": {
+      "type": "PREC",
+      "value": 2,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "%"
+          },
+          {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "identifier"
+            },
+            "named": false,
+            "value": "variable_name"
+          },
+          {
+            "type": "STRING",
+            "value": "%"
+          }
+        ]
+      }
+    },
+    "keyword": {
+      "type": "PREC",
+      "value": 1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "@"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "ECHO"
+              },
+              {
+                "type": "STRING",
+                "value": "SET"
+              },
+              {
+                "type": "STRING",
+                "value": "IF"
+              },
+              {
+                "type": "STRING",
+                "value": "GOTO"
+              },
+              {
+                "type": "STRING",
+                "value": "EXIT"
+              },
+              {
+                "type": "STRING",
+                "value": "FOR"
+              },
+              {
+                "type": "STRING",
+                "value": "REM"
+              },
+              {
+                "type": "STRING",
+                "value": "PAUSE"
+              },
+              {
+                "type": "STRING",
+                "value": "CLS"
+              },
+              {
+                "type": "STRING",
+                "value": "echo"
+              },
+              {
+                "type": "STRING",
+                "value": "set"
+              },
+              {
+                "type": "STRING",
+                "value": "if"
+              },
+              {
+                "type": "STRING",
+                "value": "goto"
+              },
+              {
+                "type": "STRING",
+                "value": "exit"
+              },
+              {
+                "type": "STRING",
+                "value": "for"
+              },
+              {
+                "type": "STRING",
+                "value": "rem"
+              },
+              {
+                "type": "STRING",
+                "value": "pause"
+              },
+              {
+                "type": "STRING",
+                "value": "cls"
+              },
+              {
+                "type": "STRING",
+                "value": "VER"
+              },
+              {
+                "type": "STRING",
+                "value": "ASSOC"
+              },
+              {
+                "type": "STRING",
+                "value": "CD"
+              },
+              {
+                "type": "STRING",
+                "value": "COPY"
+              },
+              {
+                "type": "STRING",
+                "value": "DEL"
+              },
+              {
+                "type": "STRING",
+                "value": "DIR"
+              },
+              {
+                "type": "STRING",
+                "value": "DATE"
+              },
+              {
+                "type": "STRING",
+                "value": "MD"
+              },
+              {
+                "type": "STRING",
+                "value": "MOVE"
+              },
+              {
+                "type": "STRING",
+                "value": "PATH"
+              },
+              {
+                "type": "STRING",
+                "value": "PROMPT"
+              },
+              {
+                "type": "STRING",
+                "value": "RD"
+              },
+              {
+                "type": "STRING",
+                "value": "REN"
+              },
+              {
+                "type": "STRING",
+                "value": "START"
+              },
+              {
+                "type": "STRING",
+                "value": "TIME"
+              },
+              {
+                "type": "STRING",
+                "value": "TYPE"
+              },
+              {
+                "type": "STRING",
+                "value": "VOL"
+              },
+              {
+                "type": "STRING",
+                "value": "ATTRIB"
+              },
+              {
+                "type": "STRING",
+                "value": "CHKDSK"
+              },
+              {
+                "type": "STRING",
+                "value": "CHOICE"
+              },
+              {
+                "type": "STRING",
+                "value": "CMD"
+              },
+              {
+                "type": "STRING",
+                "value": "COMP"
+              },
+              {
+                "type": "STRING",
+                "value": "CONVERT"
+              },
+              {
+                "type": "STRING",
+                "value": "DRIVERQUERY"
+              },
+              {
+                "type": "STRING",
+                "value": "EXPAND"
+              },
+              {
+                "type": "STRING",
+                "value": "FIND"
+              },
+              {
+                "type": "STRING",
+                "value": "FORMAT"
+              },
+              {
+                "type": "STRING",
+                "value": "HELP"
+              },
+              {
+                "type": "STRING",
+                "value": "IPCONFIG"
+              },
+              {
+                "type": "STRING",
+                "value": "LABEL"
+              },
+              {
+                "type": "STRING",
+                "value": "NET"
+              },
+              {
+                "type": "STRING",
+                "value": "PING"
+              },
+              {
+                "type": "STRING",
+                "value": "SHUTDOWN"
+              },
+              {
+                "type": "STRING",
+                "value": "SORT"
+              },
+              {
+                "type": "STRING",
+                "value": "SUBST"
+              },
+              {
+                "type": "STRING",
+                "value": "SYSTEMINFO"
+              },
+              {
+                "type": "STRING",
+                "value": "TASKKILL"
+              },
+              {
+                "type": "STRING",
+                "value": "TASKLIST"
+              },
+              {
+                "type": "STRING",
+                "value": "XCOPY"
+              },
+              {
+                "type": "STRING",
+                "value": "TREE"
+              },
+              {
+                "type": "STRING",
+                "value": "FC"
+              },
+              {
+                "type": "STRING",
+                "value": "DISKPART"
+              },
+              {
+                "type": "STRING",
+                "value": "TITLE"
+              },
+              {
+                "type": "STRING",
+                "value": "ver"
+              },
+              {
+                "type": "STRING",
+                "value": "assoc"
+              },
+              {
+                "type": "STRING",
+                "value": "cd"
+              },
+              {
+                "type": "STRING",
+                "value": "copy"
+              },
+              {
+                "type": "STRING",
+                "value": "del"
+              },
+              {
+                "type": "STRING",
+                "value": "dir"
+              },
+              {
+                "type": "STRING",
+                "value": "date"
+              },
+              {
+                "type": "STRING",
+                "value": "md"
+              },
+              {
+                "type": "STRING",
+                "value": "move"
+              },
+              {
+                "type": "STRING",
+                "value": "path"
+              },
+              {
+                "type": "STRING",
+                "value": "prompt"
+              },
+              {
+                "type": "STRING",
+                "value": "rd"
+              },
+              {
+                "type": "STRING",
+                "value": "ren"
+              },
+              {
+                "type": "STRING",
+                "value": "start"
+              },
+              {
+                "type": "STRING",
+                "value": "time"
+              },
+              {
+                "type": "STRING",
+                "value": "type"
+              },
+              {
+                "type": "STRING",
+                "value": "vol"
+              },
+              {
+                "type": "STRING",
+                "value": "attrib"
+              },
+              {
+                "type": "STRING",
+                "value": "chkdsk"
+              },
+              {
+                "type": "STRING",
+                "value": "choice"
+              },
+              {
+                "type": "STRING",
+                "value": "cmd"
+              },
+              {
+                "type": "STRING",
+                "value": "comp"
+              },
+              {
+                "type": "STRING",
+                "value": "convert"
+              },
+              {
+                "type": "STRING",
+                "value": "driverquery"
+              },
+              {
+                "type": "STRING",
+                "value": "expand"
+              },
+              {
+                "type": "STRING",
+                "value": "find"
+              },
+              {
+                "type": "STRING",
+                "value": "format"
+              },
+              {
+                "type": "STRING",
+                "value": "help"
+              },
+              {
+                "type": "STRING",
+                "value": "ipconfig"
+              },
+              {
+                "type": "STRING",
+                "value": "label"
+              },
+              {
+                "type": "STRING",
+                "value": "net"
+              },
+              {
+                "type": "STRING",
+                "value": "ping"
+              },
+              {
+                "type": "STRING",
+                "value": "shutdown"
+              },
+              {
+                "type": "STRING",
+                "value": "sort"
+              },
+              {
+                "type": "STRING",
+                "value": "subst"
+              },
+              {
+                "type": "STRING",
+                "value": "systeminfo"
+              },
+              {
+                "type": "STRING",
+                "value": "taskkill"
+              },
+              {
+                "type": "STRING",
+                "value": "tasklist"
+              },
+              {
+                "type": "STRING",
+                "value": "tasklist"
+              },
+              {
+                "type": "STRING",
+                "value": "xcopy"
+              },
+              {
+                "type": "STRING",
+                "value": "tree"
+              },
+              {
+                "type": "STRING",
+                "value": "fc"
+              },
+              {
+                "type": "STRING",
+                "value": "diskpart"
+              },
+              {
+                "type": "STRING",
+                "value": "title"
+              }
+            ]
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "string"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "number"
+                  }
+                ]
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "function_definition": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "@"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          },
+          "named": false,
+          "value": "function_name"
+        }
+      ]
+    },
+    "identifier": {
+      "type": "PATTERN",
+      "value": "[a-zA-Z_][a-zA-Z0-9_]*"
+    },
+    "string": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "\""
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "PATTERN",
+            "value": "[^\"\\n]"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "\""
+        }
+      ]
+    },
+    "number": {
+      "type": "PATTERN",
+      "value": "\\d+"
+    }
+  },
+  "extras": [
+    {
+      "type": "PATTERN",
+      "value": "\\s"
+    }
+  ],
+  "conflicts": [],
+  "precedences": [],
+  "externals": [],
+  "inline": [],
+  "supertypes": []
+}

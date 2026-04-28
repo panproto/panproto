@@ -19,7 +19,7 @@
 
 </div>
 
-panproto reads your schema (JSON Schema, OpenAPI, ATProto Lexicons, Protobuf, GraphQL, SQL DDL, Avro, or [45 others](crates/panproto-protocols)), figures out what changed, and generates the code to convert your data from the old shape to the new one. It can also parse source code in 248 programming languages (via tree-sitter) and treat the full AST as a schema, so the same diff/migrate/version-control workflow works on code structure, not just data formats. It version-controls your schemas the same way git version-controls your source code.
+panproto reads your schema (JSON Schema, OpenAPI, ATProto Lexicons, Protobuf, GraphQL, SQL DDL, Avro, or [45 others](crates/panproto-protocols)), figures out what changed, and generates the code to convert your data from the old shape to the new one. It can also parse source code in 250 programming languages (via tree-sitter) and treat the full AST as a schema, so the same diff/migrate/version-control workflow works on code structure, not just data formats. It version-controls your schemas the same way git version-controls your source code.
 
 ## What problem does this solve?
 
@@ -29,7 +29,7 @@ Every time you change an API response, rename a database column, or update a con
 2. **Classify** whether the change is backward-compatible or breaking, using the rules of the specific schema language.
 3. **Generate** a bidirectional lens that can convert records from the old schema to the new one (and back, without losing data).
 4. **Version-control** your schemas with git-style commands (`commit`, `branch`, `merge`, `diff`) so your schema history is as clean as your code history.
-5. **Parse source code** in 248 languages (TypeScript, Python, Rust, Go, Java, C, and [242 more](crates/panproto-grammars)) into the same schema representation, so you can diff, migrate, and version-control code structure alongside data schemas.
+5. **Parse source code** in 250 languages (TypeScript, Python, Rust, Go, Java, C, and [244 more](crates/panproto-grammars)) into the same schema representation, so you can diff, migrate, and version-control code structure alongside data schemas.
 
 It works the same way regardless of whether your schema is an OpenAPI spec, an ATProto lexicon, a Protobuf definition, or a SQL table. panproto treats all of them as instances of a common structure.
 
@@ -168,7 +168,7 @@ schema lens inspect chain.json
 schema data convert --src-schema old.json --tgt-schema new.json record.json
 schema data migrate records/
 
-# Full-AST parsing (248 languages)
+# Full-AST parsing (250 languages)
 schema parse file src/main.ts
 schema parse project ./src
 schema parse emit src/main.ts
@@ -200,8 +200,8 @@ schema expr repl
 | [`panproto-protocols`](crates/panproto-protocols) | 51 built-in schema language definitions: ATProto, OpenAPI, JSON Schema, Protobuf, GraphQL, SQL DDL, Avro, and more. |
 | [`panproto-io`](crates/panproto-io) | Reads and writes instance data in each protocol's native format (JSON, XML, YAML, CSV, etc.) with optional format-preserving round-trips. |
 | [`panproto-vcs`](crates/panproto-vcs) | Git-style version control for schemas: commit, branch, merge, diff, log, blame, bisect. |
-| [`panproto-parse`](crates/panproto-parse) | Parses source code in 248 programming languages into schema graphs using tree-sitter grammars. |
-| [`panproto-grammars`](crates/panproto-grammars) | Pre-compiled tree-sitter grammars for 248 languages (build-time dependency, not published). |
+| [`panproto-parse`](crates/panproto-parse) | Parses source code in 250 programming languages into schema graphs using tree-sitter grammars. |
+| [`panproto-grammars`](crates/panproto-grammars) | Pre-compiled tree-sitter grammars for 250 languages (build-time dependency, not published). |
 | [`panproto-project`](crates/panproto-project) | Assembles multi-file projects into a single schema, resolving cross-file imports. |
 | [`panproto-git`](crates/panproto-git) | Translates between git repositories and panproto's version control, so `git push` works with panproto repos. |
 | [`panproto-llvm`](crates/panproto-llvm) | Models LLVM IR as a schema language, enabling compilation-as-migration from language ASTs to IR. |

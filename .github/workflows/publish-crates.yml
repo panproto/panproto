@@ -1,0 +1,137 @@
+name: Publish to crates.io
+
+# Triggers on version tags. Publishes the workspace crates in
+# topological order using crates.io Trusted Publishing (OIDC).
+# Configured per crate at https://crates.io/crates/<name>/settings
+# under "Trusted Publishing" with:
+#   Repository: panproto/panproto
+#   Workflow:   publish-crates.yml
+# `rust-lang/crates-io-auth-action` exchanges the job's OIDC token
+# for a short-lived registry token, exposed as CARGO_REGISTRY_TOKEN
+# for the duration of the publish step.
+#
+# The publish loop is idempotent: if a crate at this version is
+# already on crates.io (e.g. a previous run published some crates
+# before failing), the loop swallows the "already published" error
+# via `cargo search` and continues with the next crate.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # OIDC token for crates.io Trusted Publishing
+
+jobs:
+  publish:
+    name: Publish workspace crates
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: publish-crates
+
+      - name: Verify tag matches workspace version
+        id: version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          ws_version=$(grep -A 1 '^\[workspace.package\]' Cargo.toml \
+            | grep '^version' \
+            | head -1 \
+            | cut -d'"' -f2)
+          if [ "$tag" != "$ws_version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match workspace version ${ws_version}"
+            exit 1
+          fi
+          echo "version=$ws_version" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to crates.io via Trusted Publishing
+        # Exchanges the workflow's OIDC token for a short-lived
+        # crates.io registry token and exports it as
+        # CARGO_REGISTRY_TOKEN for subsequent `cargo publish` calls.
+        uses: rust-lang/crates-io-auth-action@v1
+        id: crates-io-auth
+
+      - name: Publish in topological order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Topological order. Each level's crates may depend only on
+          # earlier levels. cargo publish waits for the index to update
+          # before returning, so no explicit sleep is needed.
+          # `--locked` pins to Cargo.lock; `--no-verify` skips the
+          # local rebuild verification step (we trust CI which already
+          # built and tested the workspace at this commit).
+          publish_one() {
+            local crate="$1"
+            echo "::group::publish $crate"
+            if cargo publish -p "$crate" --locked --no-verify; then
+              echo "$crate $VERSION published"
+            else
+              local code=$?
+              # Idempotent re-runs: crates.io returns 400 for an
+              # already-published exact version. Detect that case via
+              # `cargo search` and continue rather than failing.
+              if cargo search "$crate" | grep -q "^$crate = \"$VERSION\""; then
+                echo "$crate $VERSION already published; continuing"
+              else
+                echo "::error::cargo publish $crate failed with code $code"
+                return $code
+              fi
+            fi
+            echo "::endgroup::"
+          }
+
+          # Level 0
+          publish_one panproto-expr
+          publish_one panproto-grammars
+          # Level 1
+          publish_one panproto-expr-parser
+          publish_one panproto-gat
+          # Level 2
+          publish_one panproto-schema
+          # Level 3
+          publish_one panproto-inst
+          # Level 4
+          publish_one panproto-mig
+          publish_one panproto-protocols
+          # Level 5
+          publish_one panproto-lens
+          # Level 6
+          publish_one panproto-parse
+          publish_one panproto-lens-dsl
+          publish_one panproto-check
+          publish_one panproto-theory-dsl
+          publish_one panproto-jit
+          publish_one panproto-llvm
+          # Level 7
+          publish_one panproto-io
+          publish_one panproto-project
+          # Level 8
+          publish_one panproto-vcs
+          publish_one panproto-xrpc
+          publish_one panproto-git
+          # Level 9 — facade + git remote helper
+          publish_one panproto-core
+          publish_one panproto-git-remote
+          # Level 10
+          publish_one panproto-wasm
+          publish_one panproto-cli

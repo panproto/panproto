@@ -9,10 +9,11 @@
 //! 3. Language-specific [`WalkerConfig`](crate::walker::WalkerConfig) overrides
 //! 4. File extension mapping
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use panproto_schema::{Protocol, Schema};
 
+use crate::emit_pretty::{FormatPolicy, Grammar as EmitGrammar, emit_pretty as emit_pretty_inner};
 use crate::error::ParseError;
 use crate::registry::AstParser;
 use crate::scope_detector::ScopeDetector;
@@ -49,6 +50,12 @@ pub struct LanguageParser {
     /// `&mut` access during a tags query run. A single parser instance is
     /// typically used serially; contention here is rare.
     scope_detector: Mutex<ScopeDetector>,
+    /// Raw `grammar.json` bytes for the de-novo emit walker. `None`
+    /// when the upstream grammar does not ship `grammar.json` and
+    /// `tools/fetch-grammar-json.py` could not regenerate one.
+    grammar_json: Option<&'static [u8]>,
+    /// Lazily-parsed grammar. Populated on first call to `emit_pretty`.
+    grammar_cache: OnceLock<Result<EmitGrammar, ParseError>>,
 }
 
 impl LanguageParser {
@@ -70,6 +77,39 @@ impl LanguageParser {
         tags_query: Option<&'static str>,
         walker_config: WalkerConfig,
     ) -> Result<Self, ParseError> {
+        Self::from_language_with_grammar_json(
+            protocol_name,
+            extensions,
+            language,
+            node_types_json,
+            tags_query,
+            walker_config,
+            None,
+        )
+    }
+
+    /// Construct a `LanguageParser` with vendored `grammar.json` bytes
+    /// for de-novo emission via [`AstParser::emit_pretty`].
+    ///
+    /// `grammar_json` should come from
+    /// [`panproto_grammars::Grammar::grammar_json`]; pass `None` to
+    /// signal that the language has no production-rule table available.
+    /// Without it, `emit_pretty` returns
+    /// [`ParseError::EmitFailed`] with a `grammar.json missing` reason.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError`] if theory extraction from
+    /// `node_types_json` fails or if the tags query rejects compilation.
+    pub fn from_language_with_grammar_json(
+        protocol_name: &str,
+        extensions: Vec<&'static str>,
+        language: tree_sitter::Language,
+        node_types_json: &[u8],
+        tags_query: Option<&'static str>,
+        walker_config: WalkerConfig,
+        grammar_json: Option<&'static [u8]>,
+    ) -> Result<Self, ParseError> {
         let theory_name = format!("Th{}FullAST", capitalize_first(protocol_name));
         let theory_meta = extract_theory_from_node_types(&theory_name, node_types_json)?;
         let protocol = build_full_ast_protocol(protocol_name, &theory_name);
@@ -85,6 +125,8 @@ impl LanguageParser {
             protocol,
             walker_config,
             scope_detector: Mutex::new(scope_detector),
+            grammar_json,
+            grammar_cache: OnceLock::new(),
         })
     }
 
@@ -173,6 +215,29 @@ impl AstParser for LanguageParser {
 
     fn theory_meta(&self) -> &ExtractedTheoryMeta {
         &self.theory_meta
+    }
+
+    fn emit_pretty(&self, schema: &Schema) -> Result<Vec<u8>, ParseError> {
+        let bytes = self.grammar_json.ok_or_else(|| ParseError::EmitFailed {
+            protocol: self.protocol_name.clone(),
+            reason: "grammar.json not vendored for this protocol; \
+                     run tools/fetch-grammar-json.py to populate it"
+                .to_owned(),
+        })?;
+        let cached = self
+            .grammar_cache
+            .get_or_init(|| EmitGrammar::from_bytes(&self.protocol_name, bytes));
+        let grammar = match cached {
+            Ok(g) => g,
+            Err(e) => {
+                return Err(ParseError::EmitFailed {
+                    protocol: self.protocol_name.clone(),
+                    reason: format!("grammar.json parse failed: {e}"),
+                });
+            }
+        };
+        let policy = FormatPolicy::default();
+        emit_pretty_inner(&self.protocol_name, schema, grammar, &policy)
     }
 }
 

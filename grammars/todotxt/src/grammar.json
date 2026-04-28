@@ -1,0 +1,165 @@
+{
+  "name": "todotxt",
+  "rules": {
+    "source_file": {
+      "type": "REPEAT",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "task"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "done_task"
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": "\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "priority"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "date"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_task"
+        }
+      ]
+    },
+    "done_task": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "x"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "date"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "date"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_task"
+        }
+      ]
+    },
+    "_task": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "_word"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "project"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "context"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "kv"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "date": {
+      "type": "PATTERN",
+      "value": "\\d{4}-\\d{2}-\\d{2}"
+    },
+    "project": {
+      "type": "PATTERN",
+      "value": "\\+[^\\s]+"
+    },
+    "context": {
+      "type": "PATTERN",
+      "value": "@[^\\s]+"
+    },
+    "kv": {
+      "type": "PATTERN",
+      "value": "[^\\s:]+:[^\\s:]+"
+    },
+    "priority": {
+      "type": "PATTERN",
+      "value": "\\([A-Z]\\)"
+    },
+    "_word": {
+      "type": "PATTERN",
+      "value": "[^\\s]+"
+    }
+  },
+  "extras": [
+    {
+      "type": "PATTERN",
+      "value": "\\s"
+    }
+  ],
+  "conflicts": [],
+  "precedences": [],
+  "externals": [],
+  "inline": [],
+  "supertypes": []
+}
+

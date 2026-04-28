@@ -25,7 +25,7 @@ use crate::cst_extract::{
     CstComplement, FormatKind, extract_json_cst, extract_tabular_cst, extract_xml_cst,
     extract_yaml_cst, inject_json_cst, inject_xml_cst, inject_yaml_cst,
 };
-use crate::error::{EmitInstanceError, ParseInstanceError};
+use crate::error::{EmitInstanceError, ParseInstanceError, UnifiedCodecError};
 use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
 
 /// A unified codec backed by tree-sitter parsing and CST extraction.
@@ -45,105 +45,115 @@ pub struct UnifiedCodec {
 impl UnifiedCodec {
     /// Create a new unified codec for a JSON-based protocol.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the tree-sitter JSON grammar is not available (ensure the
-    /// `tree-sitter` feature is enabled with `panproto-grammars/lang-json`).
-    #[must_use]
-    pub fn json(protocol: impl Into<String>) -> Self {
+    /// Returns [`UnifiedCodecError::MissingGrammar`] if the tree-sitter
+    /// JSON grammar is not compiled in (enable
+    /// `panproto-grammars/lang-json`), or [`UnifiedCodecError::ParserInit`]
+    /// if the grammar is present but parser initialization fails.
+    pub fn json(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
         Self::new(protocol, FormatKind::Json, NativeRepr::WType)
     }
 
     /// Create a new unified codec for an XML-based protocol.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the tree-sitter XML grammar is not available.
-    #[must_use]
-    pub fn xml(protocol: impl Into<String>) -> Self {
+    /// Returns [`UnifiedCodecError`] if the tree-sitter XML grammar is
+    /// unavailable or parser initialization fails.
+    pub fn xml(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
         Self::new(protocol, FormatKind::Xml, NativeRepr::WType)
     }
 
     /// Create a new unified codec for a YAML-based protocol.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the tree-sitter YAML grammar is not available.
-    #[must_use]
-    pub fn yaml(protocol: impl Into<String>) -> Self {
+    /// Returns [`UnifiedCodecError`] if the tree-sitter YAML grammar is
+    /// unavailable or parser initialization fails.
+    pub fn yaml(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
         Self::new(protocol, FormatKind::Yaml, NativeRepr::WType)
     }
 
     /// Create a new unified codec for a TOML-based protocol.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the tree-sitter TOML grammar is not available.
-    #[must_use]
-    pub fn toml(protocol: impl Into<String>) -> Self {
+    /// Returns [`UnifiedCodecError`] if the tree-sitter TOML grammar is
+    /// unavailable or parser initialization fails.
+    pub fn toml(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
         Self::new(protocol, FormatKind::Toml, NativeRepr::WType)
     }
 
     /// Create a new unified codec for a CSV-based protocol.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the tree-sitter CSV grammar is not available.
-    #[must_use]
-    pub fn csv(protocol: impl Into<String>) -> Self {
+    /// Returns [`UnifiedCodecError`] if the tree-sitter CSV grammar is
+    /// unavailable or parser initialization fails.
+    pub fn csv(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
         Self::new(protocol, FormatKind::Csv, NativeRepr::Functor)
     }
 
     /// Create a new unified codec for a TSV-based protocol.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the tree-sitter TSV grammar is not available.
-    #[must_use]
-    pub fn tsv(protocol: impl Into<String>, table_vertex: impl Into<String>) -> Self {
-        let mut codec = Self::new(protocol, FormatKind::Tsv, NativeRepr::Functor);
+    /// Returns [`UnifiedCodecError`] if the tree-sitter TSV grammar is
+    /// unavailable or parser initialization fails.
+    pub fn tsv(
+        protocol: impl Into<String>,
+        table_vertex: impl Into<String>,
+    ) -> Result<Self, UnifiedCodecError> {
+        let mut codec = Self::new(protocol, FormatKind::Tsv, NativeRepr::Functor)?;
         codec.table_vertex = Some(table_vertex.into());
-        codec
+        Ok(codec)
     }
 
     /// Create a new unified codec with explicit format and representation.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the required tree-sitter grammar is not available.
-    #[must_use]
-    pub fn new(protocol: impl Into<String>, format: FormatKind, native_repr: NativeRepr) -> Self {
+    /// Returns [`UnifiedCodecError::MissingGrammar`] if the required
+    /// tree-sitter grammar is not compiled in, or
+    /// [`UnifiedCodecError::ParserInit`] if grammar initialization fails.
+    pub fn new(
+        protocol: impl Into<String>,
+        format: FormatKind,
+        native_repr: NativeRepr,
+    ) -> Result<Self, UnifiedCodecError> {
         let protocol = protocol.into();
         let grammar_name = format.grammar_name();
 
         let grammar = panproto_grammars::grammars()
             .into_iter()
             .find(|g| g.name == grammar_name)
-            .unwrap_or_else(|| {
-                panic!(
-                    "tree-sitter grammar '{grammar_name}' not available; \
-                     enable panproto-grammars/lang-{grammar_name}"
-                )
-            });
+            .ok_or_else(|| UnifiedCodecError::MissingGrammar {
+                format: grammar_name.to_owned(),
+            })?;
 
         let config = panproto_parse::languages::walker_configs::walker_config_for(grammar_name);
-        let lang_parser = LanguageParser::from_language(
+        let lang_parser = LanguageParser::from_language_with_grammar_json(
             grammar_name,
             grammar.extensions.to_vec(),
             grammar.language,
             grammar.node_types,
             grammar.tags_query,
             config,
+            grammar.grammar_json,
         )
-        .unwrap_or_else(|e| panic!("failed to initialize grammar '{grammar_name}': {e}"));
+        .map_err(|e| UnifiedCodecError::ParserInit {
+            format: grammar_name.to_owned(),
+            source: Box::new(e),
+        })?;
 
-        Self {
+        Ok(Self {
             protocol,
             format,
             native_repr,
             lang_parser,
             table_vertex: None,
-        }
+        })
     }
 
     /// Parse raw bytes and return both the instance and the CST complement.
@@ -397,7 +407,7 @@ mod tests {
 
     #[test]
     fn unified_json_parse_and_emit() {
-        let codec = UnifiedCodec::json("test");
+        let codec = UnifiedCodec::json("test").unwrap();
         let schema = test_schema();
         let input = br#"{"name": "Alice", "value": 42}"#;
 
@@ -416,7 +426,7 @@ mod tests {
 
     #[test]
     fn unified_json_preserves_formatting() {
-        let codec = UnifiedCodec::json("test");
+        let codec = UnifiedCodec::json("test").unwrap();
         let schema = test_schema();
         let input = b"{\n  \"name\": \"Alice\",\n  \"value\": 42\n}";
 

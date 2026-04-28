@@ -12,6 +12,7 @@
     clippy::match_same_arms,
     clippy::must_use_candidate,
     clippy::redundant_pub_crate,
+    clippy::too_many_lines,
     unreachable_pub
 )]
 mod generated {
@@ -40,6 +41,19 @@ pub struct Grammar {
     /// `None` when the upstream grammar does not ship a tags query, or when
     /// the grammar was not fetched with a tags-aware `fetch-grammars.py`.
     pub tags_query: Option<&'static str>,
+    /// Raw `grammar.json` bytes for production-rule lookup, if vendored.
+    ///
+    /// Tree-sitter's `grammar.json` is the machine-readable source of every
+    /// production rule (`SEQ`, `CHOICE`, `REPEAT`, `OPTIONAL`, `SYMBOL`,
+    /// `STRING`, `BLANK`, etc.). `panproto-parse::emit_pretty` reads these
+    /// bytes lazily to drive de-novo source emission for by-construction
+    /// schemas (those without parse-recovered byte positions).
+    ///
+    /// `None` when the upstream grammar does not ship `grammar.json` and
+    /// `tools/fetch-grammar-json.py` could not regenerate one. Callers
+    /// observing `None` should fall back to error rather than emit
+    /// malformed source.
+    pub grammar_json: Option<&'static [u8]>,
 }
 
 /// Return all grammars enabled by feature flags.
@@ -65,6 +79,7 @@ pub fn grammars() -> Vec<Grammar> {
                 language,
                 node_types: e.node_types,
                 tags_query: e.tags_query,
+                grammar_json: e.grammar_json,
             }
         })
         .collect()

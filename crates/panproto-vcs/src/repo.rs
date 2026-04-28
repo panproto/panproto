@@ -697,7 +697,14 @@ impl Repository {
         self.store.root().join("index.json")
     }
 
-    fn read_index(&self) -> Result<Index, VcsError> {
+    /// Read the staging index from the working tree.
+    ///
+    /// Returns an empty `Index` if no index file exists yet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index file exists but cannot be parsed.
+    pub fn read_index(&self) -> Result<Index, VcsError> {
         let path = self.index_path();
         if !path.exists() {
             return Ok(Index::default());
@@ -707,12 +714,26 @@ impl Repository {
             .map_err(|e| VcsError::Serialization(crate::error::SerializationError(e.to_string())))
     }
 
-    fn write_index(&self, index: &Index) -> Result<(), VcsError> {
+    /// Write `index` to the working tree's index file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialisation or I/O fails.
+    pub fn write_index(&self, index: &Index) -> Result<(), VcsError> {
         let json = serde_json::to_string_pretty(index).map_err(|e| {
             VcsError::Serialization(crate::error::SerializationError(e.to_string()))
         })?;
         std::fs::write(self.index_path(), json)?;
         Ok(())
+    }
+
+    /// Clear the staging index, persisting the empty state to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if writing the index file fails.
+    pub fn clear_index(&self) -> Result<(), VcsError> {
+        self.write_index(&Index::default())
     }
 }
 

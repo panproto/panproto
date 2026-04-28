@@ -1,0 +1,2113 @@
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::too_many_lines,
+    clippy::too_many_arguments,
+    clippy::map_unwrap_or,
+    clippy::option_if_let_else,
+    clippy::elidable_lifetime_names,
+    clippy::items_after_statements,
+    clippy::needless_pass_by_value,
+    clippy::single_match_else,
+    clippy::manual_let_else,
+    clippy::match_same_arms,
+    clippy::missing_const_for_fn,
+    clippy::single_char_pattern,
+    clippy::naive_bytecount,
+    clippy::expect_used,
+    clippy::redundant_pub_crate,
+    clippy::used_underscore_binding,
+    clippy::redundant_field_names,
+    clippy::struct_field_names,
+    clippy::redundant_else,
+    clippy::similar_names
+)]
+
+//! De-novo source emission from a by-construction schema.
+//!
+//! [`AstParser::emit`] reconstructs source from byte-position fragments
+//! that the parser stored on the schema during `parse`. That works for
+//! edit pipelines (`parse → transform → emit`) but fails for schemas
+//! built by hand (`SchemaBuilder` with no parse history): they carry
+//! no `start-byte`, no `interstitial-N`, no `literal-value`, and the
+//! reconstructor returns `Err(EmitFailed { reason: "schema has no
+//! text fragments" })`.
+//!
+//! This module renders such schemas to source bytes by walking
+//! tree-sitter's `grammar.json` production rules. For each schema
+//! vertex of kind `K`, the walker looks up `K`'s production in the
+//! grammar and emits its body in order:
+//!
+//! - `STRING` nodes contribute literal token bytes directly.
+//! - `SYMBOL` and `FIELD` nodes recurse into the schema's children,
+//!   matching by edge kind (which is the tree-sitter field name).
+//! - `SEQ` emits its members in order.
+//! - `CHOICE` picks the alternative whose head `SYMBOL` matches an
+//!   actual child kind, or whose terminals appear in the rendered
+//!   prefix; falls back to the first non-`BLANK` alternative when no
+//!   alternative matches.
+//! - `REPEAT` and `REPEAT1` emit their content once per matching
+//!   child edge in declared order.
+//! - `OPTIONAL` emits its content iff a corresponding child edge or
+//!   constraint is populated.
+//! - `PATTERN` is a regex placeholder for variable-text terminals
+//!   (identifiers, numbers, quoted strings). The walker emits a
+//!   `literal-value` constraint when present and otherwise falls
+//!   back to a placeholder derived from the regex shape.
+//! - `BLANK`, `TOKEN`, `IMMEDIATE_TOKEN`, `ALIAS`, `PREC*` are
+//!   handled transparently (the inner content is emitted; the
+//!   wrapper is dropped).
+//!
+//! Whitespace and indentation come from a `FormatPolicy` applied
+//! during emission. The default policy inserts a single space between
+//! adjacent tokens, a newline after `;` / `}` / `{`, and tracks an
+//! indent counter on `{` / `}` boundaries.
+//!
+//! Output is *syntactically valid* for any grammar that ships
+//! `grammar.json`. Idiomatic formatting (rustfmt-style spacing rules,
+//! per-language conventions) is a polish layer that lives outside
+//! this module.
+
+use std::collections::BTreeMap;
+
+use panproto_schema::{Edge, Schema};
+use serde::Deserialize;
+
+use crate::error::ParseError;
+
+// ═══════════════════════════════════════════════════════════════════
+// Grammar JSON model
+// ═══════════════════════════════════════════════════════════════════
+
+/// A single tree-sitter production rule.
+///
+/// Mirrors the shape emitted by `tree-sitter generate`: every node has
+/// a `type` discriminator that selects a structural variant. The
+/// untyped subset (`PATTERN`, `STRING`, `SYMBOL`, `BLANK`) handles
+/// terminals; the structural subset (`SEQ`, `CHOICE`, `REPEAT`,
+/// `REPEAT1`, `OPTIONAL`, `FIELD`, `ALIAS`, `TOKEN`,
+/// `IMMEDIATE_TOKEN`, `PREC*`) builds composite productions.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum Production {
+    /// Concatenation of productions.
+    #[serde(rename = "SEQ")]
+    Seq {
+        /// Ordered members; each is emitted in turn.
+        members: Vec<Self>,
+    },
+    /// Alternation between productions.
+    #[serde(rename = "CHOICE")]
+    Choice {
+        /// Alternatives; the walker picks one based on the schema's
+        /// children and constraints.
+        members: Vec<Self>,
+    },
+    /// Zero-or-more repetition.
+    #[serde(rename = "REPEAT")]
+    Repeat {
+        /// The repeated body.
+        content: Box<Self>,
+    },
+    /// One-or-more repetition.
+    #[serde(rename = "REPEAT1")]
+    Repeat1 {
+        /// The repeated body.
+        content: Box<Self>,
+    },
+    /// Optional inclusion (zero or one).
+    ///
+    /// Tree-sitter usually emits `OPTIONAL` as `CHOICE { content,
+    /// BLANK }`, but recent generator versions also emit explicit
+    /// `OPTIONAL` nodes; both shapes are accepted.
+    #[serde(rename = "OPTIONAL")]
+    Optional {
+        /// The optional body.
+        content: Box<Self>,
+    },
+    /// Reference to another rule by name.
+    #[serde(rename = "SYMBOL")]
+    Symbol {
+        /// Name of the referenced rule (matches a vertex kind on the
+        /// schema side).
+        name: String,
+    },
+    /// Literal token bytes.
+    #[serde(rename = "STRING")]
+    String {
+        /// The literal token. Emitted verbatim.
+        value: String,
+    },
+    /// Regex-matched terminal.
+    ///
+    /// At parse time this matches arbitrary bytes; at emit time the
+    /// walker substitutes a `literal-value` constraint when present
+    /// and falls back to a placeholder otherwise.
+    #[serde(rename = "PATTERN")]
+    Pattern {
+        /// The original regex.
+        value: String,
+    },
+    /// The empty production. Emits nothing.
+    #[serde(rename = "BLANK")]
+    Blank,
+    /// Named field over a content production.
+    ///
+    /// The field `name` matches an edge kind on the schema side; the
+    /// walker resolves the corresponding child vertex and recurses
+    /// into `content` with that child as context.
+    #[serde(rename = "FIELD")]
+    Field {
+        /// Field name (matches edge kind).
+        name: String,
+        /// The contents of the field.
+        content: Box<Self>,
+    },
+    /// An aliased production.
+    ///
+    /// `value` records the parser-visible kind; the walker emits
+    /// `content` and ignores the alias rename.
+    #[serde(rename = "ALIAS")]
+    Alias {
+        /// The aliased content.
+        content: Box<Self>,
+        /// Whether the alias is a named node.
+        #[serde(default)]
+        named: bool,
+        /// The alias's surface name.
+        #[serde(default)]
+        value: String,
+    },
+    /// A token wrapper.
+    ///
+    /// Tree-sitter uses `TOKEN` to mark a sub-rule as a single
+    /// lexical token; the walker emits the inner content unchanged.
+    #[serde(rename = "TOKEN")]
+    Token {
+        /// The wrapped content.
+        content: Box<Self>,
+    },
+    /// An immediate-token wrapper (no preceding whitespace).
+    ///
+    /// Treated like [`Production::Token`] for emit purposes.
+    #[serde(rename = "IMMEDIATE_TOKEN")]
+    ImmediateToken {
+        /// The wrapped content.
+        content: Box<Self>,
+    },
+    /// Precedence wrapper.
+    #[serde(rename = "PREC")]
+    Prec {
+        /// Precedence value (numeric or string). Ignored at emit time.
+        #[allow(dead_code)]
+        value: serde_json::Value,
+        /// The wrapped content.
+        content: Box<Self>,
+    },
+    /// Left-associative precedence wrapper.
+    #[serde(rename = "PREC_LEFT")]
+    PrecLeft {
+        /// Precedence value. Ignored at emit time.
+        #[allow(dead_code)]
+        value: serde_json::Value,
+        /// The wrapped content.
+        content: Box<Self>,
+    },
+    /// Right-associative precedence wrapper.
+    #[serde(rename = "PREC_RIGHT")]
+    PrecRight {
+        /// Precedence value. Ignored at emit time.
+        #[allow(dead_code)]
+        value: serde_json::Value,
+        /// The wrapped content.
+        content: Box<Self>,
+    },
+    /// Dynamic precedence wrapper.
+    #[serde(rename = "PREC_DYNAMIC")]
+    PrecDynamic {
+        /// Precedence value. Ignored at emit time.
+        #[allow(dead_code)]
+        value: serde_json::Value,
+        /// The wrapped content.
+        content: Box<Self>,
+    },
+}
+
+/// A grammar's production-rule table, deserialized from `grammar.json`.
+///
+/// Only the fields the emitter consumes are decoded; precedences,
+/// conflicts, externals, and other parser-only metadata are ignored.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Grammar {
+    /// Grammar name (e.g. `"rust"`, `"typescript"`).
+    #[allow(dead_code)]
+    pub name: String,
+    /// Map from rule name (a vertex kind on the schema side) to
+    /// production. Entries are kept in lexical order so iteration
+    /// is deterministic.
+    pub rules: BTreeMap<String, Production>,
+    /// Supertypes declared in the grammar's `supertypes` field. A
+    /// supertype is a rule whose body is a `CHOICE` of `SYMBOL`
+    /// references; tree-sitter parsers report a node's kind as one
+    /// of the subtypes (e.g. `identifier`, `typed_parameter`) rather
+    /// than the supertype name (`parameter`), so the emitter needs to
+    /// know that a child kind in a subtype set should match the
+    /// supertype name when a SYMBOL references it.
+    #[serde(default, deserialize_with = "deserialize_supertypes")]
+    pub supertypes: std::collections::HashSet<String>,
+    /// Precomputed subtyping closure: `subtypes[symbol_name]` is the
+    /// set of vertex kinds that satisfy a SYMBOL `symbol_name`
+    /// reference on the schema side.
+    ///
+    /// Built once at [`Grammar::from_bytes`] time by walking each
+    /// hidden rule (`_`-prefixed), declared supertype, and named
+    /// `ALIAS { value: K, ... }` production to its leaf SYMBOLs and
+    /// recording the closure. This replaces the prior heuristic
+    /// `kind_satisfies_symbol` that walked the rule body on every
+    /// query: lookups are now O(1) and the relation is exactly the
+    /// transitive closure of "is reachable via hidden / supertype /
+    /// alias dispatch", with no over-expansion through non-hidden
+    /// non-supertype rule references.
+    #[serde(skip)]
+    pub subtypes: std::collections::HashMap<String, std::collections::HashSet<String>>,
+}
+
+fn deserialize_supertypes<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::HashSet<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries: Vec<serde_json::Value> = Vec::deserialize(deserializer)?;
+    let mut out = std::collections::HashSet::new();
+    for entry in entries {
+        match entry {
+            serde_json::Value::String(s) => {
+                out.insert(s);
+            }
+            serde_json::Value::Object(map) => {
+                if let Some(serde_json::Value::String(name)) = map.get("name") {
+                    out.insert(name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+impl Grammar {
+    /// Parse a grammar's `grammar.json` bytes.
+    ///
+    /// Builds the subtyping closure as part of construction so every
+    /// downstream lookup is O(1). The closure is the least relation
+    /// containing `(K, K)` for every rule key `K` and closed under:
+    ///
+    /// - hidden-rule expansion: if `S` is hidden and a SYMBOL `S` may
+    ///   reach SYMBOL `K`, then `K ⊑ S`.
+    /// - supertype expansion: if `S` is in the grammar's supertypes
+    ///   block and `K` is one of `S`'s alternatives, then `K ⊑ S`.
+    /// - alias renaming: if a rule body contains
+    ///   `ALIAS { content: SYMBOL R, value: A, named: true }` where
+    ///   `R` reaches kind `K` (or `K = R` when no further hop), then
+    ///   `A ⊑ R` and `K ⊑ A`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::EmitFailed`] when the bytes are not a
+    /// valid `grammar.json` document.
+    pub fn from_bytes(protocol: &str, bytes: &[u8]) -> Result<Self, ParseError> {
+        let mut grammar: Self =
+            serde_json::from_slice(bytes).map_err(|e| ParseError::EmitFailed {
+                protocol: protocol.to_owned(),
+                reason: format!("grammar.json deserialization failed: {e}"),
+            })?;
+        grammar.subtypes = compute_subtype_closure(&grammar);
+        Ok(grammar)
+    }
+}
+
+/// Compute the subtyping relation as a forward-indexed map from a
+/// SYMBOL name to the set of vertex kinds that satisfy that SYMBOL.
+fn compute_subtype_closure(
+    grammar: &Grammar,
+) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+    use std::collections::{HashMap, HashSet};
+    // Edges of the "kind X satisfies SYMBOL Y" relation. `K ⊑ Y` is
+    // recorded whenever Y is reached by walking the grammar's
+    // ALIAS / hidden-rule / supertype dispatch from a position where
+    // K is the actual vertex kind.
+    let mut subtypes: HashMap<String, HashSet<String>> = HashMap::new();
+    for name in grammar.rules.keys() {
+        subtypes
+            .entry(name.clone())
+            .or_default()
+            .insert(name.clone());
+    }
+
+    // First pass: collect the immediate "satisfies" edges from each
+    // expandable rule (hidden, supertype) to the kinds reachable by
+    // walking its body, plus alias edges.
+    fn walk<'g>(
+        grammar: &'g Grammar,
+        production: &'g Production,
+        visited: &mut HashSet<&'g str>,
+        out: &mut HashSet<String>,
+    ) {
+        match production {
+            Production::Symbol { name } => {
+                // Direct subtype.
+                out.insert(name.clone());
+                // Continue expansion through hidden / supertype rules
+                // so the closure traverses pass-through dispatch.
+                let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
+                if expand && visited.insert(name.as_str()) {
+                    if let Some(rule) = grammar.rules.get(name) {
+                        walk(grammar, rule, visited, out);
+                    }
+                }
+            }
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    walk(grammar, m, visited, out);
+                }
+            }
+            Production::Alias {
+                content,
+                named,
+                value,
+            } => {
+                if *named && !value.is_empty() {
+                    out.insert(value.clone());
+                }
+                walk(grammar, content, visited, out);
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => {
+                walk(grammar, content, visited, out);
+            }
+            _ => {}
+        }
+    }
+
+    for (name, rule) in &grammar.rules {
+        let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
+        if !expand {
+            continue;
+        }
+        let mut visited: HashSet<&str> = HashSet::new();
+        visited.insert(name.as_str());
+        let mut reachable: HashSet<String> = HashSet::new();
+        walk(grammar, rule, &mut visited, &mut reachable);
+        for kind in &reachable {
+            subtypes
+                .entry(kind.clone())
+                .or_default()
+                .insert(name.clone());
+        }
+    }
+
+    // Aliases: scan every rule body for ALIAS { content, value }
+    // declarations. The kinds reachable from `content` satisfy
+    // `value`, AND (by construction) `value` satisfies the
+    // surrounding rule. Walking the ENTIRE grammar once captures
+    // every alias site, irrespective of which rule introduces it.
+    fn collect_aliases<'g>(production: &'g Production, out: &mut Vec<(String, &'g Production)>) {
+        match production {
+            Production::Alias {
+                content,
+                named,
+                value,
+            } => {
+                if *named && !value.is_empty() {
+                    out.push((value.clone(), content.as_ref()));
+                }
+                collect_aliases(content, out);
+            }
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    collect_aliases(m, out);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => {
+                collect_aliases(content, out);
+            }
+            _ => {}
+        }
+    }
+    let mut aliases: Vec<(String, &Production)> = Vec::new();
+    for rule in grammar.rules.values() {
+        collect_aliases(rule, &mut aliases);
+    }
+    for (alias_value, content) in aliases {
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut reachable: HashSet<String> = HashSet::new();
+        walk(grammar, content, &mut visited, &mut reachable);
+        // Aliased value satisfies itself and is satisfied by every
+        // kind its content can reach.
+        subtypes
+            .entry(alias_value.clone())
+            .or_default()
+            .insert(alias_value.clone());
+        for kind in reachable {
+            subtypes
+                .entry(kind)
+                .or_default()
+                .insert(alias_value.clone());
+        }
+    }
+
+    // Transitive close: `K ⊑ A` and `A ⊑ B` implies `K ⊑ B`. Iterate
+    // a few rounds; the relation is small so a quick fixed-point
+    // suffices in practice.
+    for _ in 0..8 {
+        let snapshot = subtypes.clone();
+        let mut changed = false;
+        for (kind, supers) in &snapshot {
+            let extra: HashSet<String> = supers
+                .iter()
+                .flat_map(|s| snapshot.get(s).cloned().unwrap_or_default())
+                .collect();
+            let entry = subtypes.entry(kind.clone()).or_default();
+            for s in extra {
+                if entry.insert(s) {
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    subtypes
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Format policy
+// ═══════════════════════════════════════════════════════════════════
+
+/// Whitespace and indentation policy applied during emission.
+///
+/// The default policy inserts a single space between adjacent tokens,
+/// a newline after `;` / `}` / `{`, and tracks indent on `{` / `}`
+/// boundaries. Per-language overrides (idiomatic indent width,
+/// trailing-comma rules, blank-line conventions) can ride alongside
+/// this struct in a follow-up branch; today's defaults aim only for
+/// syntactic validity.
+#[derive(Debug, Clone)]
+pub struct FormatPolicy {
+    /// Number of spaces per indent level.
+    pub indent_width: usize,
+    /// Tokens after which the walker breaks to a new line.
+    pub line_break_after: Vec<String>,
+    /// Tokens that increase indent on emission.
+    pub indent_open: Vec<String>,
+    /// Tokens that decrease indent on emission.
+    pub indent_close: Vec<String>,
+}
+
+impl Default for FormatPolicy {
+    fn default() -> Self {
+        Self {
+            indent_width: 2,
+            line_break_after: vec![";".into(), "{".into(), "}".into()],
+            indent_open: vec!["{".into()],
+            indent_close: vec!["}".into()],
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Emitter
+// ═══════════════════════════════════════════════════════════════════
+
+/// Emit a by-construction schema to source bytes.
+///
+/// `protocol` is the grammar / language name (used in error messages
+/// and to label the entry point).
+///
+/// The walker treats `schema.entries` as the ordered list of root
+/// vertices, falling back to a deterministic by-id ordering when
+/// `entries` is empty. Each root is emitted using the production
+/// associated with its kind in `grammar.rules`.
+///
+/// # Errors
+///
+/// Returns [`ParseError::EmitFailed`] when:
+///
+/// - the schema has no vertices
+/// - a root vertex's kind is not a grammar rule
+/// - a `SYMBOL` reference points at a kind with no rule and no schema
+///   child to resolve it to
+/// - a required `FIELD` has no corresponding edge in the schema
+pub fn emit_pretty(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    policy: &FormatPolicy,
+) -> Result<Vec<u8>, ParseError> {
+    let roots = collect_roots(schema);
+    if roots.is_empty() {
+        return Err(ParseError::EmitFailed {
+            protocol: protocol.to_owned(),
+            reason: "schema has no entry vertices".to_owned(),
+        });
+    }
+
+    let mut out = Output::new(policy);
+    for (i, root) in roots.iter().enumerate() {
+        if i > 0 {
+            out.newline();
+        }
+        emit_vertex(protocol, schema, grammar, root, &mut out)?;
+    }
+    Ok(out.finish())
+}
+
+fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
+    if !schema.entries.is_empty() {
+        return schema
+            .entries
+            .iter()
+            .filter(|name| schema.vertices.contains_key(*name))
+            .collect();
+    }
+
+    // Fallback: every vertex that is not the target of any structural edge
+    // (sorted by id for determinism).
+    let mut targets: std::collections::HashSet<&panproto_gat::Name> =
+        std::collections::HashSet::new();
+    for edge in schema.edges.keys() {
+        targets.insert(&edge.tgt);
+    }
+    let mut roots: Vec<&panproto_gat::Name> = schema
+        .vertices
+        .keys()
+        .filter(|name| !targets.contains(name))
+        .collect();
+    roots.sort();
+    roots
+}
+
+fn emit_vertex(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    vertex_id: &panproto_gat::Name,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    let vertex = schema
+        .vertices
+        .get(vertex_id)
+        .ok_or_else(|| ParseError::EmitFailed {
+            protocol: protocol.to_owned(),
+            reason: format!("vertex '{vertex_id}' not found"),
+        })?;
+
+    // Leaf shortcut: a vertex carrying a `literal-value` constraint
+    // and no outgoing structural edges is a terminal token. Emit the
+    // captured value directly. This handles identifiers, numeric
+    // literals, and string literals that the parser stored as
+    // `literal-value` even on by-construction schemas.
+    if let Some(literal) = literal_value(schema, vertex_id) {
+        if children_for(schema, vertex_id).is_empty() {
+            out.token(literal);
+            return Ok(());
+        }
+    }
+
+    let kind = vertex.kind.as_ref();
+    let edges = children_for(schema, vertex_id);
+    if let Some(rule) = grammar.rules.get(kind) {
+        let mut cursor = ChildCursor::new(&edges);
+        return emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out);
+    }
+
+    // No rule for this kind. The parser produced it via an ALIAS
+    // (tree-sitter's `alias($.something, $.actual_kind)`) or via an
+    // external scanner (e.g. YAML's `document` root). Fall back to
+    // walking the children directly so the inner content survives;
+    // surrounding tokens — whose only source is the missing rule —
+    // are necessarily absent.
+    for edge in &edges {
+        emit_vertex(protocol, schema, grammar, &edge.tgt, out)?;
+    }
+    Ok(())
+}
+
+/// Linear cursor over a vertex's outgoing edges, used to thread
+/// children through a production rule without double-consuming them.
+struct ChildCursor<'a> {
+    edges: &'a [&'a Edge],
+    consumed: Vec<bool>,
+}
+
+impl<'a> ChildCursor<'a> {
+    fn new(edges: &'a [&'a Edge]) -> Self {
+        Self {
+            edges,
+            consumed: vec![false; edges.len()],
+        }
+    }
+
+    /// Take the next unconsumed edge whose kind equals `field_name`.
+    fn take_field(&mut self, field_name: &str) -> Option<&'a Edge> {
+        for (i, edge) in self.edges.iter().enumerate() {
+            if !self.consumed[i] && edge.kind.as_ref() == field_name {
+                self.consumed[i] = true;
+                return Some(edge);
+            }
+        }
+        None
+    }
+
+    /// Take the next unconsumed edge whose target vertex satisfies
+    /// `predicate`. Returns the edge and the underlying production
+    /// resolution path is the caller's job.
+    fn take_matching(&mut self, predicate: impl Fn(&Edge) -> bool) -> Option<&'a Edge> {
+        for (i, edge) in self.edges.iter().enumerate() {
+            if !self.consumed[i] && predicate(edge) {
+                self.consumed[i] = true;
+                return Some(edge);
+            }
+        }
+        None
+    }
+
+    /// Whether any unconsumed edge satisfies `predicate`.
+    fn has_matching(&self, predicate: impl Fn(&Edge) -> bool) -> bool {
+        self.edges
+            .iter()
+            .enumerate()
+            .any(|(i, edge)| !self.consumed[i] && predicate(edge))
+    }
+}
+
+thread_local! {
+    static EMIT_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Set of `(vertex_id, rule_name)` pairs that are currently being
+    /// walked by the recursion. A SYMBOL that resolves to a rule
+    /// already on this stack closes a μ-binder cycle: in the
+    /// coinductive reading, the rule walk at any vertex is the least
+    /// fixed point of `body[μ X . body / X]`, which unfolds at most
+    /// once, with the second visit returning the empty sequence (the
+    /// unit of the free token monoid). Examples that trigger this:
+    /// YAML's `stream` ⊃ `_b_blk_*` mutually-recursive chain, Rust's
+    /// `_expression` ⊃ `binary_expression` ⊃ `_expression`.
+    static EMIT_MU_FRAMES: std::cell::RefCell<std::collections::HashSet<(String, String)>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Walk a rule at a vertex inside a μ-binder. The wrapping frame is
+/// pushed before recursion and popped after, so any SYMBOL inside
+/// `rule` that re-enters the same `(vertex_id, rule_name)` pair
+/// returns the empty sequence (μ X . body unfolds once).
+fn walk_in_mu_frame(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    vertex_id: &panproto_gat::Name,
+    rule_name: &str,
+    rule: &Production,
+    cursor: &mut ChildCursor<'_>,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    let key = (vertex_id.to_string(), rule_name.to_owned());
+    let inserted = EMIT_MU_FRAMES.with(|frames| frames.borrow_mut().insert(key.clone()));
+    if !inserted {
+        // We are already walking this rule at this vertex deeper in
+        // the call stack. The coinductive μ-fixed-point reading
+        // returns the empty sequence here; the surrounding
+        // production resumes after the SYMBOL.
+        return Ok(());
+    }
+    let result = emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out);
+    EMIT_MU_FRAMES.with(|frames| {
+        frames.borrow_mut().remove(&key);
+    });
+    result
+}
+
+fn emit_production(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    vertex_id: &panproto_gat::Name,
+    production: &Production,
+    cursor: &mut ChildCursor<'_>,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    let depth = EMIT_DEPTH.with(|d| {
+        let v = d.get() + 1;
+        d.set(v);
+        v
+    });
+    if depth > 500 {
+        EMIT_DEPTH.with(|d| d.set(d.get() - 1));
+        return Err(ParseError::EmitFailed {
+            protocol: protocol.to_owned(),
+            reason: format!(
+                "emit_production recursion >500 (likely a cyclic grammar; \
+                     vertex='{vertex_id}')"
+            ),
+        });
+    }
+    let result = emit_production_inner(
+        protocol, schema, grammar, vertex_id, production, cursor, out,
+    );
+    EMIT_DEPTH.with(|d| d.set(d.get() - 1));
+    result
+}
+
+fn emit_production_inner(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    vertex_id: &panproto_gat::Name,
+    production: &Production,
+    cursor: &mut ChildCursor<'_>,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    match production {
+        Production::String { value } => {
+            out.token(value);
+            Ok(())
+        }
+        Production::Pattern { value } => {
+            if let Some(literal) = literal_value(schema, vertex_id) {
+                out.token(literal);
+            } else {
+                out.token(&placeholder_for_pattern(value));
+            }
+            Ok(())
+        }
+        Production::Blank => Ok(()),
+        Production::Symbol { name } => {
+            if name.starts_with('_') {
+                // Hidden rule: not a vertex kind on the schema side.
+                // Inline-expand the rule body so its children take
+                // edges from the current cursor, instead of trying to
+                // take a single child edge that "satisfies" the
+                // hidden rule and discarding the rest of the body
+                // (which would drop tokens like `=` and the trailing
+                // value SYMBOL inside e.g. TOML's `_inline_pair`).
+                //
+                // Wrapped in a μ-frame so a hidden rule that
+                // references its own kind cyclically (or another
+                // hidden rule that closes the cycle) unfolds once
+                // and then collapses to the empty sequence at the
+                // second visit, rather than blowing the stack.
+                if let Some(rule) = grammar.rules.get(name) {
+                    walk_in_mu_frame(
+                        protocol, schema, grammar, vertex_id, name, rule, cursor, out,
+                    )
+                } else {
+                    // External hidden rule (declared in the
+                    // grammar's `externals` block, scanned by C code,
+                    // not listed in `rules`). Heuristic fallback:
+                    // line-ending / EOF externals are universally
+                    // newline-or-empty, so emitting a single newline
+                    // is the right default for grammars like TOML
+                    // whose `pair` SEQ trails into
+                    // `_line_ending_or_eof`. Anything else falls
+                    // through silently.
+                    if name.contains("line_ending")
+                        || name.contains("newline")
+                        || name.ends_with("_or_eof")
+                    {
+                        out.newline();
+                    }
+                    Ok(())
+                }
+            } else if let Some(edge) = take_symbol_match(grammar, schema, cursor, name) {
+                // For supertype / hidden-rule dispatch the child's
+                // own kind names the actual production to walk
+                // (`child.kind` IS the subtype). For ALIAS the
+                // dependent-optic context is carried by the
+                // surrounding `Production::Alias` branch, which calls
+                // `emit_aliased_child` directly; we don't reach here
+                // for that case. So walking `grammar.rules[child.kind]`
+                // via `emit_vertex` is correct: the dependent-optic
+                // path is preserved at every site where it actually
+                // diverges from `child.kind`.
+                emit_vertex(protocol, schema, grammar, &edge.tgt, out)
+            } else if vertex_id_kind(schema, vertex_id) == Some(name.as_str()) {
+                let rule = grammar
+                    .rules
+                    .get(name)
+                    .ok_or_else(|| ParseError::EmitFailed {
+                        protocol: protocol.to_owned(),
+                        reason: format!("no production for SYMBOL '{name}'"),
+                    })?;
+                // Self-reference (`X = ... SYMBOL X ...`): wrap in a
+                // μ-frame so re-entry collapses to the empty sequence.
+                walk_in_mu_frame(
+                    protocol, schema, grammar, vertex_id, name, rule, cursor, out,
+                )
+            } else {
+                // Named rule with no matching child: emit nothing and
+                // let the surrounding CHOICE / OPTIONAL / REPEAT
+                // resolve the absence.
+                Ok(())
+            }
+        }
+        Production::Seq { members } => {
+            for member in members {
+                emit_production(protocol, schema, grammar, vertex_id, member, cursor, out)?;
+            }
+            Ok(())
+        }
+        Production::Choice { members } => {
+            if let Some(matched) =
+                pick_choice_with_cursor(schema, grammar, vertex_id, cursor, members)
+            {
+                emit_production(protocol, schema, grammar, vertex_id, matched, cursor, out)
+            } else {
+                Ok(())
+            }
+        }
+        Production::Repeat { content } | Production::Repeat1 { content } => {
+            let mut emitted_any = false;
+            loop {
+                let cursor_snap = cursor.consumed.clone();
+                let out_snap = out.snapshot();
+                let consumed_before = cursor.consumed.iter().filter(|&&c| c).count();
+                let result =
+                    emit_production(protocol, schema, grammar, vertex_id, content, cursor, out);
+                let consumed_after = cursor.consumed.iter().filter(|&&c| c).count();
+                if result.is_err() || consumed_after == consumed_before {
+                    cursor.consumed = cursor_snap;
+                    out.restore(out_snap);
+                    break;
+                }
+                emitted_any = true;
+            }
+            if matches!(production, Production::Repeat1 { .. }) && !emitted_any {
+                emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)?;
+            }
+            Ok(())
+        }
+        Production::Optional { content } => {
+            let cursor_snap = cursor.consumed.clone();
+            let out_snap = out.snapshot();
+            let consumed_before = cursor.consumed.iter().filter(|&&c| c).count();
+            let result =
+                emit_production(protocol, schema, grammar, vertex_id, content, cursor, out);
+            // OPTIONAL is a backtracking site: if the inner production
+            // errored *or* made no progress without leaving a witness
+            // constraint, restore both cursor and output to their
+            // pre-attempt state. Mirrors `Repeat`'s loop body.
+            if result.is_err() {
+                cursor.consumed = cursor_snap;
+                out.restore(out_snap);
+                return result;
+            }
+            let consumed_after = cursor.consumed.iter().filter(|&&c| c).count();
+            if consumed_after == consumed_before
+                && !has_relevant_constraint(content, schema, vertex_id)
+            {
+                cursor.consumed = cursor_snap;
+                out.restore(out_snap);
+            }
+            Ok(())
+        }
+        Production::Field { name, content } => {
+            if let Some(edge) = cursor.take_field(name) {
+                emit_in_child_context(protocol, schema, grammar, &edge.tgt, content, out)
+            } else if first_symbol(content).is_none() {
+                // FIELD wraps a non-child production (e.g. a literal
+                // STRING operator like `+` in a binary_expression, or
+                // a CHOICE of STRING tokens). The walker captures
+                // these as interstitials rather than vertices, so the
+                // schema has no field edge to consume; emit the
+                // content in place so the operator / keyword survives
+                // the round-trip.
+                emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
+            } else {
+                Ok(())
+            }
+        }
+        Production::Alias {
+            content,
+            named,
+            value,
+        } => {
+            // A named ALIAS rewrites the parser-visible kind to
+            // `value`. If the cursor has an unconsumed child whose
+            // kind matches that alias name, take it and emit the
+            // child using the alias's INNER content as the rule
+            // (e.g. `ALIAS { SYMBOL real_rule, value: "kind_x" }`
+            // means a `kind_x` vertex on the schema should be walked
+            // through `real_rule`'s body, not through whatever rule
+            // happens to be keyed under `kind_x`). This is the
+            // dependent-optic shape: the rule the emitter walks at a
+            // child position is determined by the parent's chosen
+            // alias, not by the child kind alone — without it,
+            // grammars like YAML that introduce the same kind through
+            // many ALIAS sites lose the parent context the moment
+            // emit_vertex is called.
+            if *named && !value.is_empty() {
+                if let Some(edge) = cursor.take_matching(|edge| {
+                    schema
+                        .vertices
+                        .get(&edge.tgt)
+                        .map(|v| v.kind.as_ref() == value.as_str())
+                        .unwrap_or(false)
+                }) {
+                    return emit_aliased_child(protocol, schema, grammar, &edge.tgt, content, out);
+                }
+            }
+            emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
+        }
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. } => {
+            emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
+        }
+    }
+}
+
+/// Take the next cursor edge whose target vertex's kind matches the
+/// SYMBOL `name` directly or via inline expansion of a hidden rule.
+fn take_symbol_match<'a>(
+    grammar: &Grammar,
+    schema: &Schema,
+    cursor: &mut ChildCursor<'a>,
+    name: &str,
+) -> Option<&'a Edge> {
+    cursor.take_matching(|edge| {
+        let target_kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
+        kind_satisfies_symbol(grammar, target_kind, name)
+    })
+}
+
+/// Decide whether a schema vertex of kind `target_kind` satisfies a
+/// SYMBOL `name` reference in the grammar.
+///
+/// Operates as an O(1) lookup against the precomputed subtype
+/// closure built at [`Grammar::from_bytes`]. The semantic content is
+/// "K satisfies SYMBOL S iff K is reachable from S by walking the
+/// grammar's hidden, supertype, and named-alias dispatch": this is
+/// exactly the relation tree-sitter induces on `(parser-visible kind,
+/// rule-position)` pairs.
+fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &str) -> bool {
+    let Some(target) = target_kind else {
+        return false;
+    };
+    if target == name {
+        return true;
+    }
+    grammar
+        .subtypes
+        .get(target)
+        .is_some_and(|set| set.contains(name))
+}
+
+/// Emit a child reached through an ALIAS production using the
+/// alias's inner content as the rule, not `grammar.rules[child.kind]`.
+///
+/// This carries the dependent-optic context across the ALIAS edge:
+/// at the parent rule's site we know which underlying production the
+/// alias wraps (typically `SYMBOL real_rule`), and that's the
+/// production that should drive the emit walk on the child's
+/// children. Looking up `grammar.rules.get(child.kind)` instead would
+/// either fail (the renamed kind has no top-level rule, e.g. YAML's
+/// `block_mapping_pair`) or pick an arbitrary same-kinded rule from
+/// elsewhere in the grammar.
+///
+/// Walk-context invariant. The dependent-optic shape of `emit_pretty`
+/// says: the production walked at any vertex is determined by the
+/// path from the root through the grammar, not by the vertex kind in
+/// isolation. Two dispatch sites realise that invariant:
+///
+/// * [`emit_vertex`] looks up `grammar.rules[child.kind]` and walks
+///   it. Correct for supertype / hidden-rule dispatch: the child's
+///   kind on the schema IS the subtype tree-sitter selected, so its
+///   top-level rule is the right production to walk.
+/// * `emit_aliased_child` threads the parent rule's `Production`
+///   directly (the inner `content` of `Production::Alias`) and walks
+///   it on the child's children. Correct for ALIAS dispatch: the
+///   child's kind on the schema is the alias's `value` (a renamed
+///   kind that may have no top-level rule), and the production to
+///   walk is the alias's content body, supplied by the parent.
+///
+/// Together these cover every site where the rule-walked-at-child
+/// diverges from `grammar.rules[child.kind]`; the recursion site for
+/// plain SYMBOL therefore correctly delegates to `emit_vertex`, and
+/// we do not need a richer `WalkContext` value passed by reference.
+/// The grammar dependency is the thread.
+fn emit_aliased_child(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    child_id: &panproto_gat::Name,
+    content: &Production,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    // Leaf shortcut: if the child has a literal-value and no
+    // structural children, emit the captured text. Identifiers and
+    // similar terminals reach here when an ALIAS wraps a SYMBOL that
+    // resolves to a PATTERN.
+    if let Some(literal) = literal_value(schema, child_id) {
+        if children_for(schema, child_id).is_empty() {
+            out.token(literal);
+            return Ok(());
+        }
+    }
+
+    // Resolve `content` to a rule when it's a SYMBOL (the dominant
+    // shape: `ALIAS { content: SYMBOL real_rule, value: "kind_x" }`).
+    if let Production::Symbol { name } = content {
+        if let Some(rule) = grammar.rules.get(name) {
+            let edges = children_for(schema, child_id);
+            let mut cursor = ChildCursor::new(&edges);
+            return emit_production(protocol, schema, grammar, child_id, rule, &mut cursor, out);
+        }
+    }
+
+    // Other ALIAS contents (CHOICE, SEQ, literals) walk in place.
+    let edges = children_for(schema, child_id);
+    let mut cursor = ChildCursor::new(&edges);
+    emit_production(
+        protocol,
+        schema,
+        grammar,
+        child_id,
+        content,
+        &mut cursor,
+        out,
+    )
+}
+
+fn emit_in_child_context(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    child_id: &panproto_gat::Name,
+    production: &Production,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    // If `production` is a structural wrapper (CHOICE / SEQ /
+    // OPTIONAL / ...) whose referenced symbols cover the child's own
+    // kind, the child IS the production's target node and the right
+    // emit path is `emit_vertex(child)` (which honours the
+    // literal-value leaf shortcut). Without this guard, FIELD(pattern,
+    // CHOICE { _pattern, self }) on an identifier child walks the
+    // CHOICE on the identifier's empty cursor, falls through to the
+    // first non-BLANK alt, and loses the captured identifier text.
+    if !matches!(production, Production::Symbol { .. }) {
+        let child_kind = schema.vertices.get(child_id).map(|v| v.kind.as_ref());
+        let symbols = referenced_symbols(production);
+        if symbols
+            .iter()
+            .any(|s| kind_satisfies_symbol(grammar, child_kind, s) || child_kind == Some(s))
+        {
+            return emit_vertex(protocol, schema, grammar, child_id, out);
+        }
+    }
+    match production {
+        Production::Symbol { .. } => emit_vertex(protocol, schema, grammar, child_id, out),
+        _ => {
+            let edges = children_for(schema, child_id);
+            let mut cursor = ChildCursor::new(&edges);
+            emit_production(
+                protocol,
+                schema,
+                grammar,
+                child_id,
+                production,
+                &mut cursor,
+                out,
+            )
+        }
+    }
+}
+
+fn pick_choice_with_cursor<'a>(
+    schema: &Schema,
+    grammar: &Grammar,
+    vertex_id: &panproto_gat::Name,
+    cursor: &ChildCursor<'_>,
+    alternatives: &'a [Production],
+) -> Option<&'a Production> {
+    // Discriminator-driven dispatch (highest priority): when the
+    // walker recorded a `chose-alt-fingerprint` constraint at parse
+    // time, dispatch directly against that. This is the categorical
+    // discriminator: it survives stripping of byte-position
+    // constraints (so by-construction round-trips work) and is the
+    // explicit witness of which CHOICE alternative the parser took.
+    //
+    // Falls back to the live `interstitial-*` substring blob when no
+    // fingerprint is present (e.g. instances built by callers that
+    // bypass the AstWalker). Both blobs are scored by the longest
+    // STRING-literal token in an alternative that matches; the
+    // length tiebreak prefers `&&` over `&`, `==` over `=`, etc.
+    let constraint_blob = schema
+        .constraints
+        .get(vertex_id)
+        .map(|cs| {
+            let fingerprint: Option<&str> = cs
+                .iter()
+                .find(|c| c.sort.as_ref() == "chose-alt-fingerprint")
+                .map(|c| c.value.as_str());
+            if let Some(fp) = fingerprint {
+                fp.to_owned()
+            } else {
+                cs.iter()
+                    .filter(|c| {
+                        let s = c.sort.as_ref();
+                        s.starts_with("interstitial-") && !s.ends_with("-start-byte")
+                    })
+                    .map(|c| c.value.as_str())
+                    .collect::<Vec<&str>>()
+                    .join(" ")
+            }
+        })
+        .unwrap_or_default();
+    let child_kinds: Vec<&str> = schema
+        .constraints
+        .get(vertex_id)
+        .and_then(|cs| {
+            cs.iter()
+                .find(|c| c.sort.as_ref() == "chose-alt-child-kinds")
+                .map(|c| c.value.split_whitespace().collect())
+        })
+        .unwrap_or_default();
+    if !constraint_blob.is_empty() {
+        // Primary score: literal-token match length. This dominates
+        // alt selection so existing language tests that depend on
+        // literal-only fingerprints keep working.
+        // Secondary score (tiebreaker only): named-symbol kind match
+        // count, read from the separate `chose-alt-child-kinds`
+        // constraint (kept apart from the literal fingerprint so
+        // identifiers like `:` in the kind list don't contaminate the
+        // literal match). An alt that matches the recorded kinds is a
+        // stronger witness than one whose only
+        // overlap is literal punctuation.
+        let mut best_literal: usize = 0;
+        let mut best_symbols: usize = 0;
+        let mut best_alt: Option<&Production> = None;
+        let mut tied = false;
+        for alt in alternatives {
+            let strings = literal_strings(alt);
+            if strings.is_empty() {
+                continue;
+            }
+            let literal_score = strings
+                .iter()
+                .filter(|s| constraint_blob.contains(s.as_str()))
+                .map(String::len)
+                .sum::<usize>();
+            if literal_score == 0 {
+                continue;
+            }
+            // Symbol score is computed only as a tiebreaker among alts
+            // whose literal-token coverage is the same; it never lifts
+            // an alt above one with a strictly higher literal score.
+            // Reads the `chose-alt-child-kinds` constraint (a separate
+            // sequence the walker emits, kept apart from the literal
+            // fingerprint to avoid cross-contamination).
+            let symbol_score = if literal_score >= best_literal && !child_kinds.is_empty() {
+                let symbols = referenced_symbols(alt);
+                symbols
+                    .iter()
+                    .filter(|sym| {
+                        let sym_str: &str = sym;
+                        if child_kinds.contains(&sym_str) {
+                            return true;
+                        }
+                        grammar.subtypes.get(sym_str).is_some_and(|sub_set| {
+                            sub_set
+                                .iter()
+                                .any(|sub| child_kinds.contains(&sub.as_str()))
+                        })
+                    })
+                    .count()
+            } else {
+                0
+            };
+            let better = literal_score > best_literal
+                || (literal_score == best_literal && symbol_score > best_symbols);
+            let same = literal_score == best_literal && symbol_score == best_symbols;
+            if better {
+                best_literal = literal_score;
+                best_symbols = symbol_score;
+                best_alt = Some(alt);
+                tied = false;
+            } else if same && best_alt.is_some() {
+                tied = true;
+            }
+        }
+        // Only commit to an alt when the fingerprint discriminates it
+        // uniquely. A tie means the alts share the same literal token
+        // set (e.g. JSON's `string = CHOICE { SEQ { '"', '"' }, SEQ {
+        // '"', _string_content, '"' } }` — both alts contain just the
+        // two `"` tokens). In that case fall through to cursor-based
+        // dispatch, which uses the actual edge structure.
+        if let Some(alt) = best_alt {
+            if !tied {
+                return Some(alt);
+            }
+        }
+    }
+
+    // Cursor-driven dispatch: pick the alternative whose body
+    // references at least one SYMBOL whose target kind is present in
+    // the unconsumed cursor edges. `referenced_symbols` walks the
+    // alternative recursively (across nested SEQs, REPEATs, OPTIONALs,
+    // FIELDs, etc.) so a leading optional like `attribute_item` does
+    // not block matching when only the trailing required symbol is
+    // present on the schema.
+    for alt in alternatives {
+        let symbols = referenced_symbols(alt);
+        if !symbols.is_empty()
+            && cursor.has_matching(|edge| {
+                let tk = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
+                symbols
+                    .iter()
+                    .any(|s| kind_satisfies_symbol(grammar, tk, s))
+            })
+        {
+            return Some(alt);
+        }
+    }
+
+    // FIELD dispatch: pick an alternative whose FIELD name matches an
+    // unconsumed edge kind.
+    let edge_kinds: Vec<&str> = cursor
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !cursor.consumed[*i])
+        .map(|(_, e)| e.kind.as_ref())
+        .collect();
+    for alt in alternatives {
+        if has_field_in(alt, &edge_kinds) {
+            return Some(alt);
+        }
+    }
+
+    // No cursor-driven match. Fall back to:
+    //
+    // - BLANK (the explicit empty alternative) when present, so an
+    //   OPTIONAL-shaped CHOICE compiles to nothing.
+    // - The first non-`BLANK` alternative as a last resort, used by
+    //   STRING-only alternatives (keyword tokens) and other choices
+    //   that don't reach the cursor.
+    //
+    // The previous "match own_kind" branch is intentionally absent:
+    // when an alt's first SYMBOL equals the current vertex's kind, the
+    // caller is already emitting that vertex's own rule. Recursing
+    // into the alt would cause a self-loop in the rule walk.
+    let _ = (schema, vertex_id);
+    if alternatives.iter().any(|a| matches!(a, Production::Blank)) {
+        return alternatives.iter().find(|a| matches!(a, Production::Blank));
+    }
+    alternatives
+        .iter()
+        .find(|alt| !matches!(alt, Production::Blank))
+}
+
+/// Collect every literal STRING token directly inside `production`
+/// (without descending into SYMBOLs / hidden rules). Used to score
+/// CHOICE alternatives against the parent vertex's interstitials so
+/// the right operator / keyword form is picked when the schema
+/// preserves interstitial fragments from a prior parse.
+fn literal_strings(production: &Production) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(p: &Production, out: &mut Vec<String>) {
+        match p {
+            Production::String { value } if !value.is_empty() => {
+                out.push(value.clone());
+            }
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    walk(m, out);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Alias { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => walk(content, out),
+            _ => {}
+        }
+    }
+    walk(production, &mut out);
+    out
+}
+
+/// Collect every SYMBOL name reachable from `production` without
+/// crossing into nested rules. Used by `pick_choice_with_cursor` to
+/// rank alternatives by "any SYMBOL inside this alt matches something
+/// on the cursor", instead of just the first SYMBOL: a leading
+/// optional like `attribute_item` then `parameter` is otherwise
+/// rejected when only the parameter children are present.
+fn referenced_symbols(production: &Production) -> Vec<&str> {
+    let mut out = Vec::new();
+    fn walk<'a>(p: &'a Production, out: &mut Vec<&'a str>) {
+        match p {
+            Production::Symbol { name } => out.push(name.as_str()),
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    walk(m, out);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Alias { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => walk(content, out),
+            _ => {}
+        }
+    }
+    walk(production, &mut out);
+    out
+}
+
+fn first_symbol(production: &Production) -> Option<&str> {
+    match production {
+        Production::Symbol { name } => Some(name),
+        Production::Seq { members } => members.iter().find_map(first_symbol),
+        Production::Choice { members } => members.iter().find_map(first_symbol),
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Field { content, .. }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. } => first_symbol(content),
+        _ => None,
+    }
+}
+
+fn has_field_in(production: &Production, edge_kinds: &[&str]) -> bool {
+    match production {
+        Production::Field { name, .. } => edge_kinds.contains(&name.as_str()),
+        Production::Seq { members } | Production::Choice { members } => {
+            members.iter().any(|m| has_field_in(m, edge_kinds))
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. } => has_field_in(content, edge_kinds),
+        _ => false,
+    }
+}
+
+fn has_relevant_constraint(
+    production: &Production,
+    schema: &Schema,
+    vertex_id: &panproto_gat::Name,
+) -> bool {
+    let constraints = match schema.constraints.get(vertex_id) {
+        Some(c) => c,
+        None => return false,
+    };
+    fn walk(production: &Production, constraints: &[panproto_schema::Constraint]) -> bool {
+        match production {
+            Production::String { value } => constraints
+                .iter()
+                .any(|c| c.value == *value || c.sort.as_ref() == value),
+            Production::Field { name, content } => {
+                constraints.iter().any(|c| c.sort.as_ref() == name) || walk(content, constraints)
+            }
+            Production::Seq { members } | Production::Choice { members } => {
+                members.iter().any(|m| walk(m, constraints))
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Alias { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => walk(content, constraints),
+            _ => false,
+        }
+    }
+    walk(production, constraints)
+}
+
+fn children_for<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Vec<&'a Edge> {
+    let mut edges: Vec<&Edge> = schema
+        .edges
+        .keys()
+        .filter(|e| &e.src == vertex_id)
+        .collect();
+    edges.sort_by_key(|e| {
+        // Edges with an explicit ordering position come first; remaining
+        // edges sort lexicographically by (kind, target id) for
+        // deterministic walks.
+        let pos = schema.orderings.get(*e).copied().unwrap_or(u32::MAX);
+        (pos, e.kind.clone(), e.tgt.clone())
+    });
+    edges
+}
+
+fn vertex_id_kind<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Option<&'a str> {
+    schema.vertices.get(vertex_id).map(|v| v.kind.as_ref())
+}
+
+fn literal_value<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Option<&'a str> {
+    schema
+        .constraints
+        .get(vertex_id)?
+        .iter()
+        .find(|c| c.sort.as_ref() == "literal-value")
+        .map(|c| c.value.as_str())
+}
+
+fn placeholder_for_pattern(pattern: &str) -> String {
+    // Heuristic placeholder for unconstrained PATTERN terminals.
+    //
+    // First handle the "the regex IS a literal escape" cases that
+    // tree-sitter grammars use as separators (`\n`, `\r\n`, `;`,
+    // etc.); emitting the matching character is always preferable
+    // to a `_x` identifier-like placeholder when the surrounding
+    // grammar expects a separator.
+    let simple_lit = decode_simple_pattern_literal(pattern);
+    if let Some(lit) = simple_lit {
+        return lit;
+    }
+
+    if pattern.contains("[0-9]") || pattern.contains("\\d") {
+        "0".into()
+    } else if pattern.contains("[a-zA-Z_]") || pattern.contains("\\w") {
+        "_x".into()
+    } else if pattern.contains('"') || pattern.contains('\'') {
+        "\"\"".into()
+    } else {
+        "_".into()
+    }
+}
+
+/// Decode a tree-sitter PATTERN whose regex is a simple literal
+/// (newline, semicolon, comma, etc.) to the byte sequence it matches.
+/// Returns `None` for patterns with character classes, alternations,
+/// or quantifiers; the caller falls back to the heuristic placeholder.
+fn decode_simple_pattern_literal(pattern: &str) -> Option<String> {
+    // Skip patterns containing regex metachars that would broaden the
+    // match beyond a single literal byte sequence.
+    if pattern
+        .chars()
+        .any(|c| matches!(c, '[' | ']' | '(' | ')' | '*' | '+' | '?' | '|' | '{' | '}'))
+    {
+        return None;
+    }
+    let mut out = String::new();
+    let mut chars = pattern.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
+                Some('t') => out.push('\t'),
+                Some('\\') => out.push('\\'),
+                Some('/') => out.push('/'),
+                Some(other) => out.push(other),
+                None => return None,
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Some(out)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Token list output with Spacing algebra
+// ═══════════════════════════════════════════════════════════════════
+//
+// Emit produces a free monoid over `Token`. Layout (spaces, newlines,
+// indentation) is a homomorphism `Vec<Token> -> Vec<u8>` parameterised
+// by `FormatPolicy`. Separating the structural output from the layout
+// decision means each phase has one job: emit walks the grammar and
+// pushes tokens; layout is a single fold, locally driven by adjacent
+// pairs and a depth counter. Snapshot/restore is just `tokens.len()`.
+
+#[derive(Clone)]
+enum Token {
+    /// A user-visible terminal contributed by the grammar.
+    Lit(String),
+    /// `indent_open` marker emitted when a `Lit` matched the policy's
+    /// open list. Carried as a separate token so layout can decide to
+    /// break + indent without re-scanning.
+    IndentOpen,
+    /// `indent_close` marker emitted before a closer-`Lit`.
+    IndentClose,
+    /// "Break a line here if not already at line start" — used after
+    /// statements/declarations and after open braces.
+    LineBreak,
+}
+
+struct Output<'a> {
+    tokens: Vec<Token>,
+    policy: &'a FormatPolicy,
+}
+
+#[derive(Clone)]
+struct OutputSnapshot {
+    tokens_len: usize,
+}
+
+impl<'a> Output<'a> {
+    fn new(policy: &'a FormatPolicy) -> Self {
+        Self {
+            tokens: Vec::new(),
+            policy,
+        }
+    }
+
+    fn token(&mut self, value: &str) {
+        if value.is_empty() {
+            return;
+        }
+
+        if self.policy.indent_close.iter().any(|t| t == value) {
+            self.tokens.push(Token::IndentClose);
+        }
+
+        self.tokens.push(Token::Lit(value.to_owned()));
+
+        if self.policy.indent_open.iter().any(|t| t == value) {
+            self.tokens.push(Token::IndentOpen);
+            self.tokens.push(Token::LineBreak);
+        } else if self.policy.line_break_after.iter().any(|t| t == value) {
+            self.tokens.push(Token::LineBreak);
+        }
+    }
+
+    fn newline(&mut self) {
+        self.tokens.push(Token::LineBreak);
+    }
+
+    fn snapshot(&self) -> OutputSnapshot {
+        OutputSnapshot {
+            tokens_len: self.tokens.len(),
+        }
+    }
+
+    fn restore(&mut self, snap: OutputSnapshot) {
+        self.tokens.truncate(snap.tokens_len);
+    }
+
+    fn finish(self) -> Vec<u8> {
+        layout(&self.tokens, self.policy)
+    }
+}
+
+/// Fold a token list into bytes. The algebra:
+/// * adjacent `Lit`s get a single space iff `needs_space_between(a, b)`,
+/// * `IndentOpen` / `IndentClose` adjust a depth counter,
+/// * `LineBreak` writes `\n` if not already at line start, then the
+///   next `Lit` writes `indent * indent_width` spaces of indent.
+fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut indent: usize = 0;
+    let mut at_line_start = true;
+    let mut last_lit: Option<&str> = None;
+
+    for tok in tokens {
+        match tok {
+            Token::IndentOpen => indent += 1,
+            Token::IndentClose => {
+                indent = indent.saturating_sub(1);
+                if !at_line_start {
+                    bytes.push(b'\n');
+                    at_line_start = true;
+                }
+            }
+            Token::LineBreak => {
+                if !at_line_start {
+                    bytes.push(b'\n');
+                    at_line_start = true;
+                }
+            }
+            Token::Lit(value) => {
+                if at_line_start {
+                    bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
+                } else if let Some(prev) = last_lit {
+                    if needs_space_between(prev, value) {
+                        bytes.push(b' ');
+                    }
+                }
+                bytes.extend_from_slice(value.as_bytes());
+                at_line_start = false;
+                last_lit = Some(value.as_str());
+            }
+        }
+    }
+
+    if !at_line_start {
+        bytes.push(b'\n');
+    }
+    bytes
+}
+
+fn needs_space_between(last: &str, next: &str) -> bool {
+    if last.is_empty() || next.is_empty() {
+        return false;
+    }
+    if is_punct_open(last) || is_punct_open(next) {
+        return false;
+    }
+    if is_punct_close(next) {
+        return false;
+    }
+    if is_punct_close(last) && is_punct_punctuation(next) {
+        return false;
+    }
+    if last == "." || next == "." {
+        return false;
+    }
+    if last_is_word_like(last) && first_is_word_like(next) {
+        return true;
+    }
+    if last_ends_with_alnum(last) && first_is_alnum_or_underscore(next) {
+        return true;
+    }
+    // Adjacent operator runs: keep them apart so the lexer doesn't glue
+    // `>` and `=` into `>=` unintentionally.
+    true
+}
+
+fn is_punct_open(s: &str) -> bool {
+    matches!(s, "(" | "[" | "{" | "\"" | "'" | "`")
+}
+
+fn is_punct_close(s: &str) -> bool {
+    matches!(s, ")" | "]" | "}" | "," | ";" | ":" | "\"" | "'" | "`")
+}
+
+fn is_punct_punctuation(s: &str) -> bool {
+    matches!(s, "," | ";" | ":" | "." | ")" | "]" | "}")
+}
+
+fn last_is_word_like(s: &str) -> bool {
+    s.chars()
+        .next_back()
+        .map(|c| c.is_alphanumeric() || c == '_')
+        .unwrap_or(false)
+}
+
+fn first_is_word_like(s: &str) -> bool {
+    s.chars()
+        .next()
+        .map(|c| c.is_alphanumeric() || c == '_')
+        .unwrap_or(false)
+}
+
+fn last_ends_with_alnum(s: &str) -> bool {
+    s.chars()
+        .next_back()
+        .map(char::is_alphanumeric)
+        .unwrap_or(false)
+}
+
+fn first_is_alnum_or_underscore(s: &str) -> bool {
+    s.chars()
+        .next()
+        .map(|c| c.is_alphanumeric() || c == '_')
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_simple_grammar_json() {
+        let bytes = br#"{
+            "name": "tiny",
+            "rules": {
+                "program": {
+                    "type": "SEQ",
+                    "members": [
+                        {"type": "STRING", "value": "hello"},
+                        {"type": "STRING", "value": ";"}
+                    ]
+                }
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("valid tiny grammar");
+        assert!(g.rules.contains_key("program"));
+    }
+
+    #[test]
+    fn output_emits_punctuation_without_leading_space() {
+        let policy = FormatPolicy::default();
+        let mut out = Output::new(&policy);
+        out.token("foo");
+        out.token("(");
+        out.token(")");
+        out.token(";");
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert!(s.starts_with("foo();"), "got {s:?}");
+    }
+
+    #[test]
+    fn grammar_from_bytes_rejects_malformed_input() {
+        let result = Grammar::from_bytes("malformed", b"not json");
+        let err = result.expect_err("malformed bytes must yield Err");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("malformed"),
+            "error message should name the protocol: {msg:?}"
+        );
+    }
+
+    #[test]
+    fn output_indents_after_open_brace() {
+        let policy = FormatPolicy::default();
+        let mut out = Output::new(&policy);
+        out.token("fn");
+        out.token("foo");
+        out.token("(");
+        out.token(")");
+        out.token("{");
+        out.token("body");
+        out.token("}");
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert!(s.contains("{\n"), "newline after opening brace: {s:?}");
+        assert!(s.contains("body"), "body inside block: {s:?}");
+        assert!(s.ends_with("}\n"), "newline after closing brace: {s:?}");
+    }
+
+    #[test]
+    fn output_no_space_between_word_and_dot() {
+        let policy = FormatPolicy::default();
+        let mut out = Output::new(&policy);
+        out.token("foo");
+        out.token(".");
+        out.token("bar");
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert!(s.starts_with("foo.bar"), "no space around dot: {s:?}");
+    }
+
+    #[test]
+    fn output_snapshot_restore_truncates_bytes() {
+        let policy = FormatPolicy::default();
+        let mut out = Output::new(&policy);
+        out.token("keep");
+        let snap = out.snapshot();
+        out.token("drop");
+        out.token("more");
+        out.restore(snap);
+        out.token("after");
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert!(s.contains("keep"), "kept token survives: {s:?}");
+        assert!(s.contains("after"), "post-restore token visible: {s:?}");
+        assert!(!s.contains("drop"), "rolled-back token removed: {s:?}");
+        assert!(!s.contains("more"), "rolled-back token removed: {s:?}");
+    }
+
+    #[test]
+    fn child_cursor_take_field_consumes_once() {
+        let edges_owned: Vec<Edge> = vec![Edge {
+            src: panproto_gat::Name::from("p"),
+            tgt: panproto_gat::Name::from("c"),
+            kind: panproto_gat::Name::from("name"),
+            name: None,
+        }];
+        let edges: Vec<&Edge> = edges_owned.iter().collect();
+        let mut cursor = ChildCursor::new(&edges);
+        let first = cursor.take_field("name");
+        let second = cursor.take_field("name");
+        assert!(first.is_some(), "first take returns the edge");
+        assert!(
+            second.is_none(),
+            "second take returns None (already consumed)"
+        );
+    }
+
+    #[test]
+    fn child_cursor_take_matching_predicate() {
+        let edges_owned: Vec<Edge> = vec![
+            Edge {
+                src: "p".into(),
+                tgt: "c1".into(),
+                kind: "child_of".into(),
+                name: None,
+            },
+            Edge {
+                src: "p".into(),
+                tgt: "c2".into(),
+                kind: "key".into(),
+                name: None,
+            },
+        ];
+        let edges: Vec<&Edge> = edges_owned.iter().collect();
+        let mut cursor = ChildCursor::new(&edges);
+        assert!(cursor.has_matching(|e| e.kind.as_ref() == "key"));
+        let taken = cursor.take_matching(|e| e.kind.as_ref() == "key");
+        assert!(taken.is_some());
+        assert!(
+            !cursor.has_matching(|e| e.kind.as_ref() == "key"),
+            "consumed edge no longer matches"
+        );
+        assert!(
+            cursor.has_matching(|e| e.kind.as_ref() == "child_of"),
+            "the other edge is still available"
+        );
+    }
+
+    #[test]
+    fn kind_satisfies_symbol_direct_match() {
+        let bytes = br#"{
+            "name": "tiny",
+            "rules": {
+                "x": {"type": "STRING", "value": "x"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("valid grammar");
+        assert!(kind_satisfies_symbol(&g, Some("x"), "x"));
+        assert!(!kind_satisfies_symbol(&g, Some("y"), "x"));
+        assert!(!kind_satisfies_symbol(&g, None, "x"));
+    }
+
+    #[test]
+    fn kind_satisfies_symbol_through_hidden_rule() {
+        let bytes = br#"{
+            "name": "tiny",
+            "rules": {
+                "_value": {
+                    "type": "CHOICE",
+                    "members": [
+                        {"type": "SYMBOL", "name": "object"},
+                        {"type": "SYMBOL", "name": "number"}
+                    ]
+                },
+                "object": {"type": "STRING", "value": "{}"},
+                "number": {"type": "PATTERN", "value": "[0-9]+"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("valid grammar");
+        assert!(
+            kind_satisfies_symbol(&g, Some("number"), "_value"),
+            "number is reachable from _value via CHOICE"
+        );
+        assert!(
+            kind_satisfies_symbol(&g, Some("object"), "_value"),
+            "object is reachable from _value via CHOICE"
+        );
+        assert!(
+            !kind_satisfies_symbol(&g, Some("string"), "_value"),
+            "string is NOT among the alternatives"
+        );
+    }
+
+    #[test]
+    fn first_symbol_skips_string_terminals() {
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "SEQ",
+                "members": [
+                    {"type": "STRING", "value": "{"},
+                    {"type": "SYMBOL", "name": "body"},
+                    {"type": "STRING", "value": "}"}
+                ]
+            }"#,
+        )
+        .expect("valid SEQ");
+        assert_eq!(first_symbol(&prod), Some("body"));
+    }
+
+    #[test]
+    fn placeholder_for_pattern_routes_by_regex_class() {
+        assert_eq!(placeholder_for_pattern("[0-9]+"), "0");
+        assert_eq!(placeholder_for_pattern("[a-zA-Z_]\\w*"), "_x");
+        assert_eq!(placeholder_for_pattern("\"[^\"]*\""), "\"\"");
+        assert_eq!(placeholder_for_pattern("\\d+\\.\\d+"), "0");
+    }
+
+    #[test]
+    fn format_policy_default_breaks_after_semicolon() {
+        let policy = FormatPolicy::default();
+        assert!(policy.line_break_after.iter().any(|t| t == ";"));
+        assert!(policy.indent_open.iter().any(|t| t == "{"));
+        assert!(policy.indent_close.iter().any(|t| t == "}"));
+        assert_eq!(policy.indent_width, 2);
+    }
+
+    #[test]
+    fn placeholder_decodes_literal_pattern_separators() {
+        // PATTERN regexes that match a single literal byte sequence
+        // (newline, semicolon, comma) emit the bytes verbatim instead
+        // of falling through to the `_` catch-all.
+        assert_eq!(placeholder_for_pattern("\\n"), "\n");
+        assert_eq!(placeholder_for_pattern("\\r\\n"), "\r\n");
+        assert_eq!(placeholder_for_pattern(";"), ";");
+        // Patterns with character classes / alternation still route
+        // through the heuristic.
+        assert_eq!(placeholder_for_pattern("[0-9]+"), "0");
+        assert_eq!(placeholder_for_pattern("a|b"), "_");
+    }
+
+    #[test]
+    fn supertypes_decode_from_grammar_json_strings() {
+        // Tree-sitter older grammars list supertypes as bare strings.
+        let bytes = br#"{
+            "name": "tiny",
+            "supertypes": ["expression"],
+            "rules": {
+                "expression": {
+                    "type": "CHOICE",
+                    "members": [
+                        {"type": "SYMBOL", "name": "binary_expression"},
+                        {"type": "SYMBOL", "name": "identifier"}
+                    ]
+                },
+                "binary_expression": {"type": "STRING", "value": "x"},
+                "identifier": {"type": "PATTERN", "value": "[a-z]+"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("parse");
+        assert!(g.supertypes.contains("expression"));
+        // identifier matches the supertype `expression`.
+        assert!(kind_satisfies_symbol(&g, Some("identifier"), "expression"));
+        // unrelated kinds do not.
+        assert!(!kind_satisfies_symbol(&g, Some("string"), "expression"));
+    }
+
+    #[test]
+    fn supertypes_decode_from_grammar_json_objects() {
+        // Recent grammars list supertypes as `{type: SYMBOL, name: ...}`
+        // entries instead of bare strings.
+        let bytes = br#"{
+            "name": "tiny",
+            "supertypes": [{"type": "SYMBOL", "name": "stmt"}],
+            "rules": {
+                "stmt": {
+                    "type": "CHOICE",
+                    "members": [
+                        {"type": "SYMBOL", "name": "while_stmt"},
+                        {"type": "SYMBOL", "name": "if_stmt"}
+                    ]
+                },
+                "while_stmt": {"type": "STRING", "value": "while"},
+                "if_stmt": {"type": "STRING", "value": "if"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("parse");
+        assert!(g.supertypes.contains("stmt"));
+        assert!(kind_satisfies_symbol(&g, Some("while_stmt"), "stmt"));
+    }
+
+    #[test]
+    fn alias_value_matches_kind() {
+        // A named ALIAS rewrites the parser-visible kind to `value`;
+        // `kind_satisfies_symbol` should accept that rewritten kind
+        // when looking up the original SYMBOL.
+        let bytes = br#"{
+            "name": "tiny",
+            "rules": {
+                "_package_identifier": {
+                    "type": "ALIAS",
+                    "named": true,
+                    "value": "package_identifier",
+                    "content": {"type": "SYMBOL", "name": "identifier"}
+                },
+                "identifier": {"type": "PATTERN", "value": "[a-z]+"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("parse");
+        assert!(kind_satisfies_symbol(
+            &g,
+            Some("package_identifier"),
+            "_package_identifier"
+        ));
+    }
+
+    #[test]
+    fn referenced_symbols_walks_nested_seq() {
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "SEQ",
+                "members": [
+                    {"type": "CHOICE", "members": [
+                        {"type": "SYMBOL", "name": "attribute_item"},
+                        {"type": "BLANK"}
+                    ]},
+                    {"type": "SYMBOL", "name": "parameter"},
+                    {"type": "REPEAT", "content": {
+                        "type": "SEQ",
+                        "members": [
+                            {"type": "STRING", "value": ","},
+                            {"type": "SYMBOL", "name": "parameter"}
+                        ]
+                    }}
+                ]
+            }"#,
+        )
+        .expect("seq");
+        let symbols = referenced_symbols(&prod);
+        assert!(symbols.contains(&"attribute_item"));
+        assert!(symbols.contains(&"parameter"));
+    }
+
+    #[test]
+    fn literal_strings_collects_choice_members() {
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "CHOICE",
+                "members": [
+                    {"type": "STRING", "value": "+"},
+                    {"type": "STRING", "value": "-"},
+                    {"type": "STRING", "value": "*"}
+                ]
+            }"#,
+        )
+        .expect("choice");
+        let strings = literal_strings(&prod);
+        assert_eq!(strings, vec!["+", "-", "*"]);
+    }
+}

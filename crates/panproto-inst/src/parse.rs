@@ -263,16 +263,23 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
         };
     }
 
-    // List (ordered-collection) node. The check is purely structural:
-    // a vertex behaves as a list iff its outgoing edges in the schema
-    // are all anonymous (no field names). This is the free-schema
-    // characterization of the list type — a product of unlabeled "item
-    // slots" rather than a product of named projections. It is
-    // protocol-agnostic: it works for any schema that represents
-    // ordered collections via repeated unnamed edges, regardless of
-    // how the vertex kind is spelled ("array", "list", "sequence",
-    // "line-of", etc.).
-    if is_list_vertex(schema, &node.anchor) {
+    // List (ordered-collection) node. We treat a node as a list when
+    // any of three signals fires:
+    //
+    // 1. The schema marks the anchor vertex as a list (its outgoing
+    //    edges are nonempty and all anonymous), or
+    // 2. The node carries the `$list` annotation set by the CST
+    //    extractor at parse time (catches empty and singleton arrays
+    //    that the instance-arc heuristic cannot distinguish from
+    //    plain `{ "item": x }` objects), or
+    // 3. The instance carries multiple outgoing arcs that share the
+    //    same `(kind, name)` pair (recovers list shape when the
+    //    annotation is absent, e.g. instances built by callers that
+    //    bypass the CST extraction path).
+    let list_via_schema = is_list_vertex(schema, &node.anchor);
+    let list_via_annotation = node.is_list();
+    let list_via_instance_arcs = is_list_via_instance_arcs(instance, node_id);
+    if list_via_schema || list_via_annotation || list_via_instance_arcs {
         let children = instance.children(node_id);
         let items: Vec<serde_json::Value> = children
             .iter()
@@ -370,6 +377,32 @@ fn value_to_json(val: &Value) -> serde_json::Value {
 fn is_list_vertex(schema: &Schema, vertex_id: &str) -> bool {
     let outgoing = schema.outgoing_edges(vertex_id);
     !outgoing.is_empty() && outgoing.iter().all(|e| e.name.is_none())
+}
+
+/// Detect a list-shaped node from its instance arcs.
+///
+/// Returns `true` when the node has at least two outgoing arcs that
+/// all share the same `(kind, name)` pair. Two same-named children
+/// cannot be expressed as a JSON object (duplicate keys are
+/// disallowed), so the only consistent serialization is a JSON array.
+/// In particular, this catches the synthetic `"item"` arcs that the
+/// open-schema CST extractor emits for every array element.
+fn is_list_via_instance_arcs(instance: &WInstance, node_id: u32) -> bool {
+    let mut signature: Option<(panproto_gat::Name, Option<panproto_gat::Name>)> = None;
+    let mut count = 0_usize;
+    for &(parent, _, ref edge) in &instance.arcs {
+        if parent != node_id {
+            continue;
+        }
+        let key = (edge.kind.clone(), edge.name.clone());
+        match &signature {
+            Some(existing) if existing != &key => return false,
+            Some(_) => {}
+            None => signature = Some(key),
+        }
+        count += 1;
+    }
+    count >= 2
 }
 
 /// Simple base64 encoding (no padding).

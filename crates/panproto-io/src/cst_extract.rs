@@ -97,6 +97,8 @@ impl ExtractState {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
+use panproto_inst::NodeShape;
+
 /// Get the `literal-value` constraint from a CST vertex.
 fn literal_value(cst: &Schema, vertex_id: &str) -> Option<String> {
     cst.constraints.get(vertex_id).and_then(|cs| {
@@ -104,6 +106,32 @@ fn literal_value(cst: &Schema, vertex_id: &str) -> Option<String> {
             .find(|c| c.sort.as_ref() == "literal-value")
             .map(|c| c.value.clone())
     })
+}
+
+/// Get the text content of a CST vertex, descending through anonymous
+/// child wrappers when the vertex itself carries no `literal-value`
+/// constraint.
+///
+/// Tree-sitter grammars routinely model a token as a wrapper node
+/// whose only purpose is to anchor a `text`-typed leaf child (TSV
+/// `field → text`, JSON `string → string_content`, etc.). Callers that
+/// just want "the captured bytes for this token" should not have to
+/// know that detail; this helper walks the structural `child_of` chain
+/// until it finds a `literal-value`, returning the empty string only
+/// when no descendant carries one.
+fn literal_text_deep(cst: &Schema, vertex_id: &str) -> String {
+    if let Some(text) = literal_value(cst, vertex_id) {
+        return text;
+    }
+    let mut buf = String::new();
+    for child in cst_children_by_edge_kind(cst, vertex_id, "child_of") {
+        if let Some(text) = literal_value(cst, child) {
+            buf.push_str(&text);
+        } else {
+            buf.push_str(&literal_text_deep(cst, child));
+        }
+    }
+    buf
 }
 
 /// Find a child of `parent` with the given edge kind in the CST.
@@ -130,12 +158,102 @@ fn cst_vertex_kind(cst: &Schema, vertex_id: &str) -> Option<String> {
 
 /// Get the `string_content` literal from a CST `string` vertex.
 fn json_string_value(cst: &Schema, string_vertex: &str) -> Option<String> {
-    for edge in cst.outgoing_edges(string_vertex) {
-        if cst_vertex_kind(cst, &edge.tgt).as_deref() == Some("string_content") {
-            return literal_value(cst, &edge.tgt);
+    let edges = cst.outgoing_edges(string_vertex);
+    if edges.is_empty() {
+        return None;
+    }
+
+    // Walk every child of the string vertex in source order. Tree-sitter
+    // splits an escaped JSON string into a sequence of `string_content`
+    // text fragments and `escape_sequence` nodes; the first non-empty
+    // child carries only the prefix before the first escape, so the
+    // previous "first child only" lookup truncated every string with
+    // an escape in it.
+    //
+    // Unicode escapes (` `) are split further by the grammar:
+    // `escape_sequence` captures only the first two bytes (`\u`) and
+    // the four hex digits land in the next `string_content` text
+    // segment. We peek-ahead in that case, decode the codepoint, and
+    // skip the consumed prefix.
+    let mut children: Vec<&panproto_schema::Edge> = edges.iter().collect();
+    children.sort_by_key(|e| {
+        cst.constraints
+            .get(&e.tgt)
+            .and_then(|cs| {
+                cs.iter()
+                    .find(|c| c.sort.as_ref() == "start-byte")
+                    .and_then(|c| c.value.parse::<usize>().ok())
+            })
+            .unwrap_or(0)
+    });
+
+    let mut out = String::new();
+    let mut saw_content = false;
+    let mut hex_skip: usize = 0;
+    for edge in children {
+        match cst_vertex_kind(cst, &edge.tgt).as_deref() {
+            Some("string_content") => {
+                if let Some(text) = literal_value(cst, &edge.tgt) {
+                    let body = if hex_skip > 0 && hex_skip <= text.len() {
+                        let consumed = &text[..hex_skip];
+                        if let Some(c) = u32::from_str_radix(consumed, 16)
+                            .ok()
+                            .and_then(char::from_u32)
+                        {
+                            out.push(c);
+                        }
+                        &text[hex_skip..]
+                    } else {
+                        text.as_str()
+                    };
+                    hex_skip = 0;
+                    out.push_str(body);
+                    saw_content = true;
+                }
+            }
+            Some("escape_sequence") => {
+                if let Some(raw) = literal_value(cst, &edge.tgt) {
+                    let bytes = raw.as_bytes();
+                    if bytes.len() == 2 && bytes[0] == b'\\' && bytes[1] == b'u' {
+                        // Defer emission until the next string_content
+                        // child contributes the four hex digits.
+                        hex_skip = 4;
+                    } else {
+                        out.push_str(&decode_json_escape(&raw));
+                    }
+                    saw_content = true;
+                }
+            }
+            _ => {}
         }
     }
-    None
+    if saw_content { Some(out) } else { None }
+}
+
+/// Decode a JSON escape sequence (the raw bytes captured by
+/// tree-sitter, e.g. `\n`, `\"`) to the escaped character.
+///
+/// `\uXXXX` escapes are NOT handled here because the JSON tree-sitter
+/// grammar splits them across an `escape_sequence` (just `\u`) and a
+/// trailing `string_content` text segment carrying the four hex
+/// digits; [`json_string_value`] handles that join with lookahead.
+/// Unrecognised forms fall back to the original bytes.
+fn decode_json_escape(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'\\' {
+        return raw.to_owned();
+    }
+    match bytes[1] {
+        b'"' => "\"".to_owned(),
+        b'\\' => "\\".to_owned(),
+        b'/' => "/".to_owned(),
+        b'b' => "\u{0008}".to_owned(),
+        b'f' => "\u{000C}".to_owned(),
+        b'n' => "\n".to_owned(),
+        b'r' => "\r".to_owned(),
+        b't' => "\t".to_owned(),
+        _ => raw.to_owned(),
+    }
 }
 
 /// Parse a numeric string to a `Value`.
@@ -435,7 +553,8 @@ fn extract_json_value_open(
             Ok(())
         }
         "array" => {
-            let node = Node::new(node_id, anchor);
+            let mut node = Node::new(node_id, anchor);
+            node.shape = NodeShape::List;
             state.nodes.insert(node_id, node);
             let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
             for child_name in &children {
@@ -509,7 +628,8 @@ fn extract_json_array(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
-    let node = Node::new(node_id, domain_vertex);
+    let mut node = Node::new(node_id, domain_vertex);
+    node.shape = NodeShape::List;
     state.nodes.insert(node_id, node);
 
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
@@ -517,12 +637,32 @@ fn extract_json_array(
         .iter()
         .find(|e| *e.kind == *"item" || e.name.as_deref() == Some("item"));
 
+    let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
     if let Some(edge) = item_edge {
-        let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
+        // Domain schema declares the item slot: walk children with the
+        // declared item-target kind so type-aware routing kicks in.
         for child_name in children {
             let child_id = state.alloc_id();
             extract_json_value(cst, domain_schema, child_name, &edge.tgt, child_id, state)?;
             state.arcs.push((node_id, child_id, edge.clone()));
+        }
+    } else {
+        // Open / partial schema: synthesise an `item` edge per child
+        // and recurse through the open extractor. Without this branch
+        // a top-level JSON array (or any array reaching a domain
+        // vertex with no declared item edge) silently parsed to an
+        // empty list because no children were collected.
+        for child_name in &children {
+            let child_anchor = format!("{domain_vertex}:items");
+            let child_id = state.alloc_id();
+            extract_json_value_open(cst, child_name, &child_anchor, child_id, state)?;
+            let synth_edge = Edge {
+                src: Name::from(domain_vertex),
+                tgt: Name::from(child_anchor.as_str()),
+                kind: "item".into(),
+                name: Some("item".into()),
+            };
+            state.arcs.push((node_id, child_id, synth_edge));
         }
     }
 
@@ -577,12 +717,12 @@ fn extract_json_generic_value(cst: &Schema, cst_vertex: &Name) -> Value {
             Value::Unknown(fields)
         }
         "array" => {
-            let mut fields = HashMap::new();
             let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
-            for (i, child_name) in children.iter().enumerate() {
-                fields.insert(i.to_string(), extract_json_generic_value(cst, child_name));
-            }
-            Value::Unknown(fields)
+            let items: Vec<Value> = children
+                .iter()
+                .map(|child_name| extract_json_generic_value(cst, child_name))
+                .collect();
+            Value::List(items)
         }
         _ => Value::Str(literal_value(cst, cst_vertex).unwrap_or_default()),
     }
@@ -609,6 +749,28 @@ pub fn inject_json_cst(
     for (&node_id, node) in &instance.nodes {
         if let Some(ref presence) = node.value {
             if let Some(cst_vertex) = complement.node_to_cst_value.get(&node_id) {
+                // For strings the CST may store the value across multiple
+                // child segments (text + escape_sequence + ...). The
+                // tracked `node_to_cst_value` points at the first
+                // segment only; updating it with the fully decoded text
+                // would either truncate (when the new text is shorter
+                // than the original token) or lose escape style (when
+                // it is the same value but written ` ` vs
+                // literally). When the parsed string still matches the
+                // instance value, skip the inject so the original
+                // bytes survive untouched.
+                if let Value::Str(s) = match presence {
+                    FieldPresence::Present(v) => v,
+                    _ => &Value::Null,
+                } {
+                    if let Some(struct_vertex) = complement.node_to_cst_struct.get(&node_id) {
+                        if let Some(original) = json_string_value(&cst, struct_vertex) {
+                            if &original == s {
+                                continue;
+                            }
+                        }
+                    }
+                }
                 let new_text = field_presence_to_json_text(presence);
                 update_literal_value(&mut cst, cst_vertex, &new_text);
             }
@@ -619,16 +781,72 @@ pub fn inject_json_cst(
 }
 
 /// Convert a `FieldPresence` to the JSON text representation.
+///
+/// Used by [`inject_json_cst`] to overwrite `literal-value` constraints
+/// on a CST leaf when the instance has changed. The produced text must
+/// match the wire format of a JSON token bit-for-bit so the
+/// format-preserving emitter is byte-identity for unchanged instances:
+///
+/// - `Str(s)` is JSON-encoded (escapes restored, no surrounding quotes
+///   because tree-sitter's `string_content` constraint covers only the
+///   inner bytes).
+/// - `Float(f)` always renders with a decimal point, so `6.0` round-trips
+///   as `"6.0"` rather than `"6"` (the default `f64::Display`).
+/// - `Null` / `Present(Null)` render as the literal token `null`.
 fn field_presence_to_json_text(presence: &FieldPresence) -> String {
     match presence {
-        FieldPresence::Present(Value::Str(s)) => s.clone(),
+        FieldPresence::Present(Value::Str(s)) => json_encode_string_content(s),
         FieldPresence::Present(Value::Int(i)) => i.to_string(),
-        FieldPresence::Present(Value::Float(f)) => f.to_string(),
+        FieldPresence::Present(Value::Float(f)) => json_format_float(*f),
         FieldPresence::Present(Value::Bool(b)) => b.to_string(),
-        FieldPresence::Null | FieldPresence::Present(Value::Null) | FieldPresence::Absent => {
-            String::new()
-        }
+        FieldPresence::Null | FieldPresence::Present(Value::Null) => "null".into(),
+        FieldPresence::Absent => String::new(),
         FieldPresence::Present(other) => format!("{other:?}"),
+    }
+}
+
+/// Encode a Rust string as the JSON `string_content` body (between the
+/// surrounding quotes, with `"`, `\`, control characters, and forward
+/// slash escapes restored). Mirrors the inverse of `decode_json_escape`
+/// + the lookahead that joins `\u` with its four-hex tail.
+fn json_encode_string_content(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000C}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Format an `f64` as a JSON numeric token that always carries either a
+/// decimal point or an exponent. `format!("{f}")` collapses
+/// integer-valued floats to `"6"`, which round-trips through the
+/// JSON parser as an integer rather than a float; appending `.0` keeps
+/// the original lexical category.
+fn json_format_float(f: f64) -> String {
+    if f.is_finite() {
+        let s = f.to_string();
+        if s.contains('.') || s.contains('e') || s.contains('E') {
+            s
+        } else {
+            format!("{s}.0")
+        }
+    } else {
+        // JSON has no syntax for NaN/Infinity; fall back to `null` so
+        // the inject does not produce unparseable bytes.
+        "null".into()
     }
 }
 
@@ -734,6 +952,7 @@ fn find_first_element_child(cst: &Schema, parent: &str) -> Option<Name> {
     None
 }
 
+#[allow(clippy::too_many_lines)]
 fn extract_xml_element(
     cst: &Schema,
     domain_schema: &Schema,
@@ -756,29 +975,104 @@ fn extract_xml_element(
         }
     }
 
+    if let Some(tag) = extract_xml_tag_name(cst, cst_vertex) {
+        node.shape = NodeShape::XmlElement {
+            tag: panproto_gat::Name::from(tag.as_str()),
+        };
+    }
+
     if let Some(ref stag) = stag_vertex {
         extract_xml_attributes(cst, stag, &mut node);
     }
 
     if let Some(ref content) = content_vertex {
-        if let Some(text) = extract_xml_text_content(cst, content) {
-            if !text.trim().is_empty() {
-                node.value = Some(FieldPresence::Present(Value::Str(text)));
-                // Record the CharData vertex for injection
-                for edge in cst.outgoing_edges(content) {
-                    if cst_vertex_kind(cst, &edge.tgt).as_deref() == Some("CharData") {
-                        state.node_to_cst_value.insert(node_id, edge.tgt.clone());
-                        break;
+        let content_children = ordered_content_children(cst, content);
+        let has_elements = content_children.iter().any(|(kind, _)| kind == "element");
+        let has_nonempty_text = content_children.iter().any(|(kind, name)| {
+            kind == "CharData"
+                && !literal_value(cst, name)
+                    .unwrap_or_default()
+                    .trim()
+                    .is_empty()
+        });
+        let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
+
+        if !has_elements {
+            // Pure text content: collapse to node.value (existing
+            // semantics; preserves the leaf-element fast path where a
+            // round-trip just stores the captured text).
+            if let Some(text) = extract_xml_text_content(cst, content) {
+                if !text.trim().is_empty() {
+                    node.value = Some(FieldPresence::Present(Value::Str(text)));
+                    for edge in cst.outgoing_edges(content) {
+                        if cst_vertex_kind(cst, &edge.tgt).as_deref() == Some("CharData") {
+                            state.node_to_cst_value.insert(node_id, edge.tgt.clone());
+                            break;
+                        }
                     }
                 }
             }
+        } else if has_nonempty_text {
+            // Mixed content: walk content in source order, emitting a
+            // text-segment leaf for each non-blank CharData and a
+            // regular element child for each `element`. Preserves the
+            // original interleaving so `<p>x<em>y</em>z</p>` round-trips
+            // through emit without losing the trailing text run.
+            for (kind, child_vertex) in &content_children {
+                if kind == "CharData" {
+                    let text = literal_value(cst, child_vertex).unwrap_or_default();
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                    let seg_anchor = format!("{domain_vertex}:text");
+                    let seg_id = state.alloc_id();
+                    let mut seg_node = Node::new(seg_id, seg_anchor.as_str());
+                    seg_node.value = Some(FieldPresence::Present(Value::Str(text)));
+                    seg_node.shape = NodeShape::XmlTextSegment;
+                    state.nodes.insert(seg_id, seg_node);
+                    state.node_to_cst_value.insert(seg_id, child_vertex.clone());
+                    let edge = Edge {
+                        src: Name::from(domain_vertex),
+                        tgt: Name::from(seg_anchor.as_str()),
+                        kind: "prop".into(),
+                        name: Some(Name::from("$xml_text")),
+                    };
+                    state.arcs.push((node_id, seg_id, edge));
+                } else if kind == "element" {
+                    let tag =
+                        extract_xml_tag_name(cst, child_vertex).unwrap_or_else(|| "child".into());
+                    let child_anchor = format!("{domain_vertex}:{tag}");
+                    let child_id = state.alloc_id();
+                    extract_xml_element(
+                        cst,
+                        domain_schema,
+                        child_vertex,
+                        &child_anchor,
+                        child_id,
+                        state,
+                    )?;
+                    let synth_edge = Edge {
+                        src: Name::from(domain_vertex),
+                        tgt: Name::from(child_anchor.as_str()),
+                        kind: "prop".into(),
+                        name: Some(Name::from(tag.as_str())),
+                    };
+                    state.arcs.push((node_id, child_id, synth_edge));
+                }
+            }
+            state.nodes.insert(node_id, node);
+            return Ok(());
         }
 
-        let child_elements = find_child_elements(cst, content);
-        let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
+        let child_elements: Vec<Name> = content_children
+            .iter()
+            .filter(|(kind, _)| kind == "element")
+            .map(|(_, name)| name.clone())
+            .collect();
 
         if domain_edges.is_empty() {
-            // Open schema: extract ALL child elements
+            // Open schema: extract ALL child elements (text-only, so
+            // ordering relative to text segments is moot).
             for child_name in &child_elements {
                 let tag = extract_xml_tag_name(cst, child_name).unwrap_or_else(|| "child".into());
                 let child_anchor = format!("{domain_vertex}:{tag}");
@@ -909,11 +1203,32 @@ fn extract_xml_tag_name(cst: &Schema, element_vertex: &Name) -> Option<String> {
     None
 }
 
-fn find_child_elements(cst: &Schema, content_vertex: &Name) -> Vec<Name> {
-    cst.outgoing_edges(content_vertex)
+/// Walk an XML `content` vertex's children in source order, returning
+/// `(kind, vertex_id)` pairs for `CharData` text runs and `element`
+/// children. Used by [`extract_xml_element`] to preserve the
+/// interleaving order of mixed XML content.
+fn ordered_content_children(cst: &Schema, content_vertex: &Name) -> Vec<(String, Name)> {
+    let mut entries: Vec<(usize, String, Name)> = cst
+        .outgoing_edges(content_vertex)
         .iter()
-        .filter(|e| cst_vertex_kind(cst, &e.tgt).as_deref() == Some("element"))
-        .map(|e| e.tgt.clone())
+        .filter_map(|e| {
+            let kind = cst_vertex_kind(cst, &e.tgt)?;
+            let pos = cst
+                .constraints
+                .get(&e.tgt)
+                .and_then(|cs| {
+                    cs.iter()
+                        .find(|c| c.sort.as_ref() == "start-byte")
+                        .and_then(|c| c.value.parse::<usize>().ok())
+                })
+                .unwrap_or(0);
+            Some((pos, kind, e.tgt.clone()))
+        })
+        .collect();
+    entries.sort_by_key(|(pos, _, _)| *pos);
+    entries
+        .into_iter()
+        .map(|(_, kind, name)| (kind, name))
         .collect()
 }
 
@@ -1198,7 +1513,8 @@ fn extract_yaml_sequence(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
-    let node = Node::new(node_id, domain_vertex);
+    let mut node = Node::new(node_id, domain_vertex);
+    node.shape = NodeShape::List;
     state.nodes.insert(node_id, node);
 
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
@@ -1399,7 +1715,7 @@ pub fn extract_tabular_cst(
     let header_fields = cst_children_by_edge_kind(cst, row_vertices[0], "child_of");
     let headers: Vec<String> = header_fields
         .iter()
-        .map(|f| literal_value(cst, f).unwrap_or_default())
+        .map(|f| literal_text_deep(cst, f))
         .collect();
 
     // Track CST vertex for each cell: keyed by (row_index, col_index)
@@ -1416,7 +1732,7 @@ pub fn extract_tabular_cst(
                 .get(col_idx)
                 .cloned()
                 .unwrap_or_else(|| col_idx.to_string());
-            let text = literal_value(cst, field_name).unwrap_or_default();
+            let text = literal_text_deep(cst, field_name);
             row.insert(col, Value::Str(text));
             // Encode (row_idx, col_idx) as a u32 key for the complement mapping.
             #[allow(clippy::cast_possible_truncation)]

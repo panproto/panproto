@@ -39,6 +39,18 @@ jobs:
       matrix:
         rust: [stable, "1.85.0"]
     steps:
+      - name: Free disk space
+        run: |
+          # The matrix-multiplied test job compiles 250 tree-sitter
+          # grammars; without trimming, the GitHub-hosted Ubuntu
+          # runner's 14 GB disk fills before tests complete.
+          # Removes Android SDK, .NET, Haskell, large preinstalled
+          # tools (~30 GB freed) before any cargo step runs.
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:

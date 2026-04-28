@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/panproto)](https://pypi.org/project/panproto/)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/panproto/panproto/blob/main/LICENSE)
 
-Native Python bindings for [panproto](https://panproto.dev). Define schemas, detect breaking changes, and automatically convert data between schema versions. Supports 51 schema languages (OpenAPI, ATProto, Protobuf, JSON Schema, and more) and can parse source code in 248 programming languages via tree-sitter.
+Native Python bindings for [panproto](https://panproto.dev). Define schemas, detect breaking changes, and automatically convert data between schema versions. Supports 51 schema languages (OpenAPI, ATProto, Protobuf, JSON Schema, and more) and can parse source code in 250 programming languages via tree-sitter.
 
 Built with PyO3 for direct access to the Rust engine (no WASM, no subprocess). Requires Python 3.13+.
 

@@ -290,6 +290,16 @@ impl<'a> AstWalker<'a> {
     }
 
     /// Walk named children, capturing interstitial text between them.
+    ///
+    /// Also computes a `chose-alt-fingerprint` constraint by trimming
+    /// and joining every non-empty interstitial run. This is the
+    /// categorical discriminator for the parent vertex's CHOICE alt:
+    /// it survives the byte-position-stripping that
+    /// `emit_pretty_roundtrip`'s by-construction simulation applies,
+    /// so the CHOICE picker can dispatch deterministically against
+    /// the recorded alternative even after interstitials are removed.
+    /// A by-construction schema can populate this constraint directly
+    /// to control which alternative the emitter picks.
     fn walk_children_with_interstitials(
         &self,
         node: tree_sitter::Node<'_>,
@@ -301,6 +311,8 @@ impl<'a> AstWalker<'a> {
         let children: Vec<_> = node.named_children(cursor).collect();
         let mut interstitial_idx = 0;
         let mut prev_end = node.start_byte();
+        let mut fingerprint_parts: Vec<String> = Vec::new();
+        let mut child_kinds: Vec<String> = Vec::new();
 
         for child in &children {
             let gap_start = prev_end;
@@ -311,7 +323,21 @@ impl<'a> AstWalker<'a> {
                 gap_start,
                 gap_end,
                 &mut interstitial_idx,
+                &mut fingerprint_parts,
             );
+            // Record the named child's kind separately from the
+            // literal-token fingerprint. The CHOICE picker reads the
+            // kind sequence as a secondary, tiebreaker witness when
+            // literal tokens alone don't discriminate alternatives.
+            // Hidden-rule kinds (`_`-prefixed) are tree-sitter
+            // implementation detail and never authored by humans;
+            // omitting them keeps the witness language-clean and
+            // matches the convention that hidden rules are inlined
+            // by the emitter rather than dispatched against.
+            let child_kind = child.kind();
+            if !child_kind.starts_with('_') {
+                child_kinds.push(child_kind.to_owned());
+            }
             builder = self.walk_node(*child, builder, id_gen, Some(vertex_id))?;
             prev_end = child.end_byte();
         }
@@ -323,7 +349,20 @@ impl<'a> AstWalker<'a> {
             prev_end,
             node.end_byte(),
             &mut interstitial_idx,
+            &mut fingerprint_parts,
         );
+
+        if !fingerprint_parts.is_empty() {
+            builder = builder.constraint(
+                vertex_id,
+                "chose-alt-fingerprint",
+                &fingerprint_parts.join(" "),
+            );
+        }
+        if !child_kinds.is_empty() {
+            builder =
+                builder.constraint(vertex_id, "chose-alt-child-kinds", &child_kinds.join(" "));
+        }
 
         Ok(builder)
     }
@@ -336,6 +375,7 @@ impl<'a> AstWalker<'a> {
         gap_start: usize,
         gap_end: usize,
         idx: &mut usize,
+        fingerprint: &mut Vec<String>,
     ) -> SchemaBuilder {
         if gap_end > gap_start && gap_end <= self.source.len() {
             if let Ok(gap_text) = std::str::from_utf8(&self.source[gap_start..gap_end]) {
@@ -348,6 +388,10 @@ impl<'a> AstWalker<'a> {
                         &gap_start.to_string(),
                     );
                     *idx += 1;
+                    let trimmed = gap_text.trim();
+                    if !trimmed.is_empty() {
+                        fingerprint.push(trimmed.to_owned());
+                    }
                 }
             }
         }
@@ -663,5 +707,76 @@ mod tests {
     fn roundtrip_toml_simple() {
         let source = b"[package]\nname = \"test\"\nversion = \"0.1.0\"\n";
         assert_roundtrip("toml", source, "test.toml");
+    }
+
+    #[cfg(feature = "group-data")]
+    fn parse_with(grammar_name: &str, source: &[u8], file_path: &str) -> panproto_schema::Schema {
+        use crate::registry::AstParser;
+        let grammar = panproto_grammars::grammars()
+            .into_iter()
+            .find(|g| g.name == grammar_name)
+            .unwrap_or_else(|| panic!("grammar '{grammar_name}' not enabled"));
+        let config = crate::languages::walker_configs::walker_config_for(grammar_name);
+        let lang_parser = crate::languages::common::LanguageParser::from_language(
+            grammar_name,
+            grammar.extensions.to_vec(),
+            grammar.language,
+            grammar.node_types,
+            grammar.tags_query,
+            config,
+        )
+        .unwrap();
+        lang_parser.parse(source, file_path).unwrap()
+    }
+
+    #[test]
+    #[cfg(feature = "group-data")]
+    fn fingerprint_and_child_kinds_emitted_separately() {
+        // The walker must emit `chose-alt-fingerprint` and
+        // `chose-alt-child-kinds` as TWO distinct constraints. The
+        // CHOICE picker reads them independently: literal-token
+        // matches drive primary scoring, child-kind matches act as a
+        // tiebreaker. Mixing them would let punctuation in kind names
+        // contaminate the literal score.
+        let schema = parse_with("json", br#"{"a": 1}"#, "test.json");
+
+        let saw_fingerprint = schema.constraints.values().any(|cs| {
+            cs.iter()
+                .any(|c| c.sort.as_ref() == "chose-alt-fingerprint")
+        });
+        let saw_child_kinds = schema.constraints.values().any(|cs| {
+            cs.iter()
+                .any(|c| c.sort.as_ref() == "chose-alt-child-kinds")
+        });
+
+        assert!(
+            saw_fingerprint,
+            "walker must emit chose-alt-fingerprint (literal-token witness)"
+        );
+        assert!(
+            saw_child_kinds,
+            "walker must emit chose-alt-child-kinds (named-kind witness)"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "group-data")]
+    fn child_kinds_excludes_hidden_rules() {
+        // Hidden rules (`_`-prefixed) are tree-sitter implementation
+        // detail and must not appear in the kind witness.
+        let schema = parse_with("json", br#"{"k": "v"}"#, "test.json");
+
+        for cs in schema.constraints.values() {
+            for c in cs {
+                if c.sort.as_ref() == "chose-alt-child-kinds" {
+                    for kind in c.value.split_whitespace() {
+                        assert!(
+                            !kind.starts_with('_'),
+                            "hidden-rule kind '{kind}' must not appear in chose-alt-child-kinds"
+                        );
+                    }
+                }
+            }
+        }
     }
 }
