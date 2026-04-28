@@ -32,14 +32,20 @@ jobs:
           submodules: recursive
 
       - name: Verify tag matches package version
+        # On `push` (tag) the tag must match the package version. On
+        # `workflow_dispatch` we trust the package version as-is — the
+        # dispatch is intended for re-running a partially-failed
+        # publish at the existing version.
         working-directory: sdk/typescript
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME#v}"
           pkg_version=$(node -p "require('./package.json').version")
-          if [ "$tag" != "$pkg_version" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match @panproto/core version ${pkg_version}"
-            exit 1
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$pkg_version" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match @panproto/core version ${pkg_version}"
+              exit 1
+            fi
           fi
 
       - name: Install stable Rust toolchain
