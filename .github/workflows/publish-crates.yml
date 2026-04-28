@@ -44,18 +44,24 @@ jobs:
         with:
           shared-key: publish-crates
 
-      - name: Verify tag matches workspace version
+      - name: Resolve workspace version
         id: version
+        # On tag push (e.g. `v0.40.0`) the tag must match the workspace
+        # version. On `workflow_dispatch` we trust the workspace version
+        # as-is — the dispatch is intended for re-running a partially-
+        # failed publish at the existing version.
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME#v}"
           ws_version=$(grep -A 1 '^\[workspace.package\]' Cargo.toml \
             | grep '^version' \
             | head -1 \
             | cut -d'"' -f2)
-          if [ "$tag" != "$ws_version" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match workspace version ${ws_version}"
-            exit 1
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$ws_version" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match workspace version ${ws_version}"
+              exit 1
+            fi
           fi
           echo "version=$ws_version" >> "$GITHUB_OUTPUT"
 
@@ -124,14 +130,15 @@ jobs:
           publish_one panproto-llvm
           # Level 7
           publish_one panproto-io
-          publish_one panproto-project
           # Level 8
           publish_one panproto-vcs
           publish_one panproto-xrpc
           publish_one panproto-git
-          # Level 9 — facade + git remote helper
-          publish_one panproto-core
+          # Level 9 — depends on vcs (project), git/vcs/xrpc (git-remote)
+          publish_one panproto-project
           publish_one panproto-git-remote
-          # Level 10
+          # Level 10 — facade
+          publish_one panproto-core
+          # Level 11
           publish_one panproto-wasm
           publish_one panproto-cli

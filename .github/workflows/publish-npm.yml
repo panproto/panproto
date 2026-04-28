@@ -72,6 +72,16 @@ jobs:
         working-directory: sdk/typescript
         run: pnpm install --frozen-lockfile
 
+      - name: Build (WASM + TS)
+        # Must come before Test and Publish: tests under
+        # tests/real-wasm.test.ts load the compiled WASM via
+        # `dist/panproto_wasm.js`, and the npm publish manifest
+        # ("main", "module", "types", "exports", "files") references
+        # dist/. Without this step Test fails with
+        # "Cannot find module @panproto/core".
+        working-directory: sdk/typescript
+        run: pnpm run build
+
       - name: Type-check
         working-directory: sdk/typescript
         run: pnpm exec tsc --noEmit
@@ -79,14 +89,6 @@ jobs:
       - name: Test
         working-directory: sdk/typescript
         run: pnpm test
-
-      - name: Build (WASM + TS)
-        # Produces dist/ which is referenced by package.json's
-        # "main", "module", "types", "exports", and "files" entries.
-        # Without this step npm publish would ship only src/ and
-        # consumers would see "Cannot find module @panproto/core".
-        working-directory: sdk/typescript
-        run: pnpm run build
 
       - name: Fetch a recent npm into a private directory
         # npm Trusted Publishers' OIDC handshake landed in npm 11.5.1.
