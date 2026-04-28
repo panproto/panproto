@@ -520,7 +520,35 @@ fn emit_production_inner(
         }
         Production::Blank => Ok(()),
         Production::Symbol { name } => {
-            if let Some(edge) = take_symbol_match(grammar, schema, cursor, name) {
+            if name.starts_with('_') {
+                // Hidden rule: not a vertex kind on the schema side.
+                // Inline-expand the rule body so its children take
+                // edges from the current cursor, instead of trying to
+                // take a single child edge that "satisfies" the
+                // hidden rule and discarding the rest of the body
+                // (which would drop tokens like `=` and the trailing
+                // value SYMBOL inside e.g. TOML's `_inline_pair`).
+                if let Some(rule) = grammar.rules.get(name) {
+                    emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out)
+                } else {
+                    // External hidden rule (declared in the
+                    // grammar's `externals` block, scanned by C code,
+                    // not listed in `rules`). Heuristic fallback:
+                    // line-ending / EOF externals are universally
+                    // newline-or-empty, so emitting a single newline
+                    // is the right default for grammars like TOML
+                    // whose `pair` SEQ trails into
+                    // `_line_ending_or_eof`. Anything else falls
+                    // through silently.
+                    if name.contains("line_ending")
+                        || name.contains("newline")
+                        || name.ends_with("_or_eof")
+                    {
+                        out.newline();
+                    }
+                    Ok(())
+                }
+            } else if let Some(edge) = take_symbol_match(grammar, schema, cursor, name) {
                 emit_vertex(protocol, schema, grammar, &edge.tgt, out)
             } else if vertex_id_kind(schema, vertex_id) == Some(name.as_str()) {
                 let rule = grammar
@@ -531,18 +559,6 @@ fn emit_production_inner(
                         reason: format!("no production for SYMBOL '{name}'"),
                     })?;
                 emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out)
-            } else if name.starts_with('_') {
-                // Hidden rule: not a vertex kind on the schema side;
-                // inline-expand once. Tree-sitter forbids hidden rules
-                // from referencing themselves cyclically without a
-                // child consumption, so a single-step expansion always
-                // makes progress (either consumes a cursor edge or
-                // terminates at a terminal production).
-                if let Some(rule) = grammar.rules.get(name) {
-                    emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out)
-                } else {
-                    Ok(())
-                }
             } else {
                 // Named rule with no matching child: emit nothing and
                 // let the surrounding CHOICE / OPTIONAL / REPEAT
@@ -603,6 +619,15 @@ fn emit_production_inner(
         Production::Field { name, content } => {
             if let Some(edge) = cursor.take_field(name) {
                 emit_in_child_context(protocol, schema, grammar, &edge.tgt, content, out)
+            } else if first_symbol(content).is_none() {
+                // FIELD wraps a non-child production (e.g. a literal
+                // STRING operator like `+` in a binary_expression, or
+                // a CHOICE of STRING tokens). The walker captures
+                // these as interstitials rather than vertices, so the
+                // schema has no field edge to consume; emit the
+                // content in place so the operator / keyword survives
+                // the round-trip.
+                emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
             } else {
                 Ok(())
             }
@@ -637,6 +662,18 @@ fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &st
     if target_kind == Some(name) {
         return true;
     }
+    // Only inline-expand hidden rules (`_`-prefixed): these are
+    // tree-sitter's pass-through rules whose alternatives become the
+    // actual node kinds. A non-hidden rule reference like `dotted_key`
+    // should match exactly that kind on the schema side, not any of
+    // the kinds reachable by following its production body — otherwise
+    // `kind_satisfies_symbol` becomes a transitive closure that
+    // accepts every leaf the rule can produce, and CHOICE dispatch
+    // picks the wrong alternative (e.g. choosing the `dotted_key`
+    // branch for a single bare key).
+    if !name.starts_with('_') {
+        return false;
+    }
     let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
     fn walk<'g>(
         grammar: &'g Grammar,
@@ -648,6 +685,10 @@ fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &st
             Production::Symbol { name } => {
                 if Some(name.as_str()) == target_kind {
                     return true;
+                }
+                // Continue expansion only through more hidden rules.
+                if !name.starts_with('_') {
+                    return false;
                 }
                 if visited.insert(name.as_str()) {
                     if let Some(rule) = grammar.rules.get(name) {
@@ -689,6 +730,24 @@ fn emit_in_child_context(
     production: &Production,
     out: &mut Output<'_>,
 ) -> Result<(), ParseError> {
+    // If `production` is a structural wrapper (CHOICE / SEQ /
+    // OPTIONAL / ...) whose referenced symbols cover the child's own
+    // kind, the child IS the production's target node and the right
+    // emit path is `emit_vertex(child)` (which honours the
+    // literal-value leaf shortcut). Without this guard, FIELD(pattern,
+    // CHOICE { _pattern, self }) on an identifier child walks the
+    // CHOICE on the identifier's empty cursor, falls through to the
+    // first non-BLANK alt, and loses the captured identifier text.
+    if !matches!(production, Production::Symbol { .. }) {
+        let child_kind = schema.vertices.get(child_id).map(|v| v.kind.as_ref());
+        let symbols = referenced_symbols(production);
+        if symbols
+            .iter()
+            .any(|s| kind_satisfies_symbol(grammar, child_kind, s) || child_kind == Some(s))
+        {
+            return emit_vertex(protocol, schema, grammar, child_id, out);
+        }
+    }
     match production {
         Production::Symbol { .. } => emit_vertex(protocol, schema, grammar, child_id, out),
         _ => {
@@ -714,17 +773,66 @@ fn pick_choice_with_cursor<'a>(
     cursor: &ChildCursor<'_>,
     alternatives: &'a [Production],
 ) -> Option<&'a Production> {
-    // Cursor-driven dispatch first: pick the alternative whose first
-    // SYMBOL matches a kind that is actually present and unconsumed.
-    // This is the main path; it consumes children in declared order.
-    for alt in alternatives {
-        if let Some(s) = first_symbol(alt) {
-            if cursor.has_matching(|edge| {
-                let tk = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
-                kind_satisfies_symbol(grammar, tk, s)
-            }) {
-                return Some(alt);
+    // Constraint-driven dispatch (highest priority): when the
+    // alternatives differ by literal STRING tokens (the canonical
+    // shape of binary_expression operator alternatives:
+    // `CHOICE { SEQ { left, "+", right }, SEQ { left, "&&", right }, ... }`
+    // the operator captured by the walker as an interstitial picks
+    // out the right alt unambiguously. Without this, the fallback
+    // takes the first non-BLANK alt and loses the operator entirely.
+    let constraint_blob = schema
+        .constraints
+        .get(vertex_id)
+        .map(|cs| {
+            cs.iter()
+                .filter(|c| {
+                    let s = c.sort.as_ref();
+                    s.starts_with("interstitial-") && !s.ends_with("-start-byte")
+                })
+                .map(|c| c.value.as_str())
+                .collect::<Vec<&str>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    if !constraint_blob.is_empty() {
+        let mut best: Option<(usize, &Production)> = None;
+        for alt in alternatives {
+            let strings = literal_strings(alt);
+            if strings.is_empty() {
+                continue;
             }
+            let score = strings
+                .iter()
+                .filter(|s| constraint_blob.contains(s.as_str()))
+                .map(String::len)
+                .sum::<usize>();
+            if score > 0 && best.is_none_or(|(s, _)| score > s) {
+                best = Some((score, alt));
+            }
+        }
+        if let Some((_, alt)) = best {
+            return Some(alt);
+        }
+    }
+
+    // Cursor-driven dispatch: pick the alternative whose body
+    // references at least one SYMBOL whose target kind is present in
+    // the unconsumed cursor edges. `referenced_symbols` walks the
+    // alternative recursively (across nested SEQs, REPEATs, OPTIONALs,
+    // FIELDs, etc.) so a leading optional like `attribute_item` does
+    // not block matching when only the trailing required symbol is
+    // present on the schema.
+    for alt in alternatives {
+        let symbols = referenced_symbols(alt);
+        if !symbols.is_empty()
+            && cursor.has_matching(|edge| {
+                let tk = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
+                symbols
+                    .iter()
+                    .any(|s| kind_satisfies_symbol(grammar, tk, s))
+            })
+        {
+            return Some(alt);
         }
     }
 
@@ -762,6 +870,75 @@ fn pick_choice_with_cursor<'a>(
     alternatives
         .iter()
         .find(|alt| !matches!(alt, Production::Blank))
+}
+
+/// Collect every literal STRING token directly inside `production`
+/// (without descending into SYMBOLs / hidden rules). Used to score
+/// CHOICE alternatives against the parent vertex's interstitials so
+/// the right operator / keyword form is picked when the schema
+/// preserves interstitial fragments from a prior parse.
+fn literal_strings(production: &Production) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(p: &Production, out: &mut Vec<String>) {
+        match p {
+            Production::String { value } if !value.is_empty() => {
+                out.push(value.clone());
+            }
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    walk(m, out);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Alias { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => walk(content, out),
+            _ => {}
+        }
+    }
+    walk(production, &mut out);
+    out
+}
+
+/// Collect every SYMBOL name reachable from `production` without
+/// crossing into nested rules. Used by `pick_choice_with_cursor` to
+/// rank alternatives by "any SYMBOL inside this alt matches something
+/// on the cursor", instead of just the first SYMBOL: a leading
+/// optional like `attribute_item` then `parameter` is otherwise
+/// rejected when only the parameter children are present.
+fn referenced_symbols(production: &Production) -> Vec<&str> {
+    let mut out = Vec::new();
+    fn walk<'a>(p: &'a Production, out: &mut Vec<&'a str>) {
+        match p {
+            Production::Symbol { name } => out.push(name.as_str()),
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    walk(m, out);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Alias { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => walk(content, out),
+            _ => {}
+        }
+    }
+    walk(production, &mut out);
+    out
 }
 
 fn first_symbol(production: &Production) -> Option<&str> {

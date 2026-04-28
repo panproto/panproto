@@ -134,7 +134,6 @@ fn json_roundtrip() {
 
 #[cfg(feature = "lang-toml")]
 #[test]
-#[ignore = "indent-sensitive grammar; default FormatPolicy needs per-language overrides"]
 fn toml_roundtrip() {
     round_trip(
         "toml",
@@ -164,7 +163,6 @@ server:
 
 #[cfg(feature = "lang-rust")]
 #[test]
-#[ignore = "function_item vs function_signature_item dispatch; needs CHOICE-presence heuristics"]
 fn rust_roundtrip() {
     round_trip(
         "rust",
