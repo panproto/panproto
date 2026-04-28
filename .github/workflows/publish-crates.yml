@@ -129,8 +129,9 @@ jobs:
           publish_one panproto-vcs
           publish_one panproto-xrpc
           publish_one panproto-git
-          # Level 9 — facade
+          # Level 9 — facade + git remote helper
           publish_one panproto-core
+          publish_one panproto-git-remote
           # Level 10
           publish_one panproto-wasm
           publish_one panproto-cli
