@@ -62,7 +62,7 @@ pub use error::ParseError;
 pub use id_scheme::IdGenerator;
 pub use parse_emit_lens::{
     LawViolation as ParseEmitLawViolation, ParseEmitLens, check_emit_parse, check_parse_emit,
-    kind_multiset, strip_complement,
+    edge_multiset, kind_multiset, strip_complement,
 };
 pub use registry::{AstParser, ParserRegistry};
 pub use scope_detector::{NamedScope, ScopeDetector, ScopeKind};

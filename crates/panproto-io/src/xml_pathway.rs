@@ -146,7 +146,7 @@ pub fn parse_xml_bytes(
 pub fn emit_xml_bytes(
     _schema: &Schema,
     instance: &WInstance,
-    _protocol: &str,
+    protocol: &str,
 ) -> Result<Vec<u8>, EmitInstanceError> {
     use quick_xml::Writer;
     use quick_xml::events::{BytesEnd, BytesStart, BytesText};
@@ -155,12 +155,13 @@ pub fn emit_xml_bytes(
         writer: &mut Writer<Vec<u8>>,
         instance: &WInstance,
         node_id: u32,
+        protocol: &str,
     ) -> Result<(), EmitInstanceError> {
         let node = instance
             .nodes
             .get(&node_id)
             .ok_or_else(|| EmitInstanceError::Emit {
-                protocol: String::new(),
+                protocol: protocol.to_owned(),
                 message: format!("node {node_id} not found"),
             })?;
 
@@ -171,7 +172,7 @@ pub fn emit_xml_bytes(
                 writer
                     .write_event(Event::Text(BytesText::new(text)))
                     .map_err(|e| EmitInstanceError::Emit {
-                        protocol: String::new(),
+                        protocol: protocol.to_owned(),
                         message: format!("XML write error: {e}"),
                     })?;
             }
@@ -199,7 +200,7 @@ pub fn emit_xml_bytes(
         writer
             .write_event(Event::Start(elem))
             .map_err(|e| EmitInstanceError::Emit {
-                protocol: String::new(),
+                protocol: protocol.to_owned(),
                 message: format!("XML write error: {e}"),
             })?;
 
@@ -208,7 +209,7 @@ pub fn emit_xml_bytes(
             writer
                 .write_event(Event::Text(BytesText::new(text)))
                 .map_err(|e| EmitInstanceError::Emit {
-                    protocol: String::new(),
+                    protocol: protocol.to_owned(),
                     message: format!("XML write error: {e}"),
                 })?;
         }
@@ -216,14 +217,14 @@ pub fn emit_xml_bytes(
         // Recurse into children.
         if let Some(children) = instance.children_map.get(&node_id) {
             for &child_id in children {
-                write_node(writer, instance, child_id)?;
+                write_node(writer, instance, child_id, protocol)?;
             }
         }
 
         writer
             .write_event(Event::End(BytesEnd::new(tag.as_str())))
             .map_err(|e| EmitInstanceError::Emit {
-                protocol: String::new(),
+                protocol: protocol.to_owned(),
                 message: format!("XML write error: {e}"),
             })?;
 
@@ -231,7 +232,7 @@ pub fn emit_xml_bytes(
     }
 
     let mut writer = Writer::new(Vec::new());
-    write_node(&mut writer, instance, instance.root)?;
+    write_node(&mut writer, instance, instance.root, protocol)?;
 
     Ok(writer.into_inner())
 }
@@ -393,5 +394,38 @@ mod tests {
         let input = b"";
         let result = parse_xml_bytes(&schema, input, "test_xml");
         assert!(result.is_err(), "empty input should fail (no root element)");
+    }
+
+    #[test]
+    fn emit_error_carries_protocol_name() {
+        // Emit on an instance whose root id is missing produces an
+        // EmitInstanceError::Emit; its `protocol` field must carry
+        // the caller-supplied name (regression test for the previous
+        // behaviour of leaving `protocol: String::new()` everywhere).
+        use panproto_inst::WInstance;
+        use panproto_inst::metadata::Node;
+
+        let nodes = std::collections::HashMap::from([(0, Node::new(0, "doc"))]);
+        // Root id 999 doesn't exist in `nodes`, so emit hits the
+        // `node not found` arm.
+        let instance = WInstance::new(
+            nodes,
+            Vec::new(),
+            Vec::new(),
+            999,
+            panproto_gat::Name::from("doc"),
+        );
+        let schema = xml_schema();
+
+        let err = emit_xml_bytes(&schema, &instance, "my-protocol").expect_err("emit must fail");
+        match err {
+            EmitInstanceError::Emit { protocol, .. } => {
+                assert_eq!(
+                    protocol, "my-protocol",
+                    "emit error must carry the caller-supplied protocol name"
+                );
+            }
+            other => panic!("expected Emit variant, got {other:?}"),
+        }
     }
 }

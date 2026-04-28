@@ -13,9 +13,9 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
-        let _ = registry.try_register(UnifiedCodec::json("dataframe"));
-        let _ = registry.try_register(UnifiedCodec::json("parquet"));
-        let _ = registry.try_register(UnifiedCodec::json("arrow"));
+        registry.register_optional(UnifiedCodec::json("dataframe"));
+        registry.register_optional(UnifiedCodec::json("parquet"));
+        registry.register_optional(UnifiedCodec::json("arrow"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

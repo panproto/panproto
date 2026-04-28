@@ -14,11 +14,11 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
-        let _ = registry.try_register(UnifiedCodec::json("avro"));
-        let _ = registry.try_register(UnifiedCodec::json("flatbuffers"));
-        let _ = registry.try_register(UnifiedCodec::json("asn1"));
-        let _ = registry.try_register(UnifiedCodec::json("bond"));
-        let _ = registry.try_register(UnifiedCodec::json("msgpack_schema"));
+        registry.register_optional(UnifiedCodec::json("avro"));
+        registry.register_optional(UnifiedCodec::json("flatbuffers"));
+        registry.register_optional(UnifiedCodec::json("asn1"));
+        registry.register_optional(UnifiedCodec::json("bond"));
+        registry.register_optional(UnifiedCodec::json("msgpack_schema"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

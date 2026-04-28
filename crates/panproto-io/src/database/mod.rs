@@ -8,10 +8,10 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
-        let _ = registry.try_register(UnifiedCodec::json("mongodb"));
-        let _ = registry.try_register(UnifiedCodec::json("dynamodb"));
-        let _ = registry.try_register(UnifiedCodec::json("cassandra"));
-        let _ = registry.try_register(UnifiedCodec::json("neo4j"));
+        registry.register_optional(UnifiedCodec::json("mongodb"));
+        registry.register_optional(UnifiedCodec::json("dynamodb"));
+        registry.register_optional(UnifiedCodec::json("cassandra"));
+        registry.register_optional(UnifiedCodec::json("neo4j"));
         // Redis uses space-delimited format; no tree-sitter grammar for that.
         // Fall back to legacy tabular codec.
         use crate::tabular_codec::TabularCodec;

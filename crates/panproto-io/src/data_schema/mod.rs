@@ -10,8 +10,8 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
-        let _ = registry.try_register(UnifiedCodec::json("cddl"));
-        let _ = registry.try_register(UnifiedCodec::json("bson"));
+        registry.register_optional(UnifiedCodec::json("cddl"));
+        registry.register_optional(UnifiedCodec::json("bson"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

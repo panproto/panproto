@@ -19,7 +19,7 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
-        let _ = registry.try_register(UnifiedCodec::tsv("amr", "amr_graph"));
+        registry.register_optional(UnifiedCodec::tsv("amr", "amr_graph"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {
@@ -32,25 +32,25 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
         use crate::unified_codec::UnifiedCodec;
 
         // JSON-based
-        let _ = registry.try_register(UnifiedCodec::json("brat"));
-        let _ = registry.try_register(UnifiedCodec::json("decomp"));
-        let _ = registry.try_register(UnifiedCodec::json("ucca"));
-        let _ = registry.try_register(UnifiedCodec::json("fovea"));
-        let _ = registry.try_register(UnifiedCodec::json("bead"));
-        let _ = registry.try_register(UnifiedCodec::json("web_annotation"));
-        let _ = registry.try_register(UnifiedCodec::json("concrete"));
-        let _ = registry.try_register(UnifiedCodec::json("nif"));
+        registry.register_optional(UnifiedCodec::json("brat"));
+        registry.register_optional(UnifiedCodec::json("decomp"));
+        registry.register_optional(UnifiedCodec::json("ucca"));
+        registry.register_optional(UnifiedCodec::json("fovea"));
+        registry.register_optional(UnifiedCodec::json("bead"));
+        registry.register_optional(UnifiedCodec::json("web_annotation"));
+        registry.register_optional(UnifiedCodec::json("concrete"));
+        registry.register_optional(UnifiedCodec::json("nif"));
 
         // XML-based
-        let _ = registry.try_register(UnifiedCodec::xml("naf"));
-        let _ = registry.try_register(UnifiedCodec::xml("uima"));
-        let _ = registry.try_register(UnifiedCodec::xml("folia"));
-        let _ = registry.try_register(UnifiedCodec::xml("tei"));
-        let _ = registry.try_register(UnifiedCodec::xml("timeml"));
-        let _ = registry.try_register(UnifiedCodec::xml("elan"));
-        let _ = registry.try_register(UnifiedCodec::xml("iso_space"));
-        let _ = registry.try_register(UnifiedCodec::xml("paula"));
-        let _ = registry.try_register(UnifiedCodec::xml("laf_graf"));
+        registry.register_optional(UnifiedCodec::xml("naf"));
+        registry.register_optional(UnifiedCodec::xml("uima"));
+        registry.register_optional(UnifiedCodec::xml("folia"));
+        registry.register_optional(UnifiedCodec::xml("tei"));
+        registry.register_optional(UnifiedCodec::xml("timeml"));
+        registry.register_optional(UnifiedCodec::xml("elan"));
+        registry.register_optional(UnifiedCodec::xml("iso_space"));
+        registry.register_optional(UnifiedCodec::xml("paula"));
+        registry.register_optional(UnifiedCodec::xml("laf_graf"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

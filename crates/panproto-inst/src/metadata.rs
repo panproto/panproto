@@ -170,6 +170,7 @@ impl Node {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -196,5 +197,60 @@ mod tests {
         let node = Node::new(1, "post:body");
         assert!(!node.has_value());
         assert!(!node.is_leaf());
+    }
+
+    #[test]
+    fn default_shape_is_plain() {
+        let node = Node::new(0, "v");
+        assert!(matches!(node.shape, NodeShape::Plain));
+        assert!(!node.is_list());
+        assert!(!node.is_xml_text_segment());
+        assert_eq!(node.xml_tag(), None);
+    }
+
+    #[test]
+    fn with_shape_list() {
+        let node = Node::new(0, "v").with_shape(NodeShape::List);
+        assert!(node.is_list());
+        assert!(!node.is_xml_text_segment());
+        assert_eq!(node.xml_tag(), None);
+    }
+
+    #[test]
+    fn with_shape_xml_element_carries_tag() {
+        let node = Node::new(0, "v").with_shape(NodeShape::XmlElement {
+            tag: Name::from("para"),
+        });
+        assert!(!node.is_list());
+        assert!(!node.is_xml_text_segment());
+        assert_eq!(node.xml_tag().map(Name::as_ref), Some("para"));
+    }
+
+    #[test]
+    fn with_shape_xml_text_segment() {
+        let node = Node::new(0, "v").with_shape(NodeShape::XmlTextSegment);
+        assert!(!node.is_list());
+        assert!(node.is_xml_text_segment());
+        assert_eq!(node.xml_tag(), None);
+    }
+
+    #[test]
+    fn shape_serialization_skips_default() {
+        let node = Node::new(0, "v");
+        let json = serde_json::to_string(&node).expect("serialize plain node");
+        assert!(
+            !json.contains("shape"),
+            "Plain shape must skip-serialize: {json}"
+        );
+    }
+
+    #[test]
+    fn shape_serialization_emits_non_default() {
+        let node = Node::new(0, "v").with_shape(NodeShape::List);
+        let json = serde_json::to_string(&node).expect("serialize list node");
+        assert!(json.contains("\"shape\""), "non-Plain shape must serialize");
+        // serde serializes with `rename_all = "snake_case"` and `tag = "kind"`,
+        // so `NodeShape::List` becomes `{"kind":"list"}`.
+        assert!(json.contains("\"list\""), "expected list tag in: {json}");
     }
 }

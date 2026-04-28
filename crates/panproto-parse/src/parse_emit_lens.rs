@@ -139,12 +139,49 @@ pub fn strip_complement(schema: &mut Schema) {
     }
 }
 
-/// Vertex-kind multiset, the equivalence class used for law checks.
+/// Vertex-kind multiset, half of the equivalence class used for law checks.
+///
+/// See also [`edge_multiset`]; both are required for a faithful retraction
+/// witness because two schemas can share a vertex-kind multiset while
+/// differing in edge structure (e.g. a tree and its mirror).
 #[must_use]
 pub fn kind_multiset(schema: &Schema) -> BTreeMap<String, usize> {
     let mut map = BTreeMap::new();
     for v in schema.vertices.values() {
         *map.entry(v.kind.to_string()).or_insert(0) += 1;
+    }
+    map
+}
+
+/// Edge-shape multiset: counts of `(src_kind, edge_kind, tgt_kind)` triples.
+///
+/// Combined with [`kind_multiset`] this is the full witness the retraction
+/// law requires — vertex kinds alone leave edge structure unconstrained.
+///
+/// Note: `Schema::edges` is a `HashMap<Edge, Name>` so distinct edges
+/// (different src/tgt vertex IDs) are kept apart, but two edges that
+/// happen to share `(src_id, tgt_id, kind, name)` collapse to one
+/// entry. The shape multiset projects these structurally-distinct
+/// edges onto a kind-level signature, which is the appropriate
+/// granularity for the retraction law: `emit_pretty` cannot be expected
+/// to preserve vertex IDs (the parser invents fresh ones) but it must
+/// preserve the kind-shape of every edge.
+#[must_use]
+pub fn edge_multiset(schema: &Schema) -> BTreeMap<(String, String, String), usize> {
+    let mut map: BTreeMap<(String, String, String), usize> = BTreeMap::new();
+    for edge in schema.edges.keys() {
+        let src_kind = schema
+            .vertices
+            .get(&edge.src)
+            .map(|v| v.kind.to_string())
+            .unwrap_or_default();
+        let tgt_kind = schema
+            .vertices
+            .get(&edge.tgt)
+            .map(|v| v.kind.to_string())
+            .unwrap_or_default();
+        *map.entry((src_kind, edge.kind.to_string(), tgt_kind))
+            .or_insert(0) += 1;
     }
     map
 }
@@ -165,27 +202,38 @@ pub fn kind_multiset(schema: &Schema) -> BTreeMap<String, usize> {
 pub fn check_emit_parse(lens: &ParseEmitLens<'_>, schema: &Schema) -> Result<(), LawViolation> {
     let mut stripped = schema.clone();
     strip_complement(&mut stripped);
-    let expected = kind_multiset(&stripped);
+    let expected_kinds = kind_multiset(&stripped);
+    let expected_edges = edge_multiset(&stripped);
 
     let bytes = lens.emit(&stripped)?;
     let mut round = lens.parse(&bytes)?;
     strip_complement(&mut round);
-    let actual = kind_multiset(&round);
+    let actual_kinds = kind_multiset(&round);
+    let actual_edges = edge_multiset(&round);
 
-    if expected == actual {
-        Ok(())
-    } else {
-        Err(LawViolation::EmitParse {
+    if expected_kinds != actual_kinds {
+        return Err(LawViolation::EmitParse {
             protocol: lens.protocol.clone(),
             detail: format!(
-                "kind multiset mismatch: expected {} kinds, got {} kinds; \
+                "vertex-kind multiset mismatch: expected {} distinct kinds, got {}; \
                  first divergence: {:?}",
-                expected.len(),
-                actual.len(),
-                first_divergence(&expected, &actual),
+                expected_kinds.len(),
+                actual_kinds.len(),
+                first_divergence(&expected_kinds, &actual_kinds),
             ),
-        })
+        });
     }
+    if expected_edges != actual_edges {
+        return Err(LawViolation::EmitParse {
+            protocol: lens.protocol.clone(),
+            detail: format!(
+                "edge-shape multiset mismatch: expected {} distinct edge shapes, got {}",
+                expected_edges.len(),
+                actual_edges.len(),
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// Verify the `ParseEmit` stability law on a source byte string:
@@ -227,12 +275,7 @@ fn first_divergence(
 
 #[cfg(test)]
 #[cfg(feature = "grammars")]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::panic,
-    dead_code
-)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic, dead_code)]
 mod tests {
     use super::*;
 
@@ -263,5 +306,108 @@ mod tests {
             .expect("spawn")
             .join()
             .expect("worker panicked");
+    }
+
+    #[cfg(feature = "lang-json")]
+    #[test]
+    fn json_check_emit_parse_directly() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let registry = ParserRegistry::new();
+                let lens = ParseEmitLens::new(&registry, "json");
+                let parsed = lens.parse(br#"[1, 2, 3]"#).expect("parse");
+                check_emit_parse(&lens, &parsed).expect("retraction holds for parsed schema");
+            })
+            .expect("spawn")
+            .join()
+            .expect("worker panicked");
+    }
+
+    #[cfg(feature = "lang-json")]
+    #[test]
+    fn strip_complement_removes_byte_constraints_only() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let registry = ParserRegistry::new();
+                let lens = ParseEmitLens::new(&registry, "json");
+                let mut parsed = lens.parse(br#"{"a": 1}"#).expect("parse");
+
+                let total_constraint_count: usize = parsed.constraints.values().map(Vec::len).sum();
+                strip_complement(&mut parsed);
+                let stripped_total: usize = parsed.constraints.values().map(Vec::len).sum();
+
+                assert!(
+                    stripped_total < total_constraint_count,
+                    "strip_complement must remove byte-position constraints"
+                );
+                // Walker emits chose-alt-fingerprint and similar
+                // constraints that strip_complement preserves.
+                let preserved = parsed.constraints.values().any(|cs| {
+                    cs.iter()
+                        .any(|c| c.sort.as_ref() == "chose-alt-fingerprint")
+                });
+                assert!(
+                    preserved,
+                    "strip_complement must preserve chose-alt-fingerprint witnesses"
+                );
+            })
+            .expect("spawn")
+            .join()
+            .expect("worker panicked");
+    }
+
+    #[cfg(feature = "lang-json")]
+    #[test]
+    fn edge_multiset_distinguishes_structurally_different_schemas() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let registry = ParserRegistry::new();
+                let lens = ParseEmitLens::new(&registry, "json");
+                let s1 = lens.parse(br#"{"a": 1}"#).expect("parse");
+                let s2 = lens.parse(br#"[1]"#).expect("parse");
+                let m1 = edge_multiset(&s1);
+                let m2 = edge_multiset(&s2);
+                assert_ne!(
+                    m1, m2,
+                    "object and array schemas have distinct edge-shape multisets"
+                );
+            })
+            .expect("spawn")
+            .join()
+            .expect("worker panicked");
+    }
+
+    #[test]
+    fn first_divergence_finds_count_mismatch() {
+        let mut a = BTreeMap::new();
+        a.insert("x".to_owned(), 1);
+        let mut b = BTreeMap::new();
+        b.insert("x".to_owned(), 2);
+        assert_eq!(
+            first_divergence(&a, &b),
+            Some(("x".to_owned(), Some(1), Some(2)))
+        );
+    }
+
+    #[test]
+    fn first_divergence_finds_extra_key_in_actual() {
+        let a = BTreeMap::new();
+        let mut b = BTreeMap::new();
+        b.insert("y".to_owned(), 3);
+        assert_eq!(
+            first_divergence(&a, &b),
+            Some(("y".to_owned(), None, Some(3)))
+        );
+    }
+
+    #[test]
+    fn first_divergence_returns_none_on_match() {
+        let mut a = BTreeMap::new();
+        a.insert("x".to_owned(), 1);
+        let b = a.clone();
+        assert_eq!(first_divergence(&a, &b), None);
     }
 }

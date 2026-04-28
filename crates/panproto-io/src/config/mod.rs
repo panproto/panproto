@@ -11,9 +11,9 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
-        let _ = registry.try_register(UnifiedCodec::json("cloudformation"));
-        let _ = registry.try_register(UnifiedCodec::json("ansible"));
-        let _ = registry.try_register(UnifiedCodec::json("k8s_crd"));
+        registry.register_optional(UnifiedCodec::json("cloudformation"));
+        registry.register_optional(UnifiedCodec::json("ansible"));
+        registry.register_optional(UnifiedCodec::json("k8s_crd"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

@@ -908,7 +908,17 @@ fn emit_production_inner(
             let cursor_snap = cursor.consumed.clone();
             let out_snap = out.snapshot();
             let consumed_before = cursor.consumed.iter().filter(|&&c| c).count();
-            emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)?;
+            let result =
+                emit_production(protocol, schema, grammar, vertex_id, content, cursor, out);
+            // OPTIONAL is a backtracking site: if the inner production
+            // errored *or* made no progress without leaving a witness
+            // constraint, restore both cursor and output to their
+            // pre-attempt state. Mirrors `Repeat`'s loop body.
+            if result.is_err() {
+                cursor.consumed = cursor_snap;
+                out.restore(out_snap);
+                return result;
+            }
             let consumed_after = cursor.consumed.iter().filter(|&&c| c).count();
             if consumed_after == consumed_before
                 && !has_relevant_constraint(content, schema, vertex_id)
@@ -1174,8 +1184,28 @@ fn pick_choice_with_cursor<'a>(
             }
         })
         .unwrap_or_default();
+    let child_kinds: Vec<&str> = schema
+        .constraints
+        .get(vertex_id)
+        .and_then(|cs| {
+            cs.iter()
+                .find(|c| c.sort.as_ref() == "chose-alt-child-kinds")
+                .map(|c| c.value.split_whitespace().collect())
+        })
+        .unwrap_or_default();
     if !constraint_blob.is_empty() {
-        let mut best_score: usize = 0;
+        // Primary score: literal-token match length. This dominates
+        // alt selection so existing language tests that depend on
+        // literal-only fingerprints keep working.
+        // Secondary score (tiebreaker only): named-symbol kind match
+        // count, read from the separate `chose-alt-child-kinds`
+        // constraint (kept apart from the literal fingerprint so
+        // identifiers like `:` in the kind list don't contaminate the
+        // literal match). An alt that matches the recorded kinds is a
+        // stronger witness than one whose only
+        // overlap is literal punctuation.
+        let mut best_literal: usize = 0;
+        let mut best_symbols: usize = 0;
         let mut best_alt: Option<&Production> = None;
         let mut tied = false;
         for alt in alternatives {
@@ -1183,19 +1213,48 @@ fn pick_choice_with_cursor<'a>(
             if strings.is_empty() {
                 continue;
             }
-            let score = strings
+            let literal_score = strings
                 .iter()
                 .filter(|s| constraint_blob.contains(s.as_str()))
                 .map(String::len)
                 .sum::<usize>();
-            if score == 0 {
+            if literal_score == 0 {
                 continue;
             }
-            if score > best_score {
-                best_score = score;
+            // Symbol score is computed only as a tiebreaker among alts
+            // whose literal-token coverage is the same; it never lifts
+            // an alt above one with a strictly higher literal score.
+            // Reads the `chose-alt-child-kinds` constraint (a separate
+            // sequence the walker emits, kept apart from the literal
+            // fingerprint to avoid cross-contamination).
+            let symbol_score = if literal_score >= best_literal && !child_kinds.is_empty() {
+                let symbols = referenced_symbols(alt);
+                symbols
+                    .iter()
+                    .filter(|sym| {
+                        let sym_str: &str = sym;
+                        if child_kinds.contains(&sym_str) {
+                            return true;
+                        }
+                        grammar.subtypes.get(sym_str).is_some_and(|sub_set| {
+                            sub_set
+                                .iter()
+                                .any(|sub| child_kinds.contains(&sub.as_str()))
+                        })
+                    })
+                    .count()
+            } else {
+                0
+            };
+            let better = literal_score > best_literal
+                || (literal_score == best_literal && symbol_score > best_symbols);
+            let same = literal_score == best_literal && symbol_score == best_symbols;
+            if better {
+                best_literal = literal_score;
+                best_symbols = symbol_score;
                 best_alt = Some(alt);
                 tied = false;
-            } else if score == best_score {
+            } else if same && best_alt.is_some() {
                 tied = true;
             }
         }
