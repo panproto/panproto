@@ -46,7 +46,7 @@ let report = check::classify(&diff, &protocol);
 
 | Flag | What it enables |
 |------|-----------------|
-| `full-parse` | Tree-sitter parsing for 248 programming languages |
+| `full-parse` | Tree-sitter parsing for 250 programming languages |
 | `project` | Multi-file assembly and project-level schema composition |
 | `git` | Git bridge for reading schemas and data directly from a repository |
 | `llvm` | LLVM integration for compiled schema operations |

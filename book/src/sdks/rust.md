@@ -29,7 +29,7 @@ The default feature set (no features enabled) gives a caller the complete schema
 
 ```toml
 [dependencies]
-panproto-core = { version = "0.32", features = ["parse", "git"] }
+panproto-core = { version = "0.40", features = ["parse", "git"] }
 ```
 
 *Listing 7.1: Opting into the tree-sitter-based parsing and the git bridge through `panproto-core`'s feature flags.*

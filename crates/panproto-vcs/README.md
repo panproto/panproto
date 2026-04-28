@@ -14,6 +14,8 @@ The key difference from git is how merges work. Git merges text by looking for t
 
 The VCS also versions data alongside schemas. When you commit a schema change that removes a field, the complement (the dropped field values) is stored so that a future backward migration can recover them. `migrate_forward` applies a migration to a data snapshot and stores the complement; `migrate_backward` restores the original data from the complement. This gives you lossless schema history, not just structural diffs.
 
+Multi-file projects are stored as Merkle trees. Each source file is hashed individually as a `FileSchema` leaf; directories are `SchemaTree::Directory` nodes whose entries point at child trees by content hash. Two commits that touch one file in a thousand-file project share the other 999 leaves automatically. A `FlatSchema` object preserves the merged whole-project schema for queries that span files. The `tree::resolve_commit_schema` and `tree::store_schema_as_tree` helpers move between the tree-shaped on-disk form and the flat in-memory schema used by migration.
+
 ## Quick example
 
 ```rust,ignore
@@ -41,7 +43,9 @@ repo.merge("main", feature_id).unwrap();
 | `MemStore` | In-memory object store for tests and WASM contexts |
 | `Store` | Trait abstracting over storage backends |
 | `ObjectId` | Blake3 content address (32 bytes) |
-| `Object` | Enum covering all object types: `Schema`, `Migration`, `Commit`, `Theory`, `Expr`, and others |
+| `Object` | Enum covering all object types: `Schema`, `FileSchema`, `SchemaTree` (with `SingleLeaf` and `Directory` variants), `FlatSchema`, `Migration`, `Commit`, `Theory`, `Expr`, and others |
+| `tree::resolve_commit_schema` | Resolve a commit to its (possibly tree-shaped) schema, walking `SchemaTree` Merkle nodes |
+| `tree::store_schema_as_tree` | Store a multi-file schema as a `SchemaTree` of per-file `FileSchema` leaves, sharing unchanged subtrees by content hash |
 | `CommitObject` | A point in the schema evolution DAG |
 | `CommitObjectBuilder` | Builder for `CommitObject` with sensible defaults |
 | `DataSetObject` | A content-addressed data snapshot bound to a schema version |

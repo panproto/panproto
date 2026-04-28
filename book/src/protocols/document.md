@@ -45,4 +45,4 @@ Resource versioning is per-resource. Some resources (`Patient`, `Observation`) h
 
 ## Closing
 
-The next chapter, [Tree-sitter and full-AST parsing](./tree-sitter.md), closes Part IV with the auto-derivation mechanism: how panproto produces protocols from [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars for the 248 programming languages that do not have hand-written protocol definitions.
+The next chapter, [Tree-sitter and full-AST parsing](./tree-sitter.md), closes Part IV with the auto-derivation mechanism: how panproto produces protocols from [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars for the 250 programming languages that do not have hand-written protocol definitions.

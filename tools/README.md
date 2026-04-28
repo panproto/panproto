@@ -16,7 +16,7 @@ ship pre-generated sources (e.g., Swift, SQL, LaTeX, Perl).
 ### Usage
 
 ```sh
-# Fetch all 248 grammars
+# Fetch all 250 grammars
 python3 tools/fetch-grammars.py
 
 # Fetch specific grammars

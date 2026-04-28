@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@panproto/core)](https://www.npmjs.com/package/@panproto/core)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-TypeScript SDK for [panproto](https://panproto.dev). Define schemas, detect breaking changes, and automatically convert data between schema versions. Supports 51 schema languages (OpenAPI, ATProto, Protobuf, JSON Schema, and more) and can parse source code in 248 programming languages via tree-sitter.
+TypeScript SDK for [panproto](https://panproto.dev). Define schemas, detect breaking changes, and automatically convert data between schema versions. Supports 51 schema languages (OpenAPI, ATProto, Protobuf, JSON Schema, and more) and can parse source code in 250 programming languages via tree-sitter.
 
 This package wraps the panproto WASM module, providing a typed API for JavaScript and TypeScript projects. It works in Node.js (>= 20) and in the browser.
 

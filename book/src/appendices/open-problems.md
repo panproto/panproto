@@ -51,7 +51,7 @@ What we do not know is whether the specific combination panproto assembles (push
 
 ### Tree-sitter grammars as GATs
 
-The identification of a tree-sitter grammar's `node-types.json` metadata with a GAT is, as far as we know, specific to panproto. The mathematical content is modest (the identification is almost mechanical), but the consequence (auto-derivation of protocols for 248 languages) is practically significant. We would welcome a comparison with any prior work on grammar-as-theory that treats the concrete-syntax-tree case rather than the abstract-syntax-tree case.
+The identification of a tree-sitter grammar's `node-types.json` metadata with a GAT is, as far as we know, specific to panproto. The mathematical content is modest (the identification is almost mechanical), but the consequence (auto-derivation of protocols for 250 languages) is practically significant. We would welcome a comparison with any prior work on grammar-as-theory that treats the concrete-syntax-tree case rather than the abstract-syntax-tree case.
 
 ## Operational open problems
 
