@@ -106,6 +106,8 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -114,7 +116,29 @@ jobs:
           merge-multiple: true
       - name: List bindist
         run: ls -la bindist/
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: bindist/*
+      - name: Wait for cargo-dist Release to exist, then upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        # cargo-dist's release.yml runs on the same tag push and is the
+        # canonical owner of the GitHub Release object. Our prior setup
+        # used `softprops/action-gh-release@v2`, which creates the
+        # release if it doesn't exist; whichever workflow finished first
+        # claimed creation, and the other 409d. Wait for cargo-dist's
+        # creation to land, then upload our binaries into it via
+        # `gh release upload --clobber` (idempotent on retry).
+        # Wait up to ~30 minutes (cargo-dist's macOS matrix is slow).
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 180); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "Release $TAG exists; uploading bindist/*"
+              gh release upload "$TAG" bindist/* --clobber
+              exit 0
+            fi
+            echo "Release $TAG not yet created; sleeping 10s (attempt $i/180)"
+            sleep 10
+          done
+          echo "::error::Release $TAG did not appear within 30 minutes; cargo-dist must have failed."
+          exit 1

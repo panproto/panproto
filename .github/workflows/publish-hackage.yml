@@ -8,17 +8,17 @@ name: Publish to Hackage
 # run `bindings/haskell/bootstrap/fetch-bindist.sh` (downloads from
 # the matching GitHub Release) or build `panproto-c` from source.
 #
-# Triggers:
-#   - on tag push matching `v*`.
-#   - manual `workflow_dispatch` for re-runs and candidate uploads.
+# Triggers: manual only via `workflow_dispatch`. The tag-push
+# trigger is intentionally absent: until the project's Hackage
+# account is in the Uploaders group, every upload (live or
+# candidate) returns 403, and an auto-fire on every release tag
+# would just produce noise. Re-add `on: push: tags: [v*]` once
+# the first manual publish lands.
 #
 # Required secret: `HACKAGE_AUTH_TOKEN` (Hackage account auth token,
 # generated at https://hackage.haskell.org/users/account-management).
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       publish:
