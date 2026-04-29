@@ -11,6 +11,7 @@ import Spec.NativeProtocol qualified
 
 #ifdef PANPROTO_RUST_BACKEND
 import Spec.RustRoundtrip qualified
+import Spec.SchemaRoundtrip qualified
 #endif
 
 main :: IO ()
@@ -25,5 +26,6 @@ tests =
         , Spec.NativeProtocol.tests
 #ifdef PANPROTO_RUST_BACKEND
         , Spec.RustRoundtrip.tests
+        , Spec.SchemaRoundtrip.tests
 #endif
         ]

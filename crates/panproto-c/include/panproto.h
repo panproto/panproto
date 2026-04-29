@@ -35,7 +35,18 @@ typedef struct Vec_uint8 {
  *  Free a byte buffer returned by panproto-c.
  *
  *  The host must call this on every `repr_c::Vec<u8>` it receives, or
- *  memory leaks. Calling twice is undefined; do not double-free.
+ *  memory leaks. Calling twice on the same buffer is undefined
+ *  behavior; do not double-free. The Haskell binding's
+ *  `pp_buf_free_at` glue zeroes the storage in place so a stale
+ *  `Vec_uint8_t` record cannot be passed back; non-Haskell callers
+ *  should follow the same discipline.
+ *
+ *  The drop is wrapped in [`std::panic::catch_unwind`] so that a stray
+ *  panic in the deallocator (or in a `Vec` whose contents the host
+ *  corrupted) cannot unwind across the FFI boundary, which is
+ *  undefined behavior. A caught panic is silently suppressed; the
+ *  host has no return channel here. This is the same panic-safety
+ *  posture as every other entry point in this module.
  */
 void
 pp_buf_free (
@@ -53,9 +64,20 @@ pp_handle_free (
 /** \brief
  *  Initialize the panproto-c runtime.
  *
- *  Currently a no-op: the slab and last-error slots are thread-local
- *  `RefCell`s that initialize lazily. Reserved for future panic-hook
- *  installation or registry warm-up. Always returns [`PpStatus::Ok`].
+ *  Installs a process-global Rust panic hook that suppresses the
+ *  default stderr output. Panics are still observable: every entry
+ *  point in this module catches them via [`crate::panic::guard`] and
+ *  stashes the message in the thread-local last-error slot, which
+ *  the host retrieves via [`pp_last_error_take`]. Without this hook
+ *  the default Rust handler would print every caught panic to
+ *  stderr before `guard` could report it, which is noisy and
+ *  surprising for hosts that already report errors through the
+ *  status-code channel.
+ *
+ *  Idempotent: calling more than once just re-installs the same
+ *  hook. Always returns [`PpStatus::Ok`]. The slab and last-error
+ *  slots are thread-local `RefCell`s that initialize lazily, so they
+ *  do not need explicit setup.
  */
 int32_t
 pp_init (void);
@@ -121,12 +143,60 @@ pp_protocol_define (
  *
  *  On success, `out` is populated with freshly allocated CBOR bytes;
  *  the host must release them via `pp_buf_free`. Common failure modes
- *  are [`PpStatus::InvalidHandle`] and [`PpStatus::TypeMismatch`].
+ *  are [`PpStatus::InvalidHandle`] and (once additional resource
+ *  variants exist) [`PpStatus::TypeMismatch`].
  */
 int32_t
 pp_protocol_serialize (
     uint32_t proto,
     Vec_uint8_t * out);
+
+/** \brief
+ *  Deserialize a CBOR-encoded `Schema` into the slab.
+ *
+ *  On success, `out_handle` is set to a fresh handle and
+ *  [`PpStatus::Ok`] is returned. On CBOR decode failure,
+ *  [`PpStatus::Serialization`] is returned and `out_handle` is left
+ *  untouched.
+ */
+int32_t
+pp_schema_from_cbor (
+    slice_ref_uint8_t spec,
+    uint32_t * out_handle);
+
+/** \brief
+ *  Serialize the schema referenced by `schema_handle` to CBOR.
+ *
+ *  On success, `out` is populated with freshly allocated CBOR bytes;
+ *  the host must release them via `pp_buf_free`. Common failure modes
+ *  are [`PpStatus::InvalidHandle`] and [`PpStatus::TypeMismatch`]
+ *  (when `schema_handle` does not point at a `Schema` resource).
+ */
+int32_t
+pp_schema_to_cbor (
+    uint32_t schema_handle,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Validate the schema referenced by `schema_handle` against the
+ *  protocol referenced by `proto_handle`.
+ *
+ *  `out_messages` is populated with a CBOR-encoded `Vec<String>` of
+ *  human-readable validation messages. An empty list means the schema
+ *  is valid against the protocol. The status is always [`PpStatus::Ok`]
+ *  on a successful validation pass (regardless of whether the schema
+ *  passed validation); validation failures appear in the message list.
+ *  Status [`PpStatus::Err`] is reserved for cases where validation
+ *  could not run at all (e.g. a typed-mismatch handle).
+ *
+ *  Both handles must outlive the call. Common failure modes are
+ *  [`PpStatus::InvalidHandle`] and [`PpStatus::TypeMismatch`].
+ */
+int32_t
+pp_schema_validate (
+    uint32_t schema_handle,
+    uint32_t proto_handle,
+    Vec_uint8_t * out_messages);
 
 
 #ifdef __cplusplus

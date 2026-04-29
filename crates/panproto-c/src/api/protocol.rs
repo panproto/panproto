@@ -20,7 +20,7 @@ use crate::panic::guard;
 pub fn pp_protocol_define(spec: c_slice::Ref<'_, u8>, out_handle: &mut u32) -> i32 {
     guard(|| {
         let protocol: Protocol = crate::canonical::decode(spec.as_slice())?;
-        *out_handle = handle::alloc(Resource::Protocol(protocol));
+        *out_handle = handle::alloc(Resource::Protocol(Box::new(protocol)));
         Ok(PpStatus::Ok)
     })
 }
@@ -35,7 +35,10 @@ pub fn pp_protocol_define(spec: c_slice::Ref<'_, u8>, out_handle: &mut u32) -> i
 #[ffi_export]
 pub fn pp_protocol_serialize(proto: u32, out: &mut repr_c::Vec<u8>) -> i32 {
     guard(|| {
-        let bytes = handle::with_resource(proto, |r| crate::canonical::encode(r.as_protocol()))?;
+        let bytes = handle::with_resource(proto, |r| {
+            let p = r.as_protocol()?;
+            crate::canonical::encode(p)
+        })?;
         *out = bytes.into();
         Ok(PpStatus::Ok)
     })

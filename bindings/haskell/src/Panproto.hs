@@ -25,6 +25,7 @@ import Panproto.Canonical
 import Panproto.Class
 import Panproto.Errors
 import Panproto.Native.Protocol ()
+import Panproto.Native.Schema ()
 
 #ifdef PANPROTO_RUST_BACKEND
 import Panproto.Rust

@@ -25,6 +25,12 @@ int32_t pp_protocol_define_at(
     uint32_t *out_handle
 );
 
+int32_t pp_schema_from_cbor_at(
+    const uint8_t *spec_ptr,
+    size_t spec_len,
+    uint32_t *out_handle
+);
+
 void pp_buf_free_at(Vec_uint8_t *buf);
 
 #ifdef __cplusplus

@@ -7,10 +7,8 @@
 //!
 //! The C ABI never exposes the [`Resource`] enum; callers see only
 //! `u32` and rely on the panproto-c API to dispatch to the right
-//! variant. Today the slab tracks only [`Resource::Protocol`]; when
-//! additional variants are added (for `Schema`, `Migration`, etc.),
-//! the type-checked extraction helpers grow alongside, modelled on
-//! the `as_*` helpers in `crates/panproto-wasm/src/slab.rs`.
+//! variant. Each entry point validates the resource type at the slab
+//! boundary and returns [`FfiError::TypeMismatch`] on mismatch.
 //!
 //! Slab state is thread-local: each OS thread sees its own resource
 //! table. Tests rely on `cargo nextest`'s per-test process isolation
@@ -19,30 +17,68 @@
 //! assertions, so the project's CI uses nextest.
 
 use std::cell::RefCell;
+use std::sync::Arc;
 
-use panproto_core::schema::Protocol;
+use panproto_core::schema::{Protocol, Schema};
 
 use crate::error::FfiError;
 
 /// A resource stored in the slab.
+///
+/// Schemas are stored behind `Arc` so that downstream operations
+/// that need both the source and target schema (lens `put`, schema
+/// diff) can share ownership without deep-cloning. Protocols are
+/// boxed for the same reason that motivates `Box<T>` for any large
+/// enum payload: the slab vector should not pay the worst-case
+/// variant size on every slot.
 pub enum Resource {
     /// A protocol specification.
-    Protocol(Protocol),
+    Protocol(Box<Protocol>),
+    /// A built schema, behind an `Arc` for cheap clones.
+    Schema(Arc<Schema>),
 }
 
 impl Resource {
     /// Project a [`Protocol`] reference out of a [`Resource`].
     ///
-    /// Today every [`Resource`] is a [`Resource::Protocol`], so this
-    /// is total. When new variants are added, change the return type
-    /// to `Result<&Protocol, FfiError>` and return
-    /// [`FfiError::TypeMismatch`] for non-`Protocol` variants; the
-    /// `with_resource` callers in [`crate::api::protocol`] will then
-    /// fail to compile, which is the intended forcing function.
+    /// # Errors
+    ///
+    /// Returns [`FfiError::TypeMismatch`] when the variant is not
+    /// [`Resource::Protocol`].
+    pub fn as_protocol(&self) -> Result<&Protocol, FfiError> {
+        match self {
+            Self::Protocol(p) => Ok(p),
+            Self::Schema(_) => Err(FfiError::TypeMismatch {
+                expected: "Protocol",
+                actual: self.type_name(),
+            }),
+        }
+    }
+
+    /// Project a [`Schema`] reference out of a [`Resource`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FfiError::TypeMismatch`] when the variant is not
+    /// [`Resource::Schema`].
+    pub fn as_schema(&self) -> Result<&Schema, FfiError> {
+        match self {
+            Self::Schema(s) => Ok(s),
+            Self::Protocol(_) => Err(FfiError::TypeMismatch {
+                expected: "Schema",
+                actual: self.type_name(),
+            }),
+        }
+    }
+
+    /// Human-readable variant name. Populates `TypeMismatch` envelopes
+    /// and is exposed for diagnostic logging from the C ABI.
     #[must_use]
-    pub const fn as_protocol(&self) -> &Protocol {
-        let Self::Protocol(p) = self;
-        p
+    pub const fn type_name(&self) -> &'static str {
+        match self {
+            Self::Protocol(_) => "Protocol",
+            Self::Schema(_) => "Schema",
+        }
     }
 }
 
@@ -89,6 +125,30 @@ pub fn with_resource<T>(
     })
 }
 
+/// Read access to two resources by handle, in a single slab borrow.
+///
+/// # Errors
+///
+/// Returns [`FfiError::InvalidHandle`] if either handle is out of
+/// range or freed. Propagates whatever error `f` returns.
+pub fn with_two_resources<T>(
+    h1: u32,
+    h2: u32,
+    f: impl FnOnce(&Resource, &Resource) -> Result<T, FfiError>,
+) -> Result<T, FfiError> {
+    SLAB.with_borrow(|slab| {
+        let r1 = slab
+            .get(h1 as usize)
+            .and_then(Option::as_ref)
+            .ok_or(FfiError::InvalidHandle { handle: h1 })?;
+        let r2 = slab
+            .get(h2 as usize)
+            .and_then(Option::as_ref)
+            .ok_or(FfiError::InvalidHandle { handle: h2 })?;
+        f(r1, r2)
+    })
+}
+
 /// Free a resource, marking the slot reusable.
 ///
 /// Calling on an out-of-range or already-freed handle is a no-op
@@ -103,11 +163,6 @@ pub fn free(handle: u32) {
 }
 
 /// Test-only: drop every resource in the slab and reset its length.
-///
-/// Used at the start of each unit test that asserts specific handle
-/// values, so test order on shared threads cannot affect the slab's
-/// observed state. Production callers do not need this; the slab
-/// grows monotonically across calls.
 #[cfg(test)]
 pub fn reset() {
     SLAB.with_borrow_mut(Vec::clear);
@@ -116,6 +171,8 @@ pub fn reset() {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     fn test_protocol() -> Protocol {
@@ -130,21 +187,92 @@ mod tests {
         }
     }
 
+    fn test_schema() -> Schema {
+        Schema {
+            protocol: "test".into(),
+            vertices: HashMap::new(),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            entries: vec![],
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        }
+    }
+
     #[test]
     fn alloc_and_get_protocol() {
         reset();
-        let h = alloc(Resource::Protocol(test_protocol()));
-        let result = with_resource(h, |r| Ok(r.as_protocol().name.clone()));
+        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let result = with_resource(h, |r| Ok(r.as_protocol()?.name.clone()));
         assert_eq!(result.unwrap(), "test");
+        free(h);
+    }
+
+    #[test]
+    fn alloc_and_get_schema() {
+        reset();
+        let h = alloc(Resource::Schema(Arc::new(test_schema())));
+        let result = with_resource(h, |r| Ok(r.as_schema()?.protocol.clone()));
+        assert_eq!(result.unwrap(), "test");
+        free(h);
+    }
+
+    #[test]
+    fn protocol_handle_rejected_as_schema() {
+        reset();
+        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let result = with_resource(h, |r| {
+            let _ = r.as_schema()?;
+            Ok(())
+        });
+        match result {
+            Err(FfiError::TypeMismatch { expected, actual }) => {
+                assert_eq!(expected, "Schema");
+                assert_eq!(actual, "Protocol");
+            }
+            other => panic!("expected TypeMismatch, got {other:?}"),
+        }
+        free(h);
+    }
+
+    #[test]
+    fn schema_handle_rejected_as_protocol() {
+        reset();
+        let h = alloc(Resource::Schema(Arc::new(test_schema())));
+        let result = with_resource(h, |r| {
+            let _ = r.as_protocol()?;
+            Ok(())
+        });
+        match result {
+            Err(FfiError::TypeMismatch { expected, actual }) => {
+                assert_eq!(expected, "Protocol");
+                assert_eq!(actual, "Schema");
+            }
+            other => panic!("expected TypeMismatch, got {other:?}"),
+        }
         free(h);
     }
 
     #[test]
     fn free_reuses_slot() {
         reset();
-        let h1 = alloc(Resource::Protocol(test_protocol()));
+        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
         free(h1);
-        let h2 = alloc(Resource::Protocol(test_protocol()));
+        let h2 = alloc(Resource::Protocol(Box::new(test_protocol())));
         assert_eq!(h1, h2);
         free(h2);
     }
@@ -159,7 +287,7 @@ mod tests {
     #[test]
     fn double_free_is_safe() {
         reset();
-        let h = alloc(Resource::Protocol(test_protocol()));
+        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
         free(h);
         free(h);
         assert!(with_resource(h, |_| Ok(())).is_err());
@@ -168,15 +296,14 @@ mod tests {
     #[test]
     fn alloc_grows_then_reuses() {
         reset();
-        let h0 = alloc(Resource::Protocol(test_protocol()));
-        let h1 = alloc(Resource::Protocol(test_protocol()));
-        let h2 = alloc(Resource::Protocol(test_protocol()));
+        let h0 = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let h2 = alloc(Resource::Protocol(Box::new(test_protocol())));
         assert_eq!(h0, 0);
         assert_eq!(h1, 1);
         assert_eq!(h2, 2);
-        // Freeing the middle slot should be reused next.
         free(h1);
-        let h3 = alloc(Resource::Protocol(test_protocol()));
+        let h3 = alloc(Resource::Protocol(Box::new(test_protocol())));
         assert_eq!(h3, h1);
         free(h0);
         free(h2);
@@ -184,9 +311,34 @@ mod tests {
     }
 
     #[test]
-    fn as_protocol_returns_inner() {
+    fn type_name_is_correct() {
+        let p = Resource::Protocol(Box::new(test_protocol()));
+        assert_eq!(p.type_name(), "Protocol");
+        let s = Resource::Schema(Arc::new(test_schema()));
+        assert_eq!(s.type_name(), "Schema");
+    }
+
+    #[test]
+    fn with_two_resources_works() {
         reset();
-        let r = Resource::Protocol(test_protocol());
-        assert_eq!(r.as_protocol().name, "test");
+        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let h2 = alloc(Resource::Schema(Arc::new(test_schema())));
+        let result = with_two_resources(h1, h2, |r1, r2| {
+            let _ = r1.as_protocol()?;
+            let _ = r2.as_schema()?;
+            Ok(())
+        });
+        assert!(result.is_ok());
+        free(h1);
+        free(h2);
+    }
+
+    #[test]
+    fn with_two_resources_invalid_handle() {
+        reset();
+        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let result = with_two_resources(h, 9999, |_, _| Ok(()));
+        assert!(matches!(result, Err(FfiError::InvalidHandle { .. })));
+        free(h);
     }
 }

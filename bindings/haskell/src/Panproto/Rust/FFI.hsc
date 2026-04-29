@@ -34,6 +34,11 @@ module Panproto.Rust.FFI
       -- * Protocol
     , pp_protocol_define_at
     , pp_protocol_serialize
+
+      -- * Schema
+    , pp_schema_from_cbor_at
+    , pp_schema_to_cbor
+    , pp_schema_validate
     ) where
 
 import Data.Word (Word32, Word8)
@@ -95,3 +100,23 @@ foreign import ccall safe "pp_protocol_define_at"
 -- | Serialize the protocol referenced by the handle to CBOR.
 foreign import ccall safe "pp_protocol_serialize"
     pp_protocol_serialize :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Deserialize a CBOR-encoded @Schema@ into a fresh slab handle.
+-- Routed through the pointer-based glue so Haskell does not pass a
+-- by-value @slice_ref_uint8_t@.
+foreign import ccall safe "pp_schema_from_cbor_at"
+    pp_schema_from_cbor_at :: Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Serialize the schema referenced by the handle to CBOR.
+foreign import ccall safe "pp_schema_to_cbor"
+    pp_schema_to_cbor :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Validate a schema against a protocol. Writes a CBOR-encoded
+-- @Vec\<String\>@ of validation messages to @out_messages@. An empty
+-- list means the schema is valid.
+foreign import ccall safe "pp_schema_validate"
+    pp_schema_validate
+        :: Word32  -- ^ schema handle
+        -> Word32  -- ^ protocol handle
+        -> Ptr VecU8
+        -> IO CInt

@@ -26,6 +26,15 @@ int32_t pp_protocol_define_at(
     return pp_protocol_define(spec, out_handle);
 }
 
+int32_t pp_schema_from_cbor_at(
+    const uint8_t *spec_ptr,
+    size_t spec_len,
+    uint32_t *out_handle
+) {
+    slice_ref_uint8_t spec = { .ptr = spec_ptr, .len = spec_len };
+    return pp_schema_from_cbor(spec, out_handle);
+}
+
 /* ---------- buffer release ---------- */
 
 /*

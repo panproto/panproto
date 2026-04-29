@@ -19,8 +19,10 @@
 //! - [`pp_buf_free`]: free a `Vec<u8>` returned by panproto-c.
 
 pub mod protocol;
+pub mod schema;
 
 pub use protocol::*;
+pub use schema::*;
 
 use safer_ffi::prelude::*;
 

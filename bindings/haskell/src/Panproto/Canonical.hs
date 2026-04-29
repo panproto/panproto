@@ -22,6 +22,10 @@ module Panproto.Canonical
       -- * Edge rules
     , EdgeRule (..)
     , emptyEdgeRule
+
+      -- * Schema
+    , CanonicalSchema (..)
+    , canonicalSchemaBytes
     ) where
 
 import Codec.CBOR.Decoding (Decoder)
@@ -34,6 +38,38 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+
+-- ---------------------------------------------------------------------------
+-- CanonicalSchema
+
+-- | An opaque CBOR-encoded panproto @Schema@.
+--
+-- The Rust @Schema@ struct has twenty-odd fields, including
+-- @HashMap@s with custom serde helpers, @Expr@-valued enrichment
+-- maps, and precomputed adjacency indices. Mirroring the full
+-- structure on the Haskell side is large project — out of scope
+-- for the @0.41.0@ release — so this 'CanonicalSchema' carries the
+-- CBOR bytes verbatim rather than a structured ADT. Use the Rust
+-- backend (which round-trips through @ciborium@) to introspect.
+--
+-- The bytes are exactly what panproto-c\'s @pp_schema_to_cbor@
+-- produced. They round-trip losslessly through the Rust backend
+-- (@reify (hoist x) ≡ x@). The 'Native' backend treats them as
+-- opaque and is therefore an identity functor — useful for storing
+-- schemas in a Haskell-only data pipeline without entering the
+-- Rust runtime, but not for inspection.
+newtype CanonicalSchema = CanonicalSchema {schemaBytes :: LBS.ByteString}
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData)
+
+-- | Project the underlying CBOR bytes from a 'CanonicalSchema'.
+--
+-- The schema bytes do NOT carry their length on the C side; they
+-- are a single CBOR item. The 'LBS.ByteString' returned here is
+-- safe to write to disk, send over a wire, or hand to a future
+-- structured native decoder.
+canonicalSchemaBytes :: CanonicalSchema -> LBS.ByteString
+canonicalSchemaBytes (CanonicalSchema bs) = bs
 
 -- ---------------------------------------------------------------------------
 -- EdgeRule
