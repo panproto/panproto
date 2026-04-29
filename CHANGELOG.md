@@ -15,6 +15,11 @@ All notable changes to panproto will be documented in this file.
 ### Changed
 
 - **Workspace dependencies**: added `safer-ffi = "0.1.13"` and `ciborium = "0.2.2"`.
+- **CI (`ci.yml`)**: `panproto-c` excluded from the cargo-semver-checks job alongside `panproto-jit` and `panproto-llvm`. The crate is new in this release and has no published baseline on crates.io for the action to diff against; the exclusion is reversible once 0.41.0 is on crates.io.
+
+### Removed
+
+- **CI (`bench.yml`)**: the per-PR Benchmarks workflow is gone. The previous setup paired `cargo bench` (which uses `divan` here) with `benchmark-action/github-action-benchmark@v1`'s `tool: cargo` parser, which expects libtest's `bench: N ns/iter` format and silently fails on divan's table output. The job had been red on every PR for >24h while doing nothing useful. CI bench coverage will return via `iai-callgrind` (the project's stated CI bench tool) or `codspeed-divan-compat`; tracked separately.
 
 ## [0.40.0] - 2026-04-28
 
