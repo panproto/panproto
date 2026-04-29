@@ -49,16 +49,34 @@ jobs:
       - name: cabal sdist
         run: cabal sdist
 
-      - name: Upload to Hackage
+      - name: Configure Hackage auth-token
         env:
           HACKAGE_TOKEN: ${{ secrets.HACKAGE_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.cabal"
+          # cabal-install reads auth-token from the repository block of
+          # the config file. No CLI flag exists for this; the token must
+          # be in the file at upload time. We write a minimal config
+          # rather than trying to merge with whatever haskell-actions/setup
+          # may have written, since this workflow only ever runs upload.
+          cat > "$HOME/.cabal/config" <<EOF
+          repository hackage.haskell.org
+            url: https://hackage.haskell.org/
+            secure: True
+            auth-token: $HACKAGE_TOKEN
+          EOF
+          chmod 600 "$HOME/.cabal/config"
+
+      - name: Upload to Hackage
+        env:
           PUBLISH: ${{ github.event_name == 'push' && 'true' || inputs.publish }}
         run: |
           set -euo pipefail
           SDIST=$(ls dist-newstyle/sdist/panproto-*.tar.gz | head -1)
           echo "Uploading $SDIST (publish=$PUBLISH)"
           if [ "$PUBLISH" = "true" ]; then
-            cabal upload --token-auth --publish "$SDIST"
+            cabal upload --publish "$SDIST"
           else
-            cabal upload --token-auth "$SDIST"
+            cabal upload "$SDIST"
           fi
