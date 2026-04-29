@@ -4,7 +4,7 @@ All notable changes to `panproto-haskell` are recorded here. The
 package version tracks the panproto workspace version; a release of
 `panproto-core` `X.Y.Z` ships with `panproto-haskell` `X.Y.Z`.
 
-## 0.41.0 — Unreleased
+## 0.41.0 — 2026-04-29
 
 ### Added
 
