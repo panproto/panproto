@@ -56,24 +56,9 @@ jobs:
         run: |
           set -euo pipefail
           SDIST=$(ls dist-newstyle/sdist/panproto-*.tar.gz | head -1)
-          # cabal-install (this version) doesn't accept the auth-token
-          # config field nor a `--token-auth` flag. Hackage's HTTP API
-          # accepts the documented `Authorization: X-ApiKey <token>`
-          # header against the candidate or live upload endpoints, so
-          # we hit those directly.
+          echo "Uploading $SDIST (publish=$PUBLISH)"
           if [ "$PUBLISH" = "true" ]; then
-            URL="https://hackage.haskell.org/packages/"
-            echo "Uploading $SDIST live to $URL"
+            cabal upload --token="$HACKAGE_TOKEN" --publish "$SDIST"
           else
-            URL="https://hackage.haskell.org/packages/candidates/"
-            echo "Uploading $SDIST as candidate to $URL"
+            cabal upload --token="$HACKAGE_TOKEN" "$SDIST"
           fi
-          # `-fS` exits non-zero on HTTP error and surfaces the body;
-          # `-w "\nHTTP %{http_code}\n"` prints the final status code
-          # for the workflow log.
-          curl -fSL \
-            -H "Authorization: X-ApiKey $HACKAGE_TOKEN" \
-            -H "Accept: text/plain" \
-            -F "package=@$SDIST" \
-            -w "\nHTTP %{http_code}\n" \
-            "$URL"
