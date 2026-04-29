@@ -128,3 +128,101 @@ pub fn set_last_error(err: &FfiError) {
 pub fn take_last_error() -> Option<ErrorEnvelope> {
     LAST_ERROR.with_borrow_mut(Option::take)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_round_trips_via_i32() {
+        for status in [
+            PpStatus::Ok,
+            PpStatus::Err,
+            PpStatus::Panic,
+            PpStatus::InvalidHandle,
+            PpStatus::TypeMismatch,
+            PpStatus::Serialization,
+            PpStatus::Internal,
+        ] {
+            let n: i32 = status.into();
+            assert_eq!(n, status as i32, "status {status:?} mismatched i32");
+        }
+    }
+
+    #[test]
+    fn ffi_error_status_mapping() {
+        assert_eq!(
+            FfiError::InvalidHandle { handle: 7 }.status(),
+            PpStatus::InvalidHandle
+        );
+        assert_eq!(
+            FfiError::TypeMismatch {
+                expected: "Protocol",
+                actual: "Schema"
+            }
+            .status(),
+            PpStatus::TypeMismatch
+        );
+        assert_eq!(
+            FfiError::Serialization("oops".into()).status(),
+            PpStatus::Serialization
+        );
+        assert_eq!(FfiError::Panic("boom".into()).status(), PpStatus::Panic);
+        assert_eq!(
+            FfiError::Internal("kaput".into()).status(),
+            PpStatus::Internal
+        );
+    }
+
+    #[test]
+    fn envelope_carries_message_and_tag() {
+        let err = FfiError::InvalidHandle { handle: 42 };
+        let env = ErrorEnvelope::from(&err);
+        assert_eq!(env.tag, "invalid_handle");
+        assert!(env.message.contains("42"));
+        assert_eq!(env.status, PpStatus::InvalidHandle as i32);
+    }
+
+    #[test]
+    fn last_error_set_take_clears_slot() {
+        let _ = take_last_error(); // drain whatever may be left
+        assert!(take_last_error().is_none());
+
+        set_last_error(&FfiError::Internal("under test".into()));
+        let env = take_last_error().expect("envelope present");
+        assert_eq!(env.tag, "internal");
+
+        // After take, slot is empty.
+        assert!(take_last_error().is_none());
+    }
+
+    #[test]
+    fn type_mismatch_envelope_includes_both_kinds() {
+        let err = FfiError::TypeMismatch {
+            expected: "Protocol",
+            actual: "Schema",
+        };
+        let env = ErrorEnvelope::from(&err);
+        assert_eq!(env.tag, "type_mismatch");
+        assert!(env.message.contains("Protocol"));
+        assert!(env.message.contains("Schema"));
+    }
+
+    #[test]
+    fn each_variant_has_distinct_tag() {
+        let envs = [
+            ErrorEnvelope::from(&FfiError::InvalidHandle { handle: 0 }),
+            ErrorEnvelope::from(&FfiError::TypeMismatch {
+                expected: "a",
+                actual: "b",
+            }),
+            ErrorEnvelope::from(&FfiError::Serialization("s".into())),
+            ErrorEnvelope::from(&FfiError::Panic("p".into())),
+            ErrorEnvelope::from(&FfiError::Internal("i".into())),
+        ];
+        let tags: Vec<&str> = envs.iter().map(|e| e.tag.as_str()).collect();
+        let unique: std::collections::HashSet<&str> = tags.iter().copied().collect();
+        assert_eq!(unique.len(), tags.len(), "duplicate tag in {tags:?}");
+    }
+}

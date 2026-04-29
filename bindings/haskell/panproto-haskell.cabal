@@ -1,0 +1,120 @@
+cabal-version:      3.8
+name:               panproto-haskell
+version:            0.41.0
+synopsis:           Haskell bindings for panproto
+description:
+  Haskell bindings for panproto, a schematic version-control system for
+  any schema language. Two backends are provided behind capability
+  typeclasses returning plain @IO@:
+
+  * @rust@ flag (default): FFI-backed implementation linking against
+    @libpanproto_c@ from the panproto Rust workspace. Hot-path
+    operations marshal opaque @u32@ handles with no serialization;
+    cold-path operations marshal CBOR.
+
+  * @native-only@ flag: a pure Haskell implementation of the lens
+    algebra, expression language, and GAT layer (filled in
+    incrementally as panproto-haskell matures).
+
+  Cross-backend agreement is verified by round-tripping the
+  @CanonicalProtocol@ / @CanonicalSchema@ exchange types.
+
+license:            MIT
+license-file:       LICENSE
+author:             Aaron Steven White
+maintainer:         aaronstevenwhite@gmail.com
+copyright:          (c) 2026 Aaron Steven White
+category:           Data
+build-type:         Simple
+extra-source-files: cbits/panproto.h, README.md, CHANGELOG.md
+
+flag rust
+    description: Enable the FFI backend (links against libpanproto_c).
+    default:     True
+    manual:      True
+
+flag native-only
+    description: Build only the pure Haskell modules; no FFI dependency.
+    default:     False
+    manual:      True
+
+common common-options
+    default-language: GHC2024
+    default-extensions:
+        OverloadedRecordDot
+        OverloadedStrings
+        NoFieldSelectors
+    ghc-options:
+        -Wall
+        -Wcompat
+        -Widentities
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wmissing-export-lists
+        -Wmissing-home-modules
+        -Wpartial-fields
+        -Wredundant-constraints
+
+library
+    import:           common-options
+    hs-source-dirs:   src
+    exposed-modules:
+        Panproto
+        Panproto.Canonical
+        Panproto.Class
+        Panproto.Errors
+        Panproto.Native.Protocol
+    build-depends:
+        base               >=4.21 && <5,
+        bytestring         >=0.12 && <0.13,
+        cborg              >=0.2  && <0.3,
+        containers         >=0.7  && <0.9,
+        deepseq            >=1.5  && <1.7,
+        text               >=2.1  && <2.3
+
+    if flag(rust) && !flag(native-only)
+        cpp-options:        -DPANPROTO_RUST_BACKEND
+        exposed-modules:
+            Panproto.Rust
+            Panproto.Rust.FFI
+            Panproto.Rust.Handle
+        include-dirs:       cbits
+        includes:           panproto.h, panproto_glue.h
+        -- The C glue (`panproto_glue.c`) is intentionally NOT
+        -- declared as `c-sources` here: GHC 9.12 + macOS arm64 fail
+        -- the merge-objects pass on Haskell modules whose package
+        -- ships c-sources. Instead, `bootstrap/dev-link.sh` (and the
+        -- production `fetch-bindist.sh`) build the glue into a
+        -- standalone `libpanproto_glue.a` placed alongside
+        -- `libpanproto_c.a`.
+        extra-libraries:    panproto_c, panproto_glue
+        -- The lib search path is set in `cabal.project.local` by
+        -- `bootstrap/dev-link.sh` (or `bootstrap/fetch-bindist.sh`)
+        -- as an absolute path. Cabal's relative `extra-lib-dirs`
+        -- propagate into ghc-pkg's registration metadata, which
+        -- refuses anything but absolute paths; an absolute path in
+        -- a generated, gitignored `.local` file sidesteps that.
+
+test-suite panproto-test
+    import:           common-options
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    other-modules:
+        Spec.CanonicalRoundtrip
+        Spec.Errors
+        Spec.NativeProtocol
+    build-depends:
+        base,
+        bytestring,
+        cborg,
+        containers,
+        panproto-haskell,
+        tasty             >=1.4  && <1.6,
+        tasty-hunit       >=0.10 && <0.11
+
+    if flag(rust) && !flag(native-only)
+        cpp-options:    -DPANPROTO_RUST_BACKEND
+        other-modules:
+            Spec.RustRoundtrip
+        extra-libraries: panproto_c

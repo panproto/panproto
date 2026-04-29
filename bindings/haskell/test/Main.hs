@@ -1,0 +1,29 @@
+{-# LANGUAGE CPP #-}
+
+-- | Entry point for the panproto-haskell test suite.
+module Main (main) where
+
+import Test.Tasty (TestTree, defaultMain, testGroup)
+
+import Spec.CanonicalRoundtrip qualified
+import Spec.Errors qualified
+import Spec.NativeProtocol qualified
+
+#ifdef PANPROTO_RUST_BACKEND
+import Spec.RustRoundtrip qualified
+#endif
+
+main :: IO ()
+main = defaultMain tests
+
+tests :: TestTree
+tests =
+    testGroup
+        "panproto-haskell"
+        [ Spec.CanonicalRoundtrip.tests
+        , Spec.Errors.tests
+        , Spec.NativeProtocol.tests
+#ifdef PANPROTO_RUST_BACKEND
+        , Spec.RustRoundtrip.tests
+#endif
+        ]
