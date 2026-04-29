@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 
--- | Entry point for the panproto-haskell test suite.
+-- | Entry point for the panproto Haskell test suite.
 module Main (main) where
 
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -20,7 +20,7 @@ main = defaultMain tests
 tests :: TestTree
 tests =
     testGroup
-        "panproto-haskell"
+        "panproto"
         [ Spec.CanonicalRoundtrip.tests
         , Spec.Errors.tests
         , Spec.NativeProtocol.tests

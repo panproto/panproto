@@ -85,7 +85,7 @@ ls "$HASKELL_DIR/.panproto-c/lib"
 # configure step finds the lib and ghc-pkg accepts the path during
 # registration. The .local file is gitignored.
 cat > "$HASKELL_DIR/cabal.project.local" <<EOF
-package panproto-haskell
+package panproto
     extra-lib-dirs: $HASKELL_DIR/.panproto-c/lib
 EOF
 echo "wrote cabal.project.local with extra-lib-dirs"

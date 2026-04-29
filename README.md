@@ -57,7 +57,7 @@ cargo install panproto-cli
 |---------|---------|
 | [`@panproto/core`](sdk/typescript) | `npm install @panproto/core` |
 | [`panproto`](sdk/python) | `pip install panproto` |
-| [`panproto-haskell`](bindings/haskell) | source-only on Hackage; runs `bootstrap/fetch-bindist.sh` to pull the prebuilt `libpanproto_c` |
+| [`panproto`](bindings/haskell) (Hackage) | `cabal install panproto`, then run `bootstrap/fetch-bindist.sh` to stage the prebuilt `libpanproto_c` |
 
 ## Quick start
 

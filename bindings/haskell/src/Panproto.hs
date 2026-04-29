@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 
--- | Top-level entry point for panproto-haskell.
+-- | Top-level entry point for the panproto Haskell binding.
 --
 -- Re-exports the canonical exchange types, the capability classes,
 -- and (when built with the @rust@ flag) the Rust backend. The native

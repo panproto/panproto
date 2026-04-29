@@ -4,7 +4,7 @@
 --
 -- The public API returns plain 'IO' rather than committing to any
 -- specific effect system. Users on @mtl@ lift via 'liftIO'; users on
--- @effectful@ wrap through the (separate) @panproto-haskell-effectful@
+-- @effectful@ wrap through the (separate) @panproto-effectful@
 -- package.
 --
 -- The vertical slice exposes 'ProtocolBackend'. As panproto-c grows
@@ -95,7 +95,7 @@ class SchemaBackend back where
 -- An empty list means the schema is valid.
 --
 -- The 'Native' backend does not currently implement this class; only
--- 'Rust' does. A future @panproto-haskell-native@ release will add
+-- 'Rust' does. A future native release will add
 -- a pure-Haskell validator that mirrors @panproto_schema::validate@.
 class (SchemaBackend back, ProtocolBackend back) => SchemaValidate back where
     validateSchema

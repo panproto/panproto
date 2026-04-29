@@ -1,8 +1,9 @@
 # Changelog
 
-All notable changes to `panproto-haskell` are recorded here. The
-package version tracks the panproto workspace version; a release of
-`panproto-core` `X.Y.Z` ships with `panproto-haskell` `X.Y.Z`.
+All notable changes to the panproto Haskell binding (Hackage package
+`panproto`) are recorded here. The package version tracks the panproto
+workspace version; a release of `panproto-core` `X.Y.Z` ships with
+`panproto` `X.Y.Z`.
 
 ## 0.41.0 — 2026-04-29
 
@@ -26,10 +27,10 @@ package version tracks the panproto workspace version; a release of
     backend tag (`Native`, `Rust`), returning plain `IO`. Effect
     systems are not baked into the public API; users on `mtl` lift
     via `liftIO`, users on `effectful` will eventually wrap through
-    a separate `panproto-haskell-effectful` adapter.
+    a separate `panproto-effectful` adapter.
   - Pure-Haskell `Native` backend implementing `ProtocolBackend` as
     an identity over `CanonicalProtocol`.
-  - FFI-backed `Rust` backend (`panproto-haskell` cabal flag `+rust`,
+  - FFI-backed `Rust` backend (cabal flag `+rust`,
     default on) linking against `libpanproto_c`. Wraps every status
     code in `PanprotoError`, manages `VecU8` lifecycle through
     `bracket`, and enforces panic-safety via the C ABI's

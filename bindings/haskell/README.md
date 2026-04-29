@@ -1,6 +1,6 @@
-# panproto-haskell
+# panproto
 
-[![Hackage](https://img.shields.io/hackage/v/panproto-haskell.svg)](https://hackage.haskell.org/package/panproto-haskell)
+[![Hackage](https://img.shields.io/hackage/v/panproto.svg)](https://hackage.haskell.org/package/panproto)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 [![Haskell](https://img.shields.io/badge/GHC-9.12-blue.svg)](https://www.haskell.org/ghc/)
 
@@ -21,7 +21,7 @@ single graph format. Two backends meet at the same capability typeclasses:
 
 Both backends sit behind capability typeclasses returning plain `IO`, so
 `mtl` users lift via `liftIO` and `effectful` users will go through a
-separate `panproto-haskell-effectful` adapter.
+separate `panproto-effectful` adapter.
 
 [panproto]: https://panproto.dev
 
@@ -42,11 +42,11 @@ release alongside the underlying `panproto-c` C ABI:
 | structured `Schema` | —      | `0.45.0`          |
 
 panproto is pre-1.0. The `0.x` series carries arbitrary breaking changes
-between minor versions; `panproto-haskell` tracks the workspace version.
+between minor versions; `panproto` tracks the workspace version.
 
 ## Installation
 
-`panproto-haskell` is **source-only on Hackage**: the FFI backend links
+`panproto` is **source-only on Hackage**: the FFI backend links
 against `libpanproto_c`, a binary that Hackage cannot redistribute and
 cannot fetch from inside its sandboxed matrix builder. Two paths:
 
@@ -63,7 +63,7 @@ cd ..
 echo 'extra-lib-dirs: ./.panproto-c/lib' >> cabal.project.local
 echo 'extra-include-dirs: ./.panproto-c/include' >> cabal.project.local
 
-cabal install panproto-haskell
+cabal install panproto
 ```
 
 The `bootstrap/fetch-bindist.sh` script in this directory does the same
@@ -87,7 +87,7 @@ cabal test                # 31 tests
 If you only need the pure-Haskell subset, disable the FFI backend:
 
 ```sh
-cabal install panproto-haskell -f-rust
+cabal install panproto -f-rust
 ```
 
 ## Synopsis
@@ -202,7 +202,7 @@ handler = do
     liftIO $ toCanonical rep
 ```
 
-A separate `panproto-haskell-effectful` adapter package is planned for
+A separate `panproto-effectful` adapter package is planned for
 users on `effectful`. `polysemy` users can wrap each capability class
 in their own effect and interpret it via `embedToFinal`.
 

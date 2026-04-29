@@ -1,5 +1,5 @@
 cabal-version:      3.8
-name:               panproto-haskell
+name:               panproto
 version:            0.41.0
 synopsis:           Haskell bindings for panproto
 description:
@@ -14,7 +14,7 @@ description:
 
   * @native-only@ flag: a pure Haskell implementation of the lens
     algebra, expression language, and GAT layer (filled in
-    incrementally as panproto-haskell matures).
+    incrementally as the binding matures).
 
   Cross-backend agreement is verified by round-tripping the
   @CanonicalProtocol@ / @CanonicalSchema@ exchange types.
@@ -133,7 +133,7 @@ test-suite panproto-test
         bytestring,
         cborg,
         containers,
-        panproto-haskell,
+        panproto,
         tasty             >=1.4  && <1.6,
         tasty-hunit       >=0.10 && <0.11
 

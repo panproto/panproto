@@ -1,6 +1,7 @@
 name: Publish to Hackage
 
-# Tag-driven Hackage upload of `panproto-haskell`. The package is
+# Tag-driven Hackage upload of the `panproto` package (the Haskell
+# binding). The package is
 # source-only on Hackage; the FFI backend links against
 # `libpanproto_c`, which Hackage cannot redistribute and cannot
 # fetch from inside its sandboxed matrix builder. End users either
@@ -54,7 +55,7 @@ jobs:
           PUBLISH: ${{ github.event_name == 'push' && 'true' || inputs.publish }}
         run: |
           set -euo pipefail
-          SDIST=$(ls dist-newstyle/sdist/panproto-haskell-*.tar.gz | head -1)
+          SDIST=$(ls dist-newstyle/sdist/panproto-*.tar.gz | head -1)
           echo "Uploading $SDIST (publish=$PUBLISH)"
           if [ "$PUBLISH" = "true" ]; then
             cabal upload --token-auth --publish "$SDIST"

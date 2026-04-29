@@ -224,7 +224,7 @@ hostDecodeError site reason =
                     { status = statusToInt StatusSerialization
                     , tag = "host_decode"
                     , message =
-                        "panproto-haskell could not decode the CBOR returned by "
+                        "panproto could not decode the CBOR returned by "
                             <> T.pack site
                             <> ": "
                             <> T.pack reason
