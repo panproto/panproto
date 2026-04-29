@@ -15,6 +15,7 @@ import Panproto.Errors
     ( ErrorEnvelope (..)
     , PpStatus (..)
     , decodeErrorEnvelope
+    , envelopeStatus
     , statusFromInt
     , statusToInt
     )
@@ -30,6 +31,7 @@ tests =
         , testCase "decode envelope rejects empty bytes" decodeRejectsEmpty
         , testCase "decode envelope rejects garbage" decodeRejectsGarbage
         , testCase "decode envelope tolerates indef-length map" decodeIndefMap
+        , testCase "envelopeStatus translates the numeric code" envelopeStatusOk
         ]
 
 statusRoundTripPure :: IO ()
@@ -100,6 +102,18 @@ decodeRejectsGarbage = do
     case decodeErrorEnvelope bs of
         Left _ -> assertBool "rejected garbage" True
         Right _ -> assertFailure "expected rejection of garbage bytes"
+
+envelopeStatusOk :: IO ()
+envelopeStatusOk = do
+    let env =
+            ErrorEnvelope
+                { status = 3
+                , tag = "invalid_handle"
+                , message = "invalid handle: 7"
+                }
+    envelopeStatus env @?= StatusInvalidHandle
+    -- And via an unknown numeric code:
+    envelopeStatus env {status = 99} @?= StatusUnknown 99
 
 decodeIndefMap :: IO ()
 decodeIndefMap = do

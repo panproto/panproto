@@ -16,7 +16,7 @@ module Spec.SchemaRoundtrip (tests) where
 
 import Codec.CBOR.Encoding qualified as Enc
 import Codec.CBOR.Write qualified as CBOR
-import Control.Exception (bracket, try)
+import Control.Exception (ErrorCall, bracket, try)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Proxy (Proxy (..))
 import Test.Tasty (TestTree, testGroup)
@@ -25,6 +25,7 @@ import Test.Tasty.HUnit ((@?=), assertBool, assertFailure, testCase)
 import Panproto.Canonical
     ( CanonicalProtocol (..)
     , CanonicalSchema (..)
+    , canonicalSchemaBytes
     , defaultProtocol
     )
 import Panproto.Class
@@ -37,7 +38,7 @@ import Panproto.Class
 import Panproto.Errors (PanprotoError (..), PpStatus (..))
 import Panproto.Native.Protocol ()
 import Panproto.Native.Schema ()
-import Panproto.Rust ()
+import Panproto.Rust (withRustSchema)
 
 tests :: TestTree
 tests =
@@ -48,6 +49,8 @@ tests =
         , testCase "Native ↔ Rust agree on bytes" crossBackend
         , testCase "validateSchema on empty schema is empty" validateEmptyOk
         , testCase "fromCanonicalSchema rejects garbage" rejectGarbageBytes
+        , testCase "canonicalSchemaBytes is the underlying bytes" canonicalBytesAccessor
+        , testCase "withRustSchema releases on exception" withRustSchemaReleases
         ]
 
 -- | Build a minimal valid Rust-side schema by ingesting a CBOR-
@@ -152,3 +155,17 @@ rejectGarbageBytes = do
                 ("expected Serialization, got " <> show e.code)
                 (e.code == StatusSerialization)
         Right _ -> assertFailure "expected garbage bytes to be rejected"
+
+canonicalBytesAccessor :: IO ()
+canonicalBytesAccessor = do
+    canonicalSchemaBytes emptyCanonicalSchema @?= bytes
+  where
+    CanonicalSchema bytes = emptyCanonicalSchema
+
+withRustSchemaReleases :: IO ()
+withRustSchemaReleases = do
+    captured <- try @ErrorCall $ withRustSchema emptyCanonicalSchema $ \_ ->
+        error "deliberate" :: IO ()
+    case captured of
+        Left _ -> pure ()
+        Right () -> assertFailure "expected the inner action to throw"
