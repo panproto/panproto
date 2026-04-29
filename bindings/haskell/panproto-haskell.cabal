@@ -25,8 +25,23 @@ author:             Aaron Steven White
 maintainer:         aaronstevenwhite@gmail.com
 copyright:          (c) 2026 Aaron Steven White
 category:           Data
+homepage:           https://panproto.dev
+bug-reports:        https://github.com/panproto/panproto/issues
 build-type:         Simple
-extra-source-files: cbits/panproto.h, README.md, CHANGELOG.md
+tested-with:        GHC == 9.12.2
+extra-source-files: cbits/panproto.h
+extra-doc-files:    README.md, CHANGELOG.md
+
+source-repository head
+    type:     git
+    location: https://github.com/panproto/panproto.git
+    subdir:   bindings/haskell
+
+source-repository this
+    type:     git
+    location: https://github.com/panproto/panproto.git
+    subdir:   bindings/haskell
+    tag:      v0.41.0
 
 flag rust
     description: Enable the FFI backend (links against libpanproto_c).

@@ -1,0 +1,63 @@
+name: Publish to Hackage
+
+# Tag-driven Hackage upload of `panproto-haskell`. The package is
+# source-only on Hackage; the FFI backend links against
+# `libpanproto_c`, which Hackage cannot redistribute and cannot
+# fetch from inside its sandboxed matrix builder. End users either
+# run `bindings/haskell/bootstrap/fetch-bindist.sh` (downloads from
+# the matching GitHub Release) or build `panproto-c` from source.
+#
+# Triggers:
+#   - on tag push matching `v*`.
+#   - manual `workflow_dispatch` for re-runs and candidate uploads.
+#
+# Required secret: `HACKAGE_AUTH_TOKEN` (Hackage account auth token,
+# generated at https://hackage.haskell.org/users/account-management).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Promote to live (false = candidate-only)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bindings/haskell
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.12.2"
+          cabal-version: "3.16.0.0"
+
+      - name: cabal check
+        run: cabal check
+
+      - name: cabal sdist
+        run: cabal sdist
+
+      - name: Upload to Hackage
+        env:
+          HACKAGE_TOKEN: ${{ secrets.HACKAGE_AUTH_TOKEN }}
+          PUBLISH: ${{ github.event_name == 'push' && 'true' || inputs.publish }}
+        run: |
+          set -euo pipefail
+          SDIST=$(ls dist-newstyle/sdist/panproto-haskell-*.tar.gz | head -1)
+          echo "Uploading $SDIST (publish=$PUBLISH)"
+          if [ "$PUBLISH" = "true" ]; then
+            cabal upload --token-auth --publish "$SDIST"
+          else
+            cabal upload --token-auth "$SDIST"
+          fi
