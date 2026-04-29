@@ -1,7 +1,7 @@
 //! Schema ingest, serialization, and validation.
 //!
 //! The schema module exposes three entry points beyond the
-//! lifecycle helpers in [`crate::api::mod`]:
+//! lifecycle helpers in [`crate::api`]:
 //!
 //! - [`pp_schema_from_cbor`]: deserialize a CBOR-encoded `Schema`
 //!   into a fresh handle. Used to round-trip a schema previously

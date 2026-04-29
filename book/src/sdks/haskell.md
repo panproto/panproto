@@ -77,6 +77,8 @@ A `flake.nix` arrangement using haskell.nix and crane will follow once the bindi
 
 ## Status
 
-The `0.41.0` release is a vertical slice. It exposes `CanonicalProtocol`, the `ProtocolBackend` typeclass, both backends, the FFI plumbing for the C ABI, and twenty-three tests covering the round-trip law, error envelope decoding, and the cross-backend agreement contract. Subsequent releases add `SchemaBackend`, `MigrationBackend`, `LensBackend`, and `InstanceBackend` as the corresponding `panproto-c` ABI surfaces lift; the VCS and expression-language adapters follow.
+The `0.41.0` release exposes two capability classes: `ProtocolBackend` (with the full structural mirror of `Protocol`, including the eight feature flags, the `EdgeRule` shape, and a tolerant CBOR decoder that handles unknown future Rust fields) and `SchemaBackend` (with `CanonicalSchema` as opaque CBOR bytes and a separate `SchemaValidate` refinement that the `Rust` backend implements via `panproto_schema::validate`). Both backends are present for both classes; cross-backend agreement is exercised by twenty-eight tests covering round-trip laws, error-envelope decoding, exception-safe handle release, and the `TypeMismatch` envelope produced when the wrong handle kind reaches a typed entry point.
+
+Subsequent releases lift `MigrationBackend`, `InstanceBackend`, and `LensBackend` (in that order, matching how panproto's user-facing pipeline composes them); a structured native `SchemaBackend` follows, replacing the opaque-bytes representation when there is something useful to inspect on the Haskell side without going through Rust. The VCS and expression-language adapters land later.
 
 The architecture is designed so that a future GHC WebAssembly component-model backend, once `wasm-tools` and the relevant GHC backends mature, slots in alongside `Native` and `Rust` without changing the typeclass surface. That is the longest-term forward-compatibility hedge in the design.

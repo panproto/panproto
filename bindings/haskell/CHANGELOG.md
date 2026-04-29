@@ -8,7 +8,20 @@ package version tracks the panproto workspace version; a release of
 
 ### Added
 
-- Initial scaffold of `panproto-haskell`.
+- `SchemaBackend` capability class plus `SchemaValidate` refinement.
+  `CanonicalSchema` carries opaque CBOR bytes (the structured Rust
+  `Schema` shape is too large to mirror as a Haskell ADT in this
+  release; a future structured native decoder will replace it).
+  Native backend implements identity-on-bytes; Rust backend
+  implements both classes and routes through `pp_schema_from_cbor`,
+  `pp_schema_to_cbor`, and `pp_schema_validate`. `withRustSchema`
+  bracket helper guarantees handle release on exception paths, in
+  parallel with `withRustProtocol`.
+- Five additional Haskell tests covering Schema round-trip on both
+  backends, cross-backend bytewise agreement, validation against a
+  protocol, and rejection of garbage CBOR.
+
+### Initial scaffold
   - Capability typeclass `ProtocolBackend` parameterized over a
     backend tag (`Native`, `Rust`), returning plain `IO`. Effect
     systems are not baked into the public API; users on `mtl` lift
@@ -48,11 +61,13 @@ package version tracks the panproto workspace version; a release of
 
 ### Notes
 
-- The Rust C ABI surface exposed in this release is the vertical
-  slice from the design plan: `pp_init`, `pp_handle_free`,
-  `pp_buf_free`, `pp_last_error_take`, `pp_protocol_define`,
-  `pp_protocol_serialize`. Schema, lens, migration, instance,
-  expression, and VCS surfaces land in subsequent releases.
+- The Rust C ABI surface exposed in this release covers protocol
+  definition and schema round-trip / validation: `pp_init`,
+  `pp_handle_free`, `pp_buf_free`, `pp_last_error_take`,
+  `pp_protocol_define`, `pp_protocol_serialize`, `pp_schema_from_cbor`,
+  `pp_schema_to_cbor`, and `pp_schema_validate`. Lens, migration,
+  instance, expression, and VCS surfaces land in subsequent releases
+  as the corresponding capability classes lift on the Haskell side.
 - macOS arm64 + GHC 9.12 has a known merge-objects bug in the FFI
   link path. The workaround (set `TMPDIR` to a stable directory and
   pass `-keep-tmp-files`) is documented in the README; once GHC 9.14

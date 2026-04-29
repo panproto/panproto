@@ -125,6 +125,60 @@ mod tests {
     }
 
     #[test]
+    fn protocol_serialize_on_schema_handle_yields_type_mismatch() {
+        use std::sync::Arc;
+
+        use panproto_core::schema::Schema;
+        use std::collections::HashMap;
+
+        // Drain prior state.
+        let mut sink: repr_c::Vec<u8> = Vec::new().into();
+        let _ = pp_last_error_take(&mut sink);
+        pp_buf_free(sink);
+
+        // Allocate a Schema handle and try to serialize it as a Protocol.
+        let schema = Schema {
+            protocol: "x".into(),
+            vertices: HashMap::new(),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            entries: vec![],
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        };
+        let h = handle::alloc(Resource::Schema(Arc::new(schema)));
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_protocol_serialize(h, &mut out);
+        assert_eq!(status, PpStatus::TypeMismatch as i32);
+        pp_buf_free(out);
+
+        let mut env_buf: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(pp_last_error_take(&mut env_buf), PpStatus::Ok as i32);
+        let env: crate::error::ErrorEnvelope = decode(&env_buf).unwrap();
+        assert_eq!(env.tag, "type_mismatch");
+        assert!(env.message.contains("Protocol"));
+        assert!(env.message.contains("Schema"));
+        pp_buf_free(env_buf);
+
+        assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
+    }
+
+    #[test]
     fn malformed_cbor_yields_serialization_status() {
         let bad: Box<[u8]> = vec![0xFFu8, 0xFE, 0xFD].into_boxed_slice();
         let slice: c_slice::Box<u8> = bad.into();

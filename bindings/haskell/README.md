@@ -10,7 +10,12 @@ Haskell bindings for panproto. Two backends, one capability-typeclass interface.
 
 The native backend is for users who want a pure subset (lens algebra, expression language, GAT layer) without a Rust runtime. The Rust backend is for the full panproto surface: tree-sitter parsing across 250 languages, the VCS, protocol implementations, anything that benefits from the Rust core's performance and breadth. Cross-backend agreement is verified by round-tripping the `Canonical*` exchange types. The two backends meet at CBOR, which `cborg` decodes on the Haskell side and `ciborium` encodes on the Rust side.
 
-The `0.41.0` release ships the vertical slice: `CanonicalProtocol` and `ProtocolBackend`. Schema, instance, migration, lens, VCS, and expression-language capability classes land in subsequent releases as the underlying `panproto-c` surface grows.
+The `0.41.0` release ships:
+
+- `CanonicalProtocol`, `EdgeRule`, `ProtocolBackend` (full structural mirror of the Rust `Protocol` struct).
+- `CanonicalSchema` (opaque CBOR-bytes newtype), `SchemaBackend`, and `SchemaValidate` refinement (only the Rust backend implements validation; a future native validator will mirror `panproto_schema::validate`).
+
+Instance, migration, lens, VCS, and expression-language capability classes land in subsequent releases as the underlying `panproto-c` surface grows.
 
 ## Quick start
 
@@ -64,7 +69,8 @@ For consumers who do not want to build `panproto-c` from source, `bootstrap/fetc
 | `Panproto.Errors` | `PpStatus`, `PanprotoError`, `ErrorEnvelope`, decoders. |
 | `Panproto.Class` | Backend tags (`Native`, `Rust`) and capability typeclasses. |
 | `Panproto.Native.Protocol` | `instance ProtocolBackend Native`. Pure Haskell, no FFI. |
-| `Panproto.Rust` | `instance ProtocolBackend Rust`, `withRustProtocol`. |
+| `Panproto.Native.Schema` | `instance SchemaBackend Native`. Identity-on-bytes; no `SchemaValidate` instance. |
+| `Panproto.Rust` | `instance ProtocolBackend Rust`, `instance SchemaBackend Rust`, `instance SchemaValidate Rust`, plus `withRustProtocol` / `withRustSchema`. |
 | `Panproto.Rust.Handle` | `checkStatus`, `withVecU8Out`, `consumeVecU8`, `takeLastError`. |
 | `Panproto.Rust.FFI` | Raw `foreign import ccall` declarations. Use `Panproto.Rust.Handle` instead. |
 
@@ -87,11 +93,13 @@ for every backend `b`. The test suite (`Spec.RustRoundtrip.crossBackend`) verifi
 
 ## Status
 
-The `0.41.0` release is a vertical slice covering protocol definition and serialization. Subsequent releases:
+The `0.41.0` release covers protocol definition and serialization plus schema round-trip and validation. Subsequent releases:
 
-- `0.42.0`: `SchemaBackend` capability class, `pp_schema_*` ABI surface.
-- `0.43.0`: `MigrationBackend`, `LensBackend`.
-- Subsequent: `InstanceBackend`, `VcsBackend`, expression-language adapter.
+- `0.42.0`: `MigrationBackend` (compile, lift_record, compose), `pp_migration_*` ABI surface.
+- `0.43.0`: `InstanceBackend` (parse, emit, validate), `pp_instance_*` ABI surface.
+- `0.44.0`: `LensBackend` (build from migration, get/put, check_laws).
+- `0.45.0`: structured native `SchemaBackend` (replaces the opaque-bytes representation).
+- Subsequent: `VcsBackend`, expression-language adapter.
 
 Each capability class is shipped as one or two PRs, with the corresponding `panproto-c` ABI surface, and the agreement contract documented in this README.
 
