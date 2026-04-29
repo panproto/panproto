@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the panproto Haskell binding (Hackage package
+All notable changes to the panproto Haskell binding (cabal package
 `panproto`) are recorded here. The package version tracks the panproto
 workspace version; a release of `panproto-core` `X.Y.Z` ships with
 `panproto` `X.Y.Z`.

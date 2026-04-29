@@ -1,6 +1,5 @@
 # panproto
 
-[![Hackage](https://img.shields.io/hackage/v/panproto.svg)](https://hackage.haskell.org/package/panproto)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 [![Haskell](https://img.shields.io/badge/GHC-9.12-blue.svg)](https://www.haskell.org/ghc/)
 
@@ -46,29 +45,30 @@ between minor versions; `panproto` tracks the workspace version.
 
 ## Installation
 
-`panproto` is **source-only on Hackage**: the FFI backend links
-against `libpanproto_c`, a binary that Hackage cannot redistribute and
-cannot fetch from inside its sandboxed matrix builder. Two paths:
+The package is not yet published to a registry. Install from this
+repository. Once it lands on Hackage, `cabal install panproto` will
+work in addition to the paths below.
+
+The FFI backend links against `libpanproto_c`, which is built from
+this workspace's Rust crate of the same name. Two paths:
 
 ### Pre-built binaries (recommended)
 
+Download the platform-specific tarball from the corresponding
+`v0.41.0` GitHub Release, stage it under `.panproto-c/`, and point
+cabal at the absolute lib + include directories:
+
 ```sh
-# In your project (after `cabal init`, etc.):
-mkdir -p .panproto-c && cd .panproto-c
-curl -L "https://github.com/panproto/panproto/releases/download/v0.41.0/libpanproto_c-$(uname -m)-$(uname -s | tr '[:upper:]' '[:lower:]').tar.gz" \
-    | tar -xz
-cd ..
-
-# Then add to your cabal.project:
-echo 'extra-lib-dirs: ./.panproto-c/lib' >> cabal.project.local
-echo 'extra-include-dirs: ./.panproto-c/include' >> cabal.project.local
-
-cabal install panproto
+git clone https://github.com/panproto/panproto.git
+cd panproto/bindings/haskell
+./bootstrap/fetch-bindist.sh           # downloads + stages
+cabal build
+cabal test                             # 31 tests
 ```
 
-The `bootstrap/fetch-bindist.sh` script in this directory does the same
-thing and writes `cabal.project.local` for you when you have a checkout
-of the panproto repo.
+`fetch-bindist.sh` writes a gitignored `cabal.project.local` carrying
+the absolute paths cabal and `ghc-pkg` need (relative paths are
+rejected during package registration).
 
 ### Build `libpanproto_c` from source
 
@@ -77,9 +77,9 @@ Requires a Rust toolchain (`rustup` recommended):
 ```sh
 git clone https://github.com/panproto/panproto.git
 cd panproto/bindings/haskell
-./bootstrap/dev-link.sh   # builds panproto-c, stages libs under .panproto-c/
+./bootstrap/dev-link.sh                # builds panproto-c, stages libs
 cabal build
-cabal test                # 31 tests
+cabal test                             # 31 tests
 ```
 
 ### Native-only (no Rust dependency)
@@ -87,7 +87,7 @@ cabal test                # 31 tests
 If you only need the pure-Haskell subset, disable the FFI backend:
 
 ```sh
-cabal install panproto -f-rust
+cabal build -f-rust                    # from a checkout
 ```
 
 ## Synopsis
@@ -181,8 +181,9 @@ The bootstrap scripts under `bootstrap/` handle the binary fetch:
   stages `.panproto-c/{lib,include}/` for an in-tree development build.
 * `bootstrap/fetch-bindist.sh [version]` downloads the prebuilt
   `libpanproto_c` for your platform from the corresponding GitHub
-  Release. Defaults to the workspace version. This is the path
-  Hackage users take.
+  Release. Defaults to the workspace version. This is the path a
+  future Hackage release will direct users to once the package is
+  published.
 
 The `panproto-glue` C layer (under `cbits/`) presents pointer-based
 wrappers around the by-value `panproto-c` entry points, sidestepping a

@@ -13,7 +13,7 @@ The source lives in `crates/panproto-c/` on the Rust side and `bindings/haskell/
 
 ## Two backends, one interface
 
-The Haskell binding (Hackage package `panproto`) is a single cabal package that ships two implementations of every operation. The native backend is pure Haskell. It implements the lens algebra, the GAT layer, and the expression-language interpreter with no Rust runtime in the loop. The Rust backend is the FFI implementation. It links against `libpanproto_c` and routes every operation through the same C entry points the panproto-c crate exposes. Both backends sit behind the same capability typeclasses, parameterised by a backend tag.
+The Haskell binding (cabal package `panproto`) is a single cabal package that ships two implementations of every operation. The native backend is pure Haskell. It implements the lens algebra, the GAT layer, and the expression-language interpreter with no Rust runtime in the loop. The Rust backend is the FFI implementation. It links against `libpanproto_c` and routes every operation through the same C entry points the panproto-c crate exposes. Both backends sit behind the same capability typeclasses, parameterised by a backend tag.
 
 ```haskell
 class ProtocolBackend back where
@@ -69,7 +69,7 @@ The glue layer is precompiled to a standalone `libpanproto_glue.a` rather than s
 
 ## Distribution
 
-Hackage forbids precompiled binaries, so the `panproto` package is source-only on Hackage. The native dependencies (`libpanproto_c.{a,so,dylib,lib}` and the C header) are distributed as platform-specific tarballs through the panproto GitHub Releases. The package ships two bootstrap scripts: `bootstrap/dev-link.sh` for local development (it runs `cargo build -p panproto-c`, builds the glue, and stages the artifacts) and `bootstrap/fetch-bindist.sh` for downstream consumers (it pulls the prebuilt artifact for the host platform from a release tag). Either script populates `.panproto-c/lib/` and writes a `cabal.project.local` with an absolute lib path.
+Hackage forbids precompiled binaries, so the `panproto` package will be source-only when it lands on Hackage. The native dependencies (`libpanproto_c.{a,so,dylib,lib}` and the C header) are distributed as platform-specific tarballs through the panproto GitHub Releases. The package ships two bootstrap scripts: `bootstrap/dev-link.sh` for local development (it runs `cargo build -p panproto-c`, builds the glue, and stages the artifacts) and `bootstrap/fetch-bindist.sh` for downstream consumers (it pulls the prebuilt artifact for the host platform from a release tag). Either script populates `.panproto-c/lib/` and writes a `cabal.project.local` with an absolute lib path.
 
 The reason the path has to be absolute is a quirk of `ghc-pkg`: relative `extra-lib-dirs` propagate into the registered package's metadata, and `ghc-pkg` rejects relative paths there with a warning that cabal upgrades to an error. An absolute path in a generated, gitignored `cabal.project.local` is the cleanest workaround.
 
