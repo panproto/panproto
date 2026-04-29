@@ -49,34 +49,31 @@ jobs:
       - name: cabal sdist
         run: cabal sdist
 
-      - name: Configure Hackage auth-token
-        env:
-          HACKAGE_TOKEN: ${{ secrets.HACKAGE_AUTH_TOKEN }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/.cabal"
-          # cabal-install reads auth-token from the repository block of
-          # the config file. No CLI flag exists for this; the token must
-          # be in the file at upload time. We write a minimal config
-          # rather than trying to merge with whatever haskell-actions/setup
-          # may have written, since this workflow only ever runs upload.
-          cat > "$HOME/.cabal/config" <<EOF
-          repository hackage.haskell.org
-            url: https://hackage.haskell.org/
-            secure: True
-            auth-token: $HACKAGE_TOKEN
-          EOF
-          chmod 600 "$HOME/.cabal/config"
-
       - name: Upload to Hackage
         env:
+          HACKAGE_TOKEN: ${{ secrets.HACKAGE_AUTH_TOKEN }}
           PUBLISH: ${{ github.event_name == 'push' && 'true' || inputs.publish }}
         run: |
           set -euo pipefail
           SDIST=$(ls dist-newstyle/sdist/panproto-*.tar.gz | head -1)
-          echo "Uploading $SDIST (publish=$PUBLISH)"
+          # cabal-install (this version) doesn't accept the auth-token
+          # config field nor a `--token-auth` flag. Hackage's HTTP API
+          # accepts the documented `Authorization: X-ApiKey <token>`
+          # header against the candidate or live upload endpoints, so
+          # we hit those directly.
           if [ "$PUBLISH" = "true" ]; then
-            cabal upload --publish "$SDIST"
+            URL="https://hackage.haskell.org/packages/"
+            echo "Uploading $SDIST live to $URL"
           else
-            cabal upload "$SDIST"
+            URL="https://hackage.haskell.org/packages/candidates/"
+            echo "Uploading $SDIST as candidate to $URL"
           fi
+          # `-fS` exits non-zero on HTTP error and surfaces the body;
+          # `-w "\nHTTP %{http_code}\n"` prints the final status code
+          # for the workflow log.
+          curl -fSL \
+            -H "Authorization: X-ApiKey $HACKAGE_TOKEN" \
+            -H "Accept: text/plain" \
+            -F "package=@$SDIST" \
+            -w "\nHTTP %{http_code}\n" \
+            "$URL"
