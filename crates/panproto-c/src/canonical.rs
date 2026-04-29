@@ -16,12 +16,27 @@ use crate::error::FfiError;
 
 /// Decode a value of type `T` from a CBOR byte slice.
 ///
+/// Trailing bytes after the encoded value are rejected: a
+/// well-formed FFI payload contains exactly one CBOR item. The
+/// Haskell side enforces the same constraint, so the two decoders
+/// agree on what is well-formed.
+///
 /// # Errors
 ///
 /// Returns [`FfiError::Serialization`] if `bytes` is not valid CBOR
-/// for `T`.
+/// for `T`, or if there are extra bytes after the encoded value.
 pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, FfiError> {
-    ciborium::de::from_reader(bytes).map_err(|e| FfiError::Serialization(e.to_string()))
+    let mut cursor = std::io::Cursor::new(bytes);
+    let value: T = ciborium::de::from_reader(&mut cursor)
+        .map_err(|e| FfiError::Serialization(e.to_string()))?;
+    let consumed = usize::try_from(cursor.position()).unwrap_or(bytes.len());
+    if consumed < bytes.len() {
+        let trailing = bytes.len() - consumed;
+        return Err(FfiError::Serialization(format!(
+            "{trailing} trailing byte(s) after CBOR-encoded value"
+        )));
+    }
+    Ok(value)
 }
 
 /// Encode a value of type `T` to a CBOR byte vector.
@@ -72,5 +87,28 @@ mod tests {
         let bad: &[u8] = &[0xFF, 0xFE, 0xFD, 0x00];
         let result: Result<Protocol, _> = decode(bad);
         assert!(matches!(result, Err(FfiError::Serialization(_))));
+    }
+
+    #[test]
+    fn decode_rejects_trailing_bytes() {
+        let original = fixture();
+        let mut bytes = encode(&original).unwrap();
+        bytes.extend_from_slice(&[0xAA, 0xBB]); // append 2 stray bytes
+        let result: Result<Protocol, _> = decode(&bytes);
+        match result {
+            Err(FfiError::Serialization(msg)) => {
+                assert!(msg.contains("trailing"), "msg = {msg:?}");
+                assert!(msg.contains('2'), "msg = {msg:?}");
+            }
+            other => panic!("expected Serialization error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_accepts_exact_bytes() {
+        let original = fixture();
+        let bytes = encode(&original).unwrap();
+        let restored: Protocol = decode(&bytes).unwrap();
+        assert_eq!(original.name, restored.name);
     }
 }

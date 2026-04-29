@@ -13,6 +13,7 @@ module Panproto.Errors
     , statusFromInt
     , statusToInt
     , ErrorEnvelope (..)
+    , envelopeStatus
     , decodeErrorEnvelope
     , PanprotoError (..)
     ) where
@@ -83,6 +84,13 @@ data PanprotoError = PanprotoError
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, Exception)
+
+-- | The 'PpStatus' carried by an 'ErrorEnvelope'.
+--
+-- Convenience wrapper over 'statusFromInt' applied to the envelope's
+-- numeric @status@ field.
+envelopeStatus :: ErrorEnvelope -> PpStatus
+envelopeStatus env = statusFromInt env.status
 
 -- | Decode the CBOR envelope written by @pp_last_error_take@.
 decodeErrorEnvelope :: LBS.ByteString -> Either String ErrorEnvelope

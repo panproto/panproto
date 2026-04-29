@@ -6,10 +6,14 @@
 # package picks them up from there without referencing paths outside
 # its source tree.
 #
-# Why a standalone glue library? GHC 9.12 + macOS arm64 fails the
-# merge-objects pass on Haskell modules whose package ships
-# `c-sources`. Pre-building the glue into `libpanproto_glue.a`
-# sidesteps that bug.
+# Why a standalone glue library rather than `c-sources` in the cabal
+# file? GHC 9.12 plus a macOS arm64 toolchain that contains a stale
+# `ld` (e.g. anaconda's bundled `/Users/<user>/opt/anaconda3/bin/ld`
+# on a developer's PATH) fails the merge-objects pass for Haskell
+# modules in packages that ship `c-sources`. Pre-building the glue
+# into a separate `libpanproto_glue.a` sidesteps that interaction
+# entirely. The script also tries to detect a shadowed `ld` and
+# warns when one is on PATH.
 #
 # Run this once after every change to panproto-c, the C glue, or the
 # workspace `Cargo.toml`. For consumers fetching prebuilt artifacts
@@ -20,6 +24,25 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 HASKELL_DIR="$(pwd)"
 REPO_ROOT="$(cd ../.. && pwd)"
+
+# Sanity check: warn if `ld` resolves to something other than the
+# system linker. Anaconda and some other Python distributions ship
+# their own `ld`, which is too old to recognize the @response-file
+# syntax GHC's merge-objects pass uses. A shadowed `ld` is the most
+# common cause of "ld: file not found: @<tmp>/ghc_tmp_*.rsp" errors.
+if command -v ld >/dev/null 2>&1; then
+    LD_PATH="$(command -v ld)"
+    case "$LD_PATH" in
+        /usr/bin/ld|/usr/local/bin/ld|/opt/homebrew/bin/ld)
+            ;;
+        *)
+            echo "warning: ld on PATH is $LD_PATH" >&2
+            echo "         the system linker is at /usr/bin/ld; if cabal build" >&2
+            echo "         later fails on a 'ld: file not found' merge-objects" >&2
+            echo "         error, prepend /usr/bin to PATH and retry." >&2
+            ;;
+    esac
+fi
 
 echo "building panproto-c (release)..."
 ( cd "$REPO_ROOT" && cargo build -p panproto-c --release )

@@ -50,8 +50,11 @@ class ProtocolBackend back where
 
     -- | Release any resources held by the representation.
     --
-    -- For 'Rust' this calls @pp_handle_free@; for 'Native' it is a
-    -- no-op. Calling 'releaseProtocol' on the same value twice is an
-    -- error (use the 'Rust' backend\'s 'Panproto.Rust.Handle.withProtocol'
-    -- bracket helper to avoid this in normal code).
+    -- For 'Rust' this calls @pp_handle_free@, which is idempotent at
+    -- the slab level (a freed slot stays freed; a second free is a
+    -- no-op). For 'Native' it is also a no-op (the representation is
+    -- a pure value). Calling more than once is therefore safe, but
+    -- 'Panproto.Rust.withRustProtocol' is preferred for the Rust
+    -- backend because it guarantees release on exception paths and
+    -- keeps the lifetime explicit.
     releaseProtocol :: ProtocolRep back -> IO ()

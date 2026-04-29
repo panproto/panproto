@@ -37,6 +37,29 @@ impl From<PpStatus> for i32 {
     }
 }
 
+impl TryFrom<i32> for PpStatus {
+    type Error = i32;
+
+    /// Convert a wire-level status code back to a [`PpStatus`].
+    ///
+    /// Returns `Err(code)` for values outside the recognized range so
+    /// the caller can preserve forward-compatibility (a future
+    /// panproto-c may add a new status code, and consumers can choose
+    /// how to react).
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Ok),
+            1 => Ok(Self::Err),
+            2 => Ok(Self::Panic),
+            3 => Ok(Self::InvalidHandle),
+            4 => Ok(Self::TypeMismatch),
+            5 => Ok(Self::Serialization),
+            6 => Ok(Self::Internal),
+            other => Err(other),
+        }
+    }
+}
+
 /// Internal error type collected at every panproto-c entry point.
 ///
 /// Variants mirror the failure categories of [`PpStatus`] plus carry
@@ -147,7 +170,22 @@ mod tests {
         ] {
             let n: i32 = status.into();
             assert_eq!(n, status as i32, "status {status:?} mismatched i32");
+            assert_eq!(
+                PpStatus::try_from(n).unwrap(),
+                status,
+                "PpStatus::try_from({n}) did not return {status:?}"
+            );
         }
+    }
+
+    #[test]
+    fn status_try_from_unknown_returns_code() {
+        match PpStatus::try_from(42) {
+            Err(c) => assert_eq!(c, 42),
+            Ok(s) => panic!("expected Err for unknown code, got {s:?}"),
+        }
+        // Negative codes are also unknown.
+        assert!(matches!(PpStatus::try_from(-1), Err(-1)));
     }
 
     #[test]

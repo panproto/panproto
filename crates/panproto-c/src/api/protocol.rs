@@ -6,7 +6,7 @@ use safer_ffi::prelude::*;
 #[cfg(any(test, feature = "panic-test"))]
 use crate::error::FfiError;
 use crate::error::PpStatus;
-use crate::handle::{self, Resource, as_protocol};
+use crate::handle::{self, Resource};
 use crate::panic::guard;
 
 /// Ingest a CBOR-encoded [`Protocol`] specification and register it
@@ -29,15 +29,13 @@ pub fn pp_protocol_define(spec: c_slice::Ref<'_, u8>, out_handle: &mut u32) -> i
 ///
 /// On success, `out` is populated with freshly allocated CBOR bytes;
 /// the host must release them via `pp_buf_free`. Common failure modes
-/// are [`PpStatus::InvalidHandle`] and [`PpStatus::TypeMismatch`].
+/// are [`PpStatus::InvalidHandle`] and (once additional resource
+/// variants exist) [`PpStatus::TypeMismatch`].
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_protocol_serialize(proto: u32, out: &mut repr_c::Vec<u8>) -> i32 {
     guard(|| {
-        let bytes = handle::with_resource(proto, |r| {
-            let protocol = as_protocol(r)?;
-            crate::canonical::encode(protocol)
-        })?;
+        let bytes = handle::with_resource(proto, |r| crate::canonical::encode(r.as_protocol()))?;
         *out = bytes.into();
         Ok(PpStatus::Ok)
     })

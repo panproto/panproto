@@ -1,12 +1,1 @@
 packages: .
-
--- macOS-arm64 + GHC 9.12 workaround: the merge-objects pass invokes
--- `ld -r` with a response file written to $TMPDIR. The file is
--- removed before ld reads it, and the link fails. Telling GHC to
--- keep tmp files retains the file long enough; the leak is small
--- and the option must be set at the package-* level (not in the
--- per-target `ghc-options:` field) for cabal to propagate it to
--- the link/merge invocations.
-
-package *
-    ghc-options: -keep-tmp-files

@@ -7,8 +7,16 @@
 //!
 //! The C ABI never exposes the [`Resource`] enum; callers see only
 //! `u32` and rely on the panproto-c API to dispatch to the right
-//! variant. Each entry point validates the resource type at the slab
-//! boundary and returns [`FfiError::TypeMismatch`] on mismatch.
+//! variant. Today the slab tracks only [`Resource::Protocol`]; when
+//! additional variants are added (for `Schema`, `Migration`, etc.),
+//! the type-checked extraction helpers grow alongside, modelled on
+//! the `as_*` helpers in `crates/panproto-wasm/src/slab.rs`.
+//!
+//! Slab state is thread-local: each OS thread sees its own resource
+//! table. Tests rely on `cargo nextest`'s per-test process isolation
+//! to avoid cross-test interference; running under `cargo test` (which
+//! shares threads) can cause spurious failures in handle-equality
+//! assertions, so the project's CI uses nextest.
 
 use std::cell::RefCell;
 
@@ -17,26 +25,24 @@ use panproto_core::schema::Protocol;
 use crate::error::FfiError;
 
 /// A resource stored in the slab.
-///
-/// The vertical slice tracks only [`Protocol`]; further variants
-/// ([`panproto_core::schema::Schema`], `Migration`, …) are added as
-/// each capability class lands on the Haskell side.
 pub enum Resource {
     /// A protocol specification.
     Protocol(Protocol),
 }
 
 impl Resource {
-    /// Human-readable name of the resource variant. Used to populate
-    /// [`FfiError::TypeMismatch`] envelopes once additional variants
-    /// land. The vertical slice has only `Protocol`, so this always
-    /// returns `"Protocol"` today.
+    /// Project a [`Protocol`] reference out of a [`Resource`].
+    ///
+    /// Today every [`Resource`] is a [`Resource::Protocol`], so this
+    /// is total. When new variants are added, change the return type
+    /// to `Result<&Protocol, FfiError>` and return
+    /// [`FfiError::TypeMismatch`] for non-`Protocol` variants; the
+    /// `with_resource` callers in [`crate::api::protocol`] will then
+    /// fail to compile, which is the intended forcing function.
     #[must_use]
-    #[allow(dead_code)] // Used by future as_schema/as_migration variants.
-    pub const fn type_name(&self) -> &'static str {
-        match self {
-            Self::Protocol(_) => "Protocol",
-        }
+    pub const fn as_protocol(&self) -> &Protocol {
+        let Self::Protocol(p) = self;
+        p
     }
 }
 
@@ -45,6 +51,9 @@ thread_local! {
 }
 
 /// Allocate a resource and return its handle.
+///
+/// Reuses a freed slot when one is available; otherwise pushes onto
+/// the end of the slab.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)] // u32 indices; >4B resources is unrealistic.
 pub fn alloc(resource: Resource) -> u32 {
@@ -81,6 +90,9 @@ pub fn with_resource<T>(
 }
 
 /// Free a resource, marking the slot reusable.
+///
+/// Calling on an out-of-range or already-freed handle is a no-op
+/// (double-free is safe).
 pub fn free(handle: u32) {
     SLAB.with_borrow_mut(|slab| {
         let idx = handle as usize;
@@ -90,18 +102,15 @@ pub fn free(handle: u32) {
     });
 }
 
-/// Extract a [`Protocol`] reference, returning [`FfiError::TypeMismatch`]
-/// if the resource is something else.
+/// Test-only: drop every resource in the slab and reset its length.
 ///
-/// # Errors
-///
-/// Returns [`FfiError::TypeMismatch`] when the variant is not
-/// [`Resource::Protocol`]. With only one variant today this never
-/// fires, but the signature is stable for future variants.
-pub const fn as_protocol(resource: &Resource) -> Result<&Protocol, FfiError> {
-    match resource {
-        Resource::Protocol(p) => Ok(p),
-    }
+/// Used at the start of each unit test that asserts specific handle
+/// values, so test order on shared threads cannot affect the slab's
+/// observed state. Production callers do not need this; the slab
+/// grows monotonically across calls.
+#[cfg(test)]
+pub fn reset() {
+    SLAB.with_borrow_mut(Vec::clear);
 }
 
 #[cfg(test)]
@@ -123,14 +132,16 @@ mod tests {
 
     #[test]
     fn alloc_and_get_protocol() {
+        reset();
         let h = alloc(Resource::Protocol(test_protocol()));
-        let result = with_resource(h, |r| Ok(as_protocol(r)?.name.clone()));
+        let result = with_resource(h, |r| Ok(r.as_protocol().name.clone()));
         assert_eq!(result.unwrap(), "test");
         free(h);
     }
 
     #[test]
     fn free_reuses_slot() {
+        reset();
         let h1 = alloc(Resource::Protocol(test_protocol()));
         free(h1);
         let h2 = alloc(Resource::Protocol(test_protocol()));
@@ -140,12 +151,14 @@ mod tests {
 
     #[test]
     fn invalid_handle_errors() {
+        reset();
         let result = with_resource(9999, |_| Ok(()));
         assert!(matches!(result, Err(FfiError::InvalidHandle { .. })));
     }
 
     #[test]
     fn double_free_is_safe() {
+        reset();
         let h = alloc(Resource::Protocol(test_protocol()));
         free(h);
         free(h);
@@ -153,8 +166,27 @@ mod tests {
     }
 
     #[test]
-    fn type_name_is_protocol() {
+    fn alloc_grows_then_reuses() {
+        reset();
+        let h0 = alloc(Resource::Protocol(test_protocol()));
+        let h1 = alloc(Resource::Protocol(test_protocol()));
+        let h2 = alloc(Resource::Protocol(test_protocol()));
+        assert_eq!(h0, 0);
+        assert_eq!(h1, 1);
+        assert_eq!(h2, 2);
+        // Freeing the middle slot should be reused next.
+        free(h1);
+        let h3 = alloc(Resource::Protocol(test_protocol()));
+        assert_eq!(h3, h1);
+        free(h0);
+        free(h2);
+        free(h3);
+    }
+
+    #[test]
+    fn as_protocol_returns_inner() {
+        reset();
         let r = Resource::Protocol(test_protocol());
-        assert_eq!(r.type_name(), "Protocol");
+        assert_eq!(r.as_protocol().name, "test");
     }
 }
