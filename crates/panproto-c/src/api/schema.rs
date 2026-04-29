@@ -82,7 +82,10 @@ pub fn pp_schema_validate(
             let schema = r1.as_schema()?;
             let protocol = r2.as_protocol()?;
             let errors = validate(schema, protocol);
-            let messages: Vec<String> = errors.iter().map(|e| format!("{e:?}")).collect();
+            // Use Display formatting (panproto-schema's ValidationError
+            // has a hand-written Display impl with human-readable
+            // messages); Debug would otherwise print constructor names.
+            let messages: Vec<String> = errors.iter().map(ToString::to_string).collect();
             Ok(messages)
         })?;
         let bytes = crate::canonical::encode(&messages)?;
@@ -223,6 +226,64 @@ mod tests {
         let status = pp_schema_from_cbor(slice.as_ref(), &mut handle);
         assert_eq!(status, PpStatus::Serialization as i32);
         assert_eq!(handle, u32::MAX);
+    }
+
+    #[test]
+    fn validate_reports_unknown_vertex_kind() {
+        use panproto_core::schema::Vertex;
+
+        // Protocol that recognizes only `record` as an obj kind.
+        let strict_proto = Protocol {
+            name: "strict".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["record".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+
+        // Schema with a vertex of unrecognized kind.
+        let mut schema = schema_fixture();
+        schema.protocol = "strict".into();
+        schema.vertices.insert(
+            "post".into(),
+            Vertex {
+                id: "post".into(),
+                kind: "ZZZ".into(),
+                nsid: None,
+            },
+        );
+
+        let proto_h = define_protocol_handle(&strict_proto);
+        let schema_h = allocate_schema_handle(&schema);
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_schema_validate(schema_h, proto_h, &mut out);
+        assert_eq!(status, PpStatus::Ok as i32);
+
+        let messages: Vec<String> = decode(&out).unwrap();
+        assert!(
+            !messages.is_empty(),
+            "expected at least one validation message"
+        );
+        // Display is human-readable; should mention the offending
+        // vertex id and kind.
+        let joined = messages.join("\n");
+        assert!(joined.contains("post"), "messages: {joined}");
+        assert!(joined.contains("ZZZ"), "messages: {joined}");
+        // Display format contains spaces (Debug would print
+        // CamelCase identifiers); spot-check that "vertex" or
+        // "kind" appears (Display impls usually use these words).
+        let lower = joined.to_lowercase();
+        assert!(
+            lower.contains("vertex") || lower.contains("kind"),
+            "messages should be human-readable: {joined}"
+        );
+
+        pp_buf_free(out);
+        assert_eq!(pp_handle_free(schema_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(proto_h), PpStatus::Ok as i32);
     }
 
     #[test]
