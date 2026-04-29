@@ -56,6 +56,7 @@
 - [The Rust SDK](sdks/rust.md)
 - [The TypeScript SDK](sdks/typescript.md)
 - [The Python SDK](sdks/python.md)
+- [The Haskell binding](sdks/haskell.md)
 - [The CLI](sdks/cli.md)
 
 # For contributors

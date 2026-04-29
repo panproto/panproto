@@ -1,0 +1,35 @@
+[package]
+name = "panproto-c"
+description = "C ABI for panproto, used by language bindings (Haskell first, others welcome)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+panproto-core = { workspace = true }
+safer-ffi = { workspace = true }
+ciborium = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[features]
+default = []
+# Enables the `generate_headers` test that writes the C header.
+headers = ["safer-ffi/headers"]
+# Exposes `pp_internal_panic` so external crates can verify panic
+# safety end-to-end. Off by default; the symbol is always available
+# under `cfg(test)` for in-crate tests.
+panic-test = []
+
+[lints]
+workspace = true
+
+[[test]]
+name = "panic"
+required-features = ["panic-test"]
+
