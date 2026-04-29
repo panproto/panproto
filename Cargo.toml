@@ -10,6 +10,7 @@ members = [
     "crates/panproto-protocols",
     "crates/panproto-core",
     "crates/panproto-wasm",
+    "crates/panproto-c",
     "crates/panproto-cli",
     "crates/panproto-io",
     "crates/panproto-vcs",
@@ -57,6 +58,10 @@ bumpalo = "3.20.2"
 
 # WASM
 wasm-bindgen = "0.2.114"
+
+# C ABI for non-Rust language bindings (Haskell first)
+safer-ffi = "0.1.13"
+ciborium = "0.2.2"
 
 # Python bindings
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py313"] }
