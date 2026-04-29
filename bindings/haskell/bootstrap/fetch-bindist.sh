@@ -1,25 +1,29 @@
 #!/usr/bin/env bash
 #
 # Fetch the prebuilt libpanproto_c artifact for the host platform from
-# the panproto GitHub Releases.
+# the panproto GitHub Releases, then build the C glue layer and write
+# cabal.project.local so `cabal build` finds the libraries without
+# referencing paths outside the source tree.
 #
 # Usage:
 #   ./bootstrap/fetch-bindist.sh [version]
 #
 # version defaults to the @VERSION@ string baked into this script by
-# the release process. For development builds, pass `local` to use the
-# in-tree `target/release` artifacts produced by
-# `cargo build -p panproto-c --release`.
+# the release process. For local development against an in-tree
+# `cargo build -p panproto-c --release`, use `dev-link.sh` instead.
 #
-# After this script runs, the resulting libpanproto_c.{a,so,dylib,lib}
-# is placed under .panproto-c/<target>/lib/ and the header under
-# .panproto-c/<target>/include/. Add this directory to cabal via
-# `extra-lib-dirs:` (already configured in cabal.project for `local`).
+# After this script runs, the resulting libpanproto_c.{a,so,dylib,lib},
+# the header, and a freshly-built libpanproto_glue.a are placed under
+# `bindings/haskell/.panproto-c/`, and an absolute-path
+# `cabal.project.local` references that directory.
 
 set -euo pipefail
 
-VERSION="${1:-v0.40.0}"
-DEST=".panproto-c"
+cd "$(dirname "$0")/.."
+HASKELL_DIR="$(pwd)"
+
+VERSION="${1:-v0.41.0}"
+DEST="$HASKELL_DIR/.panproto-c"
 
 # Detect target.
 case "$(uname -sm)" in
@@ -30,29 +34,53 @@ case "$(uname -sm)" in
   *) echo "unsupported platform: $(uname -sm)" >&2; exit 1 ;;
 esac
 
-if [ "$VERSION" = "local" ]; then
-  REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-  SRC="$REPO_ROOT/target/release"
-  if [ ! -f "$SRC/libpanproto_c.a" ] && [ ! -f "$SRC/libpanproto_c.dylib" ] \
-       && [ ! -f "$SRC/libpanproto_c.so" ]; then
-    echo "no libpanproto_c artifact under $SRC; run \`cargo build -p panproto-c --release\`" >&2
-    exit 1
-  fi
-  mkdir -p "$DEST/$TARGET/lib" "$DEST/$TARGET/include"
-  cp "$REPO_ROOT/crates/panproto-c/include/panproto.h" "$DEST/$TARGET/include/"
-  for f in libpanproto_c.a libpanproto_c.dylib libpanproto_c.so panproto_c.lib panproto_c.dll; do
-    [ -f "$SRC/$f" ] && cp "$SRC/$f" "$DEST/$TARGET/lib/"
-  done
-  echo "wired $DEST/$TARGET from local build"
-  exit 0
-fi
-
 ARCHIVE="panproto-c-$TARGET.tar.gz"
 URL="https://github.com/panproto/panproto/releases/download/$VERSION/$ARCHIVE"
 
-mkdir -p "$DEST"
+mkdir -p "$DEST/lib" "$DEST/include"
+
 echo "fetching $URL"
 curl -fsSL "$URL" -o "$DEST/$ARCHIVE"
 tar -xzf "$DEST/$ARCHIVE" -C "$DEST"
-rm "$DEST/$ARCHIVE"
-echo "extracted to $DEST/panproto-c-$TARGET"
+
+# The release tarball ships under panproto-c-<target>/{lib,include}.
+# Move the contents up one level so the staging layout matches what
+# dev-link.sh produces.
+EXTRACT="$DEST/panproto-c-$TARGET"
+if [ -d "$EXTRACT" ]; then
+    cp -f "$EXTRACT"/lib/* "$DEST/lib/"
+    cp -f "$EXTRACT"/include/* "$DEST/include/"
+    rm -rf "$EXTRACT"
+fi
+rm -f "$DEST/$ARCHIVE"
+
+# Build the C glue layer locally. The glue (panproto_glue.c) is part
+# of the Haskell binding, not the Rust workspace, so it is not in the
+# release tarball; we always rebuild it against the just-fetched
+# panproto.h.
+echo "building panproto_glue.a..."
+CC="${CC:-cc}"
+GLUE_OBJ="$DEST/panproto_glue.o"
+GLUE_LIB="$DEST/lib/libpanproto_glue.a"
+"$CC" -c \
+    -fPIC \
+    -O2 \
+    -Wall -Wextra \
+    -I"$HASKELL_DIR/cbits" \
+    -I"$DEST/include" \
+    "$HASKELL_DIR/cbits/panproto_glue.c" \
+    -o "$GLUE_OBJ"
+ar rcs "$GLUE_LIB" "$GLUE_OBJ"
+rm "$GLUE_OBJ"
+
+echo "staged into $DEST/"
+ls "$DEST/lib"
+
+# Write an absolute path into cabal.project.local so cabal's
+# configure step finds the lib and ghc-pkg accepts the path during
+# registration. The .local file is gitignored.
+cat > "$HASKELL_DIR/cabal.project.local" <<EOF
+package panproto-haskell
+    extra-lib-dirs: $DEST/lib
+EOF
+echo "wrote cabal.project.local with extra-lib-dirs"

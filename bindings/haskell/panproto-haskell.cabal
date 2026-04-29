@@ -88,7 +88,14 @@ library
         -- production `fetch-bindist.sh`) build the glue into a
         -- standalone `libpanproto_glue.a` placed alongside
         -- `libpanproto_c.a`.
-        extra-libraries:    panproto_c, panproto_glue
+        -- Order matters on Linux: `panproto_glue` references symbols
+        -- from `panproto_c` (e.g. `pp_buf_free`), and traditional ld
+        -- one-pass left-to-right archive resolution requires the
+        -- consumer to come before the provider so the consumer's
+        -- references generate undefs that the provider then satisfies.
+        -- macOS ld is more forgiving about archive order but the same
+        -- convention works there too.
+        extra-libraries:    panproto_glue, panproto_c
         -- The lib search path is set in `cabal.project.local` by
         -- `bootstrap/dev-link.sh` (or `bootstrap/fetch-bindist.sh`)
         -- as an absolute path. Cabal's relative `extra-lib-dirs`
