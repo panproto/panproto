@@ -193,22 +193,25 @@ messageListDecoder :: Dec.Decoder s [Text]
 messageListDecoder = do
     len <- Dec.decodeListLenOrIndef
     case len of
-        Just n -> replicateM_ n
-        Nothing -> readIndef
+        Just n -> replicateString n
+        Nothing -> readUntilBreak
   where
-    replicateM_ 0 = pure []
-    replicateM_ k = do
+    -- Decode exactly @n@ string-typed list elements. Named for
+    -- clarity rather than shadowing 'Control.Monad.replicateM_',
+    -- which discards results (we want to collect them).
+    replicateString 0 = pure []
+    replicateString k = do
         x <- Dec.decodeString
-        xs <- replicateM_ (k - 1)
+        xs <- replicateString (k - 1)
         pure (x : xs)
 
-    readIndef = do
+    readUntilBreak = do
         stop <- Dec.decodeBreakOr
         if stop
             then pure []
             else do
                 x <- Dec.decodeString
-                rest <- readIndef
+                rest <- readUntilBreak
                 pure (x : rest)
 
 hostDecodeError :: String -> String -> PanprotoError
