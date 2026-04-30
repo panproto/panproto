@@ -16,10 +16,11 @@ Files inspected:
 - Every `crates/*/Cargo.toml` and `tests/*/Cargo.toml` that declares
   a literal `version = "..."` (rather than `version.workspace = true`)
   must match.
-- `bindings/python/pyproject.toml`, `bindings/typescript/package.json`, and
-  `bindings/haskell/panproto.cabal` must match.
-- `crates/panproto-py/pyproject.toml` must declare `dynamic = ["version"]`
-  (the maturin version comes from `Cargo.toml`).
+- `bindings/typescript/package.json` and `bindings/haskell/panproto.cabal`
+  must match the workspace version literally.
+- `bindings/python/pyproject.toml` must declare `dynamic = ["version"]`
+  (maturin reads the version from `crates/panproto-py/Cargo.toml`,
+  which inherits `version.workspace = true`).
 
 Exits non-zero with a list of mismatches; otherwise silent on success
 or with a one-line `OK` summary on `--verbose`.
@@ -242,18 +243,17 @@ def main() -> int:
     mismatches: list[Mismatch] = []
     mismatches.extend(check_root_cargo(expected))
     mismatches.extend(check_member_cargo_files(expected))
-    mismatches.extend(
-        check_pyproject(
-            ROOT / "crates/panproto-py/pyproject.toml",
-            expected,
-            allow_dynamic=True,
-        )
-    )
+    # `bindings/python/pyproject.toml` is the maturin project root.
+    # It MUST declare `dynamic = ["version"]` so maturin reads the
+    # version from `crates/panproto-py/Cargo.toml` (which inherits
+    # `version.workspace = true`). A literal version here would
+    # silently strand PyPI on a stale version when the workspace
+    # bumps and PyPI's `skip-existing: true` masks the failure.
     mismatches.extend(
         check_pyproject(
             ROOT / "bindings/python/pyproject.toml",
             expected,
-            allow_dynamic=False,
+            allow_dynamic=True,
         )
     )
     mismatches.extend(check_package_json(ROOT / "bindings/typescript/package.json", expected))

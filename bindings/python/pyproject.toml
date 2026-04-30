@@ -1,29 +1,34 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "panproto"
-version = "0.42.1"
-description = "Schematic version control with panproto (Python SDK)"
+# Version is intentionally dynamic: maturin reads it from
+# `crates/panproto-py/Cargo.toml`, which uses
+# `version.workspace = true`. This keeps the published wheel pinned
+# to the workspace version on every release, with no manual sync.
+# A previous literal `version = "0.40.0"` here silently stranded
+# PyPI at 0.40 when the workspace bumped to 0.41 (PyPI uses
+# `skip-existing: true`, so the publish step succeeded without
+# actually uploading anything new).
+dynamic = ["version"]
+description = "Automatic schema migration and version control for 51 schema languages and 248 programming languages"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 authors = [
     { name = "Aaron Steven White", email = "aaron.steven.white@gmail.com" },
 ]
-keywords = ["schema", "migration", "gat", "lens", "wasm"]
+keywords = ["schema", "migration", "gat", "lens", "category-theory"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
     "Typing :: Typed",
-]
-dependencies = [
-    "wasmtime>=29.0.0",
-    "msgpack>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -31,45 +36,35 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
     "pyright>=1.1",
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.25",
 ]
 
-[project.urls]
-Homepage = "https://github.com/panproto/panproto"
-Repository = "https://github.com/panproto/panproto"
-Documentation = "https://panproto.github.io"
-
-[tool.hatch.build.targets.sdist]
-include = ["src/panproto"]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/panproto"]
-
-[tool.pyright]
-pythonVersion = "3.13"
-pythonPlatform = "All"
-typeCheckingMode = "strict"
-reportMissingTypeStubs = false
+[tool.maturin]
+# This pyproject.toml lives at `bindings/python/`; the Rust crate is
+# at `crates/panproto-py/`. Point maturin at the Cargo manifest, and
+# at the python source directory adjacent to this file.
+#
+# The previous layout had pyproject.toml inside `crates/panproto-py/`
+# with `python-source = "../../sdk/python/src"`. Maturin silently
+# dropped the `../../` python source from the wheel (the published
+# 0.42.0 wheel contained only `_native.abi3.so` — no `__init__.py`,
+# no `py.typed`). Maturin's `python-source` resolution does not
+# tolerate paths that traverse out of the project root; relocating
+# pyproject.toml so the source is `src/` (a direct child) is the
+# canonical fix.
+manifest-path = "../../crates/panproto-py/Cargo.toml"
+python-source = "src"
+module-name = "panproto._native"
+features = ["pyo3/extension-module"]
 
 [tool.ruff]
 target-version = "py313"
 line-length = 99
 
 [tool.ruff.lint]
-select = [
-    "E", "F", "W",     # pyflakes + pycodestyle
-    "I",                # isort
-    "N",                # pep8-naming
-    "UP",               # pyupgrade
-    "B",                # bugbear
-    "A",                # builtins
-    "C4",               # comprehensions
-    "SIM",              # simplify
-    "TCH",              # type-checking imports
-    "RUF",              # ruff-specific
-]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "TCH", "RUF"]
 
-[tool.ruff.lint.isort]
-known-first-party = ["panproto"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"

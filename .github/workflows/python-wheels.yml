@@ -39,7 +39,17 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --manifest-path crates/panproto-py/Cargo.toml --out dist
+          # The pyproject.toml lives at `bindings/python/`; it points
+          # at `crates/panproto-py/Cargo.toml` via tool.maturin.manifest-path.
+          # Invoking maturin with --working-directory bindings/python
+          # lets `python-source = "src"` resolve to the adjacent
+          # `bindings/python/src/panproto/` (with __init__.py and
+          # py.typed). The previous setup had pyproject.toml inside
+          # the Rust crate dir with `python-source = "../../sdk/python/src"`,
+          # which maturin silently dropped (the 0.42.0 wheel contained
+          # only `_native.abi3.so`).
+          working-directory: bindings/python
+          args: --release --out dist
           manylinux: manylinux_2_28
           before-script-linux: |
             if command -v yum &>/dev/null; then
@@ -51,7 +61,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: python-wheel-${{ matrix.target }}
-          path: dist/*.whl
+          path: bindings/python/dist/*.whl
 
   publish:
     name: Publish to PyPI
