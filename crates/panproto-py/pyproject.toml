@@ -4,7 +4,13 @@ build-backend = "maturin"
 
 [project]
 name = "panproto"
-version = "0.40.0"
+# Version is intentionally dynamic: maturin reads it from
+# `Cargo.toml`, where `version.workspace = true` keeps panproto-py
+# pinned to the workspace version on every release. The previous
+# literal `version = "0.40.0"` here silently stranded PyPI at 0.40
+# when the workspace bumped to 0.41 (PyPI uses `skip-existing: true`,
+# so the publish step succeeded without uploading anything new).
+dynamic = ["version"]
 description = "Automatic schema migration and version control for 51 schema languages and 248 programming languages"
 readme = "../../sdk/python/README.md"
 license = "MIT"
