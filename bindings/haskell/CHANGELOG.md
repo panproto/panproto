@@ -5,6 +5,15 @@ All notable changes to the panproto Haskell binding (cabal package
 workspace version; a release of `panproto-core` `X.Y.Z` ships with
 `panproto` `X.Y.Z`.
 
+## 0.42.0 — 2026-04-30
+
+No Haskell-side changes; bumped to track the workspace version. The
+0.42.0 panproto release lands the Python `Protocol.from_theories`
+bridge, the `schema theory repl` CLI subcommand with syntax
+highlighting, identifier-stability docs on `panproto_gat::Ident` and
+`panproto_vcs::hash::hash_theory`, and a CI version-consistency
+guard. None of those touch the Haskell binding's API or build.
+
 ## 0.41.0 — 2026-04-29
 
 ### Added

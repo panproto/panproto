@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-04-30
+
 ### Added
 
 - **`Protocol.from_theories(...)` (Python)**: classmethod that constructs a `Protocol` from a user-built `Theory` (or a pair, schema + instance) plus the protocol-level fields. Closes the gap between hand-rolled `Theory` objects (via `create_theory`) and `Repository.add(schema)`. Closes #63.
