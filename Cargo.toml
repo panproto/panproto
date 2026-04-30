@@ -115,6 +115,7 @@ panproto-git = { version = "0.41.0", path = "crates/panproto-git" }
 panproto-llvm = { version = "0.41.0", path = "crates/panproto-llvm", default-features = false }
 panproto-jit = { version = "0.41.0", path = "crates/panproto-jit" }
 panproto-xrpc = { version = "0.41.0", path = "crates/panproto-xrpc" }
+panproto-repl = { version = "0.41.0", path = "crates/panproto-repl" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

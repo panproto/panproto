@@ -1,8 +1,11 @@
 //! Theory DSL CLI commands.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use miette::Result;
+
+use crate::repl::{self, LineResult, ReplConfig};
+use panproto_repl::{Repl, ReplOutcome};
 
 /// Validate a theory document (load + typecheck).
 pub fn cmd_theory_validate(file: &Path, verbose: bool) -> Result<()> {
@@ -399,6 +402,98 @@ fn extract_unbound_variable_name(error: &str) -> Option<String> {
     } else {
         Some(name.to_owned())
     }
+}
+
+/// Theory keyword set used by the REPL highlighter. Tracks the
+/// surface vocabulary the theory DSL parser recognises; not exhaustive
+/// (the DSL lives in Nickel, which has its own grammar) but covers the
+/// tokens a user types most often into the REPL.
+const THEORY_KEYWORDS: &[&str] = &[
+    "theory", "morphism", "extends", "sort", "sorts", "op", "ops", "axiom", "axioms", "rewrite",
+    "rewrites", "class", "instance", "given", "where", "let", "in", "fun", "match", "if", "then",
+    "else", "true", "false", "null",
+];
+
+/// REPL meta-commands recognised by the theory REPL. Used both for
+/// tab completion and for the `:help` listing. Keep in sync with the
+/// dispatch table inside `panproto_repl::Repl::handle_command`.
+const THEORY_COMMANDS: &[&str] = &[
+    "load",
+    "theories",
+    "use",
+    "sorts",
+    "ops",
+    "type",
+    "normalize",
+    "model",
+    "instance",
+    "quit",
+    "q",
+];
+
+/// Interactive theory REPL.
+///
+/// Drives [`panproto_repl::Repl`] under a shared rustyline editor with
+/// syntax highlighting, persistent history, and tab completion of
+/// `:command` names. Equivalent to the deprecated standalone
+/// `panproto-repl` binary; the standalone binary was removed in
+/// 0.41.0 to keep all interactive entry points under `schema`.
+///
+/// # Errors
+///
+/// Surfaces failures from the line editor (initialisation, IO).
+/// Per-line evaluation errors are reported inline and do not abort
+/// the loop.
+pub fn cmd_theory_repl(load: &[PathBuf]) -> Result<()> {
+    let mut engine = Repl::new();
+
+    // Load any startup theory documents before entering the loop, so
+    // the prompt's `active` indicator reflects them on the first
+    // iteration.
+    for path in load {
+        let cmd_line = format!(":load {}", path.display());
+        match engine.handle_line(&cmd_line) {
+            ReplOutcome::Output(msg) if !msg.is_empty() => println!("{msg}"),
+            ReplOutcome::Output(_) => {}
+            ReplOutcome::Error(msg) => eprintln!("{}", repl::error(&msg)),
+            ReplOutcome::Quit => return Ok(()),
+        }
+    }
+
+    let banner = [
+        "panproto theory REPL",
+        "Commands: :load <path> :theories :use <name> :sorts :ops :type <expr>",
+        "          :normalize <expr> :model :instance :q",
+    ];
+
+    // The prompt closure borrows `engine` so it can read `active` on
+    // each iteration. To keep the borrow non-overlapping with
+    // `handle_line` (which takes `&mut self`), we route through a
+    // `RefCell`.
+    let engine = std::cell::RefCell::new(engine);
+    let prompt_engine = &engine;
+    let config = ReplConfig {
+        banner: &banner,
+        keywords: THEORY_KEYWORDS,
+        commands: THEORY_COMMANDS,
+        history_file: repl::history_path("theory_history"),
+        prompt: Box::new(move || {
+            prompt_engine
+                .borrow()
+                .active
+                .clone()
+                .map_or_else(|| "panproto> ".to_owned(), |n| format!("{n}> "))
+        }),
+    };
+
+    let handle_engine = &engine;
+    repl::run_repl(config, |line| {
+        match handle_engine.borrow_mut().handle_line(line) {
+            ReplOutcome::Output(msg) => LineResult::Output(msg),
+            ReplOutcome::Error(msg) => LineResult::Error(msg),
+            ReplOutcome::Quit => LineResult::Quit,
+        }
+    })
 }
 
 #[cfg(test)]

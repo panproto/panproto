@@ -2021,11 +2021,13 @@ dependencies = [
  "panproto-llvm",
  "panproto-parse",
  "panproto-project",
+ "panproto-repl",
  "panproto-theory-dsl",
  "panproto-vcs",
  "panproto-xrpc",
  "predicates",
  "rustc-hash",
+ "rustyline",
  "serde",
  "serde_json",
  "smallvec 2.0.0-alpha.12",
@@ -2383,11 +2385,9 @@ dependencies = [
 name = "panproto-repl"
 version = "0.41.0"
 dependencies = [
- "clap",
  "miette",
  "panproto-gat",
  "panproto-theory-dsl",
- "rustyline",
 ]
 
 [[package]]

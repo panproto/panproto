@@ -14,6 +14,7 @@
 
 mod cmd;
 mod format;
+mod repl;
 
 use std::path::PathBuf;
 
@@ -901,6 +902,13 @@ enum TheoryAction {
         #[arg(long, default_value = "x")]
         var_name: String,
     },
+    /// Interactive theory REPL with syntax highlighting and history.
+    Repl {
+        /// Theory documents to load on startup. Same shape accepted
+        /// by `:load` inside the REPL.
+        #[arg(long = "load", value_name = "PATH")]
+        load: Vec<PathBuf>,
+    },
 }
 
 /// Lens sub-operations.
@@ -1545,6 +1553,7 @@ fn dispatch_theory_commands(action: TheoryAction, verbose: bool) -> Result<()> {
             json,
             var_name,
         } => cmd::theory::cmd_theory_check_coercion_laws(&file, json, verbose, &var_name),
+        TheoryAction::Repl { load } => cmd::theory::cmd_theory_repl(&load),
     }
 }
 

@@ -1,8 +1,9 @@
-use std::io::{self, BufRead, Write as _};
 use std::path::Path;
 
-use miette::{Context, IntoDiagnostic, Result};
+use miette::{Context, IntoDiagnostic as _, Result};
 use panproto_core::gat::{self, Term};
+
+use crate::repl::{self, LineResult, ReplConfig};
 
 use super::helpers::load_json;
 
@@ -159,90 +160,97 @@ pub fn cmd_expr_gat_check(file: &Path, verbose: bool) -> Result<()> {
     }
 }
 
+/// Expression keyword set used by the REPL highlighter. Tracks the
+/// surface vocabulary the expression-language parser recognises.
+const EXPR_KEYWORDS: &[&str] = &[
+    "lambda", "fun", "let", "in", "if", "then", "else", "match", "case", "of", "true", "false",
+    "null",
+];
+
+/// REPL meta-commands recognised by the expression REPL.
+const EXPR_COMMANDS: &[&str] = &["let", "env", "quit", "q"];
+
 /// Interactive expression REPL.
 ///
-/// Reads GAT terms from stdin (one per line, JSON-encoded), evaluates them,
-/// and prints results. Type `:q` or `Ctrl-D` to exit.
+/// Reads GAT terms (one per line, JSON-encoded), evaluates them, and
+/// prints results. Type `:q` or `Ctrl-D` to exit. Uses the shared
+/// rustyline driver from `crate::repl` for syntax highlighting,
+/// persistent history, and tab completion of meta-command names.
 pub fn cmd_expr_repl() -> Result<()> {
-    println!("panproto expression REPL");
-    println!("Enter JSON-encoded GAT terms. Type :q to exit.\n");
+    let banner = [
+        "panproto expression REPL",
+        "Enter JSON-encoded GAT terms. :let <name>=<json> to bind, :env to inspect, :q to quit.",
+    ];
 
-    let stdin = io::stdin();
-    let mut env: Vec<(String, gat::ModelValue)> = Vec::new();
+    let env: std::cell::RefCell<Vec<(String, gat::ModelValue)>> =
+        std::cell::RefCell::new(Vec::new());
 
-    loop {
-        print!("expr> ");
-        io::stdout().flush().into_diagnostic()?;
+    let config = ReplConfig {
+        banner: &banner,
+        keywords: EXPR_KEYWORDS,
+        commands: EXPR_COMMANDS,
+        history_file: repl::history_path("expr_history"),
+        prompt: Box::new(|| "expr> ".to_owned()),
+    };
 
-        let mut line = String::new();
-        let bytes_read = stdin.lock().read_line(&mut line).into_diagnostic()?;
-        if bytes_read == 0 {
-            // EOF
-            println!();
-            break;
-        }
-
+    repl::run_repl(config, |line| {
         let trimmed = line.trim();
         if trimmed.is_empty() {
-            continue;
+            return LineResult::Output(String::new());
         }
         if trimmed == ":q" || trimmed == ":quit" {
-            break;
+            return LineResult::Quit;
         }
 
-        // Handle `:let x = <value>` for binding variables.
+        // `:let name = <json>` binds a variable.
         if let Some(rest) = trimmed.strip_prefix(":let ") {
-            if let Some((name, value_str)) = rest.split_once('=') {
-                let name = name.trim().to_string();
-                let value_str = value_str.trim();
-                match serde_json::from_str::<gat::ModelValue>(value_str) {
-                    Ok(value) => {
-                        // Remove any existing binding with same name.
-                        env.retain(|(k, _)| k != &name);
-                        println!("  {name} = {value:?}");
-                        env.push((name, value));
-                    }
-                    Err(e) => {
-                        println!("  parse error: {e}");
-                    }
+            let Some((name, value_str)) = rest.split_once('=') else {
+                return LineResult::Error("usage: :let <name> = <json-value>".to_owned());
+            };
+            let name = name.trim().to_owned();
+            let value_str = value_str.trim();
+            match serde_json::from_str::<gat::ModelValue>(value_str) {
+                Ok(value) => {
+                    let mut env_mut = env.borrow_mut();
+                    env_mut.retain(|(k, _)| k != &name);
+                    let line = format!("  {name} = {value:?}");
+                    env_mut.push((name, value));
+                    return LineResult::Output(line);
                 }
-                continue;
+                Err(e) => return LineResult::Error(format!("parse error: {e}")),
             }
-            println!("  usage: :let <name> = <json-value>");
-            continue;
         }
 
-        // Handle `:env` to show current environment.
+        // `:env` lists all bindings.
         if trimmed == ":env" {
-            if env.is_empty() {
-                println!("  (empty)");
-            } else {
-                for (k, v) in &env {
-                    println!("  {k} = {v:?}");
-                }
+            let env_ref = env.borrow();
+            if env_ref.is_empty() {
+                return LineResult::Output("  (empty)".to_owned());
             }
-            continue;
+            let mut buf = String::new();
+            for (k, v) in env_ref.iter() {
+                use std::fmt::Write as _;
+                let _ = writeln!(buf, "  {k} = {v:?}");
+            }
+            return LineResult::Output(buf.trim_end().to_owned());
         }
 
-        // Try parsing as a Term and evaluate.
+        // Otherwise, parse as a Term and evaluate.
         match serde_json::from_str::<Term>(trimmed) {
-            Ok(term) => match eval_term(&term, &env) {
-                Ok(result) => {
-                    let json = serde_json::to_string_pretty(&result)
-                        .unwrap_or_else(|_| format!("{result:?}"));
-                    println!("  {json}");
+            Ok(term) => {
+                let env_ref = env.borrow();
+                match eval_term(&term, &env_ref) {
+                    Ok(result) => {
+                        let json = serde_json::to_string_pretty(&result)
+                            .unwrap_or_else(|_| format!("{result:?}"));
+                        LineResult::Output(format!("  {json}"))
+                    }
+                    Err(e) => LineResult::Error(format!("error: {e}")),
                 }
-                Err(e) => {
-                    println!("  error: {e}");
-                }
-            },
-            Err(e) => {
-                println!("  parse error: {e}");
             }
+            Err(e) => LineResult::Error(format!("parse error: {e}")),
         }
-    }
-
-    Ok(())
+    })
 }
 
 /// Evaluate a term with a variable environment.
