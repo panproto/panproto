@@ -149,6 +149,10 @@ jobs:
           # Level 12 — depend on core (wasm, cli) and on git/xrpc/vcs
           # (git-remote)
           publish_one panproto-wasm
+          # panproto-cli depends on panproto-repl (the `schema theory
+          # repl` subcommand drives the panproto-repl library). Publish
+          # the dependency first or cargo refuses with "failed to
+          # select a version for the requirement panproto-repl".
+          publish_one panproto-repl
           publish_one panproto-cli
           publish_one panproto-git-remote
-          publish_one panproto-repl
