@@ -302,7 +302,7 @@ impl PyProtocol {
         clippy::too_many_arguments,
         clippy::fn_params_excessive_bools,
         clippy::needless_pass_by_value,
-        clippy::doc_markdown,
+        clippy::doc_markdown
     )]
     #[classmethod]
     #[pyo3(signature = (
