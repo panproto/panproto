@@ -30,11 +30,33 @@ static SCOPE_COUNTER: AtomicU32 = AtomicU32::new(1);
 /// at construction time. Two sorts named `"Vertex"` in different
 /// theories have different scope tags, so their [`Ident`]s compare
 /// as unequal even though their display names match.
+///
+/// # Stability
+///
+/// `ScopeTag` values produced by [`ScopeTag::fresh`] are
+/// **process-local**: the underlying counter is reset on every
+/// process start, so the same code running twice produces different
+/// tags. A `ScopeTag` is meaningful only within the lifetime of the
+/// process that allocated it (or a process that deserialised it from
+/// a stored representation).
+///
+/// For cross-process stable identity, use the content-addressed
+/// hashes in `panproto_vcs::hash` (e.g. `hash_theory`, `hash_schema`)
+/// instead. Those compute a blake3 hash over the canonical msgpack
+/// serialisation, which uses the display [`Ident::name`] (not the
+/// `ScopeTag`) as the keying material.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ScopeTag(u32);
 
 impl ScopeTag {
-    /// Generate a fresh scope tag (monotonically increasing).
+    /// Generate a fresh scope tag.
+    ///
+    /// Tags are monotonically increasing within one process and reset
+    /// on each process start. Two `fresh()` calls in the same process
+    /// always produce distinct tags; two `fresh()` calls in separate
+    /// processes may produce the same tag (which is why this value is
+    /// not a cross-process identity — see the type-level documentation
+    /// on [`ScopeTag`]).
     #[must_use]
     pub fn fresh() -> Self {
         Self(SCOPE_COUNTER.fetch_add(1, Ordering::Relaxed))
@@ -67,6 +89,41 @@ impl ScopeTag {
 /// This design follows `GATlab` (Lynch et al., 2024) where identifiers
 /// consist of a scope tag (UUID in `GATlab`, monotonic u32 here), a
 /// positional index, and a display name.
+///
+/// # Hash stability and identity scope
+///
+/// The [`std::hash::Hash`] impl uses `(scope, index)`, **not** the
+/// display name. Two consequences:
+///
+/// 1. Two identifiers with the same display name but different scopes
+///    hash to different values (intentional: this is what makes
+///    identifier comparison rename-stable).
+/// 2. The [`std::hash::Hash`] output is **process-local**, because
+///    [`ScopeTag::fresh`] resets on every process start. Two runs of
+///    the same code that build "the same" identifier produce
+///    different hashes; types whose `Hash` impl includes an `Ident`
+///    inherit this property. `HashMap<Ident, _>` keys are meaningful
+///    only within the lifetime of one process.
+///
+/// For cross-process or cross-version stable fingerprints, use the
+/// content-addressed helpers in `panproto_vcs::hash` (e.g.
+/// `hash_theory`, `hash_schema`). Those serialise to canonical msgpack
+/// (using the display `name` as the keying material, not the scope
+/// tag) and run blake3 over the bytes; the result is stable for a
+/// fixed serde shape and so survives process boundaries.
+///
+/// # Serialisation
+///
+/// `Ident` derives `Serialize` and `Deserialize`. Round-tripping an
+/// `Ident` through a serde format **preserves the original
+/// `ScopeTag`**. This means a deserialised `Ident` retains its
+/// originating process's scope, while any newly-allocated `Ident` in
+/// the deserialising process gets a fresh `ScopeTag`. Mixing
+/// fresh-and-deserialised identifiers in one keyspace produces tag
+/// fragmentation, so callers that load identifiers from disk should
+/// either: (a) treat them as opaque (compare by name + context); or
+/// (b) re-canonicalise them through the schema-construction APIs,
+/// which assign new scope tags consistent with the loading process.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Ident {
     /// The scope this identifier belongs to.

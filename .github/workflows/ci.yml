@@ -10,6 +10,21 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  versions:
+    name: Version Consistency
+    runs-on: ubuntu-latest
+    # Fast-fail guard: assert every version-declaring file in the
+    # workspace pins the same version as `Cargo.toml`'s
+    # `[workspace.package]`. Catches the silent-PyPI-stranding shape
+    # of bug where a literal version field rots independently of the
+    # workspace bump and `skip-existing: true` masks the failure.
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: python3 .github/scripts/check_version_consistency.py --verbose
+
   fmt:
     name: Formatting
     runs-on: ubuntu-latest

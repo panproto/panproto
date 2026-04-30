@@ -151,3 +151,4 @@ jobs:
           publish_one panproto-wasm
           publish_one panproto-cli
           publish_one panproto-git-remote
+          publish_one panproto-repl

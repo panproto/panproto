@@ -446,9 +446,31 @@ pub fn hash_protocol(protocol: &panproto_schema::Protocol) -> Result<ObjectId, V
 
 /// Compute the content-addressed ID of a GAT theory.
 ///
-/// Theory's custom `Serialize` implementation only emits Vec-based fields
-/// (sorts, ops, eqs, `directed_eqs`, policies) and scalar fields (name, extends),
-/// all of which have deterministic ordering. Direct serialization is safe.
+/// Theory's custom `Serialize` implementation only emits `Vec`-based
+/// fields (sorts, ops, eqs, `directed_eqs`, policies) and scalar
+/// fields (name, extends), all of which have deterministic ordering.
+/// Direct serialisation is safe.
+///
+/// # Stability
+///
+/// Unlike [`panproto_gat::Ident`]'s [`std::hash::Hash`] impl, this
+/// function is the **canonical cross-process and durable-storage
+/// fingerprint** for a `Theory`:
+///
+/// - Within one panproto release, `hash_theory(t) == hash_theory(t')`
+///   iff `t` and `t'` serialise to byte-identical msgpack.
+/// - The serialise-via-display-name design means scope-tag rotation
+///   between processes does not change the hash.
+/// - The hash is intended to be stable across patch versions; minor
+///   versions may change the serde shape (and so the hash) when a
+///   field is added, removed, or reordered. Code that stores hashes
+///   on disk should re-hash on every panproto upgrade rather than
+///   treating them as forever-stable.
+/// - `1.0` will commit to a stable serde shape; until then, treat
+///   the hash as best-effort across minor-version boundaries.
+///
+/// For an identity scoped to one process lifetime, use
+/// [`panproto_gat::Ident`]'s `(scope, index)` pair directly.
 ///
 /// # Errors
 ///

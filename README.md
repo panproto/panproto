@@ -214,6 +214,7 @@ schema expr repl
 | [`panproto-xrpc`](crates/panproto-xrpc) | XRPC client for pushing/pulling schemas to panproto node servers. |
 | [`panproto-cli`](crates/panproto-cli) | The `schema` command-line tool. |
 | [`panproto-git-remote`](crates/panproto-git-remote) | Git remote helper (`git-remote-panproto` binary) that makes `git push panproto://` work. |
+| [`panproto-repl`](crates/panproto-repl) | Interactive REPL for panproto theories, terms, and morphisms. Also reachable as `schema theory repl`. |
 
 ## How it works
 
