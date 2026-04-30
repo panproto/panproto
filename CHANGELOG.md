@@ -4,6 +4,26 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`Protocol.from_theories(...)` (Python)**: classmethod that constructs a `Protocol` from a user-built `Theory` (or a pair, schema + instance) plus the protocol-level fields. Closes the gap between hand-rolled `Theory` objects (via `create_theory`) and `Repository.add(schema)`. Closes #63.
+- **`schema theory repl` (CLI)**: interactive theory REPL with rustyline-driven syntax highlighting, persistent history under `$XDG_DATA_HOME/panproto/`, and tab completion of `:command` names. Replaces the standalone `panproto-repl` binary, which is removed; the REPL engine remains as the `panproto-repl` library crate.
+- **`schema expr repl` (CLI)**: refactored to use the same shared rustyline driver as the theory REPL, so the expression REPL also gets highlighting, persistent history, and tab completion.
+
+### Changed
+
+- **`Ident::std::hash::Hash` documentation**: `panproto_gat::Ident`, `panproto_gat::ScopeTag`, and `panproto_vcs::hash::hash_theory` now document their stability semantics prominently. `Ident`'s std-Hash is process-local (the `ScopeTag` counter resets on every process start); for cross-process and durable-storage fingerprints, callers should use the content-addressed helpers in `panproto_vcs::hash`. The fingerprint stability guarantees of `hash_theory` are committed to within a panproto patch version, best-effort across minor versions, and will be locked in at 1.0. Closes #61.
+- **`panproto-py` Python `__version__`**: read from `importlib.metadata.version("panproto")` so it stays in sync with the workspace version on every release. Previously hardcoded as `"0.14.0"` (six minor versions stale). The fallback `"0.0.0+unknown"` fires only when the distribution metadata is unreachable (running directly from a source checkout). Closes #62.
+
+### Fixed
+
+- **`crates/panproto-py/pyproject.toml`** is now `dynamic = ["version"]` so maturin reads the version from `Cargo.toml` (which uses `version.workspace = true`). The previous literal `version = "0.40.0"` silently stranded PyPI at 0.40.0 when the workspace bumped to 0.41.0: `python-wheels.yml` built `panproto-0.40.0-*.whl` files, and PyPI's `skip-existing: true` no-op'd the upload.
+- **CI version-consistency guard** (`.github/scripts/check_version_consistency.py`): a new fast-fail CI job asserts every version-declaring file in the workspace agrees with `[workspace.package].version`. Catches the silent-PyPI-stranding shape of bug before tag.
+
+### Removed
+
+- **`panproto-repl` standalone binary**: the `[[bin]]` section was removed from `crates/panproto-repl/Cargo.toml`. The `panproto-repl` library remains. Use `schema theory repl` instead.
+
 ## [0.41.0] - 2026-04-29
 
 ### Added

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use pyo3::prelude::*;
+use pyo3::types::PyType;
 
 use panproto_core::schema::{
     self, Constraint, Edge, HyperEdge, Protocol, Schema, SchemaBuilder, Vertex,
@@ -14,6 +15,24 @@ use panproto_core::schema::{
 
 use crate::convert;
 use crate::error::MapPyErr;
+use crate::gat::PyTheory;
+
+/// Resolve a theory reference to its name string.
+///
+/// Accepts either a Python ``Theory`` object (in which case its
+/// ``name`` attribute is read) or a ``str`` (which is taken verbatim).
+/// Anything else raises ``TypeError``.
+fn extract_theory_name(value: &Bound<'_, PyAny>) -> PyResult<String> {
+    if let Ok(theory) = value.extract::<PyRef<'_, PyTheory>>() {
+        return Ok(theory.inner.name.to_string());
+    }
+    if let Ok(name) = value.extract::<String>() {
+        return Ok(name);
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "expected a Theory object or a string theory name",
+    ))
+}
 
 // ---------------------------------------------------------------------------
 // PyVertex
@@ -234,6 +253,124 @@ pub struct PyProtocol {
 
 #[pymethods]
 impl PyProtocol {
+    /// Construct a Protocol from a user-built ``Theory`` (or pair of
+    /// theories) plus the protocol-level fields.
+    ///
+    /// This is the bridge from a hand-rolled ``Theory`` (built via
+    /// :func:`create_theory`) to a ``Protocol`` that can drive
+    /// ``Protocol.schema()`` and ``Repository.add()``. The previous
+    /// surface only exposed builtin protocols (``get_builtin_protocol``)
+    /// and dict-shaped definitions (``define_protocol``); for arbitrary
+    /// user theories there was no documented bridge.
+    ///
+    /// Parameters
+    /// ----------
+    /// name : str
+    ///     Human-readable protocol name (e.g., ``"my_proto"``).
+    /// schema_theory : Theory or str
+    ///     The schema-level theory. A ``Theory`` object's ``name`` is
+    ///     used; a ``str`` is treated as the theory name verbatim.
+    /// instance_theory : Theory or str, optional
+    ///     The instance-level theory. Defaults to ``schema_theory``.
+    /// obj_kinds : list[str], optional
+    ///     Vertex kinds that are considered "object-like" containers.
+    /// edge_rules : list[dict], optional
+    ///     Well-formedness rules for edges. Each rule is a dict with
+    ///     keys recognised by ``define_protocol``.
+    /// constraint_sorts : list[str], optional
+    ///     Recognised constraint sorts (e.g. ``"maxLength"``).
+    /// has_order, has_coproducts, has_recursion, has_causal,
+    /// nominal_identity, has_defaults, has_coercions, has_mergers,
+    /// has_policies : bool, optional
+    ///     Structural and enrichment feature flags. All default to
+    ///     ``False``.
+    ///
+    /// Returns
+    /// -------
+    /// Protocol
+    ///     A new Protocol referencing the given theories.
+    ///
+    /// Notes
+    /// -----
+    /// The resulting Protocol stores the theory *names*, not the
+    /// theory objects themselves. Callers responsible for GAT-level
+    /// validation must register the theories under those names in
+    /// their own theory registry; protocol-level validation
+    /// (``Schema.validate(protocol)``) only consults the protocol's
+    /// own fields and works regardless of registry state.
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::fn_params_excessive_bools,
+        clippy::needless_pass_by_value,
+        clippy::doc_markdown,
+    )]
+    #[classmethod]
+    #[pyo3(signature = (
+        name,
+        schema_theory,
+        instance_theory = None,
+        obj_kinds = None,
+        edge_rules = None,
+        constraint_sorts = None,
+        has_order = false,
+        has_coproducts = false,
+        has_recursion = false,
+        has_causal = false,
+        nominal_identity = false,
+        has_defaults = false,
+        has_coercions = false,
+        has_mergers = false,
+        has_policies = false,
+    ))]
+    fn from_theories(
+        _cls: &Bound<'_, PyType>,
+        name: String,
+        schema_theory: Bound<'_, PyAny>,
+        instance_theory: Option<Bound<'_, PyAny>>,
+        obj_kinds: Option<Vec<String>>,
+        edge_rules: Option<Bound<'_, PyAny>>,
+        constraint_sorts: Option<Vec<String>>,
+        has_order: bool,
+        has_coproducts: bool,
+        has_recursion: bool,
+        has_causal: bool,
+        nominal_identity: bool,
+        has_defaults: bool,
+        has_coercions: bool,
+        has_mergers: bool,
+        has_policies: bool,
+    ) -> PyResult<Self> {
+        let schema_theory_name = extract_theory_name(&schema_theory)?;
+        let instance_theory_name = match instance_theory {
+            Some(t) => extract_theory_name(&t)?,
+            None => schema_theory_name.clone(),
+        };
+        let edge_rules_vec = match edge_rules {
+            Some(rules) => convert::from_python(&rules)?,
+            None => Vec::new(),
+        };
+        let inner = Protocol {
+            name,
+            schema_theory: schema_theory_name,
+            instance_theory: instance_theory_name,
+            schema_composition: None,
+            instance_composition: None,
+            edge_rules: edge_rules_vec,
+            obj_kinds: obj_kinds.unwrap_or_default(),
+            constraint_sorts: constraint_sorts.unwrap_or_default(),
+            has_order,
+            has_coproducts,
+            has_recursion,
+            has_causal,
+            nominal_identity,
+            has_defaults,
+            has_coercions,
+            has_mergers,
+            has_policies,
+        };
+        Ok(Self { inner })
+    }
+
     /// Human-readable protocol name (e.g., ``"atproto"``, ``"brat"``).
     #[getter]
     fn name(&self) -> &str {

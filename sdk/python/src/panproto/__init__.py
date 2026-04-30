@@ -75,10 +75,28 @@ from panproto._native import (
     parse_source_file,
 )
 
-# Deprecated alias
+# Deprecated alias kept for callers that wrote against the WASM SDK
+# before the native pyo3 wheel replaced it. New code should import
+# `PanprotoError` directly.
 WasmError = PanprotoError
 
-__version__ = "0.14.0"
+# Read the version from package metadata at import time. This stays in
+# sync with `crates/panproto-py/Cargo.toml`'s workspace version on every
+# release without a manual edit. Falls back to "0.0.0+unknown" when the
+# package metadata is unreachable (e.g. running from a source checkout
+# without an installed distribution), so `panproto.__version__` is
+# always defined.
+try:
+    from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+    try:
+        __version__ = _pkg_version("panproto")
+    except PackageNotFoundError:
+        __version__ = "0.0.0+unknown"
+    finally:
+        del _pkg_version, PackageNotFoundError
+except ImportError:  # pragma: no cover  # Python < 3.8 (unsupported)
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     # Errors
