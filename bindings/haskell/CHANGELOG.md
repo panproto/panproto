@@ -5,6 +5,13 @@ All notable changes to the panproto Haskell binding (cabal package
 workspace version; a release of `panproto-core` `X.Y.Z` ships with
 `panproto` `X.Y.Z`.
 
+## 0.42.1 — 2026-04-30
+
+No Haskell-side changes; bumped to track the workspace version. The
+0.42.1 release moves `sdk/{python,typescript}` to
+`bindings/{python,typescript}` (alongside `bindings/haskell/`) and
+homogenises the README structure across all three bindings.
+
 ## 0.42.0 — 2026-04-30
 
 No Haskell-side changes; bumped to track the workspace version. The

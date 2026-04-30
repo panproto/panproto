@@ -4,6 +4,17 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-04-30
+
+### Changed
+
+- **Repository layout**: `sdk/python/` and `sdk/typescript/` moved to `bindings/python/` and `bindings/typescript/` to sit alongside `bindings/haskell/`. All language-side wrappers around the Rust core now live under one parent directory; the Rust crates that produce binding artifacts (`crates/panproto-py`, `crates/panproto-wasm`, `crates/panproto-c`) stay in `crates/`. Published packages are unchanged: `panproto` on PyPI, `@panproto/core` on npm, `panproto` on Hackage all continue to point at the same artefacts.
+- **Binding READMEs homogenised**: every binding's README now follows the same section sequence (title + badges, lead, Status, Installation, Synopsis, API overview / Modules, Distribution, Performance notes, Contributing, License). Binding-specific content preserved; structural parallelism added.
+
+### Fixed
+
+- **Path references** under `crates/panproto-py/`, `crates/panproto-lens/`, `bindings/typescript/package.json` (`repository.directory`), `.github/workflows/{ci,publish-npm}.yml`, `.github/dependabot.yml`, `.github/scripts/check_version_consistency.py`, `.github/pull_request_template.md`, `README.md`, `book/src/`, and the `release` and `breaking-change` skills updated to use `bindings/...` paths.
+
 ## [0.42.0] - 2026-04-30
 
 ### Added
