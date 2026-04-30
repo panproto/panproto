@@ -211,3 +211,119 @@ pub fn history_path(name: &str) -> Option<PathBuf> {
     let _ = std::fs::create_dir_all(&dir);
     Some(dir.join(name))
 }
+
+#[cfg(test)]
+// Tests deliberately panic on Result/Option failure (the panic IS the
+// test failure signal). Allow the corresponding clippy lints in this
+// module only.
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use rustyline::completion::Completer;
+
+    const fn helper(commands: &'static [&'static str]) -> ReplHelper {
+        ReplHelper::new(&[], commands)
+    }
+
+    /// rustyline's `Context` requires a `History` reference; this is
+    /// the cheapest way to construct an empty one for completion tests.
+    fn empty_history() -> DefaultHistory {
+        DefaultHistory::new()
+    }
+
+    #[test]
+    fn completer_offers_all_commands_for_bare_colon() {
+        let h = helper(&["load", "list", "quit"]);
+        let hist = empty_history();
+        let ctx = rustyline::Context::new(&hist);
+        let (start, hits) = h.complete(":", 1, &ctx).expect("complete");
+        assert_eq!(start, 0);
+        let names: Vec<&str> = hits.iter().map(|p| p.replacement.as_str()).collect();
+        assert_eq!(names, vec![":list", ":load", ":quit"]);
+    }
+
+    #[test]
+    fn completer_filters_by_stem() {
+        let h = helper(&["load", "list", "quit"]);
+        let hist = empty_history();
+        let ctx = rustyline::Context::new(&hist);
+        let (_, hits) = h.complete(":l", 2, &ctx).expect("complete");
+        let names: Vec<&str> = hits.iter().map(|p| p.replacement.as_str()).collect();
+        // Both `load` and `list` start with `l`; sort alphabetical.
+        assert_eq!(names, vec![":list", ":load"]);
+    }
+
+    #[test]
+    fn completer_returns_none_for_non_command_lines() {
+        let h = helper(&["load"]);
+        let hist = empty_history();
+        let ctx = rustyline::Context::new(&hist);
+        let (_, hits) = h.complete("foo", 3, &ctx).expect("complete");
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn completer_returns_none_after_first_word() {
+        // Cursor is past the first whitespace-bounded word, so we
+        // are completing an argument rather than the command name.
+        // (We don't currently complete arguments; correct behaviour
+        // is to offer nothing rather than re-suggesting commands.)
+        let h = helper(&["load"]);
+        let hist = empty_history();
+        let ctx = rustyline::Context::new(&hist);
+        let (_, hits) = h.complete(":load fi", 8, &ctx).expect("complete");
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn completer_handles_empty_command_list() {
+        let h = helper(&[]);
+        let hist = empty_history();
+        let ctx = rustyline::Context::new(&hist);
+        let (_, hits) = h.complete(":anything", 9, &ctx).expect("complete");
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn highlighter_round_trips_through_helper() {
+        // Smoke test: the `Highlighter::highlight` impl on `ReplHelper`
+        // must reach the underlying tokenizer with the helper's
+        // keyword list.
+        let h = ReplHelper::new(&["theory", "morphism"], &[]);
+        let out = h.highlight("theory T", 0);
+        assert!(out.contains("theory"));
+    }
+
+    #[test]
+    fn helper_prompt_is_coloured() {
+        let h = helper(&[]);
+        let out = h.highlight_prompt("ts> ", true);
+        assert!(out.contains("ts> "));
+        // Prompt colour is applied unconditionally.
+        assert_ne!(out, "ts> ");
+    }
+
+    #[test]
+    fn helper_highlight_char_signals_redraw() {
+        let h = helper(&[]);
+        // We always force a re-render; the optimisation lives inside
+        // `highlight_line`, which short-circuits boring lines.
+        assert!(h.highlight_char("foo", 1, false));
+    }
+
+    #[test]
+    fn history_path_returns_a_panproto_subdir() {
+        // We can't strongly assert the exact location (it depends on
+        // host env vars), but on any host we expect either a path
+        // ending in `panproto/<name>` or a `None` if no env var set.
+        if let Some(p) = history_path("test_history") {
+            assert!(p.ends_with("test_history"));
+            let parent = p.parent().expect("path has parent");
+            assert_eq!(
+                parent.file_name().and_then(|s| s.to_str()),
+                Some("panproto")
+            );
+        }
+        // None is acceptable: no XDG_DATA_HOME / HOME / LOCALAPPDATA.
+    }
+}
