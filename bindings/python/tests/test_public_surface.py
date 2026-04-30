@@ -6,7 +6,7 @@ A downstream user (didactic) reported that on the 0.40.0 PyPI wheel,
 `panproto._native.X`. The leading underscore signalled a private API,
 which contradicted the fact that those symbols *were* the public API.
 
-The fix landed in `sdk/python/src/panproto/__init__.py`: it re-exports
+The fix landed in `bindings/python/src/panproto/__init__.py`: it re-exports
 the public symbols and reads `__version__` from package metadata. These
 tests exist so a future packaging regression (e.g. a maturin config
 change that drops the pure-Python source from the wheel) fails CI

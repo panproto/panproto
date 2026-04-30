@@ -55,8 +55,8 @@ cargo install panproto-cli
 
 | Package | Install |
 |---------|---------|
-| [`@panproto/core`](sdk/typescript) | `npm install @panproto/core` |
-| [`panproto`](sdk/python) | `pip install panproto` |
+| [`@panproto/core`](bindings/typescript) | `npm install @panproto/core` |
+| [`panproto`](bindings/python) | `pip install panproto` |
 | [`panproto`](bindings/haskell) (Haskell binding) | clone the repo, then `cd bindings/haskell && ./bootstrap/fetch-bindist.sh && cabal build` (Hackage publish pending) |
 
 ## Quick start
@@ -243,7 +243,7 @@ cargo nextest run --workspace
 wasm-pack build crates/panproto-wasm --target web
 
 # TypeScript SDK
-cd sdk/typescript && pnpm install && pnpm build
+cd bindings/typescript && pnpm install && pnpm build
 
 # Python SDK (native PyO3 bindings)
 maturin develop --manifest-path crates/panproto-py/Cargo.toml

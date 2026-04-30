@@ -3,7 +3,7 @@
 //! Native Python bindings for panproto via `PyO3`.
 //!
 //! This crate compiles to a `cdylib` that maturin packages as
-//! `panproto._native`. The pure-Python layer in `sdk/python/src/panproto/`
+//! `panproto._native`. The pure-Python layer in `bindings/python/src/panproto/`
 //! re-exports these types under the `panproto` namespace.
 //!
 //! ## Architecture

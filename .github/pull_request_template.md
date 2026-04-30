@@ -33,8 +33,8 @@ any that don't apply. The reviewer's checklist is at the bottom.
 
 - [ ] Rust crates (`crates/`) — list which:
 - [ ] WASM boundary (`crates/panproto-wasm`)
-- [ ] TypeScript SDK (`sdk/typescript`, `@panproto/core`)
-- [ ] Python SDK (`sdk/python`, `crates/panproto-py`)
+- [ ] TypeScript SDK (`bindings/typescript`, `@panproto/core`)
+- [ ] Python SDK (`bindings/python`, `crates/panproto-py`)
 - [ ] CLI (`crates/panproto-cli`)
 - [ ] Book (`book/src/`)
 - [ ] CI workflows (`.github/workflows/`)
@@ -70,8 +70,8 @@ any that don't apply. The reviewer's checklist is at the bottom.
 - [ ] `cargo nextest run --workspace`
 - [ ] `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`
 - [ ] `wasm-pack build crates/panproto-wasm --target web --dev` (if WASM affected)
-- [ ] `cd sdk/typescript && pnpm install && pnpm test && pnpm exec tsc --noEmit` (if TS SDK affected)
-- [ ] `cd sdk/python && uv run pytest tests/ -x` (if Python SDK affected)
+- [ ] `cd bindings/typescript && pnpm install && pnpm test && pnpm exec tsc --noEmit` (if TS SDK affected)
+- [ ] `cd bindings/python && uv run pytest tests/ -x` (if Python SDK affected)
 - [ ] Manual: <!-- describe any manual verification, e.g. "ran panproto schema parse on a 5kLOC Rust crate" -->
 
 ## Documentation

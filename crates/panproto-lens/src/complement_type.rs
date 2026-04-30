@@ -357,7 +357,7 @@ mod tests {
     }
 
     /// Pin the JSON wire format. The TypeScript SDK declares this
-    /// shape in `sdk/typescript/src/protolens.ts` (`ComplementSpec`,
+    /// shape in `bindings/typescript/src/protolens.ts` (`ComplementSpec`,
     /// `ComplementKind`, `DefaultRequirement`, `CapturedField`): enum
     /// variants in `snake_case` (`"empty" | "data_captured" |
     /// "defaults_required" | "mixed"`), struct fields in `camelCase`

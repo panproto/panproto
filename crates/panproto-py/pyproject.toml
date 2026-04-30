@@ -12,7 +12,7 @@ name = "panproto"
 # so the publish step succeeded without uploading anything new).
 dynamic = ["version"]
 description = "Automatic schema migration and version control for 51 schema languages and 248 programming languages"
-readme = "../../sdk/python/README.md"
+readme = "../../bindings/python/README.md"
 license = "MIT"
 requires-python = ">=3.13"
 authors = [
@@ -39,7 +39,7 @@ dev = [
 ]
 
 [tool.maturin]
-python-source = "../../sdk/python/src"
+python-source = "../../bindings/python/src"
 module-name = "panproto._native"
 features = ["pyo3/extension-module"]
 

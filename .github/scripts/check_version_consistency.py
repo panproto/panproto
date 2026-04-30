@@ -16,7 +16,7 @@ Files inspected:
 - Every `crates/*/Cargo.toml` and `tests/*/Cargo.toml` that declares
   a literal `version = "..."` (rather than `version.workspace = true`)
   must match.
-- `sdk/python/pyproject.toml`, `sdk/typescript/package.json`, and
+- `bindings/python/pyproject.toml`, `bindings/typescript/package.json`, and
   `bindings/haskell/panproto.cabal` must match.
 - `crates/panproto-py/pyproject.toml` must declare `dynamic = ["version"]`
   (the maturin version comes from `Cargo.toml`).
@@ -251,12 +251,12 @@ def main() -> int:
     )
     mismatches.extend(
         check_pyproject(
-            ROOT / "sdk/python/pyproject.toml",
+            ROOT / "bindings/python/pyproject.toml",
             expected,
             allow_dynamic=False,
         )
     )
-    mismatches.extend(check_package_json(ROOT / "sdk/typescript/package.json", expected))
+    mismatches.extend(check_package_json(ROOT / "bindings/typescript/package.json", expected))
     mismatches.extend(check_cabal(ROOT / "bindings/haskell/panproto.cabal", expected))
 
     if mismatches:

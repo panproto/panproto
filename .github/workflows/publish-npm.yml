@@ -36,7 +36,7 @@ jobs:
         # `workflow_dispatch` we trust the package version as-is — the
         # dispatch is intended for re-running a partially-failed
         # publish at the existing version.
-        working-directory: sdk/typescript
+        working-directory: bindings/typescript
         run: |
           set -euo pipefail
           pkg_version=$(node -p "require('./package.json').version")
@@ -75,7 +75,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
-        working-directory: sdk/typescript
+        working-directory: bindings/typescript
         run: pnpm install --frozen-lockfile
 
       - name: Build (WASM + TS)
@@ -85,15 +85,15 @@ jobs:
         # ("main", "module", "types", "exports", "files") references
         # dist/. Without this step Test fails with
         # "Cannot find module @panproto/core".
-        working-directory: sdk/typescript
+        working-directory: bindings/typescript
         run: pnpm run build
 
       - name: Type-check
-        working-directory: sdk/typescript
+        working-directory: bindings/typescript
         run: pnpm exec tsc --noEmit
 
       - name: Test
-        working-directory: sdk/typescript
+        working-directory: bindings/typescript
         run: pnpm test
 
       - name: Fetch a recent npm into a private directory
@@ -108,7 +108,7 @@ jobs:
           node "$RUNNER_TEMP/npm-bin/bin/npm-cli.js" --version
 
       - name: Publish
-        working-directory: sdk/typescript
+        working-directory: bindings/typescript
         run: |
           node "$RUNNER_TEMP/npm-bin/bin/npm-cli.js" \
             publish --provenance --access public
