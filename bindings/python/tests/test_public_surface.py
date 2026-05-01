@@ -40,6 +40,7 @@ def test_core_public_symbols_are_reexported() -> None:
         "PanprotoError",
         "VcsError",
         "GatError",
+        "GitBridgeError",
         "SchemaValidationError",
         "ExistenceCheckError",
         "MigrationError",
@@ -47,6 +48,8 @@ def test_core_public_symbols_are_reexported() -> None:
         "IoError",
         "ExprError",
         "CheckError",
+        "ParseError",
+        "ProjectError",
         # Schema
         "Schema",
         "SchemaBuilder",
@@ -69,6 +72,21 @@ def test_core_public_symbols_are_reexported() -> None:
         "invert_migration",
         "check_existence",
         "check_coverage",
+        # Migration combinators (closes the issue where downstream
+        # code wrote `panproto.add_field` and got an AttributeError
+        # because the combinators were only on `panproto._native`).
+        "add_field",
+        "remove_field",
+        "rename_field",
+        "hoist_field",
+        "pipeline",
+        # Lens — `ProtolensChain` was the symbol that originally
+        # surfaced this gap; downstream code wrote
+        # `panproto.ProtolensChain.auto_generate(...)` and crashed.
+        "Lens",
+        "ProtolensChain",
+        "auto_generate_lens",
+        "auto_generate_lens_candidates",
         # GAT
         "Theory",
         "Model",
@@ -91,6 +109,14 @@ def test_core_public_symbols_are_reexported() -> None:
         "ParseEmitLens",
         "available_grammars",
         "parse_source_file",
+        # Project
+        "ProjectBuilder",
+        "ProjectSchema",
+        "build_project",
+        "parse_project",
+        # Git bridge
+        "GitImportResult",
+        "git_import",
     ]
     missing = [name for name in expected if not hasattr(panproto, name)]
     assert not missing, f"top-level panproto missing public symbols: {missing}"
@@ -144,6 +170,31 @@ def test_native_module_is_still_reachable() -> None:
 
     assert hasattr(_native, "Repository")
     assert hasattr(_native, "create_theory")
+
+
+def test_every_native_public_symbol_is_top_level() -> None:
+    """Structural guard: every public symbol on `panproto._native` must
+    also be reachable on the top-level `panproto` namespace. This
+    prevents the silent-omission bug where a new pyo3 export added on
+    the Rust side stays hidden on `_native` until someone manually
+    edits `__init__.py` to re-export it.
+
+    The 0.42.1 wheel shipped with 16 such omissions; downstream code
+    that wrote `panproto.ProtolensChain.auto_generate(...)` crashed
+    with `AttributeError: module 'panproto' has no attribute
+    'ProtolensChain'`. This test catches that whole class of
+    regression at PR time.
+    """
+    from panproto import _native
+
+    native_public = {x for x in dir(_native) if not x.startswith("_")}
+    top_public = {x for x in dir(panproto) if not x.startswith("_")}
+    missing = sorted(native_public - top_public)
+    assert not missing, (
+        "the following public symbols exist on `panproto._native` "
+        "but not on the top-level `panproto` namespace; add them to "
+        f"`bindings/python/src/panproto/__init__.py`:\n  {missing}"
+    )
 
 
 def test_panproto_error_is_re_exported_under_both_names() -> None:
