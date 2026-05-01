@@ -4,11 +4,17 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
-## [0.42.3] - 2026-05-01
+## [0.43.0] - 2026-05-01
 
 ### Fixed
 
 - **`AstParserRegistry.emit_pretty(target="ocaml", ...)` raised `unknown variant "RESERVED"`** (closes #70). The bundled ocaml, ocaml_interface, javascript, and php `grammar.json` files use a tree-sitter ≥ 0.25 rule kind, `RESERVED`, that the panproto-side `Production` enum did not list. The deserialiser rejected the entire grammar before the schema-side walker ran. Added the variant; the walker treats it as a transparent wrapper around its inner content (the `context_name` reserved-word metadata is irrelevant for emit, since the emitter walks schema → bytes rather than enforcing reserved-word constraints, the same way `TOKEN` and `IMMEDIATE_TOKEN` are handled).
+
+### Changed
+
+- **`panproto_parse::emit_pretty::Production` is now `#[non_exhaustive]`** (breaking; minor-bumped). Adding a variant to a public enum is otherwise a breaking change every time tree-sitter introduces a new rule kind (which is what motivated this release). Marking the enum non-exhaustive forces downstream `match` statements to carry a catch-all arm, so future variant additions land as patch releases.
+
+  *Migration*: any external `match` on `Production` that previously enumerated every variant explicitly needs a `_ => ...` arm. Internally panproto's own dispatch sites already had this pattern; no other workspace code needed to change.
 
 ### Added
 

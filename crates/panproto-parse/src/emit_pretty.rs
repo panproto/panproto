@@ -88,6 +88,7 @@ use crate::error::ParseError;
 /// `IMMEDIATE_TOKEN`, `PREC*`) builds composite productions.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum Production {
     /// Concatenation of productions.
     #[serde(rename = "SEQ")]
