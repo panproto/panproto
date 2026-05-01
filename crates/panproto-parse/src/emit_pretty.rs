@@ -88,6 +88,7 @@ use crate::error::ParseError;
 /// `IMMEDIATE_TOKEN`, `PREC*`) builds composite productions.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum Production {
     /// Concatenation of productions.
     #[serde(rename = "SEQ")]
@@ -229,6 +230,24 @@ pub enum Production {
         value: serde_json::Value,
         /// The wrapped content.
         content: Box<Self>,
+    },
+    /// Reserved-word wrapper (tree-sitter ≥ 0.25).
+    ///
+    /// Tree-sitter's `RESERVED` rule marks an inner production as a
+    /// reserved-word context: the parser excludes the listed identifiers
+    /// from being treated as the inner symbol. The `context_name`
+    /// metadata names the reserved-word set; the emitter does not need
+    /// it (we are walking schema → bytes, not enforcing reserved-word
+    /// constraints), so we emit the inner content unchanged, the same
+    /// way [`Production::Token`] and [`Production::ImmediateToken`] do.
+    #[serde(rename = "RESERVED")]
+    Reserved {
+        /// The wrapped content.
+        content: Box<Self>,
+        /// Name of the reserved-word context. Ignored at emit time.
+        #[allow(dead_code)]
+        #[serde(default)]
+        context_name: String,
     },
 }
 
@@ -390,7 +409,8 @@ fn compute_subtype_closure(
             | Production::Prec { content, .. }
             | Production::PrecLeft { content, .. }
             | Production::PrecRight { content, .. }
-            | Production::PrecDynamic { content, .. } => {
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => {
                 walk(grammar, content, visited, out);
             }
             _ => {}
@@ -445,7 +465,8 @@ fn compute_subtype_closure(
             | Production::Prec { content, .. }
             | Production::PrecLeft { content, .. }
             | Production::PrecRight { content, .. }
-            | Production::PrecDynamic { content, .. } => {
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => {
                 collect_aliases(content, out);
             }
             _ => {}
@@ -981,7 +1002,8 @@ fn emit_production_inner(
         | Production::Prec { content, .. }
         | Production::PrecLeft { content, .. }
         | Production::PrecRight { content, .. }
-        | Production::PrecDynamic { content, .. } => {
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
             emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
         }
     }
@@ -1355,7 +1377,8 @@ fn literal_strings(production: &Production) -> Vec<String> {
             | Production::Prec { content, .. }
             | Production::PrecLeft { content, .. }
             | Production::PrecRight { content, .. }
-            | Production::PrecDynamic { content, .. } => walk(content, out),
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(content, out),
             _ => {}
         }
     }
@@ -1389,7 +1412,8 @@ fn referenced_symbols(production: &Production) -> Vec<&str> {
             | Production::Prec { content, .. }
             | Production::PrecLeft { content, .. }
             | Production::PrecRight { content, .. }
-            | Production::PrecDynamic { content, .. } => walk(content, out),
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(content, out),
             _ => {}
         }
     }
@@ -1412,7 +1436,8 @@ fn first_symbol(production: &Production) -> Option<&str> {
         | Production::Prec { content, .. }
         | Production::PrecLeft { content, .. }
         | Production::PrecRight { content, .. }
-        | Production::PrecDynamic { content, .. } => first_symbol(content),
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => first_symbol(content),
         _ => None,
     }
 }
@@ -1432,7 +1457,8 @@ fn has_field_in(production: &Production, edge_kinds: &[&str]) -> bool {
         | Production::Prec { content, .. }
         | Production::PrecLeft { content, .. }
         | Production::PrecRight { content, .. }
-        | Production::PrecDynamic { content, .. } => has_field_in(content, edge_kinds),
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => has_field_in(content, edge_kinds),
         _ => false,
     }
 }
@@ -1466,7 +1492,8 @@ fn has_relevant_constraint(
             | Production::Prec { content, .. }
             | Production::PrecLeft { content, .. }
             | Production::PrecRight { content, .. }
-            | Production::PrecDynamic { content, .. } => walk(content, constraints),
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(content, constraints),
             _ => false,
         }
     }
@@ -2109,5 +2136,72 @@ mod tests {
         .expect("choice");
         let strings = literal_strings(&prod);
         assert_eq!(strings, vec!["+", "-", "*"]);
+    }
+
+    /// The ocaml and javascript grammars (tree-sitter ≥ 0.25) emit a
+    /// `RESERVED` rule kind that an earlier deserialiser rejected
+    /// with `unknown variant "RESERVED"`. Verify both that the bare
+    /// variant deserialises and that a `RESERVED`-wrapped grammar is
+    /// loadable end-to-end via [`Grammar::from_bytes`].
+    #[test]
+    fn reserved_variant_deserialises() {
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "RESERVED",
+                "content": {"type": "SYMBOL", "name": "_lowercase_identifier"},
+                "context_name": "attribute_id"
+            }"#,
+        )
+        .expect("RESERVED parses");
+        match prod {
+            Production::Reserved { content, .. } => match *content {
+                Production::Symbol { name } => assert_eq!(name, "_lowercase_identifier"),
+                other => panic!("expected inner SYMBOL, got {other:?}"),
+            },
+            other => panic!("expected RESERVED, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reserved_grammar_loads_end_to_end() {
+        let bytes = br#"{
+            "name": "tiny_reserved",
+            "rules": {
+                "program": {
+                    "type": "RESERVED",
+                    "content": {"type": "SYMBOL", "name": "ident"},
+                    "context_name": "keywords"
+                },
+                "ident": {"type": "PATTERN", "value": "[a-z]+"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny_reserved", bytes).expect("RESERVED-using grammar loads");
+        assert!(g.rules.contains_key("program"));
+    }
+
+    #[test]
+    fn reserved_walker_helpers_recurse_into_content() {
+        // The walker's helpers (first_symbol, has_field_in,
+        // referenced_symbols, ...) all need to descend through
+        // RESERVED into its content. If they bail at RESERVED, the
+        // `pick_choice_with_cursor` heuristic ranks the alt below
+        // alts that DO recurse, which produces wrong emit output
+        // even when the deserialiser doesn't crash.
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "RESERVED",
+                "content": {
+                    "type": "FIELD",
+                    "name": "lhs",
+                    "content": {"type": "SYMBOL", "name": "expr"}
+                },
+                "context_name": "ctx"
+            }"#,
+        )
+        .expect("nested RESERVED parses");
+        assert_eq!(first_symbol(&prod), Some("expr"));
+        assert!(has_field_in(&prod, &["lhs"]));
+        let symbols = referenced_symbols(&prod);
+        assert!(symbols.contains(&"expr"));
     }
 }

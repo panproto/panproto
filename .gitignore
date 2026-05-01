@@ -15,6 +15,10 @@ __pycache__/
 *.abi3.so
 *.pyd
 *.dSYM/
+# uv is not part of panproto's official Python build (CI uses pip
+# + maturin). Contributors who use uv locally shouldn't commit
+# their lockfile.
+uv.lock
 
 # Node
 node_modules/
