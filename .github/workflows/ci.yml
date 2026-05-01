@@ -133,13 +133,13 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: cd sdk/typescript && pnpm install --no-frozen-lockfile
-      - run: cd sdk/typescript && pnpm run build
-      - run: cd sdk/typescript && pnpm test
-      - run: cd sdk/typescript && pnpm exec tsc --noEmit
+      - run: cd bindings/typescript && pnpm install --no-frozen-lockfile
+      - run: cd bindings/typescript && pnpm run build
+      - run: cd bindings/typescript && pnpm test
+      - run: cd bindings/typescript && pnpm exec tsc --noEmit
       # Smoke-test that Panproto.init() works in pure Node.js (regression
       # guard for GitHub issue #33: WASM not included / fetch file:// fails).
-      - run: cd sdk/typescript && node --input-type=module -e "import('./dist/index.js').then(async ({ Panproto }) => { const p = await Panproto.init(); console.log('Panproto.init() OK in Node ' + process.version); })"
+      - run: cd bindings/typescript && node --input-type=module -e "import('./dist/index.js').then(async ({ Panproto }) => { const p = await Panproto.init(); console.log('Panproto.init() OK in Node ' + process.version); })"
 
   python:
     name: Python SDK (Native)
@@ -159,9 +159,9 @@ jobs:
         with:
           key: python-${{ matrix.os }}
       - run: python -m venv .venv && . .venv/bin/activate && pip install maturin pytest
-      - run: . .venv/bin/activate && maturin develop --manifest-path crates/panproto-py/Cargo.toml
+      - run: . .venv/bin/activate && cd bindings/python && maturin develop
       - run: . .venv/bin/activate && python -c "import panproto; print(f'panproto {panproto.__version__} loaded, {len(panproto.list_builtin_protocols())} protocols')"
-      - run: . .venv/bin/activate && cd sdk/python && python -m pytest tests/ -x
+      - run: . .venv/bin/activate && cd bindings/python && python -m pytest tests/ -x
 
   semver:
     name: Semver Check

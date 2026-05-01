@@ -1,6 +1,6 @@
 {
   "name": "@panproto/core",
-  "version": "0.42.0",
+  "version": "0.42.1",
   "description": "Schematic version control with panproto (TypeScript SDK)",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -51,7 +51,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/panproto/panproto",
-    "directory": "sdk/typescript"
+    "directory": "bindings/typescript"
   },
   "keywords": [
     "panproto",

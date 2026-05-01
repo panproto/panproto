@@ -21,13 +21,13 @@ The slab allocator is implemented in [`panproto_wasm::handle`](https://docs.rs/p
 
 Values the caller does need to inspect (field values, record contents, error diagnostics) cross the boundary as [MessagePack](https://msgpack.org/) [@messagepack] byte sequences. MessagePack was chosen over [JSON Schema](https://json-schema.org/) [@jsonschema2020] for compactness on large instance payloads and over [Protocol Buffers](https://protobuf.dev/) [@protobuf] for the absence of a pre-negotiated schema: the contents of a MessagePack message need not be declared in a `.proto` file ahead of time. Panproto's own schemas are the things being exchanged, which rules out any representation that would require them to be known to both sides in advance.
 
-Serialisation into MessagePack uses [serde](https://serde.rs/) on the Rust side and [`@msgpack/msgpack`](https://www.npmjs.com/package/@msgpack/msgpack) on the TypeScript side. Both libraries produce the same byte representation for any serde-compatible value. The TypeScript types that model panproto's values are generated from the Rust type definitions through a short build step that [`sdk/typescript`](https://www.npmjs.com/package/@panproto/core) runs as part of its prepublish.
+Serialisation into MessagePack uses [serde](https://serde.rs/) on the Rust side and [`@msgpack/msgpack`](https://www.npmjs.com/package/@msgpack/msgpack) on the TypeScript side. Both libraries produce the same byte representation for any serde-compatible value. The TypeScript types that model panproto's values are generated from the Rust type definitions through a short build step that [`bindings/typescript`](https://www.npmjs.com/package/@panproto/core) runs as part of its prepublish.
 
 ## The entry-point surface
 
 [`panproto-wasm`](https://docs.rs/panproto-wasm/latest/panproto_wasm/) exposes approximately fifty entry points. They cluster into six groups by functional area: schema construction and validation, migration construction and compilation, instance manipulation, lens construction and law-checking, VCS operations (commit, branch, merge), and protocol registration. Each group maps to a submodule of the crate, and each submodule's functions follow the same pattern: the arguments are a combination of `u32` handles and MessagePack byte slices; the return value is either a new handle, a MessagePack byte slice, or a structured error.
 
-A full catalogue of the entry points is in [`sdk/typescript`](https://www.npmjs.com/package/@panproto/core)'s TypeScript definitions, which are the source-of-truth mapping between the JavaScript-visible function names and the Rust functions they bind to.
+A full catalogue of the entry points is in [`bindings/typescript`](https://www.npmjs.com/package/@panproto/core)'s TypeScript definitions, which are the source-of-truth mapping between the JavaScript-visible function names and the Rust functions they bind to.
 
 ## Errors
 

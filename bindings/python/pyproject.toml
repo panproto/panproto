@@ -5,14 +5,16 @@ build-backend = "maturin"
 [project]
 name = "panproto"
 # Version is intentionally dynamic: maturin reads it from
-# `Cargo.toml`, where `version.workspace = true` keeps panproto-py
-# pinned to the workspace version on every release. The previous
-# literal `version = "0.40.0"` here silently stranded PyPI at 0.40
-# when the workspace bumped to 0.41 (PyPI uses `skip-existing: true`,
-# so the publish step succeeded without uploading anything new).
+# `crates/panproto-py/Cargo.toml`, which uses
+# `version.workspace = true`. This keeps the published wheel pinned
+# to the workspace version on every release, with no manual sync.
+# A previous literal `version = "0.40.0"` here silently stranded
+# PyPI at 0.40 when the workspace bumped to 0.41 (PyPI uses
+# `skip-existing: true`, so the publish step succeeded without
+# actually uploading anything new).
 dynamic = ["version"]
 description = "Automatic schema migration and version control for 51 schema languages and 248 programming languages"
-readme = "../../sdk/python/README.md"
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 authors = [
@@ -39,7 +41,20 @@ dev = [
 ]
 
 [tool.maturin]
-python-source = "../../sdk/python/src"
+# This pyproject.toml lives at `bindings/python/`; the Rust crate is
+# at `crates/panproto-py/`. Point maturin at the Cargo manifest, and
+# at the python source directory adjacent to this file.
+#
+# The previous layout had pyproject.toml inside `crates/panproto-py/`
+# with `python-source = "../../sdk/python/src"`. Maturin silently
+# dropped the `../../` python source from the wheel (the published
+# 0.42.0 wheel contained only `_native.abi3.so` — no `__init__.py`,
+# no `py.typed`). Maturin's `python-source` resolution does not
+# tolerate paths that traverse out of the project root; relocating
+# pyproject.toml so the source is `src/` (a direct child) is the
+# canonical fix.
+manifest-path = "../../crates/panproto-py/Cargo.toml"
+python-source = "src"
 module-name = "panproto._native"
 features = ["pyo3/extension-module"]
 

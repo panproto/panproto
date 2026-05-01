@@ -15,7 +15,7 @@ updates:
           - "*"
 
   - package-ecosystem: npm
-    directory: /sdk/typescript
+    directory: /bindings/typescript
     schedule:
       interval: weekly
       day: monday

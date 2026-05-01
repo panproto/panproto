@@ -4,6 +4,29 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-04-30
+
+### Fixed
+
+- **`panproto` Python wheel was missing `__init__.py`**: the published 0.42.0 wheel on PyPI contained only `_native.abi3.so` — `__init__.py` and `py.typed` weren't bundled, so `import panproto` produced an empty namespace (the original #62 bug shape, reintroduced silently). Root cause: maturin's `python-source = "../../sdk/python/src"` pointed *out* of the package directory, and maturin silently dropped the source rather than warning. Fix: relocate `pyproject.toml` from `crates/panproto-py/` to `bindings/python/`, configure `tool.maturin.manifest-path = "../../crates/panproto-py/Cargo.toml"`, and use `python-source = "src"` (a direct child). Verified locally: the wheel now bundles `panproto/__init__.py`, `import panproto` exposes 56 public symbols, and `panproto.__version__` reports correctly.
+
+### Changed
+
+- **Repository layout**: `sdk/python/` and `sdk/typescript/` moved to `bindings/python/` and `bindings/typescript/` to sit alongside `bindings/haskell/`. All language-side wrappers around the Rust core now live under one parent directory; the Rust crates that produce binding artifacts (`crates/panproto-py`, `crates/panproto-wasm`, `crates/panproto-c`) stay in `crates/`. Published packages are unchanged: `panproto` on PyPI, `@panproto/core` on npm, `panproto` on Hackage all continue to point at the same artefacts.
+- **Binding READMEs homogenised**: every binding's README now follows the same section sequence (title + badges, lead, Status, Installation, Synopsis, API overview / Modules, Distribution, Performance notes, Contributing, License). Binding-specific content preserved; structural parallelism added.
+- **Per-binding CHANGELOG consolidation**: `bindings/haskell/CHANGELOG.md` shrunk to a static pointer at the root `CHANGELOG.md`. Per-binding CHANGELOGs were generating noise (most releases don't change the Haskell binding's API); workspace root is now the single source of truth.
+
+### Removed
+
+- **`crates/panproto-py/pyproject.toml`** removed (relocated to `bindings/python/pyproject.toml`).
+- **`bindings/python/pyproject.toml` (deprecated hatchling/wasmtime SDK)** removed (per `project_deprecate_pure_python`; the native pyo3 wheel is the canonical Python distribution).
+
+### CI
+
+- **`.github/workflows/python-wheels.yml`**: invoke maturin with `working-directory: bindings/python` (was `--manifest-path crates/panproto-py/Cargo.toml`); upload wheels from `bindings/python/dist/*.whl`.
+- **`.github/workflows/ci.yml`**: `maturin develop` invoked from `bindings/python/` instead of via `--manifest-path`.
+- **Path references** under `crates/panproto-py/`, `crates/panproto-lens/`, `bindings/typescript/package.json` (`repository.directory`), `.github/dependabot.yml`, `.github/scripts/check_version_consistency.py`, `.github/pull_request_template.md`, `README.md`, `book/src/`, and the `release` and `breaking-change` skills updated to use `bindings/...` paths.
+
 ## [0.42.0] - 2026-04-30
 
 ### Added
