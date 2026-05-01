@@ -4,6 +4,16 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.42.2] - 2026-05-01
+
+### Fixed
+
+- **Top-level `panproto` Python module was missing 16 public symbols.** The 0.42.1 `__init__.py` only re-exported a hand-maintained subset of `panproto._native`, so symbols added to the Rust pyo3 surface over time stayed reachable only via `panproto._native.X` (private namespace, surprises downstream tooling). The most-reported gap was `ProtolensChain` — downstream code that wrote `panproto.ProtolensChain.auto_generate(...)` crashed with `AttributeError`. Other gaps: `add_field`, `remove_field`, `rename_field`, `hoist_field`, `pipeline` (migration combinators); `auto_generate_lens_candidates`; `ProjectBuilder`, `ProjectSchema`, `build_project`, `parse_project` (multi-file projects); `GitImportResult`, `git_import` (git bridge); `ParseError`, `ProjectError`, `GitBridgeError` (error types). All 16 added to the import block and `__all__`.
+
+### Added
+
+- **Structural regression guard** (`bindings/python/tests/test_public_surface.py::test_every_native_public_symbol_is_top_level`): asserts every public symbol on `panproto._native` is also reachable on the top-level `panproto` namespace. Prevents the silent-omission shape: a new pyo3 export added Rust-side stays hidden until someone manually edits `__init__.py` to re-export it. The test fails loudly in CI with the list of missing symbols, so future drift is impossible to miss.
+
 ## [0.42.1] - 2026-04-30
 
 ### Fixed

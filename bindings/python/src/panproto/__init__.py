@@ -11,10 +11,13 @@ from panproto._native import (
     ExistenceCheckError,
     ExprError,
     GatError,
+    GitBridgeError,
     IoError,
     LensError,
     MigrationError,
     PanprotoError,
+    ParseError,
+    ProjectError,
     SchemaValidationError,
     VcsError,
     # Schema types
@@ -34,11 +37,16 @@ from panproto._native import (
     CompiledMigration,
     Migration,
     MigrationBuilder,
+    add_field,
     check_coverage,
     check_existence,
     compile_migration,
     compose_migrations,
+    hoist_field,
     invert_migration,
+    pipeline,
+    remove_field,
+    rename_field,
     # Check
     CompatReport,
     SchemaDiff,
@@ -50,7 +58,9 @@ from panproto._native import (
     IoRegistry,
     # Lens
     Lens,
+    ProtolensChain,
     auto_generate_lens,
+    auto_generate_lens_candidates,
     # GAT
     Model,
     Theory,
@@ -73,6 +83,14 @@ from panproto._native import (
     ParseEmitLens,
     available_grammars,
     parse_source_file,
+    # Project (multi-file panproto projects)
+    ProjectBuilder,
+    ProjectSchema,
+    build_project,
+    parse_project,
+    # Git bridge
+    GitImportResult,
+    git_import,
 )
 
 # Deprecated alias kept for callers that wrote against the WASM SDK
@@ -104,10 +122,13 @@ __all__ = [
     "ExistenceCheckError",
     "ExprError",
     "GatError",
+    "GitBridgeError",
     "IoError",
     "LensError",
     "MigrationError",
     "PanprotoError",
+    "ParseError",
+    "ProjectError",
     "SchemaValidationError",
     "VcsError",
     "WasmError",
@@ -128,11 +149,16 @@ __all__ = [
     "CompiledMigration",
     "Migration",
     "MigrationBuilder",
+    "add_field",
     "check_coverage",
     "check_existence",
     "compile_migration",
     "compose_migrations",
+    "hoist_field",
     "invert_migration",
+    "pipeline",
+    "remove_field",
+    "rename_field",
     # Check
     "CompatReport",
     "SchemaDiff",
@@ -144,7 +170,9 @@ __all__ = [
     "IoRegistry",
     # Lens
     "Lens",
+    "ProtolensChain",
     "auto_generate_lens",
+    "auto_generate_lens_candidates",
     # GAT
     "Model",
     "Theory",
@@ -167,6 +195,14 @@ __all__ = [
     "ParseEmitLens",
     "available_grammars",
     "parse_source_file",
+    # Project (multi-file panproto projects)
+    "ProjectBuilder",
+    "ProjectSchema",
+    "build_project",
+    "parse_project",
+    # Git bridge
+    "GitImportResult",
+    "git_import",
     # Meta
     "__version__",
 ]
