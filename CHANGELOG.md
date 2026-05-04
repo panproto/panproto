@@ -11,6 +11,20 @@ All notable changes to panproto will be documented in this file.
 - **`panproto-gat-macros::class!`, `inductive!`, and `derive_theory!` accept dependent sorts in argument and output positions** (closes #59). The macros previously parsed each argument and output as a single `Ident`, which forced manuscript-faithful encodings of theories like simply-typed lambda calculus to drop type witnesses or abandon the macros and call `Theory::new` / `Operation::with_implicit` / `SortExpr::App` by hand. The argument grammar is now `Ident: SortExpr` where `SortExpr := Ident ('(' Term,* ')')?` and `Term := Ident ('(' Term,* ')')?`, mirroring the JSON / YAML / Nickel surface in `panproto-theory-dsl`. Bare identifiers continue to compile to `SortExpr::Name`; applied identifiers compile to `SortExpr::App` with `Term::Var` / `Term::App` arguments. The simple-sort code paths were preserved by routing all generation through the existing `SortExpr::app` smart constructor, which collapses empty arg lists to `SortExpr::Name`. A regression test in `crates/panproto-gat-macros/tests/dependent_sorts.rs` ports the STLC fixture from `panproto-theory-dsl/tests/fixtures/stlc.json` and exercises the new grammar end-to-end.
 - **`Theory.from_json`, `Theory.from_yaml`, `Theory.from_nickel`, `Theory.from_path`, `Theory.from_dict_json`, and `Theory.to_json` on the Python SDK** (refs #73). The `from_*` classmethods compile a panproto-theory-dsl source (string or file) directly into a `Theory`, accepting `theory`, `class`, and `inductive` body variants. Other body variants (`morphism`, `composition`, `protocol`, `bundle`, `instance`) raise `GatError` with a message pointing at the panproto-theory-dsl crate, since those produce multi-output sets rather than a single theory. The dependent-sort surface (`Tm(arrow(a, b))`) works identically to the Rust `class!` macro after #59. `to_json` emits the flat `panproto_gat::Theory` serde shape, and `from_dict_json` is the inverse round-trip path. The full bidirectional Nickel round-trip (`Theory.to_nickel() == open(path).read()`) and the fully Pythonic builder DSL described in #73 are deferred to follow-up work; the loaders here cover the hand-author / machine-author paths neume and other downstreams need.
 
+## [0.43.3] - 2026-05-04
+
+### Fixed
+
+- **`@panproto/core` shipped a `dist/index.js` whose `new URL('./panproto_wasm.js', import.meta.url)` had been rewritten to `new URL('./panproto_wasm.js', "" + import.meta.url)`** (closes #57). Vite's lib-mode `assetImportMetaUrlPlugin` adds the `"" +` concat to keep the URL constructor portable, but the rewrite changes the AST shape downstream bundlers (Vite, Rollup, esbuild, Webpack 5) look for to copy sibling assets into their output. Production Vite consumer builds therefore 404'd on the wasm-bindgen glue when calling `Panproto.init()`. Switched the library build from Vite lib mode to `tsup` (esbuild + tsc), which leaves `import.meta.url` untouched. The shipped `dist/index.{js,cjs}` is now bundler-friendly out of the box; no consumer-side `resolve.alias` workaround is required.
+
+### Changed
+
+- **TypeScript SDK build pipeline migrated from Vite to tsup.** Vite remains in use indirectly through Vitest for test execution; the production build no longer depends on Vite. Test config moved from `vite.config.ts` to `vitest.config.ts`.
+
+### Added
+
+- **`@panproto/core` exports the wasm-bindgen glue at the `./panproto_wasm.js` subpath.** Consumers who prefer to own their wasm bundling explicitly can now `import glue from '@panproto/core/panproto_wasm.js'` and pass it to `Panproto.init(glue)` without falling back to a project-local `resolve.alias` shim. Refs #57.
+
 ## [0.43.2] - 2026-05-04
 
 ### Fixed
