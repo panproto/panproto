@@ -5,6 +5,8 @@ migrations, check, instances, I/O, lenses, GAT, expressions, VCS,
 and the error hierarchy.
 """
 
+import json
+
 import pytest
 
 import panproto
@@ -484,6 +486,121 @@ class TestGat:
         })
         r = repr(t)
         assert "Repr" in r
+
+    def test_theory_from_json_dsl(self) -> None:
+        # JSON surface of panproto-theory-dsl: a `theory` body. This is
+        # the round-trip path users hand-author or machine-generate.
+        src = json.dumps({
+            "id": "dev.panproto.test.simple",
+            "description": "Trivial GAT for from_json round-trip.",
+            "theory": "ThSimple",
+            "sorts": [{"name": "A", "params": []}],
+            "ops": [
+                {
+                    "name": "id",
+                    "inputs": [{"name": "x", "sort": "A"}],
+                    "output": "A",
+                },
+            ],
+            "equations": [],
+        })
+        t = panproto.Theory.from_json(src)
+        assert t.name == "ThSimple"
+        assert t.sort_count == 1
+        assert t.op_count == 1
+
+    def test_theory_from_json_supports_dependent_sorts(self) -> None:
+        # The fixture under crates/panproto-theory-dsl/tests/fixtures/stlc.json
+        # is the canonical dependent-sort example referenced in the
+        # original feature request (#73). Using the public API
+        # exclusively here so we can ship the same expectation in
+        # downstream Python projects.
+        src = json.dumps({
+            "id": "dev.panproto.test.stlc",
+            "description": "STLC core (subset).",
+            "theory": "STLC",
+            "sorts": [
+                {"name": "Ctx", "params": []},
+                {"name": "Ty", "params": []},
+                {
+                    "name": "Tm",
+                    "params": [
+                        {"name": "G", "sort": "Ctx"},
+                        {"name": "A", "sort": "Ty"},
+                    ],
+                },
+            ],
+            "ops": [
+                {
+                    "name": "arrow",
+                    "inputs": [
+                        {"name": "A", "sort": "Ty"},
+                        {"name": "B", "sort": "Ty"},
+                    ],
+                    "output": "Ty",
+                },
+                {
+                    "name": "lam",
+                    "inputs": [
+                        {"name": "G", "sort": "Ctx"},
+                        {"name": "A", "sort": "Ty"},
+                        {"name": "B", "sort": "Ty"},
+                        {"name": "body", "sort": "Tm(G, B)"},
+                    ],
+                    "output": "Tm(G, arrow(A, B))",
+                },
+            ],
+            "equations": [],
+        })
+        t = panproto.Theory.from_json(src)
+        assert t.name == "STLC"
+        assert t.sort_count == 3
+        # `lam`'s output sort `Tm(G, arrow(A, B))` survived parsing.
+        ops = t.ops
+        lam = next(op for op in ops if op["name"] == "lam")
+        assert isinstance(lam["output"], dict)
+        assert lam["output"]["name"] == "Tm"
+
+    def test_theory_to_json_round_trip_via_from_dict_json(self) -> None:
+        original = panproto.create_theory({
+            "name": "Roundtrip",
+            "extends": [],
+            "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
+            "ops": [],
+            "eqs": [],
+            "directed_eqs": [],
+            "policies": [],
+        })
+        emitted = original.to_json()
+        recovered = panproto.Theory.from_dict_json(emitted)
+        assert recovered.to_dict() == original.to_dict()
+
+    def test_theory_from_yaml(self) -> None:
+        src = (
+            "id: dev.panproto.test.yaml\n"
+            "description: A YAML theory.\n"
+            "theory: ThYaml\n"
+            "sorts:\n"
+            "  - name: A\n"
+            "    params: []\n"
+            "ops: []\n"
+            "equations: []\n"
+        )
+        t = panproto.Theory.from_yaml(src)
+        assert t.name == "ThYaml"
+
+    def test_theory_from_json_rejects_non_theory_body(self) -> None:
+        # A bundle document compiles to multiple theories and cannot
+        # collapse to a single `Theory`; from_json must reject it
+        # rather than silently picking one.
+        bundle = json.dumps({
+            "id": "x",
+            "description": "bundle",
+            "bundle": "b",
+            "theories": [],
+        })
+        with pytest.raises(panproto.GatError):
+            panproto.Theory.from_json(bundle)
 
 
 # ---------------------------------------------------------------------------

@@ -29,20 +29,121 @@ use syn::{Ident, Token, braced, parenthesized, parse_macro_input};
 struct SigItem {
     name: Ident,
     args: Punctuated<ArgItem, Token![,]>,
-    output: Ident,
+    output: SortExprAst,
 }
 
 struct ArgItem {
     name: Ident,
-    ty: Ident,
+    ty: SortExprAst,
 }
 
 impl Parse for ArgItem {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let name: Ident = input.parse()?;
         input.parse::<Token![:]>()?;
-        let ty: Ident = input.parse()?;
+        let ty: SortExprAst = input.parse()?;
         Ok(Self { name, ty })
+    }
+}
+
+// ─── Dependent sort + term ASTs ────────────────────────────────────────
+//
+// Surface grammar mirrors `panproto-theory-dsl`'s JSON / YAML / Nickel
+// surface (see `crates/panproto-theory-dsl/tests/fixtures/stlc.json`):
+//
+//   SortExprAst := Ident                            -- e.g. `Ty`
+//                | Ident `(` TermAst,* `)`          -- e.g. `Tm(arrow(a, b))`
+//
+//   TermAst     := Ident                            -- variable, e.g. `a`
+//                | Ident `(` TermAst,* `)`          -- op application
+//
+// Both are parsed identically: the structural recursion is the same,
+// only the head's role (sort name vs. op name) differs at codegen time.
+// The macro does no name resolution — that is the GAT typechecker's
+// job — so an erroneous reference produces a downstream
+// `panproto-gat::GatError`, not a parse error. This matches the JSON
+// surface, which also defers head validation to `compile_class`.
+
+/// A sort expression appearing in argument or output position.
+struct SortExprAst {
+    head: Ident,
+    args: Vec<TermAst>,
+}
+
+/// A term expression appearing inside a sort-expression argument list.
+struct TermAst {
+    head: Ident,
+    args: Vec<TermAst>,
+}
+
+impl Parse for SortExprAst {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let head: Ident = input.parse()?;
+        let args = if input.peek(syn::token::Paren) {
+            let content;
+            parenthesized!(content in input);
+            let punc: Punctuated<TermAst, Token![,]> = Punctuated::parse_terminated(&content)?;
+            punc.into_iter().collect()
+        } else {
+            Vec::new()
+        };
+        Ok(Self { head, args })
+    }
+}
+
+impl Parse for TermAst {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let head: Ident = input.parse()?;
+        let args = if input.peek(syn::token::Paren) {
+            let content;
+            parenthesized!(content in input);
+            let punc: Punctuated<TermAst, Token![,]> = Punctuated::parse_terminated(&content)?;
+            punc.into_iter().collect()
+        } else {
+            Vec::new()
+        };
+        Ok(Self { head, args })
+    }
+}
+
+/// Emit a `panproto_gat::SortExpr` constructor for a [`SortExprAst`].
+///
+/// Uses the [`SortExpr::app`] smart constructor, which collapses the
+/// no-args case to [`SortExpr::Name`] so the existing zero-argument
+/// callers keep producing the same value.
+fn sort_expr_to_tokens(expr: &SortExprAst) -> TokenStream2 {
+    let head = expr.head.to_string();
+    if expr.args.is_empty() {
+        quote! { ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#head)) }
+    } else {
+        let arg_tokens = expr.args.iter().map(term_ast_to_tokens);
+        quote! {
+            ::panproto_gat::SortExpr::app(
+                ::std::sync::Arc::<str>::from(#head),
+                ::std::vec![ #( #arg_tokens ),* ],
+            )
+        }
+    }
+}
+
+/// Emit a `panproto_gat::Term` constructor for a [`TermAst`].
+///
+/// A bare identifier emits [`Term::Var`]; an applied identifier emits
+/// [`Term::App`]. The macro never produces [`Term::Case`], [`Term::Let`],
+/// or [`Term::Hole`] — those constructs are not expressible in the
+/// macro's surface and require the lower-level `panproto-gat` API.
+fn term_ast_to_tokens(term: &TermAst) -> TokenStream2 {
+    let head = term.head.to_string();
+    if term.args.is_empty() {
+        quote! { ::panproto_gat::Term::Var(::std::sync::Arc::from(#head)) }
+    } else {
+        let arg_tokens = term.args.iter().map(term_ast_to_tokens);
+        quote! {
+            ::panproto_gat::Term::App {
+                op: ::std::sync::Arc::from(#head),
+                args: ::std::vec![ #( #arg_tokens ),* ],
+            }
+        }
     }
 }
 
@@ -88,7 +189,7 @@ impl Parse for ClassBodyItem {
         parenthesized!(content in input);
         let args = Punctuated::<ArgItem, Token![,]>::parse_terminated(&content)?;
         input.parse::<Token![->]>()?;
-        let output: Ident = input.parse()?;
+        let output: SortExprAst = input.parse()?;
         input.parse::<Token![;]>()?;
         Ok(Self::Sig(SigItem { name, args, output }))
     }
@@ -180,14 +281,14 @@ pub fn class(input: TokenStream) -> TokenStream {
                 output,
             }) => {
                 let op_name_str = op_name.to_string();
-                let output_str = output.to_string();
+                let output_tokens = sort_expr_to_tokens(&output);
                 let arg_triples = args.iter().map(|ArgItem { name, ty }| {
                     let n = name.to_string();
-                    let t = ty.to_string();
+                    let ty_tokens = sort_expr_to_tokens(ty);
                     quote! {
                         (
                             ::std::sync::Arc::from(#n),
-                            ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#t)),
+                            #ty_tokens,
                             ::panproto_gat::Implicit::No,
                         )
                     }
@@ -196,7 +297,7 @@ pub fn class(input: TokenStream) -> TokenStream {
                     ::panproto_gat::Operation::with_implicit(
                         #op_name_str,
                         ::std::vec![ #( #arg_triples ),* ],
-                        ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#output_str)),
+                        #output_tokens,
                     )
                 });
             }
@@ -542,14 +643,14 @@ fn class_to_tokens(class: &ClassInput) -> TokenStream2 {
         }) = item
         {
             let op_name_str = op_name.to_string();
-            let output_str = output.to_string();
+            let output_tokens = sort_expr_to_tokens(output);
             let arg_triples = args.iter().map(|ArgItem { name, ty }| {
                 let n = name.to_string();
-                let t = ty.to_string();
+                let ty_tokens = sort_expr_to_tokens(ty);
                 quote! {
                     (
                         ::std::sync::Arc::from(#n),
-                        ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#t)),
+                        #ty_tokens,
                         ::panproto_gat::Implicit::No,
                     )
                 }
@@ -558,7 +659,7 @@ fn class_to_tokens(class: &ClassInput) -> TokenStream2 {
                 ::panproto_gat::Operation::with_implicit(
                     #op_name_str,
                     ::std::vec![ #( #arg_triples ),* ],
-                    ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#output_str)),
+                    #output_tokens,
                 )
             });
         }
@@ -672,7 +773,7 @@ fn capitalize(s: &str) -> String {
 struct InductiveCtor {
     name: Ident,
     inputs: Vec<ArgItem>,
-    output: Ident,
+    output: SortExprAst,
 }
 
 impl Parse for InductiveCtor {
@@ -687,7 +788,7 @@ impl Parse for InductiveCtor {
             Vec::new()
         };
         input.parse::<Token![:]>()?;
-        let output: Ident = input.parse()?;
+        let output: SortExprAst = input.parse()?;
         Ok(Self {
             name,
             inputs,
@@ -749,14 +850,14 @@ pub fn inductive(input: TokenStream) -> TokenStream {
 
     let op_inits = ctors.iter().map(|c| {
         let op_name = c.name.to_string();
-        let output = c.output.to_string();
+        let output_tokens = sort_expr_to_tokens(&c.output);
         let arg_triples = c.inputs.iter().map(|ArgItem { name, ty }| {
             let n = name.to_string();
-            let t = ty.to_string();
+            let ty_tokens = sort_expr_to_tokens(ty);
             quote! {
                 (
                     ::std::sync::Arc::from(#n),
-                    ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#t)),
+                    #ty_tokens,
                     ::panproto_gat::Implicit::No,
                 )
             }
@@ -765,7 +866,7 @@ pub fn inductive(input: TokenStream) -> TokenStream {
             ::panproto_gat::Operation::with_implicit(
                 #op_name,
                 ::std::vec![ #( #arg_triples ),* ],
-                ::panproto_gat::SortExpr::Name(::std::sync::Arc::from(#output)),
+                #output_tokens,
             )
         }
     });
