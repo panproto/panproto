@@ -4,6 +4,24 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-05-04
+
+### Added
+
+- **`panproto.TheoryBuilder` on the Python SDK** — a fluent builder mirroring `SchemaBuilder` and `MigrationBuilder`. Accumulates sorts, operations, and equational axioms via chained calls and produces a `Theory` ready for `colimit_theories`, `free_model`, and the migration engine. The dependent-sort surface (`"Tm(arrow(a, b))"`) is supported on the same footing as the Rust `class!` macro and the JSON / YAML / Nickel surfaces, since all three paths route through the same `panproto-theory-dsl` term parser. Existing `create_theory(dict)` callers keep working unchanged. Example:
+  ```python
+  t = (
+      panproto.TheoryBuilder("upt")
+      .sort("pitch")
+      .sort("interval")
+      .op("transpose", ["pitch", "interval"], "pitch", input_names=["p", "i"])
+      .op("zero", [], "interval")
+      .eq("transpose_zero", "transpose(p, zero())", "p")
+      .build()
+  )
+  ```
+- **`[features]` section on `crates/panproto-py/Cargo.toml`** that forwards every group and per-language flag of `panproto-grammars` and `panproto-parse`. Source-built wheels and downstream Rust consumers depending on `panproto-py` directly can now pick a smaller bundle (`group-core`, `lang-haskell`, …) or opt into the full grammar surface (`group-all`) without modifying `panproto-grammars`. The published wheel still defaults to `group-core` (the 11-language baseline) to keep the wheel within PyPI's per-file size limit; the spaCy-style language-pack story for the published wheel is tracked separately.
+
 ## [0.44.0] - 2026-05-04
 
 ### Added

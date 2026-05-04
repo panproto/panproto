@@ -64,6 +64,7 @@ from panproto._native import (
     # GAT
     Model,
     Theory,
+    TheoryBuilder,
     check_model,
     check_morphism,
     colimit_theories,
@@ -176,6 +177,7 @@ __all__ = [
     # GAT
     "Model",
     "Theory",
+    "TheoryBuilder",
     "check_model",
     "check_morphism",
     "colimit_theories",

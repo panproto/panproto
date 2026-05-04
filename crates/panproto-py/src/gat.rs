@@ -10,12 +10,14 @@ use std::sync::Arc;
 
 use pyo3::prelude::*;
 
-use panproto_core::gat::{self, FreeModelConfig, Model, Theory, TheoryMorphism};
+use panproto_core::gat::{
+    self, Equation, FreeModelConfig, Model, Operation, Sort, SortExpr, Theory, TheoryMorphism,
+};
 use panproto_theory_dsl::{
     TheoryBody, TheoryDocument,
     compile_class::compile_class,
     compile_inductive::compile_inductive,
-    compile_theory::compile_theory_with_resolver,
+    compile_theory::{compile_theory_with_resolver, parse_term},
     eval::{eval_json, eval_nickel, eval_yaml},
 };
 
@@ -269,6 +271,166 @@ fn compile_dsl_to_theory(doc: TheoryDocument) -> PyResult<PyTheory> {
 }
 
 // ---------------------------------------------------------------------------
+// PyTheoryBuilder — fluent builder for incremental theory construction
+// ---------------------------------------------------------------------------
+
+/// Fluent builder for ``Theory`` values.
+///
+/// Mirrors :class:`SchemaBuilder` and :class:`MigrationBuilder`. Each
+/// chainable method appends one element (sort, operation, equation) to
+/// the in-progress theory; :meth:`build` produces the immutable
+/// ``Theory`` ready to feed into :func:`colimit_theories`,
+/// :func:`free_model`, the migration engine, etc.
+///
+/// Existing ``create_theory(dict)`` callers keep working unchanged;
+/// this is purely an additional surface for theories that are easier
+/// to read as a sequence of declarations than as one nested literal.
+#[pyclass(name = "TheoryBuilder", module = "panproto._native")]
+pub struct PyTheoryBuilder {
+    name: String,
+    sorts: Vec<Sort>,
+    ops: Vec<Operation>,
+    eqs: Vec<Equation>,
+}
+
+#[pymethods]
+impl PyTheoryBuilder {
+    /// Start a new builder for a theory of the given ``name``.
+    #[new]
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            sorts: Vec::new(),
+            ops: Vec::new(),
+            eqs: Vec::new(),
+        }
+    }
+
+    /// Append a simple sort.
+    fn sort<'py>(slf: Bound<'py, Self>, name: &str) -> Bound<'py, Self> {
+        slf.borrow_mut().sorts.push(Sort::simple(name));
+        slf
+    }
+
+    /// Append an operation.
+    ///
+    /// Parameters
+    /// ----------
+    /// `name` : str
+    ///     Operation name.
+    /// `inputs` : Sequence[str]
+    ///     Input sort names. Each ``"S"`` becomes a ``SortExpr::Name(S)``;
+    ///     pass ``"Tm(arrow(a, b))"`` to denote a dependent input sort,
+    ///     parsed by the panproto-theory-dsl term parser.
+    /// `output` : str
+    ///     Output sort, in the same surface form as ``inputs``.
+    /// `input_names` : Sequence[str], optional
+    ///     Parameter names paired with ``inputs``. Defaults to
+    ///     ``["x0", "x1", ...]`` when omitted; useful when the caller
+    ///     wants stable variable names for axioms that reference them.
+    #[pyo3(signature = (name, inputs, output, input_names=None))]
+    #[allow(clippy::needless_pass_by_value)] // pyo3 #[pymethods] take owned arguments here.
+    fn op<'py>(
+        slf: Bound<'py, Self>,
+        name: &str,
+        inputs: Vec<String>,
+        output: &str,
+        input_names: Option<Vec<String>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        let names =
+            input_names.unwrap_or_else(|| (0..inputs.len()).map(|i| format!("x{i}")).collect());
+        if names.len() != inputs.len() {
+            return Err(crate::error::GatError::new_err(format!(
+                "TheoryBuilder.op({name:?}): input_names has {} entries but inputs has {}",
+                names.len(),
+                inputs.len()
+            )));
+        }
+        let inputs_se = inputs
+            .iter()
+            .zip(names.iter())
+            .map(|(sort_src, var)| Ok((Arc::from(var.as_str()), sort_str_to_sort_expr(sort_src)?)))
+            .collect::<PyResult<Vec<(Arc<str>, SortExpr)>>>()?;
+        let out = sort_str_to_sort_expr(output)?;
+        slf.borrow_mut()
+            .ops
+            .push(Operation::new(name, inputs_se, out));
+        Ok(slf)
+    }
+
+    /// Append an equational axiom.
+    ///
+    /// ``lhs`` and ``rhs`` are parsed as terms by the panproto-theory-dsl
+    /// term parser, so ``"transpose(p, 0)"`` and ``"p"`` work directly.
+    fn eq<'py>(
+        slf: Bound<'py, Self>,
+        name: &str,
+        lhs: &str,
+        rhs: &str,
+    ) -> PyResult<Bound<'py, Self>> {
+        let lhs_t = parse_term(lhs).map_err(|e| {
+            crate::error::GatError::new_err(format!(
+                "TheoryBuilder.eq({name:?}): lhs parse error: {e}"
+            ))
+        })?;
+        let rhs_t = parse_term(rhs).map_err(|e| {
+            crate::error::GatError::new_err(format!(
+                "TheoryBuilder.eq({name:?}): rhs parse error: {e}"
+            ))
+        })?;
+        slf.borrow_mut().eqs.push(Equation::new(name, lhs_t, rhs_t));
+        Ok(slf)
+    }
+
+    /// Finalize and return the constructed ``Theory``.
+    fn build(&self) -> PyTheory {
+        PyTheory {
+            inner: Arc::new(Theory::new(
+                self.name.as_str(),
+                self.sorts.clone(),
+                self.ops.clone(),
+                self.eqs.clone(),
+            )),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "TheoryBuilder({:?}, sorts={}, ops={}, eqs={})",
+            self.name,
+            self.sorts.len(),
+            self.ops.len(),
+            self.eqs.len()
+        )
+    }
+}
+
+/// Parse a sort surface form (``"S"`` or ``"S(t1, t2)"``) into a
+/// [`SortExpr`].
+///
+/// Bare identifiers produce [`SortExpr::Name`]; applied identifiers
+/// produce [`SortExpr::App`] with [`Term`]-valued arguments. Reuses
+/// the same term parser as the JSON / YAML / Nickel surface so the
+/// fluent builder accepts the dependent-sort syntax (``"Tm(arrow(a,
+/// b))"``) on the same footing as the macro and DSL paths.
+fn sort_str_to_sort_expr(s: &str) -> PyResult<SortExpr> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Err(crate::error::GatError::new_err("empty sort expression"));
+    }
+    let term = parse_term(trimmed).map_err(|e| {
+        crate::error::GatError::new_err(format!("sort expression {s:?} parse error: {e}"))
+    })?;
+    match term {
+        panproto_core::gat::Term::Var(name) => Ok(SortExpr::Name(name)),
+        panproto_core::gat::Term::App { op, args } => Ok(SortExpr::app(op, args)),
+        other => Err(crate::error::GatError::new_err(format!(
+            "sort expression {s:?} produced unsupported term shape: {other:?}"
+        ))),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Module-level functions
 // ---------------------------------------------------------------------------
 
@@ -377,6 +539,7 @@ pub fn check_model(model: &PyModel, theory: &PyTheory) -> PyResult<Vec<String>> 
 /// Register GAT types and functions on the parent module.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_class::<PyTheory>()?;
+    parent.add_class::<PyTheoryBuilder>()?;
     parent.add_class::<PyModel>()?;
     parent.add_function(wrap_pyfunction!(create_theory, parent)?)?;
     parent.add_function(wrap_pyfunction!(colimit_theories, parent)?)?;
