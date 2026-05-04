@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.43.1] - 2026-05-04
+
+### Fixed
+
+- **`panproto/_native.pyi` stubs disagreed with the runtime for `create_theory` and `colimit_theories`** (closes #72). The stub typed `create_theory(spec: dict[str, object])`, which pyright rejects when callers pass a `TypedDict`; the runtime accepts any mapping. The stub typed `colimit_theories(theories: Sequence[Theory], /)`, but the pyo3 export is `colimit_theories(t1, t2, shared)`, so every downstream call site flagged either an argument-count or argument-type error. Widened `create_theory` to `Mapping[str, object]` and rewrote the `colimit_theories` stub to match the three-positional-argument runtime signature.
+
 ## [0.43.0] - 2026-05-01
 
 ### Fixed
