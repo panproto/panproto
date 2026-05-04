@@ -81,9 +81,8 @@ impl PyTheory {
     /// same shape ``Theory.to_dict()`` returns, just rendered as a JSON
     /// document). Round-trips with :func:`Theory.from_dict_json`.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string_pretty(self.inner.as_ref()).map_err(|e| {
-            crate::error::GatError::new_err(format!("theory to_json failed: {e}"))
-        })
+        serde_json::to_string_pretty(self.inner.as_ref())
+            .map_err(|e| crate::error::GatError::new_err(format!("theory to_json failed: {e}")))
     }
 
     /// Construct a theory from the serialized ``panproto_gat::Theory`` shape.
@@ -120,7 +119,7 @@ impl PyTheory {
     /// (or :meth:`Protocol.from_theories`) for those.
     #[classmethod]
     fn from_json(_cls: &Bound<'_, pyo3::types::PyType>, source: &str) -> PyResult<Self> {
-        compile_dsl_to_theory(eval_json(source).map_err(dsl_err)?)
+        compile_dsl_to_theory(eval_json(source).map_err(|e| dsl_err(&e))?)
     }
 
     /// Compile a YAML DSL document into a theory.
@@ -128,7 +127,7 @@ impl PyTheory {
     /// Same body-variant rules as :meth:`from_json`.
     #[classmethod]
     fn from_yaml(_cls: &Bound<'_, pyo3::types::PyType>, source: &str) -> PyResult<Self> {
-        compile_dsl_to_theory(eval_yaml(source).map_err(dsl_err)?)
+        compile_dsl_to_theory(eval_yaml(source).map_err(|e| dsl_err(&e))?)
     }
 
     /// Compile a Nickel DSL document into a theory.
@@ -146,33 +145,35 @@ impl PyTheory {
         import_paths: Option<Vec<std::path::PathBuf>>,
     ) -> PyResult<Self> {
         let paths = import_paths.unwrap_or_default();
-        compile_dsl_to_theory(eval_nickel(source, &paths).map_err(dsl_err)?)
+        compile_dsl_to_theory(eval_nickel(source, &paths).map_err(|e| dsl_err(&e))?)
     }
 
     /// Compile a DSL document from a path, dispatching on file
     /// extension (``.ncl`` → Nickel, ``.json`` → JSON, ``.yaml`` /
     /// ``.yml`` → YAML).
     #[classmethod]
+    #[allow(clippy::needless_pass_by_value)] // pyo3 #[classmethod] requires an owned argument here.
     fn from_path(
         _cls: &Bound<'_, pyo3::types::PyType>,
         path: std::path::PathBuf,
     ) -> PyResult<Self> {
         let source = std::fs::read_to_string(&path).map_err(|e| {
-            crate::error::GatError::new_err(format!(
-                "could not read {}: {e}",
-                path.display()
-            ))
+            crate::error::GatError::new_err(format!("could not read {}: {e}", path.display()))
         })?;
         let ext = path
             .extension()
             .and_then(std::ffi::OsStr::to_str)
             .unwrap_or("");
         let doc = match ext {
-            "json" => eval_json(&source).map_err(dsl_err)?,
-            "yaml" | "yml" => eval_yaml(&source).map_err(dsl_err)?,
+            "json" => eval_json(&source).map_err(|e| dsl_err(&e))?,
+            "yaml" | "yml" => eval_yaml(&source).map_err(|e| dsl_err(&e))?,
             "ncl" => {
-                let parent = path.parent().map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
-                eval_nickel(&source, &parent).map_err(dsl_err)?
+                let parent = path
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                eval_nickel(&source, &parent).map_err(|e| dsl_err(&e))?
             }
             other => {
                 return Err(crate::error::GatError::new_err(format!(
@@ -228,7 +229,7 @@ impl PyModel {
 }
 
 /// Map a `panproto-theory-dsl` error to a Python exception.
-fn dsl_err(e: panproto_theory_dsl::TheoryDslError) -> PyErr {
+fn dsl_err(e: &panproto_theory_dsl::TheoryDslError) -> PyErr {
     crate::error::GatError::new_err(format!("theory DSL error: {e}"))
 }
 
@@ -244,10 +245,10 @@ fn compile_dsl_to_theory(doc: TheoryDocument) -> PyResult<PyTheory> {
     let theory = match doc.body {
         TheoryBody::Theory(spec) => {
             let resolver = panproto_theory_dsl::builtin_resolver();
-            compile_theory_with_resolver(&spec, &resolver).map_err(dsl_err)?
+            compile_theory_with_resolver(&spec, &resolver).map_err(|e| dsl_err(&e))?
         }
-        TheoryBody::Class(spec) => compile_class(&spec).map_err(dsl_err)?,
-        TheoryBody::Inductive(spec) => compile_inductive(&spec).map_err(dsl_err)?,
+        TheoryBody::Class(spec) => compile_class(&spec).map_err(|e| dsl_err(&e))?,
+        TheoryBody::Inductive(spec) => compile_inductive(&spec).map_err(|e| dsl_err(&e))?,
         TheoryBody::Morphism(_)
         | TheoryBody::Composition(_)
         | TheoryBody::Protocol(_)

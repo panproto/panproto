@@ -73,7 +73,7 @@ struct SortExprAst {
 /// A term expression appearing inside a sort-expression argument list.
 struct TermAst {
     head: Ident,
-    args: Vec<TermAst>,
+    args: Vec<Self>,
 }
 
 impl Parse for SortExprAst {
@@ -97,7 +97,7 @@ impl Parse for TermAst {
         let args = if input.peek(syn::token::Paren) {
             let content;
             parenthesized!(content in input);
-            let punc: Punctuated<TermAst, Token![,]> = Punctuated::parse_terminated(&content)?;
+            let punc: Punctuated<Self, Token![,]> = Punctuated::parse_terminated(&content)?;
             punc.into_iter().collect()
         } else {
             Vec::new()
