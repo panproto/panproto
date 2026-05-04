@@ -279,7 +279,19 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
     let list_via_schema = is_list_vertex(schema, &node.anchor);
     let list_via_annotation = node.is_list();
     let list_via_instance_arcs = is_list_via_instance_arcs(instance, node_id);
-    if list_via_schema || list_via_annotation || list_via_instance_arcs {
+    // The schema-shape signal (`list_via_schema`) is a heuristic: it fires
+    // whenever every outgoing edge is anonymous, which is also true of a
+    // hand-built record whose author didn't supply edge names. Object-only
+    // signals on the *node* (a discriminator or extra_fields populated by
+    // the parser when the JSON was an object) are direct evidence the data
+    // is map-shaped, so they veto the schema heuristic. The CST `$list`
+    // annotation and the structural same-name-arcs signal are not vetoed:
+    // both are positive evidence about the data, not the schema, and
+    // cannot coexist with object content.
+    let object_only_signals = !node.extra_fields.is_empty() || node.discriminator.is_some();
+    let is_list =
+        (list_via_schema && !object_only_signals) || list_via_annotation || list_via_instance_arcs;
+    if is_list {
         let children = instance.children(node_id);
         let items: Vec<serde_json::Value> = children
             .iter()
@@ -802,5 +814,57 @@ mod tests {
             output["tags"]
         );
         assert_eq!(output["tags"], json!(["panproto", "atproto", "schemas"]));
+    }
+
+    #[test]
+    fn to_json_record_with_anonymous_edges_emits_extra_fields_not_empty_array() {
+        // Regression for issues #54 and #55: a hand-built schema whose
+        // record vertex happens to have only anonymous outgoing edges
+        // (e.g. a Python caller using SchemaBuilder.edge(..., name=None))
+        // was being classified as a list by the schema heuristic. The
+        // parser correctly preserves unhandled JSON keys in
+        // `extra_fields`, but the emitter then dropped them and rendered
+        // the node as `[]`. Object-only signals on the node (extra_fields
+        // populated, or a discriminator) must veto the schema heuristic.
+        let proto = Protocol {
+            name: "test".into(),
+            schema_theory: "ThTestSchema".into(),
+            instance_theory: "ThTestInstance".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["record".into(), "field".into(), "long".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("event", "record", Some("Event"))
+            .unwrap()
+            .vertex("event.tick", "field", Some("tick"))
+            .unwrap()
+            .vertex("event.tick:t", "long", None::<&str>)
+            .unwrap()
+            // Anonymous edges (name=None). This is what the user's
+            // didactic-style hand-built schema looks like.
+            .edge("event", "event.tick", "field-of", None::<&str>)
+            .unwrap()
+            .edge("event.tick", "event.tick:t", "type-of", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let input = json!({"tick": 480});
+        let inst = parse_json(&schema, "event", &input).unwrap();
+
+        // The data is preserved on the parse side as an extra_field on
+        // the root: there is no schema edge named "tick", so the parser
+        // routes it to extra_fields rather than dropping it.
+        let output = to_json(&schema, &inst);
+        assert!(
+            output.is_object(),
+            "node with extra_fields must emit as an object, not an array; got {output}"
+        );
+        assert_eq!(
+            output["tick"], 480,
+            "extra_fields content must round-trip through to_json"
+        );
     }
 }

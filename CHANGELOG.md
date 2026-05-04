@@ -18,6 +18,12 @@ All notable changes to panproto will be documented in this file.
 
 - **`@panproto/core` exports the wasm-bindgen glue at the `./panproto_wasm.js` subpath.** Consumers who prefer to own their wasm bundling explicitly can now `import glue from '@panproto/core/panproto_wasm.js'` and pass it to `Panproto.init(glue)` without falling back to a project-local `resolve.alias` shim. Refs #57.
 
+## [0.43.2] - 2026-05-04
+
+### Fixed
+
+- **`Instance.to_json()` and `IoRegistry.emit(...)` returned `[]` for record vertices with anonymous outgoing edges** (closes #54, #55). Both Python entry points route through `panproto_inst::to_json`, which classifies a vertex as a list whenever every outgoing schema edge is anonymous (`name == None`). That heuristic also fires on a hand-built record whose author didn't supply edge names — a common shape when callers build schemas through the SchemaBuilder without explicit edge-name kwargs. The parser correctly preserved unhandled JSON keys in the node's `extra_fields`, but the emitter then took the list path and dropped them, yielding the literal output `[]`. Object-only signals on the node (a populated `extra_fields` map or a discriminator) now veto the schema-shape heuristic; the CST `$list` annotation and the same-name-arcs structural signal are unaffected because both are positive evidence about the data, not the schema, and cannot coexist with object content.
+
 ## [0.43.1] - 2026-05-04
 
 ### Fixed
