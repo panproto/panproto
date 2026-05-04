@@ -1,0 +1,30 @@
+[package]
+name = "panproto-grammars-functional"
+description = "Companion grammar package: functional languages (Haskell, Scheme, Racket, OCaml, ...) for the panproto Python wheel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+# Globally-unique cdylib name to avoid the `PyInit_<name>` symbol
+# collision that arises when multiple pyo3 extensions in the same
+# process both define a submodule called `_native`. The Python module
+# is exposed as `panproto_grammars_functional._impl` (set via
+# `module-name` in the companion's pyproject.toml).
+name = "panproto_grammars_functional_impl"
+crate-type = ["cdylib"]
+
+[dependencies]
+# `default-features = false` lets this companion ship only the
+# `group-functional` grammars, not the workspace-default `group-core`.
+# Workspace inheritance is bypassed because the workspace dep doesn't
+# pin default-features.
+panproto-grammars = { path = "../panproto-grammars", default-features = false, features = ["group-functional"] }
+pyo3 = { workspace = true }
+tree-sitter = { workspace = true }
+
+[lints]
+workspace = true

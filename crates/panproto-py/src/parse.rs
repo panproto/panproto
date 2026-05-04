@@ -16,6 +16,12 @@ use crate::schema::PySchema;
 ///
 /// Wraps [`ParserRegistry`] from `panproto-parse`, providing parse
 /// (source -> Schema) and emit (Schema -> source) operations.
+///
+/// Companion grammar packages (`panproto-grammars-*`) inject their
+/// grammars at construction time via the `extra_grammars` argument.
+/// The Python wrapper class in `panproto/__init__.py` discovers
+/// companions through `importlib.metadata.entry_points` and threads
+/// them through here.
 #[pyclass(name = "AstParserRegistry", module = "panproto._native")]
 pub struct PyAstParserRegistry {
     inner: Arc<ParserRegistry>,
@@ -23,10 +29,50 @@ pub struct PyAstParserRegistry {
 
 #[pymethods]
 impl PyAstParserRegistry {
+    /// Construct a registry populated with all built-in grammars and
+    /// any externally-supplied grammars from companion packages.
+    ///
+    /// `extra_grammars`, when supplied, is a list of dicts with the
+    /// keys produced by a companion's `grammars_metadata()` function:
+    /// `name`, `extensions`, `language_ptr`, `node_types_ptr`,
+    /// `node_types_len`, and the optional `tags_query_ptr` /
+    /// `tags_query_len` / `grammar_json_ptr` / `grammar_json_len`
+    /// pairs. The `*_ptr` values are raw C pointers cast to integers;
+    /// the companion is responsible for ensuring the underlying
+    /// memory has process-lifetime extent (`&'static` in Rust terms).
     #[new]
-    fn new() -> Self {
+    #[pyo3(signature = (extra_grammars = None))]
+    fn new(extra_grammars: Option<Vec<Bound<'_, pyo3::types::PyDict>>>) -> Self {
+        let mut reg = ParserRegistry::new();
+        if let Some(extras) = extra_grammars {
+            for entry in extras {
+                // A single broken grammar (e.g. an upstream
+                // node-types.json with an invalid entry) shouldn't take
+                // down the whole construction. The built-in
+                // `ParserRegistry::new()` already swallows per-grammar
+                // failures the same way. Emit a Python warning so the
+                // dropped grammar is observable.
+                if let Err(err) = register_external_from_metadata(&mut reg, &entry) {
+                    let name = entry
+                        .get_item("name")
+                        .ok()
+                        .flatten()
+                        .and_then(|v| v.extract::<String>().ok())
+                        .unwrap_or_else(|| "<unknown>".to_owned());
+                    let msg =
+                        format!("panproto: companion grammar {name:?} failed to register: {err}");
+                    let py = entry.py();
+                    let _ = pyo3::PyErr::warn(
+                        py,
+                        &py.get_type::<pyo3::exceptions::PyRuntimeWarning>(),
+                        std::ffi::CString::new(msg).unwrap_or_default().as_c_str(),
+                        1,
+                    );
+                }
+            }
+        }
         Self {
-            inner: Arc::new(ParserRegistry::new()),
+            inner: Arc::new(reg),
         }
     }
 
@@ -206,6 +252,104 @@ fn available_grammars() -> Vec<String> {
         .into_iter()
         .map(|g| g.name.to_owned())
         .collect()
+}
+
+/// Decode a single `extra_grammars` dict and register the corresponding
+/// grammar with `reg`.
+///
+/// The companion package owns the underlying byte buffers (they live in
+/// the companion cdylib's static memory for the process lifetime), so
+/// the integer-pointer values we receive are safe to widen to
+/// `&'static` at this boundary. Mistyped or short-lived pointers from a
+/// non-companion caller would corrupt this registry; this function is
+/// the trust boundary.
+#[allow(unsafe_code)]
+fn register_external_from_metadata(
+    reg: &mut ParserRegistry,
+    entry: &Bound<'_, pyo3::types::PyDict>,
+) -> PyResult<()> {
+    use pyo3::exceptions::PyValueError;
+    use pyo3::types::PyDictMethods;
+
+    let pop_str = |key: &str| -> PyResult<String> {
+        entry
+            .get_item(key)?
+            .ok_or_else(|| {
+                PyValueError::new_err(format!("missing key {key:?} in grammar metadata"))
+            })?
+            .extract::<String>()
+    };
+    let pop_usize = |key: &str| -> PyResult<usize> {
+        entry
+            .get_item(key)?
+            .ok_or_else(|| {
+                PyValueError::new_err(format!("missing key {key:?} in grammar metadata"))
+            })?
+            .extract::<usize>()
+    };
+    let pop_opt_usize = |key: &str| -> PyResult<Option<usize>> {
+        match entry.get_item(key)? {
+            Some(v) => {
+                if v.is_none() {
+                    Ok(None)
+                } else {
+                    Ok(Some(v.extract::<usize>()?))
+                }
+            }
+            None => Ok(None),
+        }
+    };
+
+    let name = pop_str("name")?;
+    let extensions: Vec<String> = entry
+        .get_item("extensions")?
+        .ok_or_else(|| PyValueError::new_err("missing key \"extensions\" in grammar metadata"))?
+        .extract()?;
+
+    let language_ptr = pop_usize("language_ptr")?;
+    let node_types_ptr = pop_usize("node_types_ptr")?;
+    let node_types_len = pop_usize("node_types_len")?;
+    let tags_query_ptr = pop_opt_usize("tags_query_ptr")?;
+    let tags_query_len = pop_opt_usize("tags_query_len")?.unwrap_or(0);
+    let grammar_json_ptr = pop_opt_usize("grammar_json_ptr")?;
+    let grammar_json_len = pop_opt_usize("grammar_json_len")?.unwrap_or(0);
+
+    // SAFETY: The pointers are received from a companion grammar
+    // package whose data is baked into the cdylib's `.rodata` section,
+    // so the lifetime extends for as long as the companion module is
+    // loaded — i.e. the lifetime of the process. `tree_sitter::Language`
+    // is `#[repr(transparent)]` over `*const TSLanguage`, a stable C
+    // pointer.
+    let leaked_name: &'static str = Box::leak(name.into_boxed_str());
+    let leaked_extensions: Vec<&'static str> = extensions
+        .into_iter()
+        .map(|e| &*Box::leak(e.into_boxed_str()))
+        .collect();
+    let language: tree_sitter::Language = unsafe {
+        // Cast through usize → *const c_void → tree_sitter::Language.
+        // The conversion mirrors how wasm-bindgen and other FFI shims
+        // cross cdylib boundaries: tree_sitter::Language is a
+        // transparent wrapper around a raw pointer.
+        std::mem::transmute::<usize, tree_sitter::Language>(language_ptr)
+    };
+    let node_types: &'static [u8] =
+        unsafe { std::slice::from_raw_parts(node_types_ptr as *const u8, node_types_len) };
+    let tags_query: Option<&'static str> = tags_query_ptr.map(|p| unsafe {
+        let slice = std::slice::from_raw_parts(p as *const u8, tags_query_len);
+        std::str::from_utf8_unchecked(slice)
+    });
+    let grammar_json: Option<&'static [u8]> = grammar_json_ptr
+        .map(|p| unsafe { std::slice::from_raw_parts(p as *const u8, grammar_json_len) });
+
+    reg.register_external_grammar(
+        leaked_name,
+        leaked_extensions,
+        language,
+        node_types,
+        tags_query,
+        grammar_json,
+    )
+    .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
 }
 
 /// Register parse types on the parent module.

@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Companion grammar package architecture**: `panproto.AstParserRegistry` is now a Python wrapper that discovers companion packages declaring an entry point under `panproto.grammars` and feeds their grammar metadata into the native registry at construction time. Cross-cdylib transport uses raw FFI pointers (language pointer + byte-slice pointer/length pairs) cast to integers, with the ownership invariant that companion modules bake their grammar bytes into `&'static` rodata so the pointers remain valid for the process lifetime. The native class is reachable as `panproto._native.AstParserRegistry` for callers who want only the built-in grammars. Closes the published-wheel half of #78; the companion-package architecture is tracked in #82.
+- **`panproto-grammars-functional`**: first companion grammar pack, shipping Haskell, OCaml, Elm, Gleam, Erlang, Elixir, PureScript, F#, Clojure, Scheme, and Racket grammars. `pip install panproto-grammars-functional` makes them available through `panproto.AstParserRegistry()` automatically. Built as a separate pyo3 cdylib (`panproto_grammars_functional._impl`) depending on `panproto-grammars` with the `group-functional` feature.
+- **`panproto-parse::ParserRegistry::register_external_grammar`**: public API used by companion packages. Accepts a tree-sitter `Language` plus byte-slice references with `&'static` lifetime and registers a full `LanguageParser` against the registry. Mirrors what `ParserRegistry::new` does for built-in grammars.
+
 ## [0.45.0] - 2026-05-04
 
 ### Added

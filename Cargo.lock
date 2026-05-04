@@ -2153,6 +2153,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "panproto-grammars-functional"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
 name = "panproto-inst"
 version = "0.45.0"
 dependencies = [
@@ -2380,6 +2389,7 @@ dependencies = [
  "pythonize",
  "serde",
  "serde_json",
+ "tree-sitter",
 ]
 
 [[package]]

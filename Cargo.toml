@@ -18,6 +18,7 @@ members = [
     "crates/panproto-expr-parser",
     "crates/panproto-py",
     "crates/panproto-grammars",
+    "crates/panproto-grammars-functional",
     "crates/panproto-parse",
     "crates/panproto-project",
     "crates/panproto-git",
