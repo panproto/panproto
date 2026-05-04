@@ -4,6 +4,20 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.43.1] - 2026-05-04
+
+### Fixed
+
+- **`@panproto/core` shipped a `dist/index.js` whose `new URL('./panproto_wasm.js', import.meta.url)` had been rewritten to `new URL('./panproto_wasm.js', "" + import.meta.url)`** (closes #57). Vite's lib-mode `assetImportMetaUrlPlugin` adds the `"" +` concat to keep the URL constructor portable, but the rewrite changes the AST shape downstream bundlers (Vite, Rollup, esbuild, Webpack 5) look for to copy sibling assets into their output. Production Vite consumer builds therefore 404'd on the wasm-bindgen glue when calling `Panproto.init()`. Switched the library build from Vite lib mode to `tsup` (esbuild + tsc), which leaves `import.meta.url` untouched. The shipped `dist/index.{js,cjs}` is now bundler-friendly out of the box; no consumer-side `resolve.alias` workaround is required.
+
+### Changed
+
+- **TypeScript SDK build pipeline migrated from Vite to tsup.** Vite remains in use indirectly through Vitest for test execution; the production build no longer depends on Vite. Test config moved from `vite.config.ts` to `vitest.config.ts`.
+
+### Added
+
+- **`@panproto/core` exports the wasm-bindgen glue at the `./panproto_wasm.js` subpath.** Consumers who prefer to own their wasm bundling explicitly can now `import glue from '@panproto/core/panproto_wasm.js'` and pass it to `Panproto.init(glue)` without falling back to a project-local `resolve.alias` shim. Refs #57.
+
 ## [0.43.0] - 2026-05-01
 
 ### Fixed
