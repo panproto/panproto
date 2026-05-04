@@ -21,6 +21,7 @@ panproto-lens-dsl = { workspace = true }
 panproto-parse = { workspace = true }
 panproto-project = { workspace = true }
 panproto-git = { workspace = true }
+panproto-theory-dsl = { workspace = true }
 git2 = { version = "0.20", features = ["vendored-libgit2", "vendored-openssl"] }
 pyo3 = { workspace = true }
 serde = { workspace = true }

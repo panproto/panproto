@@ -5,11 +5,19 @@
 //! thus cannot be serialized or cloned. We expose it as an opaque
 //! handle with limited introspection.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use pyo3::prelude::*;
 
 use panproto_core::gat::{self, FreeModelConfig, Model, Theory, TheoryMorphism};
+use panproto_theory_dsl::{
+    TheoryBody, TheoryDocument,
+    compile_class::compile_class,
+    compile_inductive::compile_inductive,
+    compile_theory::compile_theory_with_resolver,
+    eval::{eval_json, eval_nickel, eval_yaml},
+};
 
 use crate::convert;
 
@@ -67,6 +75,115 @@ impl PyTheory {
         convert::to_python(py, self.inner.as_ref())
     }
 
+    /// Serialize this theory to a JSON string.
+    ///
+    /// The output is the flat ``panproto_gat::Theory`` serde shape (the
+    /// same shape ``Theory.to_dict()`` returns, just rendered as a JSON
+    /// document). Round-trips with :func:`Theory.from_dict_json`.
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string_pretty(self.inner.as_ref())
+            .map_err(|e| crate::error::GatError::new_err(format!("theory to_json failed: {e}")))
+    }
+
+    /// Construct a theory from the serialized ``panproto_gat::Theory`` shape.
+    ///
+    /// Inverse of :meth:`to_json`. The expected payload is a flat
+    /// theory record with ``name``, ``sorts``, ``ops``, and ``eqs``
+    /// keys; this is the round-trip path for a theory that was
+    /// previously emitted with :meth:`to_json`.
+    ///
+    /// To compile a *DSL document* (the JSON / YAML / Nickel surface
+    /// from ``panproto-theory-dsl``), use :meth:`from_json`,
+    /// :meth:`from_yaml`, or :meth:`from_nickel` instead.
+    #[classmethod]
+    fn from_dict_json(_cls: &Bound<'_, pyo3::types::PyType>, payload: &str) -> PyResult<Self> {
+        let theory: Theory = serde_json::from_str(payload).map_err(|e| {
+            crate::error::GatError::new_err(format!("theory from_dict_json failed: {e}"))
+        })?;
+        Ok(Self {
+            inner: Arc::new(theory),
+        })
+    }
+
+    /// Compile a JSON DSL document into a theory.
+    ///
+    /// Accepts the JSON surface of ``panproto-theory-dsl``: a top-level
+    /// document with ``id`` and ``description`` plus exactly one body
+    /// variant of ``theory``, ``class``, or ``inductive``. The
+    /// dependent-sort surface (``Tm(arrow(a, b))`` etc.) is supported on
+    /// the same footing as the Rust ``class!`` / ``inductive!`` macros.
+    ///
+    /// Other body variants (``morphism``, ``compose``, ``protocol``,
+    /// ``bundle``, ``instance``) cannot collapse to a single
+    /// ``Theory`` and raise ``GatError``; use the DSL crate directly
+    /// (or :meth:`Protocol.from_theories`) for those.
+    #[classmethod]
+    fn from_json(_cls: &Bound<'_, pyo3::types::PyType>, source: &str) -> PyResult<Self> {
+        compile_dsl_to_theory(eval_json(source).map_err(|e| dsl_err(&e))?)
+    }
+
+    /// Compile a YAML DSL document into a theory.
+    ///
+    /// Same body-variant rules as :meth:`from_json`.
+    #[classmethod]
+    fn from_yaml(_cls: &Bound<'_, pyo3::types::PyType>, source: &str) -> PyResult<Self> {
+        compile_dsl_to_theory(eval_yaml(source).map_err(|e| dsl_err(&e))?)
+    }
+
+    /// Compile a Nickel DSL document into a theory.
+    ///
+    /// Same body-variant rules as :meth:`from_json`. ``import_paths``
+    /// (default empty) extends Nickel's import-resolution lookup so
+    /// user-defined modules can be referenced from ``source``. The
+    /// bundled ``panproto/theory.ncl`` contracts are always available
+    /// without configuring an import path.
+    #[classmethod]
+    #[pyo3(signature = (source, import_paths=None))]
+    fn from_nickel(
+        _cls: &Bound<'_, pyo3::types::PyType>,
+        source: &str,
+        import_paths: Option<Vec<std::path::PathBuf>>,
+    ) -> PyResult<Self> {
+        let paths = import_paths.unwrap_or_default();
+        compile_dsl_to_theory(eval_nickel(source, &paths).map_err(|e| dsl_err(&e))?)
+    }
+
+    /// Compile a DSL document from a path, dispatching on file
+    /// extension (``.ncl`` → Nickel, ``.json`` → JSON, ``.yaml`` /
+    /// ``.yml`` → YAML).
+    #[classmethod]
+    #[allow(clippy::needless_pass_by_value)] // pyo3 #[classmethod] requires an owned argument here.
+    fn from_path(
+        _cls: &Bound<'_, pyo3::types::PyType>,
+        path: std::path::PathBuf,
+    ) -> PyResult<Self> {
+        let source = std::fs::read_to_string(&path).map_err(|e| {
+            crate::error::GatError::new_err(format!("could not read {}: {e}", path.display()))
+        })?;
+        let ext = path
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or("");
+        let doc = match ext {
+            "json" => eval_json(&source).map_err(|e| dsl_err(&e))?,
+            "yaml" | "yml" => eval_yaml(&source).map_err(|e| dsl_err(&e))?,
+            "ncl" => {
+                let parent = path
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                eval_nickel(&source, &parent).map_err(|e| dsl_err(&e))?
+            }
+            other => {
+                return Err(crate::error::GatError::new_err(format!(
+                    "unsupported theory file extension: {other:?}; expected .json, .yaml, .yml, or .ncl"
+                )));
+            }
+        };
+        compile_dsl_to_theory(doc)
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Theory({:?}, sorts={}, ops={}, eqs={})",
@@ -109,6 +226,46 @@ impl PyModel {
             self.inner.sort_interp.len()
         )
     }
+}
+
+/// Map a `panproto-theory-dsl` error to a Python exception.
+fn dsl_err(e: &panproto_theory_dsl::TheoryDslError) -> PyErr {
+    crate::error::GatError::new_err(format!("theory DSL error: {e}"))
+}
+
+/// Compile a parsed DSL document into a single `Theory`, or raise.
+///
+/// Accepted body variants are `Theory`, `Class`, and `Inductive` —
+/// the three that collapse to a single `panproto_gat::Theory`. Other
+/// body variants describe morphisms, protocol bundles, or composition
+/// graphs that cannot be returned as one `Theory`; they raise an error
+/// pointing the caller at the DSL crate (or `Protocol.from_theories`)
+/// for the multi-output cases.
+fn compile_dsl_to_theory(doc: TheoryDocument) -> PyResult<PyTheory> {
+    let theory = match doc.body {
+        TheoryBody::Theory(spec) => {
+            let resolver = panproto_theory_dsl::builtin_resolver();
+            compile_theory_with_resolver(&spec, &resolver).map_err(|e| dsl_err(&e))?
+        }
+        TheoryBody::Class(spec) => compile_class(&spec).map_err(|e| dsl_err(&e))?,
+        TheoryBody::Inductive(spec) => compile_inductive(&spec).map_err(|e| dsl_err(&e))?,
+        TheoryBody::Morphism(_)
+        | TheoryBody::Composition(_)
+        | TheoryBody::Protocol(_)
+        | TheoryBody::Bundle(_)
+        | TheoryBody::Instance(_) => {
+            return Err(crate::error::GatError::new_err(
+                "DSL document does not produce a single Theory; \
+                 only `theory`, `class`, and `inductive` bodies are \
+                 supported by Theory.from_*. Use the panproto-theory-dsl \
+                 crate directly for morphism / composition / protocol / \
+                 bundle / instance documents.",
+            ));
+        }
+    };
+    Ok(PyTheory {
+        inner: Arc::new(theory),
+    })
 }
 
 // ---------------------------------------------------------------------------
