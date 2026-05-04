@@ -289,9 +289,8 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
     // both are positive evidence about the data, not the schema, and
     // cannot coexist with object content.
     let object_only_signals = !node.extra_fields.is_empty() || node.discriminator.is_some();
-    let is_list = (list_via_schema && !object_only_signals)
-        || list_via_annotation
-        || list_via_instance_arcs;
+    let is_list =
+        (list_via_schema && !object_only_signals) || list_via_annotation || list_via_instance_arcs;
     if is_list {
         let children = instance.children(node_id);
         let items: Vec<serde_json::Value> = children
