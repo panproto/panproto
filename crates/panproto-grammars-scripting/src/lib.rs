@@ -3,9 +3,9 @@
 //! pyo3 cdylib that bakes the `panproto-grammars` `group-scripting`
 //! feature (Python, Ruby, Lua, Bash, Perl, R, Julia, Nushell, Fish)
 //! into static memory and exposes the metadata `panproto`'s
-//! [`AstParserRegistry`] consumes through the
-//! `panproto.grammars` entry point. See the architecture notes in
-//! the sibling `panproto-grammars-functional` crate.
+//! `AstParserRegistry` consumes through the `panproto.grammars`
+//! entry point. See the architecture notes in the sibling
+//! `panproto-grammars-functional` crate.
 
 #![allow(unsafe_code, clippy::doc_markdown)]
 

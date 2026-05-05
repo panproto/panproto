@@ -3,9 +3,9 @@
 //! pyo3 cdylib that bakes the `panproto-grammars` `group-mobile`
 //! feature (Swift, Kotlin, Dart, Java, Objective-C)
 //! into static memory and exposes the metadata `panproto`'s
-//! [`AstParserRegistry`] consumes through the
-//! `panproto.grammars` entry point. See the architecture notes in
-//! the sibling `panproto-grammars-functional` crate.
+//! `AstParserRegistry` consumes through the `panproto.grammars`
+//! entry point. See the architecture notes in the sibling
+//! `panproto-grammars-functional` crate.
 
 #![allow(unsafe_code, clippy::doc_markdown)]
 

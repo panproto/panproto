@@ -827,9 +827,18 @@ mod tests {
             project.protocol_map.get(Path::new("lib.rs")),
             Some(&"rust".to_owned())
         );
-        assert_eq!(
-            project.protocol_map.get(Path::new("README.md")),
-            Some(&"raw_file".to_owned())
+        // `README.md`'s detected protocol depends on whether the
+        // `markdown` grammar was compiled in. With the workspace's
+        // default feature set (`group-core`) markdown is absent and we
+        // fall back to `raw_file`; any build that activates a feature
+        // pulling markdown in (e.g. `group-all` via the
+        // `panproto-grammars-all` companion) lights up the markdown
+        // parser and the project picks that up. Both outcomes are
+        // valid.
+        let md = project.protocol_map.get(Path::new("README.md"));
+        assert!(
+            md == Some(&"markdown".to_owned()) || md == Some(&"raw_file".to_owned()),
+            "README.md detected as {md:?}, expected `markdown` or `raw_file`",
         );
     }
 
@@ -1056,6 +1065,15 @@ mod tests {
             detect::detect_language(Path::new("c.rs"), &registry),
             Some("rust")
         );
-        assert_eq!(detect::detect_language(Path::new("d.md"), &registry), None);
+        // `.md` resolution is conditional on the `markdown` grammar
+        // being compiled in. Default workspace features only enable
+        // `group-core`, which omits markdown; any build that activates
+        // a feature pulling it in (e.g. `group-all` via a companion
+        // pack) makes detection succeed. Accept either.
+        let md = detect::detect_language(Path::new("d.md"), &registry);
+        assert!(
+            md == Some("markdown") || md.is_none(),
+            "d.md detected as {md:?}, expected `markdown` or none",
+        );
     }
 }

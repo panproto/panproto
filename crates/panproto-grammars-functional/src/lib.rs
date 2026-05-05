@@ -1,12 +1,12 @@
 //! Companion grammar package: functional languages.
 //!
-//! This crate is a Python extension module (`panproto_grammars_functional._native`)
-//! built as its own pyo3 cdylib. It depends on [`panproto-grammars`] with
+//! This crate is a Python extension module (`panproto_grammars_functional._impl`)
+//! built as its own pyo3 cdylib. It depends on `panproto-grammars` with
 //! the `group-functional` feature flag, which bakes the Haskell, OCaml,
 //! Elm, Gleam, Erlang, Elixir, PureScript, F#, Clojure, Scheme, and
 //! Racket tree-sitter grammars into this cdylib's static memory.
 //!
-//! On import the module exposes a single function, [`grammars_metadata`],
+//! On import the module exposes a single function, `grammars_metadata`,
 //! that returns a list of dicts the core `panproto._native.AstParserRegistry`
 //! constructor accepts. The pointer-as-integer encoding lets two
 //! independent pyo3 cdylibs (`panproto._native` and this one) share
