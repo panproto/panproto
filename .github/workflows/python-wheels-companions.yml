@@ -35,19 +35,29 @@ jobs:
           - mobile
           - music
           - all
+        # Cartesian product: 10 companions × 5 targets = 50 jobs.
+        # Listing `target` as a top-level matrix axis (rather than as
+        # `include` entries that don't share a key with `companion`)
+        # is what makes GitHub Actions actually take the cross-product;
+        # the `include:` block below then attaches the matching `os`
+        # runner to each `target` value.
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+          - x86_64-pc-windows-msvc
         include:
-          # Each platform listed once, joined with the companion list
-          # via `target` below. This mirrors python-wheels.yml's set.
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: macos-latest
-            target: x86_64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
