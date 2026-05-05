@@ -54,8 +54,28 @@ assert!(panproto_grammars::has_grammar("python"));
 | `group-functional` | Haskell, OCaml, Elm, Gleam, Erlang, Elixir, PureScript, F#, Clojure, Scheme, Racket |
 | `group-devops` | Dockerfile, Terraform, HCL, Nix, Bash, YAML, TOML, Make, CMake |
 | `group-mobile` | Swift, Kotlin, Dart, Java, Objective-C |
+| `group-music` | SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation |
 | `group-all` | All 250 languages |
 | `lang-{name}` | Any individual language by name |
+
+## Companion grammar packs
+
+When the panproto Python wheel is installed from PyPI, only the `group-core` 11 languages are baked into the core `_native` extension. The remaining grammars are distributed as separately-installable companion packs, one wheel per group:
+
+| Wheel | Grammar group |
+|-------|--------------|
+| `panproto-grammars-web` | `group-web` |
+| `panproto-grammars-systems` | `group-systems` |
+| `panproto-grammars-jvm` | `group-jvm` |
+| `panproto-grammars-scripting` | `group-scripting` |
+| `panproto-grammars-data` | `group-data` |
+| `panproto-grammars-functional` | `group-functional` |
+| `panproto-grammars-devops` | `group-devops` |
+| `panproto-grammars-mobile` | `group-mobile` |
+| `panproto-grammars-music` | `group-music` |
+| `panproto-grammars-all` | `group-all` |
+
+Each is a separate pyo3 cdylib depending on `panproto-grammars` with the named feature flag. The Rust source for the companion crates lives at `crates/panproto-grammars-<group>/`; the Python wheel scaffolding at `bindings/python-grammars-<group>/`. Source builds against `panproto-grammars` directly do not need the companions; they pick a feature flag and link the grammar bytes in directly.
 
 ## License
 

@@ -126,6 +126,46 @@ impl ParserRegistry {
         self.parsers.insert(name, parser);
     }
 
+    /// Register a tree-sitter language as a full-AST parser.
+    ///
+    /// Used by `panproto-grammars-*` companion crates that ship grammars
+    /// outside the default `panproto-grammars` build. The byte-slice
+    /// arguments must outlive this registry; the canonical pattern is
+    /// for the companion to bake the data into `&'static` rodata at
+    /// compile time and pass references that are valid for the process
+    /// lifetime.
+    ///
+    /// `walker_config` is looked up by `name` from the bundled per-language
+    /// configuration table. Languages without a tailored configuration
+    /// fall back to the default walker config.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError`] if theory extraction from `node_types_json`
+    /// fails or if the tags query rejects compilation.
+    pub fn register_external_grammar(
+        &mut self,
+        name: &'static str,
+        extensions: Vec<&'static str>,
+        language: tree_sitter::Language,
+        node_types_json: &'static [u8],
+        tags_query: Option<&'static str>,
+        grammar_json: Option<&'static [u8]>,
+    ) -> Result<(), crate::error::ParseError> {
+        let config = crate::languages::walker_configs::walker_config_for(name);
+        let parser = crate::languages::common::LanguageParser::from_language_with_grammar_json(
+            name,
+            extensions,
+            language,
+            node_types_json,
+            tags_query,
+            config,
+            grammar_json,
+        )?;
+        self.register(Box::new(parser));
+        Ok(())
+    }
+
     /// Detect the language protocol for a file path by its extension.
     ///
     /// Returns `None` if the extension is not recognized (caller should
@@ -230,6 +270,18 @@ impl ParserRegistry {
     /// List all registered protocol names.
     pub fn protocol_names(&self) -> impl Iterator<Item = &str> {
         self.parsers.keys().map(String::as_str)
+    }
+
+    /// O(1) lookup: is a parser already registered for `protocol`?
+    ///
+    /// Useful for dedup at the registration boundary. The umbrella
+    /// `panproto-grammars-all` companion pack overlaps with both the
+    /// built-in core grammars and every per-group pack; callers can
+    /// short-circuit before re-registering rather than scanning
+    /// `protocol_names()` linearly.
+    #[must_use]
+    pub fn has_parser(&self, protocol: &str) -> bool {
+        self.parsers.contains_key(protocol)
     }
 
     /// Get the number of registered parsers.

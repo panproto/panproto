@@ -64,6 +64,7 @@ from panproto._native import (
     # GAT
     Model,
     Theory,
+    TheoryBuilder,
     check_model,
     check_morphism,
     colimit_theories,
@@ -79,7 +80,6 @@ from panproto._native import (
     Repository,
     VcsRepository,
     # Parse + ParseEmitLens
-    AstParserRegistry,
     ParseEmitLens,
     available_grammars,
     parse_source_file,
@@ -92,6 +92,53 @@ from panproto._native import (
     GitImportResult,
     git_import,
 )
+
+from panproto._native import AstParserRegistry as _AstParserRegistryNative
+
+_GRAMMAR_ENTRY_POINT_GROUP = "panproto.grammars"
+
+
+def AstParserRegistry() -> _AstParserRegistryNative:  # noqa: N802
+    """Construct a registry of full-AST parsers, populated with built-in
+    grammars and any grammars contributed by installed companion packages.
+
+    Companion packages declare a ``panproto.grammars`` entry point that
+    points at a module exposing ``grammars_metadata()``. On every call,
+    this factory walks every such entry point, calls each loaded
+    module's metadata function, and feeds the combined list to the
+    native ``panproto._native.AstParserRegistry`` constructor's
+    ``extra_grammars`` parameter. Built-in grammars from the core wheel
+    keep working unchanged; companion grammars become available after a
+    simple ``pip install panproto-grammars-<group>``.
+
+    The native class is reachable as ``panproto._native.AstParserRegistry``
+    for callers who want the bare core behaviour without any companion
+    grammars (e.g. when reproducing a fixed-grammar build for testing).
+    """
+    from importlib.metadata import entry_points
+
+    extras: list[dict[str, object]] = []
+    for ep in entry_points(group=_GRAMMAR_ENTRY_POINT_GROUP):
+        try:
+            module = ep.load()
+            metadata_fn = getattr(module, "grammars_metadata", None)
+            if metadata_fn is None:
+                continue
+            extras.extend(metadata_fn())
+        except Exception:  # noqa: BLE001
+            # A broken companion shouldn't take down core panproto;
+            # surface the failure as a warning and continue.
+            import warnings
+
+            warnings.warn(
+                f"panproto: failed to load companion grammar package "
+                f"{ep.name!r}; its grammars will be unavailable. "
+                f"Reinstall the package or report a bug.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+    return _AstParserRegistryNative(extra_grammars=extras or None)
+
 
 # Deprecated alias kept for callers that wrote against the WASM SDK
 # before the native pyo3 wheel replaced it. New code should import
@@ -176,6 +223,7 @@ __all__ = [
     # GAT
     "Model",
     "Theory",
+    "TheoryBuilder",
     "check_model",
     "check_morphism",
     "colimit_theories",

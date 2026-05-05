@@ -1,0 +1,27 @@
+[package]
+name = "panproto-grammars-scripting"
+description = "Companion grammar package: scripting languages for the panproto Python wheel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+# Globally-unique cdylib name to avoid `PyInit_<name>` symbol
+# collisions across companions in the same Python process.
+name = "panproto_grammars_scripting_impl"
+crate-type = ["cdylib"]
+
+[dependencies]
+# `default-features = false` lets this companion ship only the
+# `group-scripting` grammars, not the workspace-default `group-core`.
+# Workspace inheritance is bypassed because the workspace dep
+# doesn't pin default-features.
+panproto-grammars = { version = "=0.45.0", path = "../panproto-grammars", default-features = false, features = ["group-scripting"] }
+pyo3 = { workspace = true }
+tree-sitter = { workspace = true }
+
+[lints]
+workspace = true

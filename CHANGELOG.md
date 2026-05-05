@@ -4,6 +4,44 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-05-05
+
+### Added
+
+- **`panproto.TheoryBuilder` on the Python SDK** — a fluent builder mirroring `SchemaBuilder` and `MigrationBuilder`. Accumulates sorts, operations, and equational axioms via chained calls and produces a `Theory` ready for `colimit_theories`, `free_model`, and the migration engine. The dependent-sort surface (`"Tm(arrow(a, b))"`) is supported on the same footing as the Rust `class!` macro and the JSON / YAML / Nickel surfaces, since all three paths route through the same `panproto-theory-dsl` term parser. Existing `create_theory(dict)` callers keep working unchanged. Example:
+
+  ```python
+  t = (
+      panproto.TheoryBuilder("upt")
+      .sort("pitch")
+      .sort("interval")
+      .op("transpose", ["pitch", "interval"], "pitch", input_names=["p", "i"])
+      .op("zero", [], "interval")
+      .eq("transpose_zero", "transpose(p, zero())", "p")
+      .build()
+  )
+  ```
+
+- **`[features]` section on `crates/panproto-py/Cargo.toml`** that forwards every group and per-language flag of `panproto-grammars` and `panproto-parse`. Source-built wheels and downstream Rust consumers depending on `panproto-py` directly can now pick a smaller bundle (`group-core`, `lang-haskell`, …) or opt into the full grammar surface (`group-all`) without modifying `panproto-grammars`. The published wheel still defaults to `group-core` (the 11-language baseline) to keep the wheel within PyPI's per-file size limit; the spaCy-style language-pack story for the published wheel is the companion-pack architecture below.
+- **Companion grammar packs**: a family of pip-installable extension wheels that contribute tree-sitter grammars to the core `panproto` wheel without bloating it. `panproto.AstParserRegistry()` is now a Python factory that discovers any installed pack via the `panproto.grammars` entry point and feeds its grammar metadata into the native registry at construction time. Native-only access (no companions) stays available as `panproto._native.AstParserRegistry`. The full set, each its own pyo3 cdylib depending on `panproto-grammars` with one `group-*` feature flag:
+  - `panproto-grammars-web` — HTML, CSS, JavaScript, TypeScript, TSX, JSON, Vue, Svelte, Astro, GraphQL.
+  - `panproto-grammars-systems` — C, C++, Rust, Go, Zig, D, Nim, Odin, V, Hare.
+  - `panproto-grammars-jvm` — Java, Kotlin, Scala, Groovy, Clojure.
+  - `panproto-grammars-scripting` — Python, Ruby, Lua, Bash, Perl, R, Julia, Nushell, Fish.
+  - `panproto-grammars-data` — JSON, TOML, XML, YAML, SQL, CSV, GraphQL, Protobuf.
+  - `panproto-grammars-functional` — Haskell, OCaml, Elm, Gleam, Erlang, Elixir, PureScript, F#, Clojure, Scheme, Racket.
+  - `panproto-grammars-devops` — Dockerfile, Terraform, HCL, Nix, Bash, YAML, TOML, Make, CMake.
+  - `panproto-grammars-mobile` — Swift, Kotlin, Dart, Java, Objective-C.
+  - `panproto-grammars-music` — SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation.
+  - `panproto-grammars-all` — every grammar in `panproto-grammars`, for users who'd rather one install than picking groups.
+- **Cross-cdylib boundary** (`panproto-parse::ParserRegistry::register_external_grammar` + the `extra_grammars` argument on `panproto._native.AstParserRegistry`'s constructor): each companion's `grammars_metadata()` returns a list of dicts containing the tree-sitter `Language` pointer plus byte-slice pointer/length pairs (cast to integers for transport across cdylibs). The trust boundary lives on the panproto-py side and is gated by a single `#[allow(unsafe_code)]`; companion modules bake their grammar bytes into `&'static` rodata so the pointers remain valid for the process lifetime. A process-wide cache deduplicates leaked metadata across repeat constructions, and `ParserRegistry::has_parser` short-circuits re-registration of grammars already in the registry (relevant when the umbrella `all` pack overlaps the per-group packs).
+- **Tidal and Strudel mini-notation grammars** authored from spec, living in `grammars/tidal_mini/` and `grammars/strudel_mini/` alongside the existing 248 vendored grammars. Each `grammar.js` cites the documented spec example each rule was derived from (TidalCycles mini-notation reference and the Strudel mini-notation page). Corpus tests under `test/corpus/spec_examples.txt` cover every documented construct: 22/22 pass for Tidal, 14/14 for Strudel.
+- **QVR (Quivers DSL) tree-sitter grammar** registered under `lang-qvr` and included in `group-all`. QVR is a domain-specific language for declaring categorical theories (quantales, objects, morphisms, continuous and stochastic spaces, monadic programs over them). Vendored from `FACTSlab/quivers` at `grammars/qvr/`, following the same `directory =` pattern as Stan, F#, Markdown, and Cedar's multi-grammar repos. Integration test at `crates/panproto-parse/tests/qvr_parse.rs` parses representative HMM and program-block sources end-to-end and asserts the structural vertex kinds (`quantale_decl`, `object_decl`, `stochastic_decl`, `let_decl`, `output_decl`, `type_alias_decl`, `continuous_decl`, `program_decl`, `draw_step`).
+- **Per-(platform, group) companion publish workflow** (`.github/workflows/python-wheels-companions.yml`): on a `v*` tag push, builds and publishes one wheel per (target-platform, companion) pair.
+- **CI companion smoke test** (`python-companion` job in `ci.yml`): builds the core wheel + the `functional` companion against a fresh venv on every push, asserts the registry discovers companion grammars via the entry point, and parses Haskell / OCaml / Scheme / Clojure end-to-end. Catches cross-cdylib regressions before tag time. The other companions follow the same generated template, so the canary covers the architecture; the music companion is exercised separately via the on-tag publish workflow because its grammars aren't vendored in the workspace.
+- **`tools/fetch-grammars.py`**: skips the upstream clone when `grammars/<name>/grammar.js` and `src/parser.c` are already present, so self-referential entries (`tidal_mini`, `strudel_mini`) don't trigger a redundant clone of the panproto repo.
+- **`.github/scripts/check_version_consistency.py`**: validates that every `bindings/python-grammars-*/pyproject.toml` pins `panproto>={major}.{minor},<{major}.{minor+1}` matching the workspace version, so a future workspace bump doesn't leave companions unsatisfiable on PyPI.
+
 ## [0.44.0] - 2026-05-04
 
 ### Added

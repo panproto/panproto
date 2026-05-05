@@ -602,6 +602,78 @@ class TestGat:
         with pytest.raises(panproto.GatError):
             panproto.Theory.from_json(bundle)
 
+    def test_theory_builder_simple(self) -> None:
+        # Mirrors the SchemaBuilder / MigrationBuilder fluent surface for
+        # users who'd rather declare a theory line-by-line than build a
+        # nested dict literal.
+        t = (
+            panproto.TheoryBuilder("upt")
+            .sort("pitch")
+            .sort("interval")
+            .op("transpose", ["pitch", "interval"], "pitch", input_names=["p", "i"])
+            .op("zero", [], "interval")
+            .eq("transpose_zero", "transpose(p, zero())", "p")
+            .build()
+        )
+        assert t.name == "upt"
+        assert t.sort_count == 2
+        assert t.op_count == 2
+        assert t.eq_count == 1
+
+    def test_theory_builder_round_trips_through_to_json(self) -> None:
+        # The fluent builder emits the same flat panproto_gat::Theory
+        # shape that to_json / from_dict_json round-trip through.
+        original = (
+            panproto.TheoryBuilder("Roundtrip")
+            .sort("A")
+            .op("id", ["A"], "A", input_names=["x"])
+            .build()
+        )
+        recovered = panproto.Theory.from_dict_json(original.to_json())
+        assert recovered.to_dict() == original.to_dict()
+
+    def test_theory_builder_accepts_dependent_sorts(self) -> None:
+        # Dependent sort syntax (e.g. `Tm(arrow(a, b))`) goes through
+        # the same panproto-theory-dsl term parser as the JSON / YAML /
+        # Nickel surfaces, so the fluent builder gets dependent sorts
+        # for free.
+        t = (
+            panproto.TheoryBuilder("STLC")
+            .sort("Ty")
+            .sort("Tm")
+            .op("arrow", ["Ty", "Ty"], "Ty", input_names=["a", "b"])
+            .op(
+                "lam",
+                ["Ty", "Ty", "Tm(b)"],
+                "Tm(arrow(a, b))",
+                input_names=["a", "b", "body"],
+            )
+            .build()
+        )
+        lam = next(o for o in t.ops if o["name"] == "lam")
+        # `lam`'s output sort must be the dependent sort `Tm(arrow(a, b))`,
+        # not collapsed to a bare `Tm`.
+        out = lam["output"]
+        assert isinstance(out, dict)
+        assert out["name"] == "Tm"
+        # Last input is `Tm(b)` — also a dependent sort, second arg of
+        # the (name, sort, implicit) triple.
+        body_input = lam["inputs"][-1]
+        assert isinstance(body_input[1], dict)
+        assert body_input[1]["name"] == "Tm"
+
+    def test_theory_builder_op_validates_input_names(self) -> None:
+        # When the caller passes input_names, it must be the same length
+        # as inputs; mismatch raises GatError rather than silently
+        # truncating or padding.
+        with pytest.raises(panproto.GatError):
+            (
+                panproto.TheoryBuilder("Bad")
+                .sort("A")
+                .op("f", ["A", "A"], "A", input_names=["x"])
+                .build()
+            )
+
 
 # ---------------------------------------------------------------------------
 # VCS

@@ -233,6 +233,56 @@ def check_cabal(path: Path, expected: str) -> list[Mismatch]:
     return []
 
 
+def check_companion_pyprojects(expected: str) -> list[Mismatch]:
+    """Each `bindings/python-grammars-<group>/pyproject.toml` pins
+    `panproto>=X,<Y` as a runtime dependency. Both bounds must track
+    the workspace version.
+
+    The motivating bug: a workspace bump from 0.45 to 0.46 leaves
+    every companion pinned at `panproto>=0.45,<0.46`, making the
+    new wheel unsatisfiable on PyPI. Catching this in CI before tag
+    push is cheaper than yanking nine wheels after the fact.
+
+    Convention: lower bound is the same major.minor as the workspace
+    (`>={major}.{minor}`); upper bound is the next minor
+    (`<{major}.{minor+1}`). Patch-level bumps don't move the bounds.
+    """
+    expected_parts = expected.split(".")
+    if len(expected_parts) < 3:
+        return []  # malformed; let other checks handle it
+    major, minor = expected_parts[0], expected_parts[1]
+    next_minor = str(int(minor) + 1)
+    expected_lower = f"{major}.{minor}"
+    expected_upper = f"{major}.{next_minor}"
+
+    out: list[Mismatch] = []
+    for pyproject in sorted(ROOT.glob("bindings/python-grammars-*/pyproject.toml")):
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        deps = data.get("project", {}).get("dependencies", [])
+        panproto_pins = [d for d in deps if d.startswith("panproto") and "grammars" not in d]
+        if not panproto_pins:
+            out.append(
+                Mismatch(
+                    path=pyproject,
+                    field="project.dependencies (panproto pin)",
+                    found="<missing>",
+                    expected=f"panproto>={expected_lower},<{expected_upper}",
+                )
+            )
+            continue
+        pin = panproto_pins[0]
+        if f">={expected_lower}" not in pin or f"<{expected_upper}" not in pin:
+            out.append(
+                Mismatch(
+                    path=pyproject,
+                    field="project.dependencies (panproto pin)",
+                    found=pin,
+                    expected=f"panproto>={expected_lower},<{expected_upper}",
+                )
+            )
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verbose", action="store_true")
@@ -243,6 +293,7 @@ def main() -> int:
     mismatches: list[Mismatch] = []
     mismatches.extend(check_root_cargo(expected))
     mismatches.extend(check_member_cargo_files(expected))
+    mismatches.extend(check_companion_pyprojects(expected))
     # `bindings/python/pyproject.toml` is the maturin project root.
     # It MUST declare `dynamic = ["version"]` so maturin reads the
     # version from `crates/panproto-py/Cargo.toml` (which inherits
