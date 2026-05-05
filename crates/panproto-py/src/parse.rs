@@ -368,7 +368,7 @@ fn register_external_from_metadata(
     // entry and leak fresh `&'static` allocations for nothing; an
     // early return preserves the first registration and avoids the
     // leak.
-    if reg.protocol_names().any(|n| n == name.as_str()) {
+    if reg.has_parser(&name) {
         return Ok(());
     }
 

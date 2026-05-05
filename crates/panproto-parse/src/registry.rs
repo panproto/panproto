@@ -272,6 +272,18 @@ impl ParserRegistry {
         self.parsers.keys().map(String::as_str)
     }
 
+    /// O(1) lookup: is a parser already registered for `protocol`?
+    ///
+    /// Useful for dedup at the registration boundary. The umbrella
+    /// `panproto-grammars-all` companion pack overlaps with both the
+    /// built-in core grammars and every per-group pack; callers can
+    /// short-circuit before re-registering rather than scanning
+    /// `protocol_names()` linearly.
+    #[must_use]
+    pub fn has_parser(&self, protocol: &str) -> bool {
+        self.parsers.contains_key(protocol)
+    }
+
     /// Get the number of registered parsers.
     #[must_use]
     pub fn len(&self) -> usize {
