@@ -790,9 +790,17 @@ mod tests {
             .unwrap();
 
         let project = builder.build().unwrap();
-        assert_eq!(
-            project.protocol_map.get(Path::new("README.md")),
-            Some(&"raw_file".to_owned())
+        // Same workspace-feature-unification caveat as `mixed_languages`:
+        // `.md` resolves to `markdown` when that grammar is compiled
+        // in (e.g. via the `panproto-grammars-all` companion in this
+        // workspace) and falls back to `raw_file` otherwise. Both are
+        // valid; the test exists to confirm `add_file` populated the
+        // protocol_map at all, not to enforce a particular detection
+        // outcome that depends on which features cargo unified.
+        let detected = project.protocol_map.get(Path::new("README.md"));
+        assert!(
+            detected == Some(&"markdown".to_owned()) || detected == Some(&"raw_file".to_owned()),
+            "README.md detected as {detected:?}, expected `markdown` or `raw_file`",
         );
     }
 
