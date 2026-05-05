@@ -5,6 +5,13 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
+    inputs:
+      skip_publish:
+        description: "If true, build wheels but don't publish to PyPI (artifacts uploaded only)."
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -93,6 +100,13 @@ jobs:
   publish:
     name: Publish ${{ matrix.companion }} to PyPI
     needs: build
+    # Skip the PyPI publish step on a manual `workflow_dispatch` when
+    # `skip_publish` is true. Used to build wheels for a manual `twine
+    # upload` (typical case: a tag has already published partial
+    # artifacts, the matrix is now corrected, and we want all 50
+    # wheels in hand for an out-of-band upload that claims the
+    # PyPI package names).
+    if: github.event_name != 'workflow_dispatch' || inputs.skip_publish != true
     strategy:
       fail-fast: false
       matrix:
