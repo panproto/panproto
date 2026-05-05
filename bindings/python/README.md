@@ -89,6 +89,38 @@ repo.merge("feature")
 | `AstParserRegistry`, `parse_source_file`, `ParseEmitLens` | Full-AST parsing across ~250 languages via tree-sitter. |
 | `Expr`, `parse_expr`, `pretty_print_expr` | Embedded expression language.                                  |
 
+## Companion grammar packs
+
+The published `panproto` wheel ships only the 11 `group-core` tree-sitter grammars (Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, Rust). Beyond that, grammars are distributed as separately-installable companion wheels, one per language group:
+
+| Wheel | Languages |
+|-------|-----------|
+| `panproto-grammars-web` | HTML, CSS, JavaScript, TypeScript, TSX, JSON, Vue, Svelte, Astro, GraphQL |
+| `panproto-grammars-systems` | C, C++, Rust, Go, Zig, D, Nim, Odin, V, Hare |
+| `panproto-grammars-jvm` | Java, Kotlin, Scala, Groovy, Clojure |
+| `panproto-grammars-scripting` | Python, Ruby, Lua, Bash, Perl, R, Julia, Nushell, Fish |
+| `panproto-grammars-data` | JSON, TOML, XML, YAML, SQL, CSV, GraphQL, Protobuf |
+| `panproto-grammars-functional` | Haskell, OCaml, Elm, Gleam, Erlang, Elixir, PureScript, F#, Clojure, Scheme, Racket |
+| `panproto-grammars-devops` | Dockerfile, Terraform, HCL, Nix, Bash, YAML, TOML, Make, CMake |
+| `panproto-grammars-mobile` | Swift, Kotlin, Dart, Java, Objective-C |
+| `panproto-grammars-music` | SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation |
+| `panproto-grammars-all` | every grammar in `panproto-grammars` (around 250 languages) |
+
+Install whichever group you need:
+
+```bash
+pip install panproto-grammars-functional
+```
+
+There is nothing to import from these packages. They register a `panproto.grammars` entry point on installation; `panproto.AstParserRegistry()` walks every such entry point and threads the discovered grammar metadata into the native registry on construction. The native class is reachable as `panproto._native.AstParserRegistry()` for callers who want only the `group-core` baseline.
+
+How it works under the hood:
+
+* Each companion is its own pyo3 cdylib depending on `panproto-grammars` with one `group-*` feature flag.
+* On `import`, the companion's `grammars_metadata()` returns a list of dicts containing the tree-sitter `Language` pointer plus byte-slice pointer/length pairs (cast to integers for transport across cdylib boundaries).
+* The trust boundary lives on the panproto side, in `register_external_from_metadata` (`crates/panproto-py/src/parse.rs`), which decodes the integers back into `&'static` references and registers a full `LanguageParser`. The companion's grammar bytes live in its `.rodata` and stay valid for the process lifetime.
+* A single broken grammar (e.g. an upstream `node-types.json` with a malformed entry) is skipped with a `RuntimeWarning` rather than aborting registration; mirrors the resilience of the built-in path.
+
 ## Performance notes
 
 * The `_native` extension talks to the Rust core through PyO3's zero-copy

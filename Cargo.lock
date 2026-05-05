@@ -2153,7 +2153,88 @@ dependencies = [
 ]
 
 [[package]]
+name = "panproto-grammars-all"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
+name = "panproto-grammars-data"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
+name = "panproto-grammars-devops"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
 name = "panproto-grammars-functional"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
+name = "panproto-grammars-jvm"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
+name = "panproto-grammars-mobile"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
+name = "panproto-grammars-music"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
+name = "panproto-grammars-scripting"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
+name = "panproto-grammars-systems"
+version = "0.45.0"
+dependencies = [
+ "panproto-grammars",
+ "pyo3",
+ "tree-sitter",
+]
+
+[[package]]
+name = "panproto-grammars-web"
 version = "0.45.0"
 dependencies = [
  "panproto-grammars",

@@ -21,7 +21,11 @@ pip install panproto
 
 *Listing 9.1: Installing the panproto Python SDK. The wheel is pre-built for the most common platform-architecture combinations (Linux x86_64 and aarch64, macOS x86_64 and arm64, Windows x86_64); other platforms receive a source distribution that requires a Rust toolchain at install time.*
 
-The package bundles every subsystem the Rust SDK exposes. There is no feature-flag equivalent on the Python side; the tree-sitter-based parsers and the git bridge are both included by default. A Python caller who does not use a subsystem does not pay for it at call time; the only cost is the size of the wheel, which is dominated by the bundled tree-sitter grammars.
+The package bundles every panproto subsystem except the tree-sitter grammars beyond `group-core`. Schema, migration, lens, expression, and VCS code paths are all included by default; the git bridge is too. A Python caller who does not use a subsystem does not pay for it at call time; the only cost is the size of the wheel.
+
+Tree-sitter grammars are split across the core wheel and a family of separately-installable companion wheels. The `panproto` wheel itself ships only the eleven `group-core` grammars (Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, Rust); installing more grammars is a `pip install panproto-grammars-<group>` away. The Python factory `panproto.AstParserRegistry()` discovers any installed companion through the `panproto.grammars` setuptools entry point and threads its grammar metadata into the native registry on construction, with no further configuration. The split is what lets the core wheel stay within PyPI's per-file size ceiling — without it, an everything-bundled wheel runs to 300 MB unstripped.
+
+The full list of companion packs is in [bindings/python/README.md](https://github.com/panproto/panproto/tree/main/bindings/python#companion-grammar-packs); they range from the cluster-aligned (`web`, `systems`, `jvm`, `data`, `devops`, `mobile`, `scripting`, `functional`) to the domain-specific (`music`, covering live-coding hosts and notation languages) to a `panproto-grammars-all` umbrella that pulls in every grammar `panproto-grammars` knows about.
 
 ## Why native and not WASM
 

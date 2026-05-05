@@ -163,6 +163,70 @@ jobs:
       - run: . .venv/bin/activate && python -c "import panproto; print(f'panproto {panproto.__version__} loaded, {len(panproto.list_builtin_protocols())} protocols')"
       - run: . .venv/bin/activate && cd bindings/python && python -m pytest tests/ -x
 
+  python-companion:
+    # Smoke-test that a companion grammar pack registers grammars into
+    # the wrapper's AstParserRegistry via the `panproto.grammars` entry
+    # point. Uses `panproto-grammars-functional` as the canary; the
+    # other 8 companions follow the same architecture (and the same
+    # generator template), so a failure of any of them would surface
+    # as a functional-pack failure here. The on-tag publish workflow
+    # (`python-wheels-companions.yml`) builds all nine.
+    name: Python Companion Grammar Pack
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.13"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: python-companion-${{ matrix.os }}
+      - run: python -m venv .venv && . .venv/bin/activate && pip install maturin
+      # Build & install the core wheel first; the companion's runtime
+      # dep on `panproto>=0.45,<0.46` is satisfied by this editable
+      # install, and the entry-point discovery only fires when the
+      # core panproto is importable.
+      - run: . .venv/bin/activate && cd bindings/python && maturin develop --release
+      # Build the functional pack to validate cross-cdylib registration.
+      # Other packs follow the same template (generated from the same
+      # script); a green functional run validates the architecture for
+      # the rest. The music pack is an exception — its grammars are
+      # fetched at CI time via `tools/fetch-grammars.py`, not vendored.
+      - run: . .venv/bin/activate && cd bindings/python-grammars-functional && maturin develop --release
+      - run: |
+          . .venv/bin/activate
+          python - <<'PY'
+          import warnings
+          warnings.simplefilter("always")
+          import panproto
+
+          reg = panproto.AstParserRegistry()
+          protos = set(reg.protocol_names())
+
+          # Built-in core gives ~10; functional adds ~10 more (erlang
+          # is skipped upstream because of a malformed node-types.json).
+          assert len(protos) >= 18, f"expected ≥18 protocols, got {len(protos)}: {sorted(protos)}"
+          for lang in ("haskell", "ocaml", "scheme", "clojure"):
+              assert lang in protos, f"{lang} not registered (have: {sorted(protos)})"
+
+          # End-to-end parse to confirm the registered grammar is
+          # actually wired through the FFI boundary correctly.
+          schema = reg.parse_with_protocol("haskell", b"f x = x", "main.hs")
+          assert schema.vertex_count > 0, "haskell parse produced empty schema"
+
+          # Native registry (no companion) still produces only built-ins.
+          native = panproto._native.AstParserRegistry()
+          assert len(native.protocol_names()) < len(protos)
+
+          print(f"OK: {len(protos)} protocols with companion ({len(native.protocol_names())} core)")
+          PY
+
   semver:
     name: Semver Check
     if: github.event_name == 'pull_request'

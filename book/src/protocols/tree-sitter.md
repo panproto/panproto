@@ -53,6 +53,17 @@ A tree-sitter grammar does not declare a language's type system, its name-resolu
 
 For the programmer using panproto, this means that parsing a Rust source file through the Rust protocol produces a schema whose instance passes panproto's theory-level validation whenever the source is syntactically valid Rust. It does not follow that the code compiles. A developer who wants that guarantee combines panproto's parse with a call to `rustc` or a similar language-specific check; panproto is not a replacement for a compiler.
 
+## Authoring grammars from spec
+
+Most of the grammars panproto bundles are vendored from upstream `tree-sitter-<language>` repos: someone else wrote `grammar.js` and panproto's `tools/fetch-grammars.py` clones the repo and copies the result into `grammars/<language>/`. Two grammars in the bundle are authored in panproto itself against the language's documented specification: `tidal_mini` (TidalCycles mini-notation) and `strudel_mini` (Strudel mini-notation). The pattern they follow is the one any future panproto-authored grammar should follow:
+
+1. Read the language's official syntactic reference. Cite the exact section each grammar rule is grounded in. For Tidal mini-notation that reference is the [TidalCycles mini-notation page](https://tidalcycles.org/docs/reference/mini_notation); for Strudel it is the [Strudel mini-notation page](https://strudel.cc/learn/mini-notation/).
+2. Write `grammar.js` from those documented constructs only; do not invent syntax. Per-rule comments cite the documented example each rule was derived from.
+3. Add a corpus test under `test/corpus/spec_examples.txt` for every documented construct. Every test case is named after the spec construct it exercises.
+4. Run `tree-sitter generate` to produce `parser.c`, `grammar.json`, and `node-types.json`. Commit both the source and the generated outputs so consumers without the tree-sitter CLI can build the C parser directly.
+
+The result for both Tidal and Strudel is an *island* grammar: Tidal and Strudel mini-notation are embedded inside the string argument of a host-language function call, not standalone files. The same procedure works for full-file grammars. The advantage of authoring a grammar against the spec rather than copying syntax from a reference implementation is that the grammar is independently grounded: it tracks the spec rather than a particular interpreter's accidental quirks. The disadvantage is that it forces every construct through the documentation, so anything the docs leave underspecified surfaces as a question rather than as silent inheritance.
+
 ## Hand-written protocols as upgrades
 
 For languages whose semantic structure panproto needs to reason about (Rust, when a migration is rewriting trait bounds in a way that requires understanding trait inheritance, for example), a hand-written protocol can be layered on top of the tree-sitter-derived one. The hand-written protocol's theory imports the derived theory through a theory morphism, then adds new sorts (trait resolution tables, type environments) and operations that encode the semantic structure. Migrations under the hand-written protocol have access to the richer information and can perform transformations the derived protocol alone could not verify.

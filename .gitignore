@@ -58,3 +58,4 @@ lean/.lake/tmp/
 # Scratch
 tmp/
 book/book/
+.scratch/

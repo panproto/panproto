@@ -1,0 +1,2372 @@
+{
+  "name": "abc",
+  "rules": {
+    "source_file": {
+      "type": "SYMBOL",
+      "name": "file_structure"
+    },
+    "_space": {
+      "type": "PATTERN",
+      "value": " "
+    },
+    "_NL": {
+      "type": "STRING",
+      "value": "\n"
+    },
+    "TEXTLINE": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "TEXT"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_NL"
+        }
+      ]
+    },
+    "noCommentText": {
+      "type": "PATTERN",
+      "value": "[^%\\n]+"
+    },
+    "SLASH": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "\\"
+        }
+      ]
+    },
+    "plus": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "+"
+        }
+      ]
+    },
+    "field_header": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "PATTERN",
+          "value": "\\w"
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        }
+      ]
+    },
+    "note_skip": {
+      "type": "STRING",
+      "value": "*"
+    },
+    "HYPHEN": {
+      "type": "STRING",
+      "value": "-"
+    },
+    "UNDERSCORE": {
+      "type": "STRING",
+      "value": "_"
+    },
+    "TILDE": {
+      "type": "STRING",
+      "value": "~"
+    },
+    "BEAM_SEPARATOR": {
+      "type": "STRING",
+      "value": "`"
+    },
+    "open_chord": {
+      "type": "STRING",
+      "value": "["
+    },
+    "close_chord": {
+      "type": "STRING",
+      "value": "]"
+    },
+    "COMMENT": {
+      "type": "PATTERN",
+      "value": "%[^%\\n]*"
+    },
+    "stylesheet_directives": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "%%"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "noCommentText"
+        }
+      ]
+    },
+    "_MUSIC_CODE": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "_music_content"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "PATTERN",
+              "value": "[\\s]+"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "file_structure": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "file_header"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "tune"
+              },
+              {
+                "type": "REPEAT",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_NL"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "file_header": {
+      "type": "REPEAT1",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "file_header_info_line"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "stylesheet_directives"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "COMMENT"
+              }
+            ]
+          },
+          {
+            "type": "REPEAT1",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_NL"
+            }
+          }
+        ]
+      }
+    },
+    "tune": {
+      "type": "PREC_LEFT",
+      "value": 0,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "tune_header"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "tune_body"
+                  },
+                  {
+                    "type": "REPEAT",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_NL"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "lyric_section"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "tune_header": {
+      "type": "PREC_LEFT",
+      "value": 0,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "reference_number_line"
+          },
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "tune_header_info_line"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "COMMENT"
+                    }
+                  ]
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "_NL"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "tune_body": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "_MUSIC_CODE"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "_MUSIC_CODE"
+                  },
+                  {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "SYMBOL",
+                        "name": "body_info_line"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "_NL"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "SYMBOL",
+                        "name": "COMMENT"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "_NL"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "stylesheet_directives"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "_music_content": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "generic_bar_line"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "beam"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "annotation"
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "_nte_or_chrd"
+            },
+            {
+              "type": "PATTERN",
+              "value": "[\\s]+"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "slur_open"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "slur_close"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "multimeasure_rest"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "symbol"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "body_inline_info"
+        },
+        {
+          "type": "STRING",
+          "value": "\\"
+        }
+      ]
+    },
+    "_nte_or_chrd": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "note_construct"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_chord_cstrct"
+        }
+      ]
+    },
+    "beam": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "_nte_or_chrd"
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "BEAM_SEPARATOR"
+                  },
+                  {
+                    "type": "BLANK"
+                  }
+                ]
+              },
+              {
+                "type": "SYMBOL",
+                "name": "_nte_or_chrd"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "slur_open": {
+      "type": "STRING",
+      "value": "("
+    },
+    "slur_close": {
+      "type": "STRING",
+      "value": ")"
+    },
+    "note_construct": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SYMBOL",
+                "name": "grace_note"
+              }
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "chord_symbol"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "tuplet_marker"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "decoration"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "note"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "PATTERN",
+              "value": "-"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "_chord_cstrct": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SYMBOL",
+                "name": "grace_note"
+              }
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "chord_symbol"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "tuplet_marker"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "decoration"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "open_chord"
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SYMBOL",
+            "name": "chord_note"
+          }
+        },
+        {
+          "type": "SYMBOL",
+          "name": "close_chord"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "rhythm"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "note": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "_pitch"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "rest"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "rhythm"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "chord_note": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "grace_note"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "decoration"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "note"
+        }
+      ]
+    },
+    "_pitch": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "alteration"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "note_letter"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "octave"
+          }
+        }
+      ]
+    },
+    "alteration": {
+      "type": "PATTERN",
+      "value": "(=|_|\\^|\\^\\^|__|♭|♮|♯|𝄫|𝄪)"
+    },
+    "note_letter": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "[a-gA-G]"
+      }
+    },
+    "octave": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "[',]"
+      }
+    },
+    "rest": {
+      "type": "PATTERN",
+      "value": "[xz]"
+    },
+    "multimeasure_rest": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "Z"
+            },
+            {
+              "type": "STRING",
+              "value": "X"
+            }
+          ]
+        },
+        {
+          "type": "IMMEDIATE_TOKEN",
+          "content": {
+            "type": "PATTERN",
+            "value": "[0-9]+"
+          }
+        }
+      ]
+    },
+    "rhythm": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "[1-9]*\\/[1-9]+|[<>]+|[1-9]+|[\\/]+"
+      }
+    },
+    "grace_note": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "PATTERN",
+          "value": "\\{(\\/)?"
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_pitch"
+          }
+        },
+        {
+          "type": "PATTERN",
+          "value": "\\}"
+        }
+      ]
+    },
+    "chord_symbol_note": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "note_letter"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "alteration"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "chord_symbol": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "PATTERN",
+          "value": "\\\""
+        },
+        {
+          "type": "SYMBOL",
+          "name": "chord_symbol_note"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "chord_type"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "PATTERN",
+                  "value": "\\/"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "chord_symbol_note"
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "PATTERN",
+          "value": "\\\""
+        }
+      ]
+    },
+    "annotation": {
+      "type": "PATTERN",
+      "value": "\\\"[^\\\"\\n]*\\\""
+    },
+    "tuplet_marker": {
+      "type": "PATTERN",
+      "value": "\\(\\d+(((:\\d+){1,2})(::\\d+))?\\s*"
+    },
+    "decoration": {
+      "type": "SYMBOL",
+      "name": "decoration_shorthand"
+    },
+    "chord_type": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "minor"
+          },
+          {
+            "type": "STRING",
+            "value": "major"
+          },
+          {
+            "type": "STRING",
+            "value": "diminished"
+          },
+          {
+            "type": "STRING",
+            "value": "augmented"
+          },
+          {
+            "type": "STRING",
+            "value": "suspended"
+          },
+          {
+            "type": "STRING",
+            "value": "7"
+          },
+          {
+            "type": "STRING",
+            "value": "9"
+          },
+          {
+            "type": "PATTERN",
+            "value": "\\w+"
+          }
+        ]
+      }
+    },
+    "decoration_shorthand": {
+      "type": "PATTERN",
+      "value": "[\\.~HLMOPSTuv]"
+    },
+    "nth_ending_barline": {
+      "type": "PREC",
+      "value": 2,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "bar_line"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "thin_double_bar_line"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "end_of_repeated_section"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "close_thin_thick_double_bar_line"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "open_thick_thin_double_bar_line"
+              }
+            ]
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "PATTERN",
+                "value": "[\\s]+"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "SYMBOL",
+            "name": "nth_ending_number"
+          }
+        ]
+      }
+    },
+    "nth_ending_number": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "["
+        },
+        {
+          "type": "PATTERN",
+          "value": "[0-9]"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "STRING",
+                        "value": ","
+                      },
+                      {
+                        "type": "STRING",
+                        "value": "-"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "PATTERN",
+                    "value": "[0-9]"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "bar_line": {
+      "type": "STRING",
+      "value": "|"
+    },
+    "close_thin_thick_double_bar_line": {
+      "type": "STRING",
+      "value": "|]"
+    },
+    "thin_double_bar_line": {
+      "type": "STRING",
+      "value": "||"
+    },
+    "open_thick_thin_double_bar_line": {
+      "type": "STRING",
+      "value": "[|"
+    },
+    "start_of_repeated_section": {
+      "type": "STRING",
+      "value": "|:"
+    },
+    "end_of_repeated_section": {
+      "type": "STRING",
+      "value": ":|"
+    },
+    "start_end_of_two_repeated_sections": {
+      "type": "STRING",
+      "value": "::"
+    },
+    "generic_bar_line": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "nth_ending_barline"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "thin_double_bar_line"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "close_thin_thick_double_bar_line"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "open_thick_thin_double_bar_line"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "start_of_repeated_section"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "end_of_repeated_section"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "start_end_of_two_repeated_sections"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "first_repeat_bar"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "second_repeat_bar"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "bar_line"
+        }
+      ]
+    },
+    "first_repeat_bar": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "bar_line"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "PATTERN",
+                  "value": "\\s"
+                },
+                {
+                  "type": "STRING",
+                  "value": "["
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "PATTERN",
+          "value": "[0-9]+"
+        }
+      ]
+    },
+    "second_repeat_bar": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "end_of_repeated_section"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "PATTERN",
+                  "value": "\\s"
+                },
+                {
+                  "type": "STRING",
+                  "value": "["
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "PATTERN",
+          "value": "[0-9]+"
+        }
+      ]
+    },
+    "lyric_line": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "words_postbody"
+        },
+        {
+          "type": "PATTERN",
+          "value": "[^\\n]*"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_NL"
+        }
+      ]
+    },
+    "lyric_section": {
+      "type": "REPEAT1",
+      "content": {
+        "type": "SYMBOL",
+        "name": "lyric_line"
+      }
+    },
+    "lyric_syllable": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "PATTERN",
+          "value": "\\w+"
+        }
+      ]
+    },
+    "verse_number": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "PATTERN",
+          "value": "\\d"
+        },
+        {
+          "type": "STRING",
+          "value": "."
+        }
+      ]
+    },
+    "lyric_text": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "verse_number"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "lyric_syllable"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "bar_line"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "HYPHEN"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "UNDERSCORE"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "TILDE"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "note_skip"
+        }
+      ]
+    },
+    "symbol": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "!trill!"
+        },
+        {
+          "type": "STRING",
+          "value": "!trill(!"
+        },
+        {
+          "type": "STRING",
+          "value": "!trill)!"
+        },
+        {
+          "type": "STRING",
+          "value": "!lowermordent!"
+        },
+        {
+          "type": "STRING",
+          "value": "!uppermordent!"
+        },
+        {
+          "type": "STRING",
+          "value": "!mordent!"
+        },
+        {
+          "type": "STRING",
+          "value": "!pralltriller!"
+        },
+        {
+          "type": "STRING",
+          "value": "!roll!"
+        },
+        {
+          "type": "STRING",
+          "value": "!turn!"
+        },
+        {
+          "type": "STRING",
+          "value": "!turnx!"
+        },
+        {
+          "type": "STRING",
+          "value": "!invertedturn!"
+        },
+        {
+          "type": "STRING",
+          "value": "!invertedturnx!"
+        },
+        {
+          "type": "STRING",
+          "value": "!arpeggio!"
+        },
+        {
+          "type": "STRING",
+          "value": "!>!"
+        },
+        {
+          "type": "STRING",
+          "value": "!accent!"
+        },
+        {
+          "type": "STRING",
+          "value": "!emphasis!"
+        },
+        {
+          "type": "STRING",
+          "value": "!fermata!"
+        },
+        {
+          "type": "STRING",
+          "value": "!invertedfermata!"
+        },
+        {
+          "type": "STRING",
+          "value": "!tenuto!"
+        },
+        {
+          "type": "STRING",
+          "value": "!0! - !5!"
+        },
+        {
+          "type": "STRING",
+          "value": "!+!"
+        },
+        {
+          "type": "STRING",
+          "value": "!plus!"
+        },
+        {
+          "type": "STRING",
+          "value": "!snap!"
+        },
+        {
+          "type": "STRING",
+          "value": "!slide!"
+        },
+        {
+          "type": "STRING",
+          "value": "!wedge!"
+        },
+        {
+          "type": "STRING",
+          "value": "!upbow!"
+        },
+        {
+          "type": "STRING",
+          "value": "!downbow!"
+        },
+        {
+          "type": "STRING",
+          "value": "!open!"
+        },
+        {
+          "type": "STRING",
+          "value": "!thumb!"
+        },
+        {
+          "type": "STRING",
+          "value": "!breath!"
+        },
+        {
+          "type": "STRING",
+          "value": "!pppp!"
+        },
+        {
+          "type": "STRING",
+          "value": "!ppp!"
+        },
+        {
+          "type": "STRING",
+          "value": "!pp!"
+        },
+        {
+          "type": "STRING",
+          "value": "!p!"
+        },
+        {
+          "type": "STRING",
+          "value": "!mp!"
+        },
+        {
+          "type": "STRING",
+          "value": "!mf!"
+        },
+        {
+          "type": "STRING",
+          "value": "!f!"
+        },
+        {
+          "type": "STRING",
+          "value": "!ff!"
+        },
+        {
+          "type": "STRING",
+          "value": "!fff!"
+        },
+        {
+          "type": "STRING",
+          "value": "!ffff!"
+        },
+        {
+          "type": "STRING",
+          "value": "!sfz!"
+        },
+        {
+          "type": "STRING",
+          "value": "!crescendo(!"
+        },
+        {
+          "type": "STRING",
+          "value": "!<(!"
+        },
+        {
+          "type": "STRING",
+          "value": "!crescendo)!"
+        },
+        {
+          "type": "STRING",
+          "value": "!<)!"
+        },
+        {
+          "type": "STRING",
+          "value": "!diminuendo(!"
+        },
+        {
+          "type": "STRING",
+          "value": "!>(!"
+        },
+        {
+          "type": "STRING",
+          "value": "!diminuendo)!"
+        },
+        {
+          "type": "STRING",
+          "value": "!>)!"
+        },
+        {
+          "type": "STRING",
+          "value": "!segno!"
+        },
+        {
+          "type": "STRING",
+          "value": "!coda!"
+        },
+        {
+          "type": "STRING",
+          "value": "!D.S.!"
+        },
+        {
+          "type": "STRING",
+          "value": "!D.C.!"
+        },
+        {
+          "type": "STRING",
+          "value": "!dacoda!"
+        },
+        {
+          "type": "STRING",
+          "value": "!dacapo!"
+        },
+        {
+          "type": "STRING",
+          "value": "!fine!"
+        },
+        {
+          "type": "STRING",
+          "value": "!shortphrase!"
+        },
+        {
+          "type": "STRING",
+          "value": "!mediumphrase!"
+        },
+        {
+          "type": "STRING",
+          "value": "!longphrase!"
+        }
+      ]
+    },
+    "part_line_content": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SYMBOL",
+            "name": "sections_group"
+          }
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SYMBOL",
+            "name": "section_name"
+          }
+        }
+      ]
+    },
+    "parts_line": {
+      "type": "STRING",
+      "value": "P:"
+    },
+    "section_name": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "."
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "PATTERN",
+          "value": "\\w+"
+        },
+        {
+          "type": "PATTERN",
+          "value": "[0-9]*"
+        }
+      ]
+    },
+    "sections_group": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "PATTERN",
+          "value": "[0-9]*"
+        }
+      ]
+    },
+    "body_inline_info": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "["
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "instruction"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "key"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "macros"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "meter"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "notes"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "parts_line"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "remark"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "rhythm_line"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "symbol_line"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "tempo"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "unit_note_length"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "user_defined"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "voice"
+            }
+          ]
+        },
+        {
+          "type": "PATTERN",
+          "value": "[^%\\n\\]]*"
+        },
+        {
+          "type": "STRING",
+          "value": "]"
+        }
+      ]
+    },
+    "TEXT": {
+      "type": "PATTERN",
+      "value": "[^\\]]*"
+    },
+    "abc_version": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "%abc-"
+        },
+        {
+          "type": "PATTERN",
+          "value": "[0-9]"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "."
+              },
+              {
+                "type": "PATTERN",
+                "value": "[0-9]"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "area": {
+      "type": "STRING",
+      "value": "A:"
+    },
+    "book": {
+      "type": "STRING",
+      "value": "B:"
+    },
+    "composer": {
+      "type": "STRING",
+      "value": "C:"
+    },
+    "discography": {
+      "type": "STRING",
+      "value": "D:"
+    },
+    "file": {
+      "type": "STRING",
+      "value": "F:"
+    },
+    "group": {
+      "type": "STRING",
+      "value": "G:"
+    },
+    "history": {
+      "type": "STRING",
+      "value": "H:"
+    },
+    "instruction": {
+      "type": "STRING",
+      "value": "I:"
+    },
+    "key": {
+      "type": "STRING",
+      "value": "K:"
+    },
+    "macros": {
+      "type": "STRING",
+      "value": "m:"
+    },
+    "meter": {
+      "type": "STRING",
+      "value": "M:"
+    },
+    "notes": {
+      "type": "STRING",
+      "value": "N:"
+    },
+    "origin": {
+      "type": "STRING",
+      "value": "O:"
+    },
+    "reference_number_line": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "X:"
+        },
+        {
+          "type": "PATTERN",
+          "value": "[0-9]"
+        },
+        {
+          "type": "PATTERN",
+          "value": "[^\\n]*"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "COMMENT"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_NL"
+        }
+      ]
+    },
+    "remark": {
+      "type": "STRING",
+      "value": "r:"
+    },
+    "rhythm_line": {
+      "type": "STRING",
+      "value": "R:"
+    },
+    "source": {
+      "type": "STRING",
+      "value": "S:"
+    },
+    "symbol_line": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "s:"
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "symbol"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "chord_symbol"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "annotation"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "generic_bar_line"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "note_skip"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "tempo": {
+      "type": "STRING",
+      "value": "Q:"
+    },
+    "transcription": {
+      "type": "STRING",
+      "value": "Z:"
+    },
+    "tune_title": {
+      "type": "STRING",
+      "value": "T:"
+    },
+    "unit_note_length": {
+      "type": "STRING",
+      "value": "L:"
+    },
+    "user_defined": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "U:"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "PATTERN",
+              "value": "[h-w]"
+            },
+            {
+              "type": "PATTERN",
+              "value": "H-W"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "="
+        },
+        {
+          "type": "SYMBOL",
+          "name": "symbol"
+        }
+      ]
+    },
+    "voice": {
+      "type": "STRING",
+      "value": "V:"
+    },
+    "words_tag": {
+      "type": "STRING",
+      "value": "w:"
+    },
+    "words_postbody": {
+      "type": "STRING",
+      "value": "W:"
+    },
+    "body_info_line": {
+      "type": "PREC_LEFT",
+      "value": 0,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "instruction"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "key"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "macros"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "meter"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "notes"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "parts_line"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "remark"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "rhythm_line"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "symbol_line"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "tempo"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "tune_title"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "unit_note_length"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "user_defined"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "voice"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "type",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "words_tag"
+                }
+              }
+            ]
+          },
+          {
+            "type": "SYMBOL",
+            "name": "noCommentText"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "COMMENT"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "tune_header_info_line": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "abc_version"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "area"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "book"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "composer"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "discography"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "file"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "group"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "history"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "instruction"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "key"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "macros"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "meter"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "notes"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "origin"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "parts_line"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "remark"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "rhythm_line"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "source"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "symbol_line"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "tempo"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "transcription"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "tune_title"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "unit_note_length"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "user_defined"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "voice"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "words_postbody"
+              }
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "noCommentText"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "COMMENT"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "file_header_info_line": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "abc_version"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "area"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "book"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "composer"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "discography"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "file"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "group"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "history"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "instruction"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "macros"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "meter"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "notes"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "origin"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "remark"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "rhythm_line"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "source"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "transcription"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "unit_note_length"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "type",
+              "content": {
+                "type": "SYMBOL",
+                "name": "user_defined"
+              }
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "noCommentText"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "COMMENT"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "extras": [],
+  "conflicts": [
+    [
+      "beam"
+    ]
+  ],
+  "precedences": [],
+  "externals": [],
+  "inline": [],
+  "supertypes": []
+}
+

@@ -1,0 +1,27 @@
+[package]
+name = "panproto-grammars-data"
+description = "Companion grammar package: data languages for the panproto Python wheel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+# Globally-unique cdylib name to avoid `PyInit_<name>` symbol
+# collisions across companions in the same Python process.
+name = "panproto_grammars_data_impl"
+crate-type = ["cdylib"]
+
+[dependencies]
+# `default-features = false` lets this companion ship only the
+# `group-data` grammars, not the workspace-default `group-core`.
+# Workspace inheritance is bypassed because the workspace dep
+# doesn't pin default-features.
+panproto-grammars = { path = "../panproto-grammars", default-features = false, features = ["group-data"] }
+pyo3 = { workspace = true }
+tree-sitter = { workspace = true }
+
+[lints]
+workspace = true

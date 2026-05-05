@@ -1,0 +1,38 @@
+[build-system]
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "panproto-grammars-scripting"
+dynamic = ["version"]
+description = "panproto grammar pack: Scripting languages (Python, Ruby, Lua, Bash, Perl, R, Julia, Nushell, Fish)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+authors = [
+    { name = "Aaron Steven White", email = "aaronstevenwhite@gmail.com" },
+]
+keywords = ["panproto", "tree-sitter", "grammar", "scripting"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+]
+dependencies = [
+    "panproto>=0.45,<0.46",
+]
+
+[project.entry-points."panproto.grammars"]
+scripting = "panproto_grammars_scripting._impl"
+
+[project.urls]
+Homepage = "https://github.com/panproto/panproto"
+Issues = "https://github.com/panproto/panproto/issues"
+
+[tool.maturin]
+manifest-path = "../../crates/panproto-grammars-scripting/Cargo.toml"
+python-source = "src"
+module-name = "panproto_grammars_scripting._impl"
+features = ["pyo3/extension-module"]
