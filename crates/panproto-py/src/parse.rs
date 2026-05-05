@@ -62,6 +62,15 @@ impl PyAstParserRegistry {
                     let msg =
                         format!("panproto: companion grammar {name:?} failed to register: {err}");
                     let py = entry.py();
+                    // `CString::new` rejects strings containing NUL
+                    // bytes; on rejection we fall back to an empty
+                    // CString and the user sees an empty warning
+                    // body. The condition is unreachable in practice
+                    // (grammar names are alphanumeric and the failure
+                    // message is a Display formatter output, neither
+                    // of which produces NULs), so we leave this as
+                    // a silent best-effort rather than failing
+                    // construction over a broken warning.
                     let _ = pyo3::PyErr::warn(
                         py,
                         &py.get_type::<pyo3::exceptions::PyRuntimeWarning>(),

@@ -166,6 +166,12 @@ impl PyTheory {
             .extension()
             .and_then(std::ffi::OsStr::to_str)
             .unwrap_or("");
+        // Note: this match is case-sensitive. A file named
+        // `theory.JSON` (uppercase extension) would fall through to
+        // the unsupported-extension branch. Real-world theory files
+        // virtually always use lowercase extensions; lowercasing
+        // here would mask user mistakes more than it would help, so
+        // we leave the strict match in place.
         let doc = match ext {
             "json" => eval_json(&source).map_err(|e| dsl_err(&e))?,
             "yaml" | "yml" => eval_yaml(&source).map_err(|e| dsl_err(&e))?,
