@@ -57,12 +57,10 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install tree-sitter CLI
-        # `tree-sitter generate` is needed for the audio-language
-        # grammars we author from source (`tidal-mini`, `strudel-mini`)
-        # whose `src/parser.c` we don't currently check in to the
-        # audio-programming-language-grammars repo at every commit;
-        # `tools/fetch-grammars.py` falls back to running the CLI
-        # when `parser.c` is missing.
+        # `tree-sitter generate` is the fallback when an upstream
+        # tree-sitter repo doesn't ship a generated `src/parser.c`;
+        # `tools/fetch-grammars.py` runs the CLI on those entries.
+        # Currently only the music and all groups exercise this path.
         if: matrix.companion == 'music' || matrix.companion == 'all'
         uses: dtolnay/rust-toolchain@stable
       - if: matrix.companion == 'music' || matrix.companion == 'all'

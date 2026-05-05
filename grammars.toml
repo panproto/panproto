@@ -1047,10 +1047,10 @@ extensions = ["zsh"]
 #
 # `tools/fetch-grammars.py` clones each repo and extracts the bundled
 # `src/parser.c` etc. The first six entries below vendor existing
-# upstream grammars; the last two pull from
-# `aaronstevenwhite/audio-programming-language-grammars`, which hosts
-# grammars that didn't exist upstream. See `UPSTREAM.md` in that repo
-# for the split rationale.
+# upstream grammars; the last two (`tidal_mini`, `strudel_mini`) are
+# authored in panproto itself against the published TidalCycles and
+# Strudel mini-notation specs and live in `grammars/{tidal_mini,
+# strudel_mini}/`.
 
 [supercollider]
 repo = "https://github.com/madskjeldgaard/tree-sitter-supercollider"
