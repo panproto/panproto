@@ -765,6 +765,15 @@ extensions = []
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-query"
 extensions = []
 
+[qvr]
+# Quivers DSL: declares categorical theories (quantales, objects,
+# morphisms, continuous/stochastic spaces, monadic programs). The
+# grammar lives at `grammars/qvr/` inside FACTSlab/quivers; same
+# `directory =` precedent as cedar / fsharp / markdown / stan.
+repo = "https://github.com/FACTSlab/quivers"
+directory = "grammars/qvr"
+extensions = ["qvr"]
+
 [r]
 repo = "https://github.com/r-lib/tree-sitter-r"
 extensions = ["r", "R"]

@@ -6,6 +6,7 @@ All notable changes to panproto will be documented in this file.
 
 ### Added
 
+- **QVR (Quivers DSL) tree-sitter grammar** registered under `lang-qvr` and included in `group-all`. QVR is a domain-specific language for declaring categorical theories (quantales, objects, morphisms, continuous and stochastic spaces, monadic programs over them). Vendored from `FACTSlab/quivers` at `grammars/qvr/`, following the same `directory =` pattern as Stan, F#, Markdown, and Cedar's multi-grammar repos. Integration test at `crates/panproto-parse/tests/qvr_parse.rs` parses representative HMM and program-block sources end-to-end and asserts the structural vertex kinds (`quantale_decl`, `object_decl`, `stochastic_decl`, `let_decl`, `output_decl`, `type_alias_decl`, `continuous_decl`, `program_decl`, `draw_step`).
 - **Companion grammar packs**: a family of pip-installable extension wheels that contribute tree-sitter grammars to the core `panproto` wheel without bloating it. `panproto.AstParserRegistry()` is now a Python factory that discovers any installed pack via the `panproto.grammars` entry point and feeds its grammar metadata into the native registry at construction time. Native-only access (no companions) stays available as `panproto._native.AstParserRegistry`. The full set, each its own pyo3 cdylib depending on `panproto-grammars` with one `group-*` feature flag:
   - `panproto-grammars-web` — HTML, CSS, JavaScript, TypeScript, TSX, JSON, Vue, Svelte, Astro, GraphQL.
   - `panproto-grammars-systems` — C, C++, Rust, Go, Zig, D, Nim, Odin, V, Hare.
