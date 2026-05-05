@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "panproto-grammars-jvm"
 dynamic = ["version"]
-description = "panproto grammar pack: JVM languages (Java, Kotlin, Scala, Groovy, Clojure)"
+description = "panproto grammar pack: JVM — Java, Kotlin, Scala, Groovy, Clojure"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"

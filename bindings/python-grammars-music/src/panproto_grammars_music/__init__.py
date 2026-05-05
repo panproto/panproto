@@ -1,7 +1,7 @@
 """panproto grammar pack: music languages.
 
 Companion package to panproto. Brings tree-sitter grammars for
-audio programming languages (SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation) into ``panproto.AstParserRegistry`` via the
+SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation into ``panproto.AstParserRegistry`` via the
 ``panproto.grammars`` entry point.
 
 Installation:

@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "panproto-grammars-devops"
 dynamic = ["version"]
-description = "panproto grammar pack: DevOps languages (Dockerfile, Terraform, HCL, Nix, Bash, YAML, TOML, Make, CMake)"
+description = "panproto grammar pack: DevOps — Dockerfile, Terraform, HCL, Nix, Bash, YAML, TOML, Make, CMake"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"

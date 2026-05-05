@@ -254,6 +254,59 @@ fn available_grammars() -> Vec<String> {
         .collect()
 }
 
+/// Process-wide cache of leaked metadata strings.
+///
+/// `panproto-parse::ParserRegistry::register_external_grammar` requires
+/// `&'static` references for the grammar's name, extension list, and
+/// byte payloads. The simplest way to obtain those at this FFI boundary
+/// is `Box::leak`. Without a cache, every call to
+/// `AstParserRegistry()` would leak fresh allocations for the same set
+/// of grammars; long-running processes that construct registries
+/// repeatedly would grow unboundedly.
+///
+/// The cache keys on grammar name and stores the allocated `&'static`
+/// references (`name` and the per-name `extensions` slice). On repeat
+/// registrations of the same grammar, the cached references are reused
+/// and the new allocation is dropped.
+fn leaked_metadata_cache()
+-> &'static std::sync::Mutex<rustc_hash::FxHashMap<String, LeakedMetadata>> {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<rustc_hash::FxHashMap<String, LeakedMetadata>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(rustc_hash::FxHashMap::default()))
+}
+
+#[derive(Clone, Copy)]
+struct LeakedMetadata {
+    name: &'static str,
+    extensions: &'static [&'static str],
+}
+
+/// Resolve `name`/`extensions` into the leaked-`&'static` form
+/// `register_external_grammar` requires, deduplicating against the
+/// process-wide cache so repeat registrations of the same grammar
+/// don't accumulate allocations.
+fn leaked_metadata_for(name: &str, extensions: Vec<String>) -> PyResult<LeakedMetadata> {
+    let mut cache = leaked_metadata_cache().lock().map_err(|e| {
+        crate::error::PanprotoError::new_err(format!("metadata cache poisoned: {e}"))
+    })?;
+    if let Some(cached) = cache.get(name) {
+        return Ok(*cached);
+    }
+    let leaked_name: &'static str = Box::leak(name.to_owned().into_boxed_str());
+    let leaked_exts: Vec<&'static str> = extensions
+        .into_iter()
+        .map(|e| &*Box::leak(e.into_boxed_str()))
+        .collect();
+    let leaked_extensions: &'static [&'static str] = Box::leak(leaked_exts.into_boxed_slice());
+    let entry = LeakedMetadata {
+        name: leaked_name,
+        extensions: leaked_extensions,
+    };
+    cache.insert(name.to_owned(), entry);
+    drop(cache);
+    Ok(entry)
+}
+
 /// Decode a single `extra_grammars` dict and register the corresponding
 /// grammar with `reg`.
 ///
@@ -306,6 +359,19 @@ fn register_external_from_metadata(
         .ok_or_else(|| PyValueError::new_err("missing key \"extensions\" in grammar metadata"))?
         .extract()?;
 
+    // Skip if the grammar is already registered. Two paths land us
+    // here: (1) a companion's `all`-style pack contains a name the
+    // built-in `ParserRegistry::new()` already added, and
+    // (2) two different companions advertise the same grammar (the
+    // umbrella `panproto-grammars-all` overlaps every per-group pack).
+    // Either way the second registration would replace an identical
+    // entry and leak fresh `&'static` allocations for nothing; an
+    // early return preserves the first registration and avoids the
+    // leak.
+    if reg.protocol_names().any(|n| n == name.as_str()) {
+        return Ok(());
+    }
+
     let language_ptr = pop_usize("language_ptr")?;
     let node_types_ptr = pop_usize("node_types_ptr")?;
     let node_types_len = pop_usize("node_types_len")?;
@@ -314,17 +380,28 @@ fn register_external_from_metadata(
     let grammar_json_ptr = pop_opt_usize("grammar_json_ptr")?;
     let grammar_json_len = pop_opt_usize("grammar_json_len")?.unwrap_or(0);
 
-    // SAFETY: The pointers are received from a companion grammar
-    // package whose data is baked into the cdylib's `.rodata` section,
-    // so the lifetime extends for as long as the companion module is
-    // loaded — i.e. the lifetime of the process. `tree_sitter::Language`
-    // is `#[repr(transparent)]` over `*const TSLanguage`, a stable C
-    // pointer.
-    let leaked_name: &'static str = Box::leak(name.into_boxed_str());
-    let leaked_extensions: Vec<&'static str> = extensions
-        .into_iter()
-        .map(|e| &*Box::leak(e.into_boxed_str()))
-        .collect();
+    // Reject obvious null-pointer payloads up front. A NULL
+    // `language_ptr` would transmute into a `Language` wrapping a NULL
+    // `*const TSLanguage`; tree-sitter would then null-deref inside C
+    // when the parser is queried. Same logic for the `node_types_*`
+    // pair: tree-sitter's theory extractor reads from this slice on
+    // construction and a NULL with non-zero length would segfault.
+    if language_ptr == 0 {
+        return Err(PyValueError::new_err(format!(
+            "grammar {name:?}: language_ptr is null"
+        )));
+    }
+    if node_types_ptr == 0 || node_types_len == 0 {
+        return Err(PyValueError::new_err(format!(
+            "grammar {name:?}: node_types pointer/length is null/zero"
+        )));
+    }
+
+    let LeakedMetadata {
+        name: leaked_name,
+        extensions: leaked_extensions,
+    } = leaked_metadata_for(&name, extensions)?;
+    let leaked_extensions: Vec<&'static str> = leaked_extensions.to_vec();
     let language: tree_sitter::Language = unsafe {
         // Cast through usize → *const c_void → tree_sitter::Language.
         // The conversion mirrors how wasm-bindgen and other FFI shims

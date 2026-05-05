@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "panproto-grammars-mobile"
 dynamic = ["version"]
-description = "panproto grammar pack: Mobile languages (Swift, Kotlin, Dart, Java, Objective-C)"
+description = "panproto grammar pack: Mobile — Swift, Kotlin, Dart, Java, Objective-C"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"

@@ -70,6 +70,19 @@ def fetch_grammar(name: str, spec: dict, dry_run: bool = False) -> bool:
         print(f"  {name}: {repo} -> grammars/{name}/src/ [{ext_str}]")
         return True
 
+    # If the grammar is authored in-repo (`grammars/<name>/grammar.js`
+    # is checked in alongside a generated `src/parser.c`), skip the
+    # fetch entirely. This catches the self-referential entries for
+    # `tidal_mini` and `strudel_mini`, whose `repo` URL points at
+    # panproto itself purely so the manifest is self-consistent; doing
+    # an actual clone-and-copy here would download the whole panproto
+    # repo just to copy back files it already contains.
+    local_grammar_js = GRAMMARS_DIR / name / "grammar.js"
+    local_parser_c = dest / "parser.c"
+    if local_grammar_js.exists() and local_parser_c.exists():
+        print(f"  {name}: skipping (authored in-repo, parser.c already present)")
+        return True
+
     print(f"  Fetching {name} from {repo}...", end=" ", flush=True)
 
     with tempfile.TemporaryDirectory() as tmpdir:

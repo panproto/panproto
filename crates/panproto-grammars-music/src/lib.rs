@@ -1,7 +1,7 @@
 //! Companion grammar package: music languages.
 //!
 //! pyo3 cdylib that bakes the `panproto-grammars` `group-music`
-//! feature (audio programming languages (SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation))
+//! feature (SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation)
 //! into static memory and exposes the metadata `panproto`'s
 //! [`AstParserRegistry`] consumes through the
 //! `panproto.grammars` entry point. See the architecture notes in
@@ -11,6 +11,17 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+
+// Compile-time guard: the cross-cdylib transport casts the
+// tree-sitter `Language` value to a `usize` and back. That
+// round-trip is sound only if the two have the same size.
+// tree-sitter's `Language` is a tuple struct over a single
+// `*const TSLanguage` field, so the equality holds on every
+// platform tree-sitter supports — but if a future tree-sitter
+// release widens the type, this assertion turns the silent
+// miscompile into a compile-time error.
+const _: () =
+    assert!(std::mem::size_of::<tree_sitter::Language>() == std::mem::size_of::<usize>(),);
 
 /// Return the metadata dicts for every grammar baked into this
 /// companion. Each dict is consumed by the core

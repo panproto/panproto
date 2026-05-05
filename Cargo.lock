@@ -2468,6 +2468,7 @@ dependencies = [
  "panproto-theory-dsl",
  "pyo3",
  "pythonize",
+ "rustc-hash",
  "serde",
  "serde_json",
  "tree-sitter",

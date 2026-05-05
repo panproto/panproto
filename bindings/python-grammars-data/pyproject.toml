@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "panproto-grammars-data"
 dynamic = ["version"]
-description = "panproto grammar pack: Data languages (JSON, TOML, XML, YAML, SQL, CSV, GraphQL, Protobuf)"
+description = "panproto grammar pack: Data — JSON, TOML, XML, YAML, SQL, CSV, GraphQL, Protobuf"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"

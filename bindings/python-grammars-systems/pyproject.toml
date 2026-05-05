@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "panproto-grammars-systems"
 dynamic = ["version"]
-description = "panproto grammar pack: Systems languages (C, C++, Rust, Go, Zig, D, Nim, Odin, V, Hare)"
+description = "panproto grammar pack: Systems — C, C++, Rust, Go, Zig, D, Nim, Odin, V, Hare"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"

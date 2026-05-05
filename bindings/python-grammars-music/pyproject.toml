@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "panproto-grammars-music"
 dynamic = ["version"]
-description = "panproto grammar pack: Music languages (audio programming languages (SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation))"
+description = "panproto grammar pack: Music — SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"

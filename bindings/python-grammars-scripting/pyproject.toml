@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "panproto-grammars-scripting"
 dynamic = ["version"]
-description = "panproto grammar pack: Scripting languages (Python, Ruby, Lua, Bash, Perl, R, Julia, Nushell, Fish)"
+description = "panproto grammar pack: Scripting — Python, Ruby, Lua, Bash, Perl, R, Julia, Nushell, Fish"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
