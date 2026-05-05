@@ -96,7 +96,7 @@ jobs:
         run: Compress-Archive -Path panproto-c-${{ matrix.target }} -DestinationPath panproto-c-${{ matrix.target }}.zip
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: panproto-c-${{ matrix.target }}
           path: panproto-c-${{ matrix.target }}.${{ matrix.archive }}

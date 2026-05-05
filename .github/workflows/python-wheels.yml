@@ -58,7 +58,7 @@ jobs:
               apt-get update && apt-get install -y perl
             fi
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: python-wheel-${{ matrix.target }}
           path: bindings/python/dist/*.whl
