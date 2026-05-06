@@ -12,4 +12,4 @@ Reference pages are authoritative lookups: signatures, flags, tables, and gramma
 | [Expression language](./expression-language.md) | Surface grammar, builtins by category, and the type signatures of each builtin. |
 | [Lens combinators](./lens-combinators.md) | The combinator algebra exposed by `panproto-lens`, organised by optic kind. |
 | [Configuration](./configuration.md) | The `panproto.toml` manifest schema. |
-| [Crate map](./crate-map.md) | The 27 `panproto-*` crates in the workspace, with one-line descriptions and dependency direction. |
+| [Crate map](./crate-map.md) | The 38 `panproto-*` crates in the workspace, with one-line descriptions and dependency direction. |
