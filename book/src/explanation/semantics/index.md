@@ -19,5 +19,6 @@ The pages in turn:
 | [Theory DSL](./theory-dsl.md) | `panproto-theory-dsl`: GAT presentations, sort/operation/equation judgements, the colimit interpretation. |
 | [Pushouts and merge](./pushouts-and-merge.md) | The pushout construction in the category of GATs, the universal property, and what the implementation verifies. |
 | [Protolens composition](./protolens-composition.md) | Protolenses as natural transformations between schema endofunctors, the structural-equality criterion for composition, sequential vs fused instantiation. |
+| [REPL command language](./repl-commands.md) | `panproto-repl`: state model, command interpretation, and the bare-term typecheck path. |
 
 The cluster is meant to be read by anyone who wants to know exactly what panproto guarantees. Familiarity with category theory helps but is not required: every page restates its formal content in plain terms before invoking it.

@@ -9,8 +9,7 @@
 ```python
 import panproto
 
-p = panproto.Panproto()
-proto = p.protocol("json-schema")
+proto = panproto.get_builtin_protocol("json-schema")
 
 schema = (proto.schema()
     .vertex("user", "object")
@@ -21,7 +20,7 @@ schema = (proto.schema()
     .build())
 ```
 
-The fluent surface mirrors the TypeScript SDK. `.vertex()` and `.edge()` build up a `SchemaBuilder`; `.build()` validates and returns a `Schema`.
+`panproto.get_builtin_protocol(name)` returns the named protocol; the fluent surface mirrors the TypeScript SDK. `.vertex()` and `.edge()` build up a `SchemaBuilder`; `.build()` validates and returns a `Schema`.
 
 ## Verification
 

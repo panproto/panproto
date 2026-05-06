@@ -100,10 +100,9 @@ This same pattern works for every protocol panproto supports. Replace `'json-sch
 ## Python version
 
 ```python
-import panproto, json
+import panproto
 
-p = panproto.Panproto()
-proto = p.protocol("json-schema")
+proto = panproto.get_builtin_protocol("json-schema")
 
 schema = (proto.schema()
     .vertex("user", "object")

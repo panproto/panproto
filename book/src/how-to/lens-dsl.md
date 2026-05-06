@@ -13,20 +13,21 @@ A pair of schemas to bridge. The `schema` CLI or [`panproto-lens-dsl`](https://g
 ```nickel
 # lenses/user-v1-to-v2.ncl
 {
-  source = "schemas/user-v1.json",
-  target = "schemas/user-v2.json",
+  id = "user.v1-to-v2",
+  description = "Rename name fields and add display_name",
   steps = [
-    { kind = "rename_edge", from = "first_name", to = "given_name" },
-    { kind = "rename_edge", from = "last_name", to = "family_name" },
-    { kind = "join_fields",
-      sources = ["given_name", "family_name"],
-      target = "display_name",
-      sep = " " },
+    { rename_field = { from = "first_name", to = "given_name" } },
+    { rename_field = { from = "last_name",  to = "family_name" } },
+    { add_field = {
+        name = "display_name",
+        default = "",
+        expr = "Concat(record.given_name, \" \", record.family_name)",
+      } },
   ],
 }
 ```
 
-Each `step` corresponds to one lens combinator. The DSL evaluates them left-to-right against the source schema, producing a target schema and a lens between them.
+Each step is a single-key object. The key picks the variant; the value carries its parameters. The DSL applies steps left-to-right against the source schema, producing a target schema and a `CompiledLens` between them. Full step grammar: [`crates/panproto-lens-dsl/src/document.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens-dsl/src/document.rs).
 
 ### Compile
 

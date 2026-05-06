@@ -77,6 +77,7 @@
   - [Theory DSL](./explanation/semantics/theory-dsl.md)
   - [Pushouts and merge](./explanation/semantics/pushouts-and-merge.md)
   - [Protolens composition](./explanation/semantics/protolens-composition.md)
+  - [REPL command language](./explanation/semantics/repl-commands.md)
 
 ---
 

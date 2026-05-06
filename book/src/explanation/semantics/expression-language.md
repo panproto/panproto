@@ -18,14 +18,15 @@ expr  ::= literal
         | "let" ident "=" expr "in" expr
         | "if" expr "then" expr "else" expr
         | "case" expr "of" alts        -- pattern match
-        | "[" expr "|" quals "]"       -- list comprehension
         | builtin "(" expr,... ")"     -- builtin application
+        | expr "." ident               -- field access
+        | expr "[" expr "]"            -- index
 literal ::= int | float | str | bool | "null"
         | "[" expr,... "]"             -- list
         | "{" ident ":" expr,... "}"   -- record
-quals ::= qual ("," qual)*
-qual  ::= ident "<-" expr | expr        -- generator | guard
 ```
+
+The parser desugars `if c then a else b` to a `Match` over a boolean scrutinee with two arms, and `case e of ...` to a `Match` directly. There is no separate `If` or `Case` node in the abstract syntax.
 
 ## Abstract syntax
 
@@ -36,9 +37,7 @@ pub enum Expr {
     App(Box<Expr>, Box<Expr>),
     Lam(Arc<str>, Box<Expr>),
     Let(Arc<str>, Box<Expr>, Box<Expr>),
-    If(Box<Expr>, Box<Expr>, Box<Expr>),
-    Case(Box<Expr>, Vec<(Pattern, Expr)>),
-    Comp(Box<Expr>, Vec<Qual>),
+    Match(Box<Expr>, Vec<MatchArm>),
     Builtin(BuiltinOp, Vec<Expr>),
     List(Vec<Expr>),
     Field(Box<Expr>, Arc<str>),
@@ -46,7 +45,7 @@ pub enum Expr {
 }
 ```
 
-The full enum lives at [`crates/panproto-expr/src/expr.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/expr.rs).
+`Match` covers both `if/then/else` and `case/of`; pattern matching is the only branching primitive. The full enum lives at [`crates/panproto-expr/src/expr.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/expr.rs).
 
 ## Types
 
@@ -94,21 +93,25 @@ $$
 \frac{\rho \vdash e_1 \Downarrow \lambda x.\,e \quad \rho \vdash e_2 \Downarrow v_2 \quad \rho, x \mapsto v_2 \vdash e \Downarrow v}{\rho \vdash e_1\,e_2 \Downarrow v} \quad (\text{e-app})
 $$
 
-When the step budget is reached, every premise that would otherwise apply is overridden by
+The step counter is held in `EvalState` (see `crates/panproto-expr/src/eval.rs`). Each rule application calls `EvalState::tick`, which decrements the remaining budget and raises when zero. This corresponds to the rule
 
 $$
 \frac{n = 0}{\rho \vdash e \Downarrow_n \bot} \quad (\text{e-budget})
 $$
 
-so that evaluation is total in the technical sense: $\llbracket e \rrbracket_\rho \in V_\bot$ is defined for every well-typed $e$.
+When this rule fires, evaluation aborts with `ExprError::StepLimitExceeded(max_steps)`. We model this as $\bot$ in the semantic domain so that $\llbracket e \rrbracket_\rho \in V_\bot$ is defined for every well-typed $e$. The default budget is $100{,}000$ steps (`EvalConfig::default`).
 
 Builtins are interpreted by `apply_builtin`, defined in [`crates/panproto-expr/src/builtin.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/builtin.rs). Side conditions:
 
 - `Div` and `Mod`: divisor zero raises `DivisionByZero`.
 - Integer arithmetic: overflow raises `Overflow` (we use `i64::checked_*`).
-- `*ToInt` / `*ToFloat`: invalid input raises `ParseFailure`.
+- `*ToInt` / `*ToFloat`: invalid input raises `ParseError`.
+- List builtins: out-of-bounds access raises `IndexOutOfBounds`; lists past the configured maximum length raise `ListLengthExceeded`.
+- Record access: missing field raises `FieldNotFound`.
+- `Match`: a non-exhaustive match raises `NonExhaustiveMatch`.
+- Application of a non-function value raises `NotAFunction`.
 
-These are runtime errors distinct from $\bot$; $\bot$ is reserved for budget exhaustion.
+These are runtime errors distinct from $\bot$; $\bot$ is reserved for resource exhaustion (`StepLimitExceeded` and `DepthExceeded`).
 
 ## Soundness
 

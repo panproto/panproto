@@ -57,14 +57,24 @@ The 59 built-in operations are in `panproto_expr::BuiltinOp`, grouped by family 
 
 ## Errors
 
-| Error | Cause |
+The full list of `ExprError` variants is in [`crates/panproto-expr/src/error.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/error.rs).
+
+| Variant | Cause |
 |---|---|
-| `ArityMismatch` | Builtin called with the wrong number of arguments. |
-| `TypeError` | Operand had an incompatible type. |
+| `StepLimitExceeded(u64)` | Evaluation exceeded the configured step budget (`EvalConfig::max_steps`, default 100,000). |
+| `DepthExceeded(u32)` | Evaluation exceeded the configured recursion depth. |
+| `UnboundVariable(String)` | Referenced a variable not bound in the environment. |
+| `TypeError { expected, got }` | Operand had an incompatible type. |
+| `ArityMismatch { op, expected, got }` | Builtin called with the wrong number of arguments. |
+| `IndexOutOfBounds { index, len }` | List index out of range. |
+| `FieldNotFound(String)` | Record field missing. |
+| `NonExhaustiveMatch` | No pattern arm matched the scrutinee. |
 | `DivisionByZero` | `Div` or `Mod` with a zero divisor. |
+| `ListLengthExceeded(usize)` | List operation exceeded the configured maximum length. |
+| `ParseError { value, target_type }` | A `*To*` coercion failed to parse its input. |
+| `NotAFunction` | Application of a non-function value. |
 | `Overflow` | Checked integer arithmetic overflowed. |
-| `ParseFailure` | A `*To*` coercion failed to parse its input. |
-| `BudgetExceeded` | Evaluation exceeded the step budget (totality enforcement). |
+| `FloatNotRepresentable(String)` | Float value (NaN, infinity, out-of-range) cannot be represented as an integer. |
 
 ## Authoritative source
 

@@ -30,12 +30,26 @@ Each pack auto-registers its grammars with `panproto.AstParserRegistry()` on imp
 ```python
 import panproto
 
-p = panproto.Panproto()
-proto = p.protocol("atproto")
+proto  = panproto.get_builtin_protocol("atproto")
 schema = proto.schema().vertex(...).edge(...).build()
 ```
 
-Sixteen public symbols are re-exported at the top level (covering the protocol, schema, instance, migration, lens, and VCS surfaces). Full API reference, including every method signature, lives at the dedicated mkdocs site:
+There is no `Panproto` umbrella class; the entry points are free functions on the `panproto` module. The full re-export list (errors, schema types, protocol registry, migration, check, instance, I/O, lens, GAT, expression-language, VCS, parse, project, git bridge) is in [`bindings/python/src/panproto/__init__.py`](https://github.com/panproto/panproto/blob/main/bindings/python/src/panproto/__init__.py). Selected entry points:
+
+| Surface | Entry point |
+|---|---|
+| Protocol registry | `get_builtin_protocol(name)`, `list_builtin_protocols()`, `define_protocol(...)` |
+| Schema construction | `Protocol.schema()` returns a `SchemaBuilder`; chain `.vertex()`, `.edge()`, `.build()`. |
+| Migration | `MigrationBuilder`, `compile_migration`, `compose_migrations`, `invert_migration`, `pipeline` |
+| Check | `diff_and_classify`, `diff_schemas`, `check_existence`, `check_coverage` |
+| Lens | `Lens`, `ProtolensChain`, `auto_generate_lens`, `auto_generate_lens_candidates` |
+| GAT | `Theory`, `TheoryBuilder`, `Model`, `colimit_theories`, `free_model`, `migrate_model`, `check_model`, `check_morphism` |
+| Expression language | `Expr`, `parse_expr`, `pretty_print_expr` |
+| VCS | `Repository`, `VcsRepository`, `BisectState` |
+| Parse | `parse_source_file`, `available_grammars`, `ParseEmitLens`, `AstParserRegistry()` |
+| Project | `ProjectBuilder`, `parse_project`, `build_project` |
+
+Full API reference, including every method signature, lives at the dedicated mkdocs site:
 
 - [Python SDK reference](https://panproto.dev/python/) (mkdocs)
 

@@ -6,41 +6,67 @@ A lens DSL spec is a recipe for building a bidirectional transform between two s
 
 ## Surface syntax
 
-The Nickel surface (canonical form). JSON and YAML surfaces are isomorphic.
+The Nickel surface (canonical authoring form). JSON and YAML surfaces are isomorphic via `serde`.
 
 ```nickel
 {
-  source = "schema/v3.json",
-  target = "schema/v4.json",
+  id = "user.v3-to-v4",
+  description = "Rename `name` and replace `age` with `years`",
   steps = [
-    { kind = "rename_edge", from = "first", to = "given" },
-    { kind = "split_field", source = "name", target = ["first", "last"], by = " " },
-    { kind = "field_transform", at = "age", forward = "x => x + 1", backward = "y => y - 1" },
+    { rename_field = { from = "name", to = "display_name" } },
+    { remove_field = "age" },
+    { add_field = { name = "years", default = 0, expr = "old.age" } },
   ],
 }
 ```
 
-The full step grammar is in [`crates/panproto-lens-dsl`](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl).
+Each step is a single-key object whose key selects the variant. The full step grammar is in [`crates/panproto-lens-dsl/src/document.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens-dsl/src/document.rs).
 
 ## Abstract syntax
 
 ```rust
-pub enum Step {
-    RenameEdge { from: EdgeName, to: EdgeName },
-    SplitField { source: EdgeName, target: Vec<EdgeName>, by: SplitRule },
-    JoinFields { sources: Vec<EdgeName>, target: EdgeName, sep: String },
-    FieldTransform { at: Path, forward: Expr, backward: Expr },
-    AddField { at: Path, default: Expr },
-    DropField { at: Path },
-    /* ... full list in panproto-lens-dsl */
+pub struct LensDocument {
+    pub id: String,
+    pub description: String,
+    pub steps: Vec<Step>,
+    pub constraints: Vec<Constraint>,
+    pub hints: Vec<HintSpec>,
+    pub preferences: Vec<PreferencePredicate>,
 }
 
-pub struct LensSpec {
-    pub source: SchemaRef,
-    pub target: SchemaRef,
-    pub steps: Vec<Step>,
+pub enum Step {
+    // High-level field combinators
+    RemoveField { remove_field: String },
+    RenameField { rename_field: RenameSpec },
+    AddField    { add_field: AddFieldSpec },
+
+    // Value-level transforms
+    ApplyExpr    { apply_expr: ApplyExprSpec },
+    ComputeField { compute_field: ComputeFieldSpec },
+
+    // Structural combinators
+    HoistField { hoist_field: HoistSpec },
+    NestField  { nest_field: NestSpec },
+    Scoped     { scoped: ScopedSpec },
+    Pullback   { pullback: PullbackSpec },
+
+    // Sort-level coercions and merges
+    CoerceSort { coerce_sort: CoerceSortSpec },
+    MergeSorts { merge_sorts: MergeSortsSpec },
+
+    // Elementary theory operations
+    AddSort      { add_sort: AddSortSpec },
+    DropSort     { drop_sort: String },
+    RenameSort   { rename_sort: RenameSpec },
+    AddOp        { add_op: AddOpSpec },
+    DropOp       { drop_op: String },
+    RenameOp     { rename_op: RenameSpec },
+    AddEquation  { add_equation: EquationSpec },
+    DropEquation { drop_equation: String },
 }
 ```
+
+The top-level type is `LensDocument`, not `LensSpec`. There is no `source`/`target` pair on the document: the source schema is supplied at compile time (via the resolver), and the target schema is computed by applying the steps. See `panproto_lens_dsl::compile`.
 
 ## Semantic domain
 
@@ -80,19 +106,22 @@ $$
 
 ## Compilation
 
-A `LensSpec` compiles to a chain of lens combinators by translating each `Step` to a lens that targets the affected sub-schema and lifting it into the full schema via the lens fibration:
+A `LensDocument` compiles via `panproto_lens_dsl::compile` to a `CompiledLens` carrying a `ProtolensChain` and a list of value-level `FieldTransform`s. Each `Step` is translated to a protolens that targets the affected sub-schema; the chain is then instantiated against the source schema to produce the concrete lens.
+
+Symbolically:
 
 $$
-\llbracket \mathsf{LensSpec}(\mathsf{source}=S, \mathsf{target}=T, \mathsf{steps}=[s_1, \ldots, s_n]) \rrbracket = \llbracket s_n \rrbracket \mathbin{;} \cdots \mathbin{;} \llbracket s_1 \rrbracket
+\llbracket \mathsf{LensDocument}(\mathsf{steps}=[s_1, \ldots, s_n]) \rrbracket_S
+  = \llbracket s_n \rrbracket \mathbin{;} \cdots \mathbin{;} \llbracket s_1 \rrbracket
 $$
 
-where $\mathbin{;}$ is sequential lens composition and $\llbracket s_i \rrbracket$ is the combinator chosen for step $s_i$. The sequential-composition rule for lenses is
+where $\mathbin{;}$ is sequential lens composition (left-to-right by step order, applied at each schema in turn) and $\llbracket s_i \rrbracket$ is the protolens chosen for step $s_i$. The sequential-composition rule for lenses is
 
 $$
 (\mathsf{get}_1; \mathsf{get}_2)(s) = \mathsf{get}_2(\mathsf{get}_1(s))
 $$
 
-with the corresponding $\mathsf{put}$ and $\mathsf{complement}$ assembled by the [combinator algebra](../../reference/lens-combinators.md).
+with the corresponding $\mathsf{put}$ and $\mathsf{complement}$ assembled by the [combinator algebra](../../reference/lens-combinators.md). Composition between adjacent steps is gated by `protolens_composable`: see [Protolens composition](./protolens-composition.md).
 
 ## Complement composition
 

@@ -8,46 +8,63 @@ This page pins down what a GAT presentation is, what category it generates, and 
 
 ## Surface syntax
 
+The Nickel surface (canonical authoring form). JSON and YAML surfaces are isomorphic via `serde`. Every document carries an `id`, a `description`, and exactly one body variant (theory, morphism, composition, protocol, bundle, class, instance, or inductive type).
+
+A bare theory body:
+
 ```nickel
 {
-  name = "ThGraph",
-  sorts = ["Vertex", "Edge"],
+  id = "dev.example.thgraph",
+  description = "Directed multigraph with identity edges",
+  theory = "ThGraph",
+  sorts = [ { name = "Vertex" }, { name = "Edge" } ],
   ops = [
-    { name = "src", in = ["Edge"], out = "Vertex" },
-    { name = "tgt", in = ["Edge"], out = "Vertex" },
-    { name = "id",  in = ["Vertex"], out = "Edge" },
+    { name = "src", inputs = [{ name = "e", sort = "Edge" }], output = "Vertex" },
+    { name = "tgt", inputs = [{ name = "e", sort = "Edge" }], output = "Vertex" },
+    { name = "id",  inputs = [{ name = "v", sort = "Vertex" }], output = "Edge" },
   ],
-  eqns = [
-    { lhs = "src(id(v))", rhs = "v",       ctx = ["v: Vertex"] },
-    { lhs = "tgt(id(v))", rhs = "v",       ctx = ["v: Vertex"] },
+  equations = [
+    { name = "src-id", lhs = "src(id(v))", rhs = "v", context = [{ name = "v", sort = "Vertex" }] },
+    { name = "tgt-id", lhs = "tgt(id(v))", rhs = "v", context = [{ name = "v", sort = "Vertex" }] },
   ],
 }
 ```
 
-A theory presentation is a quadruple $(N, S, O, E)$: a name, a list of sorts, a list of operation signatures, a list of equations. The full grammar lives in [`crates/panproto-theory-dsl`](https://github.com/panproto/panproto/tree/main/crates/panproto-theory-dsl).
+The full grammar is in [`crates/panproto-theory-dsl/src/document.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-theory-dsl/src/document.rs).
 
 ## Abstract syntax
 
 ```rust
-pub struct TheoryPresentation {
-    pub name: TheoryName,
-    pub sorts: Vec<SortDecl>,
-    pub ops: Vec<OpDecl>,
-    pub eqns: Vec<EqnDecl>,
+pub struct TheoryDocument {
+    pub id: String,
+    pub description: String,
+    pub body: TheoryBody,
 }
 
-pub struct OpDecl {
-    pub name: OpName,
-    pub inputs: Vec<SortRef>,    // dependent sorts allowed
-    pub output: SortRef,
+pub enum TheoryBody {
+    Theory(TheorySpec),
+    Morphism(MorphismSpec),
+    Composition(CompositionBody),
+    Protocol(Box<ProtocolSpec>),
+    Bundle(Box<BundleSpec>),
+    Class(ClassSpec),
+    Instance(InstanceSpec),
+    Inductive(InductiveSpec),
 }
 
-pub struct EqnDecl {
-    pub lhs: Term,
-    pub rhs: Term,
-    pub ctx: Context,            // variable bindings
+pub struct TheorySpec {
+    pub theory: String,                       // theory name
+    pub extends: Vec<String>,                 // parent theories
+    pub imports: Vec<ImportSpec>,             // imports with optional aliases
+    pub sorts: Vec<SortSpec>,                 // sort declarations (with dependent params)
+    pub ops: Vec<OpSpec>,                     // operation declarations
+    pub equations: Vec<EquationSpec>,         // judgemental equalities
+    pub directed_equations: Vec<DirectedEqSpec>,  // rewrite rules
+    pub policies: Vec<PolicySpec>,            // conflict policies
 }
 ```
+
+The DSL document compiles to `panproto_gat::Theory` (and, for non-`Theory` bodies, to `TheoryMorphism` or `Protocol`). The intermediate surface types (`TheorySpec`, `OpSpec`, etc.) are deserialisation targets, not the categorical objects; the categorical objects are the GAT types.
 
 ## Sort, operation, and equation judgements
 

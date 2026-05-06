@@ -25,11 +25,10 @@ The full table of packs is in [Reference: Python SDK](../../reference/sdk-python
 ```python
 import panproto
 
-p = panproto.Panproto()
-print(p.version())
+print(panproto.list_builtin_protocols()[:3])
 ```
 
-`panproto.Panproto()` initialises the binding synchronously (no async wrapper, unlike the TypeScript SDK) and `p.version()` confirms the linkage.
+The native module loads at import time (no async wrapper, unlike the TypeScript SDK). Listing a few of the built-in protocols confirms the linkage. The full top-level surface is in [Reference: Python SDK](../../reference/sdk-python.md).
 
 ## Common mistakes
 
