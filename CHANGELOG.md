@@ -4,6 +4,37 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-05-06
+
+### Added
+
+- **Real categorical pushouts in `Th(GAT)`** (`panproto-gat`): `pushout_by_name(t1, t2, shared)` constructs explicit identity-on-names inclusion morphisms `i1, i2` from a shared theory and delegates to the morphism-taking `colimit`, returning a full `ColimitResult` with the inclusion legs `j1, j2` exposed. `ColimitResult::verify_universal(q, k1, k2)` exhibits and verifies the unique mediating morphism `m: P → Q` factoring any alternative cocone — the real universal-property check, not just cocone commutativity. Coverage-defensive: errors when a pushout name lacks a mediator entry. Proptest covers identity-cocone factorisation; a hand-built test exercises factorisation through a strictly larger Q theory.
+- **Real Cartesian universal factorization** (`panproto-lens::fibration::verify_cartesian_factorization`): exercises both projection functoriality (`get(f∘h) = get(f) ∘ get(h)`) *and* cleavage functoriality (`put(f∘h) = put(h) ∘ put(f)`). The two checks are not redundant under `GetPut`: GetPut constrains each lens individually, while cleavage functoriality constrains the agreement of distinct put paths from a shared decomposition.
+- **Real pushout merge universal property in `Sch`** (`panproto-vcs::merge::verify_pushout_universal`): given an alternative cocone `(q_schema, k_ours, k_theirs)`, exhibits the unique mediating vertex map and verifies factorisation. New `PushoutError::UniversalFactorizationFailure` variant. Verifies the vertex-level necessary condition for full pushout-in-`Sch`; edge-level factorisation is documented as deferred (depends on whether `Edge.name` disagreements are admitted by the alternative cocone).
+- **`Complement` as a partial commutative monoid** (`panproto-lens::asymmetric`): `compose` now returns `Result<Self, LensError>` with `ComplementConflict` (per-keyed-map disjointness/agreement violation) and `ComplementFingerprintMismatch` (cross-source-schema composition rejected). `Complement::is_compatible(&other)` exposes the domain of definition. Partial-monoid laws (left/right identity, idempotence on equal entries, associativity, commutativity on disjoint keys, conflict detection, fingerprint isolation) are unit-tested.
+- **`PutPut` lens law check** (`panproto-lens::laws::check_put_put`): verifies `put(put(s, v1, c), v2, c) ≡ put(s, v2, c)` over identity and projection lenses with proptest coverage.
+- **Symmetric-lens law check** (`panproto-lens::symmetric::check_symmetric_laws`): per-leg `GetPut` plus cross-side stability — left view must round-trip a right-side put, and vice versa.
+- **Optic-kind law dispatch** (`panproto-lens::optic::check_optic_laws`): `Prism`/`Affine` now check preview stability (the optic's idempotence on its focus); `Traversal`/`Affine` check `PutPut` against a structurally-perturbed view. `perturb_view_for_traversal` covers every `Value` variant — `Bool`, `Bytes`, `Token`, `CidLink`, `Blob`, non-empty `List`/`Unknown`/`Opaque` — so the law no longer silently passes on schemas with non-string/integer leaves.
+- **Format-preserving byte-equal round-trip corpus test** (`crates/panproto-io/tests/format_preserving_corpus.rs`): asserts `emit_wtype_preserving(parse_wtype_preserving(bytes)) == bytes` over JSON (OpenAPI, ATProto, GeoJSON, FHIR, Brat), XML (TEI, NAF, RSS), and synthetic edge cases (pretty-printed, trailing newline, nested arrays).
+- **`theory_endofunctor_equiv`** and **`protolens_composable`** (`panproto-lens::protolens`): public predicates for natural-transformation composability. `protolens_composable` admits both the strict categorical condition (`eta.target ≡ theta.source`) and the schema-level "Identity-source as wildcard" pattern that the codebase's authoring conventions rely on, with documentation that distinguishes the two and points callers to `check_applicability_with` for runtime per-step verification.
+- **`ProtolensChain::instantiate_sequential`** and **`check_applicability_with` / `applicable_to_with`** (`panproto-lens::protolens`): sequential lens-by-lens instantiation through `compose::compose`, exercising lens laws end-to-end on real intermediate states. The fused form (`instantiate`) remains the default for migration-metadata fidelity (e.g. `expansion_path` aggregation).
+
+### Changed
+
+- **`TheoryMorphism::compose` checks codomain/domain compatibility**, returning `GatError::ComposeDomainMismatch` when `self.codomain != other.domain`. Composing across mismatched morphisms previously succeeded silently as long as image names happened to match downstream maps.
+- **`vertical_compose`, `ProtolensChain::fuse`, `ProtolensChain::instantiate_sequential`** reject mismatched intermediate endofunctors with `LensError::CompositionMismatch` rather than producing a silently-wrong protolens.
+- **`Complement::compose` signature**: `&Self -> Self` → `&Self -> Result<Self, LensError>`. Composing complements that disagree on a shared key — or that carry different `source_fingerprint`s — now errors instead of silently picking the left operand. Pre-1.0; no backward-compat shim.
+- **`panproto-protocols::theories` registration functions** propagate colimit failures as panics with informative messages (`# Panics` documented per function), replacing the prior `if let Ok(...) { register }` wrappers that silently skipped failed protocol compositions.
+- **`panproto-lens::compose::compose_field_transforms` and `compose_conditional_survival`** drop entries whose anchor lives only in `m1`'s target space, preventing name-space mixing in composed migrations. Conditional-survival predicates additionally undergo a static scope check: free variables of `m2_pred` referenced through `DropField` / `RenameField{old_key}` / `KeepFields` (intersection-of-retain-sets) field-transforms on the corresponding anchor are conservatively rewritten to `Lit(Bool(false))` (the audit-recommended "default fail").
+- **`panproto-lens::laws::instances_equivalent`** delegates `Value` and `extra_fields` comparison to the shared `asymmetric::value_equiv` / `extra_fields_equiv` path, eliminating the prior NaN-disagreement gap between law-checking and complement composition. `Value::Float(NaN)` is treated as reflexively equal; `+0.0` and `-0.0` remain IEEE-754-equal; distinct numeric variants (`Int(1)` vs `Float(1.0)`) remain distinct to preserve round-trip fidelity.
+- **`panproto-vcs::merge::verify_pushout`** doc clarified to reflect that it verifies cocone commutativity (the necessary condition); the new `verify_pushout_universal` carries the universal-property check.
+
+### Fixed
+
+- **`Complement::compose` is now a partial monoid in fact, not just by claim**: the old left-biased merge was associative only by coincidence; conflicts on shared keys now surface as `ComplementConflict` rather than silently dropping data.
+- **`vertical_compose`, `ProtolensChain::fuse`** no longer accept mismatched endofunctors, closing a soundness escape hatch where `η: F⟹G` and `θ: H⟹K` with `G ≠ H` composed silently into something whose source was `F` and target was `K`.
+- **`compose_field_transforms`** name-space mix when an `m2`-anchor lived only in `m1`'s target space (introduced or renamed by `m1`).
+
 ## [0.45.0] - 2026-05-05
 
 ### Added
