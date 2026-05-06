@@ -48,43 +48,64 @@ pub enum ReplLine {
 The REPL state is
 
 $$
-\Sigma = (\mathsf{theories} : \mathsf{Map}(\mathsf{Name}, \mathsf{Theory}),\;
-         \mathsf{morphisms} : \mathsf{Map}(\mathsf{Name}, \mathsf{TheoryMorphism}),\;
-         \mathsf{active} : \mathsf{Option}(\mathsf{Name}))
+\Sigma \;=\; \bigl(\mathsf{theories} : \mathsf{Name} \rightharpoonup \mathsf{Theory},\;
+                  \mathsf{morphisms} : \mathsf{Name} \rightharpoonup \mathsf{TheoryMorphism},\;
+                  \mathsf{active} : \mathsf{Name}_\bot \bigr)
 $$
 
-Each command is a function $\mathsf{ReplCommand} \to \Sigma \to (\Sigma', \mathsf{ReplOutcome})$ and each term-line is a function $\mathsf{Term} \to \Sigma \to (\Sigma, \mathsf{ReplOutcome})$ (terms do not modify state).
-
-The `ReplOutcome` carries the user-visible effect: a printed string, a typed-term result, an error, or the quit signal.
-
-## Interpretation
-
-The semantic function $\llbracket \cdot \rrbracket : \mathsf{ReplCommand} \to \Sigma \to (\Sigma, \mathsf{ReplOutcome})$:
-
-| Command | $\Sigma$ change | Outcome |
-|---|---|---|
-| `:load p` | Compile the theory document at $p$ via `panproto_theory_dsl::load_and_compile`; insert each compiled theory into `theories` and each morphism into `morphisms`. | Names of newly loaded items, or compile error. |
-| `:theories` | none | Print the keys of `theories`. |
-| `:use n` | Set `active = Some(n)`. | `Ok` if $n \in \mathsf{theories}$; `UnknownTheory` otherwise. |
-| `:sorts` | none | Print the sort list of the active theory. |
-| `:ops` | none | Print the op signatures of the active theory. |
-| `:type t` | none | Parse $t$, run `panproto_gat::typecheck_term` against the active theory; print the inferred sort or the type error. |
-| `:normalize t` | none | Parse $t$, run `panproto_gat::normalize` against the active theory's directed equations; print the normal form. |
-| `:model d?` | none | Run `panproto_gat::free_model` on the active theory with `FreeModelConfig { depth: d.unwrap_or(default), ... }`; print one section per fiber. |
-| `:instance class in target { bindings }` | Compile an ad-hoc instance morphism via `panproto_theory_dsl::compile_instance`; insert into `morphisms`. | The compiled morphism's name, or compile error. |
-| `:quit` / `:q` | none | Quit signal. |
-
-The bare-term path is
+The semantic codomain is the set $\mathsf{Outcome}$ of user-visible effects (printed string, typed-term result, error, quit signal). The denotational semantics is the pair of functions
 
 $$
-\llbracket t \rrbracket(\Sigma) =
-\begin{cases}
-  (\Sigma, \mathsf{TypeOf}(\tau)) & \text{if } \mathsf{active} = \mathsf{Some}(n) \text{ and } \mathsf{typecheck\_term}(t, \mathsf{theories}(n)) = \mathsf{Ok}(\tau) \\
-  (\Sigma, \mathsf{Error}(e)) & \text{otherwise}
-\end{cases}
+\llbracket \cdot \rrbracket_C : \mathsf{ReplCommand} \to \Sigma \to \Sigma \times \mathsf{Outcome}
+\qquad
+\llbracket \cdot \rrbracket_T : \mathsf{Term} \to \Sigma \to \Sigma \times \mathsf{Outcome}
 $$
 
-`handle_term_typecheck` in `crates/panproto-repl/src/lib.rs` implements this pointwise.
+where $\llbracket \cdot \rrbracket_T$ is state-preserving: $\pi_1 \circ \llbracket t \rrbracket_T = \mathsf{id}_\Sigma$.
+
+## Semantic equations
+
+Write $\sigma = (\theta, \mu, a)$ for a state and $\theta[n \mapsto T]$ for the obvious update. The equations:
+
+$$
+\begin{aligned}
+\llbracket \mathsf{Load}(p) \rrbracket_C\, \sigma
+  &= \bigl(\sigma'',\ \mathsf{Loaded}(\mathsf{names}(\Delta))\bigr) \\
+  &\quad \text{where } \Delta = \mathsf{compile}(p),\ \sigma'' = \sigma\,\text{with}\,\theta, \mu \mathbin{\cup} \Delta \\[2pt]
+\llbracket \mathsf{Theories} \rrbracket_C\, \sigma
+  &= \bigl(\sigma,\ \mathsf{List}(\mathsf{dom}(\theta))\bigr) \\[2pt]
+\llbracket \mathsf{Use}(n) \rrbracket_C\, \sigma
+  &= \begin{cases}
+       (\sigma[a := n],\ \mathsf{Ok}) & n \in \mathsf{dom}(\theta) \\
+       (\sigma,\ \mathsf{UnknownTheory}(n)) & \text{otherwise}
+     \end{cases} \\[2pt]
+\llbracket \mathsf{Sorts} \rrbracket_C\, \sigma
+  &= \bigl(\sigma,\ \mathsf{List}(\mathsf{sorts}(\theta(a)))\bigr) \\[2pt]
+\llbracket \mathsf{Ops} \rrbracket_C\, \sigma
+  &= \bigl(\sigma,\ \mathsf{List}(\mathsf{ops}(\theta(a)))\bigr) \\[2pt]
+\llbracket \mathsf{TypeOf}(t) \rrbracket_C\, \sigma
+  &= \bigl(\sigma,\ \mathsf{Typed}(\mathsf{typecheck\_term}(t,\ \theta(a)))\bigr) \\[2pt]
+\llbracket \mathsf{Normalize}(t) \rrbracket_C\, \sigma
+  &= \bigl(\sigma,\ \mathsf{Normal}(\mathsf{normalize}(t,\ \theta(a)))\bigr) \\[2pt]
+\llbracket \mathsf{Model}(d) \rrbracket_C\, \sigma
+  &= \bigl(\sigma,\ \mathsf{Fibers}(\mathsf{free\_model}(\theta(a),\ \mathsf{depth} = d))\bigr) \\[2pt]
+\llbracket \mathsf{Instance}(C, T, B) \rrbracket_C\, \sigma
+  &= \bigl(\sigma\,\text{with}\,\mu[m \mapsto M],\ \mathsf{Compiled}(m)\bigr) \\
+  &\quad \text{where } M = \mathsf{compile\_instance}(C, T, B),\ m = \mathsf{name}(M) \\[2pt]
+\llbracket \mathsf{Quit} \rrbracket_C\, \sigma
+  &= (\sigma,\ \mathsf{QuitSignal})
+\end{aligned}
+$$
+
+The bare-term path:
+
+$$
+\llbracket t \rrbracket_T\, \sigma \;=\; \bigl(\sigma,\ \mathsf{Typed}(\mathsf{typecheck\_term}(t,\ \theta(a)))\bigr)
+$$
+
+When $a = \bot$ (no active theory), all $\theta(a)$-dependent equations short-circuit to $(\sigma, \mathsf{NoActiveTheory})$. When any auxiliary (`compile`, `typecheck_term`, `normalize`, `free_model`, `compile_instance`) returns an error, the outcome is $\mathsf{Error}(e)$ and the state is unchanged.
+
+`Repl::handle_command` and `Repl::handle_term_typecheck` in [`crates/panproto-repl/src/lib.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-repl/src/lib.rs) implement these equations pointwise.
 
 ## Soundness
 

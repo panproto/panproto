@@ -70,21 +70,19 @@ The top-level type is `LensDocument`, not `LensSpec`. There is no `source`/`targ
 
 ## Semantic domain
 
-A *lens* between source $S$, view $V$, and complement $C$ is a triple of functions
+For schemas $S$, $V$ and complement type $C$, the set of *lenses* on $(S, V, C)$ is
 
 $$
-\llbracket l \rrbracket = (\mathsf{get},\; \mathsf{put},\; \mathsf{complement})
+\mathsf{Lens}(S, V, C) \;=\; (S \to V) \times (S \times V \times C \to S) \times (S \to C)
 $$
 
-with
+with elements written as triples $(\mathsf{get},\, \mathsf{put},\, \mathsf{complement})$. The implementation in `panproto-lens` represents this triple by the `LensHandle` type; the categorical model is the standard asymmetric-lens construction of @foster2007combinators with complements after @littvanhardenberghenry2020cambria. The semantic function
 
 $$
-\mathsf{get} : S \to V, \quad
-\mathsf{put} : S \times V \times C \to S, \quad
-\mathsf{complement} : S \to C.
+\llbracket \cdot \rrbracket : \mathsf{LensDocument} \to \mathsf{Sch} \to \mathsf{Lens}
 $$
 
-The domain of all lenses on $(S, V, C)$ is denoted $\mathsf{Lens}(S, V, C)$.
+takes a document and a source schema and returns a concrete lens. (The target schema and the complement type are determined by the document and the source.)
 
 ## The three laws
 
@@ -104,24 +102,43 @@ $$
 
 `panproto_lens::laws::check_get_put`, `check_put_get`, and `check_put_put` are property-test runners that sample $s$, $v$, $v_1$, $v_2$ from the schema's value space and assert each equation.
 
-## Compilation
+## Semantic equations
 
-A `LensDocument` compiles via `panproto_lens_dsl::compile` to a `CompiledLens` carrying a `ProtolensChain` and a list of value-level `FieldTransform`s. Each `Step` is translated to a protolens that targets the affected sub-schema; the chain is then instantiated against the source schema to produce the concrete lens.
-
-Symbolically:
+For each step constructor, $\llbracket \cdot \rrbracket$ is a function $\mathsf{Step} \to \mathsf{Sch} \to \mathsf{Protolens}$, where a $\mathsf{Protolens}$ is a schema-parameterised lens (see [Protolens composition](./protolens-composition.md)). The document-level semantics is the left-to-right composition of the per-step semantics, applied to the source schema:
 
 $$
-\llbracket \mathsf{LensDocument}(\mathsf{steps}=[s_1, \ldots, s_n]) \rrbracket_S
-  = \llbracket s_n \rrbracket \mathbin{;} \cdots \mathbin{;} \llbracket s_1 \rrbracket
+\llbracket \mathsf{LensDocument}(\mathsf{id} = d,\, \mathsf{steps} = [s_1, \ldots, s_k]) \rrbracket\, S
+  \;=\; \llbracket s_k \rrbracket\,S_{k-1}\ \mathbin{;}\ \cdots\ \mathbin{;}\ \llbracket s_1 \rrbracket\,S_0
 $$
 
-where $\mathbin{;}$ is sequential lens composition (left-to-right by step order, applied at each schema in turn) and $\llbracket s_i \rrbracket$ is the protolens chosen for step $s_i$. The sequential-composition rule for lenses is
+where $S_0 = S$ and $S_i = \mathsf{target}(\llbracket s_i \rrbracket\,S_{i-1})$. The composition operator $\mathbin{;}$ is the sequential lens composition
 
 $$
-(\mathsf{get}_1; \mathsf{get}_2)(s) = \mathsf{get}_2(\mathsf{get}_1(s))
+\begin{aligned}
+\mathsf{get}_{l_1; l_2}(s)              &= \mathsf{get}_{l_2}(\mathsf{get}_{l_1}(s)) \\
+\mathsf{complement}_{l_1; l_2}(s)       &= (\mathsf{complement}_{l_1}(s),\ \mathsf{complement}_{l_2}(\mathsf{get}_{l_1}(s))) \\
+\mathsf{put}_{l_1; l_2}(s, v, (c_1, c_2)) &= \mathsf{put}_{l_1}(s,\ \mathsf{put}_{l_2}(\mathsf{get}_{l_1}(s), v, c_2),\ c_1)
+\end{aligned}
 $$
 
-with the corresponding $\mathsf{put}$ and $\mathsf{complement}$ assembled by the [combinator algebra](../../reference/lens-combinators.md). Composition between adjacent steps is gated by `protolens_composable`: see [Protolens composition](./protolens-composition.md).
+For a representative subset of steps:
+
+$$
+\begin{aligned}
+\llbracket \mathsf{RemoveField}\{f\} \rrbracket\, S &=
+  \mathsf{drop}_{f}\,\bigl(\mathsf{get}=\mathsf{forget}_f,\ \mathsf{complement}=\mathsf{capture}_f,\ \mathsf{put}=\mathsf{restore}_f\bigr) \\[2pt]
+\llbracket \mathsf{RenameField}\{f \mapsto g\} \rrbracket\, S &=
+  \bigl(\mathsf{get} = \mathsf{rename}_{f \mapsto g},\ \mathsf{complement} = \varepsilon,\ \mathsf{put} = \mathsf{rename}_{g \mapsto f}\bigr) \\[2pt]
+\llbracket \mathsf{AddField}\{f, d\} \rrbracket\, S &=
+  \bigl(\mathsf{get} = \mathsf{insert}_{f, d},\ \mathsf{complement} = \varepsilon,\ \mathsf{put} = \mathsf{forget}_f\bigr) \\[2pt]
+\llbracket \mathsf{ApplyExpr}\{e_{\to}, e_{\leftarrow}\} \rrbracket\, S &=
+  \bigl(\mathsf{get} = \llbracket e_{\to} \rrbracket,\ \mathsf{complement} = \mathsf{snapshot},\ \mathsf{put} = \llbracket e_{\leftarrow} \rrbracket\bigr)
+\end{aligned}
+$$
+
+where $\varepsilon$ is the trivial complement (a singleton) and $\llbracket \cdot \rrbracket$ on the right-hand side of $\mathsf{ApplyExpr}$ is the [expression-language semantics](./expression-language.md). The remaining 15 step constructors follow the same pattern; the implementation of each lives under [`crates/panproto-lens-dsl/src/steps`](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl/src/steps).
+
+Composition between adjacent step semantics is gated at construction time by `protolens_composable`: see [Protolens composition](./protolens-composition.md). Compilation in the implementation is handled by `panproto_lens_dsl::compile`, which produces a `CompiledLens` carrying the `ProtolensChain` corresponding to $\llbracket \cdot \rrbracket\, S$ along with the value-level `FieldTransform`s extracted from any $\mathsf{ApplyExpr}$ steps.
 
 ## Complement composition
 

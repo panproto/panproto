@@ -24,16 +24,15 @@ satisfying the lens laws (see [Lens DSL](./lens-dsl.md)).
 
 The naturality condition is: for every schema morphism $f : \Sigma \to \Sigma'$, the square
 
-```text
-F(Σ)  --P_Σ-->  G(Σ)
- |               |
-F(f)            G(f)
- |               |
- v               v
-F(Σ') --P_Σ'--> G(Σ')
-```
+$$
+\begin{CD}
+  F(\Sigma)   @>{P_\Sigma}>>     G(\Sigma)   \\
+  @V{F(f)}VV                     @VV{G(f)}V  \\
+  F(\Sigma')  @>>{P_{\Sigma'}}>  G(\Sigma')
+\end{CD}
+$$
 
-commutes. In words: applying the protolens then transporting along $f$ gives the same result as transporting then applying the protolens.
+commutes: $G(f) \circ P_\Sigma = P_{\Sigma'} \circ F(f)$. Applying the protolens then transporting along $f$ gives the same result as transporting then applying the protolens.
 
 ## Composition
 

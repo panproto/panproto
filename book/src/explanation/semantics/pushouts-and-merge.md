@@ -17,20 +17,33 @@ Let $\mathsf{Th}$ be the category of GAT presentations and theory morphisms. A p
 
 the *pushout* is an object $M$ together with morphisms $j_O : O \to M$ and $j_T : T \to M$ satisfying the *cocone* condition $j_O \circ i_O = j_T \circ i_T$ and the *universal property*: for any other object $M'$ and morphisms $k_O : O \to M'$, $k_T : T \to M'$ with $k_O \circ i_O = k_T \circ i_T$, there exists a unique morphism $m : M \to M'$ such that $m \circ j_O = k_O$ and $m \circ j_T = k_T$.
 
-Pictorially:
+The pushout square:
 
-```text
-        B ---i_O---> O
-        |            |  \
-        |            |   k_O
-       i_T          j_O    \
-        |            |      \
-        v            v       v
-        T ---j_T---> M --m--> M'
-                     ^       /
-                      \     k_T
-                        ----
-```
+$$
+\begin{CD}
+  B  @>{i_O}>>  O      \\
+  @V{i_T}VV     @VV{j_O}V \\
+  T  @>>{j_T}>  M
+\end{CD}
+$$
+
+The universal property says that for any alternative cocone $(M',\, k_O,\, k_T)$, the mediator $m : M \to M'$ exists and is unique:
+
+$$
+\begin{CD}
+  B  @>{i_O}>>  O           \\
+  @V{i_T}VV     @VV{k_O}V   \\
+  T  @>>{k_T}>  M' \\
+\end{CD}
+\qquad
+\text{factors uniquely as }
+\qquad
+\begin{CD}
+  O  @>{j_O}>>  M  @>{m}>>  M' \\
+\end{CD}
+$$
+
+with $m \circ j_O = k_O$ and $m \circ j_T = k_T$.
 
 ## Construction
 

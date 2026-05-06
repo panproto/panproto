@@ -4,11 +4,14 @@ This page defines the meta-notation reused across the other denotational-semanti
 
 ## In plain terms
 
-A *judgement* is a structured assertion of the form "in some context, this thing has this property." The most familiar example is "in the typing context $\Gamma$, the expression $e$ has type $\tau$", written $\Gamma \vdash e : \tau$. We use judgements to define the meaning of syntactic constructs by writing inference rules that derive complex judgements from simpler ones.
+We use two complementary notations:
+
+- *Inference rules*, of the form $\dfrac{\text{premises}}{\text{conclusion}}$, define a relation (typically a typing relation $\Gamma \vdash e : \tau$) inductively as the smallest relation closed under the rules.
+- *Semantic equations*, of the form $\llbracket e \rrbracket\,\rho = v$, define a function $\llbracket \cdot \rrbracket$ by structural recursion on the syntax. The double brackets emphasise that we are speaking of meaning, not surface text.
+
+The DSL pages in this cluster present the type system as inference rules and the value semantics as semantic equations: the standard *denotational* idiom, in the sense of Scott and Strachey. Where evaluation can fail to terminate, we lift the value domain $D$ to $D_\bot = D \cup \{\bot\}$ so that $\llbracket e \rrbracket$ is total.
 
 A *context* (also called an *environment*) is a finite map from names to data. Typing contexts map variable names to types; evaluation contexts map variable names to values; theory contexts map sort names to their definitions.
-
-A *semantic function* $\llbracket \cdot \rrbracket$ takes a piece of syntax and returns its meaning in some mathematical universe. We use the double brackets to make clear that we are talking about meaning, not surface text.
 
 ## Environments
 
@@ -18,7 +21,7 @@ Three environment kinds appear repeatedly:
 - $\rho$: a *value environment* mapping variable names to values. Notation: $\rho, x \mapsto v$ extends $\rho$ with $x \mapsto v$.
 - $\Theta$: a *theory context* mapping sort names to their definitions in a GAT. Used in the theory DSL and in the pushout construction.
 
-A judgement of the form $\Gamma \vdash e : \tau$ asserts that under typing context $\Gamma$, the expression $e$ has type $\tau$. A judgement of the form $\rho \vdash e \Downarrow v$ asserts that under value environment $\rho$, the expression $e$ evaluates to $v$ (the symbol $\Downarrow$ is read "evaluates to").
+A judgement of the form $\Gamma \vdash e : \tau$ asserts that under typing context $\Gamma$, the expression $e$ has type $\tau$. We do *not* use a separate evaluation judgement $\rho \vdash e \Downarrow v$ in this cluster: evaluation is presented as the semantic function $\llbracket e \rrbracket\,\rho \in D_\bot$ rather than as a relation.
 
 ## Inference rules
 

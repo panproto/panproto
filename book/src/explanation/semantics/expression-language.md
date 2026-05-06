@@ -47,71 +47,92 @@ pub enum Expr {
 
 `Match` covers both `if/then/else` and `case/of`; pattern matching is the only branching primitive. The full enum lives at [`crates/panproto-expr/src/expr.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/expr.rs).
 
-## Types
+## Type system
 
-```text
-τ ::= Int | Float | Str | Bool | Null | Any | List τ | Record | τ → τ
-```
-
-Type-checking judgement: $\Gamma \vdash e : \tau$.
-
-Selected rules:
+The type-formation grammar:
 
 $$
-\frac{}{\Gamma \vdash n : \mathsf{Int}} \quad (\text{t-int})
+\tau \;::=\; \mathsf{Int} \mid \mathsf{Float} \mid \mathsf{Str} \mid \mathsf{Bool} \mid \mathsf{Null} \mid \mathsf{Any} \mid \mathsf{List}\,\tau \mid \mathsf{Record} \mid \tau \to \tau
+$$
+
+A typing context $\Gamma$ is a finite map from variable names to types. The typing relation $\Gamma \vdash e : \tau$ is defined inductively by the usual rules; selected:
+
+$$
+\frac{}{\Gamma \vdash n : \mathsf{Int}} \;(\text{T-Int})
 \qquad
-\frac{\Gamma \vdash e_1 : \tau_1 \to \tau_2 \quad \Gamma \vdash e_2 : \tau_1}{\Gamma \vdash e_1\,e_2 : \tau_2} \quad (\text{t-app})
+\frac{x : \tau \in \Gamma}{\Gamma \vdash x : \tau} \;(\text{T-Var})
+\qquad
+\frac{\Gamma, x : \tau_1 \vdash e : \tau_2}{\Gamma \vdash \lambda x.\,e : \tau_1 \to \tau_2} \;(\text{T-Lam})
 $$
 
 $$
-\frac{\Gamma, x : \tau_1 \vdash e : \tau_2}{\Gamma \vdash \lambda x.\,e : \tau_1 \to \tau_2} \quad (\text{t-lam})
+\frac{\Gamma \vdash e_1 : \tau_1 \to \tau_2 \quad \Gamma \vdash e_2 : \tau_1}{\Gamma \vdash e_1\,e_2 : \tau_2} \;(\text{T-App})
+\qquad
+\frac{\Gamma \vdash e : \tau_1 \quad \Gamma, x : \tau_1 \vdash e' : \tau_2}{\Gamma \vdash \mathsf{let}\;x = e\;\mathsf{in}\;e' : \tau_2} \;(\text{T-Let})
 $$
 
-Builtin signatures are tabulated in [`reference/expression-language`](../../reference/expression-language.md).
+Builtin signatures have type schemes given in [reference/expression-language](../../reference/expression-language.md); each `Builtin(op, \overline{e})` rule plugs in $op$'s scheme and checks that the arguments match.
 
 ## Semantic domain
 
-The value domain is
+Let $\mathsf{Val}$ be the recursive sum
 
 $$
-V = \mathbb{Z} \cup \mathbb{R} \cup \mathsf{String} \cup \{\mathsf{true}, \mathsf{false}\} \cup \{\mathsf{null}\} \cup \mathsf{List}(V) \cup \mathsf{Record}(V) \cup (V \to V)
+\mathsf{Val} \;\cong\; \mathbb{Z} + \mathbb{R} + \mathsf{String} + \mathbb{B} + \{\star\} + \mathsf{List}(\mathsf{Val}) + \mathsf{Record}(\mathsf{Val}) + [\mathsf{Val} \rightharpoonup \mathsf{Val}]
 $$
 
-with $V_\bot = V \cup \{\bot\}$ adjoined for non-terminating or budget-exceeded computations.
+interpreting `Null` as the singleton $\{\star\}$ and the function space as partial continuous maps. Lift to $\mathsf{Val}_\bot = \mathsf{Val} + \{\bot\}$ to adjoin a bottom for divergence under the step budget. Environments live in $\mathsf{Env} = \mathsf{Var} \rightharpoonup \mathsf{Val}$, and *ranked* environments in $\mathsf{Env}_n = \mathsf{Env} \times \mathbb{N}$ to track the remaining step budget.
 
-## Interpretation
+## Semantic function
 
-The evaluation judgement is $\rho \vdash e \Downarrow v$, parameterised over a step counter $n \in \mathbb{N}$. We elide the counter unless it is the point.
-
-$$
-\frac{}{\rho \vdash n \Downarrow n} \quad (\text{e-int})
-\qquad
-\frac{x \in \rho}{\rho \vdash x \Downarrow \rho(x)} \quad (\text{e-var})
-$$
+The denotational semantics is the family
 
 $$
-\frac{\rho \vdash e_1 \Downarrow \lambda x.\,e \quad \rho \vdash e_2 \Downarrow v_2 \quad \rho, x \mapsto v_2 \vdash e \Downarrow v}{\rho \vdash e_1\,e_2 \Downarrow v} \quad (\text{e-app})
+\llbracket \cdot \rrbracket : \mathsf{Expr} \to \mathsf{Env}_n \to \mathsf{Val}_\bot
 $$
 
-The step counter is held in `EvalState` (see `crates/panproto-expr/src/eval.rs`). Each rule application calls `EvalState::tick`, which decrements the remaining budget and raises when zero. This corresponds to the rule
+defined by structural recursion on $\mathsf{Expr}$. Write $\rho_n = (\rho, n)$ and $\rho_n \!\downarrow\! 1 = (\rho, n - 1)$ for the budget decrement. The equations:
 
 $$
-\frac{n = 0}{\rho \vdash e \Downarrow_n \bot} \quad (\text{e-budget})
+\begin{aligned}
+\llbracket \mathsf{Lit}(c) \rrbracket\, \rho_n        &= c \\
+\llbracket \mathsf{Var}(x) \rrbracket\, \rho_n        &= \rho(x) \\
+\llbracket \mathsf{Lam}(x, e) \rrbracket\, \rho_n     &= \lambda v.\, \llbracket e \rrbracket\,(\rho[x \mapsto v])_n \\
+\llbracket \mathsf{Let}(x, e_1, e_2) \rrbracket\, \rho_n
+                                                       &= \llbracket e_2 \rrbracket\,(\rho[x \mapsto \llbracket e_1 \rrbracket\,\rho_n])_{n-1} \\
+\llbracket \mathsf{App}(e_1, e_2) \rrbracket\, \rho_n
+                                                       &= (\llbracket e_1 \rrbracket\,\rho_n)\,(\llbracket e_2 \rrbracket\,\rho_n) \\
+\llbracket \mathsf{Match}(e, \overline{(p_i, b_i)}) \rrbracket\, \rho_n
+                                                       &= \mathsf{matchArms}(\llbracket e \rrbracket\,\rho_n,\ \overline{(p_i, b_i)},\ \rho_{n-1}) \\
+\llbracket \mathsf{List}(\overline{e}) \rrbracket\, \rho_n
+                                                       &= [\,\llbracket e_i \rrbracket\,\rho_n\,]_i \\
+\llbracket \mathsf{Field}(e, x) \rrbracket\, \rho_n
+                                                       &= (\llbracket e \rrbracket\,\rho_n).x \\
+\llbracket \mathsf{Index}(e, i) \rrbracket\, \rho_n
+                                                       &= (\llbracket e \rrbracket\,\rho_n)\,[\,\llbracket i \rrbracket\,\rho_n\,] \\
+\llbracket \mathsf{Builtin}(op, \overline{e}) \rrbracket\, \rho_n
+                                                       &= \mathsf{apply\_builtin}(op,\ \overline{\llbracket e_i \rrbracket\,\rho_n}) \\
+\llbracket e \rrbracket\, (\rho, 0)                   &= \bot \quad \text{(budget rule)}
+\end{aligned}
 $$
 
-When this rule fires, evaluation aborts with `ExprError::StepLimitExceeded(max_steps)`. We model this as $\bot$ in the semantic domain so that $\llbracket e \rrbracket_\rho \in V_\bot$ is defined for every well-typed $e$. The default budget is $100{,}000$ steps (`EvalConfig::default`).
+The budget rule fires before any equation if the remaining steps are zero; otherwise the relevant equation applies and the recursive sub-denotations are evaluated with the budget decremented. Operationally this is `EvalState::tick` in [`crates/panproto-expr/src/eval.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/eval.rs); when $\bot$ is returned the implementation surfaces `ExprError::StepLimitExceeded(max_steps)`.
 
-Builtins are interpreted by `apply_builtin`, defined in [`crates/panproto-expr/src/builtin.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/builtin.rs). Side conditions:
+The auxiliary $\mathsf{matchArms}$ is the standard pattern-match search: try each $(p_i, b_i)$ in order, attempting to unify $p_i$ against the scrutinee value; on the first success bind the pattern variables into $\rho$ and evaluate $b_i$; on exhaustion raise `NonExhaustiveMatch`. The auxiliary $\mathsf{apply\_builtin}$ is the partial function defined in [`crates/panproto-expr/src/builtin.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/builtin.rs).
 
-- `Div` and `Mod`: divisor zero raises `DivisionByZero`.
-- Integer arithmetic: overflow raises `Overflow` (we use `i64::checked_*`).
-- `*ToInt` / `*ToFloat`: invalid input raises `ParseError`.
-- List builtins: out-of-bounds access raises `IndexOutOfBounds`; lists past the configured maximum length raise `ListLengthExceeded`.
-- Record access: missing field raises `FieldNotFound`.
-- `Match`: a non-exhaustive match raises `NonExhaustiveMatch`.
-- Application of a non-function value raises `NotAFunction`.
+### Builtin side conditions
 
-These are runtime errors distinct from $\bot$; $\bot$ is reserved for resource exhaustion (`StepLimitExceeded` and `DepthExceeded`).
+The builtins listed under [reference/expression-language](../../reference/expression-language.md) are individually total or partial. The partial ones return a non-$\bot$ error rather than $\bot$:
+
+- `Div`, `Mod` with zero divisor: `DivisionByZero`.
+- Integer arithmetic overflow: `Overflow` (`i64::checked_*`).
+- `*ToInt` / `*ToFloat` on unparseable input: `ParseError`.
+- List index out of bounds: `IndexOutOfBounds`; list operations past the configured maximum: `ListLengthExceeded`.
+- Record access on a missing field: `FieldNotFound`.
+- `Match` exhaustion: `NonExhaustiveMatch`.
+- `App` of a non-function value: `NotAFunction`.
+
+Errors are distinct from $\bot$. $\bot$ models *resource exhaustion* (`StepLimitExceeded` and `DepthExceeded`); errors model *defined failure* and propagate as `Err(ExprError)` from the implementation.
 
 ## Soundness
 
