@@ -1,3 +1,52 @@
 # Define a schema from the CLI
 
-*This page is under construction.*
+## Prerequisites
+
+The `schema` binary installed ([Install the CLI](../install/cli.md)). A schema file in a supported protocol, or a protocol name to scaffold an empty one.
+
+## The task
+
+### Validate an existing schema
+
+```sh
+schema validate --protocol json-schema path/to/schema.json
+```
+
+Exits zero on success. On failure, prints the failing equation or constraint with the offending vertex and edge.
+
+### Scaffold a minimal schema
+
+```sh
+schema scaffold --protocol atproto --out schemas/post.json
+```
+
+Generates the smallest valid schema for the named protocol, using free-model construction. Useful as a starting template.
+
+### Inspect
+
+```sh
+schema show schemas/post.json
+schema diff schemas/post-v1.json schemas/post-v2.json
+```
+
+`show` prints a structured rendering. `diff` reports vertex and edge changes between two schemas.
+
+## Verification
+
+After validation, run:
+
+```sh
+schema verify --protocol json-schema path/to/schema.json
+```
+
+`verify` checks that the schema satisfies *every* equation in the protocol's theory, not just the constraints you wrote. A pass guarantees the schema is well-formed in the categorical sense.
+
+## Common mistakes
+
+- Forgetting `--protocol`. Many subcommands require an explicit protocol; auto-detection happens only at the project level when a `panproto.toml` is present.
+- Running `schema validate` when you mean `schema check` (the latter checks a *migration*, not a schema).
+
+## See also
+
+- [Reference: CLI](../../reference/cli.md) for the full subcommand list.
+- [Tutorial: your first schema](../../tutorials/your-first-schema.md).
