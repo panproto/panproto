@@ -49,7 +49,7 @@ Both should be clean. A clean panproto status with a dirty git status is normal 
 
 ## Common mistakes
 
-- Three-way text-merging `.panproto/objects/` files. The store is content-addressed; the bytes are correct or wrong, never partially. Use `schema git rebase` for any conflict.
+- Three-way text-merging `.panproto/objects/` files. The store is content-addressed; the bytes are correct or wrong, never partially. Resolve via `schema rebase` or by re-running the merge inside panproto with `schema merge`, then re-export to git with `schema git export`.
 - Mixing the two modes. Choose sidecar or remote-bridge per project; mixing creates ambiguity about which DAG is the source of truth.
 
 ## See also

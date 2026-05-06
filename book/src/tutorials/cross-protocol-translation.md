@@ -8,21 +8,25 @@ By the end you will have: a Protobuf `.proto` file derived from your JSON Schema
 
 Completed [Schema version control basics](./schema-vcs-basics.md). Your `my-first-schema/` project with a v2 user schema in `schemas/user.json`.
 
-## Step 1: compose the theories
+## Step 1: pick a shared theory
 
-Cross-protocol translation runs through a *composed theory*: a single GAT containing both protocols' extensions over the shared building blocks. There is no one-shot CLI command; the composition is the prerequisite.
+Cross-protocol translation requires both schemas to be expressible against a single theory that the lens generator can align them in. The two ways to get there:
 
-Author a small theory document `theories/jsonschema-and-protobuf.ncl` that composes the two. The composition body has shape `compose = { result, bases, steps }`, where each step is `{ left, right, shared_sorts, shared_ops? }`:
+- Use a *built-in* protocol that already covers the structure you need. The protocols in `panproto-protocols` are themselves composed from the building-block theories listed by `builtin_resolver()` (`ThGraph`, `ThConstraint`, `ThMulti`, `ThWType`, `ThMeta`, ...). For schema pairs that use only the shared structure, this is enough.
+- Author a *custom composition* via the theory DSL when you need to combine theories the built-ins do not already give you.
+
+For this tutorial we author a small composition over the building blocks. Save as `theories/constrained-multigraph.ncl`:
 
 ```nickel
 {
-  id = "dev.example.jsonschema-and-protobuf",
-  description = "Composition of JSON Schema and Protobuf along the shared building blocks",
+  id = "dev.example.constrained-multigraph",
+  description = "Compose ThGraph, ThConstraint, and ThMulti by identifying their Vertex and Edge sorts",
   compose = {
-    result = "JsonSchemaAndProtobuf",
-    bases = ["JsonSchemaTheory", "ProtobufTheory"],
+    result = "ConstrainedMultigraph",
+    bases = ["ThGraph", "ThConstraint", "ThMulti"],
     steps = [
-      { left = "JsonSchemaTheory", right = "ProtobufTheory", shared_sorts = ["Vertex", "Edge"] },
+      { left = "ThGraph", right = "ThConstraint", shared_sorts = ["Vertex", "Edge"] },
+      { left = "ConstrainedMultigraph", right = "ThMulti", shared_sorts = ["Vertex", "Edge"] },
     ],
   },
 }
@@ -31,59 +35,53 @@ Author a small theory document `theories/jsonschema-and-protobuf.ncl` that compo
 Compile it:
 
 ```sh
-schema theory compile theories/jsonschema-and-protobuf.ncl
+schema theory compile theories/constrained-multigraph.ncl
 ```
 
-The compiler runs the colimit construction over the named components along the shared theories. Failure at this step is a build-time bug in the composition (incompatible equations on a shared sort); success produces a registered protocol whose schemas can mention either protocol's vertex kinds.
+The compiler runs the colimit construction step by step. Failure here is a build-time bug in the composition (incompatible equations on a shared sort); success produces a registered theory that subsequent commands can target.
 
-## Step 2: write schemas in the composed protocol
+## Step 2: express schemas against the composed theory
 
-Express the same `user` model as both a JSON Schema-flavoured schema and a Protobuf-flavoured schema, both against `JsonSchemaAndProtobuf`:
-
-```sh
-# schemas/user-jsonschema.json and schemas/user-protobuf.json
-# (each is a panproto schema graph; the protocol field is "JsonSchemaAndProtobuf")
-```
+Author two schemas of the same `user` model, one in each "flavour" your protocols would emit, both targeting the `ConstrainedMultigraph` theory. (For real cross-protocol work between JSON Schema and Protobuf, both protocols would already be built-in; the equivalent composed theory is set up in Rust in `panproto-protocols`.)
 
 ## Step 3: generate the chain
 
 ```sh
-schema lens generate \
-  --protocol JsonSchemaAndProtobuf \
-  schemas/user-jsonschema.json \
-  schemas/user-protobuf.json \
-  --save lenses/jsonschema-to-protobuf.json
+schema lens generate --protocol ConstrainedMultigraph \
+  schemas/user-a.json \
+  schemas/user-b.json \
+  --save lenses/a-to-b.json
 ```
 
-The chain is the bidirectional bridge; `--direction backward` on `apply` runs it the other way.
+The chain is the bidirectional bridge between the two schemas; `--direction backward` on `apply` runs it the other way.
 
 ## Step 4: convert data
 
 ```sh
 echo '{"name": "Alice", "years": 30, "email": "alice@example.com"}' > data/alice.json
 
-schema lens apply \
-  --protocol JsonSchemaAndProtobuf \
-  lenses/jsonschema-to-protobuf.json \
-  data/alice.json
+schema lens apply --protocol ConstrainedMultigraph \
+  lenses/a-to-b.json data/alice.json
 ```
-
-The output is the same record expressed against the Protobuf-flavoured schema.
 
 ## Step 5: verify
 
 ```sh
-schema lens verify \
-  --protocol JsonSchemaAndProtobuf \
-  data/alice.json \
-  schemas/user-protobuf.json
+schema lens verify --protocol ConstrainedMultigraph \
+  data/alice.json schemas/user-b.json
 ```
 
-Verification runs the three round-trip laws (GetPut, PutGet, PutPut) on the data; a clean run means the chain is loss-free for the input. Lossy spots (a JSON Schema `pattern` constraint that Protobuf does not encode, for example) are reported.
+Verification runs the round-trip laws on the data; a clean run means the chain is loss-free for the input. Lossy spots (a constraint expressible in one schema but not the other) are reported.
 
 ## What you built
 
-A working bridge between two schema languages, with a precise account of what is preserved and what is dropped. The composed-theory pattern extends to any pair of protocols panproto recognises ([the catalogue](../reference/protocols.md) lists 51).
+A small composed theory over panproto's building blocks, two schemas against it, and a verified chain between them. The same pattern, executed in Rust inside `panproto-protocols`, is how the 51 built-in protocols compose. Cross-protocol translation between built-in protocols then reduces to lens generation between schemas in their shared composed theory.
+
+## See also
+
+- [Translate across protocols](../how-to/cross-protocol.md) for the operational how-to.
+- [Composing protocols by colimit](../explanation/protocol-colimits.md) for the model.
+- [Theory DSL: denotational semantics](../explanation/semantics/theory-dsl.md).
 
 ## Next
 
