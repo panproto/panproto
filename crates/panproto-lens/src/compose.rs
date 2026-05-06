@@ -210,10 +210,18 @@ fn compose_field_transforms(
 /// `m1`'s target space are dropped rather than injected with a foreign
 /// key. The AND-conjunction is taken in the composed-source frame, so
 /// `m2_pred`'s free variables are interpreted against the schema
-/// presented to `m1`'s output (= `m2`'s input) — a tighter scope check
-/// (verifying every free variable references a field that survives
-/// `m1`) is recorded as `compose_conditional_survival_scope_check`
-/// follow-up.
+/// presented to `m1`'s output (= `m2`'s input).
+///
+/// Free-variable scope: when `m1` explicitly drops or renames a field
+/// on `anchor` whose name is also free in `m2_pred`, the AND-merged
+/// predicate would reference a variable that does not exist at
+/// evaluation time. We detect that statically: any `m2_pred` whose
+/// free-variable set intersects the keys dropped or renamed-away by
+/// `m1`'s field transforms on the corresponding anchor is
+/// conservatively rewritten to `false` on its own anchor (the
+/// variable cannot be present, so the predicate cannot legitimately
+/// be evaluated; refusing to keep the row is the safe default and
+/// matches the audit's "default fail" recommendation).
 fn compose_conditional_survival(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
@@ -224,30 +232,129 @@ fn compose_conditional_survival(
         for (m1_src, m1_tgt) in &m1.vertex_remap {
             if m1_tgt == m2_anchor {
                 found = true;
+                let scoped = scope_check_predicate(m2_pred, m1, m1_src);
                 result
                     .entry(m1_src.clone())
                     .and_modify(|existing| {
                         *existing = panproto_expr::Expr::Builtin(
                             panproto_expr::BuiltinOp::And,
-                            vec![existing.clone(), m2_pred.clone()],
+                            vec![existing.clone(), scoped.clone()],
                         );
                     })
-                    .or_insert_with(|| m2_pred.clone());
+                    .or_insert(scoped);
             }
         }
         if !found && unchanged_by_m1(m1, m2_anchor) {
+            let scoped = scope_check_predicate(m2_pred, m1, m2_anchor);
             result
                 .entry(m2_anchor.clone())
                 .and_modify(|existing| {
                     *existing = panproto_expr::Expr::Builtin(
                         panproto_expr::BuiltinOp::And,
-                        vec![existing.clone(), m2_pred.clone()],
+                        vec![existing.clone(), scoped.clone()],
                     );
                 })
-                .or_insert_with(|| m2_pred.clone());
+                .or_insert(scoped);
         }
     }
     result
+}
+
+/// Returns `m2_pred` unchanged when every free top-level variable
+/// still exists at the composed evaluation site, or the constant
+/// `false` when `m1` drops, renames-away, or filters-out a field
+/// referenced in `m2_pred`.
+///
+/// Detection rules (top-level keys only — nested-path access through
+/// `Field`/`Index` is not analysed because `panproto_expr::free_vars`
+/// returns only top-level `Var` names; a `PathTransform` on `attrs`
+/// affects only nested keys and so is not relevant here):
+///
+/// * `DropField { key }` removes `key`.
+/// * `RenameField { old_key, .. }` removes `old_key`.
+/// * `KeepFields { keys }` removes any top-level field not in `keys`;
+///   we conservatively flag every free variable not in the
+///   intersection of all `KeepFields` retain sets on this anchor.
+/// * `Case { branches }` would require all branches to drop a key
+///   for that key to be statically certain-dropped; the conservative
+///   approximation here is to skip `Case` entirely (no false
+///   positives on conditional drops, with a known soundness gap if
+///   every branch happens to drop the same key).
+/// * `PathTransform`, `AddField`, `ApplyExpr`, `ComputeField`,
+///   `MapReferences`: do not remove top-level bindings.
+fn scope_check_predicate(
+    pred: &panproto_expr::Expr,
+    m1: &CompiledMigration,
+    anchor: &panproto_gat::Name,
+) -> panproto_expr::Expr {
+    let Some(m1_xforms) = m1.field_transforms.get(anchor) else {
+        return pred.clone();
+    };
+    let analysis = analyse_field_transforms(m1_xforms);
+    if analysis.dropped.is_empty() && analysis.keep_intersection.is_none() {
+        return pred.clone();
+    }
+    let free = panproto_expr::free_vars(pred);
+    let dropped_hit = free.iter().any(|v| analysis.dropped.contains(v.as_ref()));
+    let keep_violation = analysis
+        .keep_intersection
+        .as_ref()
+        .is_some_and(|keep| free.iter().any(|v| !keep.contains(v.as_ref())));
+    if dropped_hit || keep_violation {
+        // Conservative: refuse to keep the row when the predicate
+        // depends on a field that no longer exists.
+        return panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(false));
+    }
+    pred.clone()
+}
+
+/// Static analysis result for a single anchor's transform list.
+struct FieldDropAnalysis {
+    /// Keys explicitly dropped or renamed-away.
+    dropped: std::collections::HashSet<String>,
+    /// If any `KeepFields` is present, the intersection of all its
+    /// retain sets — every free variable outside this set has been
+    /// dropped by the filter.
+    keep_intersection: Option<std::collections::HashSet<String>>,
+}
+
+fn analyse_field_transforms(xforms: &[panproto_inst::wtype::FieldTransform]) -> FieldDropAnalysis {
+    use panproto_inst::wtype::FieldTransform;
+    let mut dropped = std::collections::HashSet::new();
+    let mut keep_intersection: Option<std::collections::HashSet<String>> = None;
+    for x in xforms {
+        match x {
+            FieldTransform::DropField { key } => {
+                dropped.insert(key.clone());
+            }
+            FieldTransform::RenameField { old_key, .. } => {
+                dropped.insert(old_key.clone());
+            }
+            FieldTransform::KeepFields { keys } => {
+                let next: std::collections::HashSet<String> = keys.iter().cloned().collect();
+                keep_intersection = Some(match keep_intersection {
+                    None => next,
+                    Some(prev) => prev.intersection(&next).cloned().collect(),
+                });
+            }
+            // PathTransform on `path = ["attrs"]` drops nested
+            // `attrs.x`, not top-level `x`; free_vars sees only
+            // top-level Var names, so PathTransform is not relevant
+            // to this analysis.
+            //
+            // Case branches are conditional; static drop-detection
+            // would require all branches to drop the same key. We
+            // skip Case rather than return spurious false-rewrites.
+            //
+            // AddField / ApplyExpr / ComputeField / MapReferences:
+            // do not remove a free-name binding.
+            _ => {}
+        }
+    }
+    FieldDropAnalysis {
+        dropped,
+        keep_intersection,
+    }
 }
 
 #[cfg(test)]

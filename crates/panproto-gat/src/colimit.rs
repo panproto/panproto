@@ -190,6 +190,39 @@ impl ColimitResult {
         merge_mediator_assignments(&mut op_map, &self.inclusion1.op_map, &k1.op_map, "op", "k1")?;
         merge_mediator_assignments(&mut op_map, &self.inclusion2.op_map, &k2.op_map, "op", "k2")?;
 
+        // Defensive coverage check: every sort/op present in the
+        // pushout theory must have a mediator entry. Construction of
+        // the pushout from `t1 ⊔ t2` quotient guarantees this in
+        // principle (every name comes from one of the two inclusions),
+        // but a future refactor that adds free generators to the
+        // pushout would break the universal-property contract; we
+        // detect that here rather than relying on the downstream
+        // `compose` call's `ComposeUnmapped` error message.
+        for sort in &self.theory.sorts {
+            if !sort_map.contains_key(&sort.name) {
+                return Err(GatError::EquationNotPreserved {
+                    equation: format!("universal property sort {}", sort.name),
+                    detail: format!(
+                        "pushout sort `{}` is not the image of any T1 or T2 sort under the inclusions; \
+                         no mediator can be defined on it",
+                        sort.name,
+                    ),
+                });
+            }
+        }
+        for op in &self.theory.ops {
+            if !op_map.contains_key(&op.name) {
+                return Err(GatError::EquationNotPreserved {
+                    equation: format!("universal property op {}", op.name),
+                    detail: format!(
+                        "pushout op `{}` is not the image of any T1 or T2 op under the inclusions; \
+                         no mediator can be defined on it",
+                        op.name,
+                    ),
+                });
+            }
+        }
+
         let mediator = TheoryMorphism::new(
             format!("mediator_{}_to_{}", self.theory.name, q.name),
             Arc::clone(&self.theory.name),

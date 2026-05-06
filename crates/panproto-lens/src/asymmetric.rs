@@ -233,29 +233,105 @@ fn merge_vec_dedup<T: Clone + PartialEq>(target: &mut Vec<T>, source: &[T]) {
     }
 }
 
-/// Structural equality on [`Node`] via JSON canonicalisation. `Node`
-/// does not derive `PartialEq` (its `Value` field carries
-/// `f64`/`HashMap` content), so the partial-monoid conflict detection
-/// reduces to JSON-value equality, which is set-based on objects and
-/// hence insensitive to field-insertion order.
+/// Total structural equivalence on [`Node`].
+///
+/// `Node` does not derive `PartialEq` (its `Value` field carries
+/// `f64`/`HashMap` content). We compare each field directly,
+/// delegating to [`value_equiv`] for `Value`-bearing positions so that
+/// `f64::NaN` compares equal to itself (bit-equality) and `HashMap`
+/// values compare order-independently.
 fn node_equiv(a: &Node, b: &Node) -> bool {
-    serde_json::to_value(a).ok() == serde_json::to_value(b).ok()
+    a.id == b.id
+        && a.anchor == b.anchor
+        && a.discriminator == b.discriminator
+        && a.position == b.position
+        && a.shape == b.shape
+        && presence_equiv(a.value.as_ref(), b.value.as_ref())
+        && extra_fields_equiv(&a.extra_fields, &b.extra_fields)
+        && extra_fields_equiv(&a.annotations, &b.annotations)
 }
 
-/// Structural equality on a per-id `extra_fields` bundle.
-fn extra_fields_equiv(
+/// Total structural equivalence on a `HashMap<String, Value>`.
+pub(crate) fn extra_fields_equiv(
     a: &HashMap<String, panproto_inst::value::Value>,
     b: &HashMap<String, panproto_inst::value::Value>,
 ) -> bool {
-    serde_json::to_value(a).ok() == serde_json::to_value(b).ok()
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter()
+        .all(|(k, v)| b.get(k).is_some_and(|w| value_equiv(v, w)))
 }
 
-/// Structural equality on `Option<FieldPresence>`.
-fn presence_equiv(
+/// Total structural equivalence on `Option<FieldPresence>`.
+pub(crate) fn presence_equiv(
     a: Option<&panproto_inst::value::FieldPresence>,
     b: Option<&panproto_inst::value::FieldPresence>,
 ) -> bool {
-    serde_json::to_value(a).ok() == serde_json::to_value(b).ok()
+    use panproto_inst::value::FieldPresence;
+    match (a, b) {
+        (None, None)
+        | (Some(FieldPresence::Absent), Some(FieldPresence::Absent))
+        | (Some(FieldPresence::Null), Some(FieldPresence::Null)) => true,
+        (Some(FieldPresence::Present(x)), Some(FieldPresence::Present(y))) => value_equiv(x, y),
+        _ => false,
+    }
+}
+
+/// IEEE-754 equality with NaN reflexive: `+0.0 == -0.0`, every NaN
+/// equals every NaN. Used by [`value_equiv`] so that complement
+/// composition treats a NaN-bearing node as self-equal (the derived
+/// `PartialEq` on `f64` would say NaN ≠ NaN and falsely report a
+/// conflict).
+///
+/// Implemented via `partial_cmp`: it returns `None` for NaN
+/// arguments (caught explicitly above) and `Some(Ordering::Equal)`
+/// for `+0.0 == -0.0` and every other IEEE-754-equal pair.
+fn float_equiv(x: f64, y: f64) -> bool {
+    if x.is_nan() && y.is_nan() {
+        return true;
+    }
+    x.partial_cmp(&y) == Some(std::cmp::Ordering::Equal)
+}
+
+/// Total structural equivalence on [`Value`](panproto_inst::value::Value).
+///
+/// Differs from `Value`'s derived `PartialEq` in exactly one place:
+/// `Float(NaN)` compares equal to `Float(NaN)`, so complement
+/// composition does not spuriously reject a node against itself.
+/// All other floats fall through to ordinary `==`, which means
+/// `+0.0` and `-0.0` compare equal (matching IEEE-754 numeric
+/// equality) — using bit-equality there would over-discriminate.
+///
+/// Distinct numeric variants (`Int(1)` vs `Float(1.0)`) remain
+/// distinct: panproto preserves the source-format distinction by
+/// design, and conflating them would lose round-trip fidelity.
+///
+/// `Unknown`/`Opaque` field-bag comparisons recurse, so NaN-equality
+/// propagates through nesting.
+pub(crate) fn value_equiv(
+    a: &panproto_inst::value::Value,
+    b: &panproto_inst::value::Value,
+) -> bool {
+    use panproto_inst::value::Value;
+    match (a, b) {
+        (Value::Float(x), Value::Float(y)) => float_equiv(*x, *y),
+        (Value::List(xs), Value::List(ys)) => {
+            xs.len() == ys.len() && xs.iter().zip(ys).all(|(x, y)| value_equiv(x, y))
+        }
+        (Value::Unknown(m1), Value::Unknown(m2)) => extra_fields_equiv(m1, m2),
+        (
+            Value::Opaque {
+                type_: t1,
+                fields: f1,
+            },
+            Value::Opaque {
+                type_: t2,
+                fields: f2,
+            },
+        ) => t1 == t2 && extra_fields_equiv(f1, f2),
+        _ => a == b,
+    }
 }
 
 /// Compute a fingerprint of a schema for complement provenance validation.

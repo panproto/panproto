@@ -715,13 +715,21 @@ pub fn verify_pushout(
 /// and verify the unique mediating vertex map `m: resolved →
 /// q_schema` factoring both legs.
 ///
-/// This is the genuine universal property: a strict-name-keyed merge
-/// that *also* satisfies this property is a true pushout in the
-/// (sub)category whose morphisms are the supplied vertex maps. The
-/// check is done at the vertex level, since `Schema` morphisms in this
-/// codebase are determined by their action on vertices (edges follow
-/// from endpoints, modulo the diff-driven edge maps already verified
-/// by [`verify_pushout`]).
+/// This verifies the **vertex-level** universal property: the
+/// mediator on the vertex sub-category of `Sch` exists and is unique.
+/// It is a *necessary condition* for the full pushout in `Sch` and is
+/// the strongest check expressible without an extended cocone API.
+///
+/// Edge-level factorisation is not verified here: `Edge` carries an
+/// optional `name` field beyond its `(src, tgt, kind)` endpoint
+/// triple, so two edges with the same endpoints can carry distinct
+/// user-facing names and the universal property at the edge level is
+/// not implied by vertex agreement when alternative cocones disagree
+/// on names. A future API extension would take edge-map cocone legs
+/// `k_ours_edges` / `k_theirs_edges` and verify factorisation on the
+/// edge category symmetrically; until then, [`verify_pushout`] does
+/// the cocone-commutativity-on-edges check via diff-driven edge maps,
+/// and this function exhibits the vertex mediator.
 ///
 /// # Errors
 ///

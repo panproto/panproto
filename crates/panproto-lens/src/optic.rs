@@ -275,6 +275,13 @@ fn check_traversal_putput(
 ) -> Result<(), OpticLawViolation> {
     use crate::asymmetric::{get, put};
     let perturbed = perturb_view_for_traversal(view);
+    // If every leaf is in a variant with no canonical perturbation
+    // (e.g. all `Null`, empty `List`/`Unknown`), there is no second
+    // view to test against — the law is trivially satisfied for the
+    // single point in the view space. With `perturb_value` covering
+    // every `Value` variant, this branch only fires on genuinely
+    // degenerate views; it is not a silent pass on schemas with rich
+    // leaves.
     if crate::laws::instances_equivalent(view, &perturbed) {
         return Ok(());
     }
@@ -327,21 +334,57 @@ fn check_iso_no_data_loss(
     Ok(())
 }
 
-/// Perturb every leaf-string and integer value in `view` so a
-/// traversal's `PutPut` law has a meaningfully different second view to
-/// round-trip. Mirrors `laws::perturb_view_leaves` but kept local to
-/// avoid a cross-module proptest helper export.
+/// Perturb every leaf value in `view` so a traversal's `PutPut` law
+/// has a meaningfully different second view to round-trip.
+///
+/// Covers every concrete `Value` variant that the W-type instance
+/// model treats as a leaf payload — strings, integers, floats,
+/// booleans, bytes, tokens, CID-links, blobs, and the leading element
+/// of a `List`. Variants with no canonical perturbation (`Null`,
+/// empty `List`, `Unknown`/`Opaque` with no entries, `Absent`,
+/// `Null`-presence) are passed through unchanged; if every node falls
+/// in that bucket, the caller can detect equivalence to the original
+/// view and skip the law (no false negative is masked because there
+/// is genuinely no second view distinct from the first to test).
 fn perturb_view_for_traversal(view: &panproto_inst::WInstance) -> panproto_inst::WInstance {
-    use panproto_inst::value::{FieldPresence, Value};
+    use panproto_inst::value::FieldPresence;
     let mut perturbed = view.clone();
     for node in perturbed.nodes.values_mut() {
-        if let Some(FieldPresence::Present(Value::Str(ref mut s))) = node.value {
-            s.push_str("_t");
-        } else if let Some(FieldPresence::Present(Value::Int(ref mut i))) = node.value {
-            *i = i.wrapping_add(1);
+        if let Some(FieldPresence::Present(value)) = node.value.as_mut() {
+            perturb_value(value);
+        }
+        for v in node.extra_fields.values_mut() {
+            perturb_value(v);
         }
     }
     perturbed
+}
+
+/// Mutate `value` to a structurally-distinct neighbour, preserving
+/// its variant where possible. Variants without a canonical
+/// neighbour (`Null`, empty `List`, empty `Unknown`/`Opaque`) are
+/// left unchanged.
+fn perturb_value(value: &mut panproto_inst::value::Value) {
+    use panproto_inst::value::Value;
+    match value {
+        Value::Str(s) | Value::CidLink(s) | Value::Token(s) => s.push_str("_t"),
+        Value::Int(i) => *i = i.wrapping_add(1),
+        Value::Float(f) => *f += 1.0,
+        Value::Bool(b) => *b = !*b,
+        Value::Bytes(b) => b.push(0xFF),
+        Value::Blob { ref_, .. } => ref_.push_str("_t"),
+        Value::List(items) => {
+            if let Some(first) = items.first_mut() {
+                perturb_value(first);
+            }
+        }
+        Value::Unknown(m) | Value::Opaque { fields: m, .. } => {
+            if let Some(first) = m.values_mut().next() {
+                perturb_value(first);
+            }
+        }
+        Value::Null => {}
+    }
 }
 
 /// A violation of an optic law.

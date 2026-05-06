@@ -61,18 +61,24 @@ pub(crate) fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
         return false;
     }
 
-    // Check that all node IDs match and anchors are the same
+    // Check that all node IDs match and anchors are the same.
+    // Value comparison delegates to `asymmetric::value_equiv` so NaN
+    // payloads compare equal to themselves (the derived `PartialEq` on
+    // `Value` would say NaN ≠ NaN and falsely report drift).
     for (&id, node_a) in &a.nodes {
         match b.nodes.get(&id) {
             Some(node_b) => {
                 if node_a.anchor != node_b.anchor {
                     return false;
                 }
-                // Compare values
-                if node_a.value != node_b.value {
+                if !crate::asymmetric::presence_equiv(node_a.value.as_ref(), node_b.value.as_ref())
+                {
                     return false;
                 }
-                if node_a.extra_fields != node_b.extra_fields {
+                if !crate::asymmetric::extra_fields_equiv(
+                    &node_a.extra_fields,
+                    &node_b.extra_fields,
+                ) {
                     return false;
                 }
             }

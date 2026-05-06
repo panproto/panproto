@@ -187,35 +187,33 @@ pub fn verify_cartesian_universal(
     Ok(())
 }
 
-/// Verify the genuine Cartesian universal factorization on a span.
+/// Verify the Cartesian universal factorization on a span by
+/// exercising both directions.
 ///
-/// Given base morphisms `f: S → T` and `h: W → S` (as lenses), and an
-/// instance `target_instance` over `T`, check that reindexing along the
-/// composite `f ∘ h` agrees with the iterated reindexing `h* ∘ f*`.
+/// Given base morphisms `f: S → T` and `h: W → S` (as lenses) and an
+/// instance over `W`, verify:
 ///
-/// Concretely: let `(view_T, c_f) = get(f, target_instance)`. Compose
-/// `lens_compose = compose(h, f)`. Then both
+/// 1. **Projection functoriality**: `get(f∘h, x) = get(f, get(h, x))`.
+///    The composite reindexing must agree with the iterated
+///    reindexing on the projected view.
+/// 2. **Cleavage functoriality**: `put(f∘h, view, c_composite)` and
+///    `put(h, put(f, view, c_f), c_h)` must agree, where the
+///    complements come from the matching `get` decompositions on the
+///    same source. Together with (1) under the lens laws this is the
+///    full Cartesian universal property: the mediator from any
+///    alternative arrow into the Cartesian lift is unique.
 ///
-/// 1. `put(lens_compose, view_T, ?)` (one-shot reindexing along `f∘h`)
-/// 2. `put(h, put(f, view_T, c_f), c_h)` for the appropriate `c_h`
-///
-/// must produce instances over `W` that agree on every node and arc.
-/// This is the universal factorization: the mediating morphism into
-/// the Cartesian lift is unique up to fibre equivalence.
-///
-/// To make this checkable without an explicit `c_h` (which depends on
-/// the chosen factorization), we exercise the dual direction: take an
-/// instance `source_instance` over `W`, project it through the
-/// composite `lens_compose` and through `h` then `f`, and assert
-/// the resulting `T`-views agree. This is `get(f∘h) = get(f) ∘ get(h)`
-/// — the projection-functoriality side of the same universal property,
-/// equivalent to the factorization claim under the lens laws.
+/// Both checks are performed; failure of either is reported as a
+/// [`CartesianViolation`]. The `_factorization` name is only honest
+/// when both sides are exercised — the single-direction version
+/// missed the put-side coherence that the universal property requires
+/// when the underlying lenses are not statically guaranteed
+/// well-behaved.
 ///
 /// # Errors
 ///
-/// Returns [`CartesianViolation`] on disagreement, or
-/// [`LensError`]-flavoured violations on operational failures (lens
-/// composition, get failures).
+/// Returns [`CartesianViolation`] on disagreement, or operational
+/// failures (lens composition, get/put failures).
 pub fn verify_cartesian_factorization(
     f: &Lens,
     h: &Lens,
@@ -228,33 +226,66 @@ pub fn verify_cartesian_factorization(
         detail: format!("{e}"),
     })?;
 
-    // Path 1: source_instance → composite get
-    let (view_via_composite, _) =
+    // Projection functoriality: get(f∘h, x) = get(f, get(h, x)).
+    let (view_via_composite, c_composite) =
         get(&composite, source_instance).map_err(|e| CartesianViolation {
             law: "get(f∘h, source)",
             detail: format!("{e}"),
         })?;
 
-    // Path 2: source_instance → get(h) → get(f)
-    let (intermediate, _c_h) = get(h, source_instance).map_err(|e| CartesianViolation {
+    let (intermediate, c_h) = get(h, source_instance).map_err(|e| CartesianViolation {
         law: "get(h, source)",
         detail: format!("{e}"),
     })?;
-    let (view_via_chain, _c_f) = get(f, &intermediate).map_err(|e| CartesianViolation {
+    let (view_via_chain, c_f) = get(f, &intermediate).map_err(|e| CartesianViolation {
         law: "get(f, get(h, source))",
         detail: format!("{e}"),
     })?;
 
     if !crate::laws::instances_equivalent(&view_via_composite, &view_via_chain) {
         return Err(CartesianViolation {
-            law: "Cartesian universal factorization (get composes)",
+            law: "Cartesian universal factorization: get(f∘h) ≠ get(f) ∘ get(h)",
             detail: format!(
-                "composite get yielded {} nodes / {} arcs, chained get yielded {} / {}; \
-                 reindexing does not factor — this is a violation of the universal property",
+                "composite get yielded {} nodes / {} arcs, chained get yielded {} / {}",
                 view_via_composite.node_count(),
                 view_via_composite.arc_count(),
                 view_via_chain.node_count(),
                 view_via_chain.arc_count(),
+            ),
+        });
+    }
+
+    // Cleavage functoriality: put(f∘h, view, c_composite) =
+    // put(h, put(f, view, c_f), c_h). Round-trip the projected view
+    // back through both paths and assert structural equality. (Either
+    // path independently round-tripping to the original `source_instance`
+    // is GetPut, which is checked elsewhere; here we are checking
+    // that the *two* paths land at the same instance, which is the
+    // put-side functoriality the universal property requires.)
+    let restored_via_composite =
+        put(&composite, &view_via_composite, &c_composite).map_err(|e| CartesianViolation {
+            law: "put(f∘h, view, c_composite)",
+            detail: format!("{e}"),
+        })?;
+    let restored_intermediate = put(f, &view_via_chain, &c_f).map_err(|e| CartesianViolation {
+        law: "put(f, view, c_f)",
+        detail: format!("{e}"),
+    })?;
+    let restored_via_chain =
+        put(h, &restored_intermediate, &c_h).map_err(|e| CartesianViolation {
+            law: "put(h, put(f, view, c_f), c_h)",
+            detail: format!("{e}"),
+        })?;
+
+    if !crate::laws::instances_equivalent(&restored_via_composite, &restored_via_chain) {
+        return Err(CartesianViolation {
+            law: "Cartesian universal factorization: put(f∘h) ≠ put(h) ∘ put(f)",
+            detail: format!(
+                "composite put yielded {} nodes / {} arcs, chained put yielded {} / {}",
+                restored_via_composite.node_count(),
+                restored_via_composite.arc_count(),
+                restored_via_chain.node_count(),
+                restored_via_chain.arc_count(),
             ),
         });
     }

@@ -480,21 +480,40 @@ pub fn theory_endofunctor_equiv(a: &TheoryEndofunctor, b: &TheoryEndofunctor) ->
 
 /// Composability predicate for [`Protolens`] in vertical composition.
 ///
-/// Two protolenses `η : F ⟹ G` and `θ : H ⟹ K` compose vertically
-/// when one of:
+/// Two protolenses `η : F ⟹ G` and `θ : H ⟹ K` are composable when
+/// one of:
 ///
 /// 1. `G ≡ H` as theory endofunctors (genuine natural-transformation
-///    composition).
-/// 2. `H.transform = Identity` (θ is "applied at the running schema":
-///    its source endofunctor is the identity, so for every schema `S`
-///    we have `H(G(S)) = G(S)` and θ's migration starts from `G(S)`
-///    directly).
+///    composition; the categorical guarantee).
+/// 2. `H.transform = Identity` (θ is constructed as "applied at the
+///    running schema": its source endofunctor is the identity, so for
+///    every schema `S` we have `H(G(S)) = G(S)` and θ's migration
+///    starts from `G(S)` directly).
 ///
-/// Case (1) is the strict categorical condition. Case (2) covers the
-/// common authoring pattern in which each step is constructed with a
-/// trivial source endofunctor and is intended to apply at whatever
-/// schema the preceding step produced. Both forms produce a lens
-/// `F(S) → K(S)` that is composable at the schema level.
+/// Case (2) is a *schema-level* composability — it asserts that the
+/// resulting lens is well-typed at the schema boundary, but it is
+/// strictly weaker than the natural-transformation condition.
+/// Specifically:
+///
+/// * An `Identity`-source θ may carry a non-trivial
+///   `theta.source.precondition` (e.g. `HasSort`) that is *not*
+///   re-checked here, even though θ's source endofunctor structurally
+///   matches η's target only on the transform component.
+/// * Naturality squares are not certified to commute on every schema.
+///
+/// Code that relies on the *categorical* guarantee should use
+/// [`theory_endofunctor_equiv`] directly. Code that relies on the
+/// *operational* guarantee (the composed lens runs without error on
+/// a concrete schema, with all preconditions satisfied) must
+/// additionally call
+/// [`ProtolensChain::check_applicability_with`], which threads the
+/// running schema through every step and re-evaluates each step's
+/// precondition against it.
+///
+/// `vertical_compose` returning `Ok` means "the schema-level types
+/// align"; it does not certify naturality squares commute on every
+/// schema. The existing chain-applicability machinery is the
+/// load-bearing runtime check.
 #[must_use]
 pub fn protolens_composable(eta: &Protolens, theta: &Protolens) -> bool {
     matches!(theta.source.transform, TheoryTransform::Identity)
