@@ -96,6 +96,12 @@ impl TheoryMorphism {
     /// Returns [`GatError::ComposeUnmapped`] if a sort or operation in `self`'s
     /// codomain image has no mapping in `other`.
     pub fn compose(&self, other: &Self) -> Result<Self, crate::error::GatError> {
+        if self.codomain != other.domain {
+            return Err(crate::error::GatError::ComposeDomainMismatch {
+                first_codomain: self.codomain.to_string(),
+                second_domain: other.domain.to_string(),
+            });
+        }
         let mut sort_map = HashMap::with_capacity(self.sort_map.len());
         for (a, b) in &self.sort_map {
             let c =

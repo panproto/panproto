@@ -109,6 +109,17 @@ pub enum GatError {
         image: String,
     },
 
+    /// Morphism composition `f ; g` requires `f.codomain == g.domain`.
+    #[error(
+        "compose: domain mismatch: first morphism has codomain `{first_codomain}` but second has domain `{second_domain}`"
+    )]
+    ComposeDomainMismatch {
+        /// Codomain of the first morphism.
+        first_codomain: String,
+        /// Domain of the second morphism.
+        second_domain: String,
+    },
+
     /// Cyclic dependency detected in theory extends chain.
     #[error("cyclic dependency detected involving theory: {0}")]
     CyclicDependency(String),

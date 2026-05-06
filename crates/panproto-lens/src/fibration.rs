@@ -1,19 +1,42 @@
 //! Grothendieck fibration structure for the protolens framework.
 //!
-//! The projection from the total category of schemas down to theories is a
-//! Grothendieck fibration, and lens structure is induced by the cleavage.
-//! This module formalizes that connection by providing:
+//! The projection from the total category of schema-keyed instances down
+//! to the category of schemas is a Grothendieck fibration. The fibre
+//! over a schema `S` is the set of `WInstance`s anchored at `S`;
+//! reindexing along a lens `f: S → T` is the operation `f* := put_f`,
+//! which pulls a `T`-fibre datum back to an `S`-fibre datum given a
+//! complement. The Cartesian arrow `φ_f: f*Y → Y` is then `get_f`
+//! applied to `put_f(Y, c)`.
 //!
-//! - [`Fibration`]: a trait capturing the cartesian lifting property.
-//! - [`WTypeFibration`]: an implementation where fibers are `WInstance`/`Complement`
-//!   pairs, base morphisms are Lenses, and lifting operations are get/put.
-//! - [`verify_cartesian_universal`]: checks that a lens's get/put satisfy the
-//!   universal property of cartesian lifts (reduces to GetPut/PutGet laws).
+//! This module provides:
 //!
-//! The connection to Johnson-Rosebrugh delta lenses: `get` is the functor G
-//! from the total category to the base, and `put` is the lifting operation P
-//! that provides the cleavage. The get-put law says P is a section of G; the
-//! put-get law says G composed with P is the identity on the base.
+//! - [`Fibration`]: a trait capturing the Cartesian lifting property.
+//! - [`WTypeFibration`]: an implementation where fibres are
+//!   `WInstance`/`Complement` pairs and base morphisms are [`Lens`]es.
+//! - [`verify_cartesian_universal`]: confirms the cleavage's section
+//!   laws (`GetPut` and `PutGet`) on a single base morphism.
+//! - [`verify_cartesian_factorization`]: the *universal property*
+//!   itself — given a downstream morphism `h: W → S` and an instance
+//!   `Z` over `W`, the reindexing through `f∘h` agrees with the
+//!   composite reindexing `h* ∘ f*`. This is the genuine universal
+//!   factorization, not just a round-trip check.
+//!
+//! The connection to Johnson-Rosebrugh delta lenses: `get` is the
+//! functor `G` from the total category to the base, and `put` is the
+//! cleavage `P`; the get-put law says `P` is a section of `G`, the
+//! put-get law says `G ∘ P` is the identity on the base.
+//!
+//! ## Bifibration domain
+//!
+//! Reindexing has a left adjoint (an opcartesian lift) only on the
+//! sub-category of base morphisms whose `Lens` is *pure rename* — i.e.
+//! whose `compiled.surviving_verts` covers the entire source schema and
+//! whose remaps are bijective. On that subcategory, [`Fibration::opcartesian_lift`]
+//! is meaningful as a left adjoint to reindexing; outside it, the
+//! "opcartesian" name is a misnomer for the schema-projection direction
+//! `get`. Callers that require a true opcartesian lift must verify
+//! that their base morphism is a pure rename (bijective `vertex_remap`,
+//! full `surviving_verts`) before invoking it.
 
 use panproto_inst::WInstance;
 
@@ -164,6 +187,111 @@ pub fn verify_cartesian_universal(
     Ok(())
 }
 
+/// Verify the Cartesian universal factorization on a span by
+/// exercising both directions.
+///
+/// Given base morphisms `f: S → T` and `h: W → S` (as lenses) and an
+/// instance over `W`, verify:
+///
+/// 1. **Projection functoriality**: `get(f∘h, x) = get(f, get(h, x))`.
+///    The composite reindexing must agree with the iterated
+///    reindexing on the projected view.
+/// 2. **Cleavage functoriality**: `put(f∘h, view, c_composite)` and
+///    `put(h, put(f, view, c_f), c_h)` must agree, where the
+///    complements come from the matching `get` decompositions on the
+///    same source. Together with (1) under the lens laws this is the
+///    full Cartesian universal property: the mediator from any
+///    alternative arrow into the Cartesian lift is unique.
+///
+/// Both checks are performed; failure of either is reported as a
+/// [`CartesianViolation`]. The `_factorization` name is only honest
+/// when both sides are exercised — the single-direction version
+/// missed the put-side coherence that the universal property requires
+/// when the underlying lenses are not statically guaranteed
+/// well-behaved.
+///
+/// # Errors
+///
+/// Returns [`CartesianViolation`] on disagreement, or operational
+/// failures (lens composition, get/put failures).
+pub fn verify_cartesian_factorization(
+    f: &Lens,
+    h: &Lens,
+    source_instance: &WInstance,
+) -> Result<(), CartesianViolation> {
+    use crate::compose::compose;
+
+    let composite = compose(h, f).map_err(|e| CartesianViolation {
+        law: "compose(h, f)",
+        detail: format!("{e}"),
+    })?;
+
+    // Projection functoriality: get(f∘h, x) = get(f, get(h, x)).
+    let (view_via_composite, c_composite) =
+        get(&composite, source_instance).map_err(|e| CartesianViolation {
+            law: "get(f∘h, source)",
+            detail: format!("{e}"),
+        })?;
+
+    let (intermediate, c_h) = get(h, source_instance).map_err(|e| CartesianViolation {
+        law: "get(h, source)",
+        detail: format!("{e}"),
+    })?;
+    let (view_via_chain, c_f) = get(f, &intermediate).map_err(|e| CartesianViolation {
+        law: "get(f, get(h, source))",
+        detail: format!("{e}"),
+    })?;
+
+    if !crate::laws::instances_equivalent(&view_via_composite, &view_via_chain) {
+        return Err(CartesianViolation {
+            law: "Cartesian universal factorization: get(f∘h) ≠ get(f) ∘ get(h)",
+            detail: format!(
+                "composite get yielded {} nodes / {} arcs, chained get yielded {} / {}",
+                view_via_composite.node_count(),
+                view_via_composite.arc_count(),
+                view_via_chain.node_count(),
+                view_via_chain.arc_count(),
+            ),
+        });
+    }
+
+    // Cleavage functoriality: put(f∘h, view, c_composite) =
+    // put(h, put(f, view, c_f), c_h). Round-trip the projected view
+    // back through both paths and assert structural equality. (Either
+    // path independently round-tripping to the original `source_instance`
+    // is GetPut, which is checked elsewhere; here we are checking
+    // that the *two* paths land at the same instance, which is the
+    // put-side functoriality the universal property requires.)
+    let restored_via_composite =
+        put(&composite, &view_via_composite, &c_composite).map_err(|e| CartesianViolation {
+            law: "put(f∘h, view, c_composite)",
+            detail: format!("{e}"),
+        })?;
+    let restored_intermediate = put(f, &view_via_chain, &c_f).map_err(|e| CartesianViolation {
+        law: "put(f, view, c_f)",
+        detail: format!("{e}"),
+    })?;
+    let restored_via_chain =
+        put(h, &restored_intermediate, &c_h).map_err(|e| CartesianViolation {
+            law: "put(h, put(f, view, c_f), c_h)",
+            detail: format!("{e}"),
+        })?;
+
+    if !crate::laws::instances_equivalent(&restored_via_composite, &restored_via_chain) {
+        return Err(CartesianViolation {
+            law: "Cartesian universal factorization: put(f∘h) ≠ put(h) ∘ put(f)",
+            detail: format!(
+                "composite put yielded {} nodes / {} arcs, chained put yielded {} / {}",
+                restored_via_composite.node_count(),
+                restored_via_composite.arc_count(),
+                restored_via_chain.node_count(),
+                restored_via_chain.arc_count(),
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// A violation of the cartesian universal property.
 #[derive(Debug)]
 pub struct CartesianViolation {
@@ -174,7 +302,7 @@ pub struct CartesianViolation {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::tests::{identity_lens, projection_lens, three_node_instance, three_node_schema};
@@ -215,5 +343,28 @@ mod tests {
         let (view, complement) = fib.opcartesian_lift(&lens, &instance).unwrap();
         let restored = fib.cartesian_lift(&lens, &view, &complement).unwrap();
         assert_eq!(restored.node_count(), instance.node_count());
+    }
+
+    /// Universal factorization: composing two identity lenses and
+    /// running `get` agrees with `get(h)` then `get(f)`. This is
+    /// the categorical pushout-projection law — the *real* universal
+    /// property of Cartesian lifts, not just round-trip stability.
+    #[test]
+    fn cartesian_factorization_holds_for_identity_chain() {
+        let schema = three_node_schema();
+        let h = identity_lens(&schema);
+        let f = identity_lens(&schema);
+        let instance = three_node_instance();
+        verify_cartesian_factorization(&f, &h, &instance).expect("identity chain must factor");
+    }
+
+    #[test]
+    fn cartesian_factorization_holds_for_projection_chain() {
+        let schema = three_node_schema();
+        let h = identity_lens(&schema);
+        let f = projection_lens(&schema, "text");
+        let instance = three_node_instance();
+        verify_cartesian_factorization(&f, &h, &instance)
+            .expect("identity-then-projection must factor");
     }
 }

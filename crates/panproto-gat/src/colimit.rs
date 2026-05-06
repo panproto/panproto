@@ -136,6 +136,154 @@ pub fn colimit(
     Ok(result)
 }
 
+impl ColimitResult {
+    /// Verify the universal property of the pushout against an
+    /// alternative cocone `(q, k1, k2)` and return the unique mediating
+    /// morphism `m : self.theory → q` satisfying
+    /// `m ∘ self.inclusion1 = k1` and `m ∘ self.inclusion2 = k2`.
+    ///
+    /// The mediating morphism is constructed by case-analysis: every
+    /// element of the pushout is either an image of T1 (and is sent
+    /// to its image under k1) or an image of T2 not already covered
+    /// (and is sent to its image under k2). Cocone commutativity
+    /// guarantees the two assignments agree on the shared image.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GatError::EquationNotPreserved`] when `(q, k1, k2)`
+    /// is not a valid cocone (i.e. `k1` and `k2` disagree on a name
+    /// that the pushout identifies). The check is performed locally
+    /// via the cocone-commutativity comparison.
+    pub fn verify_universal(
+        &self,
+        q: &Theory,
+        k1: &TheoryMorphism,
+        k2: &TheoryMorphism,
+    ) -> Result<TheoryMorphism, GatError> {
+        if k1.codomain != q.name || k2.codomain != q.name {
+            return Err(GatError::EquationNotPreserved {
+                equation: "universal property".to_string(),
+                detail: format!(
+                    "alternative cocone codomain mismatch: k1={}, k2={}, q={}",
+                    k1.codomain, k2.codomain, q.name,
+                ),
+            });
+        }
+
+        let mut sort_map: HashMap<Arc<str>, Arc<str>> = HashMap::new();
+        merge_mediator_assignments(
+            &mut sort_map,
+            &self.inclusion1.sort_map,
+            &k1.sort_map,
+            "sort",
+            "k1",
+        )?;
+        merge_mediator_assignments(
+            &mut sort_map,
+            &self.inclusion2.sort_map,
+            &k2.sort_map,
+            "sort",
+            "k2",
+        )?;
+
+        let mut op_map: HashMap<Arc<str>, Arc<str>> = HashMap::new();
+        merge_mediator_assignments(&mut op_map, &self.inclusion1.op_map, &k1.op_map, "op", "k1")?;
+        merge_mediator_assignments(&mut op_map, &self.inclusion2.op_map, &k2.op_map, "op", "k2")?;
+
+        // Defensive coverage check: every sort/op present in the
+        // pushout theory must have a mediator entry. Construction of
+        // the pushout from `t1 ⊔ t2` quotient guarantees this in
+        // principle (every name comes from one of the two inclusions),
+        // but a future refactor that adds free generators to the
+        // pushout would break the universal-property contract; we
+        // detect that here rather than relying on the downstream
+        // `compose` call's `ComposeUnmapped` error message.
+        for sort in &self.theory.sorts {
+            if !sort_map.contains_key(&sort.name) {
+                return Err(GatError::EquationNotPreserved {
+                    equation: format!("universal property sort {}", sort.name),
+                    detail: format!(
+                        "pushout sort `{}` is not the image of any T1 or T2 sort under the inclusions; \
+                         no mediator can be defined on it",
+                        sort.name,
+                    ),
+                });
+            }
+        }
+        for op in &self.theory.ops {
+            if !op_map.contains_key(&op.name) {
+                return Err(GatError::EquationNotPreserved {
+                    equation: format!("universal property op {}", op.name),
+                    detail: format!(
+                        "pushout op `{}` is not the image of any T1 or T2 op under the inclusions; \
+                         no mediator can be defined on it",
+                        op.name,
+                    ),
+                });
+            }
+        }
+
+        let mediator = TheoryMorphism::new(
+            format!("mediator_{}_to_{}", self.theory.name, q.name),
+            Arc::clone(&self.theory.name),
+            Arc::clone(&q.name),
+            sort_map,
+            op_map,
+        );
+        let m_j1 = self.inclusion1.compose(&mediator)?;
+        let m_j2 = self.inclusion2.compose(&mediator)?;
+        if m_j1.sort_map != k1.sort_map || m_j1.op_map != k1.op_map {
+            return Err(GatError::EquationNotPreserved {
+                equation: "universal property: m ∘ j1 = k1".to_string(),
+                detail: "mediating morphism does not factor k1 through j1".to_string(),
+            });
+        }
+        if m_j2.sort_map != k2.sort_map || m_j2.op_map != k2.op_map {
+            return Err(GatError::EquationNotPreserved {
+                equation: "universal property: m ∘ j2 = k2".to_string(),
+                detail: "mediating morphism does not factor k2 through j2".to_string(),
+            });
+        }
+        Ok(mediator)
+    }
+}
+
+/// Helper: thread the mediator assignment for one leg of the cocone.
+/// `inclusion` maps T-names to P-names (here-codomain); `k` maps
+/// T-names to Q-names. We assemble `mediator: P → Q` by composing.
+fn merge_mediator_assignments(
+    mediator: &mut HashMap<Arc<str>, Arc<str>>,
+    inclusion: &HashMap<Arc<str>, Arc<str>>,
+    k: &HashMap<Arc<str>, Arc<str>>,
+    kind: &str,
+    leg: &str,
+) -> Result<(), GatError> {
+    for (t_name, p_name) in inclusion {
+        let q_name = k
+            .get(t_name)
+            .ok_or_else(|| GatError::EquationNotPreserved {
+                equation: format!("universal property {kind} {p_name}"),
+                detail: format!("{leg} has no mapping for {kind} `{t_name}`"),
+            })?;
+        match mediator.get(p_name) {
+            None => {
+                mediator.insert(Arc::clone(p_name), Arc::clone(q_name));
+            }
+            Some(existing) if existing == q_name => {}
+            Some(existing) => {
+                return Err(GatError::EquationNotPreserved {
+                    equation: format!("universal property {kind} {p_name}"),
+                    detail: format!(
+                        "two T-preimages of `{p_name}` map to distinct Q-images under {leg}: \
+                         `{existing}` vs `{q_name}`; the alternative cocone is not commutative",
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A rename map keyed and valued by name (used both for sorts and ops).
 type RenameMap = HashMap<Arc<str>, Arc<str>>;
 
@@ -435,17 +583,70 @@ fn build_inclusion(
 /// from both, with the shared components identified (not duplicated).
 ///
 /// The resulting theory is named `"{t1.name}_{t2.name}_colimit"`.
+/// Compute the pushout (colimit) of two theories sharing a base
+/// theory, building explicit identity-on-names inclusion morphisms
+/// `i1: shared → t1` and `i2: shared → t2` from the `shared` argument.
+///
+/// Returns the full [`ColimitResult`] including pushout inclusions,
+/// so callers can verify the universal property via
+/// [`ColimitResult::verify_universal`].
 ///
 /// # Errors
 ///
-/// Returns [`GatError::SortConflict`] if `t1` and `t2` both declare a sort with
-/// the same name but incompatible definitions (different parameter lists).
+/// Same as [`colimit`].
+pub fn pushout_by_name(
+    t1: &Theory,
+    t2: &Theory,
+    shared: &Theory,
+) -> Result<ColimitResult, GatError> {
+    let i1 = identity_inclusion(shared, t1, "i1")?;
+    let i2 = identity_inclusion(shared, t2, "i2")?;
+    colimit(t1, t2, &i1, &i2)
+}
+
+fn identity_inclusion(
+    shared: &Theory,
+    target: &Theory,
+    label: &str,
+) -> Result<TheoryMorphism, GatError> {
+    let mut sort_map = HashMap::new();
+    for sort in &shared.sorts {
+        if !target.has_sort(&sort.name) {
+            return Err(GatError::MissingSortMapping(format!(
+                "{label}: shared sort `{}` is not present in target theory `{}`",
+                sort.name, target.name,
+            )));
+        }
+        sort_map.insert(Arc::clone(&sort.name), Arc::clone(&sort.name));
+    }
+    let mut op_map = HashMap::new();
+    for op in &shared.ops {
+        if !target.has_op(&op.name) {
+            return Err(GatError::MissingOpMapping(format!(
+                "{label}: shared op `{}` is not present in target theory `{}`",
+                op.name, target.name,
+            )));
+        }
+        op_map.insert(Arc::clone(&op.name), Arc::clone(&op.name));
+    }
+    Ok(TheoryMorphism::new(
+        format!("{label}_{}_into_{}", shared.name, target.name),
+        Arc::clone(&shared.name),
+        Arc::clone(&target.name),
+        sort_map,
+        op_map,
+    ))
+}
+
+/// Theory-only convenience wrapper around [`pushout_by_name`].
 ///
-/// Returns [`GatError::OpConflict`] if `t1` and `t2` both declare an operation
-/// with the same name but incompatible signatures.
+/// Returns the pushout's underlying [`Theory`]; callers that need
+/// the inclusion morphisms or want to verify the universal property
+/// should use [`pushout_by_name`] directly.
 ///
-/// Returns [`GatError::EqConflict`] if `t1` and `t2` both declare an equation
-/// with the same name but different content.
+/// # Errors
+///
+/// Same as [`pushout_by_name`].
 pub fn colimit_by_name(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatError> {
     // Start with all sorts from t1.
     let mut sorts = t1.sorts.clone();
@@ -569,7 +770,7 @@ pub fn colimit_by_name(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theo
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::eq::{Equation, Term};
@@ -1151,6 +1352,105 @@ mod tests {
                     "commutative: same op count",
                 );
             }
+
+            /// Universal property: identity inclusions of `shared`
+            /// give the trivial cocone `(shared, shared)`, and the
+            /// identity-on-pushout cocone `(P, j1, j2)` factors through
+            /// the pushout itself via the identity mediator.
+            #[test]
+            fn pushout_universal_property_identity_cocone(
+                (shared, t1, t2) in arb_colimit_input()
+            ) {
+                let result = pushout_by_name(&t1, &t2, &shared).unwrap();
+                // The pushout itself with its inclusions is the canonical cocone.
+                // The mediator into the pushout from itself must be the identity.
+                let m = result
+                    .verify_universal(&result.theory, &result.inclusion1, &result.inclusion2)
+                    .expect("universal property: identity cocone factors");
+                // The identity mediator sends every sort/op to itself.
+                for (k, v) in &m.sort_map {
+                    prop_assert_eq!(k, v, "identity mediator must be identity on sorts");
+                }
+                for (k, v) in &m.op_map {
+                    prop_assert_eq!(k, v, "identity mediator must be identity on ops");
+                }
+            }
         }
+    }
+
+    /// Verify the universal property end-to-end on a concrete graph
+    /// example: an alternative cocone landing in a larger theory must
+    /// factor uniquely through the pushout.
+    #[test]
+    fn pushout_universal_property_graph_constraint() {
+        use crate::sort::Sort;
+
+        let shared = Theory::new(
+            "ThVertex",
+            vec![Sort::simple("Vertex")],
+            Vec::new(),
+            Vec::new(),
+        );
+        let th_graph = Theory::new(
+            "ThGraph",
+            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+            vec![Operation::unary("src", "e", "Edge", "Vertex")],
+            Vec::new(),
+        );
+        let th_constraint = Theory::new(
+            "ThConstraint",
+            vec![Sort::simple("Vertex"), Sort::simple("Constraint")],
+            vec![Operation::unary("target", "c", "Constraint", "Vertex")],
+            Vec::new(),
+        );
+        let pushout = pushout_by_name(&th_graph, &th_constraint, &shared).unwrap();
+
+        // Build an alternative cocone into a larger theory `Q` that
+        // contains every sort/op of the pushout plus some extra
+        // material.
+        let q = Theory::new(
+            "Q",
+            vec![
+                Sort::simple("Vertex"),
+                Sort::simple("Edge"),
+                Sort::simple("Constraint"),
+                Sort::simple("Extra"),
+            ],
+            vec![
+                Operation::unary("src", "e", "Edge", "Vertex"),
+                Operation::unary("target", "c", "Constraint", "Vertex"),
+            ],
+            Vec::new(),
+        );
+        let mut k1_sort_map = HashMap::new();
+        k1_sort_map.insert(Arc::from("Vertex"), Arc::from("Vertex"));
+        k1_sort_map.insert(Arc::from("Edge"), Arc::from("Edge"));
+        let mut k1_op_map = HashMap::new();
+        k1_op_map.insert(Arc::from("src"), Arc::from("src"));
+        let k1 = TheoryMorphism::new("k1", "ThGraph", "Q", k1_sort_map, k1_op_map);
+
+        let mut k2_sort_map = HashMap::new();
+        k2_sort_map.insert(Arc::from("Vertex"), Arc::from("Vertex"));
+        k2_sort_map.insert(Arc::from("Constraint"), Arc::from("Constraint"));
+        let mut k2_op_map = HashMap::new();
+        k2_op_map.insert(Arc::from("target"), Arc::from("target"));
+        let k2 = TheoryMorphism::new("k2", "ThConstraint", "Q", k2_sort_map, k2_op_map);
+
+        let mediator = pushout
+            .verify_universal(&q, &k1, &k2)
+            .expect("alternative cocone factors through pushout");
+        // Mediator must send every shared name to its corresponding Q name.
+        assert_eq!(
+            mediator.sort_map.get("Vertex").map(AsRef::as_ref),
+            Some("Vertex")
+        );
+        assert_eq!(
+            mediator.sort_map.get("Edge").map(AsRef::as_ref),
+            Some("Edge")
+        );
+        assert_eq!(
+            mediator.sort_map.get("Constraint").map(AsRef::as_ref),
+            Some("Constraint")
+        );
     }
 }

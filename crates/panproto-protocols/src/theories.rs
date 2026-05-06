@@ -159,6 +159,13 @@ use std::collections::HashMap;
 /// `MongoDB`, `YAML Schema`, `TOML Schema`, `INI`, `CDDL`, `BSON`, `MsgPack`,
 /// `K8s CRD`, `CloudFormation`, `Ansible`, `FHIR`, `RSS/Atom`, `vCard/iCal`,
 /// `GeoJSON`, `Markdown`, and more.
+///
+/// # Panics
+///
+/// Panics if the underlying colimits over the building-block theories
+/// fail. This is a static, build-time configuration; a panic here
+/// indicates a panproto-internal bug in the building-block theories,
+/// not a runtime input error.
 pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
@@ -183,18 +190,19 @@ pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| w.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(gc) = colimit_by_name(&g, &c, &shared_vertex) {
-        let shared_ve = Theory::new(
-            "ThVertexEdge",
-            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-            vec![],
-            vec![],
-        );
-        if let Ok(mut schema_theory) = colimit_by_name(&gc, &m, &shared_ve) {
-            schema_theory.name = schema_name.into();
-            registry.insert(schema_name.into(), schema_theory);
-        }
-    }
+    let gc = colimit_by_name(&g, &c, &shared_vertex)
+        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"));
+    let shared_ve = Theory::new(
+        "ThVertexEdge",
+        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+        vec![],
+        vec![],
+    );
+    let mut schema_theory = colimit_by_name(&gc, &m, &shared_ve).unwrap_or_else(|e| {
+        panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
+    });
+    schema_theory.name = schema_name.into();
+    registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = w;
     inst.name = instance_name.into();
@@ -208,6 +216,12 @@ pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
 ///
 /// Used by: SQL, Cassandra, `DynamoDB`, Parquet, Arrow, `DataFrame`,
 /// CSV/Table Schema, EDI X12, SWIFT MT.
+///
+/// # Panics
+///
+/// Panics if the colimit construction over the building-block
+/// theories fails (a panproto-internal bug, not a runtime input
+/// error).
 pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
@@ -228,10 +242,11 @@ pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| f.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(mut schema_theory) = colimit_by_name(&h, &c, &shared_vertex) {
-        schema_theory.name = schema_name.into();
-        registry.insert(schema_name.into(), schema_theory);
-    }
+    let mut schema_theory = colimit_by_name(&h, &c, &shared_vertex).unwrap_or_else(|e| {
+        panic!("colimit ThHypergraph + ThConstraint over ThVertex failed: {e}")
+    });
+    schema_theory.name = schema_name.into();
+    registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = f;
     inst.name = instance_name.into();
@@ -245,6 +260,12 @@ pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
 ///
 /// Used by: `Protobuf`, `Avro`, `Thrift`, `Cap'n Proto`, `FlatBuffers`,
 /// `ASN.1`, `Bond`, `Redis`, `HCL`.
+///
+/// # Panics
+///
+/// Panics if the colimit construction over the building-block
+/// theories fails (a panproto-internal bug, not a runtime input
+/// error).
 pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
@@ -265,10 +286,11 @@ pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| fl.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(mut schema_theory) = colimit_by_name(&sg, &c, &shared_vertex) {
-        schema_theory.name = schema_name.into();
-        registry.insert(schema_name.into(), schema_theory);
-    }
+    let mut schema_theory = colimit_by_name(&sg, &c, &shared_vertex).unwrap_or_else(|e| {
+        panic!("colimit ThSimpleGraph + ThConstraint over ThVertex failed: {e}")
+    });
+    schema_theory.name = schema_name.into();
+    registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = fl;
     inst.name = instance_name.into();
@@ -282,6 +304,12 @@ pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
 ///
 /// Used by: GraphQL, TypeScript, Python, Rust Serde, Java, Go,
 /// Swift, Kotlin, C#, JSX/React, Vue, Svelte.
+///
+/// # Panics
+///
+/// Panics if the colimit construction over the building-block
+/// theories fails (a panproto-internal bug, not a runtime input
+/// error).
 pub fn register_typed_graph_wtype<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
@@ -310,22 +338,24 @@ pub fn register_typed_graph_wtype<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| w.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(gc) = colimit_by_name(&g, &c, &shared_vertex) {
-        let shared_ve = Theory::new(
-            "ThVertexEdge",
-            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-            vec![],
-            vec![],
-        );
-        if let Ok(gcm) = colimit_by_name(&gc, &m, &shared_ve) {
-            let shared_vertex_only =
-                Theory::new("ThVertex2", vec![Sort::simple("Vertex")], vec![], vec![]);
-            if let Ok(mut schema_theory) = colimit_by_name(&gcm, &iface, &shared_vertex_only) {
-                schema_theory.name = schema_name.into();
-                registry.insert(schema_name.into(), schema_theory);
-            }
-        }
-    }
+    let gc = colimit_by_name(&g, &c, &shared_vertex)
+        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"));
+    let shared_ve = Theory::new(
+        "ThVertexEdge",
+        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+        vec![],
+        vec![],
+    );
+    let gcm = colimit_by_name(&gc, &m, &shared_ve).unwrap_or_else(|e| {
+        panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
+    });
+    let shared_vertex_only = Theory::new("ThVertex2", vec![Sort::simple("Vertex")], vec![], vec![]);
+    let mut schema_theory =
+        colimit_by_name(&gcm, &iface, &shared_vertex_only).unwrap_or_else(|e| {
+            panic!("colimit (...+ThMulti) + ThInterface over ThVertex failed: {e}")
+        });
+    schema_theory.name = schema_name.into();
+    registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = w;
     inst.name = instance_name.into();
@@ -338,6 +368,12 @@ pub fn register_typed_graph_wtype<S: ::std::hash::BuildHasher>(
 /// Instance: `colimit(ThWType, ThMeta)`.
 ///
 /// Used by: XML/XSD, HTML, CSS, DOCX, ODF.
+///
+/// # Panics
+///
+/// Panics if the colimit construction over the building-block
+/// theories fails (a panproto-internal bug, not a runtime input
+/// error).
 pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
@@ -366,18 +402,19 @@ pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| meta.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(gc) = colimit_by_name(&g, &c, &shared_vertex) {
-        let shared_ve = Theory::new(
-            "ThVertexEdge",
-            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-            vec![],
-            vec![],
-        );
-        if let Ok(mut schema_theory) = colimit_by_name(&gc, &m, &shared_ve) {
-            schema_theory.name = schema_name.into();
-            registry.insert(schema_name.into(), schema_theory);
-        }
-    }
+    let gc = colimit_by_name(&g, &c, &shared_vertex)
+        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"));
+    let shared_ve = Theory::new(
+        "ThVertexEdge",
+        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+        vec![],
+        vec![],
+    );
+    let mut schema_theory = colimit_by_name(&gc, &m, &shared_ve).unwrap_or_else(|e| {
+        panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
+    });
+    schema_theory.name = schema_name.into();
+    registry.insert(schema_name.into(), schema_theory);
 
     let shared_node_value = Theory::new(
         "ThNodeValue",
@@ -385,10 +422,10 @@ pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
         vec![],
         vec![],
     );
-    if let Ok(mut inst_theory) = colimit_by_name(&w, &meta, &shared_node_value) {
-        inst_theory.name = instance_name.into();
-        registry.insert(instance_name.into(), inst_theory);
-    }
+    let mut inst_theory = colimit_by_name(&w, &meta, &shared_node_value)
+        .unwrap_or_else(|e| panic!("colimit ThWType + ThMeta over ThNodeValue failed: {e}"));
+    inst_theory.name = instance_name.into();
+    registry.insert(instance_name.into(), inst_theory);
 }
 
 /// Register a **constrained multigraph + graph instance** theory pair (Group F).
@@ -398,6 +435,12 @@ pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
 ///
 /// Used by: Neo4j, and future graph-native protocols (RDF, OWL,
 /// JSON-LD, knowledge graphs).
+///
+/// # Panics
+///
+/// Panics if the colimit construction over the building-block
+/// theories fails (a panproto-internal bug, not a runtime input
+/// error).
 pub fn register_constrained_graph_instance<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
@@ -422,18 +465,19 @@ pub fn register_constrained_graph_instance<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| gi.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    if let Ok(gc) = colimit_by_name(&g, &c, &shared_vertex) {
-        let shared_ve = Theory::new(
-            "ThVertexEdge",
-            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-            vec![],
-            vec![],
-        );
-        if let Ok(mut schema_theory) = colimit_by_name(&gc, &m, &shared_ve) {
-            schema_theory.name = schema_name.into();
-            registry.insert(schema_name.into(), schema_theory);
-        }
-    }
+    let gc = colimit_by_name(&g, &c, &shared_vertex)
+        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"));
+    let shared_ve = Theory::new(
+        "ThVertexEdge",
+        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+        vec![],
+        vec![],
+    );
+    let mut schema_theory = colimit_by_name(&gc, &m, &shared_ve).unwrap_or_else(|e| {
+        panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
+    });
+    schema_theory.name = schema_name.into();
+    registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = gi;
     inst.name = instance_name.into();

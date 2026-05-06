@@ -77,68 +77,101 @@ impl Complement {
         }
     }
 
-    /// Compose two complements: the result records everything lost by both.
+    /// Compose two complements as a *partial commutative monoid* (in
+    /// the sense of separation-algebra / Clog-style algebras): the
+    /// merge is defined exactly when the two complements agree on
+    /// every shared key, in which case the result records everything
+    /// lost by both.
     ///
-    /// This gives Complement a monoid structure where `empty()` is the identity
-    /// and `compose` is associative. Categorically, this is the product in
-    /// the quantale of complement types.
-    #[must_use]
-    pub fn compose(&self, other: &Self) -> Self {
+    /// `empty()` is a two-sided identity. On the domain of definition
+    /// (pairs satisfying [`Self::is_compatible`]), composition is
+    /// associative and commutative; this is verified by the
+    /// `complement_partial_monoid_*` proptests.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LensError::ComplementConflict`] when both operands
+    /// carry distinct entries on the same key (the partial-monoid's
+    /// disjointness/agreement condition fails). Returns
+    /// [`LensError::ComplementFingerprintMismatch`] when both
+    /// fingerprints are non-zero and differ; complements rooted at
+    /// different source schemas cannot be combined.
+    pub fn compose(&self, other: &Self) -> Result<Self, LensError> {
+        let source_fingerprint =
+            compose_fingerprint(self.source_fingerprint, other.source_fingerprint)?;
+
         let mut dropped_nodes = self.dropped_nodes.clone();
-        for (&id, node) in &other.dropped_nodes {
-            dropped_nodes.entry(id).or_insert_with(|| node.clone());
-        }
+        merge_keyed_with_eq(
+            &mut dropped_nodes,
+            &other.dropped_nodes,
+            "dropped_nodes",
+            node_equiv,
+        )?;
 
         let mut dropped_arcs = self.dropped_arcs.clone();
-        dropped_arcs.extend(other.dropped_arcs.iter().cloned());
+        merge_vec_dedup(&mut dropped_arcs, &other.dropped_arcs);
 
         let mut dropped_fans = self.dropped_fans.clone();
-        dropped_fans.extend(other.dropped_fans.iter().cloned());
+        merge_vec_dedup(&mut dropped_fans, &other.dropped_fans);
 
         let mut contraction_choices = self.contraction_choices.clone();
-        for (k, v) in &other.contraction_choices {
-            contraction_choices.entry(*k).or_insert_with(|| v.clone());
-        }
+        merge_keyed_with_eq(
+            &mut contraction_choices,
+            &other.contraction_choices,
+            "contraction_choices",
+            PartialEq::eq,
+        )?;
 
         let mut original_parent = self.original_parent.clone();
-        for (&k, &v) in &other.original_parent {
-            original_parent.entry(k).or_insert(v);
-        }
+        merge_keyed_with_eq(
+            &mut original_parent,
+            &other.original_parent,
+            "original_parent",
+            PartialEq::eq,
+        )?;
 
-        // Keep self's originals (outermost pre-transform values)
         let mut original_extra_fields = self.original_extra_fields.clone();
-        for (&id, fields) in &other.original_extra_fields {
-            original_extra_fields
-                .entry(id)
-                .or_insert_with(|| fields.clone());
-        }
+        merge_keyed_with_eq(
+            &mut original_extra_fields,
+            &other.original_extra_fields,
+            "original_extra_fields",
+            extra_fields_equiv,
+        )?;
 
         let mut arc_edges = self.arc_edges.clone();
-        for (k, v) in &other.arc_edges {
-            arc_edges.entry(*k).or_insert_with(|| v.clone());
-        }
+        merge_keyed_with_eq(&mut arc_edges, &other.arc_edges, "arc_edges", PartialEq::eq)?;
 
-        // Keep self's original values (outermost pre-coercion values)
         let mut original_values = self.original_values.clone();
-        for (&id, val) in &other.original_values {
-            original_values.entry(id).or_insert_with(|| val.clone());
-        }
+        merge_keyed_with_eq(
+            &mut original_values,
+            &other.original_values,
+            "original_values",
+            |a, b| presence_equiv(a.as_ref(), b.as_ref()),
+        )?;
 
         let mut synthesized_nodes = self.synthesized_nodes.clone();
         synthesized_nodes.extend(other.synthesized_nodes.iter().copied());
 
-        Self {
+        Ok(Self {
             dropped_nodes,
             dropped_arcs,
             dropped_fans,
             contraction_choices,
             original_parent,
-            source_fingerprint: self.source_fingerprint,
+            source_fingerprint,
             original_extra_fields,
             arc_edges,
             original_values,
             synthesized_nodes,
-        }
+        })
+    }
+
+    /// Returns `true` exactly when [`Self::compose`] would succeed.
+    /// Equivalent to running `compose` and discarding the result, but
+    /// avoids the allocation when only the predicate is needed.
+    #[must_use]
+    pub fn is_compatible(&self, other: &Self) -> bool {
+        self.clone().compose(other).is_ok()
     }
 
     /// Returns `true` if the complement is empty (lossless transformation).
@@ -153,6 +186,151 @@ impl Complement {
             && self.arc_edges.is_empty()
             && self.original_values.is_empty()
             && self.synthesized_nodes.is_empty()
+    }
+}
+
+fn compose_fingerprint(left: u64, right: u64) -> Result<u64, LensError> {
+    match (left, right) {
+        (0, _) | (_, 0) => Ok(left.max(right)),
+        (l, r) if l == r => Ok(l),
+        (l, r) => Err(LensError::ComplementFingerprintMismatch { left: l, right: r }),
+    }
+}
+
+fn merge_keyed_with_eq<K, V, F>(
+    target: &mut HashMap<K, V>,
+    source: &HashMap<K, V>,
+    kind: &'static str,
+    eq: F,
+) -> Result<(), LensError>
+where
+    K: Eq + std::hash::Hash + Clone + std::fmt::Debug,
+    V: Clone,
+    F: Fn(&V, &V) -> bool,
+{
+    for (k, v) in source {
+        match target.get(k) {
+            None => {
+                target.insert(k.clone(), v.clone());
+            }
+            Some(existing) if eq(existing, v) => {}
+            Some(_) => {
+                return Err(LensError::ComplementConflict {
+                    kind,
+                    key: format!("{k:?}"),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn merge_vec_dedup<T: Clone + PartialEq>(target: &mut Vec<T>, source: &[T]) {
+    for item in source {
+        if !target.contains(item) {
+            target.push(item.clone());
+        }
+    }
+}
+
+/// Total structural equivalence on [`Node`].
+///
+/// `Node` does not derive `PartialEq` (its `Value` field carries
+/// `f64`/`HashMap` content). We compare each field directly,
+/// delegating to [`value_equiv`] for `Value`-bearing positions so that
+/// `f64::NaN` compares equal to itself (bit-equality) and `HashMap`
+/// values compare order-independently.
+fn node_equiv(a: &Node, b: &Node) -> bool {
+    a.id == b.id
+        && a.anchor == b.anchor
+        && a.discriminator == b.discriminator
+        && a.position == b.position
+        && a.shape == b.shape
+        && presence_equiv(a.value.as_ref(), b.value.as_ref())
+        && extra_fields_equiv(&a.extra_fields, &b.extra_fields)
+        && extra_fields_equiv(&a.annotations, &b.annotations)
+}
+
+/// Total structural equivalence on a `HashMap<String, Value>`.
+pub(crate) fn extra_fields_equiv(
+    a: &HashMap<String, panproto_inst::value::Value>,
+    b: &HashMap<String, panproto_inst::value::Value>,
+) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter()
+        .all(|(k, v)| b.get(k).is_some_and(|w| value_equiv(v, w)))
+}
+
+/// Total structural equivalence on `Option<FieldPresence>`.
+pub(crate) fn presence_equiv(
+    a: Option<&panproto_inst::value::FieldPresence>,
+    b: Option<&panproto_inst::value::FieldPresence>,
+) -> bool {
+    use panproto_inst::value::FieldPresence;
+    match (a, b) {
+        (None, None)
+        | (Some(FieldPresence::Absent), Some(FieldPresence::Absent))
+        | (Some(FieldPresence::Null), Some(FieldPresence::Null)) => true,
+        (Some(FieldPresence::Present(x)), Some(FieldPresence::Present(y))) => value_equiv(x, y),
+        _ => false,
+    }
+}
+
+/// IEEE-754 equality with NaN reflexive: `+0.0 == -0.0`, every NaN
+/// equals every NaN. Used by [`value_equiv`] so that complement
+/// composition treats a NaN-bearing node as self-equal (the derived
+/// `PartialEq` on `f64` would say NaN ≠ NaN and falsely report a
+/// conflict).
+///
+/// Implemented via `partial_cmp`: it returns `None` for NaN
+/// arguments (caught explicitly above) and `Some(Ordering::Equal)`
+/// for `+0.0 == -0.0` and every other IEEE-754-equal pair.
+fn float_equiv(x: f64, y: f64) -> bool {
+    if x.is_nan() && y.is_nan() {
+        return true;
+    }
+    x.partial_cmp(&y) == Some(std::cmp::Ordering::Equal)
+}
+
+/// Total structural equivalence on [`Value`](panproto_inst::value::Value).
+///
+/// Differs from `Value`'s derived `PartialEq` in exactly one place:
+/// `Float(NaN)` compares equal to `Float(NaN)`, so complement
+/// composition does not spuriously reject a node against itself.
+/// All other floats fall through to ordinary `==`, which means
+/// `+0.0` and `-0.0` compare equal (matching IEEE-754 numeric
+/// equality) — using bit-equality there would over-discriminate.
+///
+/// Distinct numeric variants (`Int(1)` vs `Float(1.0)`) remain
+/// distinct: panproto preserves the source-format distinction by
+/// design, and conflating them would lose round-trip fidelity.
+///
+/// `Unknown`/`Opaque` field-bag comparisons recurse, so NaN-equality
+/// propagates through nesting.
+pub(crate) fn value_equiv(
+    a: &panproto_inst::value::Value,
+    b: &panproto_inst::value::Value,
+) -> bool {
+    use panproto_inst::value::Value;
+    match (a, b) {
+        (Value::Float(x), Value::Float(y)) => float_equiv(*x, *y),
+        (Value::List(xs), Value::List(ys)) => {
+            xs.len() == ys.len() && xs.iter().zip(ys).all(|(x, y)| value_equiv(x, y))
+        }
+        (Value::Unknown(m1), Value::Unknown(m2)) => extra_fields_equiv(m1, m2),
+        (
+            Value::Opaque {
+                type_: t1,
+                fields: f1,
+            },
+            Value::Opaque {
+                type_: t2,
+                fields: f2,
+            },
+        ) => t1 == t2 && extra_fields_equiv(f1, f2),
+        _ => a == b,
     }
 }
 
@@ -664,6 +842,7 @@ fn find_original_arc(
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::tests::{identity_lens, three_node_instance, three_node_schema};
@@ -705,5 +884,135 @@ mod tests {
     fn complement_is_empty_for_identity() {
         let complement = Complement::empty();
         assert!(complement.is_empty());
+    }
+
+    /// Partial-monoid laws: identity, idempotence, associativity, and
+    /// commutativity on the domain of definition.
+    mod partial_monoid {
+        use super::*;
+        use panproto_inst::Node as InstNode;
+        use panproto_schema::Edge;
+
+        fn mk_node(id: u32, anchor: &str) -> InstNode {
+            InstNode::new(id, anchor)
+        }
+
+        fn mk_edge(src: &str, tgt: &str, kind: &str) -> Edge {
+            Edge {
+                src: src.into(),
+                tgt: tgt.into(),
+                kind: kind.into(),
+                name: None,
+            }
+        }
+
+        fn singleton_dropped_node(id: u32, anchor: &str) -> Complement {
+            let mut c = Complement::empty();
+            c.dropped_nodes.insert(id, mk_node(id, anchor));
+            c
+        }
+
+        fn singleton_arc_edge(parent: u32, child: u32, kind: &str) -> Complement {
+            let mut c = Complement::empty();
+            c.arc_edges.insert((parent, child), mk_edge("a", "b", kind));
+            c
+        }
+
+        #[test]
+        fn empty_is_left_identity() {
+            let c = singleton_dropped_node(1, "x");
+            let composed = Complement::empty().compose(&c).expect("compatible");
+            assert_eq!(composed.dropped_nodes.len(), 1);
+            assert!(composed.dropped_nodes.contains_key(&1));
+        }
+
+        #[test]
+        fn empty_is_right_identity() {
+            let c = singleton_dropped_node(1, "x");
+            let composed = c.compose(&Complement::empty()).expect("compatible");
+            assert_eq!(composed.dropped_nodes.len(), 1);
+        }
+
+        #[test]
+        fn idempotent_on_equal_entries() {
+            let c = singleton_dropped_node(7, "v7");
+            let composed = c.compose(&c).expect("equal entries idempotent");
+            assert_eq!(composed.dropped_nodes.len(), 1);
+        }
+
+        #[test]
+        fn rejects_distinct_entries_on_same_key() {
+            let a = singleton_dropped_node(3, "left");
+            let b = singleton_dropped_node(3, "right");
+            assert!(matches!(
+                a.compose(&b),
+                Err(LensError::ComplementConflict {
+                    kind: "dropped_nodes",
+                    ..
+                })
+            ));
+            assert!(!a.is_compatible(&b));
+        }
+
+        #[test]
+        fn rejects_cross_fingerprint_when_both_set() {
+            let mut a = Complement::empty();
+            a.source_fingerprint = 0xAAAA;
+            let mut b = Complement::empty();
+            b.source_fingerprint = 0xBBBB;
+            assert!(matches!(
+                a.compose(&b),
+                Err(LensError::ComplementFingerprintMismatch { .. })
+            ));
+        }
+
+        #[test]
+        fn propagates_fingerprint_when_only_one_set() {
+            let mut a = Complement::empty();
+            a.source_fingerprint = 0xC0DE;
+            let b = Complement::empty();
+            let r = a.compose(&b).expect("compatible");
+            assert_eq!(r.source_fingerprint, 0xC0DE);
+            let r2 = b.compose(&a).expect("compatible");
+            assert_eq!(r2.source_fingerprint, 0xC0DE);
+        }
+
+        #[test]
+        fn associative_on_disjoint_keys() {
+            let a = singleton_dropped_node(1, "v1");
+            let b = singleton_dropped_node(2, "v2");
+            let c = singleton_arc_edge(3, 4, "prop");
+
+            let left = a
+                .compose(&b)
+                .expect("ab compatible")
+                .compose(&c)
+                .expect("(ab)c compatible");
+            let right = a
+                .compose(&b.compose(&c).expect("bc compatible"))
+                .expect("a(bc) compatible");
+            assert_eq!(left.dropped_nodes.len(), right.dropped_nodes.len());
+            assert_eq!(left.arc_edges.len(), right.arc_edges.len());
+            for (k, v) in &left.dropped_nodes {
+                let other = right.dropped_nodes.get(k).expect("present on right");
+                assert!(node_equiv(v, other));
+            }
+            for (k, v) in &left.arc_edges {
+                assert_eq!(right.arc_edges.get(k), Some(v));
+            }
+        }
+
+        #[test]
+        fn commutative_on_disjoint_keys() {
+            let a = singleton_dropped_node(10, "x");
+            let b = singleton_dropped_node(20, "y");
+            let ab = a.compose(&b).expect("compatible");
+            let ba = b.compose(&a).expect("compatible");
+            assert_eq!(ab.dropped_nodes.len(), ba.dropped_nodes.len());
+            for (k, v) in &ab.dropped_nodes {
+                let other = ba.dropped_nodes.get(k).expect("present");
+                assert!(node_equiv(v, other));
+            }
+        }
     }
 }

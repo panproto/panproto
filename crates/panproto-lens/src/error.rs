@@ -72,6 +72,32 @@ pub enum LensError {
     /// An edit could not be applied during law checking.
     #[error("edit apply error: {0}")]
     EditApply(#[from] panproto_inst::EditError),
+
+    /// Partial-monoid `Complement::compose` rejected an attempted merge
+    /// because both operands carried distinct entries on the same key.
+    /// Composition is defined exactly when the two complements agree on
+    /// every shared key (idempotent merge); disagreement is the
+    /// boundary of the partial-monoid's domain of definition.
+    #[error("complement conflict on {kind} key `{key}`")]
+    ComplementConflict {
+        /// Which keyed map produced the conflict.
+        kind: &'static str,
+        /// String representation of the conflicting key.
+        key: String,
+    },
+
+    /// Partial-monoid `Complement::compose` rejected an attempted merge
+    /// because the two complements were taken at distinct source
+    /// schemas (their fingerprints differ).
+    #[error(
+        "complement fingerprint mismatch: {left:#x} vs {right:#x}; complements were captured against different source schemas"
+    )]
+    ComplementFingerprintMismatch {
+        /// Left fingerprint.
+        left: u64,
+        /// Right fingerprint.
+        right: u64,
+    },
 }
 
 /// A violation of a round-trip lens law.
