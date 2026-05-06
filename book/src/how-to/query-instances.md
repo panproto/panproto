@@ -10,41 +10,37 @@ A schema and an instance loaded against it. The expression-language reference fo
 
 ### Filter and project
 
-`executeQuery` is a standalone function in `@panproto/core`:
+`executeQuery` is exported from `@panproto/core`. Its signature is `executeQuery(query, instance, wasm)` (query first, instance second, WASM module third). The query keys are `anchor`, `predicate` (an `Expr` object, not a string), `projection` (string array), `groupBy`, `limit`, and `path`.
 
 ```ts
-import { executeQuery } from '@panproto/core';
+import { executeQuery, parseExpr, ExprBuilder } from '@panproto/core';
 
-const recent = executeQuery(instance, {
-  vertex: 'post',
-  where: '\\post -> post.created_at > "2024-01-01"',
-  select: '\\post -> { id: post.id, title: post.title }',
-});
+const recent = executeQuery(
+  {
+    anchor: 'post',
+    predicate: parseExpr('post.created_at > "2024-01-01"'),
+    projection: ['id', 'title'],
+  },
+  instance,
+  panproto._wasm,
+);
 ```
 
-`where` is an expression of type `Bool` evaluated against each vertex. Records where the expression returns `false` are excluded. `select` is an expression of type `Record` evaluated against each matching vertex; the result is a list of records with the projected fields.
+The predicate is evaluated against each matched node; `projection` selects the fields included in each `QueryMatch`.
 
-### Computed fields
+### Following edges
+
+Use the `path` field to traverse from the anchor before predicate matching:
 
 ```ts
-const enriched = executeQuery(instance, {
-  vertex: 'user',
-  select: '\\u -> { ...u, full_name: Concat(u.first, " ", u.last) }',
-});
+const userPosts = executeQuery(
+  { anchor: 'user', path: ['authored'], projection: ['title'] },
+  instance,
+  panproto._wasm,
+);
 ```
 
-The expression language's record-spread (`...`) and string builtins compose without restriction.
-
-### Graph traversal
-
-To follow edges, use the instance-aware builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`):
-
-```ts
-const usersWithPosts = executeQuery(instance, {
-  vertex: 'user',
-  where: '\\u -> EdgeCount(u, "authored") > 0',
-});
-```
+To filter on edge presence, build a predicate with the instance-aware builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`) using `ExprBuilder` or `parseExpr`.
 
 ## Verification
 

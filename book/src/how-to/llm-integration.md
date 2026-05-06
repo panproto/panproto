@@ -21,7 +21,7 @@ schema show schemas/user.json > schema.txt
 ### Validate the candidate
 
 ```sh
-schema parse --protocol json-schema candidate.json
+schema validate --protocol json-schema candidate.json
 ```
 
 If validation fails, the model produced an instance that does not conform. Retry with the validation error in the prompt.

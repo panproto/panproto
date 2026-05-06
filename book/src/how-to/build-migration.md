@@ -50,7 +50,7 @@ mig.put(view, complement);    // backward
 
 ## Verification
 
-`schema check` exits zero if the migration is well-defined (existence conditions hold). Use `panproto-check`'s `diff_and_classify` (exposed as `diffAndClassify` in TS, `diff_and_classify` in Python) to get the diff classification:
+`schema check` exits zero if the migration is well-defined (existence conditions hold). For diff classification, use `panproto-check`'s `diff_and_classify` (Python and Rust). In TypeScript the equivalent is `Panproto.diffFull(old, new).classify(protocol)`, which returns a `CompatReport` with one of:
 
 | Classification | Meaning |
 |---|---|

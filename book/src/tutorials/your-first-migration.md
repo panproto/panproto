@@ -36,7 +36,6 @@ Two changes from v1: `age` is renamed to `years` (a structural rename), and `ema
 `src/migration.ts`:
 
 ```ts
-import { diffAndClassify } from '@panproto/core';
 import { v1 } from './v1';   // export your v1 schema from src/main.ts
 import { v2 } from './v2';
 
@@ -54,12 +53,11 @@ export const mig = p
 ## Step 3: classify the change
 
 ```ts
-import { diffAndClassify } from '@panproto/core';
-const report = diffAndClassify(v1, v2);
-console.log('classification:', report.classification);
+const report = p.diffFull(v1, v2).classify(proto);
+console.log('classification:', report);
 ```
 
-`diffAndClassify` returns a `CompatReport` with `classification` of one of:
+`Panproto.diffFull(old, new)` returns a `FullDiffReport`; calling `.classify(protocol)` returns a `CompatReport` summarising the change as one of:
 
 - `fully-compatible`: old data lifts unchanged.
 - `backward-compatible`: old data lifts via a value-level transform.
@@ -70,14 +68,11 @@ For this rename, the report is `backward-compatible`: every v1 record yields a v
 ## Step 4: check before you lift
 
 ```ts
-import { checkExistence } from '@panproto/core';
 const builder = p.migration(v1, v2).map('user', 'user');
-checkExistence(v1.protocol, v1, v2, builder.toSpec(), /*wasm*/);
-// or, equivalently from the Panproto handle:
 p.checkExistence(v1, v2, builder);
 ```
 
-`checkExistence` runs the existence-condition test: for every required v2 field, is the necessary v1 data present? If anything is missing, it throws with the offending field. Always run it before `lift`.
+`Panproto.checkExistence` runs the existence-condition test: for every required v2 field, is the necessary v1 data present? If anything is missing, it throws with the offending field. Always run it before `lift`.
 
 ## Step 5: lift the data
 
@@ -86,24 +81,24 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const lines = readFileSync('data/v1.jsonl', 'utf8').split('\n').filter(Boolean);
 const newLines = lines.map((line) => {
-  const result = mig.lift(JSON.parse(line));
-  return JSON.stringify(result.value);
+  const { data } = mig.lift(JSON.parse(line));
+  return JSON.stringify(data);
 });
 writeFileSync('data/v2.jsonl', newLines.join('\n'));
 ```
 
-`mig.lift(record)` returns a `LiftResult` with `.value` (the migrated record) and `.complement` (the data discarded by the forward direction). The complement is what makes the migration reversible.
+`mig.lift(record)` returns a `LiftResult { data, _rawBytes? }`; `data` is the migrated record. The complement (the data discarded by the forward direction) is captured separately on the `get`/`put` path; see Step 6.
 
 ## Step 6: confirm round-trip
 
 ```ts
 const original = JSON.parse(lines[0]);
 const { view, complement } = mig.get(original);
-const back = mig.put(view, complement);
-console.log('round-trip ok?', JSON.stringify(back.value) === JSON.stringify(original));
+const { data: back } = mig.put(view, complement);
+console.log('round-trip ok?', JSON.stringify(back) === JSON.stringify(original));
 ```
 
-`mig.get(record)` returns a `GetResult { view, complement }`; `mig.put(view, complement)` returns a `LiftResult { value, ... }`. The complement carries the data the v2 shape does not see; together, get and put satisfy the three round-trip laws.
+`mig.get(record)` returns a `GetResult { view, complement }`; `mig.put(view, complement)` returns a `LiftResult { data, ... }`. The complement carries the data the v2 shape does not see; together, get and put satisfy the round-trip laws.
 
 ## What you built
 

@@ -14,10 +14,10 @@ A `CompiledMigration` is itself a lens; reach for `LensHandle` only when you wan
 const { view, complement } = mig.get(oldRecord);
 
 const editedView = { ...view, age: view.age + 1 };
-const { value: updatedOld } = mig.put(editedView, complement);
+const { data: updatedOld } = mig.put(editedView, complement);
 ```
 
-`mig.get` returns the forward view together with the complement (the data discarded by `get`); `mig.put` consumes them and returns the source record reconstructed with the edit applied. The three round-trip laws guarantee this is well-defined.
+`mig.get` returns the forward view together with the complement (the data discarded by `get`); `mig.put` consumes them and returns a `LiftResult { data, ... }` reconstructed with the edit applied. The round-trip laws guarantee this is well-defined.
 
 To compose two compiled migrations sequentially:
 
@@ -31,16 +31,20 @@ To compose two free-standing protolens chains:
 const composedChain = p.composeLenses(chainAB, chainBC);
 ```
 
-Composition fails (throws) if the intermediate schemas do not chain.
+Both are methods on `Panproto`; composition fails (throws) if the intermediate schemas do not chain.
 
 ## Verification
 
 ```ts
 const result = lens.checkLaws(instanceBytes);
-console.log(result.getPut, result.putGet, result.putPut);
+console.log(result.holds, result.violation);
+
+// For individual laws:
+const getput = lens.checkGetPut(instanceBytes);
+const putget = lens.checkPutGet(instanceBytes);
 ```
 
-`LensHandle.checkLaws(instance)` returns a `LawCheckResult` with one boolean per law. `CompiledMigration.checkLaws` exposes the same surface for migration-as-lens. CI runs this against every combinator continuously.
+`LensHandle.checkLaws(instance)` returns a `LawCheckResult { holds, violation }` covering GetPut and PutGet together. `checkGetPut` and `checkPutGet` test each law individually; the Rust property tests in `panproto-lens` cover PutPut as well, exercised continuously in CI.
 
 ## Common mistakes
 

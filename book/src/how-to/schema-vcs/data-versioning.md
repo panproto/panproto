@@ -56,7 +56,7 @@ reports staleness relative to the current schema. A clean status means the data 
 
 - Editing data inside the store directly. Like schemas, data objects are content-addressed.
 - Skipping data when committing schema changes. If you commit a v2 schema without ever staging v1 data, there is nothing for the lens to lift; this is fine, but the v2 commit will have no data even though v1 might.
-- History rewrites (rebase, amend) on a branch carrying data. The rewrite must lift the data through the new history; this is automatic, but verify with `schema data verify` afterwards.
+- History rewrites (rebase, amend) on a branch carrying data. The rewrite must lift the data through the new history; this is automatic, but re-run `schema data status records/` afterwards to confirm the on-disk data is in sync.
 
 ## See also
 

@@ -30,18 +30,20 @@ The SDK exposes (selected; see [`bindings/typescript/src/index.ts`](https://gith
 
 | Object / function | Purpose |
 |---|---|
-| `Panproto` | Top-level handle. `init()`, `protocol(name)`, `migration(src, tgt)`, `parseJson(schema, json)`, `toJson(schema, instance)`, `convert({src, tgt, data})`, `compose(m1, m2)`, `composeLenses(l1, l2)`, `checkExistence(src, tgt, builder)`. |
+| `Panproto` | Top-level handle. `init()`, `protocol(name)`, `migration(src, tgt)`, `parseJson(schema, json)`, `toJson(schema, instance)`, `convert(data, { from, to, defaults? })`, `compose(m1, m2)`, `composeLenses(l1, l2)`, `checkExistence(src, tgt, builder)`, `diffFull(old, new)`. |
 | `Protocol` | A loaded protocol. `.name`, `.schema()` returns a `SchemaBuilder`. |
 | `SchemaBuilder` | Fluent builder. `.vertex(name, kind)`, `.edge(src, tgt, kind, opts)`, `.build()` returns `BuiltSchema`. |
 | `BuiltSchema` | A built schema. `.vertices`, `.edges`, `.protocol`. |
 | `Instance` | A parsed data record. `.toJson()`, `.validate()`. |
 | `MigrationBuilder` | Builder. `.map(srcVertex, tgtVertex)`, `.mapEdge(srcEdge, tgtEdge)`, `.resolve(...)`, `.compile()` returns `CompiledMigration`. |
-| `CompiledMigration` | A migration that *is* a lens. `.lift(record)`, `.get(record)`, `.put(view, complement)`. |
-| `LensHandle` | A free-standing protolens chain. `.get(bytes)`, `.put(view, complement)`, `.checkLaws(instance)`, `.toJson()`. |
-| `executeQuery(instance, opts)` | Standalone query over an `Instance`. |
-| `checkExistence(...)` | Standalone existence-condition check. |
-| `diffAndClassify(src, tgt)` | Returns a `CompatReport` with `classification` of `fully-compatible` / `backward-compatible` / `breaking`. |
+| `CompiledMigration` | A migration that *is* a lens. `.lift(record)` returns `LiftResult { data, _rawBytes? }`; `.get(record)` returns `GetResult { view, complement }`; `.put(view, complement)` returns `LiftResult`. |
+| `LensHandle` | A free-standing protolens chain. `.get(bytes)`, `.put(view, complement)`, `.checkLaws(instance)` returns `LawCheckResult { holds, violation }`; `.checkGetPut`, `.checkPutGet` for individual laws; `.toJson()`. |
+| `FullDiffReport` / `CompatReport` | Returned by `Panproto.diffFull(old, new)`. Call `.classify(protocol)` on the diff to get a `CompatReport` with `classification` of `fully-compatible` / `backward-compatible` / `breaking`. |
+| `executeQuery(query, instance, wasm)` | Standalone query function. The `query` is `InstanceQuery { anchor, predicate?, projection?, path?, groupBy?, limit? }`; the `predicate` is an `Expr` object, not a source string. |
+| `parseExpr`, `evalExpr`, `formatExpr`, `ExprBuilder` | Expression-language entry points. |
 | `IoRegistry` | Multi-protocol parse/emit registry. |
+| `Repository` | `panproto-vcs` repository handle. |
+| `DataSetHandle` | Data-versioning handle. |
 
 Full API documentation, including every method signature and parameter, lives in the TypeDoc output:
 

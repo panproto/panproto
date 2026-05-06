@@ -22,11 +22,15 @@ for f in $changed; do
   schema validate --protocol json-schema "$f"
 done
 
-# Optional breaking-change warning
+# Optional breaking-change warning: try to auto-generate a chain
+# between the staged version and the upstream copy. Failure suggests
+# the change is breaking.
 for f in $changed; do
-  base="$(git show :"$f"@{u} 2>/dev/null)" || continue
-  schema check --src <(echo "$base") --tgt "$f" --classify || \
+  base_blob=$(git show :@{u}:"$f" 2>/dev/null) || continue
+  echo "$base_blob" > /tmp/base.json
+  if ! schema lens generate --protocol json-schema /tmp/base.json "$f" --save /tmp/chain.json 2>/dev/null; then
     echo "warning: $f introduces a breaking change (commit anyway? Ctrl-C to abort)"
+  fi
 done
 ```
 

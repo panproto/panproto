@@ -27,14 +27,13 @@ Cross-protocol conversion goes through a composed theory; see [Translate across 
 ### From the SDKs
 
 ```ts
-const out = await p.convert({
-  src: srcSchema,
-  tgt: tgtSchema,
-  data: jsonBytes,
+const out = await p.convert(jsonBytes, {
+  from: srcSchema,
+  to: tgtSchema,
 });
 ```
 
-`Panproto.convert` auto-generates a lens, applies it forward, and returns the converted bytes.
+`Panproto.convert(data, opts)` auto-generates a lens between the two `BuiltSchema` arguments, applies it forward, and returns the converted record. Pass `defaults` in `opts` to supply complement defaults for fields the source does not determine.
 
 ## Verification
 

@@ -12,16 +12,18 @@ Completed [Schema version control basics](./schema-vcs-basics.md). Your `my-firs
 
 Cross-protocol translation runs through a *composed theory*: a single GAT containing both protocols' extensions over the shared building blocks. There is no one-shot CLI command; the composition is the prerequisite.
 
-Author a small theory document `theories/jsonschema-and-protobuf.ncl` that composes the two:
+Author a small theory document `theories/jsonschema-and-protobuf.ncl` that composes the two. The composition body has shape `compose = { result, bases, steps }`, where each step is `{ left, right, shared_sorts, shared_ops? }`:
 
 ```nickel
 {
   id = "dev.example.jsonschema-and-protobuf",
-  description = "Composition of JSON Schema and Protobuf theories along the shared graph + constraint + named building blocks",
-  composition = {
-    name = "JsonSchemaAndProtobuf",
-    components = ["JsonSchemaTheory", "ProtobufTheory"],
-    along = ["ThGraph", "ThConstraint", "ThNamed"],
+  description = "Composition of JSON Schema and Protobuf along the shared building blocks",
+  compose = {
+    result = "JsonSchemaAndProtobuf",
+    bases = ["JsonSchemaTheory", "ProtobufTheory"],
+    steps = [
+      { left = "JsonSchemaTheory", right = "ProtobufTheory", shared_sorts = ["Vertex", "Edge"] },
+    ],
   },
 }
 ```

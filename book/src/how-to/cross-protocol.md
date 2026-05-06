@@ -14,18 +14,36 @@ Cross-protocol translation runs through the colimit-of-theories construction in 
 2. **Generate a lens between schemas in the composed theory.** `schema lens generate` produces the chain; both schemas must be expressed against the composed theory.
 3. **Apply the lens to convert data.**
 
+The composition body in the theory DSL has shape `compose = { result, bases, steps }` where each step in `steps` is a `ColimitStepSpec { left, right, shared_sorts, shared_ops? }`. For example:
+
+```nickel
+{
+  id = "dev.example.jsonschema-and-protobuf",
+  description = "Composition of JSON Schema and Protobuf along the shared building blocks",
+  compose = {
+    result = "JsonSchemaAndProtobuf",
+    bases = ["JsonSchemaTheory", "ProtobufTheory"],
+    steps = [
+      { left = "JsonSchemaTheory", right = "ProtobufTheory", shared_sorts = ["Vertex", "Edge"] },
+    ],
+  },
+}
+```
+
+Then:
+
 ```sh
 # Step 1: compose theories (one-time setup, or reuse a built-in).
 schema theory compile theories/json-schema-and-protobuf.ncl
 
 # Step 2: generate the chain between schemas in the composed protocol.
-schema lens generate --protocol json-schema-and-protobuf \
+schema lens generate --protocol JsonSchemaAndProtobuf \
   schemas/user.jsonschema.json \
   schemas/user.protobuf.json \
   --save lenses/jsonschema-to-protobuf.json
 
 # Step 3: apply.
-schema lens apply --protocol json-schema-and-protobuf \
+schema lens apply --protocol JsonSchemaAndProtobuf \
   lenses/jsonschema-to-protobuf.json \
   data/user.json
 ```
