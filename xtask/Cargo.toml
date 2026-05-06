@@ -1,0 +1,15 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Repository tasks for panproto. Not published."
+
+[[bin]]
+name = "gen-cli-docs"
+path = "src/bin/gen-cli-docs.rs"
+
+[lints]
+workspace = true

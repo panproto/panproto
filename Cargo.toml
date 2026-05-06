@@ -40,6 +40,7 @@ members = [
     "crates/panproto-gat-macros",
     "crates/panproto-repl",
     "tests/integration",
+    "xtask",
 ]
 
 [workspace.package]

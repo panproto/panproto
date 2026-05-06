@@ -1,73 +1,84 @@
 # Summary
 
-[Preface](index.md)
+[panproto](./index.md)
 
-# Orientation
+# Tutorials
 
-- [A note on notation](preface/notation.md)
-- [What panproto is](preface/what-panproto-is.md)
+- [Overview](./tutorials/index.md)
+- [Your first schema](./tutorials/your-first-schema.md)
+- [Your first migration](./tutorials/your-first-migration.md)
+- [Schema version control basics](./tutorials/schema-vcs-basics.md)
+- [Cross-protocol translation](./tutorials/cross-protocol-translation.md)
 
-# Mathematical foundations
+# How-to
 
-- [Categories](foundations/categories.md)
-- [Functors and natural transformations](foundations/functors.md)
-- [Universal properties](foundations/universal-properties.md)
-- [Colimits and pushouts](foundations/colimits.md)
-- [Algebraic and generalized algebraic theories](foundations/gats.md)
-- [Rewriting, confluence, and termination](foundations/rewriting.md)
+- [Overview](./how-to/index.md)
+- [Install](./how-to/install/index.md)
+  - [CLI](./how-to/install/cli.md)
+  - [Rust](./how-to/install/rust.md)
+  - [TypeScript](./how-to/install/typescript.md)
+  - [Python](./how-to/install/python.md)
+- [Define a schema](./how-to/define-schema/index.md)
+  - [From the CLI](./how-to/define-schema/cli.md)
+  - [From TypeScript](./how-to/define-schema/typescript.md)
+  - [From Python](./how-to/define-schema/python.md)
+  - [From Rust](./how-to/define-schema/rust.md)
+- [Build a migration](./how-to/build-migration.md)
+- [Apply field transforms](./how-to/field-transforms.md)
+- [Use lenses](./how-to/use-lenses.md)
+- [Use protolenses](./how-to/protolenses.md)
+- [Use dependent optics](./how-to/dependent-optics.md)
+- [Write lenses in the lens DSL](./how-to/lens-dsl.md)
+- [Query instances](./how-to/query-instances.md)
+- [Convert data between formats](./how-to/convert-data.md)
+- [Round-trip with format preservation](./how-to/format-preserving.md)
+- [Parse full ASTs](./how-to/parse-full-ast.md)
+- [Build a custom protocol](./how-to/build-protocol.md)
+- [Schema version control](./how-to/schema-vcs/index.md)
+  - [Init and commit](./how-to/schema-vcs/init-and-commit.md)
+  - [Branch and merge](./how-to/schema-vcs/branch-and-merge.md)
+  - [Version data alongside schemas](./how-to/schema-vcs/data-versioning.md)
+  - [Bridge to git](./how-to/schema-vcs/git-bridge.md)
+- [Translate across protocols](./how-to/cross-protocol.md)
+- [Continuous integration](./how-to/ci/index.md)
+  - [Breaking-change gate](./how-to/ci/breaking-change-gate.md)
+  - [GitHub Actions](./how-to/ci/github-actions.md)
+  - [Pre-commit hooks](./how-to/ci/pre-commit-hooks.md)
+- [Integrate with language models](./how-to/llm-integration.md)
 
-# Core constructions
+# Reference
 
-- [Protocols as theories, schemas as instances](core/schemas-as-instances.md)
-- [Dependent sorts in practice](core/dependent-sorts.md)
-- [Typeclasses as theory morphisms](core/typeclasses.md)
-- [Theory morphisms and instance migration](core/morphisms-and-migration.md)
-- [The restrict/lift pipeline](core/restrict-lift.md)
-- [Bidirectional lenses](core/lenses.md)
-- [Protolenses](core/protolenses.md)
-- [Protocol colimits](core/protocol-colimits.md)
+- [Overview](./reference/index.md)
+- [CLI](./reference/cli.md)
+- [Rust SDK](./reference/sdk-rust.md)
+- [TypeScript SDK](./reference/sdk-typescript.md)
+- [Python SDK](./reference/sdk-python.md)
+- [Protocol catalogue](./reference/protocols.md)
+- [Expression language](./reference/expression-language.md)
+- [Lens combinators](./reference/lens-combinators.md)
+- [Configuration](./reference/configuration.md)
+- [Crate map](./reference/crate-map.md)
 
-# The expression language
+# Explanation
 
-- [Syntax and semantics](expr/syntax-semantics.md)
-- [Totality and termination](expr/totality.md)
-- [Why bounded pure evaluation](expr/design-choices.md)
+- [Overview](./explanation/index.md)
+- [What panproto solves](./explanation/what-panproto-solves.md)
+- [Schemas as theories](./explanation/schemas-as-theories.md)
+- [Migrations as morphisms](./explanation/migrations-as-morphisms.md)
+- [Lenses and round-trip laws](./explanation/lenses-roundtrip.md)
+- [Composing protocols by colimit](./explanation/protocol-colimits.md)
+- [Schema version control semantics](./explanation/vcs-semantics.md)
+- [What panproto verifies](./explanation/what-is-verified.md)
+- [Architecture](./explanation/architecture.md)
+- [Denotational semantics](./explanation/semantics/index.md)
+  - [Shared notation](./explanation/semantics/shared-notation.md)
+  - [Expression language](./explanation/semantics/expression-language.md)
+  - [Lens DSL](./explanation/semantics/lens-dsl.md)
+  - [Theory DSL](./explanation/semantics/theory-dsl.md)
+  - [Pushouts and merge](./explanation/semantics/pushouts-and-merge.md)
+  - [Protolens composition](./explanation/semantics/protolens-composition.md)
+  - [REPL command language](./explanation/semantics/repl-commands.md)
 
-# Protocols
+---
 
-- [Defining a protocol](protocols/defining.md)
-- [ATProto lexicons](protocols/atproto.md)
-- [Avro: schema evolution as migration](protocols/avro.md)
-- [A relational case study](protocols/relational.md)
-- [A document case study](protocols/document.md)
-- [Tree-sitter and full-AST parsing](protocols/tree-sitter.md)
-
-# Schematic version control
-
-- [What git already versions and what it does not](vcs/git-background.md)
-- [Objects, refs, and the DAG](vcs/objects-and-dag.md)
-- [Merge as pushout](vcs/merge-as-pushout.md)
-- [Data versioning](vcs/data-versioning.md)
-- [The git bridge](vcs/git-bridge.md)
-
-# SDKs and operational use
-
-- [The WASM boundary](sdks/wasm-boundary.md)
-- [The Rust SDK](sdks/rust.md)
-- [The TypeScript SDK](sdks/typescript.md)
-- [The Python SDK](sdks/python.md)
-- [The Haskell binding](sdks/haskell.md)
-- [The CLI](sdks/cli.md)
-
-# For contributors
-
-- [Workspace layout](contributing/workspace.md)
-- [CI, semver-checks, and release](contributing/ci.md)
-- [Extending panproto](contributing/extending.md)
-- [Experimental and feature-gated subsystems](contributing/experimental.md)
-
-# Appendices
-
-- [Notation reference](appendices/notation-table.md)
-- [Glossary](appendices/glossary.md)
-- [Open problems](appendices/open-problems.md)
+[Glossary](./glossary.md)

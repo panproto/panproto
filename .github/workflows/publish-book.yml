@@ -42,6 +42,15 @@ jobs:
           test -x ~/.cargo/bin/mdbook-katex     || cargo install mdbook-katex     --version ${{ env.MDBOOK_KATEX_VERSION }}   --locked
           test -x ~/.cargo/bin/mdbook-bib       || cargo install mdbook-bib       --version ${{ env.MDBOOK_BIB_VERSION }}     --locked
 
+      - name: Regenerate CLI reference page
+        run: |
+          cargo run -p xtask --bin gen-cli-docs
+          if ! git diff --quiet -- book/src/reference/cli.md; then
+            echo "::error::book/src/reference/cli.md is out of date. Run 'cargo run -p xtask --bin gen-cli-docs' and commit." >&2
+            git --no-pager diff -- book/src/reference/cli.md
+            exit 1
+          fi
+
       - name: Build book
         run: mdbook build book
 

@@ -1,7 +1,7 @@
 [book]
 title = "panproto"
 authors = ["Aaron Steven White"]
-description = "Schematic version control, protocols as theories, and migrations as lenses"
+description = "Documentation: tutorials, how-to guides, reference, and explanation"
 src = "src"
 language = "en"
 

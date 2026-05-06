@@ -1,0 +1,57 @@
+# Query instances
+
+A panproto instance is a graph of records. Queries filter and project that graph using the [expression language](../reference/expression-language.md).
+
+## Prerequisites
+
+A schema and an instance loaded against it. The expression-language reference for predicates.
+
+## The task
+
+### Filter and project
+
+`executeQuery` is exported from `@panproto/core`. Its signature is `executeQuery(query, instance, wasm)` (query first, instance second, WASM module third). The query keys are `anchor`, `predicate` (an `Expr` object, not a string), `projection` (string array), `groupBy`, `limit`, and `path`.
+
+```ts
+import { executeQuery, parseExpr, ExprBuilder } from '@panproto/core';
+
+const recent = executeQuery(
+  {
+    anchor: 'post',
+    predicate: parseExpr('post.created_at > "2024-01-01"'),
+    projection: ['id', 'title'],
+  },
+  instance,
+  panproto._wasm,
+);
+```
+
+The predicate is evaluated against each matched node; `projection` selects the fields included in each `QueryMatch`.
+
+### Following edges
+
+Use the `path` field to traverse from the anchor before predicate matching:
+
+```ts
+const userPosts = executeQuery(
+  { anchor: 'user', path: ['authored'], projection: ['title'] },
+  instance,
+  panproto._wasm,
+);
+```
+
+To filter on edge presence, build a predicate with the instance-aware builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`) using `ExprBuilder` or `parseExpr`.
+
+## Verification
+
+Predicates are type-checked against the schema before evaluation; an ill-typed predicate raises before any data is touched.
+
+## Common mistakes
+
+- Using `Edge`, `Children`, etc. in the standard evaluator. They return `Null` outside an instance environment. The query API sets the environment correctly; reaching for the bare evaluator does not.
+- Hitting the step budget on large records. Heavy string operations on long fields will exceed the budget; either narrow the predicate or raise the budget at the call site.
+
+## See also
+
+- [Reference: expression language](../reference/expression-language.md).
+- [Convert data between formats](./convert-data.md).
