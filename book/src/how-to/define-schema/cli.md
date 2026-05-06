@@ -14,13 +14,13 @@ schema validate --protocol json-schema path/to/schema.json
 
 Exits zero on success. On failure, prints the failing equation or constraint with the offending vertex and edge.
 
-### Scaffold a minimal schema
+### Scaffold from an existing schema
 
 ```sh
-schema scaffold --protocol atproto --out schemas/post.json
+schema scaffold --protocol atproto schemas/post.json
 ```
 
-Generates the smallest valid schema for the named protocol, using free-model construction. Useful as a starting template.
+`scaffold` runs free-model construction over the given schema and prints sample term assignments to stdout. Use `--json` for machine-readable output, `--depth` and `--max-terms` to bound the search. (To start from nothing, write a one-vertex schema by hand and scaffold against that.)
 
 ### Inspect
 

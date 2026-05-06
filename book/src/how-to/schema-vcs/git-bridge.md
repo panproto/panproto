@@ -19,25 +19,24 @@ git commit -m "snapshot panproto state"
 
 panproto-vcs's content-addressed objects are deterministic, so storing them in git works (no merge conflicts inside `.panproto/objects/`).
 
-### git-remote bridge
+### Bidirectional translation
 
-The `panproto-git-remote` crate registers a custom git remote helper that exposes a panproto-vcs repository to git clients:
+`schema git import` reads a git repository's history and produces a corresponding panproto-vcs DAG; `schema git export` does the reverse:
 
 ```sh
-git clone panproto://path/to/repo my-clone
+schema git import path/to/git-repo HEAD
+schema git export path/to/output-git-repo --repo .
 ```
 
-git sees panproto commits as git commits; the bridge translates the DAGs on the fly.
+The import range can be any git revspec (`HEAD`, `main`, `HEAD~10..HEAD`). The export takes the current panproto repository and writes a git mirror.
+
+### git-remote helper
+
+The `panproto-git-remote` crate registers a custom git remote helper that exposes a panproto-vcs repository to git clients (so `git clone panproto://path/to/repo` works). The helper is separate from `schema git`; install the binary and configure git accordingly. See [`crates/panproto-git-remote`](https://github.com/panproto/panproto/tree/main/crates/panproto-git-remote).
 
 ### Merge bridging
 
-When git merges a branch that carries `.panproto/` changes, run:
-
-```sh
-schema git rebase
-```
-
-to translate the git merge into the corresponding panproto-vcs merge with proper pushout semantics. Without this, the `.panproto/` files merge as raw bytes and you lose the structural merge guarantees.
+A git merge that touches `.panproto/objects/` will not preserve panproto's structural merge guarantees, since git merges the bytes. The supported pattern is to do schema-level work in panproto and then `schema git export` the result. There is no automatic git-merge-to-pushout translation in the CLI; the merge must originate in `schema merge` to get the universal-property-checked pushout.
 
 ## Verification
 

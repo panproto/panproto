@@ -8,39 +8,44 @@ The `schema` CLI installed, or the SDK in your language. The source and target p
 
 ## The task
 
-### Single file
+### Single file or directory (within one protocol)
 
 ```sh
-schema convert --from json-schema --to protobuf --in data/users.json --out data/users.bin
+schema data convert --protocol json-schema \
+  --from schemas/user-v1.json --to schemas/user-v2.json \
+  data/users.json -o data/users-v2.json
 ```
 
-The pipeline: parse `users.json` against the JSON Schema theory; restrict the resulting instance through the JSON-Schema-to-Protobuf migration; emit against the Protobuf theory.
+`<DATA>` is a positional file or directory. `--from` and `--to` are *schema paths* (within the named protocol), not protocol names. Add `--direction backward` to push data the other way along the lens; add `--defaults k=v,...` to supply complement defaults.
 
-### Batch
+For batch conversion, point `<DATA>` at a directory.
 
-```sh
-schema convert --from atproto --to json-schema --in records/ --out records-json/
-```
+### Across protocols
 
-When `--in` is a directory, each file is converted in turn. Errors are collected and reported at the end; a single bad record does not abort the batch.
+Cross-protocol conversion goes through a composed theory; see [Translate across protocols](./cross-protocol.md). `schema data convert` is intra-protocol only.
 
 ### From the SDKs
 
 ```ts
-const out = p.convert({
-  from: 'json-schema',
-  to: 'protobuf',
+const out = await p.convert({
+  src: srcSchema,
+  tgt: tgtSchema,
   data: jsonBytes,
 });
 ```
 
+`Panproto.convert` auto-generates a lens, applies it forward, and returns the converted bytes.
+
 ## Verification
 
+To verify round-trip fidelity, generate a chain explicitly and run `schema lens verify`:
+
 ```sh
-schema convert --from json-schema --to protobuf --in data/users.json --out /tmp/out.bin --verify
+schema lens generate --protocol json-schema schemas/user-v1.json schemas/user-v2.json --save chain.json
+schema lens verify --protocol json-schema data/users.json schemas/user-v2.json
 ```
 
-`--verify` round-trips the output back to the source format and diffs the result against the input. A clean diff means the conversion is loss-free for the input. Lossy conversions are flagged.
+Lens verification on test data exercises the three round-trip laws (GetPut, PutGet, PutPut); a pass means the chain is loss-free for the sampled records.
 
 ## Common mistakes
 

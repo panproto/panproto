@@ -10,7 +10,7 @@ Two schemas in the same protocol (or compatible protocols). The `schema` CLI ins
 
 ### From the CLI
 
-Given `schemas/v1.json` and `schemas/v2.json`, plus an optional mapping file `migrations/v1-to-v2.json`:
+Given `schemas/v1.json` and `schemas/v2.json`, plus a mapping file `migrations/v1-to-v2.json`:
 
 ```sh
 schema check --src schemas/v1.json --tgt schemas/v2.json --mapping migrations/v1-to-v2.json
@@ -18,31 +18,39 @@ schema check --src schemas/v1.json --tgt schemas/v2.json --mapping migrations/v1
 
 `check` runs the existence check: which fields in `v2` require which fields in `v1`, and is every required input present. Exits zero if the migration is well-defined.
 
-To also type-check at the GAT level:
+To also type-check at the GAT level (equivalent to a separate `schema typecheck`):
 
 ```sh
 schema check --src schemas/v1.json --tgt schemas/v2.json --mapping migrations/v1-to-v2.json --typecheck
 ```
 
-To then lift data:
+For schema-level diff classification, generate a lens between the two schemas:
 
 ```sh
-schema migrate --mapping migrations/v1-to-v2.json --in data/v1.jsonl --out data/v2.jsonl
+schema lens generate --protocol json-schema schemas/v1.json schemas/v2.json --save lens.json
+schema diff schemas/v1.json schemas/v2.json --lens
 ```
+
+To migrate data, use the VCS-driven path: commit `v1` and `v2` to a panproto repository, then run `schema data migrate <data-dir>` against the working tree (see [Schema VCS data versioning](./schema-vcs/data-versioning.md)).
 
 ### From the SDKs
 
 ```ts
-const mig = p.migration(srcSchema, tgtSchema, mapping);
-mig.check();
-const newRecords = mig.lift(oldRecords);
+const mig = p
+  .migration(srcSchema, tgtSchema)
+  .map('user', 'user')
+  .compile();
+
+mig.lift(oldRecord);          // forward (CompiledMigration is itself a lens)
+const { view, complement } = mig.get(oldRecord);
+mig.put(view, complement);    // backward
 ```
 
-The Python and Rust SDKs use the same shape with language-idiomatic naming.
+`p.checkExistence(src, tgt, builder)` runs the same existence check as the CLI. Python and Rust SDKs use the same shape with language-idiomatic naming.
 
 ## Verification
 
-`check` reports the migration's classification:
+`schema check` exits zero if the migration is well-defined (existence conditions hold). Use `panproto-check`'s `diff_and_classify` (exposed as `diffAndClassify` in TS, `diff_and_classify` in Python) to get the diff classification:
 
 | Classification | Meaning |
 |---|---|

@@ -36,70 +36,74 @@ Two changes from v1: `age` is renamed to `years` (a structural rename), and `ema
 `src/migration.ts`:
 
 ```ts
+import { diffAndClassify } from '@panproto/core';
 import { v1 } from './v1';   // export your v1 schema from src/main.ts
 import { v2 } from './v2';
 
-export const mig = p.migration(v1, v2, {
-  renames: [{ from: 'age', to: 'years' }],
-  fieldTransforms: [{
-    at: 'user.email',
-    forward:  '\\u -> Concat(Lower(u.name), "@example.com")',
-    backward: '\\u -> { name: u.name, age: u.years }',   // drops email
-  }],
-});
+// MigrationBuilder uses .map() to relate vertices and .mapEdge()/.resolve()
+// for finer alignment. For value-level transforms (computing email from name),
+// reach for the lens DSL or panproto-lens-dsl from the SDK.
+export const mig = p
+  .migration(v1, v2)
+  .map('user', 'user')
+  .compile();   // returns a CompiledMigration (which is itself a lens)
 ```
 
-Two parts:
-
-- A *rename*: `age` becomes `years` structurally. No value-level work.
-- A *field transform* for `email`: the new value is computed from the old data (an expression in the panproto [expression language](../reference/expression-language.md)), and a backward direction is provided so the migration is a lawful lens.
+`MigrationBuilder.compile()` produces a `CompiledMigration`. The compiled object exposes `.lift()`, `.get()`, and `.put()` directly: a migration *is* a lens.
 
 ## Step 3: classify the change
 
 ```ts
-const classification = mig.classify();
-console.log('classification:', classification);
+import { diffAndClassify } from '@panproto/core';
+const report = diffAndClassify(v1, v2);
+console.log('classification:', report.classification);
 ```
 
-Run it. The output is one of:
+`diffAndClassify` returns a `CompatReport` with `classification` of one of:
 
 - `fully-compatible`: old data lifts unchanged.
-- `backward-compatible`: old data lifts via the value-level transform.
+- `backward-compatible`: old data lifts via a value-level transform.
 - `breaking`: some old records cannot be lifted.
 
-This migration is *backward-compatible*: every v1 record yields a valid v2 record via the rename and the email transform. If you removed the rename and tried to add `years` as a brand-new required field with no input from v1, the classification would flip to `breaking` (because v1 records carry no information that determines `years`).
+For this rename, the report is `backward-compatible`: every v1 record yields a valid v2 record. Adding `years` as a brand-new required field with no derivation from v1 would flip the classification to `breaking`.
 
 ## Step 4: check before you lift
 
 ```ts
-mig.check();
+import { checkExistence } from '@panproto/core';
+const builder = p.migration(v1, v2).map('user', 'user');
+checkExistence(v1.protocol, v1, v2, builder.toSpec(), /*wasm*/);
+// or, equivalently from the Panproto handle:
+p.checkExistence(v1, v2, builder);
 ```
 
-`check` runs the existence-condition test: for every required v2 field, is the necessary v1 data present? If anything is missing, `check` raises with the offending field. Always run `check` before `lift`.
+`checkExistence` runs the existence-condition test: for every required v2 field, is the necessary v1 data present? If anything is missing, it throws with the offending field. Always run it before `lift`.
 
 ## Step 5: lift the data
 
 ```ts
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const oldData = JSON.parse(readFileSync('data/v1.jsonl', 'utf8').split('\n').filter(Boolean).map(JSON.parse));
-const newData = oldData.map((r: unknown) => mig.lift(r));
-writeFileSync('data/v2.jsonl', newData.map((r) => JSON.stringify(r)).join('\n'));
+const lines = readFileSync('data/v1.jsonl', 'utf8').split('\n').filter(Boolean);
+const newLines = lines.map((line) => {
+  const result = mig.lift(JSON.parse(line));
+  return JSON.stringify(result.value);
+});
+writeFileSync('data/v2.jsonl', newLines.join('\n'));
 ```
 
-Each v1 record becomes a v2 record. The rename happens structurally; the email is computed from the name; `years` carries the value from `age`.
+`mig.lift(record)` returns a `LiftResult` with `.value` (the migrated record) and `.complement` (the data discarded by the forward direction). The complement is what makes the migration reversible.
 
 ## Step 6: confirm round-trip
 
 ```ts
-const lens = mig.lens();
-const original = oldData[0];
-const lifted   = lens.get(original);
-const back     = lens.put(original, lifted, lens.complement(original));
-console.log('round-trip ok?', JSON.stringify(back) === JSON.stringify(original));
+const original = JSON.parse(lines[0]);
+const { view, complement } = mig.get(original);
+const back = mig.put(view, complement);
+console.log('round-trip ok?', JSON.stringify(back.value) === JSON.stringify(original));
 ```
 
-The migration is a lens. Forward, then backward, gives you the original. The complement carries the data the v2 shape does not see (here, the original `age` value, since it was renamed not transformed; lossless). The output should be `true`.
+`mig.get(record)` returns a `GetResult { view, complement }`; `mig.put(view, complement)` returns a `LiftResult { value, ... }`. The complement carries the data the v2 shape does not see; together, get and put satisfy the three round-trip laws.
 
 ## What you built
 

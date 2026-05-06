@@ -41,13 +41,9 @@ One entry per schema package. Packages are assembled into a single project by sc
 
 ## Generating a manifest
 
-`schema init` creates a default manifest. To regenerate one in place, use:
+`schema init [PATH]` initialises a panproto repository in the given directory (default `.`). The repository's bookkeeping lives in `.panproto/`; the user-authored manifest is `panproto.toml` and is created by hand.
 
-```sh
-schema init --name my-project
-```
-
-The CLI also exposes `panproto_project::generate_config` and `serialize_config` for programmatic creation.
+For programmatic creation, the `panproto-project` crate exposes `generate_config` and `serialize_config`.
 
 ## Authoritative source
 

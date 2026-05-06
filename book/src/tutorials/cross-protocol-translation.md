@@ -8,82 +8,80 @@ By the end you will have: a Protobuf `.proto` file derived from your JSON Schema
 
 Completed [Schema version control basics](./schema-vcs-basics.md). Your `my-first-schema/` project with a v2 user schema in `schemas/user.json`.
 
-## Step 1: translate the schema
+## Step 1: compose the theories
 
-```sh
-schema convert \
-  --schema-from json-schema \
-  --schema-to protobuf \
-  --in schemas/user.json \
-  --out schemas/user.proto
-```
+Cross-protocol translation runs through a *composed theory*: a single GAT containing both protocols' extensions over the shared building blocks. There is no one-shot CLI command; the composition is the prerequisite.
 
-`schema convert` parses the JSON Schema against its theory, restricts to the building-block theories shared with Protobuf (graph + named + constraint), lifts into the Protobuf-specific extensions, and emits Protobuf source.
+Author a small theory document `theories/jsonschema-and-protobuf.ncl` that composes the two:
 
-Look at `schemas/user.proto`:
-
-```proto
-syntax = "proto3";
-
-message User {
-  string name  = 1;
-  int32  years = 2;
-  string email = 3;
+```nickel
+{
+  id = "dev.example.jsonschema-and-protobuf",
+  description = "Composition of JSON Schema and Protobuf theories along the shared graph + constraint + named building blocks",
+  composition = {
+    name = "JsonSchemaAndProtobuf",
+    components = ["JsonSchemaTheory", "ProtobufTheory"],
+    along = ["ThGraph", "ThConstraint", "ThNamed"],
+  },
 }
 ```
 
-The translation is auto-derived from the shared structure. Field tags are assigned in order; the auto-derivation assumes a fresh `.proto` file (no existing tag layout to preserve).
+Compile it:
 
-## Step 2: convert a record
+```sh
+schema theory compile theories/jsonschema-and-protobuf.ncl
+```
 
-Take a v2-shape JSON record:
+The compiler runs the colimit construction over the named components along the shared theories. Failure at this step is a build-time bug in the composition (incompatible equations on a shared sort); success produces a registered protocol whose schemas can mention either protocol's vertex kinds.
+
+## Step 2: write schemas in the composed protocol
+
+Express the same `user` model as both a JSON Schema-flavoured schema and a Protobuf-flavoured schema, both against `JsonSchemaAndProtobuf`:
+
+```sh
+# schemas/user-jsonschema.json and schemas/user-protobuf.json
+# (each is a panproto schema graph; the protocol field is "JsonSchemaAndProtobuf")
+```
+
+## Step 3: generate the chain
+
+```sh
+schema lens generate \
+  --protocol JsonSchemaAndProtobuf \
+  schemas/user-jsonschema.json \
+  schemas/user-protobuf.json \
+  --save lenses/jsonschema-to-protobuf.json
+```
+
+The chain is the bidirectional bridge; `--direction backward` on `apply` runs it the other way.
+
+## Step 4: convert data
 
 ```sh
 echo '{"name": "Alice", "years": 30, "email": "alice@example.com"}' > data/alice.json
 
-schema convert \
-  --from json-schema \
-  --to protobuf \
-  --in data/alice.json \
-  --out data/alice.bin
+schema lens apply \
+  --protocol JsonSchemaAndProtobuf \
+  lenses/jsonschema-to-protobuf.json \
+  data/alice.json
 ```
 
-`data/alice.bin` is the Protobuf binary encoding of the same record.
+The output is the same record expressed against the Protobuf-flavoured schema.
 
-## Step 3: convert back
+## Step 5: verify
 
 ```sh
-schema convert \
-  --from protobuf \
-  --to json-schema \
-  --in data/alice.bin \
-  --out data/alice.roundtrip.json
-
-diff data/alice.json data/alice.roundtrip.json
+schema lens verify \
+  --protocol JsonSchemaAndProtobuf \
+  data/alice.json \
+  schemas/user-protobuf.json
 ```
 
-The diff is empty. The round-trip is exact for this record because the schemas overlap on enough structure that no information is lost.
-
-## Step 4: verify in one step
-
-```sh
-schema convert \
-  --from json-schema \
-  --to protobuf \
-  --in data/alice.json \
-  --out /tmp/alice.bin \
-  --verify
-```
-
-`--verify` runs the round-trip internally and reports the diff. The output prints `lossless: true` for this case.
-
-## Step 5: see what would be lossy
-
-If your JSON Schema had a field with no Protobuf equivalent (say, a JSON Schema `pattern` constraint, which Protobuf does not encode), the verification would flag that field as lost on the JSON → Protobuf direction. The translation still completes; the warning tells you what the conversion drops.
+Verification runs the three round-trip laws (GetPut, PutGet, PutPut) on the data; a clean run means the chain is loss-free for the input. Lossy spots (a JSON Schema `pattern` constraint that Protobuf does not encode, for example) are reported.
 
 ## What you built
 
-A working bridge between two schema languages, with a precise account of what is preserved and what is dropped. The same workflow extends to any pair of protocols panproto recognises ([the catalogue](../reference/protocols.md) lists 51).
+A working bridge between two schema languages, with a precise account of what is preserved and what is dropped. The composed-theory pattern extends to any pair of protocols panproto recognises ([the catalogue](../reference/protocols.md) lists 51).
 
 ## Next
 

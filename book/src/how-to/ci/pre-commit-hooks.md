@@ -41,11 +41,12 @@ repos:
     hooks:
       - id: schema-validate
         name: panproto schema validate
-        entry: schema validate --project .
+        entry: schema validate --protocol json-schema
         language: system
         files: '^schemas/.*\.json$'
-        pass_filenames: false
 ```
+
+The hook receives the staged file paths as positional arguments; the `--protocol` flag is required.
 
 `pre-commit install` activates it.
 

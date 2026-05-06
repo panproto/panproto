@@ -11,18 +11,26 @@ The `schema` CLI, or the Rust SDK with the `full-parse` feature enabled. For the
 ### Single file
 
 ```sh
-schema parse file --in src/main.rs --out main.ast.json
+schema parse file src/main.rs > main.ast.json
 ```
 
-The output is the AST as a JSON instance against an auto-derived GAT theory for the language.
+`schema parse file <PATH>` writes the AST as a JSON instance against an auto-derived GAT theory for the language to stdout. Redirect to a file as needed.
 
 ### Whole project
 
 ```sh
-schema parse project --root . --out project.ast.json
+schema parse project . > project.ast.json
 ```
 
-Walks every recognised file in the project, parses each with the appropriate grammar, and produces a single instance covering the whole project.
+Walks every recognised file in the project (default `.`), parses each with the appropriate grammar, and writes a single instance covering the whole project to stdout.
+
+### Round-trip a single file
+
+```sh
+schema parse emit src/main.rs
+```
+
+Parses then emits, useful for confirming a clean round-trip through the format-preserving codec.
 
 ### From Rust
 

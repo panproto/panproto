@@ -15,10 +15,10 @@ Lift is the operation you usually want; restrict is the operation panproto uses 
 
 Schemas live in a category whose objects are schema theories and whose morphisms are theory morphisms. A *migration* from schema $S$ to schema $T$ is a morphism $f : S \to T$ in this category. The migration engine is split into two functors:
 
-- **Restrict** $\Delta_f$: pulls a $T$-instance back to an $S$-instance along $f$. Used to check existence conditions: which $S$-records does $T$ require to be present?
-- **Lift** $\Sigma_f$: pushes an $S$-instance forward to a $T$-instance along $f$. Used to actually migrate data.
+- **Restrict** $\Delta_f : T\text{-Inst} \to S\text{-Inst}$: pulls a $T$-instance back to an $S$-instance along $f$. Used to check existence conditions: which $S$-records does $T$ require to be present?
+- **Lift** $\Sigma_f : S\text{-Inst} \to T\text{-Inst}$: pushes an $S$-instance forward to a $T$-instance along $f$. Used to actually migrate data.
 
-The pair $(\Delta_f, \Sigma_f)$ is an adjunction in the category of instances. This is the structure that lets panproto check, before any data moves, whether a migration is well-defined.
+The pair forms an adjunction $\Sigma_f \dashv \Delta_f$ in the categories of instances: lift is left adjoint to restrict. (This follows the convention in @spivakwisnesky2015relational, where $\Sigma_f$ is the dependent sum over the fibres of $f$ and $\Delta_f$ is its right adjoint by base change.) The adjunction is the structure that lets panproto check, before any data moves, whether a migration is well-defined.
 
 A migration may also include a value-level transform: not just *where* a field comes from, but *how* its value is computed. These are written in the [expression language](./semantics/expression-language.md) and applied during lift.
 

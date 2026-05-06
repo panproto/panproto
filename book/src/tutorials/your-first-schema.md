@@ -29,7 +29,7 @@ const proto = p.protocol('json-schema');
 console.log('protocol:', proto.name);
 ```
 
-Run it: `npx tsx src/main.ts`. You see `protocol: json-schema`. The protocol object knows how to validate, parse, and emit JSON Schema; it is the starting point for building schemas in this language.
+Run it: `npx tsx src/main.ts`. You see `protocol: json-schema` (using `Protocol.name`). The protocol object knows how to validate, parse, and emit JSON Schema; it is the starting point for building schemas in this language.
 
 ## Step 2: build a schema
 
@@ -44,12 +44,12 @@ const schema = proto.schema()
   .edge('user', 'user.age', 'prop', { name: 'age', required: false })
   .build();
 
-console.log('built:', schema.summary());
+console.log('vertices:', schema.vertices.length, 'edges:', schema.edges.length);
 ```
 
 `.vertex()` declares a *vertex* (a record kind, in JSON Schema parlance: an object). `.edge()` declares an *edge* (a field, item, or variant). This schema says: a user is an object with a required string `name` and an optional integer `age`.
 
-`.build()` validates the construction: required edges are present, every reference targets an existing vertex, the protocol's equations are satisfied. If anything is wrong, you get an error here, before any data is touched.
+`.build()` validates the construction: required edges are present, every reference targets an existing vertex, the protocol's equations are satisfied. If anything is wrong, you get an error here, before any data is touched. The returned `BuiltSchema` carries `.vertices`, `.edges`, and `.protocol`.
 
 ## Step 3: parse and validate data
 
@@ -65,11 +65,11 @@ Add to `src/main.ts`:
 import { readFileSync } from 'node:fs';
 
 const bytes = readFileSync('data/sample.json');
-const instance = schema.parse(bytes);
-console.log('parsed:', instance.toRecord());
+const instance = p.parseJson(schema, bytes);
+console.log('parsed:', new TextDecoder().decode(p.toJson(schema, instance)));
 ```
 
-Run it. You see the parsed record echoed back. The schema validated the JSON during parsing; if `data/sample.json` violated the schema (a missing `name`, a non-integer `age`), you would get a structured error with the offending field.
+Run it. You see the parsed record echoed back. The schema validated the JSON during parsing; if `data/sample.json` violated the schema (a missing `name`, a non-integer `age`), you would get a structured error with the offending field. `Panproto.parseJson(schema, bytes)` returns an `Instance`; `Panproto.toJson(schema, instance)` serialises it back out.
 
 ## Step 4: catch a violation
 
@@ -119,12 +119,14 @@ print(instance.to_record())
 
 ## Rust version
 
+The Rust facade exposes the same conceptual surface; consult [docs.rs/panproto-core](https://docs.rs/panproto-core) for current method names. The shape:
+
 ```rust
-use panproto_core::{Panproto, ProtocolName};
+use panproto_core::Panproto;
 
 fn main() -> anyhow::Result<()> {
     let p = Panproto::new();
-    let proto = p.protocol(ProtocolName::JsonSchema)?;
+    let proto = p.protocol("json-schema")?;
 
     let schema = proto.schema()
         .vertex("user", "object")
@@ -135,8 +137,8 @@ fn main() -> anyhow::Result<()> {
         .build()?;
 
     let bytes = std::fs::read("data/sample.json")?;
-    let instance = schema.parse(&bytes)?;
-    println!("{:?}", instance.to_record());
+    let instance = p.parse_json(&schema, &bytes)?;
+    println!("{:?}", instance);
     Ok(())
 }
 ```

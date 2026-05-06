@@ -8,32 +8,26 @@ A schema and an instance loaded against it. The expression-language reference fo
 
 ## The task
 
-### Filter
+### Filter and project
+
+`executeQuery` is a standalone function in `@panproto/core`:
 
 ```ts
-const recent = instance.query({
+import { executeQuery } from '@panproto/core';
+
+const recent = executeQuery(instance, {
   vertex: 'post',
   where: '\\post -> post.created_at > "2024-01-01"',
-});
-```
-
-`where` is an expression of type `Bool` evaluated against each vertex. Records where the expression returns `false` are excluded.
-
-### Project
-
-```ts
-const titles = instance.query({
-  vertex: 'post',
   select: '\\post -> { id: post.id, title: post.title }',
 });
 ```
 
-`select` is an expression of type `Record` evaluated against each matching vertex. The result is a list of records with the projected fields.
+`where` is an expression of type `Bool` evaluated against each vertex. Records where the expression returns `false` are excluded. `select` is an expression of type `Record` evaluated against each matching vertex; the result is a list of records with the projected fields.
 
 ### Computed fields
 
 ```ts
-const enriched = instance.query({
+const enriched = executeQuery(instance, {
   vertex: 'user',
   select: '\\u -> { ...u, full_name: Concat(u.first, " ", u.last) }',
 });
@@ -46,7 +40,7 @@ The expression language's record-spread (`...`) and string builtins compose with
 To follow edges, use the instance-aware builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`):
 
 ```ts
-const usersWithPosts = instance.query({
+const usersWithPosts = executeQuery(instance, {
   vertex: 'user',
   where: '\\u -> EdgeCount(u, "authored") > 0',
 });

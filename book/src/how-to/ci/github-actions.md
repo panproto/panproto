@@ -33,16 +33,22 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Validate
-        run: schema validate --project .
+        run: |
+          for f in schemas/*.json; do
+            schema validate --protocol json-schema "$f"
+          done
 
       - name: Breaking-change gate
         run: |
           base=$(git merge-base origin/${{ github.base_ref }} HEAD)
-          schema check \
-            --src <(git show $base:schemas/user.json) \
-            --tgt schemas/user.json \
-            --typecheck --classify
+          git show $base:schemas/user.json > /tmp/base.json
+          schema check --src /tmp/base.json --tgt schemas/user.json \
+            --mapping migrations/user.json --typecheck
+          schema lens generate --protocol json-schema /tmp/base.json schemas/user.json \
+            --save /tmp/chain.json
 ```
+
+The `--protocol` flag is required for every per-file `schema validate`. There is no `--project` flag; per-file iteration is the supported pattern.
 
 Two jobs: validation and the breaking-change gate. Validation fails on a malformed schema; the gate fails on a breaking diff.
 

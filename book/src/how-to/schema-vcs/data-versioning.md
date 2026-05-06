@@ -8,34 +8,49 @@ A panproto repository with at least one schema and a corresponding data instance
 
 ## The task
 
+Data is staged together with its schema via `schema add --data`:
+
 ```sh
-schema data add records/users.jsonl
+schema add user.json --data records/
 schema commit -m "v1 schema and seed data"
 
-# evolve the schema, generating a migration
-schema add user-v2.json
+# Evolve the schema and re-stage with the same data directory.
+schema add user-v2.json --data records/
 schema commit -m "v2 schema"
 
-# the lens auto-derived from v1->v2 lifts the data
-schema data show HEAD       # shows lifted v2-shape records
-schema data show HEAD~1     # shows v1-shape records
+# Sync the working data directory to the latest schema via the auto-derived chain.
+schema data sync records/
 ```
 
-`data add` stages a data instance against the current schema. Subsequent commits that change the schema automatically lift the data via the migration's lens; both v1 and v2 shapes remain accessible by walking the history.
-
-To extract data at a specific commit:
+`schema add --data <DATA>` stages a data directory alongside the schema. `schema data sync` lifts the on-disk data forward through any schema migrations between the recorded commit and the target ref (default `HEAD`). To preview without writing:
 
 ```sh
-schema data export --at <commit> --out records-at-commit.jsonl
+schema data migrate records/ --dry-run
+```
+
+`schema data migrate` runs the migration between two specific commits (default `parent..HEAD`); add `--coverage` to print statistics. Inspect data status:
+
+```sh
+schema status --data records/
+schema data status records/
+```
+
+To extract historical data, check out the commit:
+
+```sh
+schema checkout <commit>
+# read records/
 ```
 
 ## Verification
 
 ```sh
-schema data verify --at HEAD
+schema data status records/
 ```
 
-Re-validates the data at the named commit against that commit's schema. A pass means the lift was lossless and the result conforms.
+reports staleness relative to the current schema. A clean status means the data conforms.
+
+`schema data migrate --coverage records/` prints how much of the data was actually transformed by the lift, surfacing partial migrations.
 
 ## Common mistakes
 

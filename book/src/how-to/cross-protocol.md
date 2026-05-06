@@ -8,32 +8,45 @@ Two protocols whose theories overlap on enough building-block theories that a co
 
 ## The task
 
-```sh
-schema convert --schema-from json-schema --schema-to protobuf --in schemas/user.json --out schemas/user.proto
-```
+Cross-protocol translation runs through the colimit-of-theories construction in `panproto-protocols`. There is no single CLI subcommand that takes a source-protocol schema and emits a target-protocol schema directly; instead, the workflow is:
 
-The pipeline: parse `user.json` against the JSON Schema theory; restrict to the shared building-block theories (graph + constraint + named); lift into the Protobuf-extended theory; emit as Protobuf source.
-
-To translate data alongside the schema:
+1. **Compose the theory.** Use the theory DSL to declare a composition theory whose colimit covers both protocols, or rely on the built-in compositions for the protocol pair you want.
+2. **Generate a lens between schemas in the composed theory.** `schema lens generate` produces the chain; both schemas must be expressed against the composed theory.
+3. **Apply the lens to convert data.**
 
 ```sh
-schema convert --from json-schema --to protobuf --in data/user.json --out data/user.bin --verify
+# Step 1: compose theories (one-time setup, or reuse a built-in).
+schema theory compile theories/json-schema-and-protobuf.ncl
+
+# Step 2: generate the chain between schemas in the composed protocol.
+schema lens generate --protocol json-schema-and-protobuf \
+  schemas/user.jsonschema.json \
+  schemas/user.protobuf.json \
+  --save lenses/jsonschema-to-protobuf.json
+
+# Step 3: apply.
+schema lens apply --protocol json-schema-and-protobuf \
+  lenses/jsonschema-to-protobuf.json \
+  data/user.json
 ```
 
-`--verify` round-trips the data through both directions and reports any loss.
+For data conversion *within* a single protocol's schema fleet (different schemas, same protocol), use `schema data convert`:
+
+```sh
+schema data convert --protocol json-schema \
+  --from schemas/user-v1.json --to schemas/user-v2.json \
+  data/users/
+```
 
 ## Verification
 
-```sh
-schema check --src schemas/user.json --tgt schemas/user.proto --mapping <auto> --typecheck
-```
-
-`<auto>` invokes the auto-derived translation. `check --typecheck` confirms the migration is well-defined; `--verify` on the data path confirms round-trip fidelity.
+`schema lens verify --protocol <name> <data> <schema>` checks the round-trip laws on the converted data. A clean run means the chain is loss-free for the given samples.
 
 ## Common mistakes
 
-- Translating between protocols with non-overlapping required structure. The migration will be partial, and lift will fail on records using the source-only structure. Translation across distant protocols (say, FHIR to MongoDB) may require a hand-written migration on top of the auto-derived skeleton.
-- Assuming auto-derived translations preserve every constraint. Constraints that are expressible in one theory but not the other are dropped. `--verify` flags this.
+- Reaching for a one-shot CLI conversion. The colimit composition step is essential for cross-protocol work; without it, `schema lens generate` has no shared theory to align the schemas against.
+- Translating between protocols with non-overlapping required structure. The lens auto-generation will be partial, and `apply` will fail on records using the source-only structure. Distant protocols (say, FHIR to MongoDB) may require a hand-written chain on top of the auto-derived skeleton.
+- Assuming auto-derived translations preserve every constraint. Constraints expressible in one theory but not the other are dropped; `schema lens verify` flags this.
 
 ## See also
 

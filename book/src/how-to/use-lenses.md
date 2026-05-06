@@ -8,40 +8,44 @@ A migration ([Build a migration](./build-migration.md)) or a hand-written lens v
 
 ## The task
 
-```ts
-const lens = mig.lens();
-
-const newRecord  = lens.get(oldRecord);
-const oldComp    = lens.complement(oldRecord);
-
-const editedNew  = { ...newRecord, age: newRecord.age + 1 };
-const updatedOld = lens.put(oldRecord, editedNew, oldComp);
-```
-
-`updatedOld` reflects the edit while preserving every field of `oldRecord` that `get` did not produce. The three round-trip laws guarantee this is well-defined.
-
-To compose two lenses sequentially:
+A `CompiledMigration` is itself a lens; reach for `LensHandle` only when you want a free-standing protolens chain.
 
 ```ts
-const lensAB = mig_ab.lens();
-const lensBC = mig_bc.lens();
-const lensAC = lensAB.compose(lensBC);
+const { view, complement } = mig.get(oldRecord);
+
+const editedView = { ...view, age: view.age + 1 };
+const { value: updatedOld } = mig.put(editedView, complement);
 ```
 
-`compose` fails (returns `Err` in Rust, throws in TS/Python) if the schemas do not chain.
+`mig.get` returns the forward view together with the complement (the data discarded by `get`); `mig.put` consumes them and returns the source record reconstructed with the edit applied. The three round-trip laws guarantee this is well-defined.
+
+To compose two compiled migrations sequentially:
+
+```ts
+const composed = p.compose(mig_ab, mig_bc);
+```
+
+To compose two free-standing protolens chains:
+
+```ts
+const composedChain = p.composeLenses(chainAB, chainBC);
+```
+
+Composition fails (throws) if the intermediate schemas do not chain.
 
 ## Verification
 
 ```ts
-const ok = panproto.lens.check(lens, sampleData, { laws: ['get_put', 'put_get', 'put_put'] });
+const result = lens.checkLaws(instanceBytes);
+console.log(result.getPut, result.putGet, result.putPut);
 ```
 
-Returns `true` if all three laws hold on the sampled data. CI runs this on every lens combinator continuously.
+`LensHandle.checkLaws(instance)` returns a `LawCheckResult` with one boolean per law. `CompiledMigration.checkLaws` exposes the same surface for migration-as-lens. CI runs this against every combinator continuously.
 
 ## Common mistakes
 
 - Calling `put` with a complement from a different source. `Complement::compose` will refuse with `ComplementFingerprintMismatch`. Recompute the complement from the current source rather than reusing one.
-- Mutating the result of `get` and putting it back without recomputing the complement. The complement is computed against the original source; if you mutate the source, the complement is stale.
+- Reading `get` and then mutating the source before calling `put`. The complement is computed against the source as it was at `get` time; if you mutate the source, the complement is stale.
 - Composing lenses whose intermediate schemas are isomorphic but not equal. The structural-equality check on `protolens_composable` will reject; rebuild one of the lenses against the other's schema.
 
 ## See also

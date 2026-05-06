@@ -8,13 +8,14 @@ A panproto build with the `format-preserving` feature flag (default on for the C
 
 ## The task
 
+The format-preserving round-trip is exposed via `schema parse emit`, which parses a file and emits it back in one step:
+
 ```sh
-schema parse file --format-preserving --in config.yaml --out config.parsed.json
-schema emit  --format-preserving --in config.parsed.json --out config.roundtripped.yaml
+schema parse emit config.yaml > config.roundtripped.yaml
 diff config.yaml config.roundtripped.yaml
 ```
 
-The diff is empty.
+The diff is empty when the codec preserves the input. (For programmatic use, parse and emit are exposed separately by the SDK; see below.)
 
 In Rust:
 

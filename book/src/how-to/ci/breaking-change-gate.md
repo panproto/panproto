@@ -8,28 +8,38 @@ A panproto repository under git. A CI system that can run shell commands.
 
 ## The task
 
+`schema check` enforces existence conditions; it does not classify. Use `schema diff` (which reports structural changes) plus `schema lens generate` (which fails when no chain exists) and combine into a gate:
+
 ```sh
-# In your CI script
+# In your CI script.
 git fetch origin main
+git show origin/main:schemas/user.json > /tmp/user-base.json
+
+# Existence + GAT-level type check.
 schema check \
-  --src <(git show origin/main:schemas/user.json) \
+  --src /tmp/user-base.json \
   --tgt schemas/user.json \
-  --mapping <auto> \
-  --typecheck \
-  --classify
+  --mapping migrations/user.json \
+  --typecheck
+
+# Generate a chain; non-zero exit means the change is breaking
+# (no auto-generated lens covers it).
+schema lens generate --protocol json-schema /tmp/user-base.json schemas/user.json --save /tmp/chain.json
 ```
 
-`--classify` causes `schema check` to print the migration's classification (`fully-compatible`, `backward-compatible`, or `breaking`) and exit non-zero on `breaking`.
-
-To allow an explicit override, gate on a commit-message marker or a PR label:
+Either step's non-zero exit fails the build. To allow an explicit override, gate on a commit-message marker or a PR label:
 
 ```sh
 if git log -1 --format=%B | grep -q '\[breaking-change-acknowledged\]'; then
-  schema check ... --classify || true   # warn but do not fail
+  schema check ... --typecheck || true
+  schema lens generate ... || true
 else
-  schema check ... --classify           # fail on breaking
+  schema check ... --typecheck
+  schema lens generate ...
 fi
 ```
+
+For richer classification, use the SDK: `panproto-check`'s `diff_and_classify` returns a `CompatReport` with `fully_compatible | backward_compatible | breaking` and the offending elements.
 
 ## Verification
 
